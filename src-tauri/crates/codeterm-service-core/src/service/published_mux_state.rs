@@ -26,6 +26,11 @@ impl PublishedMuxState {
         self.current.load().json.clone()
     }
 
+    pub(super) fn read_versioned(&self) -> (u64, Bytes) {
+        let snapshot = self.current.load();
+        (snapshot.generation, snapshot.json.clone())
+    }
+
     pub(super) fn publish(
         &self,
         generation: u64,
@@ -47,6 +52,10 @@ impl PublishedMuxState {
 }
 
 impl super::ServiceContext {
+    pub fn published_mux_state_versioned(&self) -> (u64, Bytes) {
+        self.ext::<Arc<PublishedMuxState>>().read_versioned()
+    }
+
     pub fn published_mux_state(&self) -> Bytes {
         self.ext::<Arc<PublishedMuxState>>().read()
     }

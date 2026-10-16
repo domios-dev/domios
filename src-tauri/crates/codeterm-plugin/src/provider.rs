@@ -1,4 +1,8 @@
 mod model_switch_transcript;
+pub enum LaunchSpecParams<'a> {
+    Fresh(&'a AgentLaunchParams),
+    Resume(&'a AgentResumeParams),
+}
 pub mod reply_relay;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

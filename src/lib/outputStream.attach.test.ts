@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTransportClient } from "./transportClient";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
+import capture from "./outputStream.capture.fixture.json";
+import { writeTerminalOutput } from "../hooks/terminal/terminalOutputWrite";
 
 function pending<T>() {
   let resolve!: (value: T) => void;
@@ -41,7 +45,7 @@ describe("aggregate terminal attachment", () => {
       detach();
       detach = output.subscribeTabOutput("tab", sink(), terminal, "pty");
       receive("message", { tab_id: "tab", truncated: true, from: 42295516 });
-      receive("message", { tab_id: "tab", pty_id: "pty", boot: "boot", output: "A", data: [65], offset: 42295517 });
+      receive("message", { tab_id: "tab", pty_id: "pty", boot: "boot", b64: "QQ", offset: 42295517 });
       expect(gaps).toEqual([42295516]);
       expect(bytes).toEqual([65]);
       receive("message", { tab_id: "tab", truncated: true, from: 42295600 });
@@ -114,7 +118,7 @@ describe("aggregate terminal attachment", () => {
       window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
       await connected.promise;
       expect(subscriptions).toBe(3);
-      receive("message", { tab_id: "idle", pty_id: "idle", boot: "next", offset: 1, output: "A", data: [65] });
+      receive("message", { tab_id: "idle", pty_id: "idle", boot: "next", offset: 1, b64: "QQ" });
       expect(bytes).toEqual([65]);
     } finally { detach(); output.resetOutputStream(); }
   });
@@ -137,7 +141,7 @@ describe("aggregate terminal attachment", () => {
       window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
     }
     expect(subscribe).toHaveBeenCalledTimes(1);
-    receive("message", { tab_id: "tab-4", pty_id: "tab-4", boot: "boot", output: "exact", offset: 5 });
+    receive("message", { tab_id: "tab-4", pty_id: "tab-4", boot: "boot", b64: "ZXhhY3Q", offset: 5 });
     expect(written[4]).toHaveBeenCalledExactlyOnceWith("exact");
     expect(written.filter(callback => callback.mock.calls.length)).toHaveLength(1);
     stops.forEach(stop => stop());
@@ -183,7 +187,7 @@ describe("aggregate terminal attachment", () => {
     try {
       let controller = await connection.promise;
       const send = (target: ReadableStreamDefaultController<Uint8Array>, data: number[], offset: number) => {
-        target.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ tab_id: "tab", pty_id: "pty", boot: "boot", data, output: "display", offset })}\n\n`));
+        target.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ tab_id: "tab", pty_id: "pty", boot: "boot", b64: btoa(String.fromCharCode(...data)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""), offset })}\n\n`));
       };
       send(controller, [0x1b, 0xff, 0xe2], 3);
       await written.promise;
@@ -226,4 +230,95 @@ describe("aggregate terminal attachment", () => {
       detachBrowser(); detach(); output.resetOutputStream();
     }
   });
+});
+
+
+it("retains byte cursors across a capacity end and decodes once for multiple sinks", async () => {
+  vi.resetModules();
+  localStorage.clear();
+  sessionStorage.setItem("codeterm-web-output-boot", "boot");
+  const output = await import("./outputStream");
+  let receive!: (name: string, data: unknown) => void;
+  let end!: (value: import("./transportClient").StreamEnd) => void;
+  const paths: string[] = [];
+  output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe(path, handler, options) {
+    paths.push(path); receive = handler; end = options!.onEnd!; return () => {};
+  } } as import("./transportClient").TransportClient);
+  const bytes: number[][] = [[], []];
+  const errors = vi.fn();
+  const ended = vi.fn();
+  const stops = bytes.map((target) => output.subscribeTabOutput("t", {
+    onOutput() { throw new Error("Expected bytes"); }, onBytes(chunk) { target.push(...chunk); },
+    onEnded: ended, onTruncated() {}, onStreamError: errors,
+  }, {}, "p"));
+  const decode = vi.spyOn(globalThis, "atob");
+  window.__outputStreamPerf = { frames: 0, bytes: 0, batches: 0, lastFrameAt: 0 };
+  try {
+    receive("message", { tab_id: "t", pty_id: "p", boot: "boot", offset: 3, b64: "AP_i" });
+    expect(decode).toHaveBeenCalledTimes(1);
+    expect(window.__outputStreamPerf.bytes).toBe(3);
+    decode.mockRestore();
+    end({ reason: "capacity", bytes: 2097153 });
+    expect(errors).toHaveBeenCalledTimes(2);
+    expect(paths).toHaveLength(1);
+    output.pokeOutputStream();
+    const since = new URL(paths[1], "http://daemon.test").searchParams.get("since")!;
+    expect(JSON.parse(atob(since.replace(/-/g, "+").replace(/_/g, "/")))).toEqual({ boot: "boot", tabs: { t: 3 } });
+    receive("message", { tab_id: "t", pty_id: "p", boot: "boot", offset: 3, b64: "AP_i" });
+    receive("message", { tab_id: "t", pty_id: "p", boot: "boot", offset: 5, b64: "gqw" });
+    expect(bytes).toEqual([[0, 255, 226, 130, 172], [0, 255, 226, 130, 172]]);
+    receive("message", { tab_id: "t", ended: true });
+    expect(ended).toHaveBeenCalledTimes(2);
+  } finally {
+    decode.mockRestore(); delete window.__outputStreamPerf;
+    stops.forEach(stop => stop()); output.resetOutputStream();
+  }
+});
+
+
+it.each(["local", "mesh"])("delivers captured terminal bytes through synthesized %s SSE to an xterm writer", async (route) => {
+  vi.resetModules();
+  localStorage.clear();
+  sessionStorage.setItem("codeterm-web-output-boot", capture.boot);
+  const output = await import("./outputStream");
+  const { configureDaemonTransport } = await import("./daemonBootstrap");
+  const { Terminal } = createRequire(import.meta.url)("@xterm/xterm") as typeof import("@xterm/xterm");
+  const term = new Terminal({ cols: 87, rows: 37 });
+  const written: number[] = [];
+  const completed = pending<void>();
+  const failures: Error[] = [];
+  const fakeXterm = { write(data: string | Uint8Array, done?: () => void) {
+    expect(data).toBeInstanceOf(Uint8Array);
+    written.push(...data as Uint8Array);
+    term.write(data, () => {
+      done?.();
+      if (written.length === capture.bytes) completed.resolve();
+    });
+  } };
+  const frame = { tab_id: capture.tabId, pty_id: capture.ptyId, boot: capture.boot, offset: capture.bytes, b64: capture.b64 };
+  const wire = new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`);
+  const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(new ReadableStream<Uint8Array>({ start(controller) {
+    for (let index = 0; index < wire.length; index += 17) controller.enqueue(wire.slice(index, index + 17));
+  } })));
+  vi.stubGlobal("fetch", fetch);
+  const client = configureDaemonTransport({ origin: window.location.origin, token: "fixture-token" });
+  output.bindOutputStreamTransport(client);
+  const tabId = route === "local" ? capture.tabId : `mesh:928b06dd-1234-4567-890a-123456789abc/${capture.tabId}`;
+  const stop = output.subscribeTabOutput(tabId, {
+    onOutput() { throw new Error("Expected byte sink"); },
+    onBytes(bytes) { writeTerminalOutput(fakeXterm, bytes); },
+    onTruncated() {}, onEnded() {}, onStreamError(error) { failures.push(error); },
+  }, fakeXterm, capture.ptyId);
+  try {
+    await completed.promise;
+    expect(failures).toEqual([]);
+    expect(written).toHaveLength(5956);
+    const buffer = term.buffer.active;
+    const text = Array.from({ length: buffer.length }, (_, index) => buffer.getLine(index)!.translateToString(true)).join("\n");
+    expect(text).toContain("Merge");
+    expect(createHash("sha256").update(Uint8Array.from(written)).digest("hex")).toBe(capture.sha256);
+    const requested = new URL(String(fetch.mock.calls[0][0]));
+    expect(requested.pathname).toBe(route === "local" ? "/api/output/stream" : "/api/mesh/relay-stream");
+    expect(atob(capture.b64.replace(/-/g, "+").replace(/_/g, "/")).length).toBe(capture.bytes);
+  } finally { stop(); output.resetOutputStream(); term.dispose(); }
 });

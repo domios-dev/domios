@@ -30,11 +30,95 @@ pub async fn mux_state(
         .ensure_storage_available()
         .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error))?;
 
-    Ok((
-        [(axum::http::header::CONTENT_TYPE, "application/json")],
-        state.svc.published_mux_state(),
-    )
-        .into_response())
+    let (generation, json) = state.svc.published_mux_state_versioned();
+    Ok(generation_response(&headers, generation, || {
+        (
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            json,
+        )
+            .into_response()
+    }))
+}
+
+fn generation_etag(generation: u64) -> String {
+    format!("W/\"{generation}\"")
+}
+
+fn etag_matches(headers: &HeaderMap, etag: &str) -> bool {
+    let etag = etag.strip_prefix("W/").unwrap_or(etag);
+    headers
+        .get_all(axum::http::header::IF_NONE_MATCH)
+        .iter()
+        .any(|value| {
+            value.to_str().is_ok_and(|value| {
+                value.split(',').any(|candidate| {
+                    let candidate = candidate.trim();
+                    candidate == "*" || candidate.strip_prefix("W/").unwrap_or(candidate) == etag
+                })
+            })
+        })
+}
+
+fn generation_response(
+    headers: &HeaderMap,
+    generation: u64,
+    body: impl FnOnce() -> axum::response::Response,
+) -> axum::response::Response {
+    conditional_response(headers, &generation_etag(generation), body)
+}
+
+fn conditional_response(
+    headers: &HeaderMap,
+    etag: &str,
+    body: impl FnOnce() -> axum::response::Response,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let mut response = if etag_matches(headers, etag) {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else {
+        body()
+    };
+    response.headers_mut().insert(
+        axum::http::header::ETAG,
+        // Validators contain only quotes, ASCII prefixes and integer digits.
+        etag.parse().expect("generated ASCII validator"),
+    );
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, no-cache"),
+    );
+    response
+}
+
+pub async fn tabs(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    query: Query<crate::tab_routes::TabListQuery>,
+) -> Result<axum::response::Response, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let body = crate::tab_routes::list_tabs(AxumState(state), headers.clone(), query).await?;
+    let json = serde_json::to_vec(&body.0).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to serialize Tabs",
+        )
+    })?;
+    Ok(tabs_response(&headers, json))
+}
+
+fn tabs_response(headers: &HeaderMap, json: Vec<u8>) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    json.hash(&mut hasher);
+    let etag = format!("\"{:016x}\"", hasher.finish());
+    conditional_response(headers, &etag, || {
+        (
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            json,
+        )
+            .into_response()
+    })
 }
 
 pub async fn tab_focus(
@@ -217,9 +301,29 @@ pub struct EventsStreamQuery {
 
 fn event_matches_tab(event: &crate::events::SystemEvent, tab_id: Option<&str>) -> bool {
     let Some(tab_id) = tab_id else { return true };
-    let (event_type, data) = render_event(event);
-    data.get("tab_id").and_then(serde_json::Value::as_str) == Some(tab_id)
-        || event_type.ends_with(&format!("-{tab_id}"))
+    use crate::events::SystemEvent;
+    let event_type = match event {
+        SystemEvent::Generic { event_type, .. } => event_type.as_str(),
+        other => other.type_name(),
+    };
+    if event_type
+        .strip_suffix(tab_id)
+        .is_some_and(|prefix| prefix.ends_with('-'))
+    {
+        return true;
+    }
+    match event {
+        SystemEvent::Generic { data, .. } => {
+            data.get("tab_id").and_then(serde_json::Value::as_str) == Some(tab_id)
+        }
+        SystemEvent::TabTitlePinned { tab_id: id, .. }
+        | SystemEvent::TabFocused { tab_id: id }
+        | SystemEvent::TabClosed { tab_id: id }
+        | SystemEvent::SurfaceActivity { tab_id: id, .. }
+        | SystemEvent::AgentStarted { tab_id: id, .. }
+        | SystemEvent::AgentIdle { tab_id: id, .. } => id == tab_id,
+        _ => false,
+    }
 }
 
 /// Parse a `<boot_id>:<seq>` cursor; the boot_id is dash-free hex (no colon).
@@ -231,31 +335,28 @@ fn parse_since(raw: &str) -> Option<(String, u64)> {
     Some((boot.to_string(), seq.parse().ok()?))
 }
 
-/// Generic carries a real frontend event name inside — surface that, not "generic".
-fn render_event(ev: &crate::events::SystemEvent) -> (String, serde_json::Value) {
-    use crate::events::SystemEvent;
-    match ev {
-        SystemEvent::Generic { event_type, data } => (event_type.clone(), data.clone()),
-        other => (
-            other.type_name().to_string(),
-            serde_json::to_value(other).unwrap_or(serde_json::Value::Null),
-        ),
-    }
-}
-
-fn event_frame(se: &crate::events::SeqEvent, boot: &str) -> Event {
-    let (event_type, data) = render_event(&se.event);
-    let payload = serde_json::json!({
-        "seq": se.seq,
-        "boot": boot,
-        "event_type": event_type,
-        "data": data,
-    });
-    Event::default().data(payload.to_string())
+fn event_frame(se: &crate::events::SeqEvent) -> Event {
+    Event::default().data(se.frame.bytes.as_ref())
 }
 
 /// The ONLY loss signal (D1): client adopts `next_seq` and full-resyncs.
-fn overflow_frame(reason: &str, boot: &str, next_seq: u64, oldest: Option<u64>) -> Event {
+fn overflow_frame(
+    reason: &str,
+    boot: &str,
+    next_seq: u64,
+    oldest: Option<u64>,
+    build: Option<&str>,
+) -> Event {
+    Event::default().data(overflow_payload(reason, boot, next_seq, oldest, build).to_string())
+}
+
+fn overflow_payload(
+    reason: &str,
+    boot: &str,
+    next_seq: u64,
+    oldest: Option<u64>,
+    build: Option<&str>,
+) -> serde_json::Value {
     let mut data = serde_json::json!({
         "reason": reason,
         "boot": boot,
@@ -264,8 +365,10 @@ fn overflow_frame(reason: &str, boot: &str, next_seq: u64, oldest: Option<u64>) 
     if let Some(oldest) = oldest {
         data["oldest"] = serde_json::json!(oldest);
     }
-    let payload = serde_json::json!({ "event_type": "overflow", "data": data });
-    Event::default().data(payload.to_string())
+    if let Some(build) = build {
+        data["build"] = serde_json::json!(build);
+    }
+    serde_json::json!({ "event_type": "overflow", "data": data })
 }
 
 /// SSE stream of system events for the web bundle's `listen()` bridge (D1).
@@ -296,7 +399,10 @@ pub(crate) fn events_sse(
     let boot = snap.boot_id.clone();
     let since = q.since.as_deref().and_then(parse_since);
     let cursor_seq = since.as_ref().map(|(_, s)| *s);
-    let plan = snap.plan(since.as_ref().map(|(b, s)| (b.as_str(), *s)));
+    let plan = snap.plan(
+        since.as_ref().map(|(b, s)| (b.as_str(), *s)),
+        crate::events::ReplayBudget::default(),
+    );
     let tab_id = q.tab_id;
 
     let stream = async_stream::stream! {
@@ -306,14 +412,14 @@ pub(crate) fn events_sse(
                 (0, Vec::new())
             }
             ReplayPlan::BootChanged { next_seq } => {
-                yield Ok(overflow_frame("boot-changed", &boot, next_seq, None));
+                yield Ok(overflow_frame("boot-changed", &boot, next_seq, None, Some(codeterm_build_info::hash())));
                 (0, Vec::new())
             }
             ReplayPlan::Covered { replay } => {
                 (cursor_seq.unwrap_or(0), replay)
             }
             ReplayPlan::Evicted { oldest, next_seq, replay } => {
-                yield Ok(overflow_frame("ring-evicted", &boot, next_seq, Some(oldest)));
+                yield Ok(overflow_frame("ring-evicted", &boot, next_seq, Some(oldest), None));
                 (next_seq.saturating_sub(1), replay)
             }
         };
@@ -322,7 +428,7 @@ pub(crate) fn events_sse(
             if se.seq > replayed_max {
                 replayed_max = se.seq;
             }
-            yield Ok(event_frame(se, &boot));
+            yield Ok(event_frame(se));
         }
         loop {
             match rx.recv().await {
@@ -332,10 +438,10 @@ pub(crate) fn events_sse(
                     }
                     replayed_max = se.seq;
                     if !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
-                    yield Ok(event_frame(&se, &boot));
+                    yield Ok(event_frame(&se));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    yield Ok(overflow_frame("lagged", &boot, events.current_seq(), None));
+                    yield Ok(overflow_frame("lagged", &boot, events.current_seq(), None, None));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
@@ -603,80 +709,7 @@ pub async fn copy_image_to_clipboard(
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::routes::WEB_TOKEN_TTL;
-    use axum::{
-        body::{to_bytes, Body},
-        http::{Request, StatusCode},
-        routing::post,
-        Router,
-    };
-    use tower::ServiceExt;
-
-    #[tokio::test]
-    async fn multipart_upload_contract_accepts_browser_boundary() {
-        async fn inspect(mut multipart: axum::extract::Multipart) -> Result<String, StatusCode> {
-            let field = multipart
-                .next_field()
-                .await
-                .map_err(|_| StatusCode::BAD_REQUEST)?
-                .ok_or(StatusCode::BAD_REQUEST)?;
-            let filename = field.file_name().unwrap_or_default().to_string();
-            let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-            Ok(format!("{filename}:{}", data.len()))
-        }
-
-        let boundary = "codeterm-browser-boundary";
-        let body = format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"phone photo.png\"\r\nContent-Type: image/png\r\n\r\nimage-bytes\r\n--{boundary}--\r\n"
-        );
-        let response = Router::new()
-            .route("/upload", post(inspect))
-            .oneshot(
-                Request::post("/upload")
-                    .header(
-                        "content-type",
-                        format!("multipart/form-data; boundary={boundary}"),
-                    )
-                    .body(Body::from(body))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let response = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        assert_eq!(&response[..], b"phone photo.png:11");
-    }
-
-    #[test]
-    fn cookie_max_age_uses_web_token_ttl() {
-        let ttl = WEB_TOKEN_TTL.as_secs();
-        let cookie = format!(
-            "codeterm-web-token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}",
-            "tok", ttl
-        );
-        assert!(
-            cookie.contains(&format!("Max-Age={ttl}")),
-            "Set-Cookie must embed WEB_TOKEN_TTL, got: {cookie}"
-        );
-    }
-
-    #[test]
-    fn constant_time_eq_rejects_last_byte_diff() {
-        let token = b"supersecrettoken1234";
-        let mut bad = token.to_vec();
-        *bad.last_mut().unwrap() ^= 1;
-        assert!(
-            !codeterm_service_core::service::tokens::constant_time_eq(token, &bad),
-            "token differing in last byte must be rejected"
-        );
-        assert!(
-            codeterm_service_core::service::tokens::constant_time_eq(token, token),
-            "identical tokens must match"
-        );
-    }
-}
+mod tests;
 
 // ── chat-raw — the chat view's JSONL window + tailer, web edition ──
 

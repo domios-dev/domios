@@ -61,10 +61,14 @@ test("adapter executes once and maps unavailable timeout and process errors with
       return then(result);
     },
   });
-  scope.host = { exec, fs: { readFile: () => null, fileExists: () => false }, platform: () => "linux", envGet: () => null, expandHome: (path: string) => path };
+  scope.host = { exec, execStart: () => JSON.stringify({ jobId: "discovery" }),
+    awaitJob: <T>(_id: string, then: (value: unknown) => T) => then({ code: 0, stdout: "fixture/model" }),
+    unixNowMs: () => 1_000_000,
+    fs: { readFile: () => null, fileExists: () => false }, platform: () => "linux", envGet: () => null, expandHome: (path: string) => path };
   try {
     assert.deepEqual(decisionModel.decide(request, 1000), { error: "unavailable" });
     assert.equal(calls, 0);
+    assert.deepEqual(decisionModel.models().map((model) => model.id), ["fixture/model"]);
     assert.equal(decisionModel.selectModel!("fixture/model"), true);
     for (const [response, expected] of [
       [{ error: "spawn failed: opaque remote detail" }, { error: "unavailable" }],

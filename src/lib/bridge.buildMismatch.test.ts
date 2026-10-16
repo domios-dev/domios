@@ -1,6 +1,7 @@
 // Run: npx tsx src/lib/bridge.buildMismatch.test.ts
 
 import { configureDaemonTransport } from "./daemonBootstrap";
+import { frontendApiContract } from "./frontendApiContract";
 import { invoke, __setInvokeForTest } from "./bridge";
 import {
   getMismatch,
@@ -65,7 +66,7 @@ async function main() {
   await test("command-not-found with compatible API preserves the error without a mismatch", async () => {
     __resetForTest();
     __setFrontendHashForTest("aabbcc");
-    mockFetch(2);
+    mockFetch(frontendApiContract.minApiVersion);
 
     let mismatchFired = false;
     const unlisten = onMismatch(() => { mismatchFired = true; });

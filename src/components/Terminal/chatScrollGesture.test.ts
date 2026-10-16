@@ -47,20 +47,22 @@ test("touchend before the queued native scroll event still retains momentum owne
 
 const withoutScrollEnd = { supportsScrollEnd: false, atBottom: false, positionChanged: true };
 
-test("without scrollend touchend releases ownership until another native movement", () => {
+test("without scrollend touchend retains ownership through the next native movement", () => {
   let gesture = chatScrollGestureAfterEvent(idleChatScrollGesture(), "touchstart", withoutScrollEnd);
   gesture = chatScrollGestureAfterEvent(gesture, "scroll", withoutScrollEnd);
   gesture = chatScrollGestureAfterEvent(gesture, "touchend", withoutScrollEnd);
-  assert.equal(isChatUserScrolling(gesture), false);
+  assert.equal(isChatUserScrolling(gesture), true);
   gesture = chatScrollGestureAfterEvent(gesture, "scroll", withoutScrollEnd);
   assert.equal(isChatUserScrolling(gesture), true);
   gesture = chatScrollGestureAfterEvent(gesture, "scroll", { ...withoutScrollEnd, atBottom: true });
-  assert.equal(isChatUserScrolling(gesture), false);
+  assert.equal(isChatUserScrolling(gesture), true);
 });
 
-test("without scrollend a wheel returning to the bottom resumes follow", () => {
+test("without scrollend returning to the bottom waits for motion to stop", () => {
   const wheel = chatScrollGestureAfterEvent(idleChatScrollGesture(), "wheel", withoutScrollEnd);
-  const bottom = chatScrollGestureAfterEvent(wheel, "scroll", { ...withoutScrollEnd, atBottom: true });
+  let bottom = chatScrollGestureAfterEvent(wheel, "scroll", { ...withoutScrollEnd, atBottom: true });
+  assert.equal(isChatUserScrolling(bottom), true);
+  for (let index = 0; index < 3; index++) bottom = chatScrollGestureAfterEvent(bottom, "frame", { ...withoutScrollEnd, positionChanged: false });
   assert.equal(isChatUserScrolling(bottom), false);
 });
 

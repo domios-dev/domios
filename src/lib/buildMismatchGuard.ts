@@ -1,25 +1,56 @@
 import { buildHash } from "./buildStamp";
-import { baseDaemonTransport } from "./daemonBootstrap";
+import { baseDaemonTransport, FRONTEND_BOOT_KEY } from "./daemonBootstrap";
 import { frontendApiCompatible, frontendApiContract } from "./frontendApiContract";
+import { IS_WEB } from "./webApi";
+import {
+  clearDriftRecord, decideBuildDrift, isSignedReleasePage, persistDriftRecord, readDriftRecord,
+  WEB_BOOT_CHANGED_EVENT, WEB_EVENTS_READY_EVENT,
+  type BootChangedDetail, type DaemonIdentity, type DriftRecord,
+} from "./buildDriftReload";
 
 export interface BuildMismatch {
   frontendHash: string;
   backendHash: string;
   frontendVersion: string;
   backendVersion: string;
-  reason: "api";
+  reason: "api" | "build" | "build-unreachable";
   apiVersion: number | null;
   minApiVersion: number;
   maxApiVersion: number;
 }
 
+export interface BuildDriftEnv {
+  isWeb(): boolean;
+  storage(): Pick<Storage, "getItem" | "setItem" | "removeItem">;
+  origin(): string;
+  visible(): boolean;
+  now(): number;
+  reload(): void;
+}
+
 type MismatchListener = (m: BuildMismatch | null) => void;
 
 let _mismatch: BuildMismatch | null = null;
-let _checked = false;
+let _proven = false;
+let _generation = 0;
+let _deferred: { generation: number; identity: DaemonIdentity; backend: BackendIdentity | null } | null = null;
 let _listeners: MismatchListener[] = [];
 let _frontendHashOverride: string | null = null;
 let _frontendVersionOverride: string | null = null;
+let _envOverride: BuildDriftEnv | null = null;
+
+const browserEnv: BuildDriftEnv = {
+  isWeb: () => IS_WEB,
+  storage: () => sessionStorage,
+  origin: () => baseDaemonTransport().origin(),
+  visible: () => typeof document === "undefined" || document.visibilityState !== "hidden",
+  now: () => Date.now(),
+  reload: () => { void reloadWithWaitingWorker(); },
+};
+
+function env(): BuildDriftEnv {
+  return _envOverride ?? browserEnv;
+}
 
 function getFrontendHash(): string {
   if (_frontendHashOverride !== null) return _frontendHashOverride;
@@ -32,29 +63,123 @@ function getFrontendVersion(): string {
 }
 
 export async function checkBuildMismatch(apiBase?: string): Promise<BuildMismatch | null> {
-  if (_checked) return _mismatch;
-  const frontendHash = getFrontendHash();
-  const frontendVersion = getFrontendVersion();
-  const backendIdentity = await fetchBackendIdentity(apiBase);
-  if (!backendIdentity) return null;
-  _checked = true;
-  const backendHash = backendIdentity.build ?? null;
-  const backendVersion = backendIdentity.version ?? null;
+  if (_proven) return _mismatch;
+  return runCheck(apiBase, undefined);
+}
 
-  if (!frontendApiCompatible(backendIdentity.apiVersion)) {
-    _mismatch = {
-      frontendHash,
-      backendHash: backendHash ?? "unknown",
-      frontendVersion,
-      backendVersion: backendVersion ?? "unknown",
-      reason: "api",
-      apiVersion: typeof backendIdentity.apiVersion === "number" ? backendIdentity.apiVersion : null,
-      minApiVersion: frontendApiContract.minApiVersion,
-      maxApiVersion: frontendApiContract.maxApiVersion,
-    };
-    for (const fn of _listeners) fn(_mismatch);
-  }
+/** A trigger after bootstrap: a local boot-changed frame (optional build hint) or a stream reconnect. */
+export function recheckBuildDrift(hint?: string): Promise<BuildMismatch | null> {
+  return runCheck(undefined, hint);
+}
+
+async function runCheck(apiBase: string | undefined, hint: string | undefined): Promise<BuildMismatch | null> {
+  const generation = ++_generation;
+  _deferred = null;
+  const backend = hint === undefined ? await fetchBackendIdentity(apiBase) : null;
+  if (generation !== _generation) return _mismatch;
+  const identity: DaemonIdentity = hint !== undefined ? { kind: "hint", build: hint }
+    : backend ? { kind: "health", build: backend.build ?? null, apiCompatible: frontendApiCompatible(backend.apiVersion) }
+    : { kind: "unreachable" };
+  if (identity.kind === "health") _proven = true;
+  apply(generation, identity, backend);
   return _mismatch;
+}
+
+function safeStorage(): Pick<Storage, "getItem" | "setItem" | "removeItem"> | null {
+  try { return env().storage(); } catch { return null; }
+}
+
+function apply(generation: number, identity: DaemonIdentity, backend: BackendIdentity | null): void {
+  const e = env();
+  const storage = safeStorage();
+  let origin = "";
+  try { origin = e.origin(); } catch { /* no bootstrap: records never match */ }
+  const decision = decideBuildDrift({
+    isWeb: e.isWeb(),
+    releasePage: storage ? isSignedReleasePage(storage, FRONTEND_BOOT_KEY) : false,
+    relayedTrigger: false,
+    loadedBuild: getFrontendHash(),
+    origin,
+    daemon: identity,
+    visible: e.visible(),
+    record: storage ? readDriftRecord(storage) : null,
+    now: e.now(),
+  });
+  switch (decision.action) {
+    case "banner": publish(mismatchFor(decision.reason, backend, identity)); return;
+    case "clear":
+      if (storage) clearDriftRecord(storage);
+      if (_mismatch && _mismatch.reason !== "api") publish(null);
+      return;
+    case "defer": _deferred = { generation, identity, backend }; return;
+    case "reload": reloadOnce(decision.record, storage, backend, identity); return;
+    case "none": return;
+  }
+}
+
+function reloadOnce(record: DriftRecord, storage: Pick<Storage, "getItem" | "setItem"> | null, backend: BackendIdentity | null, identity: DaemonIdentity): void {
+  if (!storage || !persistDriftRecord(storage, record)) {
+    publish(mismatchFor("build", backend, identity));
+    return;
+  }
+  env().reload();
+}
+
+async function reloadWithWaitingWorker(): Promise<void> {
+  try {
+    const registration = await navigator.serviceWorker?.getRegistration();
+    registration?.waiting?.postMessage({ type: "SKIP_WAITING" });
+  } catch {
+    /* no service worker: the network-first navigation still fetches the new index */
+  }
+  window.location.reload();
+}
+
+function mismatchFor(reason: BuildMismatch["reason"], backend: BackendIdentity | null, identity: DaemonIdentity): BuildMismatch {
+  const backendHash = backend?.build ?? (identity.kind === "hint" ? identity.build : null);
+  return {
+    frontendHash: getFrontendHash(),
+    backendHash: backendHash ?? "unknown",
+    frontendVersion: getFrontendVersion(),
+    backendVersion: backend?.version ?? "unknown",
+    reason,
+    apiVersion: typeof backend?.apiVersion === "number" ? backend.apiVersion : null,
+    minApiVersion: frontendApiContract.minApiVersion,
+    maxApiVersion: frontendApiContract.maxApiVersion,
+  };
+}
+
+function publish(next: BuildMismatch | null): void {
+  _mismatch = next;
+  for (const fn of _listeners) fn(_mismatch);
+}
+
+/** Re-decides a deferred drift once the page is visible again, without a second fetch. */
+export function resumeDeferredBuildDrift(): void {
+  const deferred = _deferred;
+  if (!deferred || deferred.generation !== _generation || !env().visible()) return;
+  _deferred = null;
+  apply(deferred.generation, deferred.identity, deferred.backend);
+}
+
+/** Wires the post-bootstrap triggers; a relayed boot-changed frame names a peer and is ignored. */
+export function installBuildDriftTriggers(target: Pick<Window, "addEventListener" | "removeEventListener"> = window,
+  doc: Pick<Document, "addEventListener" | "removeEventListener"> = document): () => void {
+  const onBootChanged = (event: Event) => {
+    const detail = (event as CustomEvent<BootChangedDetail>).detail;
+    if (!detail || detail.relayed) return;
+    void recheckBuildDrift(typeof detail.build === "string" ? detail.build : undefined);
+  };
+  const onReady = () => { void recheckBuildDrift(); };
+  const onVisibility = () => resumeDeferredBuildDrift();
+  target.addEventListener(WEB_BOOT_CHANGED_EVENT, onBootChanged);
+  target.addEventListener(WEB_EVENTS_READY_EVENT, onReady);
+  doc.addEventListener("visibilitychange", onVisibility);
+  return () => {
+    target.removeEventListener(WEB_BOOT_CHANGED_EVENT, onBootChanged);
+    target.removeEventListener(WEB_EVENTS_READY_EVENT, onReady);
+    doc.removeEventListener("visibilitychange", onVisibility);
+  };
 }
 
 export function getMismatch(): BuildMismatch | null {
@@ -82,10 +207,13 @@ async function fetchBackendIdentity(apiBase?: string): Promise<BackendIdentity |
 /** Test-only: reset singleton state between test cases. */
 export function __resetForTest(): void {
   _mismatch = null;
-  _checked = false;
+  _proven = false;
+  _generation = 0;
+  _deferred = null;
   _listeners = [];
   _frontendHashOverride = null;
   _frontendVersionOverride = null;
+  _envOverride = null;
 }
 
 /** Test-only: override the frontend hash constant (Vite doesn't run in tsx). */
@@ -96,4 +224,9 @@ export function __setFrontendHashForTest(hash: string | null): void {
 /** Test-only: override the frontend version constant (Vite doesn't run in tsx). */
 export function __setFrontendVersionForTest(version: string | null): void {
   _frontendVersionOverride = version;
+}
+
+/** Test-only: inject platform, storage, origin, visibility, clock and reload. */
+export function __setBuildDriftEnvForTest(next: BuildDriftEnv | null): void {
+  _envOverride = next;
 }

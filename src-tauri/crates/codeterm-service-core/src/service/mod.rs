@@ -64,6 +64,8 @@ pub use launch_delivery::prepare_spawn_input as launch_delivery_prepare_spawn_in
 pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
 pub mod launch_readiness;
+#[cfg(any(test, feature = "test-support"))]
+pub use orchestrator::launch_test_support;
 pub mod launch_session_detection;
 pub mod local_preview;
 pub(crate) mod mesh_artifacts;
@@ -152,6 +154,7 @@ pub use receiver_target::ReceiverTargetError;
 pub mod remote_tabs;
 pub mod remote_workers;
 pub mod reply_relay;
+pub mod restore_admission;
 pub(crate) mod restore_exited_member;
 mod restored_binding;
 pub mod role_identity;
@@ -733,6 +736,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_tab_focus_changed(&self, tab_id: &str) {
+        restore_admission::notify_changed();
         self.events
             .publish(codeterm_events::SystemEvent::TabFocused {
                 tab_id: tab_id.to_string(),

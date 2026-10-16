@@ -157,6 +157,7 @@ impl AgentProvider for NativeRuntime {
                         next_cursor: None,
                         open_items: Vec::new(),
                         questions: None,
+                        order: None,
                     },
                     RuntimeOperation::SubmitTurn {
                         thread_id, send_id, ..
@@ -165,6 +166,18 @@ impl AgentProvider for NativeRuntime {
                         send_id: send_id.clone(),
                         turn_id: None,
                     },
+                    RuntimeOperation::Control { action, .. } if action == "redeemResetCredit" => {
+                        RuntimeResult::ResetCreditConsumed {
+                            outcome: serde_json::from_value(value["outcome"].clone()).map_err(
+                                |error| {
+                                    RuntimeFailure::new(
+                                        RuntimeFailureCode::InvalidSchema,
+                                        error.to_string(),
+                                    )
+                                },
+                            )?,
+                        }
+                    }
                     _ => RuntimeResult::Done,
                 };
                 if value["more"] == true && matches!(op, RuntimeOperation::ReadHistory { .. }) {

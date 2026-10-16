@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Startup diagnostic evidence v1",
+  "oneOf": [
+    {"$ref":"#/$defs/browser"},
+    {"$ref":"#/$defs/recovery"},
+    {"$ref":"#/$defs/phases"}
+  ],
+  "$defs": {
+    "identity": {
+      "type":"object", "required":["url","sha256","bytes","origin"],
+      "properties":{"url":{"type":"string","format":"uri"},"sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"bytes":{"type":"integer","minimum":1},"origin":{"type":"string"}}
+    },
+    "process": {
+      "type":"object", "required":["pid","created"],
+      "properties":{"pid":{"type":"integer","minimum":1},"created":{"type":"string","minLength":1},"chain":{"type":"array","items":{"type":"integer","minimum":1}}}
+    },
+    "authority": {
+      "type":"object", "required":["tab","process","userIds"],
+      "properties":{"tab":{"type":"object","required":["agent_session_id","session_binding_nonce","pty_id","boot_stage"]},"process":{"$ref":"#/$defs/process"},"userIds":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string","minLength":1}}}
+    },
+    "buffer": {
+      "type":"object", "required":["type","length","baseY","viewportY","text"],
+      "properties":{"type":{"type":"string"},"length":{"type":"integer"},"baseY":{"type":"integer"},"viewportY":{"type":"integer"},"text":{"type":"string"}}
+    },
+    "snapshot": {
+      "type":"object", "required":["at","visibility","scripts","perf","terminals"],
+      "properties":{"terminals":{"type":"array","items":{"type":"object","required":["tabId","active","normal","alternate","ancestors"],"properties":{"tabId":{"type":["string","null"]},"active":{"$ref":"#/$defs/buffer"},"normal":{"$ref":"#/$defs/buffer"},"alternate":{"$ref":"#/$defs/buffer"},"ancestors":{"type":"array","items":{"type":"object","required":["tabId","hidden","ariaHidden","display","visibility","opacity","rect"]}}}}}}
+    },
+    "browser": {
+      "type":"object", "required":["schema","scenario","status","assets","diagnostics","failures","gaps"],
+      "properties":{
+        "schema":{"const":1},"scenario":{"const":"browser-evidence"},"status":{"enum":["completed","incomplete"]},"mode":{"enum":["dry-run","reload-owned-page"]},
+        "binarySha":{"type":"string"},"listener":{"type":"object","required":["pid","started_us"]},"finalListener":{"type":"object","required":["pid","started_us"]},"target":{"type":"object","required":["id","url"]},"index":{"$ref":"#/$defs/identity"},
+        "fixture":{"type":"object","required":["tabId","authority"],"properties":{"tabId":{"type":"string","minLength":1},"authority":{"type":"object","required":["agent_session_id","session_binding_nonce","pty_id","boot_stage"]}}},
+        "assets":{"type":"array","items":{"type":"object","required":["loaded","served","sameContent"],"properties":{"loaded":{"$ref":"#/$defs/identity"},"served":{"$ref":"#/$defs/identity"},"sameContent":{"type":"boolean"}}}},
+        "before":{"$ref":"#/$defs/snapshot"},"after":{"$ref":"#/$defs/snapshot"},
+        "streams":{"type":"array","items":{"type":"object","required":["id","url","status"],"properties":{"artifact":{"type":"object","required":["file","bytes","sha256"]}}}},
+        "diagnostics":{"type":"array","items":{"type":"object","required":["body","status","response"],"properties":{"body":{"type":"object"},"status":{"type":"integer"},"response":{"type":"object","required":["ok"]}}}}
+      }
+    },
+    "recovery": {
+      "type":"object", "required":["schema","scenario","status","stage","tab","marks","gaps"],
+      "properties":{"schema":{"const":1},"scenario":{"const":"exact-session-recovery"},"status":{"enum":["completed","incomplete"]},"mode":{"enum":["dry-run","force-owned-resumed-process-exit"]},"before":{"$ref":"#/$defs/authority"},"after":{"$ref":"#/$defs/authority"},"verdict":{"type":"object","required":["status"],"properties":{"status":{"enum":["pass","fail","incomplete"]}}}}
+    },
+    "origin": {
+      "type":"object", "required":["value","unit","source"],
+      "properties":{"value":{"type":["number","null"]},"unit":{"enum":["epoch_ms","epoch_us"]},"source":{"type":"string","minLength":1}}
+    },
+    "phases": {
+      "type":"object", "required":["schema","scenario","status","rows"],
+      "properties":{"schema":{"const":1},"scenario":{"const":"phase-origins"},"status":{"enum":["captured","incomplete"]},"rows":{"type":"array","items":{"type":"object","required":["tabId","kind","origins","phases","missing"],"properties":{"origins":{"type":"object","required":["cli_begin","socket_received","socket_dispatched","socket_bound","utility_created_at","PtyStarting","AgentReady"],"additionalProperties":{"$ref":"#/$defs/origin"}},"missing":{"type":"array","items":{"type":"string"}}}}}}
+    }
+  }
+}

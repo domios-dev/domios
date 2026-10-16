@@ -225,6 +225,21 @@ pub(crate) fn boot_stage_event(
     })
 }
 
+/// Stages a cold reader of the published snapshot must see without waiting for
+/// an unrelated mutation; the emitter coalesces bursts.
+pub(crate) fn stage_publishes_mux_snapshot(stage: BootStage) -> bool {
+    matches!(
+        stage,
+        BootStage::ShellReady
+            | BootStage::AgentLaunching
+            | BootStage::LaunchWritten
+            | BootStage::ProviderReady
+            | BootStage::AgentReady
+            | BootStage::SpawnFailed
+            | BootStage::PtyReattached
+    )
+}
+
 pub(crate) fn commit_boot_stage_transition(
     mux: &crate::MuxState,
     tab_id: &str,
@@ -458,6 +473,9 @@ impl ServiceContext {
                 },
             );
         }
+        if stage_publishes_mux_snapshot(stage) {
+            self.emit_state_changed();
+        }
     }
 
     fn stage_reconciled_with_session_binding(&self, tab_id: &str, stage: BootStage) -> BootStage {
@@ -679,5 +697,7 @@ impl ServiceContext {
 #[path = "boot_stage/in_tab_launch_tests.rs"]
 mod in_tab_launch_tests;
 
+#[cfg(test)]
+mod publish_tests;
 #[cfg(test)]
 mod tests;

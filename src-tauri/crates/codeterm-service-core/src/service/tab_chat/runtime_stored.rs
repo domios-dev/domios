@@ -157,6 +157,12 @@ pub fn start(
     let Some(window) = read(svc, tab_id, None)? else {
         return Ok(None);
     };
+    super::structured_sink::seed_snapshot(
+        tab_id,
+        Some(&window.session),
+        window.nonce.as_deref(),
+        &window.messages,
+    );
     if !window.frozen {
         start_runtime(svc, tab_id, window.nonce.as_deref());
     }

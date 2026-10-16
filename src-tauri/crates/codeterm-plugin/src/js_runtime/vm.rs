@@ -3,6 +3,7 @@
 mod runtime_hook;
 pub(crate) use runtime_hook::call_runtime_hook;
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use parking_lot::Mutex;
@@ -49,6 +50,20 @@ const PLUGIN_PREAMBLE: &str = r#"
     sqliteQuery: function (db, sql, params) {
       var pj = (params === undefined || params === null) ? null : JSON.stringify(params);
       return parseJson(host.sqliteQueryAllJson(db, sql, pj)) || [];
+    },
+    // Same rows as sqliteQuery, read on a host thread while the VM serves other calls.
+    sqliteQueryAsync: function (db, sql, params, then) {
+      if (typeof then !== "function") { throw new Error("host.fs.sqliteQueryAsync requires a continuation function"); }
+      var pj = (params === undefined || params === null) ? null : JSON.stringify(params);
+      var j = parseJson(host.sqliteQueryStart(db, sql, pj));
+      if (j && typeof j.jobId === "string") {
+        return host.awaitJob(j.jobId, function (r) {
+          if (r && typeof r.rangeError === "string") { throw new RangeError(r.rangeError); }
+          return then((r && r.rows) || []);
+        });
+      }
+      if (j && typeof j.error === "string") { return then(host.fs.sqliteQuery(db, sql, params)); }
+      return then([]);
     },
     readJson: function (p) {
       var s = host.readFile(p);
@@ -227,9 +242,6 @@ use std::cell::Cell;
 
 thread_local! {
     static SOURCE_COMPILES: Cell<u64> = const { Cell::new(0) };
-    /// Set when the in-flight call released the VM to wait for a host job, so
-    /// the slow-call warning can still mean "held the context this long".
-    static CALL_YIELDED: Cell<bool> = const { Cell::new(false) };
 }
 
 #[cfg(test)]
@@ -301,12 +313,17 @@ pub const ASYNC_JOB_TIMEOUT_ERROR: &str = "plugin async job exceeded its bounded
 /// `Arc<PluginVm>`.
 pub struct PluginVm {
     inner: Mutex<Inner>,
+    // Acquire before the VM lock, never while holding a VM or mux guard.
+    pub(super) catalogue_gate: Mutex<()>,
+    methods: parking_lot::RwLock<HashSet<String>>,
+    holder: Mutex<Option<(String, std::time::Instant)>>,
     runtime_inner: Mutex<Option<Inner>>,
     /// Outside `inner` on purpose. Nothing here needs the context, so reading it
     /// must not queue behind a slow call; and `host.exec` jobs are keyed by this
     /// identity, so awaiting one must not read it through the lock it releases.
     sandbox: std::sync::Arc<super::host_api::PluginSandbox>,
     plugin_id: String,
+    cli_binary: Option<String>,
 }
 
 struct Inner {
@@ -435,7 +452,21 @@ impl PluginVm {
             Ok(())
         })?;
 
+        let methods = exported_methods(&ctx)?;
+        let cli_binary = manifest_json
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .and_then(|manifest| {
+                manifest
+                    .get("cliBinary")
+                    .or_else(|| manifest.get("binaryName"))
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned)
+            });
         Ok(Self {
+            catalogue_gate: Mutex::new(()),
+            methods: parking_lot::RwLock::new(methods),
+            holder: Mutex::new(None),
             runtime_inner: Mutex::new(None),
             inner: Mutex::new(Inner {
                 _ctx: ctx,
@@ -445,6 +476,7 @@ impl PluginVm {
             }),
             sandbox,
             plugin_id: plugin_id.to_string(),
+            cli_binary,
         })
     }
 
@@ -458,6 +490,24 @@ impl PluginVm {
 
     pub(crate) fn can_read_environment(&self, name: &str) -> bool {
         self.sandbox.can_env(name)
+    }
+
+    pub fn declares_launch_spec(&self) -> bool {
+        has_method(self, "buildLaunchSpec")
+    }
+
+    pub(crate) fn binary_fingerprint(&self) -> Option<String> {
+        self.cli_binary
+            .as_deref()
+            .filter(|binary| self.sandbox.can_exec(binary))
+            .and_then(
+                |binary| match crate::js_runtime::probe_bin(binary).resolution {
+                    crate::js_runtime::BinResolution::Found(path) => Some(path),
+                    _ => None,
+                },
+            )
+            .and_then(|path| crate::model_catalog::fingerprint_path(&path))
+            .and_then(|fingerprint| serde_json::to_string(&fingerprint).ok())
     }
 
     pub fn plugin_id(&self) -> &str {
@@ -545,11 +595,14 @@ impl PluginVm {
                 .map_err(|e| VmError::Script(format!("invoke-helpers: {e:?}")))?;
             Ok(())
         })?;
+        let methods = exported_methods(&ctx)?;
         inner._ctx = ctx;
         inner._rt = rt;
         inner.bundle_source = new_source;
+        *self.methods.write() = methods;
         drop(inner);
         *self.runtime_inner.lock() = None;
+        super::host_api::sqlite::drop_plugin_connections(self.sandbox.plugin_id());
         Ok(())
     }
 }
@@ -560,6 +613,7 @@ impl Drop for PluginVm {
         // keyed the jobs by when the plugin started them.
         super::host_net::drop_plugin_jobs(self.sandbox.plugin_id());
         super::host_exec::drop_plugin_jobs(self.sandbox.plugin_id());
+        super::host_api::sqlite::drop_plugin_connections(self.sandbox.plugin_id());
     }
 }
 
@@ -630,29 +684,20 @@ fn call_json_mode_interruptible<R: serde::de::DeserializeOwned>(
     strict: bool,
     interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
 ) -> Result<R, VmError> {
+    if !has_method(vm, method) {
+        return Err(VmError::MissingFunction(method.to_owned()));
+    }
     let _file_lock_scope = super::host_api::FileLockCallScope::new();
-    let started = std::time::Instant::now();
-    CALL_YIELDED.with(|y| y.set(false));
     // bad drop-in can't unwind through the host and take the daemon down (#16).
     let run = std::panic::AssertUnwindSafe(|| {
         call_json_inner_interruptible::<R>(vm, method, args, strict, interrupt)
     });
-    let result = match std::panic::catch_unwind(run) {
+    match std::panic::catch_unwind(run) {
         Ok(res) => res,
         Err(_) => Err(VmError::Script(format!(
             "{method}: plugin panicked (caught — provider isolated)"
         ))),
-    };
-    let held = started.elapsed();
-    if held >= SLOW_CALL_THRESHOLD && !CALL_YIELDED.with(|y| y.get()) {
-        log::warn!(
-            "[plugin-vm] {}.{} held the VM for {}ms — other calls into this plugin queued behind it",
-            vm.plugin_id,
-            method,
-            held.as_millis()
-        );
     }
-    result
 }
 
 /// A method that returned `host.awaitJob(job, then)` instead of a value. Matched by
@@ -695,7 +740,6 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
         serde_json::to_string(args).map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
     let mut result_json = enter_call(vm, method, &args_json, strict, interrupt.clone())?;
     while let Some(pending) = parse_await(&result_json) {
-        CALL_YIELDED.with(|y| y.set(true));
         // No guard is held here: the frame unwound to produce the marker, so the
         // context is idle and this wait costs no other caller.
         let waited = match &interrupt {
@@ -742,7 +786,7 @@ fn enter_call(
     strict: bool,
     interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
 ) -> Result<String, VmError> {
-    let inner = vm.inner.lock();
+    let inner = VmEntry::acquire(vm, method);
     if let Some((cancellation, deadline)) = interrupt.clone() {
         inner._rt.set_interrupt_handler(Some(Box::new(move || {
             cancellation.is_cancelled() || std::time::Instant::now() >= deadline
@@ -799,7 +843,7 @@ fn resume_call(
     strict: bool,
     interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
 ) -> Result<String, VmError> {
-    let inner = vm.inner.lock();
+    let inner = VmEntry::acquire(vm, method);
     if let Some((cancellation, deadline)) = interrupt.clone() {
         inner._rt.set_interrupt_handler(Some(Box::new(move || {
             cancellation.is_cancelled() || std::time::Instant::now() >= deadline
@@ -839,25 +883,105 @@ fn resume_call(
 /// "plugin doesn't implement this capability" (→ delegate to a native
 /// fallback) apart from "plugin implements it and returned null/empty".
 pub fn has_method(vm: &PluginVm, method: &str) -> bool {
-    let inner = vm.inner.lock();
-    inner
-        ._ctx
-        .with(|ctx| -> Result<String, VmError> {
-            let globals = ctx.globals();
-            globals
-                .set("__ct_method__", method)
-                .catch(&ctx)
-                .map_err(|e| VmError::Script(format!("{e:?}")))?;
-            let has: Function = globals
-                .get("__ct_has__")
-                .catch(&ctx)
-                .map_err(|e| VmError::Script(format!("{e:?}")))?;
-            has.call(())
-                .catch(&ctx)
-                .map_err(|e| VmError::Script(format!("{e:?}")))
-        })
-        .map(|s| s == "1")
-        .unwrap_or(false)
+    vm.methods.read().contains(method)
+}
+
+fn exported_methods(ctx: &Context) -> Result<HashSet<String>, VmError> {
+    ctx.with(|ctx| {
+        let json: String = eval_source(
+            &ctx,
+            r#"
+            JSON.stringify((function () {
+                const names = new Set();
+                for (let p = globalThis.__plugin__; p; p = Object.getPrototypeOf(p)) {
+                    for (const name of Object.getOwnPropertyNames(p)) {
+                        if (typeof globalThis.__plugin__[name] === 'function') names.add(name);
+                    }
+                }
+                return Array.from(names);
+            })())
+        "#,
+        )
+        .catch(&ctx)
+        .map_err(|e| VmError::Script(format!("exported methods: {e:?}")))?;
+        serde_json::from_str(&json)
+            .map_err(|e| VmError::InvalidJson("exported methods".into(), e.to_string()))
+    })
+}
+
+struct VmEntry<'a> {
+    inner: parking_lot::MutexGuard<'a, Inner>,
+    vm: &'a PluginVm,
+    method: &'a str,
+    started: std::time::Instant,
+    waited: std::time::Duration,
+}
+
+impl<'a> VmEntry<'a> {
+    fn acquire(vm: &'a PluginVm, method: &'a str) -> Self {
+        let started = std::time::Instant::now();
+        let previous = vm.holder.lock().clone();
+        let inner = vm.inner.lock();
+        let waited = started.elapsed();
+        let started = std::time::Instant::now();
+        *vm.holder.lock() = Some((method.to_owned(), started));
+        if waited > std::time::Duration::from_millis(100) {
+            log::debug!(
+                "[plugin-vm] {}.{} waited={}ms holder={:?}",
+                vm.plugin_id,
+                method,
+                waited.as_millis(),
+                previous.map(|(name, since)| (name, since.elapsed().as_millis()))
+            );
+        }
+        Self {
+            inner,
+            vm,
+            method,
+            started,
+            waited,
+        }
+    }
+}
+
+impl std::ops::Deref for VmEntry<'_> {
+    type Target = Inner;
+    fn deref(&self) -> &Inner {
+        &self.inner
+    }
+}
+
+impl Drop for VmEntry<'_> {
+    fn drop(&mut self) {
+        let held = self.started.elapsed();
+        if held >= SLOW_CALL_THRESHOLD {
+            log::warn!(
+                "{}",
+                timing_line(&self.vm.plugin_id, self.method, self.waited, held)
+            );
+        } else if self.waited > std::time::Duration::from_millis(100)
+            || held > std::time::Duration::from_millis(50)
+        {
+            log::debug!(
+                "{}",
+                timing_line(&self.vm.plugin_id, self.method, self.waited, held)
+            );
+        }
+        *self.vm.holder.lock() = None;
+    }
+}
+
+fn timing_line(
+    plugin: &str,
+    method: &str,
+    waited: std::time::Duration,
+    held: std::time::Duration,
+) -> String {
+    format!(
+        "[plugin-vm] {plugin}.{method} waited={}ms held={}ms",
+        waited.as_millis(),
+        held.as_millis()
+    )
 }
 
 #[cfg(test)]

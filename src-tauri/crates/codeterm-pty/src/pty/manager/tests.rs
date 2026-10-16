@@ -1,4 +1,32 @@
 use super::*;
+
+#[test]
+fn direct_launch_applies_cwd_and_removes_environment_without_shell_integration() {
+    let launch = super::super::shell_profiles::ShellLaunch {
+        executable: "fixture".into(),
+        args: vec!["raw value; $x 😀".into()],
+        cwd: Some("/fixture/cwd".into()),
+    };
+    let mut command = CommandBuilder::new(&launch.executable);
+    command.args(&launch.args);
+    command.env("REMOVE_ME", "inherited");
+    command.env("KEEP_ME", "raw; $value 😀");
+    apply_launch_overrides(&mut command, launch.cwd.as_deref(), &["REMOVE_ME".into()]);
+    assert_eq!(
+        command.get_cwd().unwrap(),
+        &std::ffi::OsString::from("/fixture/cwd")
+    );
+    assert_eq!(
+        command.get_argv(),
+        &vec![
+            std::ffi::OsString::from("fixture"),
+            std::ffi::OsString::from("raw value; $x 😀")
+        ]
+    );
+    let env: HashMap<_, _> = command.iter_full_env_as_str().collect();
+    assert!(!env.contains_key("REMOVE_ME"));
+    assert_eq!(env["KEEP_ME"], "raw; $value 😀");
+}
 #[cfg(target_os = "windows")]
 use crate::pty::windows_test_support::{
     conpty_host_children_of_current_process, exclusive_conpty_test, legacy_conhost_children,

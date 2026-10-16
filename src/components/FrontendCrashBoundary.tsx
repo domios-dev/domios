@@ -1,4 +1,4 @@
-import { ErrorNotice } from "./shared/ErrorNotice";
+import { PaneState } from "./shared/PaneState";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { nativeBridge } from "../lib/nativeBridge";
 import { clearStateSnapshot } from "../lib/stateCache";
@@ -133,7 +133,7 @@ export class FrontendCrashBoundary extends Component<Props, State> {
           <section className="frontend-crash__panel">
             <p className="frontend-crash__eyebrow">Domios UI error</p>
             <h1 id="frontend-crash-title">The interface could not render</h1>
-            <ErrorNotice error={{ code: "frontend_crash", raw: `${details.message}\n${details.stack}` }} blocking actions={[
+            <PaneState error={{ code: "frontend_crash", raw: `${details.message}\n${details.stack}` }} actions={[
               { label: "Leave this location", onClick: this.leaveCrashedLocation },
               { label: "Reload interface", onClick: () => window.location.reload() },
             ]} />

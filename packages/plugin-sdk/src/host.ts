@@ -128,6 +128,13 @@ export interface HostFs {
     sql: string,
     params?: unknown[],
   ): T[];
+  /** The same rows as sqliteQuery, read on a host thread; the method must return this call's result. */
+  sqliteQueryAsync<T = Record<string, unknown>, R = unknown>(
+    db: string,
+    sql: string,
+    params: unknown[] | null | undefined,
+    then: (rows: T[]) => R,
+  ): R;
   readJson<T = unknown>(path: string): T | null;
   writeJson(path: string, value: unknown): boolean;
 }
@@ -164,6 +171,7 @@ export interface TabRef {
 
 // Read-only mirror of the host's parseUsage output (tokens/cost); loosely typed since provider shapes vary.
 export interface UsageSnapshot {
+  resets?: import("./agentRuntime").ResetCredits | null;
   billing_mode: "subscription" | "api" | "unknown";
   limits_reported: boolean;
   inputTokens?: number;
@@ -443,6 +451,7 @@ export interface Host {
   walkDirJson(path: string, maxDepth: number): string | null;
   writeTempFile(contents: string, suffix?: string): string | null;
   sqliteQueryAllJson(db: string, sql: string, paramsJson?: string | null): string | null;
+  sqliteQueryStart(db: string, sql: string, paramsJson?: string | null): string;
 
   shellQuote(s: string): string;
   shellQuoteFor(s: string, platform: string): string;

@@ -23,6 +23,8 @@ pub struct AgentRuntimeCapability {
     pub stored_history: bool,
     #[serde(default)]
     pub usage: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_credits_min_version: Option<String>,
     pub runtime: AgentRuntimeProtocol,
     pub command: AgentRuntimeCommand,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

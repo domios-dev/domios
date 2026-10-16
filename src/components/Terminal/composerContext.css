@@ -680,3 +680,15 @@ input.ct-delayed-modal__field { color: var(--ct-fg); }
   .ct-delayed-modal { animation: none; }
   .ct-delayed-modal__presets button { transition: none; }
 }
+
+.ct-ctx__compact {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.ct-ctx__compact[data-has-bubbles] .ct-ctx-pill {
+  position: static;
+  max-width: 50%;
+}

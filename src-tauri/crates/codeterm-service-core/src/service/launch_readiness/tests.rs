@@ -468,25 +468,43 @@ fn launch_readiness_general_agent_start_keeps_its_provisional_contract() {
 
 #[test]
 fn launch_readiness_shared_owner_is_not_duplicated() {
-    let owner = [
-        include_str!("../launch_readiness.rs"),
-        include_str!("wait.rs"),
-    ]
-    .concat();
-    let lifecycle = include_str!("../general_agent/lifecycle.rs");
-    let launch = include_str!("../orchestrator/launch.rs");
-    let startup = include_str!("../orchestrator/launch/startup_readiness.rs");
-
-    assert!(launch.contains("launch_readiness::arm_with_origin("));
-    assert!(launch.contains("observe_launch_readiness"));
-    assert!(launch.contains("startup_readiness::emit_agent_ready"));
-    assert!(!launch.contains("take_published_failure"));
-    assert_eq!(owner.matches("take_published_failure(&attempt)").count(), 1);
-    assert!(startup.contains("LaunchSettlement::Failed"));
-
-    assert_eq!(owner.matches("\"agent-launch-failed\"").count(), 1);
-    for source in [lifecycle, launch] {
-        assert!(!source.contains("agent-launch-failed"));
+    use crate::service::orchestrator::launch_test_support::FakeRegisteredLaunch;
+    use crate::service::AgentLaunchOrigin;
+    for origin in [
+        AgentLaunchOrigin::GeneralAgent,
+        AgentLaunchOrigin::VisibleSpawn,
+        AgentLaunchOrigin::RestoredSnapshot,
+    ] {
+        let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.pty_id = Some("shared-owner-fake-pty".into());
+        tab.agent_type = Some("fixture-provider".into());
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let launch = FakeRegisteredLaunch::register(
+            &fixture.service,
+            &tab_id,
+            "shared-owner-fake-pty",
+            origin,
+        )
+        .unwrap();
+        let attempt = launch.attempt();
+        let armed = test_support::snapshot(&tab_id).unwrap();
+        assert_eq!(armed.attempt, attempt);
+        assert_eq!(armed.origin, Some(origin));
+        assert_eq!(armed.registrations, 1);
+        let foreign = LaunchAttempt {
+            binding_nonce: "foreign-nonce".into(),
+            ..attempt.clone()
+        };
+        assert!(!test_support::acknowledge(&foreign));
+        assert_eq!(test_support::snapshot(&tab_id), Some(armed));
+        assert!(test_support::acknowledge(&attempt));
+        let acknowledged = test_support::snapshot(&tab_id).unwrap();
+        assert!(acknowledged.acknowledged);
+        assert_eq!(acknowledged.registrations, 1);
+        assert!(test_support::consume_acknowledgement(&attempt));
+        assert!(!test_support::consume_acknowledgement(&attempt));
+        assert!(test_support::snapshot(&tab_id).is_none());
     }
 }
 

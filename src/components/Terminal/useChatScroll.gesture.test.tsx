@@ -22,10 +22,25 @@ class TestResizeObserver {
 Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: TestResizeObserver });
 
 let hook: UseChatScrollResult;
+let drift = 0;
+let nextFrame = 0;
+const frames = new Map<number, FrameRequestCallback>();
+Object.defineProperties(testWindow, {
+  requestAnimationFrame: { configurable: true, value: (callback: FrameRequestCallback) => { frames.set(++nextFrame, callback); return nextFrame; } },
+  cancelAnimationFrame: { configurable: true, value: (id: number) => { frames.delete(id); } },
+});
+async function frame() {
+  await act(async () => {
+    const callbacks = [...frames.values()];
+    frames.clear();
+    callbacks.forEach(callback => callback(0));
+  });
+}
 const followTail = { current: true };
 function Fixture({ active, revision }: { active: boolean; revision: number }) {
   hook = useChatScroll({ sessionKey: "gesture-wiring", active, loading: false, messageCount: 3,
-    contentVersion: revision, prependVersion: "first", followTailRef: followTail });
+    contentVersion: revision, prependVersion: "first", followTailRef: followTail,
+    foldLayoutDrift: () => { const value = drift; drift = 0; return value; } });
   return <div ref={hook.scrollRef} onScroll={hook.handleScroll} />;
 }
 
@@ -97,6 +112,10 @@ async function main() {
     await act(async () => { repair(); root.render(<Fixture active revision={7} />); });
     assert.equal(writes, 0);
     await act(async () => fire("touchend"));
+    assert.equal(writes, 0, "without scrollend even a tap waits for observed quiescence");
+    await frame();
+    await frame();
+    await frame();
     assert.equal(writes, 1, "without scrollend touchend releases a pinned arrival repair");
     writes = 0;
     height = 2000;
@@ -109,11 +128,15 @@ async function main() {
     await act(async () => fire("touchend"));
     nativeTop = height - 400;
     await act(async () => fire("scroll"));
+    await frame();
+    await frame();
+    await frame();
+    await frame();
     assert.equal(followTail.current, true, "without scrollend returning to the bottom resumes following");
     writes = 0;
     height = 2200;
     await act(async () => { repair(); root.render(<Fixture active revision={9} />); });
-    assert.equal(writes, 1, "the bottom native event releases momentum suppression");
+    assert.equal(writes, 1, "observed rest at the bottom releases momentum suppression");
     writes = 0;
     await act(async () => fire("touchstart"));
     nativeTop -= 100;
@@ -121,8 +144,25 @@ async function main() {
     await act(async () => { repair(); root.render(<Fixture active revision={10} />); });
     await act(async () => fire("touchend"));
     assert.equal(writes, 0, "without scrollend touchend observes movement before a queued native scroll event");
+    await act(async () => fire("scroll"));
     assert.equal(followTail.current, false, "the released gesture cannot repair a moved reader back to bottom");
-    console.log("7 chat gesture wiring checks passed");
+    drift = 50;
+    for (let index = 0; index < 4; index++) {
+      nativeTop -= 10;
+      await act(async () => { fire("scroll"); repair(); });
+      await frame();
+      assert.equal(drift, 50, "momentum never folds a held layout deviation");
+      assert.equal(writes, 0);
+    }
+    await frame();
+    await frame();
+    assert.equal(writes, 0, "two unchanged animation frames cannot release momentum");
+    await frame();
+    assert.equal(drift, 0);
+    assert.equal(writes, 1, "quiescence folds the held deviation in exactly one write");
+    await frame();
+    assert.equal(writes, 1);
+    console.log("8 chat gesture wiring checks passed");
   } finally {
     await act(async () => root.unmount());
     host.remove();

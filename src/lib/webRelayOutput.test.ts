@@ -46,8 +46,8 @@ it("whole-peer Web terminals use tab-scoped gateway streams without cross-peer o
       new Headers((args[1] as RequestInit).headers).get("Authorization"), "Bearer opaque-local-token");
     return new Response(new ReadableStream({ start(controller) {
       const encode = (body: object) => new TextEncoder().encode(`data: ${JSON.stringify(body)}\n\n`);
-      controller.enqueue(encode({ tab_id: "foreign-tab", output: "not-owned", offset: 99 }));
-      controller.enqueue(encode({ tab_id: "same-tab", output: "owned", offset: 5, boot: "boot" }));
+      controller.enqueue(encode({ tab_id: "foreign-tab", b64: "bm90LW93bmVk", offset: 99 }));
+      controller.enqueue(encode({ tab_id: "same-tab", b64: "b3duZWQ", offset: 5, boot: "boot" }));
     } }));
   }));
   const peerA = "928b06dd-1234-4567-890a-123456789abc";
@@ -158,4 +158,7 @@ it("peer switch aborts an aggregate opened on self before opening composite rela
   }
 });
 
+let completed = false;
+it("completes all event barriers", () => { completed = true; });
+process.once("beforeExit", () => { if (!completed) process.exitCode = 1; });
 finish();

@@ -101,6 +101,8 @@ describe("receiver_target_mark", () => {
   });
 
   it("receiver_target_mark moves bound marks on contributions-changed without retaining a stale tab mark", async () => {
+    let warning = true;
+    __setPluginBubbleFetcherForTest(async () => warning ? {label:"Receiver",tone:"warn",tooltip:"Receiver unavailable"} : {label:"Receiver",tone:"ok"});
     let current = menuState({ "real-receiver": "tab-a" });
     let notify: (() => void) | null = null;
     const host: PluginTabMenuHost = {
@@ -131,6 +133,11 @@ describe("receiver_target_mark", () => {
     await flush();
     expect(rootHost.querySelector('[data-tab="a"] [data-testid="receiver-target-marks-header"]')).not.toBeNull();
     expect(rootHost.querySelector('[data-tab="b"] [data-testid="receiver-target-marks-header"]')).toBeNull();
+
+    expect(rootHost.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("Receiver unavailable");
+    warning = false;
+    await act(async () => { notify?.(); });
+    expect(rootHost.querySelector('[role="status"]')).toBeNull();
 
     current = menuState({ "real-receiver": "tab-b" });
     await act(async () => {

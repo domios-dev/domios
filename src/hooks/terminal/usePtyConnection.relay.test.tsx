@@ -77,7 +77,7 @@ test("mounted bare relay terminals open one composite stream each despite the lo
     for (const [text, offset] of [["history", 7], ["live", 11]] as const) {
       await act(async () => {
         for (const tabId of tabIds) controllers.get(tabId)!.enqueue(new TextEncoder().encode(
-          `data: ${JSON.stringify({ tab_id: tabId, boot: "boot", output: text, offset })}\n\n`,
+          `data: ${JSON.stringify({ tab_id: tabId, boot: "boot", b64: btoa(text).replace(/=+$/, ""), offset })}\n\n`,
         ));
       });
     }

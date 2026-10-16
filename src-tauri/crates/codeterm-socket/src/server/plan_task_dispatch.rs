@@ -748,6 +748,7 @@ where
         .create_tab(&reservation_workspace)
         .map_err(|error| dispatch_failed("tab_reservation", error))?;
     let mut reservation_tab = DispatchReservationTab::new(svc, reserved_tab_id.clone());
+    codeterm_service_core::startup::boot_timing::bind_request(&reserved_tab_id);
     let observed_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
     let observed_owner_is_live = observed_owner.as_ref().is_some_and(|owner| {
         dispatch_startup_owner_is_live(svc, &plan_id, &task_id, &owner.tab_id)

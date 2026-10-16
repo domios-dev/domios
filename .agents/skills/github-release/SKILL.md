@@ -26,6 +26,8 @@ description: >-
 
 **Which release.** Any Rust (`src-tauri/`, `cli/`) since the last release means an app release, which bundles the frontend; frontend-only changes can ship as a frontend release (below); plugins release separately. Start frontend lanes from `develop`.
 
+**An incompatible frontend wire change moves the API version.** Raise `API_VERSION`, `BUNDLED_MIN/MAX_API_VERSION` (`codeterm-service-core/src/frontend_bundle_api_version.rs`) and the `frontend-release-contract.json` range together; `frontend_wire_digest_is_pinned_to_api_version` fails until they move.
+
 **Versions are one shared sequence.** Every app or frontend release takes the next number, so an app never accepts an older bundled frontend. A patch release takes the next patch. A minor or major release is chosen only by the branch name, for example `release/1.15.0`; the app, CLI, frontend contract and lockfiles follow it.
 
 **Protection.** This private repo has no rulesets on the free plan, so the owner-account guard in `release.yml` and the red `master accepts only release branches` check are the enforcement; with GitHub Pro, add rulesets restricting `release/*` creation and `master` merges to `rollacode`.

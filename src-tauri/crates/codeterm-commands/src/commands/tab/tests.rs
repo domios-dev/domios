@@ -1,6 +1,6 @@
 use super::backfill_window_slice;
 use codeterm_service_core::service::tab_chat::session_window::{
-    self, SNAPSHOT_ANCHOR_STRIDE_BYTES, SNAPSHOT_CAP_BYTES, SNAPSHOT_WINDOW_BYTES,
+    self, SNAPSHOT_CAP_BYTES, SNAPSHOT_WINDOW_BYTES,
 };
 use std::sync::Arc;
 
@@ -324,7 +324,7 @@ fn oversized_claude_session_snapshots_a_bounded_tail() {
         "oversized session must use the tail window"
     );
     assert!(
-        snap.bytes_read <= SNAPSHOT_WINDOW_BYTES + SNAPSHOT_ANCHOR_STRIDE_BYTES,
+        snap.bytes_read <= SNAPSHOT_WINDOW_BYTES,
         "read {} bytes",
         snap.bytes_read
     );

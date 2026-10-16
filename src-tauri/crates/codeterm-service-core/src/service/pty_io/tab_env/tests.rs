@@ -27,6 +27,21 @@ fn store_with_planner_bound_plan() -> (tempfile::TempDir, PlanStore, String) {
 const AGENT_TAB_ID: &str = "tab-a";
 
 #[test]
+fn minimal_shell_startup_requires_an_agent_launch_record() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    let marker = crate::pty::shell_integration::AGENT_SHELL_ENV;
+    assert!(!tab_identity_env(tab).contains_key(marker));
+    tab.agent_type = Some("opaque-agent-provider".into());
+    assert_eq!(
+        tab_identity_env(tab).get(marker).map(String::as_str),
+        Some("1")
+    );
+    tab.agent_type = None;
+    assert!(!tab_identity_env(tab).contains_key(marker));
+}
+
+#[test]
 fn codex_rpc_sidecar_env_never_rewrites_agent_toolchain_selection() {
     let env = compose_launch_env(&instance_env(), None, LaunchSurface::Service);
     let mut command = std::process::Command::new("agent");

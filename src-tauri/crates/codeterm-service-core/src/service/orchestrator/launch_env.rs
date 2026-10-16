@@ -8,6 +8,113 @@
 //! copy, then prepend once. A launched tab therefore carries the directory
 //! exactly once end to end.
 
+#[derive(Clone, Debug, Default)]
+pub struct PreparedAgentCommand {
+    pub shell_command: String,
+    pub direct: Option<codeterm_types::agent::LaunchSpec>,
+}
+
+impl From<String> for PreparedAgentCommand {
+    fn from(shell_command: String) -> Self {
+        Self {
+            shell_command,
+            direct: None,
+        }
+    }
+}
+
+impl std::ops::Deref for PreparedAgentCommand {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.shell_command
+    }
+}
+
+impl std::fmt::Display for PreparedAgentCommand {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.shell_command)
+    }
+}
+
+impl PreparedAgentCommand {
+    pub(crate) fn from_spec(spec: codeterm_types::agent::LaunchSpec) -> Self {
+        let shell_command = std::iter::once(&spec.program)
+            .chain(&spec.args)
+            .map(|arg| codeterm_util::shell::ShellSyntax::quote_arg(arg))
+            .collect::<Vec<_>>()
+            .join(" ");
+        Self {
+            shell_command,
+            direct: Some(spec),
+        }
+    }
+
+    pub(crate) fn with_stub(mut self, provider: &str) -> Self {
+        let command = crate::agent::stub_launch::apply(provider, self.shell_command.clone());
+        if command != self.shell_command {
+            self.direct = None;
+            self.shell_command = command;
+        }
+        self
+    }
+}
+
+pub(super) fn direct_environment(
+    mut env: std::collections::HashMap<String, String>,
+    spec: &codeterm_types::agent::LaunchSpec,
+    nonce: &str,
+    attempt_id: &str,
+    cli_path: Option<&std::path::Path>,
+    inherited_path: &std::ffi::OsStr,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let same_key = |a: &str, b: &str| {
+        if cfg!(windows) {
+            a.eq_ignore_ascii_case(b)
+        } else {
+            a == b
+        }
+    };
+    let owned = [
+        "CODETERM_SESSION_BINDING_NONCE",
+        "CODETERM_STARTUP_ATTEMPT_ID",
+        "PATH",
+    ];
+    if spec
+        .env_unset
+        .iter()
+        .any(|key| owned.iter().any(|host| same_key(key, host)))
+    {
+        return Err("launch spec cannot remove host launch identity or PATH".into());
+    }
+    for (key, value) in &spec.env_set {
+        env.retain(|existing, _| !same_key(existing, key));
+        env.insert(key.clone(), value.clone());
+    }
+    let path = env
+        .iter()
+        .find(|(key, _)| same_key(key, "PATH"))
+        .map(|(_, value)| std::ffi::OsString::from(value))
+        .unwrap_or_else(|| inherited_path.to_owned());
+    env.retain(|key, _| {
+        !owned.iter().any(|host| same_key(key, host))
+            && !spec.env_unset.iter().any(|unset| same_key(key, unset))
+    });
+    env.insert(owned[0].into(), nonce.into());
+    env.insert(owned[1].into(), attempt_id.into());
+    let path = if let Some(dir) =
+        cli_path.and_then(|path| crate::pty::manager::cli_dir_of(path.as_os_str()))
+    {
+        crate::pty::manager::path_with_cli_dir_first(&path, &dir).ok_or("invalid launch PATH")?
+    } else {
+        path
+    };
+    env.insert(
+        "PATH".into(),
+        path.to_str().ok_or("launch PATH is not UTF-8")?.into(),
+    );
+    Ok(env)
+}
+
 fn powershell_cli_dir_prelude(dir: &str) -> String {
     let quoted = dir.replace('\'', "''");
     format!(

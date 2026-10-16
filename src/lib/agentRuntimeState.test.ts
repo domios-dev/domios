@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  beginRuntimeRetry, runtimeStatusPresentation, runtimeRetryFailed, runtimeStateFromEvent, runtimeStateFromSnapshot, runtimeViewFromEvent,
+  beginRuntimeRetry, runtimeStatusPresentation, runtimeRetryFailed, runtimeStateFromEvent, runtimeStateFromSnapshot, runtimeViewFromEvent, runtimeHistorySettled,
   type AgentRuntimeState,
 } from "./agentRuntimeState";
 
@@ -126,4 +126,39 @@ describe("runtime status presentation", () => {
     expect(described.details).toBe(`${prefix} opaque-detail`);
     expect(coded.reason).not.toBe(coded.details);
   });
+
+  it("settles history only when a loading replay completes or fails", () => {
+    expect(runtimeHistorySettled("loading", "complete")).toBe(true);
+    expect(runtimeHistorySettled("loading", "failed")).toBe(true);
+    expect(runtimeHistorySettled("loading", "loading")).toBe(false);
+    expect(runtimeHistorySettled(undefined, "complete")).toBe(false);
+    expect(runtimeHistorySettled("complete", "complete")).toBe(false);
+    expect(runtimeHistorySettled("failed", "loading")).toBe(false);
+  });
+
+  it("carries history progress through runtime state events", () => {
+    const loading = runtimeStateFromEvent(null, authority, {
+      tab_id: "owned", session_binding_nonce: "binding",
+      state: { state: "loaded", epoch: 2, history: "loading", historyPages: 1 },
+    });
+    expect(loading?.history).toBe("loading");
+    expect(loading?.historyPages).toBe(1);
+    const done = runtimeStateFromEvent(loading, authority, {
+      tab_id: "owned", session_binding_nonce: "binding",
+      state: { state: "loaded", epoch: 2, history: "complete", historyPages: 4 },
+    });
+    expect(runtimeHistorySettled(loading?.history, done?.history)).toBe(true);
+  });
+});
+
+
+it("retries a failed history page while the conversation remains loaded", () => {
+  const state:AgentRuntimeState={state:"loaded",epoch:3,history:"failed",historyPages:8,historyError:"fixture-page-nine"};
+  expect(runtimeStateFromSnapshot(null,state)).toMatchObject(state);
+  expect(runtimeStatusPresentation(state)).toMatchObject({details:state.historyError,canRetry:true});
+  const loading=beginRuntimeRetry(state);
+  expect(loading).toMatchObject({state:"loaded",history:"loading",epoch:3,historyPages:8});
+  expect(beginRuntimeRetry(loading)).toBe(loading);
+  expect(runtimeRetryFailed(loading,"fixture-retry-error")).toMatchObject({state:"loaded",history:"failed",historyError:"fixture-retry-error"});
+  expect(runtimeStateFromEvent(loading,authority,{tab_id:"owned",session_binding_nonce:"binding",state:{state:"loaded",epoch:3,history:"complete",historyPages:12}})).toMatchObject({state:"loaded",history:"complete",historyPages:12});
 });

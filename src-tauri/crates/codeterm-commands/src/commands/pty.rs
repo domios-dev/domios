@@ -447,6 +447,32 @@ fn dispatch_restored_snapshot_launch(
     input: &RestoredFreshLaunchInput,
     launch_cmd: String,
 ) {
+    dispatch_restored_snapshot_launch_with(svc, tab_id, provider_id, input, |origin| {
+        codeterm_service_core::service::launch_agent_in_background_with_env(
+            svc.clone(),
+            tab_id.to_string(),
+            launch_cmd,
+            provider_id.to_string(),
+            origin,
+            false,
+            None,
+            input.launch_task.clone(),
+            None,
+            Default::default(),
+            None,
+            None,
+            input.params.resume_session_id.clone(),
+        );
+    });
+}
+
+fn dispatch_restored_snapshot_launch_with<R>(
+    svc: &codeterm_service_core::service::ServiceContext,
+    tab_id: &str,
+    provider_id: &str,
+    input: &RestoredFreshLaunchInput,
+    dispatch: impl FnOnce(codeterm_service_core::service::AgentLaunchOrigin) -> R,
+) -> R {
     codeterm_service_core::service::persist_restored_launch_identity(
         &svc.mux,
         tab_id,
@@ -454,21 +480,7 @@ fn dispatch_restored_snapshot_launch(
         &input.params,
         &input.launch_parameters,
     );
-    codeterm_service_core::service::launch_agent_in_background_with_env(
-        svc.clone(),
-        tab_id.to_string(),
-        launch_cmd,
-        provider_id.to_string(),
-        codeterm_service_core::service::AgentLaunchOrigin::RestoredSnapshot,
-        false,
-        None,
-        input.launch_task.clone(),
-        None,
-        Default::default(),
-        None,
-        None,
-        input.params.resume_session_id.clone(),
-    );
+    dispatch(codeterm_service_core::service::AgentLaunchOrigin::RestoredSnapshot)
 }
 
 /// Shared by the Tauri command and the web mirror's POST /api/pty/{id}/write.

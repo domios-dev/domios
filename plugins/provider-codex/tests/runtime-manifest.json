@@ -47,7 +47,9 @@
         "thread/inject_items",
         "account/read",
         "account/login/start",
-        "account/login/cancel"
+        "account/login/cancel",
+        "account/rateLimits/read",
+        "account/rateLimitResetCredit/consume"
       ]
     },
     "notificationMethods": [
@@ -88,7 +90,8 @@
       ],
       "terminalCommand": "codex login"
     },
-    "usage": true
+    "usage": true,
+    "resetCreditsMinVersion": "0.162.1"
   },
   "chatBackend": {
     "spawnable": true,
