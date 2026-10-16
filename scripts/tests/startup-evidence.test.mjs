@@ -142,7 +142,11 @@ test('receipt validation never upgrades dry-run or partial capture to a journey 
   assert.equal(evidenceVerdict({ ...common, scenario: 'exact-session-recovery', before: fixture.before, after: fixture.after }), 'pass');
   assert.equal(evidenceVerdict({ ...common, finalListener: { pid: 1, started_us: 3 }, scenario: 'exact-session-recovery', before: fixture.before, after: fixture.after }), 'incomplete');
   assert.equal(evidenceVerdict({ ...common, scenario: 'exact-session-recovery', mode: 'dry-run', before: fixture.before }), 'validated');
-  assert.equal(evidenceVerdict({ ...common, scenario: 'browser-evidence', mode: 'dry-run', target: { id: 'fixture' } }), 'validated');
+  assert.equal(evidenceVerdict({ ...common, scenario: 'browser-evidence', mode: 'dry-run', target: { id: 'fixture' } }), 'incomplete');
+  assert.equal(evidenceVerdict({ ...common, scenario: 'browser-evidence', mode: 'dry-run', target: { id: 'fixture', url: 'http://127.0.0.1:7686/' },
+    fixture: { tabId: 'own', authority: fixture.before.tab } }), 'validated');
+  assert.equal(evidenceVerdict({ ...common, scenario: 'browser-evidence', mode: 'dry-run', target: { id: 'fixture', url: 'http://127.0.0.1:7686/' },
+    fixture: { tabId: 'own', authority: {} } }), 'incomplete');
   assert.equal(evidenceVerdict({ ...common, scenario: 'browser-evidence', captureStatus: 'captured' }), 'incomplete');
   const rows = phaseBreakdown(fixture.phases, fixture.state);
   assert.equal(evidenceVerdict({ schema: 1, scenario: 'phase-origins', status: 'captured', rows }), 'captured');
@@ -163,6 +167,7 @@ test('browser receipt requires every byte artifact and does not label a capture 
   const identity = assetIdentity('http://127.0.0.1:7686/a.js', Buffer.from('abc'), 'fixture');
   const buffer = { type: 'normal', text: 'fixture', length: 1, baseY: 0, viewportY: 0 };
   const receipt = { schema: 1, scenario: 'browser-evidence', status: 'completed', binarySha: 'sha',
+    fixture: { tabId: 'own', authority: fixture.before.tab },
     listener: { pid: 1, started_us: 2 }, finalListener: { pid: 1, started_us: 2 }, index: identity, failures: [],
     assets: [{ loaded: identity, served: identity }],
     streams: [{ status: 200, artifact: { file: 'output-0.sse', bytes: 3, sha256: identity.sha256 } }],

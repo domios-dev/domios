@@ -32,6 +32,7 @@
       "properties":{
         "schema":{"const":1},"scenario":{"const":"browser-evidence"},"status":{"enum":["completed","incomplete"]},"mode":{"enum":["dry-run","reload-owned-page"]},
         "binarySha":{"type":"string"},"listener":{"type":"object","required":["pid","started_us"]},"finalListener":{"type":"object","required":["pid","started_us"]},"target":{"type":"object","required":["id","url"]},"index":{"$ref":"#/$defs/identity"},
+        "fixture":{"type":"object","required":["tabId","authority"],"properties":{"tabId":{"type":"string","minLength":1},"authority":{"type":"object","required":["agent_session_id","session_binding_nonce","pty_id","boot_stage"]}}},
         "assets":{"type":"array","items":{"type":"object","required":["loaded","served","sameContent"],"properties":{"loaded":{"$ref":"#/$defs/identity"},"served":{"$ref":"#/$defs/identity"},"sameContent":{"type":"boolean"}}}},
         "before":{"$ref":"#/$defs/snapshot"},"after":{"$ref":"#/$defs/snapshot"},
         "streams":{"type":"array","items":{"type":"object","required":["id","url","status"],"properties":{"artifact":{"type":"object","required":["file","bytes","sha256"]}}}},
