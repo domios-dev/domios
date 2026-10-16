@@ -2,6 +2,10 @@
   overflow: clip;
 }
 
+.active-tab-pill {
+  border-radius: 999px;
+}
+
 /* The menu must contribute height even while hidden, so compact rows contain its hover target. */
 .sidebar-tab-kebab {
   position: relative;
