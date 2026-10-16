@@ -14,6 +14,8 @@ never JSON text, shaped `{offset,row,value,oversized?,bytes?}`. Preserve `row`
 as returned delta rows' `recordIndex`, and return `new_offset: meta.newOffset`.
 Meta carries `fromOffset`, `toOffset`, `newOffset`, `truncatedTail` and counts
 `{total,matched,invalid,oversized}`. The host owns byte advancement.
+`sourceKey` is an optional opaque source identity, stable across windows;
+compare it for per-source state, never parse it or use it as filesystem authority.
 
 A source declares `{format:"jsonl",filter:{type:{path:["type"],in:["user"]},
 where:[{path:["payload","thread_id"],equals:{placeholder:"sessionId"}}]}}`.
