@@ -26,6 +26,8 @@ test("mounted bare relay terminals open one composite stream each despite the lo
   const controllers = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
   const writes = new Map<string, string[]>();
   const ready = new Map<string, boolean>();
+  const frameReady = new Map<string, string>();
+  const parsed = new Map<string, () => void>();
   const previousFetch = globalThis.fetch;
   api.setTokenFor(api.apiHost(), "fixture-token");
   api.setRelayTarget(peerId, "Windows");
@@ -46,8 +48,10 @@ test("mounted bare relay terminals open one composite stream each despite the lo
       scrollToBottom() {}, scrollToLine() {},
       write(data: string | Uint8Array, done?: () => void) {
         const text = typeof data === "string" ? data : new TextDecoder().decode(data);
-        if (text) writes.get(tabId)!.push(text);
-        done?.();
+        if (text) {
+          writes.get(tabId)!.push(text);
+          if (done) parsed.set(tabId, done);
+        } else done?.();
       },
     } as unknown as Terminal);
     const connectedPtyRef = useRef<string | null>(null);
@@ -55,6 +59,7 @@ test("mounted bare relay terminals open one composite stream each despite the lo
       termRef, connectedPtyRef, tabId, ptyId: `pty-${tabId}`, termReady: true,
       onShellReady() {}, onOutputChunk() {},
       onConnectionStateChange(value) { ready.set(tabId, value); },
+      onFrameReady(value) { frameReady.set(tabId, value); },
     });
     return null;
   }
@@ -77,9 +82,14 @@ test("mounted bare relay terminals open one composite stream each despite the lo
     for (const [text, offset] of [["history", 7], ["live", 11]] as const) {
       await act(async () => {
         for (const tabId of tabIds) controllers.get(tabId)!.enqueue(new TextEncoder().encode(
-          `data: ${JSON.stringify({ tab_id: tabId, boot: "boot", b64: btoa(text).replace(/=+$/, ""), offset })}\n\n`,
+          `data: ${JSON.stringify({ tab_id: tabId, pty_id: `pty-${tabId}`, boot: "boot", b64: btoa(text).replace(/=+$/, ""), offset })}\n\n`,
         ));
       });
+      for (const tabId of tabIds) {
+        if (text === "history") assert.equal(frameReady.has(tabId), false);
+        parsed.get(tabId)!();
+        assert.equal(frameReady.get(tabId), `pty-${tabId}`);
+      }
     }
     for (const tabId of tabIds) {
       assert.deepEqual(writes.get(tabId), ["history", "live"]);

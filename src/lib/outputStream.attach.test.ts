@@ -14,6 +14,24 @@ function pending<T>() {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("aggregate terminal attachment", () => {
+  it.each(["tab", "mesh:928b06dd-1234-4567-890a-123456789abc/tab"])("rejects foreign PTY bytes before advancing %s replay", async tabId => {
+    vi.resetModules();
+    localStorage.clear();
+    sessionStorage.setItem("codeterm-web-output-boot", "boot");
+    const output = await import("./outputStream");
+    let receive!: (name: string, frame: unknown) => void;
+    output.bindOutputStreamTransport({ origin: () => "http://daemon.test", subscribe: (_path, handler) => {
+      receive = handler; return () => {};
+    } } as import("./transportClient").TransportClient);
+    const written = vi.fn();
+    const stop = output.subscribeTabOutput(tabId, { onOutput: written, onTruncated() {}, onEnded() {} }, {}, "own-pty");
+    try {
+      receive("message", { tab_id: "tab", pty_id: "foreign-pty", boot: "boot", offset: 99, b64: "WA" });
+      receive("message", { tab_id: "foreign-tab", pty_id: "own-pty", boot: "boot", offset: 99, b64: "WA" });
+      receive("message", { tab_id: "tab", pty_id: "own-pty", boot: "boot", offset: 1, b64: "QQ" });
+      expect(written).toHaveBeenCalledExactlyOnceWith("A");
+    } finally { stop(); output.resetOutputStream(); }
+  });
   it("adopts truncation before any output arrives and reconnects twice without another marker", async () => {
     vi.resetModules();
     localStorage.clear();

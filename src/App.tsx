@@ -881,7 +881,7 @@ function AppInner() {
                   zIndex: isVisible ? 1 : 0,
                   opacity: isVisible ? 1 : 0,
                   pointerEvents: isVisible ? "auto" : "none",
-                  transition: "opacity 200ms ease",
+                  visibility: isVisible ? "visible" : "hidden",
                 }}
               >
                 <MemoizedTabContent

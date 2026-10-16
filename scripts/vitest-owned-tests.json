@@ -153,6 +153,8 @@
   "src/lib/transportParity.test.ts",
   "src/lib/transport/tabs.test.ts",
   "src/lib/outputReplay.test.ts",
+  "src/lib/terminalFrameGate.test.ts",
+  "src/lib/outputRetention.test.ts",
   "src/lib/outputStream.attach.test.ts",
   "src/lib/transport/orchestration.test.ts",
   "src/lib/transport/capabilities.test.ts",

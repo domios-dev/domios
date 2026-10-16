@@ -18,6 +18,7 @@ import { createTransportClient, type TransportClient } from "./transportClient";
 import { TerminalOutputReplay } from "./outputReplay";
 import { planOutputResync } from "./outputResync";
 import { DEV_BUILD } from "./devBuild";
+import { acceptsTerminalOutput } from "./terminalFrameGate";
 
 function selectedRelayTarget() {
   return typeof window === "undefined" || !window.location || typeof localStorage === "undefined" ? null : relayTarget();
@@ -58,7 +59,7 @@ const BOOT_KEY = "codeterm-web-output-boot";
 const replay = new TerminalOutputReplay();
 const retainedOutput = new OutputRetention();
 const aggregate = createAggregateOutputRegistry(openAggregateStream);
-const sinkIdentities = new WeakMap<TabOutputSink, { terminal: object; ptyId: string }>();
+const sinkIdentities = new WeakMap<TabOutputSink, { terminal: object; ptyId: string; boundPtyId?: string }>();
 
 declare global {
   interface Window {
@@ -154,6 +155,7 @@ function handleFrame(msg: OutputFrame): void {
   const tab = msg.tab_id;
   if (!tab) return;
   const set = sinks.get(tab);
+  if (bytes && set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
   if (typeof msg.offset === "number" && bytes) {
     const ring = { boot: msg.boot ?? boot ?? "", ptyId: msg.pty_id };
     const previous = rings.get(tab);
@@ -192,7 +194,13 @@ function decodeOutputBytes(b64: string): Uint8Array {
   return bytes;
 }
 
+function acceptsSinkOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame): boolean {
+  const frameTabId = parseCompositeTabId(tabId)?.remoteTabId ?? tabId;
+  return acceptsTerminalOutput(frameTabId, sinkIdentities.get(sink)?.boundPtyId, frame.tab_id, frame.pty_id);
+}
+
 function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame, bytes: Uint8Array): void {
+  if (!acceptsSinkOutput(tabId, sink, frame)) return;
   const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: frame.pty_id ?? tabId };
   replay.deliver(identity.terminal, tabId, {
     boot: frame.boot ?? boot ?? "", ptyId: frame.pty_id ?? identity.ptyId,
@@ -240,8 +248,8 @@ function ensureStarted(): void {
   aggregate.attach();
 }
 
-export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal: object = sink, ptyId: string = tabId): () => void {
-  sinkIdentities.set(sink, { terminal, ptyId });
+export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal: object = sink, ptyId?: string): () => void {
+  sinkIdentities.set(sink, { terminal, ptyId: ptyId ?? tabId, boundPtyId: ptyId });
   const route = tabOutputRoute(tabId, selectedRelayTarget()?.id ?? null);
   if (route) return subscribeRemoteTabOutput(`mesh:${route.peerId}/${route.tabId}`, route.peerId, sink);
   let set = sinks.get(tabId);
@@ -250,8 +258,8 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink, terminal:
     sinks.set(tabId, set);
   }
   set.add(sink);
-  const cached = retainedOutput.snapshot(tabId);
-  if (cached && cached.ptyId === ptyId) {
+  const cached = retainedOutput.snapshot(tabId, replay.cursor(terminal, tabId));
+  if (cached && (ptyId === undefined || cached.ptyId === ptyId)) {
     const from = cached.offset - cached.bytes.length;
     deliverTruncation(tabId, sink, from, cached.boot);
     replay.deliver(terminal, tabId, cached, (bytes) => writeSinkBytes(sink, bytes));
@@ -404,6 +412,8 @@ function handleRemoteOutputFrame(
     return;
   }
   if (typeof message.b64 === "string") {
+    const targets = remoteSinks.get(ordinaryTabId);
+    if (!targets || ![...targets].some(target => acceptsSinkOutput(ordinaryTabId, target, message))) return;
     const bytes = decodeOutputBytes(message.b64);
     const perf = accountOutputFrame(bytes);
     const prev = record.recovery.currentCursor();
