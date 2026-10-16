@@ -2,7 +2,7 @@ use super::*;
 use crate::agent::provider::*;
 use crate::service::test_fixture::ServiceFixture;
 use parking_lot::Mutex;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{collections::HashMap, path::PathBuf, time::Duration};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 

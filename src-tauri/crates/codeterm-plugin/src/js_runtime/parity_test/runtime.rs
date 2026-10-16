@@ -2,7 +2,7 @@ use crate::agent_runtime::*;
 use crate::js_runtime::{JsProvider, PluginManifest, PluginVm};
 use crate::provider::AgentProvider;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -98,15 +98,12 @@ fn runtime_stored_history_native_quickjs_parity_and_capability_gate() {
                 content.as_bytes()
             );
         }
-        assert!(
-            native
-                .runtime_stored_history("foreign-session", &records)
-                .is_err()
-        );
-        assert!(
-            js.runtime_stored_history("foreign-session", &records)
-                .is_err()
-        );
+        assert!(native
+            .runtime_stored_history("foreign-session", &records)
+            .is_err());
+        assert!(js
+            .runtime_stored_history("foreign-session", &records)
+            .is_err());
     }
 }
 

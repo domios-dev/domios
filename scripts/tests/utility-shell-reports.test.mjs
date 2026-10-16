@@ -599,7 +599,7 @@ function writeFakeCargo(dir, body) {
 test("build_notify_tab_success_sends_one_ok_receipt", () => {
   const h = makeHarness();
   try {
-    writeFakeCargo(h.dir, "exit 0");
+    writeFakeTool(h.dir, "rustfmt", "exit 0");
     const result = runBash([buildPath, "fmt-check", "--notify-tab", "agent-tab"], h.env);
     assert.equal(result.status, 0, result.stderr);
     const sent = records(h.parentRecord);
