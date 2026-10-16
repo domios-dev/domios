@@ -103,6 +103,7 @@ pub(crate) fn event_stats_snapshot(
     serde_json::json!({
         "streams": streams.snapshot(),
         "emit_requests": st.requests.load(Ordering::Relaxed),
+        "emit_causes": st.causes.snapshot(),
         "emit_fires": st.fires.load(Ordering::Relaxed),
         "emit_suppressed": st.suppressed.load(Ordering::Relaxed),
         "pending": pending,

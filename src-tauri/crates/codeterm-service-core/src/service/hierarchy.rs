@@ -1,5 +1,6 @@
 //! Agent hierarchy: roles, reports, status queries.
 
+use crate::service::MuxEmitCause;
 mod gate_delivery;
 pub(crate) mod heartbeat_gate;
 pub mod plan_reminder_nudge;
@@ -366,7 +367,7 @@ impl ServiceContext {
     }
     pub fn set_can_spawn(&self, tab_id: &str, can_spawn: bool) -> Result<(), String> {
         self.mux.write().set_can_spawn(tab_id, can_spawn)?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Team);
         Ok(())
     }
 

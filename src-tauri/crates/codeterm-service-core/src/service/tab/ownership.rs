@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use codeterm_types::pty::RemoteOwnership;
 
 use crate::multiplexer::state::MultiplexerState;
@@ -56,7 +57,7 @@ impl ServiceContext {
             ownership.peer_name.clone(),
             caller_tab_id.map(str::to_string),
         );
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::AgentIdentity);
         log::info!(
             "[tab-ownership] tab={} remote_peer={} released",
             tab_id,

@@ -2,6 +2,7 @@
 //! the current-session guard every runtime write passes through.
 
 use super::ServiceContext;
+use crate::service::MuxEmitCause;
 
 mod runtime_update;
 
@@ -255,7 +256,7 @@ impl ServiceContext {
                             new_sid,
                             agent_id,
                         );
-                        self.emit_state_changed();
+                        self.emit_state_changed(MuxEmitCause::Model);
                         if let Err(error) = super::session_persist::persist_session_after_mutation(
                             self,
                             super::session_persist::SessionPersistUrgency::Prompt,
@@ -565,7 +566,7 @@ impl ServiceContext {
             }
         }
         if update.state_changed {
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Model);
         }
         self.persist_attempt_session_model(tab_id, agent_id, sid, &model);
     }

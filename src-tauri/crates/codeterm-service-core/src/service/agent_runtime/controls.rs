@@ -3,6 +3,7 @@ use crate::multiplexer::types::TabBacking;
 use crate::service::agent_restart::{
     ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
 };
+use crate::service::MuxEmitCause;
 use crate::service::{agent_runtime::model::RuntimeMode, ServiceContext};
 use codeterm_plugin::agent_runtime::{RuntimeOperation, RuntimeResult, RuntimeSettings};
 
@@ -155,7 +156,7 @@ async fn switch_inner(
         crate::service::session_persist::SessionPersistUrgency::Prompt,
     )
     .map_err(RuntimeFailure::Refused)?;
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
     Ok(ModelSwitchOutcome {
         tab_id: tab.into(),
         provider: session.provider.clone(),

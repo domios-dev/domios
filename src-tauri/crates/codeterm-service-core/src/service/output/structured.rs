@@ -1,4 +1,5 @@
 use super::ServiceContext;
+use crate::service::MuxEmitCause;
 
 impl ServiceContext {
     pub(crate) fn push_structured_prompt(
@@ -24,6 +25,6 @@ impl ServiceContext {
             serde_json::to_value(serde_json::json!({ "tab_id": tab_id, "prompt": prompt }))
                 .unwrap_or_default(),
         );
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Prompt);
     }
 }

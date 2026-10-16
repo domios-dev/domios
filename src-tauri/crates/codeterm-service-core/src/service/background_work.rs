@@ -1,4 +1,5 @@
 use super::ServiceContext;
+use crate::service::MuxEmitCause;
 use codeterm_types::agent::background_work::{BackgroundWorkObservation, BackgroundWorkState};
 
 pub(crate) fn restart_guard(
@@ -105,7 +106,7 @@ pub fn apply(
         };
         if committed {
             if changed {
-                svc.emit_state_changed();
+                svc.emit_state_changed(MuxEmitCause::BackgroundWork);
                 super::provider_update::background_work_changed(svc, tab_id);
             }
             return;
@@ -195,5 +196,5 @@ pub fn incomplete_snapshot(svc: &ServiceContext, tab_id: &str, session: &str, no
         tab.provider_signals.background.history_incomplete = true;
     }
     drop(mux);
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::BackgroundWork);
 }

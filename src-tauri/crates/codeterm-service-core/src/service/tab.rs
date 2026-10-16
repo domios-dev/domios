@@ -6,6 +6,7 @@ use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::service::session_model::spawn_startup_model_refresh;
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::worker_loss::{busy_worker_close_warnings, BUSY_WORKER_CLOSE_REFUSAL_PREFIX};
+use crate::service::MuxEmitCause;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "tab/lifecycle_exit.rs"]
@@ -346,7 +347,7 @@ impl ServiceContext {
         self.announce_resolved(&resolved);
         self.release_bridge_threads(tab_id);
         session_persist::persist_session_after_close(self);
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabLifecycle);
         if pre_focus != post_focus {
             if let Some(new) = post_focus {
                 self.emit_tab_focus_changed(&new);
@@ -366,7 +367,7 @@ impl ServiceContext {
         }
         self.mux.write().rename_tab(tab_id, title)?;
         self.emit_tab_title_pinned(tab_id, title);
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Title);
         session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
         Ok(())
     }
@@ -376,7 +377,7 @@ impl ServiceContext {
         self.mux
             .write()
             .rename_tab_at_level(tab_id, title, TitleLevel::Agent)?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Title);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
         Ok(())
@@ -385,7 +386,7 @@ impl ServiceContext {
     pub fn set_tab_description(&self, tab_id: &str, description: &str) -> Result<(), String> {
         let description = normalize_tab_description(description)?;
         self.mux.write().set_tab_description(tab_id, description)?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabMetadata);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
         Ok(())
@@ -440,7 +441,7 @@ impl ServiceContext {
             },
             |_| {
                 crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::TabLifecycle);
             },
         )
     }
@@ -467,7 +468,7 @@ impl ServiceContext {
             })
         };
         if changed {
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Cwd);
         }
     }
 
@@ -553,7 +554,7 @@ impl ServiceContext {
                 }
             };
             if seeded {
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::SessionBinding);
             }
             self.kick_off_session_name_detection(&tab_id, &agent_id);
             model_refreshes.push((tab_id, agent_id));
@@ -637,7 +638,7 @@ impl ServiceContext {
                             );
                             p.agent_session_name = Some(name);
                             drop(mux);
-                            svc.emit_state_changed();
+                            svc.emit_state_changed(MuxEmitCause::Title);
                         }
                     }
                     return;
@@ -705,7 +706,7 @@ impl ServiceContext {
         }
         // Reset PromptDetector state so next inject is accepted (not blocked by same_options check)
         self.prompt_detector.lock().clear(tab_id);
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Prompt);
         Ok(())
     }
 
@@ -796,7 +797,7 @@ impl ServiceContext {
                     }
                 }
             }
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Prompt);
             return Ok(RespondPromptOutcome::Structured);
         }
         let Some(option_index) = value
@@ -857,7 +858,7 @@ impl ServiceContext {
         });
 
         self.mark_prompt_responded(tab_id, option_index, response_identity.as_ref());
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Prompt);
         Ok(RespondPromptOutcome::Sent)
     }
 

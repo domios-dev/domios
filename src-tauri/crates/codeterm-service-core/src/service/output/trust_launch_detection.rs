@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::sync::Mutex as StdMutex;
@@ -134,7 +135,7 @@ impl ServiceContext {
                 tab_id
             );
             self.set_agent_session_id(tab_id, Some(sid));
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::SessionBinding);
         }
     }
 }

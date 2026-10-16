@@ -1,5 +1,6 @@
 use super::ServiceContext;
 use crate::agent::tab_state::{Surface, TabState, TabStateAction, TabStateClassification};
+use crate::service::MuxEmitCause;
 use codeterm_provider_signals::{ApiErrorKind, PermissionMode};
 use codeterm_types::agent::provider_signals::ProviderSignals;
 
@@ -138,7 +139,7 @@ pub fn apply(
         incident(svc, tab_id, session, nonce, transition);
     }
     if changed {
-        svc.emit_state_changed();
+        svc.emit_state_changed(MuxEmitCause::ProviderSignal);
     }
     if refresh_needed {
         refresh_auth(svc, tab_id);
@@ -300,7 +301,7 @@ pub(crate) fn refresh_auth(svc: &ServiceContext, tab_id: &str) {
             tab.provider_signals.auth = next_auth;
             tab.provider_signals.auth_probe_pending = false;
             drop(mux);
-            svc.emit_state_changed();
+            svc.emit_state_changed(MuxEmitCause::ProviderSignal);
             if login_changed {
                 super::capability_probe::invalidate_and_rebuild(&provider_id);
             }

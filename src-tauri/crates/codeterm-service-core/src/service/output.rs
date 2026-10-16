@@ -2,6 +2,7 @@
 //!
 //! Extracted from `commands::read_pty` to keep that function focused on I/O.
 
+use crate::service::MuxEmitCause;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::sync::Mutex as StdMutex;
@@ -760,7 +761,7 @@ impl ServiceContext {
             }
         };
         if changed {
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::TabStatus);
             self.schedule_planner_replay(&tab_id);
             if resume_mark_changed {
                 self.schedule_session_persist_debounced();
@@ -1003,7 +1004,7 @@ impl ServiceContext {
                     }))
                     .unwrap_or_default(),
                 );
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::Prompt);
                 if pending_prompt_changed && route_owner_prompt {
                     let _ = self.route_pending_prompt(tab_id, prompt, prompt_kind);
                 }
@@ -1036,7 +1037,7 @@ impl ServiceContext {
                     }))
                     .unwrap_or_default(),
                 );
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::Prompt);
             }
         }
     }

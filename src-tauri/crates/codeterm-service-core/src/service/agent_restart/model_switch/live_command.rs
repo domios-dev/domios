@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -510,7 +511,7 @@ impl ServiceContext {
                 ) {
                     log::warn!("[agent-model] failed to persist the confirmed effort: {error}");
                 }
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::Model);
             } else {
                 let prior_effort = self
                     .mux

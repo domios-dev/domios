@@ -1,4 +1,5 @@
 use super::lifecycle::{for_tab, rpc_error};
+use crate::service::MuxEmitCause;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
@@ -139,7 +140,7 @@ pub fn settled(svc: &crate::service::ServiceContext, tab: &str) {
     svc.on_agent_turn_settled(tab);
     svc.complete_worker_turn_without_report(tab, crate::service::WorkerTurnSignal::ProviderStop);
     svc.schedule_session_model_refresh_after_stop(tab);
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
 }
 
 pub fn turn_id(params: &Value) -> Option<&str> {

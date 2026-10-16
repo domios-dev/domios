@@ -1,5 +1,6 @@
 use super::ServiceContext;
 use crate::multiplexer::types::{ReasoningEffortIdentity, Tab};
+use crate::service::MuxEmitCause;
 
 const UNVERIFIED: &str = "provider-default-unverified";
 const SESSION_OWNED: &str = "session-owned";
@@ -180,7 +181,7 @@ impl ServiceContext {
             (identity_changed, owned_actual)
         };
         if identity_changed {
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Model);
             if let Err(error) = super::session_persist::persist_session_after_mutation(
                 self,
                 super::session_persist::SessionPersistUrgency::Prompt,

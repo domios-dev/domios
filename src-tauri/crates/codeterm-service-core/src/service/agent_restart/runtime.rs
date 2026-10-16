@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 mod worker_binding;
 
 use super::{AgentRestartError, RestartAttemptError, RestartOutcome, TabRestartSnapshot};
@@ -110,7 +111,7 @@ impl ServiceContext {
                     let epoch = session.state.lock().epoch;
                     session.state.lock().degrade(epoch, &failure);
                     agent_runtime::engine::publish(self, tab_id, &session);
-                    self.emit_state_changed();
+                    self.emit_state_changed(MuxEmitCause::AgentRestart);
                     return Err(RestartAttemptError::Failed {
                         outcome,
                         reason: failure.to_string(),
@@ -139,7 +140,7 @@ impl ServiceContext {
                     outcome.binding_restored = true;
                 }
                 self.schedule_session_persist_debounced();
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::AgentRestart);
                 Ok(outcome)
             }
             Err(reason) => Err(RestartAttemptError::Failed {
