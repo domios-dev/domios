@@ -1,3 +1,6 @@
+import { DEV_BUILD } from "./lib/devBuild";
+import { appVersion, buildHash } from "./lib/buildStamp";
+import { frontendDiagnosticStamp } from "./lib/frontendDiagnosticStamp";
 import { installRequestDiagnostics } from "./lib/requestDiagnostics";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
 import { DaemonFrontendBootstrap } from "./components/DaemonFrontendBootstrap";
@@ -30,8 +33,14 @@ const MissionControlPrototype = deferredComponent(async () => ({ default: (await
 const SnakeGame = deferredComponent(async () => ({ default: (await import("./components/Snake/SnakeGame")).SnakeGame }));
 
 installRequestDiagnostics();
-frontendBootDiagnostic("module-entry");
 ensureDaemonRuntime();
+if (DEV_BUILD) frontendBootDiagnostic("module-entry", frontendDiagnosticStamp(buildHash(), import.meta.url, {
+  appVersion: appVersion(), userAgent: navigator.userAgent, width: window.innerWidth, height: window.innerHeight,
+  visualWidth: window.visualViewport?.width ?? window.innerWidth, visualHeight: window.visualViewport?.height ?? window.innerHeight,
+  pixelRatio: window.devicePixelRatio, touch: navigator.maxTouchPoints > 0 || "ontouchstart" in window,
+  standalone: window.matchMedia("(display-mode: standalone)").matches,
+  scrollEnd: "onscrollend" in document.documentElement, overflowAnchor: CSS.supports("overflow-anchor", "auto"),
+}));
 
 const root = document.getElementById("root")!;
 const prototype = frontendPrototypeRoute(window.location.search);
