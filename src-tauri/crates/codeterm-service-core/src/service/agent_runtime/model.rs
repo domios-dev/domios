@@ -1,6 +1,6 @@
 use codeterm_types::agent::chat_types::ChatMsg;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -207,13 +207,113 @@ impl RuntimeState {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HistoryBackfill {
+    Loading,
+    #[default]
+    Complete,
+    Failed,
+}
+
 #[derive(Default)]
 pub struct ItemCache {
     items: Vec<ChatMsg>,
     positions: HashMap<String, usize>,
+    backfill_generation: u64,
+    backfill: HistoryBackfill,
+    live_during_backfill: HashSet<String>,
+    live_added_during_backfill: HashSet<String>,
 }
 impl ItemCache {
+    pub fn begin_backfill(&mut self) -> u64 {
+        self.backfill_generation = self.backfill_generation.wrapping_add(1);
+        self.backfill = HistoryBackfill::Loading;
+        self.live_during_backfill.clear();
+        self.live_added_during_backfill.clear();
+        self.backfill_generation
+    }
+    pub fn backfill_current(&self, generation: u64) -> bool {
+        self.backfill_generation == generation
+    }
+    pub fn finish_backfill(&mut self, generation: u64, outcome: HistoryBackfill) -> bool {
+        if self.backfill_generation != generation {
+            return false;
+        }
+        self.backfill = outcome;
+        self.live_during_backfill.clear();
+        self.live_added_during_backfill.clear();
+        true
+    }
+    pub fn backfill(&self) -> HistoryBackfill {
+        self.backfill
+    }
+    /// Lands one history page: known rows update in place unless a live delta superseded
+    /// them; unknown rows go before every cached row (older page) or before live-added rows.
+    pub fn reconcile_backfill(&mut self, page: Vec<ChatMsg>, older: bool) -> Vec<ChatMsg> {
+        let mut landed = Vec::new();
+        let mut block: Vec<ChatMsg> = Vec::new();
+        for mut item in page {
+            if self.live_during_backfill.contains(&item.id) {
+                continue;
+            }
+            if self.positions.contains_key(&item.id) {
+                landed.push(self.reconcile(item));
+            } else if let Some(row) = block.iter_mut().find(|row| row.id == item.id) {
+                item.refresh_segments();
+                *row = item;
+            } else {
+                item.refresh_segments();
+                block.push(item);
+            }
+        }
+        if block.is_empty() {
+            return landed;
+        }
+        let anchor = if older {
+            0
+        } else {
+            self.live_added_during_backfill
+                .iter()
+                .filter_map(|id| self.positions.get(id).copied())
+                .min()
+                .unwrap_or(self.items.len())
+        };
+        let inserted = block.len();
+        let start = if anchor == 0 {
+            self.items.first().map_or(0, |row| row.seq) - inserted as i64
+        } else {
+            self.items[anchor - 1].seq + 1
+        };
+        self.items.splice(anchor..anchor, block);
+        let renumbered = if anchor == 0 {
+            inserted
+        } else {
+            self.items.len() - anchor
+        };
+        for (offset, row) in self.items[anchor..anchor + renumbered]
+            .iter_mut()
+            .enumerate()
+        {
+            row.seq = start + offset as i64;
+        }
+        self.positions = self
+            .items
+            .iter()
+            .enumerate()
+            .map(|(index, row)| (row.id.clone(), index))
+            .collect();
+        landed.retain(|row| self.positions[&row.id] < anchor || anchor == 0);
+        landed.extend_from_slice(&self.items[anchor..anchor + renumbered]);
+        landed
+    }
     pub fn reconcile_live(&mut self, mut item: ChatMsg, at: u64) -> ChatMsg {
+        if self.backfill == HistoryBackfill::Loading {
+            if !self.positions.contains_key(&item.id) {
+                self.live_added_during_backfill.insert(item.id.clone());
+            }
+            self.live_during_backfill.insert(item.id.clone());
+        }
         if let Some(status) = item.tool_status.as_deref() {
             let previous = self
                 .positions
@@ -238,7 +338,7 @@ impl ItemCache {
             item.seq = self.items[index].seq;
             self.items[index] = item.clone();
         } else {
-            item.seq = self.items.len() as i64;
+            item.seq = self.items.last().map_or(0, |row| row.seq + 1);
             self.positions.insert(item.id.clone(), self.items.len());
             self.items.push(item.clone());
         }

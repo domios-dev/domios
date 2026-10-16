@@ -453,6 +453,34 @@ check("initialize negotiates experimental history before planning item paginatio
   if(step.kind !== "continue" || step.plan.action.kind !== "request")throw new Error("Expected experimental item pagination");
   assert.equal(step.plan.action.call.method,"thread/items/list");
 });
+check("history reads the newest turn page first and continues older pages from its cursor",()=> {
+  const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
+  const plan=plain(hooks.runtimePlan(ctx,op));
+  if(plan.action.kind !== "request")throw new Error("Expected turn page request");
+  assert.equal(plan.action.call.method,"thread/turns/list");
+  assert.equal((plan.action.call.params as Record<string,JsonValue>).sortDirection,"desc");
+  let step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{data:[{id:"newer",status:"completed"},{id:"older",status:"completed"}],nextCursor:"page-2"}});
+  const requested:JsonValue[]=[];
+  const chunks:OperationResult[]=[];
+  while(step.kind === "continue") {
+    if(step.history)chunks.push(step.history);
+    const action=plain(step.plan.action);
+    if(action.kind !== "request" || action.call.method !== "thread/items/list")throw new Error("Expected item page request");
+    const turn=(action.call.params as Record<string,JsonValue>).turnId;
+    requested.push(turn);
+    step=hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{data:[{type:"agentMessage",id:`${String(turn)}-reply`,text:String(turn)}],nextCursor:null}});
+  }
+  const complete=plain(step);
+  if(complete.kind !== "complete" || complete.result.kind !== "historyPage")throw new Error("Expected history page");
+  assert.deepEqual(requested,["older","newer"]);
+  assert.equal(complete.result.nextCursor,"page-2");
+  assert.deepEqual(collectHistory([...chunks,complete.result]).items.map(item=>item.id),["older-reply","newer-reply"]);
+  const older=plain(hooks.runtimePlan(ctx,{...op,cursor:"page-2"}));
+  if(older.action.kind !== "request")throw new Error("Expected older turn page request");
+  assert.equal(older.action.call.method,"thread/turns/list");
+  assert.equal((older.action.call.params as Record<string,JsonValue>).cursor,"page-2");
+  assert.equal((older.action.call.params as Record<string,JsonValue>).sortDirection,"desc");
+});
 check("unsupported item pagination uses bound snapshot history without delivery evidence",()=> {
   const op:Operation={kind:"readHistory",threadId:ctx.threadId!};
   const plan=hooks.runtimePlan(ctx,op);

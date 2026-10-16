@@ -2088,7 +2088,7 @@ function runtimePlan(ctx, op) {
     case "readHistory":
       return request(
         "thread/turns/list",
-        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: "asc", limit: 8, cursor: op.cursor },
+        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: "desc", limit: 8, cursor: op.cursor },
         { stage: "turns", turns: [], cursor: null, seq: 0 }
       );
     case "submitTurn": {
@@ -2219,7 +2219,7 @@ function historyResponse(op, state, value) {
   if (state.stage === "turns") {
     const source = list(value.data).map(object);
     if (source.length > 8 || source.some((turn2) => typeof turn2.id !== "string" || !turn2.id || turn2.id.length > 4096)) return refused("Invalid history turn page");
-    const turns2 = source.map((turn2) => ({
+    const turns2 = [...source].reverse().map((turn2) => ({
       id: turn2.id,
       status: turn2.status === "inProgress" ? "inProgress" : "completed",
       startedAt: typeof turn2.startedAt === "number" && Number.isFinite(turn2.startedAt) ? turn2.startedAt : null
