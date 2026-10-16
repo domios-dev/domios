@@ -137,7 +137,6 @@ fn main_impl() {
         print!("{}", cmd::docs::render_help());
         return;
     }
-    hydrate_tab_task_binding_env(&args);
     cmd::error_contract::set_json_mode(args.iter().skip(1).any(|arg| arg == "--json"));
     let mut cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
         if e.use_stderr() && cmd::error_contract::json_mode() {
@@ -233,7 +232,7 @@ fn main_impl() {
         return;
     }
 
-    let Some(cli) = transport::pre_socket::dispatch(cli) else {
+    let Some(mut cli) = transport::pre_socket::dispatch(cli) else {
         return;
     };
 
@@ -248,6 +247,11 @@ fn main_impl() {
             crate::cmd::print::fail(1, e.to_string());
         }
     };
+
+    if command_consumes_binding(&cli.command) {
+        hydrate_tab_task_binding_env(&args, &mut client);
+        cli = Cli::try_parse_from(&args).unwrap_or_else(|error| error.exit());
+    }
 
     let result = match cli.command {
         Commands::Trace { .. } => unreachable!(),
@@ -651,7 +655,23 @@ fn main_impl() {
     handle_result(cli.json, result);
 }
 
-fn hydrate_tab_task_binding_env(args: &[String]) {
+fn command_consumes_binding(command: &Commands) -> bool {
+    matches!(
+        command,
+        Commands::Agent {
+            action: AgentAction::Ack { .. } | AgentAction::Report(_) | AgentAction::Spawn { .. }
+        } | Commands::Orchestrator { .. }
+            | Commands::Plan {
+                action: PlanAction::Record { .. }
+                    | PlanAction::Skill { .. }
+                    | PlanAction::Loop {
+                        action: args::plan::PlanLoopAction::Record { .. }
+                    }
+            }
+    )
+}
+
+fn hydrate_tab_task_binding_env(args: &[String], client: &mut impl client::RpcClient) {
     if args
         .iter()
         .any(|arg| arg == "--mesh" || arg.starts_with("--mesh="))
@@ -671,9 +691,6 @@ fn hydrate_tab_task_binding_env(args: &[String]) {
     if tab_id.trim().is_empty() || (has_plan && has_task) {
         return;
     }
-    let Ok((mut client, _)) = SocketClient::connect_local() else {
-        return;
-    };
     let Ok(response) = client.call(
         "plan.binding.resolve",
         Some(serde_json::json!({"tab_id": tab_id})),
@@ -1093,3 +1110,6 @@ mod zero_flag_plan_context_tests;
 
 #[cfg(test)]
 mod test_support;
+
+#[cfg(test)]
+mod startup_tests;
