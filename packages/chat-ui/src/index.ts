@@ -43,7 +43,7 @@ export {
 } from "./codeterm/reportOutcome";
 export type { ReportOutcomeClass, ReportTaskOutcome } from "./codeterm/reportOutcome";
 export { LocalArtifactScope } from "./LocalArtifactScope";
-export { AgentInspectionProvider } from "./AgentInspection";
+export { AgentInspectionProvider, useAgentInspection } from "./AgentInspection";
 export { AttachmentCapsule, CAPSULE_DETAIL_STYLE, CAPSULE_ICONS, CapsuleDecor, CapsulePreview, capsuleLabelParts } from "./AttachmentCapsule";
 export { capsuleSelectionText, writeClipboardFlavours } from "./capsuleClipboard";
 export { formatMessageTime } from "./MessageTime";

@@ -608,6 +608,11 @@ pub(super) fn create_router_with_preview_admission(
             get(super::runtime_login::child_history),
         )
         .route(
+            "/api/tabs/{id}/agent/runtime/background-processes",
+            get(super::runtime_login::background_processes)
+                .post(super::runtime_login::stop_background_process),
+        )
+        .route(
             "/api/tabs/{id}/agent/runtime/questions/{item}/answer",
             post(web_routes::agent_runtime_answer_question),
         )
