@@ -131,11 +131,13 @@ jobs:
           CI_FAST_ONLY: ${{ github.event_name == 'pull_request' }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
 
-  plugin-metadata:
-    name: plugin release contracts
-    needs: [changed, file-sizes]
-    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.result == 'success') }}
-    runs-on: [self-hosted, linux-ci]
+  # The cheapest, most frequent failures surface first: one job, one checkout, every guard
+  # reported, and it gates every other fast check so a single light runner orders them.
+  guards:
+    name: guards
+    needs: changed
+    if: ${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}
+    runs-on: [self-hosted, light]
     permissions:
       contents: read
       actions: write
@@ -155,8 +157,51 @@ jobs:
         run: |
           node scripts/test-catalogue.mjs select --tier pr --format json > "$RUNNER_TEMP/pr-catalogue.json"
           node -e 'const fs = require("node:fs"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pr-catalogue.json", "utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "commands=" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + "\n");'
-      - run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-release-contracts'] }}
-      - run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
+      - name: Source file size discipline
+        run: bash scripts/check-file-sizes.sh --fail
+      - name: Plugin release contracts
+        if: ${{ !cancelled() }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-release-contracts'] }}
+      - name: Plugin release and scope script tests
+        if: ${{ !cancelled() }}
+        run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
+      # Light services can miss the runner user's rustup on PATH.
+      - name: Ensure Rust toolchain on PATH
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: |
+          if command -v cargo >/dev/null 2>&1; then exit 0; fi
+          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
+            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
+          done
+          echo "cargo not found; restore Rust on the runner" >&2
+          exit 1
+      - name: cargo fmt --check
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['rust-fmt'] }}
+      # Release shards run tests from an archive extracted on another machine.
+      - name: Archive-portable Rust test paths
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: node scripts/check-archive-portable-test-paths.mjs
+      - name: Setup pnpm
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Install dependencies
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - name: Node script tests (tests/catalogue.json node-script-tests)
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['node-script-tests'] }}
+      - name: Python script tests (tests/catalogue.json python-script-tests)
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['python-script-tests'] }}
+      - name: Offline core journey contracts
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['core-journeys-offline'] }}
       # Builds already in flight stop with the first failure instead of after the slowest sibling check.
       - &cancel-run-on-failure
         name: Cancel the run on this fast-check failure
@@ -168,7 +213,7 @@ jobs:
 
   plugins:
     name: plugin (${{ matrix.plugin.id }})
-    needs: [changed, file-sizes]
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.plugins != '[]') }}
     runs-on: [self-hosted, linux-ci]
     permissions:
@@ -201,64 +246,12 @@ jobs:
         run: ${PLUGIN_COMMAND//<plugin-id>/"$PLUGIN_ID"}
       - *cancel-run-on-failure
 
-  # Formatting is platform-independent, so it does not belong inside a platform
-  # lane: gating that lane off silences the check with it, which is how 22 files
-  # drifted unseen. Its own job on any free light runner, seconds long.
-
-  file-sizes:
-    name: file sizes
-    needs: changed
-    if: ${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}
-    runs-on: [self-hosted, light]
-    permissions:
-      contents: read
-      actions: write
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref || github.ref }}
-      - name: Source file size discipline
-        run: bash scripts/check-file-sizes.sh --fail
-      - *cancel-run-on-failure
-
-  fmt:
-    name: fmt
-    needs: [changed, file-sizes]
-    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}
-    runs-on: [self-hosted, light]
-    permissions:
-      contents: read
-      actions: write
-    timeout-minutes: 8
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref || github.ref }}
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-      - *select-pr-catalogue
-      # Light services can miss the runner user's rustup on PATH.
-      - name: Ensure Rust toolchain on PATH
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
-      - name: cargo fmt --check
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['rust-fmt'] }}
-      - *cancel-run-on-failure
-
   # The whole suite compiles and runs once, in place, on any free runner in the
   # rust-tests pool: shipping a nextest archive between runners cost more than the tests.
   rust-tests:
     name: rust tests (full suite)
-    needs: [changed, fmt]
-    if: ${{ !cancelled() && inputs.phase != 'fast' && needs.changed.outputs.heavy == 'true' && (inputs.phase == 'long' || needs.fmt.result == 'success') }}
+    needs: [changed, guards]
+    if: ${{ !cancelled() && inputs.phase != 'fast' && needs.changed.outputs.heavy == 'true' && (inputs.phase == 'long' || needs.guards.result == 'success') }}
     runs-on: [self-hosted, rust-tests]
     permissions:
       contents: read
@@ -368,8 +361,8 @@ jobs:
   # Each OS compiles and runs only its cfg-gated tests and the native input crates.
   rust-platform:
     name: rust platform (${{ matrix.os }})
-    needs: [changed, fmt]
-    if: ${{ !cancelled() && inputs.phase != 'fast' && needs.changed.outputs.heavy == 'true' && (inputs.phase == 'long' || needs.fmt.result == 'success') }}
+    needs: [changed, guards]
+    if: ${{ !cancelled() && inputs.phase != 'fast' && needs.changed.outputs.heavy == 'true' && (inputs.phase == 'long' || needs.guards.result == 'success') }}
     runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}']
     permissions:
       contents: read
@@ -397,8 +390,8 @@ jobs:
 
   rust-embeddings:
     name: rust embeddings
-    needs: [changed, fmt]
-    if: ${{ !cancelled() && inputs.phase != 'fast' && needs.changed.outputs.heavy == 'true' && (inputs.phase == 'long' || needs.fmt.result == 'success') }}
+    needs: [changed, guards]
+    if: ${{ !cancelled() && inputs.phase != 'fast' && needs.changed.outputs.heavy == 'true' && (inputs.phase == 'long' || needs.guards.result == 'success') }}
     runs-on: [self-hosted, rust-tests]
     permissions:
       contents: read
@@ -446,7 +439,7 @@ jobs:
 
   clippy-linux:
     name: clippy (linux)
-    needs: [changed, file-sizes]
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.heavy == 'true') }}
     runs-on: [self-hosted, linux-ci]
     permissions:
@@ -498,7 +491,7 @@ jobs:
 
   ts-static:
     name: ts static checks
-    needs: [changed, file-sizes]
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -548,7 +541,7 @@ jobs:
   # workspace symlink can give one file two identities; nothing else runs from there.
   frontend-windows:
     name: frontend (Windows, stable path)
-    needs: [changed, file-sizes]
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
     runs-on: [self-hosted, Windows, windows-light]
     permissions:
@@ -591,7 +584,7 @@ jobs:
 
   ts-types:
     name: ts generated types
-    needs: [changed, file-sizes]
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -645,7 +638,7 @@ jobs:
 
   ts-unit:
     name: ts unit
-    needs: [changed, file-sizes]
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -682,7 +675,7 @@ jobs:
 
   ts-vitest:
     name: ts vitest
-    needs: [changed, file-sizes]
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -719,7 +712,7 @@ jobs:
 
   ts-plugins:
     name: plugin bundles + tests
-    needs: [changed, file-sizes]
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -752,49 +745,6 @@ jobs:
       - name: Run plugin tests
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-tests'] }}
-      - *cancel-run-on-failure
-
-  release-contracts:
-    name: release contract tests
-    needs: [changed, file-sizes]
-    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}
-    runs-on: [self-hosted, light]
-    permissions:
-      contents: read
-      actions: write
-    timeout-minutes: 8
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref || github.ref }}
-      - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-      # Release shards run tests from an archive extracted on another machine.
-      - name: Archive-portable Rust test paths
-        run: node scripts/check-archive-portable-test-paths.mjs
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 10.32.1
-          run_install: false
-          dest: ${{ runner.tool_cache }}/setup-pnpm
-
-      - name: Install dependencies
-        # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
-        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - *select-pr-catalogue
-      - name: Node script tests (tests/catalogue.json node-script-tests)
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['node-script-tests'] }}
-      - name: Python script tests (tests/catalogue.json python-script-tests)
-        if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['python-script-tests'] }}
-      - name: Offline core journey contracts
-        if: ${{ !cancelled() }}
-        run: ${{ fromJSON(steps.catalogue.outputs.commands)['core-journeys-offline'] }}
       - *cancel-run-on-failure
 
   rust-warnings:

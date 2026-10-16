@@ -16,7 +16,7 @@ const tests = workflow("tests");
 const builds = ["macos-arm64", "macos-x64", "linux-arm64", "linux-x86_64", "windows-x64", "windows-arm64"];
 const dependencies = job => [job.needs].flat();
 
-const fastJobs = ["file-sizes", "plugin-metadata", "plugins", "fmt", "clippy-linux", "ts-static", "frontend-windows", "ts-types", "ts-unit", "ts-vitest", "ts-plugins", "release-contracts"];
+const fastJobs = ["guards", "plugins", "clippy-linux", "ts-static", "frontend-windows", "ts-types", "ts-unit", "ts-vitest", "ts-plugins"];
 const longJobs = ["rust-tests", "rust-platform", "rust-embeddings", "rust-receipts"];
 const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
 
@@ -70,17 +70,21 @@ test("dry runs use both test stages by default; bundle-only diagnostics explicit
   assert.equal(draft.if, "steps.release.outputs.dry_run != 'true' && steps.release.outputs.published != 'true' && steps.release.outputs.kind == 'app'");
 });
 
-test("file sizes gate every other fast check, and test phases partition every check", () => {
+test("guards gate every other fast check, and test phases partition every check", () => {
   assert.deepEqual(Object.keys(tests.jobs).sort(), ["changed", "rust-warnings", ...fastJobs, ...longJobs].sort());
-  const needs = { changed: { result: "success", outputs: { heavy: "true", rust: "true", frontend: "true", plugins: '[{"id":"test"}]' } }, fmt: { result: "success" }, "rust-tests": { result: "success" }, "rust-platform": { result: "success" }, "rust-embeddings": { result: "success" } };
+  const needs = { changed: { result: "success", outputs: { heavy: "true", rust: "true", frontend: "true", plugins: '[{"id":"test"}]' } }, guards: { result: "success" }, "rust-tests": { result: "success" }, "rust-platform": { result: "success" }, "rust-embeddings": { result: "success" } };
   for (const id of fastJobs) {
-    assert.deepEqual(dependencies(tests.jobs[id]), id === "file-sizes" ? ["changed"] : ["changed", "file-sizes"], id);
+    assert.deepEqual(dependencies(tests.jobs[id]), id === "guards" ? ["changed"] : ["changed", "guards"], id);
     for (const phase of ["all", "fast", "long"]) assert.equal(condition(tests.jobs[id].if, { needs, inputs: { phase } }), ["all", "fast"].includes(phase), `${id}/${phase}`);
   }
   for (const id of longJobs) {
     for (const phase of ["all", "fast", "long"]) assert.equal(condition(tests.jobs[id].if, { needs, inputs: { phase } }), ["all", "long"].includes(phase), `${id}/${phase}`);
   }
-  const skipped = { ...needs, fmt: { result: "skipped" } };
+  const steps = tests.jobs.guards.steps.filter(step => step.run && !/gh run cancel/.test(step.run));
+  assert.equal(steps[0].id, "catalogue");
+  assert.equal(steps[1].run, "bash scripts/check-file-sizes.sh --fail", "file sizes run first");
+  for (const step of steps.slice(2)) assert.match(step.if, /^\$\{\{ !cancelled\(\)/, `${step.name}: one red guard still reports the rest`);
+  const skipped = { ...needs, guards: { result: "skipped" } };
   for (const id of ["rust-tests", "rust-platform", "rust-embeddings"]) assert.ok(condition(tests.jobs[id].if, { needs: skipped, inputs: { phase: "long" } }), id);
   assert.match(tests.concurrency.group, /inputs.phase/);
 });

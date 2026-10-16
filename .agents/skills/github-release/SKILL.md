@@ -18,7 +18,7 @@ description: >-
 | `release/X.Y.Z` | cut from `develop`; release fixes go straight onto it | every push by `rollacode` is the release run |
 | `master` | only released code: the release PR, merged by the release run after publication | `master accepts only release branches` is red for any other source |
 
-1. **Work.** PRs target `develop`. CI on every pull request runs fast checks only: `tree is new`, `fmt`, the TS jobs, `plugin bundles + tests`, `release contract tests`, file sizes, comment length and issue metadata (`scripts/ci-scope.mjs` sets `heavy=false` for pull requests). Release CI through `workflow_call` and manual dispatch run the full matrix.
+1. **Work.** PRs target `develop`. CI on every pull request runs fast checks only: `tree is new`, `guards` (file sizes, fmt, plugin and release contracts), the TS jobs, `plugin bundles + tests`, comment length and issue metadata (`scripts/ci-scope.mjs` sets `heavy=false` for pull requests). Release CI through `workflow_call` and manual dispatch run the full matrix.
 2. **Cut the release.** Create `release/X.Y.Z` from `develop`, run `npm run sync:versions` for X.Y.Z plus the offline lockfile refresh (step 1 below), push, and open the release PR `release/X.Y.Z` → `master`. Its description is the release notes.
 3. **The push is the release.** `release.yml` runs on every push to `release/**` by the owner account (`github.actor == 'rollacode'`; other pushes skip). `prepare` reads the version from the branch name, refuses a branch whose committed version differs, and skips everything when `vX.Y.Z` is already published. Parallel fast checks (`tests.yml`, `phase: fast`) gate the Rust tests and every bundle build, which then run in parallel from the exact pushed SHA; publication runs serialize; dry runs for a ref supersede older dry runs.
 4. **Red** publishes nothing: fix on the release branch and push again. **Green**: `release-manifest` stamps `vX.Y.Z`, publishes both releases and the signed `latest.json`; `promote` then merges the release PR into `master`, merges `master` back into `develop`, and deletes the branch.
@@ -250,9 +250,12 @@ intentionally, cut the correction as a new patch version through the normal flow
 
 ### Artifact graph and granular reruns
 
-`prepare` starts `quick-checks` (`tests.yml`, `phase: fast`): tree freshness, fmt, clippy,
-TS unit/Vitest/static/generated-type checks, release/plugin contracts and plugin bundles/tests.
-Every check depends only on tree/scope discovery; clippy does not wait for fmt.
+`prepare` starts `quick-checks` (`tests.yml`, `phase: fast`): tree freshness, clippy,
+TS unit/Vitest/static/generated-type checks and plugin bundles/tests, all after `guards`.
+`guards` is one light job holding the cheapest checks in order: file sizes, plugin release
+contracts, fmt, archive-portable test paths, then the Node/Python release contracts. Each
+guard after file sizes runs under `!cancelled()`, so one red guard still reports the rest,
+and the single light runner never runs a heavy check ahead of them.
 No Rust test or receipt job belongs to this gate.
 
 `tests` (`tests.yml`, `phase: long`) needs `prepare` and `quick-checks`, so it queues
@@ -276,7 +279,7 @@ Test code resolves fixture and binary paths at runtime through its crate's
 `test_support::fixture_manifest_dir()` or `cli/tests/support/codeterm_bin.rs`
 (`NEXTEST_BIN_EXE_codeterm`), so a nextest archive (`./build.sh nextest-archive`) still
 runs from another checkout; `scripts/check-archive-portable-test-paths.mjs` enforces
-this in the fast `release contract tests` job.
+this in the fast `guards` job.
 Every platform build needs only `prepare` and `quick-checks` and takes any matching idle
 runner. GitHub queue order is best effort, not strict priority; the live overlap map
 lives in the build-machine README.
