@@ -1,5 +1,36 @@
 use super::*;
 use codeterm_plugin::agent_runtime::{AgentRuntimeCommand, AgentRuntimeProtocol, RpcCall};
+
+#[cfg(target_os = "macos")]
+struct ProcessBoundaryTestLogger;
+
+#[cfg(target_os = "macos")]
+impl log::Log for ProcessBoundaryTestLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::Level::Debug
+            && metadata
+                .target()
+                .contains("service::agent_runtime::process_boundary::unix")
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            eprintln!("{}", record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+#[cfg(target_os = "macos")]
+static PROCESS_BOUNDARY_TEST_LOGGER: ProcessBoundaryTestLogger = ProcessBoundaryTestLogger;
+
+#[cfg(target_os = "macos")]
+fn init_process_boundary_test_logger() {
+    let _ = log::set_logger(&PROCESS_BOUNDARY_TEST_LOGGER);
+    log::set_max_level(log::LevelFilter::Debug);
+}
+
 fn capability() -> AgentRuntimeCapability {
     AgentRuntimeCapability {
         fast_mode: false,
@@ -120,6 +151,9 @@ async fn child_exit_reports_status_and_stderr() {
 #[cfg(unix)]
 #[tokio::test]
 async fn pipe_drop_from_a_live_peer_is_not_success() {
+    #[cfg(target_os = "macos")]
+    init_process_boundary_test_logger();
+
     let dir = tempfile::tempdir().unwrap();
     let process = spawn(
         Path::new("node"),

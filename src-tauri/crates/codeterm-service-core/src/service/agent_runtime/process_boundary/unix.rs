@@ -115,9 +115,17 @@ impl Member {
             return Err(error.to_string());
         }
         let event = unsafe { OwnedFd::from_raw_fd(fd) };
+        let born = born(pid)?;
+        #[cfg(target_os = "macos")]
+        log::debug!(
+            "[agent-runtime] retained identity captured pid={} born={} owned_group={}",
+            pid,
+            born,
+            boundary.pid
+        );
         let member = Self {
             pid,
-            born: born(pid)?,
+            born,
             event,
             observed_exit: std::sync::atomic::AtomicBool::new(false),
         };
@@ -182,12 +190,38 @@ impl Member {
         if self.exited()? {
             return Ok(());
         }
-        if born(self.pid)? != self.born
-            || unsafe { libc::getpgid(self.pid as i32) } != boundary.pid as i32
+
+        #[cfg(target_os = "macos")]
         {
-            return Err("Retained process identity or owned group changed".into());
+            let current_born = born(self.pid);
+            let current_group = unsafe { libc::getpgid(self.pid as i32) };
+            if current_born
+                .as_ref()
+                .is_ok_and(|current_born| *current_born == self.born)
+                && current_group == boundary.pid as i32
+            {
+                return Ok(());
+            }
+
+            validate_identity_fields(
+                self.pid,
+                current_born,
+                current_group,
+                self.born,
+                boundary.pid as i32,
+                || self.exited(),
+            )
         }
-        Ok(())
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            if born(self.pid)? != self.born
+                || unsafe { libc::getpgid(self.pid as i32) } != boundary.pid as i32
+            {
+                return Err("Retained process identity or owned group changed".into());
+            }
+            Ok(())
+        }
     }
     pub(super) fn terminate(&self, boundary: &Boundary) -> Result<(), String> {
         self.validate_identity(boundary)?;
@@ -281,3 +315,34 @@ fn event(pid: u32) -> i32 {
 fn event(_: u32) -> i32 {
     -1
 }
+
+#[cfg(target_os = "macos")]
+fn validate_identity_fields(
+    pid: u32,
+    current_born: Result<u128, String>,
+    current_group: i32,
+    expected_born: u128,
+    expected_group: i32,
+    confirm_exit: impl FnOnce() -> Result<bool, String>,
+) -> Result<(), String> {
+    let exited = confirm_exit()?;
+    log::debug!(
+        "[agent-runtime] retained identity mismatch pid={} expected_born={} current_born={:?} expected_group={} current_group={} exit_confirmed={}",
+        pid,
+        expected_born,
+        current_born,
+        expected_group,
+        current_group,
+        exited
+    );
+    if exited {
+        return Ok(());
+    }
+    if current_born? != expected_born || current_group != expected_group {
+        return Err("Retained process identity or owned group changed".into());
+    }
+    Ok(())
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests;
