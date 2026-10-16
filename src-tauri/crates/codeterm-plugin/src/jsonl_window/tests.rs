@@ -122,6 +122,19 @@ fn backward_page_returns_one_oversized_last_record_without_older_rows() {
 }
 
 #[test]
+fn backward_page_refuses_records_and_partial_tails_beyond_the_scan_limit() {
+    use std::io::{Seek, SeekFrom, Write};
+    for complete in [false, true] {
+        let path = write_file("backward-scan-limit", b"old\n");
+        let mut file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.seek(SeekFrom::Start(MAX_RECORD_BYTES + 5)).unwrap();
+        file.write_all(if complete { b"\n" } else { b"x" }).unwrap();
+        drop(file);
+        assert!(page_before(&path, MAX_RECORD_BYTES + 6, 1024).is_err());
+    }
+}
+
+#[test]
 fn offset_at_or_past_eof_is_a_noop() {
     let body = records(2);
     let path = write_file("eof", &body);
