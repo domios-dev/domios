@@ -821,7 +821,9 @@ export function TeamUnit({
         aria-expanded={expanded}
         onClick={toggleExpanded}
       >
-        <span className="sidebar-team-disclosure-glyph" aria-hidden="true" />
+        <svg className="sidebar-team-disclosure-glyph" viewBox="0 0 26 8" aria-hidden="true">
+          <path d="M1 4 L13 4 L25 4" />
+        </svg>
         <span className="sidebar-team-disclosure-label" aria-hidden="true">
           {expanded ? "Hide" : "Show"}
         </span>
