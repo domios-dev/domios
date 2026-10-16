@@ -328,3 +328,28 @@ This diagnostic remains local-only and is never a CI gate.
 | Cold JSONL attach and backfill parsed excessive history | locked by test oversized_session_reads_only_a_bounded_tail, an_interior_window_passes_its_exact_remaining_budget_to_the_host_reader, backfill_reads_one_megabyte_of_complete_records_without_a_second_raw_copy, and oversized_record_rows_are_whole_and_exact_limit_records_both_survive |
 | Concurrent same-tab clients repeated snapshot parsing | locked by tests in service::tab_chat::snapshot_flight::tests; source identity and binding nonce are part of the shared-flight key |
 | Missing backfill source appeared to be empty history | locked by test missing_backfill_source_is_an_error_instead_of_empty_history |
+| DEV recovery diagnostics used a stage rejected by the server | locked by FrontendDiagnosticStage type checking; the three invalid call sites fail tsc before the channel repair, and the live preflight requires cold_attach POST 204 |
+| A workspace click completed the snapshot before the bench armed its response observer | locked by test observation is armed before an action can synchronously complete its event in evals/_lib/observe-action.test.mjs; observeAction preserves the original UI action sequence |
+| A phase collector waited past its deadline without saving incomplete evidence | locked by tests a deadline persists incomplete evidence even when an operation ignores cancellation and a late operation cannot overwrite evidence after deadline termination in scripts/tests/startup-phase-collector.test.mjs |
+
+## Fresh launch phase capture
+
+Run locally on request, in the owning Team QA shell, after checking the expected
+DEV build. The existing workspace is required; preserve its load and cache state.
+
+```bash
+source evals/_lib/lib.sh
+dev_run node evals/startup-matrix/fresh-phases.mjs BUILD_SHA OUT Endure shell,claude,codex
+```
+
+`phases.json` records each checkpoint, CLI request/response times, exact boot
+marks and final binding. `dev-boot-phases.log` retains the bounded raw window.
+The 120-second deadline covers the entire capture, including initial API calls,
+CLI completion and final state. A deadline persists `incomplete` and cancels owned
+CLI process trees; never retry a timed-out send or count it as delivered.
+Quoted phase names and PTY-only first-output records are joined by exact PTY id.
+For a plain shell, first output proves only its first frame; verify the actual
+prompt, user profile and OSC 633 separately. CLI request time includes wrapper
+overhead and must not be reported as the daemon's exact tab-creation timestamp.
+Actually visit each created tab, capture/view its screenshot, and reconcile the
+unique probe token against its own bound session before claiming a launch pass.
