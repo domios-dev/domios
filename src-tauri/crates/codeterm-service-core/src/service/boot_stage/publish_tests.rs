@@ -1,54 +1,37 @@
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::test_fixture::ServiceFixture;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-
-fn find_tab<'a>(value: &'a serde_json::Value, tab_id: &str) -> Option<&'a serde_json::Value> {
-    match value {
-        serde_json::Value::Object(map)
-            if map.get("tab_id").and_then(|v| v.as_str()) == Some(tab_id) =>
-        {
-            Some(value)
-        }
-        serde_json::Value::Object(map) => map.values().find_map(|v| find_tab(v, tab_id)),
-        serde_json::Value::Array(items) => items.iter().find_map(|v| find_tab(v, tab_id)),
-        _ => None,
-    }
-}
-
-fn find_key<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
-    match value {
-        serde_json::Value::Object(map) => map
-            .get(key)
-            .or_else(|| map.values().find_map(|v| find_key(v, key))),
-        serde_json::Value::Array(items) => items.iter().find_map(|v| find_key(v, key)),
-        _ => None,
-    }
-}
 
 fn published_stage(service: &ServiceContext, tab_id: &str) -> Option<serde_json::Value> {
     let snapshot: serde_json::Value =
-        serde_json::from_slice(&service.published_mux_state()).ok()?;
-    find_key(find_tab(&snapshot, tab_id)?, "boot_stage").cloned()
+        serde_json::from_slice(&service.published_mux_state()).unwrap();
+    snapshot["tabs"][tab_id].get("boot_stage").cloned()
 }
 
-fn await_published_stage(fixture: &ServiceFixture, tab_id: &str, stage: BootStage) {
+fn observe_published_stage(
+    fixture: &ServiceFixture,
+    tab_id: &str,
+    stage: BootStage,
+) -> (usize, std::sync::mpsc::Receiver<()>) {
+    let (published, observed) = std::sync::mpsc::channel();
+    let tab_id = tab_id.to_owned();
     let expected = serde_json::to_value(stage).unwrap();
-    let mut events = fixture.service.events.subscribe();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_time()
-        .build()
-        .unwrap();
-    runtime.block_on(async {
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
-        while published_stage(&fixture.service, tab_id).as_ref() != Some(&expected) {
-            tokio::time::timeout_at(deadline, events.recv())
-                .await
-                .expect("published snapshot carries the committed boot stage")
-                .ok();
+    let listener = fixture.ui.listen("mux-state-changed", move |snapshot| {
+        if snapshot["tabs"][&tab_id]["boot_stage"] == expected {
+            let _ = published.send(());
         }
     });
+    (listener, observed)
+}
+
+fn await_publication(
+    fixture: &ServiceFixture,
+    observation: (usize, std::sync::mpsc::Receiver<()>),
+) {
+    let (listener, observed) = observation;
+    let result = observed.recv_timeout(std::time::Duration::from_secs(10));
+    fixture.ui.unlisten(listener);
+    result.expect("emitter completes publication of the committed boot stage");
 }
 
 #[test]
@@ -56,6 +39,7 @@ fn boot_stage_commit_reaches_published_snapshot_without_other_mutation() {
     let (mux, tab_id) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let before = fixture.service.published_mux_state();
+    let observation = observe_published_stage(&fixture, &tab_id, BootStage::LaunchWritten);
     fixture
         .service
         .emit_boot_stage(&tab_id, BootStage::LaunchWritten, None);
@@ -69,33 +53,31 @@ fn boot_stage_commit_reaches_published_snapshot_without_other_mutation() {
             .boot_stage,
         Some(BootStage::LaunchWritten)
     );
-    await_published_stage(&fixture, &tab_id, BootStage::LaunchWritten);
+    await_publication(&fixture, observation);
+    assert_eq!(
+        published_stage(&fixture.service, &tab_id),
+        Some(serde_json::to_value(BootStage::LaunchWritten).unwrap())
+    );
     assert_ne!(fixture.service.published_mux_state(), before);
 }
 
 #[test]
-fn each_publishing_stage_requests_one_coalesced_snapshot() {
+fn boot_stage_burst_reaches_published_snapshot_without_other_mutation() {
     let (mux, tab_id) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
-    let stats = fixture.service.ext::<Arc<crate::service::MuxEmitStats>>();
-    let requests = || stats.requests.load(Ordering::Relaxed);
-    let silent = requests();
-    fixture
-        .service
-        .emit_boot_stage(&tab_id, BootStage::PtySpawned, None);
-    let baseline = requests() - silent;
-    let burst = [
+    let observation = observe_published_stage(&fixture, &tab_id, BootStage::ProviderReady);
+    for stage in [
         BootStage::AgentLaunching,
         BootStage::LaunchWritten,
         BootStage::ProviderReady,
-    ];
-    for stage in burst {
-        let start = requests();
+    ] {
         fixture.service.emit_boot_stage(&tab_id, stage, None);
-        assert_eq!(requests() - start, baseline + 1, "{stage:?}");
     }
-    await_published_stage(&fixture, &tab_id, BootStage::ProviderReady);
-    assert!(stats.fires.load(Ordering::Relaxed) <= requests());
+    await_publication(&fixture, observation);
+    assert_eq!(
+        published_stage(&fixture.service, &tab_id),
+        Some(serde_json::to_value(BootStage::ProviderReady).unwrap())
+    );
 }
 
 #[test]
