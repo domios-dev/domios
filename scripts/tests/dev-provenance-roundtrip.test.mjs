@@ -54,6 +54,31 @@ ${operation} "$4"
 `, '--', cwd, checkout, target, sha, launchSha], { encoding: 'utf8' });
 }
 
+test('utility identity capture tolerates non-Git directories and unavailable Git; stamping refuses', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-identity-no-git-'));
+  try {
+    for (const missingGit of [false, true]) {
+      const result = spawnSync(bash, ['-c', `set -euo pipefail
+${sourceFunction('initialize_build_identity')}
+${missingGit ? 'git() { return 127; }' : ''}
+for CMD in env help kill; do
+  export CODETERM_BUILD_SHA=stale CODETERM_BUILD_HASH=stale CODETERM_FRONTEND_BUILD_HASH=stale
+  initialize_build_identity
+  [ -z "\${CODETERM_BUILD_SHA+x}" ]
+  [ -z "\${CODETERM_BUILD_HASH+x}" ]
+  [ -z "\${CODETERM_FRONTEND_BUILD_HASH+x}" ]
+done
+for CMD in dev dev-prebuilt build install-local; do
+  if initialize_build_identity; then exit 42; fi
+done
+`, '--'], { cwd: directory, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('commit during build preserves launch identity across prebuilt handoff', () => {
   const { directory, checkout, sha } = fixture();
   try {

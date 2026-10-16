@@ -236,6 +236,8 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 
 ## Troubleshooting log (grow this as things break)
 
+- **2026-10-16: utility verbs abort while capturing identity outside a Git checkout.** Identity lookup ran under `set -e` before verb dispatch. Capture now tolerates unavailable Git and clears inherited stamps; stamping launches still refuse without a valid identity. Use the corrected script for utility operations; run builds from a Git checkout.
+
 - **2026-10-16: DEV keeps showing the newer-interface pill after reload.** A commit during compilation let the internal `dev-prebuilt` re-entry recapture HEAD for the web watcher after Rust had stamped the earlier commit. `build.sh` now freezes full and short identities once and passes them to Rust, frontend builds, readiness checks and the internal provenance handoff. Standalone `dev-prebuilt` still refuses provenance from a different HEAD. Recovery: the instance owner rebuilds through `dev`, preserving its instance and port settings, then verifies health and `/build-identity.json` identify the same launch. Reloading the mismatched bundle alone cannot repair it.
 
 - **2026-10-15: DEV panics during service state construction after a host-port split.** A late `SessionState` extension was set twice, once by service construction and again by desktop setup. Keep initialization in service construction; extension-set failures log the exact type. Rebuild with `dev` and require setup to proceed past service state construction before live probes.

@@ -247,22 +247,32 @@ setup_env() {
 }
 
 initialize_build_identity() {
+  local full_hash short_hash
   CT_DEV_PROVENANCE_SHA=
   if [ "$CMD" = dev-prebuilt ] && [ -n "${CT_DEV_HANDOFF_SHA:-}" ]; then
-    CODETERM_BUILD_SHA="$CT_DEV_HANDOFF_SHA"
-    CODETERM_BUILD_HASH="${CT_DEV_HANDOFF_HASH:?internal dev handoff requires its short hash}"
+    full_hash="$CT_DEV_HANDOFF_SHA"
+    short_hash="${CT_DEV_HANDOFF_HASH:-}"
     CT_DEV_PROVENANCE_SHA="$CT_DEV_HANDOFF_SHA"
   else
-    CODETERM_BUILD_SHA="$(git rev-parse HEAD)"
-    CODETERM_BUILD_HASH="$(git rev-parse --short "$CODETERM_BUILD_SHA")"
+    full_hash="$(git rev-parse HEAD 2>/dev/null || true)"
+    short_hash="$(git rev-parse --short "$full_hash" 2>/dev/null || true)"
   fi
   unset CT_DEV_HANDOFF_SHA CT_DEV_HANDOFF_HASH
-  [[ "$CODETERM_BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || return 1
-  [[ "$CODETERM_BUILD_HASH" =~ ^[0-9a-f]{7,40}$ ]] || return 1
-  [[ "$CODETERM_BUILD_SHA" = "$CODETERM_BUILD_HASH"* ]] || return 1
-  export CODETERM_BUILD_SHA
-  export CODETERM_BUILD_HASH
-  export CODETERM_FRONTEND_BUILD_HASH="$CODETERM_BUILD_HASH"
+  unset CODETERM_BUILD_SHA CODETERM_BUILD_HASH CODETERM_FRONTEND_BUILD_HASH
+  if [[ ! "$full_hash" =~ ^[0-9a-f]{40}$ ]] ||
+      [[ ! "$short_hash" =~ ^[0-9a-f]{7,40}$ ]] || [[ "$full_hash" != "$short_hash"* ]]; then
+    CT_DEV_PROVENANCE_SHA=
+    case "$CMD" in
+      dev|dev-prebuilt|build|install-local)
+        echo "ERROR: $CMD requires a valid build identity from Git or its internal launch handoff" >&2
+        return 1
+        ;;
+    esac
+    return 0
+  fi
+  export CODETERM_BUILD_SHA="$full_hash"
+  export CODETERM_BUILD_HASH="$short_hash"
+  export CODETERM_FRONTEND_BUILD_HASH="$short_hash"
 }
 initialize_build_identity
 
