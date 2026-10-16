@@ -16,6 +16,8 @@ mod execution_sandbox;
 mod inline_fixture;
 #[path = "parity_test/runtime.rs"]
 mod runtime;
+#[path = "parity_test/raw_arguments.rs"]
+mod raw_arguments;
 use inline_fixture::load_inline_js;
 
 use std::path::PathBuf;

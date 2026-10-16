@@ -1,5 +1,8 @@
 //! `PluginVm` — one QuickJS context per plugin.
 
+mod arguments;
+#[cfg(test)]
+mod raw_arguments_test;
 mod runtime_hook;
 mod timing;
 pub(crate) use runtime_hook::call_runtime_hook;
@@ -7,6 +10,7 @@ pub(crate) use runtime_hook::call_runtime_hook;
 use std::collections::HashSet;
 use std::path::Path;
 
+use arguments::Arguments;
 use parking_lot::Mutex;
 use rquickjs::{CatchResultExt, Context, Function, Runtime, Value};
 
@@ -188,12 +192,17 @@ const PLUGIN_PREAMBLE: &str = r#"
 "#;
 
 const INVOKE_HELPERS: &str = r#"
+globalThis.__ct_call_args__ = function () {
+    var args = JSON.parse(globalThis.__ct_args__);
+    if (typeof globalThis.__ct_raw_arg__ === 'string') args.push(globalThis.__ct_raw_arg__);
+    return args;
+};
 globalThis.__ct_invoke__ = function () {
     var m = globalThis.__ct_method__;
     var p = globalThis.__plugin__;
     var fn = p ? p[m] : undefined;
     if (typeof fn !== 'function') { throw new Error('not a function: ' + m); }
-    var out = fn.apply(p, JSON.parse(globalThis.__ct_args__));
+    var out = fn.apply(p, globalThis.__ct_call_args__());
     if (out && typeof out.then === 'function') {
         throw new Error(m + ' returned a Promise; plugin methods must be synchronous');
     }
@@ -204,7 +213,7 @@ globalThis.__ct_invoke_strict__ = function () {
     var p = globalThis.__plugin__;
     var fn = p ? p[m] : undefined;
     if (typeof fn !== 'function') { throw new Error('not a function: ' + m); }
-    var out = fn.apply(p, JSON.parse(globalThis.__ct_args__));
+    var out = fn.apply(p, globalThis.__ct_call_args__());
     if (out && typeof out.then === 'function') {
         throw new Error(m + ' returned a Promise; plugin methods must be synchronous');
     }
@@ -738,16 +747,16 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
     interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
 ) -> Result<R, VmError> {
     let mut timing = (method == "runtimeStoredHistory").then(|| timing::HookTiming::new(method));
-    let args_json =
-        serde_json::to_string(args).map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
+    let args = Arguments::prepare(method, args)
+        .map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
     if let Some(timing) = timing.as_mut() {
-        timing.bytes = args_json.len();
+        timing.bytes = args.bytes();
         timing.enter("vm_wait");
     }
     let mut result_json = enter_call(
         vm,
         method,
-        &args_json,
+        &args,
         strict,
         interrupt.clone(),
         timing.as_mut(),
@@ -798,7 +807,7 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
 fn enter_call(
     vm: &PluginVm,
     method: &str,
-    args_json: &str,
+    args: &Arguments<'_>,
     strict: bool,
     interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
     timing: Option<&mut timing::HookTiming<'_>>,
@@ -832,9 +841,13 @@ fn enter_call(
             .catch(&ctx)
             .map_err(|e| VmError::Script(format!("setting method failed: {e:?}")))?;
         globals
-            .set("__ct_args__", args_json)
+            .set("__ct_args__", args.json.as_str())
             .catch(&ctx)
             .map_err(|e| VmError::Script(format!("setting args failed: {e:?}")))?;
+        globals
+            .set("__ct_raw_arg__", args.raw)
+            .catch(&ctx)
+            .map_err(|e| VmError::Script(format!("setting raw argument failed: {e:?}")))?;
         let invoke: Function = globals
             .get(if strict {
                 "__ct_invoke_strict__"
@@ -843,11 +856,12 @@ fn enter_call(
             })
             .catch(&ctx)
             .map_err(|e| VmError::Script(format!("__ct_invoke__ missing: {e:?}")))?;
-        let result: String = invoke
-            .call(())
+        let result = invoke
+            .call::<_, String>(())
             .catch(&ctx)
-            .map_err(|e| VmError::Script(format!("{method}: {e:?}")))?;
-        Ok(result)
+            .map_err(|e| VmError::Script(format!("{method}: {e:?}")));
+        let _ = globals.remove("__ct_raw_arg__");
+        result
     });
     if interrupt.is_some() {
         inner._rt.set_interrupt_handler(None);
