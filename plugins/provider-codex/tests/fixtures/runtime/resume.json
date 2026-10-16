@@ -184,7 +184,7 @@
           "params": {
             "threadId": "thread-fixture",
             "itemsView": "notLoaded",
-            "sortDirection": "desc",
+            "sortDirection": "asc",
             "limit": 8
           }
         }
@@ -198,14 +198,14 @@
         "value": {
           "data": [
             {
-              "id": "active",
-              "status": "inProgress",
-              "startedAt": 20
-            },
-            {
               "id": "historical",
               "status": "completed",
               "startedAt": 10
+            },
+            {
+              "id": "active",
+              "status": "inProgress",
+              "startedAt": 20
             }
           ],
           "nextCursor": "turn-page-2"
@@ -346,7 +346,7 @@
           "params": {
             "threadId": "thread-fixture",
             "itemsView": "notLoaded",
-            "sortDirection": "desc",
+            "sortDirection": "asc",
             "limit": 8
           }
         }
