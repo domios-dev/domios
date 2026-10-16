@@ -189,6 +189,55 @@ fn protected_jobs_cannot_be_deleted() {
 }
 
 #[test]
+fn protected_jobs_reject_definition_edits_but_allow_toggle() {
+    let mut store = temp_store();
+    let job = store
+        .create(make_params("system job", "workspace", "0 * * * *"))
+        .unwrap();
+    store.set_protected(&job.id, true).unwrap();
+    for patch in [
+        CronUpdateParams {
+            schedule: Some("0 6 * * *".into()),
+            ..serde_json::from_value(serde_json::json!({})).unwrap()
+        },
+        CronUpdateParams {
+            task: Some("replacement".into()),
+            ..serde_json::from_value(serde_json::json!({})).unwrap()
+        },
+    ] {
+        assert!(store.prepare_update(&job.id, patch).is_err());
+        assert_eq!(store.get(&job.id).unwrap().task, job.task);
+        assert_eq!(store.get(&job.id).unwrap().schedule, job.schedule);
+    }
+    for enabled in [false, true] {
+        let updated = store
+            .update(
+                &job.id,
+                CronUpdateParams {
+                    enabled: Some(enabled),
+                    ..serde_json::from_value(serde_json::json!({})).unwrap()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.enabled, enabled);
+        assert!(updated.protected);
+    }
+    let json = serde_json::to_value(store.get(&job.id).unwrap()).unwrap();
+    assert_eq!(json["protected"], true);
+    store.set_protected(&job.id, false).unwrap();
+    assert!(store
+        .prepare_update(
+            &job.id,
+            CronUpdateParams {
+                task: Some("replacement".into()),
+                ..serde_json::from_value(serde_json::json!({})).unwrap()
+            }
+        )
+        .is_ok());
+    assert!(store.prepare_delete(&job.id, false).is_ok());
+}
+
+#[test]
 fn record_failure_increments_counter_and_backs_off() {
     let mut store = temp_store();
     let job = store

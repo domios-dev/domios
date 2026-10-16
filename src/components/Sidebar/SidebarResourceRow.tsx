@@ -5,6 +5,7 @@ import { invoke } from "../../lib/bridge";
 import { cronSelectionStore } from "../Cron/cronSelectionStore";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { RowMenuButton } from "../shared/RowMenuButton";
+import { cronRowMenu } from "./cronRowMenu";
 import { cronReportTitle } from "./teamRowLabels";
 
 export function SidebarResourceRow({ name, state, icon, title, accessibleName, onOpen, actions }: {
@@ -32,7 +33,15 @@ export function SidebarCronRow({ job, tabs, onBeforeOpen, onDeleted }: {
       cronSelectionStore.open({ cronId: job.id, workspaceId: job.workspace_id });
     }}
     actions={<DropdownMenu className="sidebar-team-cron-menu" menuLabel="Cron actions"
-      items={[{ label: "Delete cron", icon: <X size={11} strokeWidth={2} />, danger: true,
-        onClick: () => { void invoke("cron_delete", { id: job.id }).then(onDeleted); } }]}
+      items={cronRowMenu(job).map((item) => ({
+        label: item.label, disabled: item.disabled, danger: item.action === "delete",
+        icon: item.action === "delete" ? <X size={11} strokeWidth={2} /> : undefined,
+        onClick: item.disabled ? undefined : () => {
+          const request = item.action === "toggle"
+            ? invoke("cron_toggle", { id: job.id, enabled: !job.enabled })
+            : invoke("cron_delete", { id: job.id });
+          void request.then(onDeleted);
+        },
+      }))}
       trigger={<RowMenuButton label={`Cron actions for ${job.name}`} title="Cron actions" />} />} />;
 }

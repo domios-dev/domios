@@ -99,3 +99,35 @@ test("shared Cron actions delete once and refresh their source", async () => {
     __setInvokeForTest(null);
   }
 });
+
+
+test("system Cron row toggles once and renders deletion unavailable", async () => {
+  const calls: unknown[] = [];
+  let refreshed = 0;
+  __setInvokeForTest(async (command, args) => {
+    calls.push([command, args]);
+    return undefined as never;
+  });
+  const view = await mount(<SidebarCronRow job={{ ...teamCron, protected: true }} tabs={{}} onDeleted={() => { refreshed += 1; }} />);
+  try {
+    for (const enabled of [true, false]) {
+      await act(async () => view.root.render(<SidebarCronRow job={{ ...teamCron, enabled, protected: true }} tabs={{}} onDeleted={() => { refreshed += 1; }} />));
+      await act(async () => named(view.host, `Cron actions for ${teamCron.name}`)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+      const items = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+      const toggle = items.find((button) => button.textContent?.trim() === (enabled ? "Disable" : "Enable"));
+      const unavailable = items.find((button) => button.textContent?.trim() === "System job cannot be deleted");
+      assert.ok(toggle);
+      assert.ok(unavailable?.disabled);
+      assert.equal(items.some((button) => button.textContent?.trim() === "Delete cron"), false);
+      await act(async () => { unavailable.click(); toggle.click(); });
+    }
+    assert.deepEqual(calls, [
+      ["cron_toggle", { id: teamCron.id, enabled: false }],
+      ["cron_toggle", { id: teamCron.id, enabled: true }],
+    ]);
+    assert.equal(refreshed, 2);
+  } finally {
+    await view.close();
+    __setInvokeForTest(null);
+  }
+});

@@ -36,7 +36,12 @@ pub fn ensure_dreaming_cron(
         // `mem dream`) so existing installs don't silently no-op forever.
         let task_changed = job.task != DREAMING_TASK;
 
-        if agent_changed || legacy_schedule_match || legacy_jitter_match || task_changed {
+        if !job.protected
+            || agent_changed
+            || legacy_schedule_match
+            || legacy_jitter_match
+            || task_changed
+        {
             let job_id = job.id.clone();
             let mut schedule = job.schedule.clone();
             let mut jitter = job.jitter_max_ms;
@@ -68,6 +73,7 @@ pub fn ensure_dreaming_cron(
                 }
             }
             cron_store.update_job(&job_id, &mut |j| {
+                j.protected = true;
                 if agent_changed {
                     j.agent = desired_agent.clone();
                 }
