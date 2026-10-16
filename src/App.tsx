@@ -45,6 +45,7 @@ import type { ReturnTo } from "./lib/returnTo";
 import { OPEN_JOB_EVENT, type OpenJobDetail } from "./components/Jobs/openJobEvent";
 import { jobsEntryFilter, jobsOpenEntry, type JobsOpenScope } from "./components/Jobs/jobsLayout";
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
+import { PageDataProvider } from "./hooks/PageDataProvider";
 import { useConfig } from "./hooks/useConfig";
 import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
@@ -928,9 +929,11 @@ function AppInner() {
 export function App() {
   return (
     <MultiplexerProvider>
+      <PageDataProvider>
       <UpdateProvider>
         <UpdatePanelProvider><AppInner /></UpdatePanelProvider>
       </UpdateProvider>
+      </PageDataProvider>
     </MultiplexerProvider>
   );
 }
