@@ -3,6 +3,7 @@ import {createPortal} from "react-dom";
 import {formatUntil} from "../../lib/timeLabels";
 import type {ResetCredits} from "@codeterm/plugin-sdk";
 import {ConfirmDialog} from "../Extensions/ConfirmDialog";
+import {InlineErrorNotice} from "../shared/ErrorNotice";
 import {resetCreditsState, resetOutcomeLabels, type ResetCreditsModel} from "./resetCreditsModel";
 
 export function ResetCreditsSection({resets, model}: {resets?:ResetCredits|null; model:ResetCreditsModel}) {
@@ -19,7 +20,7 @@ export function ResetCreditsSection({resets, model}: {resets?:ResetCredits|null;
     {model.key && !model.busy && <button type="button" className="ct-btn" onClick={() => run(() => model.retry())}>Retry reset</button>}
     {model.busy && <div role="status">Resetting limits…</div>}
     {model.outcome && <div role="status">{resetOutcomeLabels[model.outcome]}</div>}
-    {model.error && <div role="alert">{model.error}</div>}
+    {model.error && <InlineErrorNotice error={model.error} operation="resetting the rate limits" />}
     {model.confirming && createPortal(<div onMouseDown={event => event.stopPropagation()} ref={node => node?.querySelector<HTMLButtonElement>("button")?.focus()} onKeyDown={event => {
       if (event.key === "Escape") {event.stopPropagation();cancel();}
       if (event.key === "Tab") {

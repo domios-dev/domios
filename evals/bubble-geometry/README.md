@@ -14,4 +14,6 @@ See [SCENARIOS.md](SCENARIOS.md). Exit 0 means all four sizes passed. Missing pr
 
 The shared max is imported from `chatLayoutTokens.ts`; the in-page root font converts rem to pixels. Available width and center exclude transcript gutters and the scrollbar. User bubbles, assistant columns and transcript rows must fill that available width up to the token cap. Composer width must stay below the same cap.
 
+Surface selection requires exactly one visible, ready, non-busy Chat. Retained surfaces under hidden, inert, aria-hidden, display:none, invisible or transparent ancestors are excluded even when their rectangles have dimensions. Composer measurements are scoped to that Chat, and JSON records its tab ID. The pure `chatGeometrySurface.test.ts` covers a retained hidden surface preceding the selected surface, readiness, busy state and ambiguity.
+
 History: `04b5fb56ac9df89f3f822556a5a405167e4c3901` replaced the timestamp-gutter rule with `.ct-chat-surface .ct-chat-message-row { max-width: none; }`, overriding the centered frame cap restored by `2ac53e7e6b0f072fec62070d65db891178eed849`. `dc5d9d258` changed only inset calculations; `a7fc13ffb` changed phone bubble tokens. Both intents are preserved.
