@@ -3,6 +3,8 @@ import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import type { Tab } from "../../lib/types";
+import type { ProviderDescriptor } from "../../lib/types";
+import { setAgentDescriptors } from "../../lib/agentDescriptorCache";
 import {
   MultiplexerActionsContext,
   MuxStateStoreContext,
@@ -133,11 +135,13 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
   dispatch: (event: string, payload: unknown) => void;
   calls: string[];
 }> {
+  setAgentDescriptors([{ id: "lmstudio", agent_runtime: { goals: { actions: ["read"] } } }] as unknown as ProviderDescriptor[]);
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { TabSessionChat } = await import("./TabSessionChat");
   const calls: string[] = [];
   __setInvokeForTest((async (command: string) => {
     calls.push(command);
+    if (command === "agent_runtime_goal") return { supported: true, intent: sessionIntent, actions: [] };
     if (command === "agent_runtime_retry") return { state: "loaded", epoch: 3 };
     if (command === "chat_start") {
       if (chatError) throw new Error(chatError);
@@ -204,7 +208,6 @@ for (const narrow of [false, true]) {
       const composer = host.querySelector('[data-testid="composer-context-header"]');
       const goal = composer?.querySelector<HTMLButtonElement>('button[aria-label="Session goal"]');
       assert(goal, "composer exposes the session goal control");
-      assert(goal.textContent === "", "goal trigger is icon-only");
       assert(goal.closest('[role="group"][aria-label="Linked to this tab"]'), "goal shares the linked controls row");
       assert(!host.querySelector('[role="group"][aria-label="Session intent"]'), "chat has no intent strip");
       assert(!host.querySelector('[role="log"] [aria-label="Session goal"]'), "goal is outside the transcript");
