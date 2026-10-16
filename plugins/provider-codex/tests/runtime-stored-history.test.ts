@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { ChatMsg, JsonValue, RuntimeContext } from "@codeterm/plugin-sdk";
-import { runtimeStoredHistory } from "../src/runtimeStoredHistory";
+import { runtimeStoredHistory, runtimeStoredRecords } from "../src/runtimeStoredHistory";
+import { loadRecordPlugin, plain, recordInput } from "../../provider-shared/tests/recordHookFixture";
 import { runtimePlan, runtimeResponse } from "../src/runtime";
 import { collectHistory } from "./runtimeHistoryHost";
 import { object } from "../src/runtimeProtocol";
@@ -15,6 +17,23 @@ const base = JSON.parse(fs.readFileSync(new URL("./fixtures/runtime/tool-call.js
 const ctx: RuntimeContext = {...base.context, threadId:fixture.sessionId};
 const operation = {kind:"readHistory" as const, threadId:fixture.sessionId};
 const stored = runtimeStoredHistory(fixture.sessionId, fixture.records.map(record => JSON.stringify(record)).join("\n"));
+const reopenedRecords = JSON.parse(fs.readFileSync(new URL("./fixtures/reopened-assistant-history.json", import.meta.url), "utf8")) as JsonValue[];
+const reopenedText = reopenedRecords.map(record => JSON.stringify(record)).join("\n");
+const reopenedInput = recordInput(reopenedText);
+const bundle = loadRecordPlugin(fileURLToPath(new URL("..", import.meta.url)));
+for (const rows of [
+  runtimeStoredHistory("fixture-identity-1", reopenedText),
+  runtimeStoredRecords("fixture-identity-1", reopenedInput.records),
+  bundle.runtimeStoredHistory!("fixture-identity-1", reopenedText),
+  bundle.runtimeStoredRecords!("fixture-identity-1", reopenedInput.records, reopenedInput.meta),
+]) {
+  assert.deepEqual(plain(rows.map(row => [row.id, row.type, row.content])), [
+    ["fixture-identity-3", "assistant", "ACK-CODEX"],
+    ["fixture-identity-6", "assistant", "CACK-3"],
+    ["fixture-identity-9", "assistant", "ACK-FAST-MODEL"],
+  ]);
+  assert.deepEqual(plain(rows.map(row => row.toolFlowId)), ["fixture-identity-2", "fixture-identity-5", "fixture-identity-8"]);
+}
 const projected = runtimeStoredHistory(fixture.sessionId, JSON.stringify({
   type:"event_msg", payload:{type:"item_completed",thread_id:fixture.sessionId,turn_id:"large-turn",
     item:{id:"large-item",type:"AgentMessage",status:"completed",historyTruncated:true}},

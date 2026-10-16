@@ -234,11 +234,11 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
     "starterPromptText", "detectFromTitle", "detectFromOutput", "screenHasTui", "isOutputNoise",
     "hasEventMarkers", "detectEvents", "parsePrompt", "parseDirectoryTrustPrompt", "buildPromptResponse", "directoryTrustPromptResponse", "directoryTrustState",
     "discoverModels", "buildLaunchCommand", "buildLaunchSpec", "buildResumeCommand", "buildResumeCommandWithContext", "sessionFilePath", "sessionExists", "sessionJsonlPath", "sessionResume",
-    "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
+    "parseSessionDelta", "parseSessionRecords", "parseSessionMessageRecords", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
     "detectActiveSession", "enumerateSessions", "findSession", "folderTrustAnswered", "checkForUpdate", "isDirectoryTrusted", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "parseSessionObservations", "classifyTabState",
     "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts", "classifiedPromptAutoResponse",
-    "updatePromptSafeChoice", "runtimePlan", "runtimeResponse", "runtimeReduce", "runtimeStoredHistory",
+    "updatePromptSafeChoice", "runtimePlan", "runtimeResponse", "runtimeReduce", "runtimeStoredHistory", "runtimeStoredRecords",
   ].sort();
   eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
   eq(loadHostPlugin().sessionResume(), { exact: true }, "exact session resume is explicitly declared");
