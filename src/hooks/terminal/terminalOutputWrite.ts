@@ -8,6 +8,10 @@ type Write = { payload: Payload; done?: () => void };
 type State = { pending: Uint8Array; queue: Write[]; writing: boolean };
 const states = new WeakMap<OutputTerminal, State>();
 
+export function shouldAttachTerminalOutput(ioEnabled: boolean, renderEnabled: boolean): boolean {
+  return ioEnabled && renderEnabled;
+}
+
 function markerAt(bytes: Uint8Array, offset: number, length = marker.length): boolean {
   for (let i = 0; i < length; i++) {
     if (bytes[offset + i] !== marker[i]) return false;
@@ -55,6 +59,14 @@ function clearRestoredViewport(term: OutputTerminal, done: () => void): void {
 }
 
 export function writeTerminalOutput(term: OutputTerminal, payload: Payload, done?: () => void): void {
+  enqueueTerminalOutput(term, payload, done);
+}
+
+export function writeTerminalOutputAndWait(term: OutputTerminal, payload: Payload): Promise<void> {
+  return new Promise((resolve) => enqueueTerminalOutput(term, payload, resolve));
+}
+
+function enqueueTerminalOutput(term: OutputTerminal, payload: Payload, done?: () => void): void {
   let state = states.get(term);
   if (!state) {
     state = { pending: new Uint8Array(), queue: [], writing: false };

@@ -34,9 +34,9 @@ export function bindOutputStreamTransport(client: TransportClient): void {
 }
 
 export interface TabOutputSink {
-  onOutput(text: string): void;
+  onOutput(text: string): void | Promise<void>;
   onReady?(): void;
-  onBytes?(bytes: Uint8Array): void;
+  onBytes?(bytes: Uint8Array): void | Promise<void>;
   onTruncated(from: number): void;
   onEnded(): void;
   onStreamError?(error: Error): void;
@@ -126,7 +126,7 @@ function outputStreamUrl(): string {
   return url;
 }
 
-function handleFrame(msg: OutputFrame): void {
+async function handleFrame(msg: OutputFrame): Promise<void> {
   const perf = window.__outputStreamPerf;
   if (perf) {
     perf.frames += 1;
@@ -161,7 +161,7 @@ function handleFrame(msg: OutputFrame): void {
     });
     if (set) {
       perf && (perf.batches += 1);
-      for (const sink of set) deliverOutput(tab, sink, msg);
+      await Promise.all([...set].map((sink) => deliverOutput(tab, sink, msg)));
     }
     return;
   }
@@ -180,18 +180,18 @@ function deliverTruncation(tabId: string, sink: TabOutputSink, from: number, boo
   replay.resync(identity.terminal, tabId, bootId, identity.ptyId, from, () => sink.onTruncated(from));
 }
 
-function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame): void {
+function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame): void | Promise<void> {
   const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: frame.pty_id ?? tabId };
   const bytes = frame.data ? new Uint8Array(frame.data) : new TextEncoder().encode(frame.output ?? "");
-  replay.deliver(identity.terminal, tabId, {
+  return replay.deliver(identity.terminal, tabId, {
     boot: frame.boot ?? boot ?? "", ptyId: frame.pty_id ?? identity.ptyId,
     offset: frame.offset ?? bytes.length, bytes,
   }, (payload) => writeSinkBytes(sink, payload));
 }
 
-function writeSinkBytes(sink: TabOutputSink, bytes: Uint8Array): void {
-  if (sink.onBytes) sink.onBytes(bytes);
-  else sink.onOutput(new TextDecoder().decode(bytes));
+function writeSinkBytes(sink: TabOutputSink, bytes: Uint8Array): void | Promise<void> {
+  if (sink.onBytes) return sink.onBytes(bytes);
+  return sink.onOutput(new TextDecoder().decode(bytes));
 }
 
 function recoverOutputStream(): void {
@@ -204,7 +204,7 @@ function openAggregateStream(): () => void {
   const client = outputClient ?? createTransportClient({ origin: apiHost(), token: currentToken });
   client.subscribe(outputStreamUrl().slice(client.origin().length), (_name, data) => {
     if (abort.signal.aborted || streamAbort !== abort) return;
-    handleFrame(data as OutputFrame);
+    return handleFrame(data as OutputFrame);
   }, {
     signal: abort.signal, raw: true,
     onActivity() { for (const set of sinks.values()) for (const sink of set) sink.onReady?.(); },
@@ -355,7 +355,7 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
   const client = outputClient ?? createTransportClient({ origin: transport.base, token: () => remoteTabTransportHttp().token });
   client.subscribe(path, (_name, data) => {
     if (abort.signal.aborted || !record.recovery.isCurrent(generation)) return;
-    handleRemoteOutputFrame(ordinaryTabId, record, generation, remoteTabId, data as OutputFrame);
+    return handleRemoteOutputFrame(ordinaryTabId, record, generation, remoteTabId, data as OutputFrame);
   }, {
     signal: abort.signal, raw: true, onActivity() {
       deadline.arm();
@@ -374,13 +374,13 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
   });
 }
 
-function handleRemoteOutputFrame(
+async function handleRemoteOutputFrame(
   ordinaryTabId: string,
   record: RemoteOutputRecord,
   generation: number,
   remoteTabId: string,
   message: OutputFrame,
-): void {
+): Promise<void> {
   if (message.tab_id && message.tab_id !== remoteTabId) return;
   if (message.truncated && typeof message.from === "number") {
     if (!record.recovery.isCurrent(generation)) return;
@@ -400,7 +400,7 @@ function handleRemoteOutputFrame(
       offset: typeof message.offset === "number" ? message.offset : prev?.offset ?? 0,
     };
     if (!record.recovery.noteProgress(generation, next)) return; // duplicate replay or stale generation dropped.
-    for (const target of remoteSinks.get(ordinaryTabId) ?? []) deliverOutput(ordinaryTabId, target, { ...message, boot: next.boot });
+    await Promise.all([...(remoteSinks.get(ordinaryTabId) ?? [])].map((target) => deliverOutput(ordinaryTabId, target, { ...message, boot: next.boot })));
     return;
   }
   if (message.boot) {

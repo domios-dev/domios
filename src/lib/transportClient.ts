@@ -33,7 +33,7 @@ export interface TransportClient {
   json<T>(method: HttpMethod, path: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number; callerTabId?: string }): Promise<T>;
   localJson<T>(method: string, path: string, body?: unknown, opts?: { signal?: AbortSignal; callerTabId?: string }): Promise<T>;
   upload<T>(path: string, form: FormData, opts?: { signal?: AbortSignal }): Promise<T>;
-  subscribe(stream: string, onEvent: (name: string, data: unknown) => void, opts?: { signal?: AbortSignal; onEnd?: (end: StreamEnd) => void; raw?: boolean; onActivity?: () => void; onReady?: () => void }): Unsubscribe;
+  subscribe(stream: string, onEvent: (name: string, data: unknown) => void | Promise<void>, opts?: { signal?: AbortSignal; onEnd?: (end: StreamEnd) => void; raw?: boolean; onActivity?: () => void; onReady?: () => void }): Unsubscribe;
   currentToken(): string | null;
   origin(): string;
 }
@@ -193,8 +193,8 @@ export function createTransportClient(options: TransportOptions): TransportClien
                 let data: unknown = message.data;
                 try { data = JSON.parse(message.data); } catch {}
                 if (!init.raw && typeof data === "object" && data !== null && "event_type" in data && typeof data.event_type === "string" && "data" in data) {
-                  handler(data.event_type, data.data);
-                } else handler(message.event, data);
+                  await handler(data.event_type, data.data);
+                } else await handler(message.event, data);
               }
             }
           }
