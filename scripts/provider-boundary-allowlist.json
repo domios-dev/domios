@@ -4169,7 +4169,7 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/provider/agent_provider.rs",
       "token": "claude",
-      "count": 6,
+      "count": 5,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
@@ -4197,7 +4197,7 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/provider/agent_provider.rs",
       "token": "opencode",
-      "count": 6,
+      "count": 4,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },

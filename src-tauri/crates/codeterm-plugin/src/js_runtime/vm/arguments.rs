@@ -3,10 +3,27 @@ use serde_json::Value;
 pub(super) struct Arguments<'a> {
     pub json: String,
     pub raw: Option<&'a str>,
+    pub objects: Option<&'a [Value]>,
 }
 
 impl<'a> Arguments<'a> {
     pub fn prepare(method: &str, args: &'a [Value]) -> Result<Self, serde_json::Error> {
+        if matches!(
+            (method, args),
+            (
+                "parseSessionRecords" | "parseSessionMessageRecords",
+                [Value::Array(_), Value::Object(_)]
+            ) | (
+                "runtimeStoredRecords",
+                [Value::String(_), Value::Array(_), Value::Object(_)]
+            )
+        ) {
+            return Ok(Self {
+                json: String::new(),
+                raw: None,
+                objects: Some(args),
+            });
+        }
         let raw = match (method, args) {
             ("runtimeStoredHistory", [Value::String(_), Value::String(records)]) => {
                 Some(records.as_str())
@@ -17,6 +34,7 @@ impl<'a> Arguments<'a> {
         Ok(Self {
             json: serde_json::to_string(envelope)?,
             raw,
+            objects: None,
         })
     }
 

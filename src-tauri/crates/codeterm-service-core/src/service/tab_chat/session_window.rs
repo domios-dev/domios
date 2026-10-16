@@ -148,7 +148,7 @@ pub fn parse_window(
     while offset < until {
         let Some(delta) = registry
             .with_provider(provider_id, |p| {
-                let mut delta = p.parse_session_delta_bounded(path, offset, until - offset)?;
+                let mut delta = super::jsonl_kernel::delta(p, path, offset, until - offset)?;
                 for m in &mut delta.messages {
                     super::enrich_interactive(m, p);
                 }

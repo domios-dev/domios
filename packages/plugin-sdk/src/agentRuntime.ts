@@ -1,5 +1,6 @@
 import type { ChatMsg } from "./gen/ChatMsg";
 import type { ChatAttachment } from "./gen/ChatAttachment";
+import type { ParsedSessionRecord, SessionRecordsMeta } from "./jsonlRecords";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type RpcId = string | number;
@@ -128,6 +129,7 @@ export interface StdioAgentRuntimeCapability {
 }
 export interface AgentRuntime {
   runtimeStoredHistory?(sessionId:string, records:string): readonly ChatMsg[];
+  runtimeStoredRecords?(sessionId:string, records:readonly ParsedSessionRecord[], meta:SessionRecordsMeta): readonly ChatMsg[];
   runtimePlan(ctx:RuntimeContext, op:Operation): RuntimePlan;
   runtimeResponse(ctx:RuntimeContext, op:Operation, state:JsonValue, reply:RpcReply): RuntimeStep;
   runtimeReduce(ctx:RuntimeContext, state:JsonValue, frames:readonly RuntimeFrame[]): RuntimeReduction;

@@ -127,10 +127,23 @@ fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Optio
         return Ok(None);
     }
     let started = std::time::Instant::now();
-    let (records, start, end) = read_window(&path, before)?;
+    let (records, start, end) = if provider.record_source("storedHistory").is_some() {
+        (None, 0, 0)
+    } else {
+        let (records, start, end) = read_window(&path, before)?;
+        (Some(records), start, end)
+    };
     let read_us = started.elapsed().as_micros();
     let projecting = std::time::Instant::now();
-    let messages = provider.runtime_stored_history(session, &records)?;
+    let (messages, start, end) = if let Some(records) = &records {
+        (
+            provider.runtime_stored_history(session, records)?,
+            start,
+            end,
+        )
+    } else {
+        super::jsonl_kernel::stored(provider.as_ref(), session, &path, before, WINDOW_BYTES)?
+    };
     let projection_us = projecting.elapsed().as_micros();
     let current = svc.mux.read().get_tab(tab_id).is_some_and(|current| {
         current.agent_type == tab.agent_type
@@ -143,7 +156,7 @@ fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Optio
     log::debug!(
         "[chat-attach] tab={tab_id} phase=stored_snapshot elapsed_ms={} read_us={read_us} projection_us={projection_us} bytes={} rows={}",
         started.elapsed().as_millis(),
-        records.len(),
+        end.saturating_sub(start),
         messages.len()
     );
     Ok(Some(Window {
