@@ -9,6 +9,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 
 | Id | Kind | Lang | Tier | Instance | Live agent | Budget (s) | Discovery | Runner | Owner doc |
 |---|---|---|---|---|---|---|---|---|---|
+| `eval-bubble-geometry` | eval | mixed | manual | yes | no | 60 | single | `bash evals/bubble-geometry/run.sh` | `evals/bubble-geometry/README.md` |
 | `ts-unit` | unit | ts | pr | no | no | 300 | glob `src/**/*.test.ts` `src/**/*.test.tsx` `packages/**/*.test.ts` `packages/**/*.test.tsx` minus `**/node_modules/**` `**/dist/**` minus `scripts/vitest-owned-tests.json` | `pnpm test:unit` | `.agents/skills/testing/SKILL.md` |
 | `frontend-windows-build` | guard | ts | pr | no | no | 300 | single | `bash build.sh frontend-build` | `.agents/skills/github-release/SKILL.md` |
 | `ts-vitest` | unit | ts | pr | no | no | 180 | list-file `scripts/vitest-owned-tests.json` | `pnpm test:vitest --maxWorkers=4` | `.agents/skills/testing/SKILL.md` |
