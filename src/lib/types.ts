@@ -183,7 +183,7 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
-  agent_runtime_config?: { fastMode?: boolean; [key: string]: unknown } | null;
+  agent_runtime_config?: { confirmedFastMode?: { enabled: boolean; sessionId: string; bindingNonce: string | null }; fastMode?: boolean; [key: string]: unknown } | null;
   agent_runtime_questions?: import("./agentRuntimeQuestions").AgentRuntimeQuestion[];
   agent_runtime_state?: import("./agentRuntimeState").AgentRuntimeState | null;
   pending_model_selection?: { model: string; effort: string | null } | null;
