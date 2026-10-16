@@ -13,6 +13,7 @@ export function useGeneralJobs(workspaces: readonly JobsWorkspace[]) {
   const blueprints = graphs.flatMap((entry) => entry.graph ? blueprintJobs(entry.graph) : []);
   return {
     jobs: mergeJobs(NO_JOBS_FILTER, crons.jobs ?? [], sentinels, blueprints),
+    refresh: crons.refresh,
     failed: crons.failed || graphs.some((entry) => entry.failed),
   };
 }
