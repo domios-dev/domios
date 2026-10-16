@@ -35,6 +35,7 @@ pub fn spawn_structured_poller(
     let join = thread::Builder::new()
         .name(format!("chat-structured-{}", cfg.tab_id))
         .spawn(move || {
+            let _sqlite_lease = codeterm_plugin::js_runtime::lease_plugin_sqlite(&cfg.provider_id);
             log::info!(
                 "[structured-poller] started tab={} provider={} sid={} cursor={:?}",
                 cfg.tab_id,

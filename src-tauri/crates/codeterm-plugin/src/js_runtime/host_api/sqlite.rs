@@ -2,12 +2,20 @@
 //! whose size, and every value SQLite materialises for it, stay under a cap.
 
 use std::io::Write;
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use rusqlite::limits::Limit;
 use rusqlite::types::ValueRef;
 
+mod pool;
+
+use pool::ConnectionPool;
+pub use pool::PluginSqliteLease;
+
 /// Upper bound for one query's JSON result and for any single SQLite value.
 const SQLITE_RESULT_MAX_BYTES: usize = 64 << 20;
+const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_millis(250);
 
 pub(super) fn host_query(
     ctx: &rquickjs::Ctx<'_>,
@@ -31,27 +39,63 @@ pub(super) fn host_query(
             return Ok(None);
         }
     }
-    query_all_json(db, sql, params_json, SQLITE_RESULT_MAX_BYTES).map_err(|error| {
+    POOL.query(
+        sandbox.plugin_id(),
+        db,
+        sql,
+        params_json,
+        SQLITE_RESULT_MAX_BYTES,
+    )
+    .map_err(|error| {
         log::warn!("[plugin] {error} (db {db})");
         rquickjs::Exception::throw_range(ctx, &error)
     })
 }
 
-/// `Ok(None)` keeps the null contract for an unreadable db, bad SQL, or bad
-/// params; `Err` is a cap breach the caller surfaces as a JS exception.
-fn query_all_json(
-    db_path: &str,
-    sql: &str,
-    params_json: Option<&str>,
-    max_bytes: usize,
-) -> Result<Option<String>, String> {
-    let params: Vec<serde_json::Value> = match params_json {
-        Some(j) => match serde_json::from_str(j) {
-            Ok(params) => params,
-            Err(_) => return Ok(None),
-        },
-        None => Vec::new(),
-    };
+static POOL: LazyLock<ConnectionPool> = LazyLock::new(ConnectionPool::new);
+
+/// Pools `plugin_id`'s sqlite connections for the guard's lifetime; take it for
+/// a long-lived reader such as a structured-chat poller, never per call.
+pub fn lease_plugin_sqlite(plugin_id: &str) -> PluginSqliteLease<'static> {
+    POOL.lease(plugin_id)
+}
+
+pub(in crate::js_runtime) fn drop_plugin_connections(plugin_id: &str) {
+    POOL.drop_plugin(plugin_id);
+}
+
+impl ConnectionPool {
+    /// `Ok(None)` keeps the null contract for an unreadable db, bad SQL, or bad
+    /// params; `Err` is a cap breach the caller surfaces as a JS exception.
+    fn query(
+        &self,
+        plugin_id: &str,
+        db_path: &str,
+        sql: &str,
+        params_json: Option<&str>,
+        max_bytes: usize,
+    ) -> Result<Option<String>, String> {
+        let Some(params) = parse_params(params_json) else {
+            return Ok(None);
+        };
+        let Some(entry) = self.acquire(plugin_id, db_path) else {
+            return Ok(None);
+        };
+        let mut faulted = false;
+        let result = query_connection(&entry.conn, db_path, sql, params, max_bytes, &mut faulted);
+        self.checkin(plugin_id, entry, faulted);
+        result
+    }
+}
+
+fn parse_params(params_json: Option<&str>) -> Option<Vec<serde_json::Value>> {
+    match params_json {
+        Some(json) => serde_json::from_str(json).ok(),
+        None => Some(Vec::new()),
+    }
+}
+
+fn open_read_only(db_path: &str) -> Option<rusqlite::Connection> {
     let conn = match rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -59,18 +103,51 @@ fn query_all_json(
         Ok(conn) => conn,
         Err(error) => {
             log::debug!("[sqlite-session-probe] stage=open db={db_path} error={error}");
-            return Ok(None);
+            return None;
         }
     };
+    if let Err(error) = conn.busy_timeout(SQLITE_BUSY_TIMEOUT) {
+        log::debug!("[sqlite-session-probe] stage=busy_timeout db={db_path} error={error}");
+        return None;
+    }
+    Some(conn)
+}
+
+/// The unpooled per-call path, kept as the parity reference for the pool.
+#[cfg(test)]
+fn query_all_json(
+    db_path: &str,
+    sql: &str,
+    params_json: Option<&str>,
+    max_bytes: usize,
+) -> Result<Option<String>, String> {
+    let Some(params) = parse_params(params_json) else {
+        return Ok(None);
+    };
+    let Some(conn) = open_read_only(db_path) else {
+        return Ok(None);
+    };
+    query_connection(&conn, db_path, sql, params, max_bytes, &mut false)
+}
+
+fn query_connection(
+    conn: &rusqlite::Connection,
+    db_path: &str,
+    sql: &str,
+    params: Vec<serde_json::Value>,
+    max_bytes: usize,
+    faulted: &mut bool,
+) -> Result<Option<String>, String> {
     // SQLite refuses to load a value past this length instead of allocating it.
     conn.set_limit(
         Limit::SQLITE_LIMIT_LENGTH,
         i32::try_from(max_bytes).unwrap_or(i32::MAX),
     );
-    let mut stmt = match conn.prepare(sql) {
+    let mut stmt = match conn.prepare_cached(sql) {
         Ok(stmt) => stmt,
         Err(error) => {
             log::debug!("[sqlite-session-probe] stage=prepare db={db_path} error={error}");
+            *faulted = is_connection_fault(&error);
             return Ok(None);
         }
     };
@@ -87,6 +164,7 @@ fn query_all_json(
         Ok(rows) => rows,
         Err(error) => {
             log::debug!("[sqlite-session-probe] stage=query db={db_path} error={error}");
+            *faulted = is_connection_fault(&error);
             return Ok(None);
         }
     };
@@ -99,6 +177,7 @@ fn query_all_json(
             Err(error) if is_too_big(&error) => return Err(value_too_big(max_bytes)),
             Err(error) => {
                 log::debug!("[sqlite-session-probe] stage=row db={db_path} error={error}");
+                *faulted = is_connection_fault(&error);
                 return Ok(None);
             }
         };
@@ -169,6 +248,16 @@ fn ensure_room(out: &[u8], incoming: usize, max_bytes: usize) -> Result<(), Stri
         ));
     }
     Ok(())
+}
+
+/// Errors that mean the handle no longer reads the file the path names.
+fn is_connection_fault(error: &rusqlite::Error) -> bool {
+    use rusqlite::ErrorCode::*;
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(e, _)
+            if matches!(e.code, SystemIoFailure | CannotOpen | DatabaseCorrupt | NotADatabase | FileLockingProtocolFailed)
+    )
 }
 
 fn is_too_big(error: &rusqlite::Error) -> bool {
