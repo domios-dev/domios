@@ -28,6 +28,24 @@ pub(crate) fn call_runtime_hook<R: serde::de::DeserializeOwned>(
     args: &[serde_json::Value],
     deadline: std::time::Instant,
 ) -> Result<R, RuntimeFailure> {
+    call_runtime_hook_with_clock(
+        vm,
+        method,
+        args,
+        deadline,
+        std::sync::Arc::new(std::time::Instant::now),
+    )
+}
+
+type HookClock = std::sync::Arc<dyn Fn() -> std::time::Instant + Send + Sync>;
+
+fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
+    vm: &PluginVm,
+    method: &'static str,
+    args: &[serde_json::Value],
+    deadline: std::time::Instant,
+    now: HookClock,
+) -> Result<R, RuntimeFailure> {
     let mut timing = timing::HookTiming::new(method);
     crate::agent_runtime::validate_runtime_size(&args, MAX_RUNTIME_VALUE_BYTES)?;
     let args_json =
@@ -40,12 +58,12 @@ pub(crate) fn call_runtime_hook<R: serde::de::DeserializeOwned>(
         );
     }
     timing.enter("vm_wait");
-    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+    let remaining = deadline.saturating_duration_since(now());
     let mut runtime_inner = vm
         .runtime_inner
         .try_lock_for(remaining)
         .ok_or_else(|| failure(RuntimeFailureCode::Deadline, "runtime VM lock deadline"))?;
-    if std::time::Instant::now() >= deadline {
+    if now() >= deadline {
         return Err(failure(
             RuntimeFailureCode::Deadline,
             "runtime hook preparation deadline",
@@ -53,15 +71,23 @@ pub(crate) fn call_runtime_hook<R: serde::de::DeserializeOwned>(
     }
     if runtime_inner.is_none() {
         timing.enter("initialize");
-        *runtime_inner = Some(create_runtime_context(vm, deadline)?);
+        let context = create_runtime_context(vm, deadline, now.clone());
+        if now() >= deadline {
+            return Err(failure(
+                RuntimeFailureCode::Deadline,
+                "runtime hook initialization deadline",
+            ));
+        }
+        *runtime_inner = Some(context?);
     }
     timing.enter("execute");
     let inner = runtime_inner
         .as_ref()
         .ok_or_else(|| failure(RuntimeFailureCode::HookFailed, "runtime context missing"))?;
-    inner._rt.set_interrupt_handler(Some(Box::new(move || {
-        std::time::Instant::now() >= deadline
-    })));
+    let interrupt_now = now.clone();
+    inner
+        ._rt
+        .set_interrupt_handler(Some(Box::new(move || interrupt_now() >= deadline)));
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         inner._ctx.with(|ctx| -> Result<String, RuntimeFailure> {
             let globals = ctx.globals();
@@ -82,7 +108,7 @@ pub(crate) fn call_runtime_hook<R: serde::de::DeserializeOwned>(
         })
     }));
     inner._rt.set_interrupt_handler(None);
-    if std::time::Instant::now() >= deadline {
+    if now() >= deadline {
         return Err(failure(
             RuntimeFailureCode::Deadline,
             "runtime hook execution deadline",
@@ -107,10 +133,11 @@ fn failure(code: RuntimeFailureCode, message: impl std::fmt::Display) -> Runtime
 fn create_runtime_context(
     vm: &PluginVm,
     deadline: std::time::Instant,
+    now: HookClock,
 ) -> Result<Inner, RuntimeFailure> {
     let source = vm
         .inner
-        .try_lock_for(deadline.saturating_duration_since(std::time::Instant::now()))
+        .try_lock_for(deadline.saturating_duration_since(now()))
         .ok_or_else(|| failure(RuntimeFailureCode::Deadline, "runtime source lock deadline"))?;
     let bundle_source = source.bundle_source.clone();
     let manifest_json = source.manifest_json.clone();
@@ -118,9 +145,7 @@ fn create_runtime_context(
     let rt = Runtime::new().map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
     rt.set_memory_limit(64 * 1024 * 1024);
     rt.set_max_stack_size(1024 * 1024);
-    rt.set_interrupt_handler(Some(Box::new(move || {
-        std::time::Instant::now() >= deadline
-    })));
+    rt.set_interrupt_handler(Some(Box::new(move || now() >= deadline)));
     let ctx = Context::full(&rt).map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
     let manifest_literal = serde_json::to_string(&manifest_json.as_deref().unwrap_or("null"))
         .map_err(|e| failure(RuntimeFailureCode::InvalidSchema, e))?;
