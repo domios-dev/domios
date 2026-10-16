@@ -1244,6 +1244,12 @@
         "/api/tabs/tab/agent/runtime/questions/question/answer"
       ]
     ],
+    "agent_runtime_goal": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/goal"
+      ]
+    ],
     "agent_runtime_login": [
       [
         "POST",
