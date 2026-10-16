@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import test from 'node:test';
+import { verifyLaneMetadata } from './lane-metadata-repro.mjs';
 import { laneBuildDirectory } from '../lane-build-dir.mjs';
 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
@@ -81,4 +82,23 @@ test('lane checks cap Cargo jobs, propagate errors and request tests only when n
     'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --tests',
     'jobs=4 check --manifest-path cli/Cargo.toml -p codeterm-cli --bin codeterm --tests',
   ]);
+});
+
+
+test('two worktrees use their own exported items while registry metadata stays shared', { timeout: 120_000 }, () => {
+  verifyLaneMetadata();
+});
+
+test('lane workspace wrapper stays scoped to the lane subshell', () => {
+  const result = spawnSync(bash, ['-c', `
+    set -eu
+    source scripts/lane-check.sh
+    export RUSTC_WORKSPACE_WRAPPER=canonical-wrapper
+    prepare_dev_frontend_dist() { :; }
+    prepare_bundle_stubs() { :; }
+    cargo() { [ "$RUSTC_WORKSPACE_WRAPPER" != canonical-wrapper ]; [ -f "$RUSTC_WORKSPACE_WRAPPER" ]; }
+    lane_check codeterm-fixture
+    [ "$RUSTC_WORKSPACE_WRAPPER" = canonical-wrapper ]
+  `], { cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
 });
