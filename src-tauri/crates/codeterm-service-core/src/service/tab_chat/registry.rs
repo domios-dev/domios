@@ -1,4 +1,5 @@
 use parking_lot::Mutex;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -43,29 +44,99 @@ struct SourceState {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct SourceFileIdentity {
+    volume: u64,
+    file: u128,
     created: Option<SystemTime>,
     held_offset: u64,
     prefix: Vec<u8>,
     held_window: Vec<u8>,
 }
 
-fn source_file_identity(
-    path: &Path,
-    len: u64,
-    created: Option<SystemTime>,
-    held_offset: u64,
-) -> io::Result<SourceFileIdentity> {
+fn source_file_identity(path: &Path, held_offset: u64) -> io::Result<SourceFileIdentity> {
     let mut file = File::open(path)?;
-    let prefix = read_identity_window(&mut file, 0, len.min(SOURCE_IDENTITY_SAMPLE_BYTES))?;
+    let metadata = file.metadata()?;
+    let len = metadata.len();
+    let (volume, file_id) = native_file_identity(&file, &metadata)?;
+    let mut prefix = read_identity_window(&mut file, 0, len.min(SOURCE_IDENTITY_SAMPLE_BYTES))?;
+    if let Some(end) = prefix.iter().position(|byte| *byte == b'\n') {
+        prefix.truncate(end + 1);
+    }
     let held_end = held_offset.min(len);
     let held_start = held_end.saturating_sub(SOURCE_IDENTITY_SAMPLE_BYTES);
     let held_window = read_identity_window(&mut file, held_start, held_end - held_start)?;
     Ok(SourceFileIdentity {
-        created,
+        volume,
+        file: file_id,
+        created: metadata.created().ok(),
         held_offset,
         prefix,
         held_window,
     })
+}
+
+impl SourceFileIdentity {
+    fn incarnation_id(&self) -> Arc<str> {
+        let mut hash = Sha256::new();
+        hash.update(b"domios-jsonl-source-v1\0");
+        hash.update(self.volume.to_le_bytes());
+        hash.update(self.file.to_le_bytes());
+        if let Some(created) = self.created {
+            hash.update([1]);
+            let nanos = created
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos() as i128)
+                .unwrap_or_else(|error| -(error.duration().as_nanos() as i128));
+            hash.update(nanos.to_le_bytes());
+        } else {
+            hash.update([0]);
+        }
+        hash.update(&self.prefix);
+        format!("{:x}", hash.finalize()).into()
+    }
+}
+
+#[cfg(unix)]
+fn native_file_identity(_: &File, metadata: &std::fs::Metadata) -> io::Result<(u64, u128)> {
+    use std::os::unix::fs::MetadataExt;
+    Ok((metadata.dev(), u128::from(metadata.ino())))
+}
+
+#[cfg(windows)]
+fn native_file_identity(file: &File, _: &std::fs::Metadata) -> io::Result<(u64, u128)> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileIdInfo, GetFileInformationByHandle, GetFileInformationByHandleEx,
+        BY_HANDLE_FILE_INFORMATION, FILE_ID_INFO,
+    };
+    let mut identity = FILE_ID_INFO::default();
+    if unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileIdInfo,
+            std::ptr::from_mut(&mut identity).cast(),
+            std::mem::size_of::<FILE_ID_INFO>() as u32,
+        )
+    } != 0
+    {
+        return Ok((
+            identity.VolumeSerialNumber,
+            u128::from_le_bytes(identity.FileId.Identifier),
+        ));
+    }
+    let mut identity = BY_HANDLE_FILE_INFORMATION::default();
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut identity) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let index = (u64::from(identity.nFileIndexHigh) << 32) | u64::from(identity.nFileIndexLow);
+    Ok((u64::from(identity.dwVolumeSerialNumber), u128::from(index)))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn native_file_identity(_: &File, _: &std::fs::Metadata) -> io::Result<(u64, u128)> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "native file identity is unavailable",
+    ))
 }
 
 fn read_identity_window(file: &mut File, start: u64, len: u64) -> io::Result<Vec<u8>> {
@@ -140,7 +211,6 @@ impl JsonlSource {
             }
         };
         let len = metadata.len();
-        let created = metadata.created().ok();
         match binds {
             Some(false) => {
                 return SourceObservation::Present {
@@ -158,7 +228,7 @@ impl JsonlSource {
         }
         let held_is_current = held.is_some() && held == state.current.as_ref();
         let truncated = held_is_current && offset > len;
-        let observed_identity = source_file_identity(path, len, created.clone(), offset);
+        let observed_identity = source_file_identity(path, offset);
         let Some(observed_identity) = observed_identity.ok() else {
             state.current = None;
             state.current_identity = None;
@@ -169,7 +239,7 @@ impl JsonlSource {
         };
         let identity_changed = state.current.is_some()
             && state.current_identity.as_ref().is_some_and(|identity| {
-                source_file_identity(path, len, created, identity.held_offset)
+                source_file_identity(path, identity.held_offset)
                     .map_or(true, |observed| observed != *identity)
             });
         if state.pending_absence.is_some()
@@ -179,7 +249,7 @@ impl JsonlSource {
         {
             let absence_witness = state.pending_absence.take();
             state.current = Some(SourceIncarnation {
-                id: opaque_id(),
+                id: observed_identity.incarnation_id(),
                 absence_witness,
             });
         }
@@ -417,6 +487,70 @@ mod tests {
     use std::time::Duration;
 
     const SID: &str = "sid-A";
+
+    fn incarnation(source: &JsonlSource, path: &Path) -> SourceIncarnation {
+        match source.observe(SID, path, None, 0) {
+            SourceObservation::Present {
+                incarnation: Some(incarnation),
+                ..
+            } => incarnation,
+            _ => panic!("file observation must establish an incarnation"),
+        }
+    }
+
+    #[test]
+    fn unchanged_file_keeps_its_incarnation_after_registry_rebuild_and_append() {
+        use std::io::Write;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.jsonl");
+        let source = JsonlSource::default();
+        assert!(matches!(
+            source.capture(SID, &path),
+            SourceCapture::Absent { .. }
+        ));
+        std::fs::write(&path, b"first\n").unwrap();
+        let first = incarnation(&source, &path);
+        let rebuilt = incarnation(&JsonlSource::default(), &path);
+        assert_eq!(first.id, rebuilt.id);
+        assert!(first.absence_witness.is_some());
+        assert!(rebuilt.absence_witness.is_none());
+        let mut file = File::options().append(true).open(&path).unwrap();
+        file.write_all(b"second\n").unwrap();
+        let appended = incarnation(&source, &path);
+        assert_eq!(first.id, appended.id);
+        assert_eq!(first.id, incarnation(&JsonlSource::default(), &path).id);
+    }
+
+    #[test]
+    fn recreated_file_with_equal_prefix_gets_a_distinct_incarnation() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.jsonl");
+        let bytes = b"same first record\n";
+        std::fs::write(&path, bytes).unwrap();
+        let source = JsonlSource::default();
+        let first = incarnation(&source, &path);
+        std::fs::rename(&path, temp.path().join("retired.jsonl")).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        let second = incarnation(&source, &path);
+        assert_ne!(first.id, second.id);
+        assert_eq!(second.id, incarnation(&JsonlSource::default(), &path).id);
+    }
+
+    #[test]
+    fn incarnation_hash_excludes_cursor_samples_and_distinguishes_absent_creation_time() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.jsonl");
+        std::fs::write(&path, b"first\nsecond\n").unwrap();
+        let first = source_file_identity(&path, 0).unwrap();
+        let second = source_file_identity(&path, 10).unwrap();
+        assert_ne!(first.held_window, second.held_window);
+        assert_eq!(first.incarnation_id(), second.incarnation_id());
+        let mut absent = first.clone();
+        absent.created = None;
+        let mut epoch = absent.clone();
+        epoch.created = Some(std::time::UNIX_EPOCH);
+        assert_ne!(absent.incarnation_id(), epoch.incarnation_id());
+    }
 
     #[test]
     fn truncate_and_regrow_past_held_offset_starts_a_new_incarnation() {

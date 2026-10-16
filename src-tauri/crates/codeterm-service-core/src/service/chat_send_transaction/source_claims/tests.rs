@@ -146,6 +146,54 @@ fn recreated_jsonl_row_can_confirm_a_new_send_after_restoring_the_old_claim() {
 }
 
 #[test]
+fn rebuilt_source_registry_keeps_restored_claims_exclusive() {
+    use crate::service::tab_chat::registry::{JsonlSource, SourceObservation};
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("session.jsonl");
+    std::fs::write(&path, b"repeat\n").unwrap();
+    let source_row = |source: &JsonlSource| {
+        let SourceObservation::Present {
+            incarnation: Some(incarnation),
+            ..
+        } = source.observe("own", &path, None, 0)
+        else {
+            panic!("source incarnation");
+        };
+        SourceRowRef::jsonl(
+            "own",
+            &incarnation.id,
+            TurnPosition {
+                record_start: Some(0),
+                record_row: 0,
+            },
+        )
+        .unwrap()
+    };
+    let ledger = ChatSendLedger::default();
+    let first = start(&ledger, "repeat", "first");
+    let original = source_row(&JsonlSource::default());
+    let status = ledger
+        .confirm_send_with_row(&first.send_id, Some(&original))
+        .unwrap();
+    let claim = SendRowClaim::from_status(&status).unwrap();
+    let restored = ChatSendLedger::default();
+    restored.restore_source_claim(
+        &serde_json::from_value(serde_json::to_value(claim).unwrap()).unwrap(),
+    );
+    let second = start(&restored, "repeat", "second");
+    let rebuilt = source_row(&JsonlSource::default());
+    assert_eq!(original, rebuilt);
+    assert!(restored.source_row_claimed(&rebuilt));
+    assert!(restored
+        .confirm_user_turn_with_row("tab", "own", Some("nonce"), "repeat", Some(&rebuilt),)
+        .is_empty());
+    assert_eq!(
+        restored.status(&second.send_id).unwrap().state,
+        ChatSendState::Unknown
+    );
+}
+
+#[test]
 fn jsonl_live_evidence_without_incarnation_cannot_fall_back_to_text() {
     let ledger = ChatSendLedger::default();
     let send = start(&ledger, "repeat", "token");

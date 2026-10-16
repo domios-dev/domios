@@ -745,7 +745,7 @@ impl UserSendStore {
             }
             owner_directory(&tab.dir)?;
             let path = tab.dir.join("index.json");
-            let index: UserIndex = match fs::symlink_metadata(&path) {
+            let mut index: UserIndex = match fs::symlink_metadata(&path) {
                 Ok(_) => serde_json::from_slice(&read_bounded(&path, MAX_INDEX_BYTES)?)
                     .map_err(|_| "user index is invalid")?,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -760,6 +760,9 @@ impl UserSendStore {
             if index.version != 1 {
                 return Err("user index version is unknown".into());
             }
+            index
+                .source_claims
+                .retain(|claim| claim.matched_row.source.valid());
             validate_index(&index, &tab.tab_id)?;
             let sequence_base = index.next_sequence;
             tab.unsettled
