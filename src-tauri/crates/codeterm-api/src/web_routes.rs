@@ -256,7 +256,23 @@ fn event_frame(se: &crate::events::SeqEvent) -> Event {
 }
 
 /// The ONLY loss signal (D1): client adopts `next_seq` and full-resyncs.
-fn overflow_frame(reason: &str, boot: &str, next_seq: u64, oldest: Option<u64>) -> Event {
+fn overflow_frame(
+    reason: &str,
+    boot: &str,
+    next_seq: u64,
+    oldest: Option<u64>,
+    build: Option<&str>,
+) -> Event {
+    Event::default().data(overflow_payload(reason, boot, next_seq, oldest, build).to_string())
+}
+
+fn overflow_payload(
+    reason: &str,
+    boot: &str,
+    next_seq: u64,
+    oldest: Option<u64>,
+    build: Option<&str>,
+) -> serde_json::Value {
     let mut data = serde_json::json!({
         "reason": reason,
         "boot": boot,
@@ -265,8 +281,10 @@ fn overflow_frame(reason: &str, boot: &str, next_seq: u64, oldest: Option<u64>) 
     if let Some(oldest) = oldest {
         data["oldest"] = serde_json::json!(oldest);
     }
-    let payload = serde_json::json!({ "event_type": "overflow", "data": data });
-    Event::default().data(payload.to_string())
+    if let Some(build) = build {
+        data["build"] = serde_json::json!(build);
+    }
+    serde_json::json!({ "event_type": "overflow", "data": data })
 }
 
 /// SSE stream of system events for the web bundle's `listen()` bridge (D1).
@@ -310,14 +328,14 @@ pub(crate) fn events_sse(
                 (0, Vec::new())
             }
             ReplayPlan::BootChanged { next_seq } => {
-                yield Ok(overflow_frame("boot-changed", &boot, next_seq, None));
+                yield Ok(overflow_frame("boot-changed", &boot, next_seq, None, Some(codeterm_build_info::hash())));
                 (0, Vec::new())
             }
             ReplayPlan::Covered { replay } => {
                 (cursor_seq.unwrap_or(0), replay)
             }
             ReplayPlan::Evicted { oldest, next_seq, replay } => {
-                yield Ok(overflow_frame("ring-evicted", &boot, next_seq, Some(oldest)));
+                yield Ok(overflow_frame("ring-evicted", &boot, next_seq, Some(oldest), None));
                 (next_seq.saturating_sub(1), replay)
             }
         };
@@ -339,7 +357,7 @@ pub(crate) fn events_sse(
                     yield Ok(event_frame(&se));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    yield Ok(overflow_frame("lagged", &boot, events.current_seq(), None));
+                    yield Ok(overflow_frame("lagged", &boot, events.current_seq(), None, None));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }

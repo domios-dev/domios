@@ -45,7 +45,7 @@ async fn overflow_frames_keep_existing_wire_bytes() {
         ("ring-evicted", Some(4)),
         ("lagged", None),
     ] {
-        let event = super::overflow_frame(reason, "boot", 9, oldest);
+        let event = super::overflow_frame(reason, "boot", 9, oldest, None);
         let stream = futures_util::stream::iter([Ok::<_, std::convert::Infallible>(event)]);
         let actual = to_bytes(Sse::new(stream).into_response().into_body(), usize::MAX)
             .await
@@ -57,6 +57,70 @@ async fn overflow_frames_keep_existing_wire_bytes() {
         let expected = serde_json::json!({ "event_type": "overflow", "data": data });
         assert_eq!(actual.as_ref(), format!("data: {expected}\n\n").as_bytes());
     }
+}
+
+#[test]
+fn boot_changed_overflow_frame_carries_daemon_build() {
+    let payload = super::overflow_payload("boot-changed", "boot", 9, None, Some("build-hash"));
+    assert_eq!(
+        payload,
+        serde_json::json!({
+            "event_type": "overflow",
+            "data": { "reason": "boot-changed", "boot": "boot", "next_seq": 9, "build": "build-hash" },
+        })
+    );
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+fn canonical_json(value: &serde_json::Value) -> String {
+    let serde_json::Value::Object(map) = value else {
+        return value.to_string();
+    };
+    let mut fields: Vec<_> = map.iter().collect();
+    fields.sort_by(|a, b| a.0.cmp(b.0));
+    let body = fields
+        .iter()
+        .map(|(key, value)| {
+            format!(
+                "{}:{}",
+                serde_json::Value::from(key.as_str()),
+                canonical_json(value)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{{{body}}}")
+}
+
+/// Pins the frontend-facing wire to API_VERSION: a shape change fails here until the version moves.
+#[test]
+fn frontend_wire_digest_is_pinned_to_api_version() {
+    let mut ended = false;
+    let samples = [
+        crate::output_stream::output_bytes_frame("tab", "pty", "boot", b"first\x1b\xff", 9),
+        crate::output_stream::output_ended_frame("tab", &mut ended).unwrap(),
+        super::overflow_payload("boot-changed", "boot", 9, None, Some("build")),
+        super::overflow_payload("ring-evicted", "boot", 9, Some(4), None),
+        super::overflow_payload("lagged", "boot", 9, None, None),
+    ];
+    let wire = samples
+        .iter()
+        .map(canonical_json)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(
+        (
+            codeterm_service_core::frontend_bundle_api_version::API_VERSION,
+            format!("{:016x}", fnv1a64(wire.as_bytes()))
+        ),
+        (3, "58b59c0ab964faec".to_string()),
+        "frontend wire changed; bump API_VERSION and the release contract range, then repin:\n{wire}"
+    );
 }
 
 #[test]
