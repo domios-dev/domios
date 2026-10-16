@@ -966,8 +966,7 @@ pub async fn start_capture(
             .svc
             .output_buf
             .lock()
-            .get_full(&pty_id)
-            .map(|bytes| bytes.to_vec())
+            .copy_full(&pty_id)
             .unwrap_or_default();
         codeterm_service_core::pty::capture::CaptureRegistry::global()
             .start(&pty_id, out, cols, rows, timestamp, prefill)

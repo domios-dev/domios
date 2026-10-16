@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.14.7",
-  "minCodeterm": "1.14.8",
+  "version": "1.14.9",
+  "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Claude Code",
   "binaryName": "claude",
@@ -232,7 +232,17 @@
     "reasoningEffortLaunchArgsFormat": [
       "--effort",
       "{effort}"
-    ]
+    ],
+    "launchSpec": {
+      "program": "claude",
+      "args": [
+        "{skipPermissions}",
+        "{args}"
+      ],
+      "envUnset": [
+        "CLAUDECODE"
+      ]
+    }
   },
   "permissions": {
     "subprocess": {
@@ -261,11 +271,19 @@
   "workerLaneSettings": [
     {
       "path": ".claude/settings.json",
-      "patch": { "enabledPlugins": { "rust-analyzer-lsp@claude-plugins-official": false } }
+      "patch": {
+        "enabledPlugins": {
+          "rust-analyzer-lsp@claude-plugins-official": false
+        }
+      }
     },
     {
       "path": ".claude/settings.local.json",
-      "patch": { "enabledPlugins": { "rust-analyzer-lsp@claude-plugins-official": false } }
+      "patch": {
+        "enabledPlugins": {
+          "rust-analyzer-lsp@claude-plugins-official": false
+        }
+      }
     }
   ]
 }

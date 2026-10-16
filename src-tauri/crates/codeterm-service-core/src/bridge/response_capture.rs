@@ -12,11 +12,7 @@ pub fn capture_response(
     output_buf: &OutputBufferState,
     tracker: &AgentTrackerState,
 ) -> Result<String, String> {
-    let offset = output_buf
-        .lock()
-        .get_full(pty_id)
-        .map(|b| b.len())
-        .unwrap_or(0);
+    let offset = output_buf.lock().full_len(pty_id);
 
     let deadline = Instant::now() + RESPONSE_TIMEOUT;
     let mut saw_working = false;
@@ -46,7 +42,7 @@ pub fn capture_response(
 
     let raw = output_buf
         .lock()
-        .get_full(pty_id)
+        .copy_full(pty_id)
         .map(|b| {
             if offset < b.len() {
                 String::from_utf8_lossy(&b[offset..]).to_string()

@@ -103,6 +103,27 @@ cases also run on Linux/Windows; Raw Input cases compile only on Windows.
 `./build.sh test-one input-macos|input-windows <selector>` targets one crate;
 select Windows only on Windows. Workers defer Rust execution to canonical.
 
+## Frontend warning collection
+
+`pnpm build` runs TypeScript, then Vite, through `scripts/frontend-build.mjs`.
+It preserves compiler failures and writes `ci-rust-warnings/frontend.log`,
+`frontend-warnings.md` and `rust-warnings-<platform>-frontend.json` even when
+the type check fails. Failed stages mark collection incomplete. New Vite warnings
+fail the shared identity ratchet against `scripts/frontend-warnings-baseline.json`.
+Its initial entries record the Vite plugin-timing and chunk-size diagnostics
+observed at the recorded dispatch SHA; subsequent entries may only shrink. The summary
+checks both baselines independently, keeping Rust accounting separate. Never
+raise the chunk warning threshold to make a failing build pass.
+
+For a frontend build failure, inspect that log first. Repair TypeScript errors
+before rerunning the bundle; for oversized chunks, defer unused surfaces and
+check their runtime loading. Focused collector proof:
+`node --test scripts/tests/frontend-warnings.test.mjs scripts/tests/collect-rust-warnings.test.mjs`.
+
+Use `node scripts/frontend-bundle-metrics.mjs dist` before and after frontend
+splitting. Compare `initialBytes` (the static import closure) as well as
+`entryBytes`; a smaller entry alone does not prove less startup JavaScript.
+
 ## Generated artifacts and the embedded-doc boundary
 
 `prod-docs/` is the only documentation embedded in the binary. Its membership is the `cli/src/cmd/docs.rs` registry, and every registered name maps to a same-named file; both directions are enforced by tests. `essences/` and `.agents/skills/` remain repository sources and are not embedded.
@@ -815,6 +836,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | Gateway exits with `Cannot establish publication helper identity` under load | A one-shot Windows process lookup was unknown, and publication guard construction threw before the bounded mutex refusal handler. | The current guard waits on ownership filesystem events before trying the lookup again. Its deadline returns retry-safe exit 75 with no helper ownership published. Verify the transient helper-identity regression in `scripts/build-gateway-mutex.test.mjs`; unknown identity never authorizes reclamation. |
 | Tracked modules or CLI manifests vanish through `X:` while another fixture runs | Fake gateway jobs held an isolated fixture slot but remapped the global production `subst` drive. Production release could also unmap that fixture's alias. | Fixture scope now skips both mapping and release; mapping requires the exact production job/pid/start owner, and release checks the mapped job still owns the slot. Verify the stable-drive isolation regression in `scripts/build-gateway-cache.test.mjs`. Never repair a live drive manually. |
 | Warm check reports E0583 for tracked modules or a missing `cli/Cargo.toml` after a rename wave | In-place `git checkout --force` published no verified physical-tree boundary before Cargo. An interrupted switch could leave HEAD/index and disk inconsistent. | The current check prepares a detached staging worktree, verifies requested HEAD tree, index tree and tracked files, then publishes under the exact gateway owner. Its journal recovers interrupted publication on the next job and retains warm target caches. Verify `node --test scripts/check-worktree.test.mjs`; any tree mismatch refuses Cargo with exit 75. |
+| Every `check-queue` exits 75 with `check-worktree publication incomplete; Cargo refused ... check-worktree git worktree failed (128): fatal: '<gateway dir>/check-worktree' is not a working tree` | The live `check-worktree/.git` points at a worktree registration that a `git worktree prune` in the source repository removed, so journal recovery cannot move it and the next job fails the same way | With no gateway job running, move `<gateway dir>/check-worktree` aside (`check-worktree.broken-<ts>`), move its `target/` into the `check-worktree.pending-*` directory named by `check-worktree-publication.json` to keep the warm cache, and rerun `check-queue`; delete the broken copy after a green run |
 | `test-one` fails before compiling with `[cache-policy] ERROR: external CARGO_TARGET_DIR rejected: /x/target-check` while DEV is live | Under the gateway's `X:` mapping `test-capped.sh` places the isolated Windows test target at `$ROOT/target-check` = `/x/target-check`; `pwd -P` keeps the subst drive while `git rev-parse --show-toplevel` returns the real checkout, so the path comparison saw an external target | `ct_verify_target_dir` also accepts a target whose git worktree root is the checkout (`ct_target_in_worktree`); verify with `bash scripts/check-shared-sccache.sh`. Never work around it with `CODETERM_ALLOW_EXTERNAL_TARGET` |
 | Queue updates time out during cache retention | Retention held gateway metadata while measuring/deleting caches and running cargo-sweep. | Retention and target marking now share a separate per-machine mutex. Verify `cache retention holds its own mutex while gateway metadata stays available`; the normal queue can update while cache work owns its lock. |
 | A warm check starts with one guard implementation and finishes with another | Helper paths followed cwd after checking out the requested SHA. | Gateway/cache helper paths are pinned to the launching scripts. Verify `gateway helpers stay pinned to the launching scripts after checkout cwd changes`. |
