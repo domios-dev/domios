@@ -84,3 +84,16 @@ fn receipt_reconciliation_repairs_a_missed_settlement_on_an_existing_held_ledger
         .iter()
         .all(|status| status.correlation_id.is_some()));
 }
+
+#[test]
+fn uncertain_receipt_ends_a_held_status_without_exposing_retry() {
+    let ledger = ChatSendLedger::default();
+    let held = ledger.try_start("tab", "opaque-payload", None).unwrap();
+    let mut settled = receipt(&held.send_id, held.sequence);
+    settled.state = ReceiptState::Uncertain;
+    ledger.restore_user_receipt(&settled);
+    let status = ledger.status(&held.send_id).unwrap();
+    assert_eq!(status.state, ChatSendState::Unknown);
+    assert_eq!(status.error, None);
+    assert_eq!(status.pending_reason, None);
+}

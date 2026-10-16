@@ -50,6 +50,7 @@ type UserReadiness = super::supporter_tab_state::UserDeliveryReadiness;
 mod continuity;
 mod drain;
 mod handoff;
+mod liveness;
 use handoff::{PayloadEnqueued, UserWrite};
 mod owner_wake;
 use owner_wake::OwnerWakeBoundary;
@@ -309,12 +310,21 @@ impl super::ServiceContext {
         let same_pty = tab.pty_id.as_deref() == authority.pty_id.as_deref();
         let same_provider = tab.agent_type.as_deref() == Some(authority.provider_id.as_str());
         let in_flight_prelaunch = prelaunch_authority_matches_current_launch(tab, authority);
+        let generation_ended = authority.pty_session_generation.is_some_and(|generation| {
+            authority.pty_id.as_deref().is_none_or(|pty_id| {
+                !self
+                    .pty
+                    .lock()
+                    .session_generation_matches(pty_id, generation)
+            })
+        });
         let session_changed =
             super::pending_delivery_payloads::user_sends::continuity::known_session_changed(
                 authority.observed_session_id.as_deref(),
                 tab.agent_session_id.as_deref(),
             );
         session_changed
+            || generation_ended
             || prelaunch_authority_matches_failed_launch(tab, authority)
             || (!in_flight_prelaunch
                 && (!same_pty
