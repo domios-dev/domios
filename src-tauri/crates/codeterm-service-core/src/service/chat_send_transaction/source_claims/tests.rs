@@ -3,6 +3,7 @@ use super::*;
 fn row(session: &str, start: u64) -> SourceRowRef {
     SourceRowRef::jsonl(
         session,
+        "incarnation-1",
         TurnPosition {
             record_start: Some(start),
             record_row: 2,
@@ -83,6 +84,102 @@ fn merged_row_claims_have_distinct_ordinals_and_survive_wire_round_trip() {
     );
     assert_eq!(next[0].send_id, third.send_id);
     assert_eq!(next[0].matched_row.as_ref().unwrap().ordinal, 1);
+}
+
+#[test]
+fn recreated_jsonl_row_can_confirm_a_new_send_after_restoring_the_old_claim() {
+    let ledger = ChatSendLedger::default();
+    let first = start(&ledger, "repeat", "first");
+    let source = row("own", 34);
+    let status = ledger
+        .confirm_send_with_row(&first.send_id, Some(&source))
+        .unwrap();
+    let claim = SendRowClaim::from_status(&status).unwrap();
+    let restored = ChatSendLedger::default();
+    restored.restore_source_claim(
+        &serde_json::from_value(serde_json::to_value(claim).unwrap()).unwrap(),
+    );
+    let second = start(&restored, "repeat", "second");
+    assert!(restored
+        .confirm_send_with_row(&second.send_id, Some(&source))
+        .is_none());
+    let recreated = SourceRowRef::jsonl(
+        "own",
+        "incarnation-2",
+        TurnPosition {
+            record_start: Some(34),
+            record_row: 2,
+        },
+    )
+    .unwrap();
+    let confirmed = restored.confirm_user_turn_with_row(
+        "tab",
+        "own",
+        Some("nonce"),
+        "repeat",
+        Some(&recreated),
+    );
+    assert_eq!(confirmed.len(), 1);
+    assert_eq!(confirmed[0].send_id, second.send_id);
+    assert_eq!(
+        confirmed[0].matched_row,
+        Some(MatchedRow {
+            source: recreated.clone(),
+            ordinal: 1
+        })
+    );
+    assert!(restored.source_row_claimed(&source));
+    assert!(restored.source_row_claimed(&recreated));
+    let third = start(&restored, "repeat", "third");
+    assert!(restored
+        .confirm_send_with_row(&third.send_id, Some(&recreated))
+        .is_none());
+    assert!(SourceRowRef::jsonl(
+        "own",
+        "",
+        TurnPosition {
+            record_start: Some(34),
+            record_row: 2
+        }
+    )
+    .is_none());
+}
+
+#[test]
+fn jsonl_live_evidence_without_incarnation_cannot_fall_back_to_text() {
+    let ledger = ChatSendLedger::default();
+    let send = start(&ledger, "repeat", "token");
+    let provenance = LiveProvenance {
+        source_session_id: "own".into(),
+        source_binding_nonce: Some("nonce".into()),
+        range: crate::service::tab_chat::tailer::SourceRange {
+            start_offset: 0,
+            offset: 100,
+            incarnation: None,
+        },
+        positions: vec![TurnPosition {
+            record_start: Some(0),
+            record_row: 0,
+        }],
+    };
+    assert!(delivered_turn_confirmations(
+        &ledger,
+        "tab",
+        "own",
+        Some("nonce"),
+        &[crate::agent::chat_types::ChatMsg {
+            id: "turn".into(),
+            kind: "user".into(),
+            content: "repeat".into(),
+            ..Default::default()
+        }],
+        Some(&provenance),
+    )
+    .is_empty());
+    assert_eq!(
+        ledger.status(&send.send_id).unwrap().state,
+        ChatSendState::Unknown
+    );
 }
 
 #[test]

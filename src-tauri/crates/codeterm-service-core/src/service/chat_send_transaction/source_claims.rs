@@ -9,8 +9,15 @@ pub struct SourceRowRef {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SourceRecord {
-    Jsonl { record_start: u64, record_row: u32 },
-    Structured { thread_id: String, item_id: String },
+    Jsonl {
+        incarnation: String,
+        record_start: u64,
+        record_row: u32,
+    },
+    Structured {
+        thread_id: String,
+        item_id: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -41,10 +48,14 @@ impl SendRowClaim {
 }
 
 impl SourceRowRef {
-    pub(crate) fn jsonl(session: &str, position: TurnPosition) -> Option<Self> {
+    pub(crate) fn jsonl(session: &str, incarnation: &str, position: TurnPosition) -> Option<Self> {
+        if incarnation.is_empty() {
+            return None;
+        }
         Some(Self {
             source_session_id: session.into(),
             record: SourceRecord::Jsonl {
+                incarnation: incarnation.into(),
                 record_start: position.record_start?,
                 record_row: position.record_row,
             },
@@ -64,7 +75,7 @@ impl SourceRowRef {
     pub(crate) fn valid(&self) -> bool {
         !self.source_session_id.is_empty()
             && match &self.record {
-                SourceRecord::Jsonl { .. } => true,
+                SourceRecord::Jsonl { incarnation, .. } => !incarnation.is_empty(),
                 SourceRecord::Structured { thread_id, item_id } => {
                     thread_id == &self.source_session_id && !item_id.is_empty()
                 }
@@ -215,6 +226,15 @@ pub(crate) fn delivered_turn_confirmations(
     messages: &[crate::agent::chat_types::ChatMsg],
     provenance: Option<&LiveProvenance>,
 ) -> Vec<ChatSendStatus> {
+    if provenance.is_some_and(|provenance| {
+        provenance
+            .range
+            .incarnation
+            .as_ref()
+            .is_none_or(|incarnation| incarnation.id.is_empty())
+    }) {
+        return Vec::new();
+    }
     if let Some(provenance) = provenance {
         ledger.advance_live_evidence(tab_id, source_session_id, source_binding_nonce, provenance);
     }
@@ -236,10 +256,10 @@ pub(crate) fn delivered_turn_confirmations(
             })
         });
         let source_row = if let Some(provenance) = provenance {
-            provenance
-                .positions
-                .get(index)
-                .and_then(|position| SourceRowRef::jsonl(source_session_id, *position))
+            provenance.positions.get(index).and_then(|position| {
+                let incarnation = provenance.range.incarnation.as_ref()?;
+                SourceRowRef::jsonl(source_session_id, &incarnation.id, *position)
+            })
         } else {
             SourceRowRef::structured(source_session_id, &msg.id)
         };

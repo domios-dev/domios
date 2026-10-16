@@ -15,6 +15,7 @@ fn source_claim_round_trips_through_durable_index_and_restored_ledger() {
     let source = SourceRowRef {
         source_session_id: "session".into(),
         record: SourceRecord::Jsonl {
+            incarnation: "incarnation-1".into(),
             record_start: 8192,
             record_row: 3,
         },
