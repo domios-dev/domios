@@ -30,7 +30,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `ts-api-effects` | guard | ts | pr | no | no | 120 | single | `pnpm check:api-effects` | `.agents/skills/testing/SKILL.md` |
 | `ts-biome` | guard | ts | pr | no | no | 120 | single | `pnpm lint` | `.agents/skills/testing/SKILL.md` |
 | `ts-generated-types` | guard | mixed | pr | no | no | 120 | single | `pnpm types:check` | `.agents/skills/build/SKILL.md` |
-| `rust-fmt` | guard | rust | pr | no | no | 60 | single | `cargo fmt --manifest-path src-tauri/Cargo.toml --all --check && cargo fmt --manifest-path cli/Cargo.toml --all --check` | `.agents/skills/gates/SKILL.md` |
+| `rust-fmt` | guard | rust | pr | no | no | 60 | single | `bash scripts/check-rustfmt.sh` | `.agents/skills/gates/SKILL.md` |
 | `rust-clippy` | guard | rust | release | no | no | 600 | single | `bash build.sh ci-clippy` | `.agents/skills/gates/SKILL.md` |
 | `rust-check-queue` | guard | rust | manual | no | no | 600 | single | `./build.sh check-queue` | `.agents/skills/gates/SKILL.md` |
 | `rust-warnings-baseline` | guard | js | release | no | no | 600 | single | `node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash scripts/clippy-gate.sh` | `.agents/skills/gates/SKILL.md` |
