@@ -306,15 +306,17 @@ pub trait AgentProvider: Send + Sync {
         self.session_file_path(cwd, session_id)?.try_exists().ok()
     }
 
-    /// Session creation time, for providers whose sessions have no per-session
-    /// file (sqlite-backed, e.g. opencode).
-    /// Default `None` — file-based providers rely on filesystem timestamps.
+    /// Creation evidence for sessions without a per-session file.
     fn session_created_at(&self, _cwd: &str, _session_id: &str) -> Option<std::time::SystemTime> {
         None
     }
 
     /// Build a command to resume an existing session.
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String>;
+
+    fn supports_exact_session_resume(&self) -> bool {
+        false
+    }
 
     /// Resume command carrying the full launch context: trailing `args` plus
     /// `system_prompt` re-applied through this provider's own system-prompt
@@ -420,10 +422,7 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Extract conversation messages from a session file produced by this
-    /// provider. Called by the search pipeline for each candidate session;
-    /// returning `vec![]` means this provider can't participate in content
-    /// search yet. Must be pure + I/O-only (no locks, no process calls).
+    /// Content search reads only: no locks or subprocesses.
     fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
         let _ = file_path;
         Vec::new()
@@ -444,11 +443,7 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Resolve the actual session JSONL file for `(cwd, session_id)`. The
-    /// chat tailer reads this file with byte-offset bookmarks. Returns
-    /// `None` when the provider doesn't store sessions as a single JSONL
-    /// (opencode is sqlite-backed — returns `None`; the UI will hide
-    /// the toggle for those providers).
+    /// Exact session JSONL source for the chat tailer's byte-offset bookmarks.
     fn session_jsonl_path(&self, _cwd: &str, _session_id: &str) -> Option<std::path::PathBuf> {
         None
     }

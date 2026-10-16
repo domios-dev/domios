@@ -5805,6 +5805,7 @@ function hasPromptAndStatusFooter(screen) {
   });
 }
 var plugin = {
+  sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimePlan,
   runtimeResponse,
