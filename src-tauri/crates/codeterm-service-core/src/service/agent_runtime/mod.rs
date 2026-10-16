@@ -16,6 +16,7 @@ mod launch_options;
 pub(crate) mod lease;
 pub mod login;
 pub mod model;
+mod owned_context;
 #[cfg(any(unix, test))]
 mod ownership;
 pub(crate) mod plan_warning;

@@ -124,6 +124,16 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
 function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, reply: RpcReply): RuntimeStep {
   validateBinding(ctx,op);
   const state = object(raw);
+  if (op.kind === "readHistory" && reply.kind === "error" && state.stage === "turns"
+    && !op.cursor && reply.error.code === -32600
+    && reply.error.message === `thread ${op.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`)
+    return continuation(request("thread/read",{threadId:op.threadId,includeTurns:false},{stage:"unmaterialized"}));
+  if (op.kind === "readHistory" && state.stage === "unmaterialized" && reply.kind === "success") {
+    const thread = object(object(reply.value).thread);
+    if (!userThread(reply.value,op.threadId) || !Array.isArray(thread.turns) || thread.turns.length)
+      return refused("Empty thread identity unverified");
+    return {kind:"complete",result:{kind:"historyPage",threadId:op.threadId,items:[],openItems:[],...(op.order ? {order:op.order} : {})}};
+  }
   if (op.kind === "readHistory" && state.pager === 1) {
     if (reply.kind === "error" && reply.error.code === -32601 && ["turns","items"].includes(String(state.stage)))
       return continuation(request("thread/read",{threadId:op.threadId,includeTurns:true},{stage:"snapshot",seq:0}));
@@ -155,11 +165,9 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
       }
       return {kind:"complete",result:{kind:"initialized"},events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent,...rateLimitEvents(value.rateLimits,value.rate_limit_reset_credits)]};
     case "openThread": {
-      if (state.stage === "materialize") return {kind:"complete",result:{kind:"threadLoaded",threadId:String(state.threadId),settings:state.settings as RuntimeSettings}};
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
-      return continuation(request("thread/inject_items",{threadId,items:[{type:"message",role:"developer",content:[{type:"input_text",text:"Domios thread binding marker."}]}]},
-        {stage:"materialize",threadId,settings:codexEffectiveSettings(op.settings,value)}));
+      return {kind:"complete",result:{kind:"threadLoaded",threadId,settings:codexEffectiveSettings(op.settings,value)}};
     }
     case "resumeThread": {
       if (state.stage === "unarchive") return continuation(request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions),threadId:op.threadId,excludeTurns:true},{stage:"thread/resume",unarchived:true}));

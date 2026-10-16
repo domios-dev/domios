@@ -175,6 +175,33 @@ for (const name of fs.readdirSync(new URL("captured/",root)).filter(n=>n.endsWit
 const sample = JSON.parse(fs.readFileSync(new URL("multi-turn.json",root),"utf8")) as Fixture;
 const ctx = sample.context;
 const submit = sample.operations[0].operation;
+check("recorded first replies follow binding without an injected developer item",()=> {
+  const captured=JSON.parse(fs.readFileSync(new URL("captured/multi-turn.json",root),"utf8")) as Fixture;
+  const opening=captured.operations.findIndex(entry=>entry.operation.kind === "openThread");
+  const requests=captured.rpc.filter(record=>"operation" in record && record.operation === opening && record.direction === "outbound");
+  assert.equal(requests.length,1);
+  assert.ok("action" in requests[0] && requests[0].action.kind === "request");
+  if (!("action" in requests[0]) || requests[0].action.kind !== "request")throw new Error("Expected start");
+  assert.equal(requests[0].action.call.method,"thread/start");
+  const replies=captured.rpc.flatMap(record=> {
+    if (!("frame" in record) || record.frame.method !== "item/completed")return [];
+    const params=record.frame.params as {item?:{type?:string;text?:string}};
+    return params.item?.type === "agentMessage" ? [params.item.text] : [];
+  });
+  assert.deepEqual(replies,["ONE","TWO"]);
+});
+check("recorded compaction restores application context before the next input",()=> {
+  const captured=JSON.parse(fs.readFileSync(new URL("captured/compaction.json",root),"utf8")) as Fixture;
+  const controls=captured.operations.map(entry=>entry.operation).filter((op):op is Extract<Operation,{kind:"control"}>=>op.kind === "control");
+  assert.deepEqual(controls.map(op=>op.action),["restoreContext","compact","restoreContext"]);
+  assert.deepEqual(controls[0].value,controls[2].value);
+  const replies=captured.rpc.flatMap(record=> {
+    if (!("frame" in record) || record.frame.method !== "item/completed")return [];
+    const params=record.frame.params as {item?:{type?:string;text?:string}};
+    return params.item?.type === "agentMessage" ? [params.item.text] : [];
+  });
+  assert.deepEqual(replies,["ONE","SABLE"]);
+});
 check("manifest inbound notification roster",()=>assert.deepEqual(descriptor.agentRuntime.notificationMethods,[...notificationMethods]));
 check("live activation matches the tested runtime declaration",()=> {
   const manifest = JSON.parse(fs.readFileSync(new URL("../plugin.json",import.meta.url),"utf8"));
@@ -225,21 +252,33 @@ check("unsupported controls and modes refuse",()=> {
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"control",action:"globalConfig",value:{}}));
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"openThread",instructions:"",settings:{mode:"unknown"}}));
 });
-check("fresh thread materializes before loaded",()=> {
+check("fresh thread binds from verified start without model input",()=> {
   const operation:Operation = {kind:"openThread",instructions:"Own instructions",settings:ctx.settings};
   const plan = hooks.runtimePlan(ctx,operation);
   assert.equal(plan.action.kind,"request");
   const step = hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{thread:{id:"fresh"}}});
-  assert.equal(step.kind,"continue");
-  if (step.kind !== "continue") return;
-  assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"thread/inject_items",params:{threadId:"fresh",items:[{type:"message",role:"developer",content:[{type:"input_text",text:"Domios thread binding marker."}]}]}}});
-  assert.equal(hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"error",error:{code:-32000,message:"failed"}}).kind,"refused");
+  assert.deepEqual(plain(step),{kind:"complete",result:{kind:"threadLoaded",threadId:"fresh",settings:ctx.settings}});
+  for (const thread of [{}, {id:"foreign",parentThreadId:"parent"}, {id:"child",source:{subAgent:{}}}])
+    assert.equal(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{thread}}).kind,"refused");
+  assert.equal(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"error",error:{code:-32000,message:"failed"}}).kind,"refused");
 });
 check("resume never accepts another thread",()=> {
   const operation:Operation = {kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings:ctx.settings};
   const plan = hooks.runtimePlan(ctx,operation);
   for (const thread of [{id:"foreign"},{id:ctx.threadId,parentThreadId:"parent"},{id:ctx.threadId,source:{subAgent:{}}}])
     assert.equal(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{thread}}).kind,"refused");
+});
+check("unmaterialized history verifies an empty own thread without injecting input",()=> {
+  for (const order of ["asc","desc"] as const) {
+    const op:Operation={kind:"readHistory",threadId:ctx.threadId!,order};
+    const plan=hooks.runtimePlan(ctx,op);
+    const step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32600,message:`thread ${ctx.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`}});
+    if(step.kind !== "continue")throw new Error("Expected identity verification");
+    assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"thread/read",params:{threadId:ctx.threadId,includeTurns:false}}});
+    for(const thread of [{id:"foreign",turns:[]},{id:ctx.threadId},{id:ctx.threadId,turns:[{id:"existing"}]}])
+      assert.equal(hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{thread}}).kind,"refused");
+    assert.deepEqual(plain(hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{thread:{id:ctx.threadId,turns:[]}}})),{kind:"complete",result:{kind:"historyPage",threadId:ctx.threadId,items:[],openItems:[],order}});
+  }
 });
 check("delivery cannot use old text, foreign thread or unmatched client",()=> {
   const frame:RuntimeFrame = {kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"user",type:"userMessage",clientId:"send-a",content:[{type:"text",text:"Wrong text"}]}}};
@@ -608,14 +647,13 @@ check("unsupported item pagination uses bound snapshot history without delivery 
   assert.equal(hooks.runtimeResponse(ctx,op,page.plan.state,{kind:"error",error:{code:-32600,message:"invalid request"}}).kind,"refused");
   assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"error",error:{code:-32601,message:"unsupported read"}}).kind,"refused");
 });
-check("default model and effective effort survive thread launch continuations",()=> {
+check("default model and effective effort survive thread start and resume verification",()=> {
   const context={...ctx,settings:{},providerSettings:{model:null}};
   const op:Operation={kind:"openThread",instructions:"task",settings:{additionalDirectories:["/work/shared"],networkAccess:false}};
   const plan=hooks.runtimePlan(context,op);
   const effective={thread:{id:ctx.threadId!},model:"provider-default",reasoningEffort:"medium",approvalPolicy:"on-request",approvalsReviewer:"user",sandbox:{type:"workspaceWrite"}};
   const step=hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:effective});
-  if(step.kind !== "continue")throw new Error("Expected materialization");
-  const complete=plain(hooks.runtimeResponse(context,op,step.plan.state,{kind:"success",value:{}}));
+  const complete=plain(step);
   assert.deepEqual(complete,{kind:"complete",result:{kind:"threadLoaded",threadId:ctx.threadId!,settings:{additionalDirectories:["/work/shared"],networkAccess:false,model:"provider-default",effort:"medium",mode:"auto-accept-edits"}}});
   const resume:Operation={kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings:{model:"requested-alias",effort:"high",mode:"full-access",additionalDirectories:["/work/shared"],networkAccess:false}};
   const resumed=hooks.runtimeResponse(context,resume,hooks.runtimePlan(context,resume).state,{kind:"success",value:effective});
@@ -666,6 +704,7 @@ check("restoreContext validates and injects developer and user context without e
     {type:"message",role:"user",content:[{type:"input_text",text:"user-context"}]},
   ]}}});
   assert.deepEqual(plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{}})),{kind:"complete",result:{kind:"done"}});
+  assert.deepEqual(plain(hooks.runtimePlan(ctx,{...op,value:{...value,additionalContext:[...value.additionalContext,...value.additionalContext]}})),plan);
   for(const invalid of [null,{},[],{instructions:null,additionalContext:[]},{instructions:"",additionalContext:[]},{instructions:42,additionalContext:[]},{instructions:"x",additionalContext:{}},{instructions:"x",additionalContext:[{key:"k",kind:"system",value:"x"}]},{instructions:"x",additionalContext:[{key:"k",kind:"user",value:"x",extra:true}]},{instructions:"x",additionalContext:[{key:"k",kind:"user",value:"x"},{key:"k",kind:"user",value:"y"}]}]) {
     assert.throws(()=>hooks.runtimePlan(ctx,{...op,value:invalid} as Operation),error=>objectError(error).code === "invalid_schema");
   }
