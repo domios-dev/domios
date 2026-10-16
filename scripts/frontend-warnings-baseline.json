@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "initialized": true,
+  "targets": ["frontend"],
+  "counts": { "frontend": 2 },
+  "warnings": [
+    {
+      "target": "frontend",
+      "file": "<frontend>",
+      "line": 0,
+      "code": "PLUGIN_TIMINGS",
+      "message": "Your build spent significant time in plugins. Here is a breakdown:"
+    },
+    {
+      "target": "frontend",
+      "file": "<frontend>",
+      "line": 0,
+      "code": "CHUNK_SIZE_LIMIT",
+      "message": "Some chunks are larger than 500 kB after minification. Consider:"
+    }
+  ],
+  "source_commit": "a5012a457861f3cb1997cf67ce360a54e1724f68"
+}

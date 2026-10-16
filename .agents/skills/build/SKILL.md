@@ -109,9 +109,11 @@ select Windows only on Windows. Workers defer Rust execution to canonical.
 It preserves compiler failures and writes `ci-rust-warnings/frontend.log`,
 `frontend-warnings.md` and `rust-warnings-<platform>-frontend.json` even when
 the type check fails. Failed stages mark collection incomplete. New Vite warnings
-fail the existing identity ratchet in `scripts/rust-warnings-baseline.json`;
-the Rust collector and baseline stay unchanged. Never raise the chunk warning
-threshold or seed frontend warnings to make a failing build pass.
+fail the shared identity ratchet against `scripts/frontend-warnings-baseline.json`.
+Its initial entries record the Vite plugin-timing and chunk-size diagnostics
+observed at the recorded dispatch SHA; subsequent entries may only shrink. The summary
+checks both baselines independently, keeping Rust accounting separate. Never
+raise the chunk warning threshold to make a failing build pass.
 
 For a frontend build failure, inspect that log first. Repair TypeScript errors
 before rerunning the bundle; for oversized chunks, defer unused surfaces and

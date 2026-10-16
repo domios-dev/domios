@@ -17,7 +17,7 @@ export async function buildFrontend({ root = process.cwd(), platform = process.p
     console.error(error);
     exit = 1;
   }
-  const baseline = JSON.parse(fs.readFileSync(path.join(root, 'scripts/rust-warnings-baseline.json'), 'utf8'));
+  const baseline = JSON.parse(fs.readFileSync(path.join(root, 'scripts/frontend-warnings-baseline.json'), 'utf8'));
   const collection = frontendWarningCollection(fs.readFileSync(log, 'utf8'), { platform, root, complete: exit === 0 }, baseline);
   fs.writeFileSync(path.join(directory, `rust-warnings-${platform}-frontend.json`), JSON.stringify(collection, null, 2) + '\n');
   fs.writeFileSync(path.join(directory, 'frontend-warnings.md'), renderReport(collection.warnings, ['frontend'], collection.decision).replace('# Rust warnings', '# Frontend warnings'));

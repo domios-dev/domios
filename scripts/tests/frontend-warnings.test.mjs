@@ -3,6 +3,8 @@ import test from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { buildFrontend } from '../frontend-build.mjs';
 import { parse as parseYaml } from 'yaml';
 import { parseFrontendWarnings, frontendWarningCollection } from '../frontend-warnings.mjs';
@@ -51,7 +53,7 @@ test('frontend build records failed type checks and preserves their exit without
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-warnings-'));
   try {
     fs.mkdirSync(path.join(root, 'scripts'));
-    fs.writeFileSync(path.join(root, 'scripts/rust-warnings-baseline.json'), JSON.stringify(makeBaseline([], [])));
+    fs.writeFileSync(path.join(root, 'scripts/frontend-warnings-baseline.json'), JSON.stringify(makeBaseline([], [])));
     let calls = 0;
     const run = async (_program, _args, log) => { calls++; fs.appendFileSync(log, 'error TS0001: fixture\n'); return 7; };
     assert.equal(await buildFrontend({ root, platform: 'fixture', run }), 7);
@@ -66,7 +68,7 @@ test('a successful bundle with a new warning fails the shared ratchet and saves 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-warnings-'));
   try {
     fs.mkdirSync(path.join(root, 'scripts'));
-    fs.writeFileSync(path.join(root, 'scripts/rust-warnings-baseline.json'), JSON.stringify(makeBaseline([], [])));
+    fs.writeFileSync(path.join(root, 'scripts/frontend-warnings-baseline.json'), JSON.stringify(makeBaseline([], [])));
     let calls = 0;
     const run = async (_program, _args, log) => { if (++calls === 2) fs.appendFileSync(log, 'Warning: fixture\n'); return 0; };
     assert.equal(await buildFrontend({ root, platform: 'win32', run }), 1);
@@ -77,5 +79,34 @@ test('a successful bundle with a new warning fails the shared ratchet and saves 
     const document = JSON.parse(fs.readFileSync(path.join(root, upload.with.path)));
     assert.equal(document.complete, true);
     assert.equal(document.decision.added.length, 1);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('shared summary accepts the observed frontend warning and preserves independent Rust ratcheting', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-summary-'));
+  try {
+    fs.mkdirSync(path.join(root, 'scripts'));
+    fs.mkdirSync(path.join(root, 'artifacts'));
+    const baseline = JSON.parse(fs.readFileSync(new URL('../frontend-warnings-baseline.json', import.meta.url), 'utf8'));
+    const frontend = parseFrontendWarnings(baseline.warnings.map(warning => warning.code === 'CHUNK_SIZE_LIMIT'
+      ? `(!) ${warning.message}` : `[${warning.code}] Warning: ${warning.message}`).join('\n\n'), options);
+    const rust = { ...frontend[0], target: 'rust-fixture', crate: 'fixture', code: 'fixture_lint', message: 'fixture' };
+    fs.writeFileSync(path.join(root, 'scripts/frontend-warnings-baseline.json'), JSON.stringify(baseline));
+    fs.writeFileSync(path.join(root, 'scripts/rust-warnings-baseline.json'), JSON.stringify(makeBaseline([rust], ['rust-fixture'])));
+    const save = (target, warnings) => fs.writeFileSync(path.join(root, `artifacts/rust-warnings-fixture-${target}.json`), JSON.stringify({ platform: 'fixture', target, complete: true, warnings }));
+    save('frontend', frontend);
+    save('rust-fixture', [rust]);
+    const run = () => spawnSync(process.execPath, [fileURLToPath(new URL('../rust-warnings-report.mjs', import.meta.url)), 'artifacts', 'report'], {
+      cwd: root, encoding: 'utf8', env: { ...process.env, WARNING_ARTIFACTS: '["rust-warnings-fixture-frontend","rust-warnings-fixture-rust-fixture"]' },
+    });
+    assert.equal(run().status, 0);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'report/rust-warnings-baseline.json'))).warnings, makeBaseline([rust], ['rust-fixture']).warnings);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'report/frontend-warnings-baseline.json'))).warnings, makeBaseline(baseline.warnings, ['frontend']).warnings);
+    save('rust-fixture', [{ ...rust, message: 'replacement' }]);
+    assert.equal(run().status, 1);
+    assert.ok(!fs.existsSync(path.join(root, 'report/frontend-warnings-baseline.json')));
+    save('rust-fixture', [rust]);
+    save('frontend', [{ ...frontend[0], message: 'replacement' }]);
+    assert.equal(run().status, 1);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
