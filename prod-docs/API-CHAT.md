@@ -49,9 +49,11 @@ Sleeping tabs read their own persisted transcript without waking or starting a r
 
 The desktop `chat_start` command and web-mirror `POST /api/tabs/{id}/chat-raw/start` return the same bounded snapshot shape. `source_session_id` and `session_binding_nonce` are derived from the Tab and form one authority generation; a client adopts snapshots and `tab-chat-msg-{id}` deltas only when both match the Tab's current generation.
 
+The start request accepts optional `knownWindow`: `{source_session_id, session_binding_nonce, end_offset, file_length, cursor}` from the client's last adopted byte window. JSONL responses include `file_length` and `kind`: `unchanged` keeps the cached rows with no messages, `delta` appends the returned byte range, and `snapshot` reconciles a bounded snapshot. Authority or file-incarnation mismatch, truncation, an invalid cursor, or growth at least the snapshot byte limit requires a snapshot. Omit `knownWindow` for a cold attach.
+
 Snapshots and backfill return `offset_kind`: `bytes` identifies complete-record byte windows; `items` identifies structured item paging positions. Paging positions never identify rows or imply byte gaps. Message `id` remains the provider item or source-record identity across snapshots, live deltas and backfill; equal content under different ids remains distinct.
 
-`pending=true` without session authority means the Tab awaits its own session and never falls back to another; with authority and a subscription it awaits its own store. `pending=false` is a complete bounded snapshot, possibly empty. Visible Chat owns one subscription and takes a fresh snapshot on reactivation or resync.
+`pending=true` without session authority means the Tab awaits its own session and never falls back to another; with authority and a subscription it awaits its own store. `pending=false` completes attachment, possibly with an empty snapshot. Once activated, a retained mounted Chat keeps its listener and subscription while hidden; eviction releases them. A cached remount attaches from its known window, and resync recovers from the adopted cursor or requests a snapshot.
 
 #### Interactive chat prompts
 
@@ -67,4 +69,4 @@ The enum is open for future element types. The frontend renders each as a clicka
 
 Backfill accepts `offset_kind` (`bytes` or `items`) alongside `before_offset`; preserve the snapshot's unit across runtime startup. Providers declaring native stored runtime history can serve recorded messages before their runtime starts; live updates reconcile by the same native item ids.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

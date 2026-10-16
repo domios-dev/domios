@@ -21,6 +21,8 @@ import { runtimeHistorySettled, type RuntimeHistoryState } from "../../lib/agent
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 import {
   canAdoptTranscriptAuthority,
+  chatStartBatchKind,
+  knownWindowForAuthority,
   attachmentActivity,
   attachmentStateForSnapshot,
   needsTranscriptAttachment,
@@ -42,7 +44,9 @@ import {
 } from "./chatSessionDiagnostics";
 import {
   commitTranscriptBatch,
+  forgetTranscriptWindowCursor,
   readTranscriptWindow,
+  rememberTranscriptWindow,
   markTranscriptSnapshotReady,
   reconcileTranscriptWindow,
   resetTranscriptWindow,
@@ -262,7 +266,7 @@ export function useChatSession({
     setLoading(false);
   }, []);
 
-  const rememberCursor = useCallback((payload: Pick<ChatMsgEvent, "cursor" | "offset" | "source_session_id" | "session_binding_nonce">,
+  const rememberCursor = useCallback((payload: Pick<ChatMsgEvent, "cursor" | "offset" | "source_session_id" | "session_binding_nonce"> & { file_length?: number },
     outcome: TranscriptOutcome) => {
     if (!isByteResumeCursor(payload.cursor ?? null) || payload.offset == null
       || !["adopted", "rotated", "ignored_empty"].includes(outcome)) return;
@@ -270,6 +274,16 @@ export function useChatSession({
     const previous = resumeCursorRef.current;
     if (previous?.authority === authority && previous.offset > payload.offset) return;
     resumeCursorRef.current = { token: payload.cursor!, offset: payload.offset, authority };
+    if (payload.source_session_id != null) {
+      const previousWindow = readTranscriptWindow(windowKeyRef.current).knownWindow;
+      rememberTranscriptWindow(windowKeyRef.current, {
+        source_session_id: payload.source_session_id,
+        session_binding_nonce: payload.session_binding_nonce,
+        end_offset: payload.offset,
+        file_length: Math.max(payload.file_length ?? previousWindow?.file_length ?? 0, payload.offset),
+        cursor: payload.cursor!,
+      });
+    }
   }, []);
 
   const commitLiveEvent = useCallback((payload: ChatMsgEvent): TranscriptOutcome => {
@@ -312,6 +326,7 @@ export function useChatSession({
         state: { cause, forceCold, state: attachmentStateRef.current, cursor: cursor?.token ?? null, authority } } });
       if (forceCold || attachmentStateRef.current !== "attached" || cursor == null || cursor.authority !== authority) {
         resumeCursorRef.current = null;
+        if (forceCold) forgetTranscriptWindowCursor(windowKeyRef.current);
         requestAttach(cause);
         return;
       }
@@ -554,6 +569,8 @@ export function useChatSession({
         if (!flight) return;
         const outcome = await flight.run(requestedSubscriptionId, () => invoke<ChatStartResult>("chat_start", {
           tabId, agentSessionId: requestedSessionId, subscriptionId: requestedSubscriptionId,
+          knownWindow: knownWindowForAuthority(readTranscriptWindow(windowKeyRef.current).knownWindow,
+            requestedSessionId, requestedSessionBindingNonce),
         }));
         if (outcome.kind === "superseded") return;
         const res = outcome.value;
@@ -637,11 +654,13 @@ export function useChatSession({
         }
         snapshotOnNextLiveEventRef.current = false;
         const snapshotRange = batchRange(res.start_offset, res.offset, res.offset_kind);
-        if (snapshotRange != null || (res.messages?.length ?? 0) > 0) {
+        const batchKind = chatStartBatchKind(res.kind);
+        let recover = false;
+        if (batchKind != null && (snapshotRange != null || (res.messages?.length ?? 0) > 0)) {
           const snapshotOutcome = reconcileTranscriptWindow(
           windowKeyRef.current,
           {
-            kind: "snapshot",
+            kind: batchKind,
             authority: {
               sourceSessionId: res.source_session_id,
               sessionBindingNonce: res.session_binding_nonce,
@@ -651,16 +670,16 @@ export function useChatSession({
           },
           );
           rememberCursor(res, snapshotOutcome);
+          recover = needsRecovery(snapshotOutcome);
         } else {
           rememberCursor(res, "ignored_empty");
         }
         const pending = pendingLiveEventsRef.current.splice(0);
-        let recover = false;
         for (const event of pending) {
           if (needsRecovery(commitLiveEvent(event))) recover = true;
         }
         markAttached();
-        if (recover) requestRecoveryAttach(false, "pending_recover_gap");
+        if (recover) requestRecoveryAttach(true, "pending_recover_gap");
       } catch (e) {
         if (cancelled || !owner.isCurrent(generationAtRequest)) return;
         const msg = e instanceof Error ? e.message : String(e);

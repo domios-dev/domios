@@ -111,6 +111,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         shell_command_snapshot: (a: Args) => clientFor(a).json<ShellCommandSnapshot>("GET", `/api/tabs/${enc(s(a, "tabId"))}/shell-commands`),
         chat_start: (a: Args) => clientFor(a).json<ChatStartResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/start`, {
             subscriptionId: s(a, "subscriptionId"),
+            ...(a.knownWindow != null ? { knownWindow: a.knownWindow } : {}),
         }),
         chat_stop: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/stop`, {
             subscriptionId: s(a, "subscriptionId"),

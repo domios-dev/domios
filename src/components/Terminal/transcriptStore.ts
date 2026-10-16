@@ -10,11 +10,13 @@ import {
 } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { frameNotifications } from "./frameNotifications";
+import type { KnownChatWindow } from "./chatSessionAuthority";
 
 export interface TranscriptWindow {
   transcript: TranscriptState;
   anchorKey: string | null;
   snapshotBinding?: string;
+  knownWindow?: KnownChatWindow;
 }
 
 /** The only committed-history store. It outlives the hook so a Terminal <-> Chat
@@ -38,6 +40,16 @@ export function transcriptWindowKey(tabId: string, agentSessionId: string | null
 
 export function readTranscriptWindow(key: string): TranscriptWindow {
   return windows.get(key) ?? EMPTY_WINDOW;
+}
+
+export function rememberTranscriptWindow(key: string, knownWindow: KnownChatWindow): void {
+  const current = readTranscriptWindow(key);
+  publish(key, { ...current, knownWindow }, true);
+}
+
+export function forgetTranscriptWindowCursor(key: string): void {
+  const current = readTranscriptWindow(key);
+  if (current.knownWindow) publish(key, { ...current, knownWindow: undefined });
 }
 
 export function markTranscriptSnapshotReady(key: string, nonce: string | null | undefined): void {
@@ -139,6 +151,7 @@ export function reconcileTranscriptWindow(
   const { state, outcome } = reduceTranscript(current.transcript, batch);
   publish(key, {
     ...current,
+    knownWindow: batch.kind === "snapshot" ? undefined : current.knownWindow,
     transcript: state,
     anchorKey: outcome === "rotated" ? null : current.anchorKey,
   });
