@@ -59,3 +59,16 @@ pub(super) async fn reset_credits(
         .map(Json)
         .map_err(|reason| (StatusCode::CONFLICT, reason))
 }
+
+pub(super) async fn goal(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(tab): Path<String>,
+    Json(request): Json<codeterm_service_core::service::agent_runtime::goals::GoalRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
+    codeterm_service_core::service::agent_runtime::goals::operate(&state.svc, &tab, request)
+        .await
+        .map(Json)
+        .map_err(|reason| (StatusCode::CONFLICT, reason))
+}

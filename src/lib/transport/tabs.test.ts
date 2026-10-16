@@ -26,6 +26,7 @@ it("reads child history with root authority and no send payload",async()=>{
 const simple = [
   ["wake_tab", "POST", "/api/tabs/tab/wake"],
   ["agent_runtime_answer_question", "POST", "/api/tabs/tab/agent/runtime/questions/question/answer"],
+  ["agent_runtime_goal", "POST", "/api/tabs/tab/agent/runtime/goal"],
   ["agent_runtime_reset_credits", "POST", "/api/tabs/tab/agent/runtime/reset-credits"],
   ["agent_runtime_login", "POST", "/api/tabs/tab/agent/runtime/login"],
   ["agent_runtime_retry", "POST", "/api/tabs/tab/agent/runtime/retry"],
