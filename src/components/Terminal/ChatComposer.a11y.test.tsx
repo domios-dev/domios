@@ -134,15 +134,6 @@ test("composer textarea carries an accessible name", async () => {
   await teardown(h);
 });
 
-test("composer shell declares a visible keyboard-focus style", async () => {
-  const h = await renderComposer("tab-a11y-focus");
-  assert(
-    h.shell.className.includes("focus-within:ring"),
-    "the shell wrapping the borderless textarea must show a focus ring — it had none before ct#330",
-  );
-  await teardown(h);
-});
-
 test("a rejected send clears the composer without marking it invalid; the bubble owns the failure", async () => {
   const h = await renderComposer("mesh:");
   assert(

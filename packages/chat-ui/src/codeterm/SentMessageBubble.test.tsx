@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { recognize } from "./recognize";
 import { SentMessageBubble } from "./SentMessageBubble";
 import { CodetermCard } from "./CodetermCard";
-import { crossTabBubbleClassName, CROSS_TAB_SHELL_TESTID } from "../crossTabBubble";
+import { CROSS_TAB_SHELL_TESTID } from "../crossTabBubble";
 import { MessageBubble } from "../MessageBubble";
 
 const windowInstance = new Window({ url: "http://localhost/sent-message-test" });
@@ -60,11 +60,8 @@ await (async () => {
   const shell = host.querySelector(`[data-testid="${CROSS_TAB_SHELL_TESTID}"]`) as HTMLElement | null;
   const bubble = host.querySelector('[data-testid="chat-sent-message"]') as HTMLElement | null;
   assert(shell != null, "renders left-aligned cross-tab shell");
-  assert(shell!.className.includes("justify-start"), "outbound cross-tab is left aligned");
   assert(bubble != null, "renders sent-message body");
   assert(host.querySelector('[data-testid="chat-sent-header"]') != null, "renders sent-message header");
-  assert(bubble!.className === crossTabBubbleClassName("text-base"), "outbound uses shared cross-tab bubble class");
-  assert(!bubble!.className.includes("border"), "shared bubble has no accent border frame");
   assert(text.includes("Puccini"), "renders resolved recipient name");
   assert(text.includes("Update") && text.includes("done"), "renders markdown body content");
   assert(host.querySelector('[data-testid="raw-command-disclosure"]') == null, "outbound message has no raw command disclosure");

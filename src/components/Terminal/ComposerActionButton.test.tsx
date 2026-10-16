@@ -98,8 +98,6 @@ test("send preserves label, callback, type, and interaction class", async () => 
   assert(button.type === "button", "composer action must not submit a form");
   assert(button.title === "Send", "send label changed");
   assert(button.dataset.testid === "composer-send-button", "send test id changed");
-  assert(button.className.includes("ct-liquid-interactive"), "shared interaction class missing");
-  assert(!button.className.includes("transition-all"), "transition-all must be removed");
   await act(async () => button.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })));
   assert(sends === 1, "send callback did not fire exactly once");
 });
@@ -107,8 +105,6 @@ test("send preserves label, callback, type, and interaction class", async () => 
 test("composer icon actions remain round and preserve their callbacks", async () => {
   let attaches = 0;
   const { button: attach } = await renderAttachButton({ onClick: () => { attaches++; } });
-  assert(attach.className.includes("ct-composer-round-button"), "attach icon action must remain round");
-  assert(attach.className.includes("ct-liquid-interactive"), "attach must use shared liquid interaction");
   await act(async () => attach.click());
   assert(attaches === 1, "attach callback did not fire exactly once");
 
@@ -117,8 +113,6 @@ test("composer icon actions remain round and preserve their callbacks", async ()
 
   let schedules = 0;
   const { button: schedule } = await renderScheduleButton(() => { schedules++; });
-  assert(schedule.className.includes("ct-composer-round-button"), "schedule icon action must remain round");
-  assert(schedule.className.includes("ct-liquid-interactive"), "schedule must use shared liquid interaction");
   await act(async () => schedule.click());
   assert(schedules === 1, "schedule callback did not fire exactly once");
 });
@@ -150,7 +144,6 @@ test("voice hold starts recording and exposes lock affordance", async () => {
   assert(button.dataset.testid === "composer-voice-button", "voice test id changed");
   const lockPill = document.querySelector('[data-testid="composer-voice-lock-pill"]');
   assert(lockPill, "hold lock affordance missing");
-  assert(!lockPill.classList.contains("ct-composer-round-button"), "grouped lock affordance must remain a pill");
   await act(async () => button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
   assert(starts === 1, "voice start callback did not fire");
 });

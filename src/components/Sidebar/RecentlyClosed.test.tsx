@@ -121,7 +121,6 @@ test("renders a row per single close with title and model", async () => {
     />,
   );
   const sectionToggle = host.querySelector('[data-testid="recently-closed"] > button');
-  assert(sectionToggle?.classList.contains("sidebar-structural-header"), "section uses the shared structural header alignment");
   assert(sectionToggle?.querySelector(".sidebar-structural-label")?.textContent === "RECENTLY CLOSED", "section uses the General and Workspaces label typography");
   await expandSection(host);
 

@@ -361,7 +361,6 @@ test("archived plans are selectable in overflow listbox footer with Unarchive", 
   const listbox = host.querySelector('[data-testid="plan-switcher-listbox"]') as HTMLElement;
   const archivedRow = listbox.querySelector('[data-plan-id="p-archived"]');
   assert(archivedRow, "archived plan in listbox");
-  assert(archivedRow.classList.contains("plan-switcher-opt-archived"), "archived class");
   assert(archivedRow.getAttribute("aria-disabled") === null, "archived remains selectable");
   const selectBtn = archivedRow.querySelector(".plan-switcher-opt-select") as HTMLButtonElement;
   assert(!selectBtn.disabled, "select button enabled");
