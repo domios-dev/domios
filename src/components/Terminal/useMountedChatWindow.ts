@@ -1,3 +1,5 @@
+import { DEV_BUILD } from "../../lib/devBuild";
+import { chatTraceActive, chatTraceEdge, registerChatTraceProbe, traceIdentity } from "./chatGestureTraceRuntime";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import type { ChatContentAnchor } from "./chatAnchorModel";
 import { getPersistedChatScrollState } from "./chatViewport";
@@ -85,6 +87,17 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
   const live = useRef({ transcript, range, active });
   live.current = { transcript, range, active };
 
+  useLayoutEffect(() => {
+    if (!DEV_BUILD || !active) return;
+    return registerChatTraceProbe(sessionKey, () => {
+      const anchor = shiftAnchorRef.current;
+      const row = anchor && Array.from(scrollRef.current?.querySelectorAll<HTMLElement>("[data-chat-window-row]") ?? [])
+        .find(row => row.dataset.chatWindowRow === anchor.id);
+      return [driftRef.current, chatSpacerTranslation(live.current.range.top, driftRef.current), live.current.range.start,
+        live.current.range.end, traceIdentity(anchor?.id), row?.getBoundingClientRect().top ?? 0];
+    });
+  }, [active, sessionKey, scrollRef]);
+
   const captureShiftAnchor = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -102,11 +115,19 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     // React skips an unchanged style prop, so a height written here earlier would otherwise survive and read as a shift.
     spacer.style.height = `${chatSpacerHeight(base, driftRef.current)}px`;
     translateRows(rowsRef.current, chatSpacerTranslation(base, driftRef.current));
-    if (followTailRef.current) driftRef.current = 0;
+    if (followTailRef.current) {
+      if (DEV_BUILD && chatTraceActive(keyRef.current)) chatTraceEdge(keyRef.current, "absorb", [chatAnchorShift(anchor,
+        anchor ? mountedRowTops(el).rows.find(row => row.id === anchor.id)?.top ?? null : null), 0, driftRef.current]);
+      driftRef.current = 0;
+    }
     else {
       const absorb = anchor != null
         && shouldAbsorbChatShift({ nativeAnchoring, pinned: false, userScrolling: userScrollingRef?.current ?? false });
       const top = absorb ? mountedRowTops(el).rows.find((row) => row.id === anchor.id)?.top ?? null : null;
+      if (DEV_BUILD && chatTraceActive(keyRef.current)) {
+        const measuredTop = !absorb && anchor ? mountedRowTops(el).rows.find(row => row.id === anchor.id)?.top ?? null : top;
+        chatTraceEdge(keyRef.current, "absorb", [chatAnchorShift(anchor, measuredTop), Number(absorb), driftRef.current]);
+      }
       const next = chatSpacerAfterLayout({ base, drift: driftRef.current, shift: chatAnchorShift(anchor, top), absorb,
         viewportHeight: el.clientHeight, scrollTop: el.scrollTop });
       driftRef.current = next.drift;
@@ -196,14 +217,20 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
       if (el.clientHeight === 0) return;
       absorbShift();
       let changed = false;
+      const deltas: number[] = [];
       for (const row of mounted) {
         const id = row.dataset.chatWindowRow;
         const height = row.getBoundingClientRect().height;
         const index = id == null ? undefined : transcript.byId.get(id);
         if (id == null || index == null) continue;
+        if (DEV_BUILD && chatTraceActive(keyRef.current) && deltas.length < 32) {
+          const delta = height - (transcript.geometry.offset(index + 1) - transcript.geometry.offset(index));
+          if (delta !== 0) deltas.push(traceIdentity(id), delta);
+        }
         heights.current.set(id, height);
         changed = transcript.geometry.update(index, height) || changed;
       }
+      if (DEV_BUILD && chatTraceActive(keyRef.current)) chatTraceEdge(keyRef.current, "resize", [mounted.length, ...deltas]);
       if (changed) setRevision((previous) => previous + 1);
       readViewport(false);
     };
