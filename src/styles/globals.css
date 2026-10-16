@@ -2392,7 +2392,7 @@ button,
   position: relative;
   width: 42px;
   height: 40px;
-  overflow: hidden;
+  overflow: clip;
   border: 0;
   border-radius: 7px;
   background: var(--ct-surface);
