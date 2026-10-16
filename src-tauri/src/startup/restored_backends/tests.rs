@@ -22,7 +22,8 @@ fn bounded_transports_progress_independently_without_starving_queued_tabs() {
             RestoreBudgets {
                 foreground: 1,
                 background: 4,
-                chat: 2,
+                chat_foreground: 1,
+                chat_background: 2,
             },
             |kind| *kind,
             || vec![super::Priority::Background; 13],
@@ -351,4 +352,112 @@ fn change_between_observation_and_wait_cannot_be_lost() {
     changes.notify();
     changes.wait(observed);
     assert_ne!(changes.revision(), observed);
+}
+
+#[test]
+fn reserved_chat_worker_never_takes_background_chat_tabs() {
+    let (entered, observed) = mpsc::channel();
+    let (release, tokens) = mpsc::channel();
+    let tokens = Mutex::new(tokens);
+    let budgets = super::RESTORE_BUDGETS;
+    let worker = std::thread::spawn(move || {
+        run_transport_waves(
+            &[0, 1, 2, 3, 4],
+            budgets,
+            |_| RestoreTransport::Chat,
+            || vec![super::Priority::Background; 5],
+            |_| Ok(()),
+            |item, admission| {
+                entered.send((*item, admission)).unwrap();
+                tokens.lock().unwrap().recv().unwrap();
+                Ok(())
+            },
+        )
+    });
+    let first = (0..budgets.chat_background)
+        .map(|_| observed.recv_timeout(Duration::from_secs(2)).unwrap())
+        .collect::<Vec<_>>();
+    assert!(matches!(
+        observed.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    for _ in 0..5 {
+        release.send(()).unwrap();
+    }
+    assert_eq!(worker.join().unwrap(), vec![Ok(()); 5]);
+    let admitted = first
+        .into_iter()
+        .chain(observed.try_iter())
+        .collect::<Vec<_>>();
+    assert_eq!(admitted.len(), 5);
+    assert!(admitted.iter().all(|(_, admission)| admission.priority
+        == super::Priority::Background
+        && admission.permit == super::AdmissionPermit::Shared));
+}
+
+#[test]
+fn visible_chat_tab_jumps_queued_background_chat_while_shared_workers_are_busy() {
+    let visible = Arc::new(AtomicUsize::new(usize::MAX));
+    let current = visible.clone();
+    let (entered, observed) = mpsc::channel();
+    let (release, tokens) = mpsc::channel();
+    let tokens = Mutex::new(tokens);
+    let budgets = super::RESTORE_BUDGETS;
+    let worker = std::thread::spawn(move || {
+        run_transport_waves(
+            &[0, 1, 2, 3, 4, 5, 6],
+            budgets,
+            |item| {
+                if *item == 6 {
+                    RestoreTransport::Pty
+                } else {
+                    RestoreTransport::Chat
+                }
+            },
+            || {
+                (0..7)
+                    .map(|index| {
+                        if index == current.load(Ordering::SeqCst) {
+                            super::Priority::Visible
+                        } else {
+                            super::Priority::Background
+                        }
+                    })
+                    .collect()
+            },
+            |_| Ok(()),
+            |item, admission| {
+                entered.send((*item, admission)).unwrap();
+                if *item != 6 {
+                    tokens.lock().unwrap().recv().unwrap();
+                }
+                Ok(())
+            },
+        )
+    });
+    let mut busy = (0..budgets.chat_background + 1)
+        .map(|_| observed.recv_timeout(Duration::from_secs(2)).unwrap())
+        .filter(|(id, _)| *id != 6)
+        .map(|(id, admission)| {
+            assert_eq!(admission.priority, super::Priority::Background);
+            assert_eq!(admission.permit, super::AdmissionPermit::Shared);
+            id
+        })
+        .collect::<Vec<_>>();
+    busy.sort();
+    assert_eq!(busy, [0, 1, 2]);
+    assert!(matches!(
+        observed.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    visible.store(5, Ordering::SeqCst);
+    super::changes().notify();
+    let (id, admission) = observed.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(id, 5);
+    assert_eq!(admission.priority, super::Priority::Visible);
+    assert_eq!(admission.permit, super::AdmissionPermit::Reserved);
+    for _ in 0..6 {
+        release.send(()).unwrap();
+    }
+    assert_eq!(worker.join().unwrap(), vec![Ok(()); 7]);
 }
