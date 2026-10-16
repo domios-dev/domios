@@ -1,6 +1,7 @@
 use super::{
     model::{self, ItemCache, RuntimeFailure, RuntimePhase, RuntimeState},
     process::Process,
+    process_slot::ProcessSlot,
 };
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
@@ -33,7 +34,7 @@ pub struct Session {
     pub maps: Mutex<super::events::RuntimeMaps>,
     pub(super) bookkeeping_failures: std::sync::atomic::AtomicU32,
     pub prompts: Mutex<HashMap<RpcId, OutstandingRequest>>,
-    pub process: Mutex<Option<Arc<Process>>>,
+    pub process: ProcessSlot<Arc<Process>>,
     pub gate: tokio::sync::Semaphore,
     pub(super) initialization: super::initialize::Initialization,
     pub(super) compaction: Mutex<super::subscriber::CompactionState>,
@@ -89,7 +90,7 @@ pub fn stop(tab: &str) {
             reason: Some("Runtime stopped".into()),
         };
         session.control_changes.send_replace(());
-        if let Some(process) = session.process.lock().take() {
+        if let Some(process) = session.process.close() {
             process.stop();
         }
     }
@@ -142,7 +143,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
             session.context.lock().binding_nonce != nonce || session.provider != provider
         }) {
             if let Some(old) = sessions.remove(tab) {
-                if let Some(process) = old.process.lock().take() {
+                if let Some(process) = old.process.close() {
                     process.stop();
                 }
             }
@@ -182,7 +183,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                     maps: Mutex::new(super::events::RuntimeMaps::default()),
                     bookkeeping_failures: std::sync::atomic::AtomicU32::new(0),
                     prompts: Mutex::new(HashMap::new()),
-                    process: Mutex::new(None),
+                    process: ProcessSlot::new(None),
                     gate: tokio::sync::Semaphore::new(1),
                     initialization: super::initialize::Initialization::default(),
                     compaction: Mutex::new(Default::default()),
@@ -345,7 +346,13 @@ async fn ensure_locked(
         .map_err(|error| RuntimeFailure::SpawnFailed {
             reason: error.to_string(),
         })??;
-        *session.process.lock() = Some(process.clone());
+        if !session
+            .process
+            .install(process.clone(), |process| process.stop())
+        {
+            process.finish().await?;
+            return Err(RuntimeFailure::Superseded);
+        }
         crate::startup::boot_timing::mark(tab, None, "runtime_spawned");
         spawned_ms = Some(started.elapsed().as_millis());
         *session.hook_state.lock() = Value::Null;

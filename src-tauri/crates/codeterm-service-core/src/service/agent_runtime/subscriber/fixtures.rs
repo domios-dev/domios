@@ -259,7 +259,7 @@ pub(super) fn scene() -> Scene {
         maps: Mutex::new(super::super::events::RuntimeMaps::default()),
         bookkeeping_failures: std::sync::atomic::AtomicU32::new(0),
         prompts: Mutex::new(HashMap::new()),
-        process: Mutex::new(Some(process)),
+        process: crate::service::agent_runtime::process_slot::ProcessSlot::new(Some(process)),
         gate: tokio::sync::Semaphore::new(1),
         initialization: Default::default(),
         compaction: Mutex::new(Default::default()),
