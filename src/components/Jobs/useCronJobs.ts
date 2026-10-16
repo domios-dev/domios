@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { PageDataContext } from "../../hooks/PageDataContext";
+import { useCallback, useEffect, useRef, useState, useContext } from "react";
 import { orchestrationTransport, listenOrchestration as listen } from "../../lib/transport/orchestrationRuntime";
 import type { CronJob } from "../../lib/types";
 
@@ -9,6 +10,14 @@ export interface CronJobsState {
 
 /** Same `cron_list` read as the sidebar, but a failed or malformed read stays unavailable instead of empty; a null workspace reads every Cron on this machine. */
 export function useCronJobs(workspaceId: string | null) {
+  const page = useContext(PageDataContext);
+  const local = useCronJobsLoader(workspaceId, !page);
+  if (!page) return local;
+  const { jobs, refresh, ready, failed } = page.crons;
+  return { jobs: !ready ? null : jobs.filter((job) => workspaceId === null || job.workspace_id === workspaceId), failed, refresh };
+}
+
+function useCronJobsLoader(workspaceId: string | null, enabled: boolean) {
   const [state, setState] = useState<CronJobsState>({ jobs: null, failed: false });
   const sequence = useRef(0);
   const active = useRef(true);
@@ -25,6 +34,7 @@ export function useCronJobs(workspaceId: string | null) {
   }, [workspaceId]);
 
   useEffect(() => {
+    if (!enabled) return;
     active.current = true;
     let unlisten: (() => void) | undefined;
     void refresh();
@@ -36,7 +46,7 @@ export function useCronJobs(workspaceId: string | null) {
       active.current = false;
       unlisten?.();
     };
-  }, [refresh]);
+  }, [refresh, enabled]);
 
   return { ...state, refresh };
 }

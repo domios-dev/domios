@@ -156,7 +156,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       const limits = object(params.rateLimits);
       if (limits.limitId && limits.limitId !== "codex") continue;
       state.rateLimitSnapshot = {...state.rateLimitSnapshot,...limits};
-      events.push(...rateLimitEvents(state.rateLimitSnapshot));
+      events.push(...rateLimitEvents(state.rateLimitSnapshot,params.rate_limit_reset_credits));
       continue;
     }
     const descendant = typeof params.threadId === "string" && ctx.threadParents.some(parent => parent.threadId === params.threadId);

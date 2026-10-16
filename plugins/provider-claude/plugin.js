@@ -358,11 +358,12 @@ function availableUpdate(currentVersion, result, compatibility) {
   if (response?.status !== 200) return null;
   const metadata = record(response.body);
   let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
+  if (!compatibility && !latestVersion) return null;
   if (compatibility) {
     if (!metadata?.versions || typeof metadata.versions !== "object") return null;
     latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
   }
-  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : null;
+  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
 }
 function startedJob(raw) {
   const job = record(raw)?.jobId;

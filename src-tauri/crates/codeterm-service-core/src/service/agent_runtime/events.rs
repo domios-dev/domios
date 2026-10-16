@@ -59,6 +59,7 @@ pub enum RuntimeEvent {
     RateLimitsUpdated {
         thread_id: Option<String>,
         rate_limits: Vec<RuntimeRateLimit>,
+        resets: Option<codeterm_plugin::agent_runtime::ResetCredits>,
     },
     CompactionUpdated {
         thread_id: String,
@@ -137,9 +138,11 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
         AgentRuntimeEvent::RateLimits {
             thread_id,
             rate_limits,
+            resets,
         } => RuntimeEvent::RateLimitsUpdated {
             thread_id: thread_id.clone(),
             rate_limits: rate_limits.clone(),
+            resets: resets.clone(),
         },
         AgentRuntimeEvent::ChatItem { thread_id, item } => RuntimeEvent::ItemUpdated {
             thread_id: thread_id.clone(),
@@ -271,6 +274,7 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
         RuntimeEvent::RateLimitsUpdated {
             thread_id,
             rate_limits,
+            ..
         } => {
             maps.rate_limits
                 .insert(thread_id.clone().unwrap_or_default(), rate_limits.clone());

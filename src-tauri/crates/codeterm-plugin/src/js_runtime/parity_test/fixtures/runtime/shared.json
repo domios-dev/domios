@@ -508,6 +508,158 @@
         },
         "beforeAcceptance": false
       }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "action": "redeemResetCredit",
+        "value": {
+          "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "outcome": "reset"
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "control",
+            "params": {
+              "kind": "control",
+              "action": "redeemResetCredit",
+              "value": {
+                "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+              }
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "resetCreditConsumed",
+          "outcome": "reset"
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "action": "redeemResetCredit",
+        "value": {
+          "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "outcome": "nothingToReset"
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "control",
+            "params": {
+              "kind": "control",
+              "action": "redeemResetCredit",
+              "value": {
+                "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+              }
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "resetCreditConsumed",
+          "outcome": "nothingToReset"
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "action": "redeemResetCredit",
+        "value": {
+          "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "outcome": "noCredit"
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "control",
+            "params": {
+              "kind": "control",
+              "action": "redeemResetCredit",
+              "value": {
+                "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+              }
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "resetCreditConsumed",
+          "outcome": "noCredit"
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "action": "redeemResetCredit",
+        "value": {
+          "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "outcome": "alreadyRedeemed"
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "control",
+            "params": {
+              "kind": "control",
+              "action": "redeemResetCredit",
+              "value": {
+                "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+              }
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "resetCreditConsumed",
+          "outcome": "alreadyRedeemed"
+        }
+      }
     }
   ],
   "reductions": [
@@ -618,6 +770,65 @@
               "output_tokens": 20,
               "cache_read_tokens": 30,
               "cost_micros": 20000
+            }
+          }
+        ]
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "threadId": "thread-a",
+        "settings": {},
+        "providerSettings": {}
+      },
+      "state": null,
+      "frames": [
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "usageEvent": {
+              "kind": "rateLimits",
+              "rateLimits": [],
+              "resets": {
+                "availableCount": 5,
+                "nextExpiry": 1000,
+                "credits": [
+                  {
+                    "id": "fixture-credit",
+                    "status": "available",
+                    "expiresAt": 1000
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "state": {
+          "count": 1
+        },
+        "events": [
+          {
+            "kind": "rateLimits",
+            "rateLimits": [],
+            "resets": {
+              "availableCount": 5,
+              "nextExpiry": 1000,
+              "credits": [
+                {
+                  "id": "fixture-credit",
+                  "status": "available",
+                  "expiresAt": 1000
+                }
+              ]
             }
           }
         ]

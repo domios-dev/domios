@@ -218,3 +218,58 @@ fn check_stamp_persists_through_the_state_file() {
         .claim_check("fixture", 5 + day / 2))
     .unwrap());
 }
+
+fn availability(
+    current: &str,
+    latest: &str,
+) -> codeterm_plugin::provider::ProviderUpdateAvailability {
+    codeterm_plugin::provider::ProviderUpdateAvailability {
+        current_version: current.into(),
+        latest_version: latest.into(),
+    }
+}
+
+#[test]
+fn check_answers_separate_updates_definitive_current_and_no_answer() {
+    use super::{classify, newer_target, CheckAnswer};
+    assert_eq!(
+        classify(Some(availability("1.0.0", "1.1.0"))),
+        CheckAnswer::Update(availability("1.0.0", "1.1.0"))
+    );
+    assert_eq!(
+        classify(Some(availability("1.1.0", "1.1.0"))),
+        CheckAnswer::Current
+    );
+    assert_eq!(classify(None), CheckAnswer::Unanswered);
+    assert_eq!(newer_target(Some(availability("1.1.0", "1.1.0"))), None);
+    assert_eq!(
+        newer_target(Some(availability("1.0.0", "1.1.0"))),
+        Some(availability("1.0.0", "1.1.0"))
+    );
+}
+
+#[test]
+fn unanswered_check_returns_its_claim_and_a_definitive_answer_keeps_it() {
+    let mut state = Coordinator::default();
+    assert!(state.claim_check("offline", 10));
+    state.release_check("offline", 10);
+    assert!(
+        state.claim_check("offline", 11),
+        "a non-answer never burns the day"
+    );
+    assert!(state.claim_check("answered", 10));
+    assert!(
+        !state.claim_check("answered", 11),
+        "a definitive answer keeps the day"
+    );
+}
+
+#[test]
+fn releasing_a_stale_claim_keeps_a_newer_one() {
+    let day = super::state::CHECK_INTERVAL_MS;
+    let mut state = Coordinator::default();
+    assert!(state.claim_check("fixture", 10));
+    assert!(state.claim_check("fixture", 10 + day));
+    state.release_check("fixture", 10);
+    assert!(!state.claim_check("fixture", 11 + day));
+}

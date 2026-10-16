@@ -32,7 +32,7 @@ An event is an upsert. A later event for the same identity replaces the earlier 
 | `UsageUpdated` | `threadId` | Token usage |
 | `RateLimitsUpdated` | `threadId` or the session | Quota windows |
 | `CompactionUpdated` | `threadId` + `itemId` | A completed compaction marker |
-| `Warning` | one bookkeeping failure | The single visible warning for that failure |
+| `Warning` | first bookkeeping failure in an epoch | The single visible bookkeeping warning for that epoch |
 
 `TurnUpdated` with `idle` is the turn terminal. `detail` is `interrupted`, `failed`, or absent when the turn completed. A missing `turnId` on `needs_input` is the thread waiting on a request whose turn is the active one.
 
@@ -117,23 +117,22 @@ Bounds are per tab and per runtime epoch. Overflow is amortized: the host trunca
 | Item maps | 1000 live items or 8 MiB of item text, first reached | Heavy text keeps its tail. The oldest closed items retire. The process stays up |
 | Outstanding server requests | 64 | The excess request gets an immediate protocol error. The process stays up |
 
-A successful batch sets the consecutive bookkeeping count to zero. This contract introduces the broadcast floor and the total serialized budget: the plugin keeps the state blob at 192 KiB so a batch stays under the 256 KiB host ceiling, until `mapFrames` removes the blob. Each warning row uses a new monotonic id, so two warnings in one epoch stay distinct rows.
+This contract introduces the broadcast floor and the total serialized budget: the plugin keeps the state blob at 192 KiB so a batch stays under the 256 KiB host ceiling, until `mapFrames` removes the blob. A runtime epoch emits at most one visible bookkeeping warning, even when successful batches separate failures.
 
 ## Failures
 
-A bookkeeping failure is a frame fault, a failed hook call, a state, value, or scratch overflow, or a lagged broadcast. Each one produces one visible warning on the runtime tab and one resync. The provider process stays up. The turn continues.
+A bookkeeping failure is a frame fault, a failed hook call, a state, value, or scratch overflow, or a lagged broadcast. The first failure in an epoch produces a visible warning on the runtime tab. Each failure triggers a resync. The provider process stays up. The turn continues.
 
 Resync runs the reload the host already uses for a bound thread: `ResumeThread` for that thread, then `ReadHistory` until the history page ends. Maps reconcile from those pages. Scratch is unchanged when the whole call fails, and rolled back to the pre-frame value when one frame faults. The failed batch is not applied and not replayed.
 
-One failed hook call is one batch failure and one warning, including when the batch held many frames. A frame fault inside a successful `mapFrames` call is one warning for that frame, and the other frames still apply.
+One failed hook call is one batch failure, including when the batch held many frames. A frame fault inside a successful `mapFrames` call leaves the other frames applicable. Repeated bookkeeping failures never close the provider process.
 
 The process closes only when:
 
 - the provider process exits
 - the transport fails as a protocol: a frame cannot be decoded, or stdin, stdout, or the event stream breaks
-- eight consecutive batches fail bookkeeping with no successful batch between them
 
-The count is per runtime epoch. Close unloads that epoch, keeps a visible reason, and offers Retry. The first bookkeeping failure does not close the process. A lag of the frames the queue could not deliver is a warning and a resync.
+Close unloads that epoch, keeps a visible reason, and offers Retry. The first bookkeeping failure does not close the process. A lag of the frames the queue could not deliver is a warning and a resync.
 
 ## Transport
 
@@ -146,7 +145,7 @@ The count is per runtime epoch. Close unloads that epoch, keeps a visible reason
 
 The `http-sse` manifest names the stream path and the auth environment variable. The credential is injected from the secret store into that variable. Core does not recognize a provider-specific variable name, port, or URL.
 
-A stream that ends because the process exited is a protocol failure. A stream that ends while the process is alive is a bookkeeping failure: warn, resync from history, and open the stream again only after a new subscription is accepted. There is no timed reconnect. A stream that cannot be resubscribed counts toward the consecutive limit. Which OpenCode serve stream path is declared is the plugin's choice; core does not select a version by provider identity.
+A stream that ends because the process exited is a protocol failure. A stream that ends while the process is alive is a bookkeeping failure: warn, resync from history, and open the stream again only after a new subscription is accepted. There is no timed reconnect. A failed resubscription remains a nonfatal bookkeeping failure. Which OpenCode serve stream path is declared is the plugin's choice; core does not select a version by provider identity.
 
 ## Wire mapping
 

@@ -12,7 +12,6 @@ import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
-import { RemovedChatPlugin } from "./RemovedChatPlugin";
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
@@ -20,7 +19,6 @@ import {
   chatDaySeparators,
   chatLocalDay,
   messageRowTime,
-  ChatSessionIntentLine,
   isSessionIntentOnlyMessage,
   MessageBubble,
   MessageTimeFrame,
@@ -816,8 +814,6 @@ function TabSessionChatBody({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
-      {!runtimeUnavailable && <RemovedChatPlugin error={effectiveChatBackend ? error : null} />}
-      <ChatSessionIntentLine intent={sessionIntent} />
       <div className="relative flex-1 min-h-0">
       {showEmptyState && (
         <div
@@ -1049,6 +1045,8 @@ function TabSessionChatBody({
         clearAttachments={clearAttachments}
         handlePasteEvent={handlePasteEvent}
         inlineAttachmentSink={inlineSinkRef}
+        pluginError={!runtimeUnavailable && effectiveChatBackend ? error : null}
+        sessionIntent={sessionIntent}
         contextSlot={contextSlot}
         onWillSendMessage={willSendMessage}
         addOptimistic={addOptimistic}

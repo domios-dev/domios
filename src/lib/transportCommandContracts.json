@@ -1245,6 +1245,12 @@
         "POST",
         "/api/tabs/tab/agent/runtime/login"
       ]
+    ],
+    "agent_runtime_reset_credits": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/reset-credits"
+      ]
     ]
   }
 }

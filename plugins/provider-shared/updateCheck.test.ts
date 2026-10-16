@@ -73,7 +73,11 @@ describe("provider update selection", () => {
   it("current and newer installed versions never downgrade", () => {
     const host = makeHost();
     host.exec.mockReturnValue({ done: true, code: 0, stdout: "opencode 2.0.0" });
-    expect(check(host, "opencode", "https://opaque", compatibility)).toBeNull();
+    expect(check(host, "opencode", "https://opaque", compatibility)).toEqual({ currentVersion: "2.0.0", latestVersion: "2.0.0" });
+  });
+  it("an answered check without a newer target reports latest equal to current", () => {
+    expect(check(makeHost("claude", 0, { version: "1.18.35" }), "claude", "https://opaque")).toEqual({ currentVersion: "1.18.35", latestVersion: "1.18.35" });
+    expect(check(makeHost("opencode", 0, { versions: { "2.0.0": {} } }), "opencode", "https://opaque", compatibility)).toEqual({ currentVersion: "1.18.35", latestVersion: "1.18.35" });
   });
   it("latest metadata is used for an unconstrained updater", () => {
     expect(check(makeHost("claude", 0, { version: "2.1.292" }), "claude", "https://opaque")).toEqual({ currentVersion: "1.18.35", latestVersion: "2.1.292" });
@@ -84,6 +88,7 @@ describe("provider update selection", () => {
     expect(check(host, "opencode", "https://opaque", compatibility)).toBeNull();
     host.fetch.mockReturnValue({ status: 200, body: "invalid" });
     expect(check(host, "opencode", "https://opaque", compatibility)).toBeNull();
+    expect(check(makeHost("claude", 0, { name: "opaque" }), "claude", "https://opaque")).toBeNull();
   });
   it("yields before any probe runs and never uses the blocking host calls", () => {
     const host = makeHost();

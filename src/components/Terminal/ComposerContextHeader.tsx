@@ -1,5 +1,9 @@
+import { RemovedChatPlugin } from "./RemovedChatPlugin";
+import { removedChatPluginId } from "./removedChatPluginError";
+import type { ChatSessionIntent } from "@codeterm/chat-core";
+import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { ChevronUp, CircleCheck, Clock3, Infinity as InfinityIcon, Map, Plus, Timer, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
@@ -15,6 +19,8 @@ import { usePhoneViewport } from "../../hooks/useSidebarViewport";
 export type ContextKind = "blueprints" | "crons" | "delayed";
 
 interface ComposerContextHeaderProps {
+  pluginError?: string | null;
+  sessionIntent?: ChatSessionIntent | null;
   tabId: string;
   workspaceId: string | null;
   delayed: readonly DelayedMessage[];
@@ -35,7 +41,10 @@ const KIND_SHORT_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "D
 
 const keepComposerFocus = (event: MouseEvent) => event.preventDefault();
 
-function ContextBubble({ tone, label, onOpen, dismissLabel, dismissTitle, onDismiss, children }: {
+function ContextBubble({ tone, label, onOpen, dismissLabel, dismissTitle, onDismiss, triggerRef, title, expanded, children }: {
+  triggerRef?: RefObject<HTMLButtonElement | null>;
+  title?: string;
+  expanded?: boolean;
   tone: string;
   label?: string;
   onOpen: () => void;
@@ -46,7 +55,7 @@ function ContextBubble({ tone, label, onOpen, dismissLabel, dismissTitle, onDism
 }) {
   return (
     <span className="ct-ctx-bubble" data-tone={tone}>
-      <button type="button" className="ct-ctx-bubble__open" aria-label={label} onMouseDown={keepComposerFocus} onClick={onOpen}>{children}</button>
+      <button ref={triggerRef} title={title} aria-expanded={expanded} aria-haspopup={expanded === undefined ? undefined : "dialog"} type="button" className="ct-ctx-bubble__open" aria-label={label} onMouseDown={keepComposerFocus} onClick={onOpen}>{children}</button>
       {onDismiss && (
         <button type="button" className="ct-ctx-bubble__dismiss" aria-label={dismissLabel} title={dismissTitle} onMouseDown={keepComposerFocus} onClick={onDismiss}>
           <X size={11} aria-hidden="true" />
@@ -54,6 +63,36 @@ function ContextBubble({ tone, label, onOpen, dismissLabel, dismissTitle, onDism
       )}
     </span>
   );
+}
+
+function ContextPopoverBubble({ label, tone, title, children, details }: {
+  label: string;
+  tone: string;
+  title?: string;
+  children: ReactNode;
+  details: ReactNode;
+}) {
+  const { open, triggerRef, popoverRef, toggle } = useRuntimeStatusPopover();
+  return <div className="relative inline-flex min-w-0 max-w-full [--ct-ctx-kind:var(--ct-accent)]">
+    <ContextBubble tone={tone} label={label} title={title} triggerRef={triggerRef} expanded={open} onOpen={toggle}>{children}</ContextBubble>
+    {open && <div ref={popoverRef} role="dialog" aria-label={label} tabIndex={-1}
+      className="ct-menu absolute bottom-full left-0 z-40 mb-2 w-64 max-w-[calc(100vw-2rem)] whitespace-pre-wrap break-words p-3 text-xs text-[var(--ct-fg)]">{details}</div>}
+  </div>;
+}
+
+function SessionGoalBubble({ intent }: { intent: ChatSessionIntent }) {
+  const details = [intent.title, intent.goal].filter(Boolean).join("\n\n");
+  return <ContextPopoverBubble tone="scheduled" label="Session goal" title={details} details={details}>
+    <span className="ct-ctx-bubble__meta">Goal</span>
+    <span className="ct-ctx-bubble__title ct-ctx-bubble__title--text">{intent.goal || intent.title}</span>
+  </ContextPopoverBubble>;
+}
+
+function RemovedPluginBubble({ error }: { error: string }) {
+  return <ContextPopoverBubble tone="waiting" label="Plugin removed" details={<RemovedChatPlugin error={error} />}>
+    <span className="ct-ctx-bubble__dot" aria-hidden="true" />
+    <span className="ct-ctx-bubble__title">Plugin removed</span>
+  </ContextPopoverBubble>;
 }
 
 function StateBody({ title, state }: { title: string; state: string }) {
@@ -95,7 +134,7 @@ function PlannedContextHeader(props: ComposerContextHeaderProps) {
   return <ContextHeaderBody {...props} plan={plan.activity ? plan : null} />;
 }
 
-function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDeleteDelayed, onScheduleDelayed, draftActive = false, adapter, jobActionAdapter, plan }: ComposerContextHeaderProps & { plan: ResolvedPlan | null }) {
+function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, delayed, onEditDelayed, onDeleteDelayed, onScheduleDelayed, draftActive = false, adapter, jobActionAdapter, plan }: ComposerContextHeaderProps & { plan: ResolvedPlan | null }) {
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
   const [requested, setRequested] = useState<ContextKind | null>(null);
   const [shown, setShown] = useState<ContextKind | null>(null);
@@ -126,7 +165,9 @@ function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDelet
   const kinds = (Object.keys(counts) as ContextKind[]).filter((kind) => counts[kind] > 0);
   const open = requested && counts[requested] > 0 ? requested : null;
 
-  if (!plan && kinds.length === 0) return null;
+  const hasGoal = Boolean(sessionIntent?.title || sessionIntent?.goal);
+  const hasPluginError = removedChatPluginId(pluginError ?? null) !== null;
+  if (!hasGoal && !hasPluginError && !plan && kinds.length === 0) return null;
 
   const toggle = (kind: ContextKind) => {
     setRequested(open === kind ? null : kind);
@@ -223,7 +264,7 @@ function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDelet
 
   const total = kinds.reduce((sum, kind) => sum + counts[kind], 0);
   const PillIcon = plan ? Map : KIND_ICON[kinds[0]];
-  const pill = phone && (
+  const pill = phone && (plan || kinds.length > 0) && (
     <button
       type="button"
       className="ct-ctx-pill"
@@ -289,12 +330,16 @@ function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDelet
 
   return (
     <div className="ct-ctx" data-testid="composer-context-header" data-open-kind={open ?? undefined} data-phone={phone || undefined}>
-      {pill}
-      {phone ? (
+      <div className="ct-ctx__compact" data-has-bubbles={hasGoal || hasPluginError || undefined}>
+        {hasGoal && sessionIntent && <SessionGoalBubble intent={sessionIntent} />}
+        {hasPluginError && pluginError && <RemovedPluginBubble error={pluginError} />}
+        {pill}
+      </div>
+      {(plan || kinds.length > 0) && (phone ? (
         <div className="ct-ctx__reveal" data-open={unfolded || undefined}>
           <div className="ct-ctx__reveal-inner">{body}</div>
         </div>
-      ) : body}
+      ) : body)}
       {error && !confirming && <InlineErrorNotice error={error} operation="updating the composer context" blocking />}
       {confirming && (() => {
         const copy = deleteJobConfirmation(confirming);
