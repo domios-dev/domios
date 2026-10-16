@@ -85,3 +85,22 @@ test("failed and abandoned discovery attempts do not create repeated subprocess 
   assert.equal(f.starts(), 3);
   f.complete();
 });
+
+test("Supporter retries a null cold catalogue after its TTL while a valid empty catalogue stays warm", () => {
+  const f = fixture();
+  f.plugin.models("cold-fingerprint");
+  assert.deepEqual(f.complete({ code: 1, stdout: "" }), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(f.plugin.models("cold-fingerprint"))), []);
+  assert.equal(f.starts(), 1);
+  f.advance(600_000);
+  assert.deepEqual(JSON.parse(JSON.stringify(f.plugin.models("cold-fingerprint"))), { awaiting: true });
+  assert.equal(f.starts(), 2);
+  assert.equal(f.complete()[0].id, "fixture/model");
+
+  const empty = fixture();
+  empty.plugin.models("empty-fingerprint");
+  assert.deepEqual(empty.complete({ code: 0, stdout: 'fixture/unavailable\n{"available":false}' }), []);
+  empty.advance(600_000);
+  assert.deepEqual(JSON.parse(JSON.stringify(empty.plugin.models("empty-fingerprint"))), []);
+  assert.equal(empty.starts(), 1);
+});

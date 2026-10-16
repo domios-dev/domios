@@ -1,5 +1,5 @@
 import type { DecisionAnswer, DecisionFailure, DecisionModelCapability, DecisionQuestion, DecisionRequest, ExecOpts, Host } from "@codeterm/plugin-sdk";
-import { cachedOpencodeModels, hasOpencodeCatalogue, withOpencodeModels, opencodeConfigPath } from "./helpers";
+import { cachedOpencodeModels, withOpencodeModels, opencodeConfigPath } from "./helpers";
 import type { ModelInfo } from "@codeterm/plugin-sdk";
 import { readModelProviders } from "./modelProviders";
 
@@ -109,8 +109,9 @@ function modelsFromCatalogue(models: ModelInfo[] | null) {
 }
 
 function models(binaryFingerprint?: string | null) {
-  return hasOpencodeCatalogue()
-    ? modelsFromCatalogue(cachedOpencodeModels())
+  const cached = cachedOpencodeModels();
+  return cached !== null
+    ? modelsFromCatalogue(cached)
     : withOpencodeModels(binaryFingerprint, modelsFromCatalogue);
 }
 

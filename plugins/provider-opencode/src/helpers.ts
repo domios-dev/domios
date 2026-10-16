@@ -287,10 +287,6 @@ export function cachedOpencodeModels(): ModelInfo[] | null {
   return modelCatalogue?.models ?? null;
 }
 
-export function hasOpencodeCatalogue(): boolean {
-  return modelCatalogue !== null;
-}
-
 export function discoverOpencodeModels(binaryFingerprint?: string | null): ModelInfo[] | null {
   return withOpencodeModels(binaryFingerprint, (models) => models);
 }

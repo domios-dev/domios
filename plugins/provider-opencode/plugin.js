@@ -629,9 +629,6 @@ var modelDiscoveryInFlight = false;
 function cachedOpencodeModels() {
   return modelCatalogue?.models ?? null;
 }
-function hasOpencodeCatalogue() {
-  return modelCatalogue !== null;
-}
 function discoverOpencodeModels(binaryFingerprint) {
   return withOpencodeModels(binaryFingerprint, (models2) => models2);
 }
@@ -1463,7 +1460,8 @@ function modelsFromCatalogue(models2) {
   return Array.from(catalogue.values());
 }
 function models(binaryFingerprint) {
-  return hasOpencodeCatalogue() ? modelsFromCatalogue(cachedOpencodeModels()) : withOpencodeModels(binaryFingerprint, modelsFromCatalogue);
+  const cached = cachedOpencodeModels();
+  return cached !== null ? modelsFromCatalogue(cached) : withOpencodeModels(binaryFingerprint, modelsFromCatalogue);
 }
 var decisionModel = {
   models,
