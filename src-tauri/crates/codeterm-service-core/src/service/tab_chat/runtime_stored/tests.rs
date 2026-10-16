@@ -35,3 +35,31 @@ fn stored_window_is_bounded_and_keeps_an_exact_backfill_boundary() {
     assert_eq!(previous_end, start);
     assert!(previous_start < start);
 }
+
+#[test]
+fn on_demand_stored_windows_reach_first_record_without_gaps() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("history.jsonl");
+    let record = format!("{{\"content\":\"{}\"}}\n", "x".repeat(1024));
+    use std::io::Write;
+    let mut file = std::fs::File::create(&path).unwrap();
+    file.write_all(b"{\"id\":\"first\"}\n").unwrap();
+    for _ in 0..3000 {
+        file.write_all(record.as_bytes()).unwrap();
+    }
+    drop(file);
+    let mut cursor = std::fs::metadata(&path).unwrap().len();
+    let mut pages = 0;
+    while cursor > 0 {
+        let (records, start, end) = read_window(&path, Some(cursor)).unwrap();
+        assert_eq!(end, cursor);
+        assert!(start < cursor);
+        assert!(records.len() as u64 <= WINDOW_BYTES);
+        if start == 0 {
+            assert!(records.starts_with("{\"id\":\"first\"}\n"));
+        }
+        cursor = start;
+        pages += 1;
+    }
+    assert!(pages > 2);
+}

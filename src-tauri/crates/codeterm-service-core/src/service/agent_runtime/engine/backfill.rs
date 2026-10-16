@@ -2,9 +2,19 @@ use super::{RuntimePhase, Session};
 use crate::service::{agent_runtime::model::HistoryBackfill, ServiceContext};
 use codeterm_plugin::agent_runtime::*;
 use codeterm_types::agent::chat_types::ChatMsg;
-use std::{collections::HashSet, future::Future, sync::Arc, time::Instant};
+use std::{
+    collections::HashSet,
+    future::Future,
+    sync::{Arc, LazyLock},
+    time::Instant,
+};
 
 use super::super::{model::RuntimeFailure, process::Process};
+
+const STARTUP_HISTORY_PAGES: u32 = 2;
+const HISTORY_CONCURRENCY: usize = 2;
+static HISTORY_READS: LazyLock<tokio::sync::Semaphore> =
+    LazyLock::new(|| tokio::sync::Semaphore::new(HISTORY_CONCURRENCY));
 
 pub(super) trait HistoryPort {
     fn read(
@@ -34,6 +44,7 @@ pub(super) struct Replay {
     pub rows: usize,
     pub descending: bool,
     pub done: bool,
+    startup_limit: Option<u32>,
 }
 
 impl Replay {
@@ -51,7 +62,12 @@ impl Replay {
             rows: 0,
             descending: false,
             done: false,
+            startup_limit: None,
         }
+    }
+
+    pub fn bound_startup(&mut self) {
+        self.startup_limit = Some(STARTUP_HISTORY_PAGES);
     }
 
     fn current(&self, session: &Session, ready: bool) -> bool {
@@ -160,6 +176,11 @@ impl Replay {
                 self.rows += session.cache.lock().reconcile_backfill(rows);
             }
         }
+        let (retained_rows, retained_bytes) = session.cache.lock().retained();
+        log::debug!(
+            "[chat_backfill] tab={} page={} retained_rows={retained_rows} retained_bytes={retained_bytes} startup_limit={:?}",
+            session.context.lock().tab_id, self.pages, self.startup_limit
+        );
         adopt_open_turns(session, &self.thread, &open_items);
         port.page_landed(self.pages);
         match next_cursor {
@@ -179,6 +200,11 @@ impl Replay {
         port: &mut P,
     ) -> Result<(), RuntimeFailure> {
         self.page(session, port, false).await?;
+        if !self.descending && !self.done && self.startup_limit.is_some() {
+            return Err(RuntimeFailure::HookFailed(
+                "Rereadable history must honor descending order".into(),
+            ));
+        }
         while !self.descending && !self.done {
             self.page(session, port, false).await?;
         }
@@ -191,7 +217,7 @@ impl Replay {
         session: &Session,
         port: &mut P,
     ) -> Result<(), RuntimeFailure> {
-        while !self.done {
+        while !self.done && self.startup_limit.is_none_or(|limit| self.pages < limit) {
             self.page(session, port, true).await?;
         }
         Ok(())
@@ -238,6 +264,10 @@ impl RpcPort {
 
 impl HistoryPort for RpcPort {
     async fn read(&mut self, cursor: Option<String>) -> Result<RuntimeResult, RuntimeFailure> {
+        let _permit = HISTORY_READS
+            .acquire()
+            .await
+            .map_err(|_| RuntimeFailure::Superseded)?;
         let provider = self.session.provider.clone();
         super::run(
             &self.svc,
@@ -318,7 +348,15 @@ pub(super) fn finish(
     drop(checkpoint);
     match outcome {
         Ok(()) => {
-            crate::startup::boot_timing::mark(tab, None, "history_complete");
+            crate::startup::boot_timing::mark(
+                tab,
+                None,
+                if replay.done {
+                    "history_complete"
+                } else {
+                    "history_startup_complete"
+                },
+            );
             log::debug!(
                 "[agent-runtime] tab={tab} reopen spawn={} init={}ms resume={}ms first_page={}ms ready={}ms history={}ms pages={} rows={}",
                 reopen

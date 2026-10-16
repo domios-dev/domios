@@ -115,6 +115,11 @@ fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Optio
     let path = provider
         .session_file_path(tab.cwd.as_deref().unwrap_or_default(), session)
         .ok_or("Provider has no recorded runtime session")?;
+    if !path.try_exists().map_err(|error| error.to_string())?
+        && crate::service::agent_runtime::engine::has_live_bound_session(&tab)
+    {
+        return Ok(None);
+    }
     let started = std::time::Instant::now();
     let (records, start, end) = read_window(&path, before)?;
     let messages = provider.runtime_stored_history(session, &records)?;
@@ -147,13 +152,6 @@ pub fn start(
     tab_id: &str,
     subscription: &str,
 ) -> Result<Option<ChatStartResult>, String> {
-    let tab = { svc.mux.read().get_tab(tab_id).cloned() };
-    let live = tab.is_some_and(|tab| {
-        !tab.frozen && crate::service::agent_runtime::engine::has_live_bound_session(&tab)
-    });
-    if live {
-        return Ok(None);
-    }
     let Some(window) = read(svc, tab_id, None)? else {
         return Ok(None);
     };
