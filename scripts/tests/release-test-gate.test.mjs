@@ -100,7 +100,10 @@ test("each fast check cancels the calling run on its own failure; nothing else c
       }
       assert.equal(cancels.length, 1, id);
       assert.equal(cancels[0].if, "failure() && inputs.cancel_run", id);
-      assert.match(cancels[0].run, /^gh run cancel \$\{\{ github\.run_id \}\}/, id);
+      assert.match(cancels[0].run, /^gh run cancel \$\{\{ github\.run_id \}\}/m, id);
+      const announce = cancels[0].run.indexOf("::error title=Fast check failed::$FAILED_CHECK");
+      assert.ok(announce >= 0 && announce < cancels[0].run.indexOf("gh run cancel"), `${id}: names the failed check before cancelling`);
+      assert.equal(cancels[0].env.FAILED_CHECK, "${{ github.job }}", id);
       assert.equal(job.permissions.actions, "write", id);
       const after = job.steps.slice(job.steps.indexOf(cancels[0]) + 1);
       assert.ok(after.every(step => step.if === "always()"), `${id}: only cleanup follows the cancel`);

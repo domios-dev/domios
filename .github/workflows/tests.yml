@@ -203,13 +203,17 @@ jobs:
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['core-journeys-offline'] }}
       # Builds already in flight stop with the first failure instead of after the slowest sibling check.
+      # Cancelling marks this job cancelled too, so the annotation is what names the failed check.
       - &cancel-run-on-failure
         name: Cancel the run on this fast-check failure
         if: failure() && inputs.cancel_run
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run cancel ${{ github.run_id }} --repo ${{ github.repository }}
+          FAILED_CHECK: ${{ github.job }}
+        run: |
+          echo "::error title=Fast check failed::$FAILED_CHECK failed; the run is cancelled"
+          gh run cancel ${{ github.run_id }} --repo ${{ github.repository }}
 
   plugins:
     name: plugin (${{ matrix.plugin.id }})
