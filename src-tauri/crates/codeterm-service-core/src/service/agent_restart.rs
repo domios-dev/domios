@@ -29,6 +29,7 @@ pub const RESTART_READY_TIMEOUT_SECS: u64 = 45;
 /// Lives on `ServiceContext` and survives across requests.
 #[derive(Default)]
 pub struct RestartTrackerState {
+    sleep_transitions: HashMap<String, Arc<sleep_transition::SleepTransition>>,
     staged_models: model_switch::staging::PendingSwitches,
     last_restart: HashMap<String, Instant>,
     in_progress: HashSet<String>,
@@ -852,6 +853,7 @@ use launch_command::build_relaunch_command;
 #[cfg(test)]
 use launch_command::build_relaunch_command_with_registry;
 mod shutdown;
+pub mod sleep_transition;
 pub(crate) mod timing;
 mod unverified_shell;
 pub use model_switch::ModelSwitchConfirmation;
