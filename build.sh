@@ -661,12 +661,6 @@ if [ "${CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY:-0}" = "1" ]; then
   exit 0
 fi
 
-# A cold prebuilt refusal must be read-only; every other command keeps the
-# existing hook setup behavior.
-if [ "$CMD" != "dev-prebuilt" ] && [ "$CMD" != "cache-status" ] && [ "$CMD" != "cache-verify" ] && [ "$CMD" != "cache-stats" ] && [ "$CMD" != build-history ]; then
-  git config core.hooksPath .githooks 2>/dev/null || true
-fi
-
 source scripts/cache-policy.sh
 source scripts/build-gateway.sh
 source scripts/nextest-archive.sh
