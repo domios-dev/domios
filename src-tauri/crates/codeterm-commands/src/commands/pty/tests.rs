@@ -167,9 +167,8 @@ mod restored_fresh_launch_tests {
 
     #[test]
     fn restored_fresh_launch_command_carries_the_supplied_instruction() {
-        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
-            codeterm_service_core::multiplexer::state::MultiplexerState::new().0,
-        );
+        let (mux, tab_id) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
         let registry = &*fixture.service.agent_registry;
         registry.register_provider(Box::new(
             codeterm_service_core::plugin::agent_claude::ClaudeProvider::new(),
@@ -189,7 +188,7 @@ mod restored_fresh_launch_tests {
                 },
             );
             let command = input
-                .command(&fixture.service, "tab-restored-identity")
+                .command(&fixture.service, &tab_id)
                 .expect("restored launch command");
 
             assert_eq!(command.matches("--append-system-prompt-file").count(), 1);
@@ -214,9 +213,11 @@ mod restored_fresh_launch_tests {
     fn restored_fresh_launch_passes_a_minted_marker_and_resume_passes_none() {
         use codeterm_service_core::service::registered_launch_marker;
 
-        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
-            codeterm_service_core::multiplexer::state::MultiplexerState::new().0,
-        );
+        let (mut mux, fresh_tab_id) =
+            codeterm_service_core::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let resume_tab_id = mux.create_tab(&workspace_id).unwrap();
+        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
         let registry = &*fixture.service.agent_registry;
         registry.register_provider(Box::new(
             codeterm_service_core::agent::test_provider::MockProvider::new("restored-marked"),
@@ -227,9 +228,9 @@ mod restored_fresh_launch_tests {
             worker_params("restored-marked", None),
             codeterm_service_core::multiplexer::types::RestorableLaunchParameters::default(),
         )
-        .command(&fixture.service, "tab-restored-fresh")
+        .command(&fixture.service, &fresh_tab_id)
         .expect("restored fresh launch command");
-        let marker = registered_launch_marker("tab-restored-fresh")
+        let marker = registered_launch_marker(&fresh_tab_id)
             .expect("restored fresh launch registers its launch marker");
         assert!(!marker.is_empty());
         assert!(fresh.ends_with(&format!(" --launch-marker {marker}")));
@@ -241,11 +242,11 @@ mod restored_fresh_launch_tests {
             resume_params,
             codeterm_service_core::multiplexer::types::RestorableLaunchParameters::default(),
         )
-        .command(&fixture.service, "tab-restored-resume")
+        .command(&fixture.service, &resume_tab_id)
         .expect("restored resume command");
         assert!(!resumed.contains("--launch-marker"));
         assert_eq!(
-            registered_launch_marker("tab-restored-resume").as_deref(),
+            registered_launch_marker(&resume_tab_id).as_deref(),
             Some("session-restored")
         );
     }
