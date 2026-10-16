@@ -44,17 +44,25 @@ assert.ok(copied[0].includes("opaque-secret"));
 assert.equal(host.querySelector<HTMLInputElement>('input[aria-label="Web address"]')?.value, "http://192.168.1.2:7686/");
 await act(async () => button("Set up Tailscale with AI").click());
 assert.equal(setupCount, 1);
-await act(async () => button("Close Web").click());
+await act(async () => button("Collapse Mesh UI").click());
 assert.equal(closeCount, 1);
 assert.equal(mutations.length, 0);
 for (const state of ["ready", "setup_required", "conflict"] as const) {
   const snapshot = webUiSnapshot(state);
   await act(async () => root.render(<WebAccessPanel config={config} network={null} serve={{installed:true,active:state==="ready",snapshot}} loading={false} actions={actions} onAction={async (action) => { mutations.push(action); }} onSetup={async () => { setupCount++; }} onClose={() => { closeCount++; }} />));
-  assert.equal(host.querySelector('[data-testid="web-access-status"]')?.textContent, deriveWebUiView(snapshot, false).label);
-  const name = state === "ready" ? "Disable Web UI" : state === "conflict" ? "Repair route" : "Enable HTTPS (Tailscale Serve)";
-  await act(async () => button(name).click());
+  if (state !== "ready") assert.equal(host.querySelector('[data-testid="web-access-status"]')?.textContent, deriveWebUiView(snapshot, false).label);
+  if (state === "ready") {
+    assert.equal(Array.from(host.querySelectorAll("button")).some((entry) => entry.textContent === "Disable Web UI"), false);
+    assert.equal(Array.from(host.querySelectorAll("button")).some((entry) => entry.textContent === "Set up Tailscale with AI"), false);
+  } else {
+    const name = state === "conflict" ? "Repair route" : "Enable HTTPS (Tailscale Serve)";
+    await act(async () => button(name).click());
+  }
 }
-assert.deepEqual(mutations, ["disable", "setup", "repair"]);
+assert.deepEqual(mutations, ["setup", "repair"]);
+await act(async () => root.render(<WebAccessPanel config={config} network={null} serve={null} loading actions={actions} onAction={async () => {}} onSetup={async () => {}} onClose={() => {}} />));
+assert.ok(host.querySelector('[role="status"][aria-label="Loading"]'));
+assert.equal(host.querySelector('[data-testid="web-access-status"]'), null);
 await act(async () => root.unmount());
 console.log("✓ Web panel wires the resolved link to QR, Copy and Open and retains setup/close actions");
 

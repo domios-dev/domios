@@ -15,7 +15,7 @@ import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { deriveWebUiView } from "./meshWebUi";
 import { WebNodeCard } from "./WebNodeCard";
-import { WebAccessPanel, generateWebQr, type WebUiAction } from "./WebAccessPanel";
+import { generateWebQr, type WebUiAction } from "./WebAccessPanel";
 import { UI_PANEL, UI_TEXT } from "../shared/design";
 import { LiquidTabRail } from "../shared/LiquidTabRail";
 import {
@@ -62,7 +62,6 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   const [refreshKey, setRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
   const [recentPushes, setRecentPushes] = useState<RecentPush[]>([]);
-  const [webUiOpen, setWebUiOpen] = useState(false);
   const [network, setNetwork] = useState<NetworkInfo | null>(null);
   const [serve, setServe] = useState<ServeStatus | null>(null);
   const [serveLoading, setServeLoading] = useState(true);
@@ -192,14 +191,14 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
               ? <InlineErrorNotice error={data.error} operation="loading the mesh" />
               : `${headerPeerCount} peer${headerPeerCount === 1 ? "" : "s"}`}
           </div>
-          <button
+          {activeTab !== "inventory" && <button
             onClick={() => setRefreshKey((k) => k + 1)}
             className={`flex ${touchUi ? "h-9 w-9" : "h-7 w-7"} shrink-0 items-center justify-center p-0 text-[var(--ct-muted-fg)] transition-colors hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] active:scale-95`}
             style={{ borderRadius: "9999px" }}
             title="Refresh"
           >
             <BusySpinner icon={RefreshCw} size={touchUi ? 16 : 13} spinning={data.loading} />
-          </button>
+          </button>}
         </div>
         <div className="ct-section-toolbar__tabs border-l border-[var(--ct-border)] pl-3">
           <LiquidTabRail
@@ -216,14 +215,13 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         {activeTab === "inventory" && (
           <div ref={mapRef} className="absolute inset-0">
             <MeshCanvas
-              webCard={(qrSize) => <WebNodeCard onDetails={() => setWebUiOpen(true)} qrSize={qrSize} config={config} network={network} serve={serve} loading={serveLoading}
+              onRefresh={triggerRefresh}
+              webCard={(qrSize) => <WebNodeCard qrSize={qrSize} config={config} network={network} serve={serve} loading={serveLoading}
                 actions={WEB_ACTIONS} onAction={runWebUiAction}
                 onSetup={async () => {
                   await startWebAccessSetupHelper(serve, buildWebUiTarget(config, network, serve).port, config.api);
                   onClose();
                 }} />}
-              onWebClick={() => setWebUiOpen(true)}
-              webSelected={webUiOpen}
               webStatus={deriveWebUiView(serve?.snapshot, serveLoading).label}
               thisMachine={data.thisMachine}
               peers={data.peers}
@@ -255,22 +253,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
           onAnnouncement={setMeshAnnouncement}
         />
         <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="mesh-panel-announcement">{meshAnnouncement}</div>
-        {webUiOpen && (
-          <WebAccessPanel
-            config={config}
-            network={network}
-            serve={serve}
-            loading={serveLoading}
-            actions={WEB_ACTIONS}
-            onAction={runWebUiAction}
-            onClose={() => setWebUiOpen(false)}
-            onSetup={async () => {
-              await startWebAccessSetupHelper(serve, buildWebUiTarget(config, network, serve).port, config.api);
-              setWebUiOpen(false);
-              onClose();
-            }}
-          />
-        )}
+
       </div>
     </div>
   );

@@ -76,3 +76,11 @@ function serveHttpsRoot(serve: ServeStatus | null): string | null {
 function ensureTrailingSlash(url: string): string {
   return url.endsWith("/") ? url : `${url}/`;
 }
+
+export function shouldShowWebSetupHelper(route: WebRouteKind, ready: boolean): boolean {
+  return !ready || route !== "tailscale_https";
+}
+
+export function webRouteLabel(route: WebRouteKind): string {
+  return { tailscale_https: "HTTPS · Tailscale", tailscale_ip: "HTTP · Tailscale", lan: "Local network", loopback: "This machine" }[route];
+}

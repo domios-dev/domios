@@ -2,7 +2,7 @@
 
 import type { AppConfig } from "../../lib/types";
 import type { ServeReconcileSnapshot, ServeStatus } from "../../lib/webAccess";
-import { buildWebUiTarget, classifyWebUiRoute, displayedWebUrl, type NetworkInfo } from "./webUiTarget";
+import { buildWebUiTarget, classifyWebUiRoute, displayedWebUrl, shouldShowWebSetupHelper, webRouteLabel, type NetworkInfo } from "./webUiTarget";
 
 let passed = 0;
 let failed = 0;
@@ -79,6 +79,13 @@ function serve(over: Partial<ServeStatus> = {}): ServeStatus {
     ...over,
   };
 }
+
+assert("ready HTTPS access needs no setup helper", shouldShowWebSetupHelper("tailscale_https", true), false);
+assert("unready HTTPS access retains setup helper", shouldShowWebSetupHelper("tailscale_https", false), true);
+assert("LAN access retains setup helper", shouldShowWebSetupHelper("lan", true), true);
+
+assert("route summary names HTTPS and Tailscale", webRouteLabel("tailscale_https"), "HTTPS · Tailscale");
+assert("route summary distinguishes local network", webRouteLabel("lan"), "Local network");
 
 console.log("buildWebUiTarget:");
 

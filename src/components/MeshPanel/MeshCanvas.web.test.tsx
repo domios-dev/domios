@@ -27,7 +27,7 @@ async function main() {
     onPeerClick={() => {}} recentPushes={[]} width={390} height={700}
     webCard={(qrSize) => <WebAccessPanel embedded qrSize={qrSize} config={config} network={{ local_ip: "192.168.1.2" }}
       serve={null} loading={false} actions={actions} onAction={async () => {}} onClose={() => {}} onSetup={async () => { setup++; }} />} />));
-  const card = host.querySelector('[role="region"][aria-label="Web"]');
+  const card = host.querySelector('[role="region"][aria-label="Mesh UI"]');
   assert.ok(card);
   assert.ok(card.querySelector('img[alt="Open Domios Web on 192.168.1.2:7686"]'));
   assert.equal(host.querySelector('[role="dialog"]'), null);

@@ -7,7 +7,7 @@ import { CanvasToolbar } from "../Canvas/CanvasToolbar";
 import { useCanvasViewport, formatLayerTransform } from "../Canvas/useCanvasViewport";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
-import { webGraphLayout, webGraphInitialView, MACHINE_CARD_SCALE, MACHINE_CARD_WIDTH, MACHINE_CARD_HEIGHT } from "./webGraphLayout";
+import { webGraphLayout, webGraphInitialView, WEB_CARD_SCALE, MACHINE_CARD_SCALE, MACHINE_CARD_WIDTH, MACHINE_CARD_HEIGHT } from "./webGraphLayout";
 import { webGatewayGraph } from "./meshProjection";
 
 export interface RecentPush {
@@ -38,6 +38,7 @@ interface PushStats {
 
 interface Props {
   webCard?: (qrSize: number) => ReactNode;
+  onRefresh?: () => void;
   onWebClick?: () => void;
   webSelected?: boolean;
   webStatus?: string;
@@ -66,6 +67,7 @@ const CARD_HALF_HEIGHT = MACHINE_CARD_HEIGHT / 2;
 
 export function MeshCanvas({
   webCard,
+  onRefresh,
   onWebClick,
   webSelected = false,
   webStatus = "Unavailable",
@@ -239,7 +241,7 @@ export function MeshCanvas({
         touchAction: "none",
       }}
     >
-      <CanvasToolbar label="Mesh graph controls" onFit={reset} onZoomOut={() => zoomBy(-ZOOM_STEP)} onZoomIn={() => zoomBy(ZOOM_STEP)} />
+      <CanvasToolbar label="Mesh graph controls" onRefresh={onRefresh} onFit={reset} onZoomOut={() => zoomBy(-ZOOM_STEP)} onZoomIn={() => zoomBy(ZOOM_STEP)} />
       <div
         ref={layerRef}
         style={{
@@ -320,10 +322,12 @@ export function MeshCanvas({
             })}
         </svg>
         <div ref={webCardRef} data-peer-card className="absolute" style={{ left: gateway.x, top: gateway.y, width: geometry.web.width, transform: "translate(-50%,-50%)" }}>
-          {webCard ? webCard(geometry.qrSize) : <button type="button" aria-label="Web" aria-pressed={webSelected} onClick={onWebClick}
-            className="w-full rounded-xl border border-[var(--ct-accent)] bg-[var(--ct-bg)] p-4">
-            <Globe size={24} aria-hidden="true" /><strong>Web</strong><span>{webStatus}</span>
-          </button>}
+          <div style={{ zoom: WEB_CARD_SCALE, width: geometry.web.width / WEB_CARD_SCALE }}>
+            {webCard ? webCard(geometry.qrSize / WEB_CARD_SCALE) : <button type="button" aria-label="Web" aria-pressed={webSelected} onClick={onWebClick}
+              className="w-full rounded-xl border border-[var(--ct-accent)] bg-[var(--ct-bg)] p-4">
+              <Globe size={24} aria-hidden="true" /><strong>Web</strong><span>{webStatus}</span>
+            </button>}
+          </div>
         </div>
         {layout.map((p, i) => (
           <div
