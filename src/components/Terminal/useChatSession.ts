@@ -95,6 +95,7 @@ export function useChatSession({
   sessionBindingNonce,
   onError,
   active = true,
+  retainAttachment = false,
   diagnosticSink,
   allowUnboundAuthority = false,
   followTailRef: suppliedFollowTailRef,
@@ -104,8 +105,9 @@ export function useChatSession({
   agentSessionId: string | null;
   sessionBindingNonce: string | null | undefined;
   onError?: (msg: string) => void;
-  /** Hidden chats must not run the daemon parser: false stops the session, true restarts it. */
+  /** Visibility starts the first attachment. Retained views keep it until unmount. */
   active?: boolean;
+  retainAttachment?: boolean;
   diagnosticSink?: ChatSessionDiagnosticSink;
   /** Plugin chatBackend tabs have tab-owned backing without a PTY session id. */
   allowUnboundAuthority?: boolean;
@@ -113,6 +115,9 @@ export function useChatSession({
   /** Runtime history replay state; its completion re-reads the transcript snapshot. */
   history?: RuntimeHistoryState;
 }) {
+  const activatedRef = useRef(false);
+  if (active) activatedRef.current = true;
+  const attachmentActive = active || (retainAttachment && activatedRef.current);
   const windowKey = transcriptWindowKey(tabId, agentSessionId);
   const { transcript, anchorKey, snapshotBinding } = useTranscriptWindow(windowKey);
   const [loading, setLoading] = useState(true);
@@ -123,7 +128,7 @@ export function useChatSession({
     useState<ChatUnavailableReason | null>(null);
   const onErrorRef = useRef(onError);
   const diagnosticSinkRef = useRef(diagnosticSink);
-  const activeRef = useRef(active);
+  const activeRef = useRef(attachmentActive);
   const agentSessionIdRef = useRef(agentSessionId);
   const sessionBindingNonceRef = useRef(sessionBindingNonce);
   const allowUnboundAuthorityRef = useRef(allowUnboundAuthority);
@@ -158,7 +163,7 @@ export function useChatSession({
 
   onErrorRef.current = onError;
   diagnosticSinkRef.current = diagnosticSink;
-  activeRef.current = active;
+  activeRef.current = attachmentActive;
   agentSessionIdRef.current = agentSessionId;
   sessionBindingNonceRef.current = sessionBindingNonce;
   allowUnboundAuthorityRef.current = allowUnboundAuthority;
@@ -409,7 +414,7 @@ export function useChatSession({
   const { committedRows } = view;
 
   useEffect(() => {
-    if (!active) {
+    if (!attachmentActive) {
       pendingLiveEventsRef.current = [];
       adoptedBindingsRef.current.clear();
       setListenerReady(false);
@@ -505,7 +510,7 @@ export function useChatSession({
       adoptedBindingsRef.current.clear();
     };
   }, [
-    active,
+    attachmentActive,
     commitLiveEvent,
     emitDiagnostic,
     markAttached,
@@ -518,7 +523,7 @@ export function useChatSession({
 
   useEffect(() => {
     if (!needsTranscriptAttachment(
-      requestedAuthorityRef.current, agentSessionId, sessionBindingNonce, active, listenerReady,
+      requestedAuthorityRef.current, agentSessionId, sessionBindingNonce, attachmentActive, listenerReady,
     )) return;
     const adopted = adoptedAuthorityRef.current;
     if (adopted.sourceSessionId !== agentSessionId
@@ -526,10 +531,10 @@ export function useChatSession({
       attachmentRef.current.adopt(null);
     }
     requestAttach("authority_changed");
-  }, [active, agentSessionId, listenerReady, requestAttach, sessionBindingNonce]);
+  }, [attachmentActive, agentSessionId, listenerReady, requestAttach, sessionBindingNonce]);
 
   useEffect(() => {
-    if (!active || !listenerReady) return;
+    if (!attachmentActive || !listenerReady) return;
     const owner = attachmentRef.current;
     const generationAtRequest = generation;
     const requestedSessionId = agentSessionIdRef.current;
@@ -670,7 +675,7 @@ export function useChatSession({
       cancelled = true;
     };
   }, [
-    active,
+    attachmentActive,
     commitBatch,
     commitLiveEvent,
     emitDiagnostic,
@@ -688,18 +693,18 @@ export function useChatSession({
   useEffect(() => {
     const previous = historyRef.current;
     historyRef.current = history;
-    if (active && runtimeHistorySettled(previous, history)) requestRecoveryAttach(true, "history_settled");
-  }, [active, history, requestRecoveryAttach]);
+    if (attachmentActive && runtimeHistorySettled(previous, history)) requestRecoveryAttach(true, "history_settled");
+  }, [attachmentActive, history, requestRecoveryAttach]);
   const historyLoading = history === "loading";
 
   useEffect(() => {
-    if (!active) return;
+    if (!attachmentActive) return;
     return onResync(reason => {
       if (resyncRequiresTranscriptRecovery(reason, attachmentStateRef.current === "failed")) {
         requestRecoveryAttach(reason === "epoch_changed", `resync:${reason}`);
       }
     });
-  }, [active, requestRecoveryAttach]);
+  }, [attachmentActive, requestRecoveryAttach]);
 
   useEffect(() => {
     const handleReattached = (event: Event) => {

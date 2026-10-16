@@ -295,6 +295,7 @@ function TabSessionChatBody({
     sessionBindingNonce: tab?.session_binding_nonce,
     onError,
     active: isActive,
+    retainAttachment: true,
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
     followTailRef: chatFollowTailRef,
