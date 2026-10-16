@@ -1,5 +1,6 @@
 import type { ApiConfig } from "./types";
 import { childHistorySuffix, type ChildTranscriptAuthority } from "./childTranscript";
+import { backgroundProcessesSuffix, type BackgroundProcessAuthority } from "./backgroundProcesses";
 import { daemonAuthToken, daemonHttpBase, isPromptNotOnScreenResponse } from "./webApi";
 
 export interface RemoteTransportCall {
@@ -79,6 +80,8 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
   });
   switch (command) {
     case "agent_runtime_child_history": return call("GET", childHistorySuffix(String(args.threadId), args.request as ChildTranscriptAuthority & {cursor?:string}));
+    case "agent_runtime_background_processes": return call("GET", backgroundProcessesSuffix(args.request as BackgroundProcessAuthority));
+    case "agent_runtime_stop_background_process": return call("POST", "/agent/runtime/background-processes", args.request);
     case "agent_runtime_answer_question": return call("POST", `/agent/runtime/questions/${encodeURIComponent(String(args.itemId))}/answer`, { answers: args.answers });
     case "agent_runtime_goal": return call("POST", "/agent/runtime/goal", args.request);
     case "agent_runtime_reset_credits": return call("POST", "/agent/runtime/reset-credits", args.request);

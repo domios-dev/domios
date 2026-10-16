@@ -7,6 +7,15 @@ describe("remote tab transport adapter", () => {
       peerId:"peer",remoteTabId:"owned",method:"GET",suffix:"/agent/runtime/children/child/history?rootThreadId=root&bindingNonce=nonce&epoch=4",body:null,
     });
   });
+  it("lists and stops a background process on the owning peer",()=>{
+    const authority={rootThreadId:"root",bindingNonce:"nonce",epoch:4};
+    expect(remoteTransportCall("agent_runtime_background_processes",{tabId:"mesh:peer/owned",request:authority})).toMatchObject({
+      peerId:"peer",remoteTabId:"owned",method:"GET",suffix:"/agent/runtime/background-processes?rootThreadId=root&bindingNonce=nonce&epoch=4",body:null,
+    });
+    expect(remoteTransportCall("agent_runtime_stop_background_process",{tabId:"mesh:peer/owned",request:{...authority,threadId:"child",processId:"process"}})).toMatchObject({
+      peerId:"peer",remoteTabId:"owned",method:"POST",suffix:"/agent/runtime/background-processes",body:{...authority,threadId:"child",processId:"process"},
+    });
+  });
   it("preserves the opaque prompt identity in peer approval replies", () => {
     const identity = { kind: "structured", options: [{ label: "display", value: "native" }], request_id: "opaque" };
     const args = { tabId: "mesh:peer/owned", value: "native", identity };
