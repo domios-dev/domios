@@ -8,7 +8,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 struct Cleanup(String);
 impl Drop for Cleanup {
     fn drop(&mut self) {
-        stop(&self.0);
+        test_support::stop_test(&self.0);
     }
 }
 

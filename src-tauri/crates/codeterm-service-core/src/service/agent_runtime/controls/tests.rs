@@ -76,7 +76,7 @@ impl std::ops::Deref for RuntimeFixture {
 
 impl Drop for RuntimeFixture {
     fn drop(&mut self) {
-        engine::stop(&self.tab);
+        engine::stop_blocking(&self.fixture.service, &self.tab).unwrap();
         crate::service::session_persist::stop_worker(&self.fixture.service)
             .expect("stop runtime fixture persistence worker");
     }
@@ -224,7 +224,7 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
         session.context.lock().settings.model.as_deref(),
         Some("mid-turn")
     );
-    engine::stop(&id);
+    engine::stop_blocking(&fixture.service, &id).unwrap();
 }
 
 #[test]

@@ -1,14 +1,15 @@
+import type { FrontendDeviceDiagnostic } from "./frontendDiagnosticStamp";
 import { DEV_BUILD } from "./devBuild";
 
 const errors = ["Error", "ReferenceError", "TypeError", "SyntaxError", "SecurityError", "FrontendUpdateError"];
 const reasons = ["invalid-client", "checkpoint-unavailable", "status-unavailable", "api-incompatible", "storage-unavailable", "boot-context-invalid", "unexpected", "native-capability-denied", "rejected-string", "rejected-value"];
-type Failure = { name?: string; reason?: string; httpStatus?: number; filename?: string; lineno?: number; colno?: number; request?: unknown; chat?: unknown };
+type Failure = { name?: string; reason?: string; httpStatus?: number; filename?: string; lineno?: number; colno?: number; buildSha?: string; device?: FrontendDeviceDiagnostic; request?: unknown; chat?: unknown };
 type Flags = { native: boolean; injected: boolean; mounted: boolean };
 
 export function diagnosticBody(stage: string, failure: Failure | undefined, flags: Flags) {
   const source = String(failure?.filename ?? "").split("/").pop()!.split("?")[0].split("#")[0];
   return {
-    stage,
+    stage, buildSha: failure?.buildSha, device: failure?.device,
     errorName: errors.includes(failure?.name ?? "") ? failure?.name : undefined,
     reason: reasons.includes(failure?.reason ?? "") ? failure?.reason : undefined,
     httpStatus: Number.isInteger(failure?.httpStatus) && failure!.httpStatus! >= 100 && failure!.httpStatus! <= 599 ? failure?.httpStatus : undefined,

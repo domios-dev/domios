@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.14.10",
+  "version": "1.14.11",
   "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Claude Code",
@@ -63,6 +63,9 @@
         "Agent",
         "Task"
       ]
+    },
+    "executionSandbox": {
+      "unsupportedReason": "Permission modes and tool rules do not enforce read-only filesystem access for shell commands; use an enforcing provider or an explicit owner-run canonical gate."
     }
   },
   "sessions": {

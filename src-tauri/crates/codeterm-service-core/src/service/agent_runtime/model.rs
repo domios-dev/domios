@@ -371,6 +371,12 @@ pub fn validate_operation_thread(
 ) -> Result<(), RuntimeFailure> {
     use codeterm_plugin::agent_runtime::RuntimeOperation;
     let target = match operation {
+        RuntimeOperation::BackgroundProcesses { thread_id, .. } => {
+            if !codeterm_plugin::agent_runtime::owns_runtime_thread(context, thread_id) {
+                return Err(RuntimeFailure::Superseded);
+            }
+            None
+        }
         RuntimeOperation::ResumeThread { thread_id, .. }
         | RuntimeOperation::AnswerQuestion { thread_id, .. }
         | RuntimeOperation::ReadHistory { thread_id, .. }
@@ -381,7 +387,13 @@ pub fn validate_operation_thread(
         | RuntimeOperation::OpenThread { .. }
         | RuntimeOperation::Answer { .. } => None,
     };
-    if target.is_some() && target != context.thread_id.as_deref() {
+    if target.is_some()
+        && target != context.thread_id.as_deref()
+        && !(matches!(operation, RuntimeOperation::ReadHistory { .. })
+            && target.is_some_and(|thread| {
+                codeterm_plugin::agent_runtime::runtime_descendant(context, thread)
+            }))
+    {
         return Err(RuntimeFailure::Superseded);
     }
     let active = match operation {

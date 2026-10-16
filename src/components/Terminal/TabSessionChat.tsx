@@ -1,10 +1,11 @@
 import { ChatComposerSurface } from "./ChatComposerSurface";
+import { ChildTranscriptScope } from "./ChildTranscriptScope";
 import { chatLayoutTokens } from "./chatLayoutTokens";
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { heldMessagesForLaunch } from "./chatSetupModel";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
-import { runtimeStatusPresentation } from "../../lib/agentRuntimeState";
+import { runtimeResponseDeadlinePending, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
 import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
@@ -324,7 +325,8 @@ function TabSessionChatBody({
   const hasTranscript = enrichedMessages.length > 0;
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
   // reachability); remote PTY/output channel state never gates it.
-  const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null;
+  const runtimeDeadlinePending = runtimeResponseDeadlinePending(runtime.state);
+  const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null && !runtimeDeadlinePending;
   const runtimeBadge = <AgentRuntimeBanner tabId={tabId} state={runtime.state} startupOwned={!snapshotReady || bootSetupView.kind === "starting"} iconSvg={provider?.iconSvg} onRetry={() => { void runtime.retry(); }} />;
   const runtimeReplacement = runtimeUnavailable ? runtimeBadge : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
@@ -353,6 +355,7 @@ function TabSessionChatBody({
   const {
     scrollRef,
     showScrollDown,
+    gestureOwned,
     scrollToBottom,
     followSend: rawFollowSentMessage,
     prepareForHistoryPrepend,
@@ -785,6 +788,8 @@ function TabSessionChatBody({
 
   return (
     <ChatHighlightBudgetProvider>
+    <ChildTranscriptScope tabId={tabId} authority={runtime.state?.state === "loaded" && tab?.agent_session_id && tab.session_binding_nonce
+      ? {rootThreadId:tab.agent_session_id,bindingNonce:tab.session_binding_nonce,epoch:runtime.state.epoch} : null}>
     <LocalArtifactScope tabId={tabId}>
     <ChatBlockHostProvider value={chatBlockHost}>
     <PluginNameProvider resolve={resolvePluginName}>
@@ -982,9 +987,11 @@ function TabSessionChatBody({
         onClear={messageSelection.clear}
       />
       {(showScrollDown || newerMessageCount > 0) && (
-        <div className="absolute right-4 z-30" style={{ bottom: floatingBottomInset + 16 }}>
+        <div className="absolute right-4 z-30" style={{ bottom: floatingBottomInset + 16, pointerEvents: "none" }}>
         <ScrollToLatestButton
           testId="chat-scroll-bottom"
+          gestureOwned={gestureOwned}
+          userScrollingRef={chatUserScrollingRef}
           onClick={() => {
             showLatest();
             scrollToBottom();
@@ -1066,6 +1073,7 @@ function TabSessionChatBody({
     </PluginNameProvider>
     </ChatBlockHostProvider>
     </LocalArtifactScope>
+    </ChildTranscriptScope>
     </ChatHighlightBudgetProvider>
   );
 }

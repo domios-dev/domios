@@ -311,6 +311,7 @@ fn parsed_flag_value(command: &str, flag: &str) -> Option<String> {
 
 fn launch_parameters() -> RestorableLaunchParameters {
     RestorableLaunchParameters {
+        execution_sandbox: None,
         failed_provider: None,
         context_files: None,
         context_skills: None,

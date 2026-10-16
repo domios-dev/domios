@@ -528,6 +528,13 @@ impl AgentProvider for ClaudeProvider {
         schemas::launch_permissions()
     }
 
+    fn execution_sandbox_capability(&self) -> Option<crate::provider::ExecutionSandboxCapability> {
+        Some(crate::provider::ExecutionSandboxCapability {
+            unsupported_reason: Some("Permission modes and tool rules do not enforce read-only filesystem access for shell commands; use an enforcing provider or an explicit owner-run canonical gate.".into()),
+            ..Default::default()
+        })
+    }
+
     fn compact_command(&self) -> Option<&str> {
         Some("/compact")
     }

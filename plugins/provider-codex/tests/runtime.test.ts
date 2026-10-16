@@ -8,6 +8,7 @@ import type { AgentRuntime, RuntimeContext, Operation, RuntimeAction, RpcReply, 
 import { collectHistory } from "./runtimeHistoryHost";
 import { notificationMethods } from "../src/runtimeProtocol";
 import { agentActivityOf, buildAgentTree } from "../../../packages/chat-core/src/agentActivity";
+import { descendantThread, historyThread } from "../src/runtimeBinding";
 
 interface Fixture {
   schemaVersion: 1;
@@ -40,6 +41,70 @@ hooks.runtimeReduce = (...args) => {
 const plain = <T>(value:T): T => JSON.parse(JSON.stringify(value));
 let count = 0;
 function check(name:string, run:()=>void) {run();count++;console.log(`  ✓ runtime ${name}`);}
+check("descendant reads require an unambiguous chain to the current root",()=> {
+  const fixture = JSON.parse(fs.readFileSync(new URL("captured/subagent.json",root),"utf8")) as Fixture;
+  const context = {...fixture.context,threadParents:[{threadId:"child",parentThreadId:fixture.context.threadId!},
+    {threadId:"grandchild",parentThreadId:"child"}]};
+  assert.equal(descendantThread(context,"grandchild"),true);
+  for (const parents of [[],[{threadId:"child",parentThreadId:"foreign"}],
+    [{threadId:"child",parentThreadId:"child"}],
+    [...context.threadParents,{threadId:"child",parentThreadId:"foreign"}]]) {
+    assert.equal(descendantThread({...context,threadParents:parents},"child"),false);
+  }
+  assert.equal(historyThread(context,{thread:{id:"child",parentThreadId:context.threadId}},"child"),true);
+  assert.equal(historyThread(context,{thread:{id:"child",parentThreadId:"foreign"}},"child"),false);
+  assert.equal(historyThread(context,{thread:{id:"foreign",parentThreadId:context.threadId}},"child"),false);
+  assert.equal(historyThread(context,{thread:{id:"child",parentThreadId:context.threadId,source:{subAgent:{thread_spawn:{parent_thread_id:"foreign"}}}}},"child"),false);
+});
+check("captured child identities permit history plans without mutation authority",()=> {
+  for (const name of ["subagent","subagent_v2"]) {
+    const fixture = JSON.parse(fs.readFileSync(new URL(`captured/${name}.json`,root),"utf8")) as Fixture;
+    const result = hooks.runtimeReduce(fixture.context,null,fixture.rpc.flatMap(record=>"frame" in record ? [record.frame] : []));
+    const rows = result.events.flatMap(event=>event.kind === "chatItem" && event.item.toolKind === "agent" ? [event.item] : []);
+    assert.ok(rows.length > 0);
+    const input = rows[0].toolInput as Record<string,JsonValue>;
+    const child = String(input.agent_id);
+    assert.equal(typeof input.agent_ordinal,"number");
+    const context = {...fixture.context,threadParents:[{threadId:child,parentThreadId:fixture.context.threadId!}]};
+    const op:Operation = {kind:"readHistory",threadId:child,order:"desc"};
+    const plan = hooks.runtimePlan(context,op);
+    assert.equal(plan.action.kind,"request");
+    if (plan.action.kind !== "request") throw new Error("Expected history request");
+    assert.equal(plan.action.call.method,"thread/turns/list");
+    assert.equal((plan.action.call.params as Record<string,JsonValue>).threadId,child);
+    assert.throws(()=>hooks.runtimePlan(context,{...op,threadId:"foreign"}));
+    assert.throws(()=>hooks.runtimePlan({...context,threadParents:[]},op));
+    assert.throws(()=>hooks.runtimeResponse({...context,threadParents:[]},op,plan.state,{kind:"success",value:{data:[]}}));
+    const mutations:Operation[] = [
+      {kind:"resumeThread",threadId:child,instructions:"",settings:{}},
+      {kind:"submitTurn",threadId:child,sendId:"send",input:{text:"hello",attachments:[]},settings:{}},
+      {kind:"interrupt",threadId:child},
+      {kind:"control",threadId:child,action:"compact",value:null},
+    ];
+    for (const mutation of mutations) assert.throws(()=>hooks.runtimePlan(context,mutation));
+    const snapshot = hooks.runtimeResponse(context,op,{stage:"snapshot"},{kind:"success",value:{thread:{id:child,parentThreadId:context.threadId!,turns:[{id:"child-turn",status:"completed",items:[{id:"child-answer",type:"agentMessage",text:"Child history answer"}]}]}}});
+    if (snapshot.kind !== "continue" || !snapshot.history) throw new Error("Expected child history chunk");
+    assert.equal(snapshot.history.threadId,child);
+    assert.equal(snapshot.history.items[0].content,"Child history answer");
+    if (snapshot.plan.action.kind !== "request") throw new Error("Expected read request");
+    assert.equal(snapshot.plan.action.call.target?.threadId,child);
+    const emptyChild = hooks.runtimeResponse(context,op,{stage:"unmaterialized"},{kind:"success",value:{thread:{id:child,parentThreadId:context.threadId!,turns:[]}}});
+    assert.equal(emptyChild.kind,"complete","An authenticated child with no messages still opens read-only");
+    const foreign = hooks.runtimeResponse(context,op,{stage:"snapshot"},{kind:"success",value:{thread:{id:"foreign",parentThreadId:context.threadId!,turns:[]}}});
+    assert.equal(foreign.kind,"refused");
+  }
+});
+check("only authenticated descendant spawn frames publish nested child metadata",()=>{
+  const fixture = JSON.parse(fs.readFileSync(new URL("captured/subagent.json",root),"utf8")) as Fixture;
+  const context = {...fixture.context,threadParents:[{threadId:"child",parentThreadId:fixture.context.threadId!}]};
+  const frame:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:"child",turnId:"turn",item:{type:"collabAgentToolCall",id:"nested",tool:"spawnAgent",receiverThreadIds:["grandchild"],prompt:"Inspect nested",model:"fixture",reasoningEffort:"high"}}};
+  const rows=hooks.runtimeReduce(context,null,[frame]).events;
+  assert.equal(rows.length,1);
+  const row=rows[0];if(row.kind!=="chatItem")throw new Error("Expected child metadata");
+  assert.equal(row.threadId,context.threadId);
+  assert.equal((row.item.toolInput as Record<string,JsonValue>).agent_parent_thread_id,"child");
+  assert.equal(hooks.runtimeReduce({...context,threadParents:[]},null,[frame]).events.length,0);
+});
 function allowed(op:Operation, action:RuntimeAction) {
   if (action.kind === "questionAnswer") {assert.equal(op.kind,"answerQuestion");return;}
   if (action.kind === "reply") {assert.equal(op.kind,"answer"); return;}
@@ -112,6 +177,33 @@ for (const name of fs.readdirSync(new URL("captured/",root)).filter(n=>n.endsWit
 const sample = JSON.parse(fs.readFileSync(new URL("multi-turn.json",root),"utf8")) as Fixture;
 const ctx = sample.context;
 const submit = sample.operations[0].operation;
+check("recorded first replies follow binding without an injected developer item",()=> {
+  const captured=JSON.parse(fs.readFileSync(new URL("captured/multi-turn.json",root),"utf8")) as Fixture;
+  const opening=captured.operations.findIndex(entry=>entry.operation.kind === "openThread");
+  const requests=captured.rpc.filter(record=>"operation" in record && record.operation === opening && record.direction === "outbound");
+  assert.equal(requests.length,1);
+  assert.ok("action" in requests[0] && requests[0].action.kind === "request");
+  if (!("action" in requests[0]) || requests[0].action.kind !== "request")throw new Error("Expected start");
+  assert.equal(requests[0].action.call.method,"thread/start");
+  const replies=captured.rpc.flatMap(record=> {
+    if (!("frame" in record) || record.frame.method !== "item/completed")return [];
+    const params=record.frame.params as {item?:{type?:string;text?:string}};
+    return params.item?.type === "agentMessage" ? [params.item.text] : [];
+  });
+  assert.deepEqual(replies,["ONE","TWO"]);
+});
+check("recorded compaction restores application context before the next input",()=> {
+  const captured=JSON.parse(fs.readFileSync(new URL("captured/compaction.json",root),"utf8")) as Fixture;
+  const controls=captured.operations.map(entry=>entry.operation).filter((op):op is Extract<Operation,{kind:"control"}>=>op.kind === "control");
+  assert.deepEqual(controls.map(op=>op.action),["restoreContext","compact","restoreContext"]);
+  assert.deepEqual(controls[0].value,controls[2].value);
+  const replies=captured.rpc.flatMap(record=> {
+    if (!("frame" in record) || record.frame.method !== "item/completed")return [];
+    const params=record.frame.params as {item?:{type?:string;text?:string}};
+    return params.item?.type === "agentMessage" ? [params.item.text] : [];
+  });
+  assert.deepEqual(replies,["ONE","SABLE"]);
+});
 check("manifest inbound notification roster",()=>assert.deepEqual(descriptor.agentRuntime.notificationMethods,[...notificationMethods]));
 check("live activation matches the tested runtime declaration",()=> {
   const manifest = JSON.parse(fs.readFileSync(new URL("../plugin.json",import.meta.url),"utf8"));
@@ -162,21 +254,33 @@ check("unsupported controls and modes refuse",()=> {
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"control",action:"globalConfig",value:{}}));
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"openThread",instructions:"",settings:{mode:"unknown"}}));
 });
-check("fresh thread materializes before loaded",()=> {
+check("fresh thread binds from verified start without model input",()=> {
   const operation:Operation = {kind:"openThread",instructions:"Own instructions",settings:ctx.settings};
   const plan = hooks.runtimePlan(ctx,operation);
   assert.equal(plan.action.kind,"request");
   const step = hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{thread:{id:"fresh"}}});
-  assert.equal(step.kind,"continue");
-  if (step.kind !== "continue") return;
-  assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"thread/inject_items",params:{threadId:"fresh",items:[{type:"message",role:"developer",content:[{type:"input_text",text:"Domios thread binding marker."}]}]}}});
-  assert.equal(hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"error",error:{code:-32000,message:"failed"}}).kind,"refused");
+  assert.deepEqual(plain(step),{kind:"complete",result:{kind:"threadLoaded",threadId:"fresh",settings:ctx.settings}});
+  for (const thread of [{}, {id:"foreign",parentThreadId:"parent"}, {id:"child",source:{subAgent:{}}}])
+    assert.equal(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{thread}}).kind,"refused");
+  assert.equal(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"error",error:{code:-32000,message:"failed"}}).kind,"refused");
 });
 check("resume never accepts another thread",()=> {
   const operation:Operation = {kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings:ctx.settings};
   const plan = hooks.runtimePlan(ctx,operation);
   for (const thread of [{id:"foreign"},{id:ctx.threadId,parentThreadId:"parent"},{id:ctx.threadId,source:{subAgent:{}}}])
     assert.equal(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{thread}}).kind,"refused");
+});
+check("unmaterialized history verifies an empty own thread without injecting input",()=> {
+  for (const order of ["asc","desc"] as const) {
+    const op:Operation={kind:"readHistory",threadId:ctx.threadId!,order};
+    const plan=hooks.runtimePlan(ctx,op);
+    const step=hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32600,message:`thread ${ctx.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`}});
+    if(step.kind !== "continue")throw new Error("Expected identity verification");
+    assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"thread/read",params:{threadId:ctx.threadId,includeTurns:false}}});
+    for(const thread of [{id:"foreign",turns:[]},{id:ctx.threadId},{id:ctx.threadId,turns:[{id:"existing"}]}])
+      assert.equal(hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{thread}}).kind,"refused");
+    assert.deepEqual(plain(hooks.runtimeResponse(ctx,op,step.plan.state,{kind:"success",value:{thread:{id:ctx.threadId,turns:[]}}})),{kind:"complete",result:{kind:"historyPage",threadId:ctx.threadId,items:[],openItems:[],order}});
+  }
 });
 check("delivery cannot use old text, foreign thread or unmatched client",()=> {
   const frame:RuntimeFrame = {kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"user",type:"userMessage",clientId:"send-a",content:[{type:"text",text:"Wrong text"}]}}};
@@ -545,14 +649,13 @@ check("unsupported item pagination uses bound snapshot history without delivery 
   assert.equal(hooks.runtimeResponse(ctx,op,page.plan.state,{kind:"error",error:{code:-32600,message:"invalid request"}}).kind,"refused");
   assert.equal(hooks.runtimeResponse(ctx,op,fallback.plan.state,{kind:"error",error:{code:-32601,message:"unsupported read"}}).kind,"refused");
 });
-check("default model and effective effort survive thread launch continuations",()=> {
+check("default model and effective effort survive thread start and resume verification",()=> {
   const context={...ctx,settings:{},providerSettings:{model:null}};
   const op:Operation={kind:"openThread",instructions:"task",settings:{additionalDirectories:["/work/shared"],networkAccess:false}};
   const plan=hooks.runtimePlan(context,op);
   const effective={thread:{id:ctx.threadId!},model:"provider-default",reasoningEffort:"medium",approvalPolicy:"on-request",approvalsReviewer:"user",sandbox:{type:"workspaceWrite"}};
   const step=hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:effective});
-  if(step.kind !== "continue")throw new Error("Expected materialization");
-  const complete=plain(hooks.runtimeResponse(context,op,step.plan.state,{kind:"success",value:{}}));
+  const complete=plain(step);
   assert.deepEqual(complete,{kind:"complete",result:{kind:"threadLoaded",threadId:ctx.threadId!,settings:{additionalDirectories:["/work/shared"],networkAccess:false,model:"provider-default",effort:"medium",mode:"auto-accept-edits"}}});
   const resume:Operation={kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings:{model:"requested-alias",effort:"high",mode:"full-access",additionalDirectories:["/work/shared"],networkAccess:false}};
   const resumed=hooks.runtimeResponse(context,resume,hooks.runtimePlan(context,resume).state,{kind:"success",value:effective});
@@ -603,6 +706,7 @@ check("restoreContext validates and injects developer and user context without e
     {type:"message",role:"user",content:[{type:"input_text",text:"user-context"}]},
   ]}}});
   assert.deepEqual(plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"success",value:{}})),{kind:"complete",result:{kind:"done"}});
+  assert.deepEqual(plain(hooks.runtimePlan(ctx,{...op,value:{...value,additionalContext:[...value.additionalContext,...value.additionalContext]}})),plan);
   for(const invalid of [null,{},[],{instructions:null,additionalContext:[]},{instructions:"",additionalContext:[]},{instructions:42,additionalContext:[]},{instructions:"x",additionalContext:{}},{instructions:"x",additionalContext:[{key:"k",kind:"system",value:"x"}]},{instructions:"x",additionalContext:[{key:"k",kind:"user",value:"x",extra:true}]},{instructions:"x",additionalContext:[{key:"k",kind:"user",value:"x"},{key:"k",kind:"user",value:"y"}]}]) {
     assert.throws(()=>hooks.runtimePlan(ctx,{...op,value:invalid} as Operation),error=>objectError(error).code === "invalid_schema");
   }
@@ -878,7 +982,7 @@ check("captured spawn metadata reaches the shared Chat model",()=> {
   const tree = buildAgentTree(records);
   assert.equal(tree.agents.length,2);
   assert.deepEqual(tree.agents.map(agent=>[agent.model,agent.reasoningEffort,agent.ordinal,agent.state]),[
-    ["gpt-5.6-luna","medium",1,"completed"],["gpt-5.6-luna","medium",1,"completed"],
+    ["gpt-5.6-luna","medium",1,"completed"],["gpt-5.6-luna","medium",2,"completed"],
   ]);
   assert.equal(tree.agents[0].description,"Read package.json in the current workspace. Report its relevant contents and key scripts/dependencies. Do not modify files.");
   assert.ok(tree.agents[0].result?.startsWith("`package.json` summary:"));
@@ -894,7 +998,7 @@ check("activity updates a spawn receiver without losing its identity or metadata
   const event=finished.events[0];assert.equal(event.kind,"chatItem");if(event.kind !== "chatItem")return;
   assert.equal(event.item.id,"spawn:child-b");assert.equal(event.item.seq,2);
   assert.equal(event.item.toolFlowId,"parent-turn");
-  assert.deepEqual(plain(event.item.toolInput),{agent_id:"child-b",agent_call_id:"spawn:child-b",agent_description:"Inspect inputs",agent_model:"fixture-model",agent_reasoning_effort:"high",agent_ordinal:2,agent_state:"completed",agent_path:"/root/inspect"});
+  assert.deepEqual(plain(event.item.toolInput),{agent_id:"child-b",agent_parent_thread_id:ctx.threadId!,agent_call_id:"spawn:child-b",agent_description:"Inspect inputs",agent_model:"fixture-model",agent_reasoning_effort:"high",agent_ordinal:2,agent_state:"completed",agent_path:"/root/inspect"});
   const late={...activity,params:{...activity.params as Record<string,JsonValue>,item:{id:"late-start",type:"subAgentActivity",agentThreadId:"child-b",kind:"started"}}} satisfies RuntimeFrame;
   const lateEvent=hooks.runtimeReduce(ctx,finished.state,[late]).events[0];
   if(lateEvent.kind !== "chatItem")throw new Error("Expected receiver update");
