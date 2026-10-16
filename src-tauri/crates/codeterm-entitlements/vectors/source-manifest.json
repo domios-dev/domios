@@ -1,0 +1,66 @@
+{
+  "source_commit": "97f420cfcd0cb20a64f7b139fcc6c3abea09f9a7",
+  "files": {
+    "functions/src/entitlements/signing.ts": {
+      "sha256": "91ec21d92c92caa4cf6ab389906ccdc0539dcaded8dd5bc2a6b71156a64b4b3f",
+      "bytes": 8913
+    },
+    "shared/entitlements.ts": {
+      "sha256": "b3d4dba91700d84ea1357ff3ea8888cf7b2895bc136780e488104e867a7bba83",
+      "bytes": 7815
+    },
+    "functions/src/entitlements/service.ts": {
+      "sha256": "ca4f8a689b8e4f46cf81a915b01f8a288337807cc8201680f0652072cddc654c",
+      "bytes": 8599
+    },
+    "shared/signed-entitlements.ts": {
+      "sha256": "de9bb599ec13996cd71fd25da2919de45c0e065209266077ffeb75ae79877cf1",
+      "bytes": 4117
+    },
+    "functions/src/entitlements/store.ts": {
+      "sha256": "1b79dae3515fffd51493f6afd052b54c5ef0ebb42d04b01a3b32064501cd06ae",
+      "bytes": 10199
+    },
+    "shared/interval-projection.ts": {
+      "sha256": "dec4bfe7e1a0c7d77a5777a634495c119e6a1702edf22574be1de361f11b044b",
+      "bytes": 7674
+    },
+    "shared/entitlement-authority.ts": {
+      "sha256": "d2e460b6bf935b2c1a312a382b0ce8cc1dd93f0f4415198715900ff689f52a46",
+      "bytes": 7807
+    },
+    "shared/application-access.ts": {
+      "sha256": "e0ce2e1a4973fabbdd56c802a84c2ced05d82f9c5070c5d716dd64c876302081",
+      "bytes": 4491
+    },
+    "shared/admin-privilege.ts": {
+      "sha256": "d702ecb155c6ed156d6e3dea737a03f7908bee34279d216af395ffb66c086b72",
+      "bytes": 16089
+    },
+    "functions/src/billing/interval-store.ts": {
+      "sha256": "0d670e7f437d99a76cbcd23797a0dd29f551bafe804c3b117aeb60a01e1a52b7",
+      "bytes": 36248
+    },
+    "functions/src/billing/trial-admission.ts": {
+      "sha256": "ba6aa7f00ac26afd62e2921f1c03aae55de5297708141cf74c4dd393104bd871",
+      "bytes": 48123
+    },
+    "functions/src/catalog/paddle.ts": {
+      "sha256": "2ae8344c64ad5b1803cb40a8b37261b6401d56377855919442d991725d758fcc",
+      "bytes": 10187
+    },
+    "functions/src/billing/monetization-observer.ts": {
+      "sha256": "6747373a801e089e882ccbb07b8df314abcc8d77907b5cc8f5492c84ba47815e",
+      "bytes": 7995
+    },
+    "functions/test/fixtures/e5/grants.ts": {
+      "sha256": "efde851ab2d44bee3347d12422ecfa66f95168f54c96a5c7c171405f927ed6cc",
+      "bytes": 5792
+    },
+    "functions/test/fixtures/e5/signing.ts": {
+      "sha256": "25aefaa2ed768f7fed8ffc6bc0b32643ca44abc82929f19d37cecbfa2d4f92e9",
+      "bytes": 1156
+    }
+  },
+  "notes": "SHA256 over exact Git blob bytes, including existing signing/grants fixtures. Fixture private seed never delivered."
+}

@@ -1434,6 +1434,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-entitlements"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "codeterm-events"
 version = "1.6.2"
 dependencies = [
