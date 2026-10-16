@@ -2,6 +2,7 @@ import { agentActionStream, type AgentActivityState, type AgentNode, type ToolEv
 import { ArrowRight, ChevronRight, Network } from "lucide-react";
 import { Fragment, useId, useState } from "react";
 import { ToolActivityStream, type RenderStreamAction } from "./ToolActivityStream";
+import { useAgentInspection } from "../AgentInspection";
 
 const STATE_COLOR: Record<AgentActivityState, string> = {
   started: "var(--ct-yellow)",
@@ -42,6 +43,7 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
   renderAction: RenderStreamAction;
 }) {
   const regionId = useId();
+  const inspect = useAgentInspection();
   const [collapsedStreams, setCollapsedStreams] = useState<ReadonlySet<string>>(() => new Set());
   const tree = event.agents;
   if (!tree) return null;
@@ -105,7 +107,8 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
                     className="flex min-w-0 items-center gap-2 py-0.5 font-mono text-[11.5px]"
                     style={{ paddingLeft: `${agent.depth * 12}px` }}
                   >
-                    <span data-testid="chat-agent-name" className="shrink-0" style={{ color: "var(--ct-fg)" }}>{agent.name}</span>
+                    {inspect && agent.id ? <button type="button" aria-label={`Inspect ${agent.name}`} onClick={() => inspect(agent.id!)} className="shrink-0 underline" style={{color:"var(--ct-accent)"}}>{agent.name}</button>
+                      : <span data-testid="chat-agent-name" className="shrink-0" style={{ color: "var(--ct-fg)" }}>{agent.name}</span>}
                     <span data-testid="chat-agent-path" className="min-w-0 flex-1 truncate text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>
                       {agent.path ?? agent.id}
                     </span>

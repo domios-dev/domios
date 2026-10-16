@@ -3,6 +3,7 @@ pub(crate) mod authority;
 pub(crate) mod blocking;
 mod bootstrap;
 pub(crate) mod capture;
+pub mod children;
 mod completions;
 pub(crate) mod controls;
 pub mod engine;

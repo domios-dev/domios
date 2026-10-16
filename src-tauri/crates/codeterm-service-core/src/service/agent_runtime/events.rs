@@ -88,9 +88,19 @@ pub struct RuntimeMaps {
     usage: HashMap<String, TokenUsage>,
     rate_limits: HashMap<String, Vec<RuntimeRateLimit>>,
     auth: Option<RuntimeAuthState>,
+    children: HashMap<String, codeterm_plugin::agent_runtime::RuntimeChild>,
 }
 
 impl RuntimeMaps {
+    pub fn child(
+        &self,
+        epoch: u64,
+        thread: &str,
+    ) -> Option<codeterm_plugin::agent_runtime::RuntimeChild> {
+        (self.epoch == epoch)
+            .then(|| self.children.get(thread).cloned())
+            .flatten()
+    }
     pub fn reset(&mut self, epoch: u64) {
         *self = Self {
             epoch,
@@ -242,6 +252,11 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
         }
         RuntimeEvent::TurnUpdated { .. } => {}
         RuntimeEvent::ItemUpdated { thread_id, item } => {
+            if let Some(child) = codeterm_plugin::agent_runtime::runtime_child(thread_id, item) {
+                if maps.children.len() < 64 || maps.children.contains_key(&child.thread_id) {
+                    maps.children.insert(child.thread_id.clone(), child);
+                }
+            }
             upsert_item(maps, thread_id, item.clone());
         }
         RuntimeEvent::RequestUpdated {
@@ -306,6 +321,30 @@ pub fn reconcile_history(maps: &mut RuntimeMaps, epoch: u64, thread_id: &str, it
 }
 
 pub fn observe(context: &mut RuntimeContext, event: &RuntimeEvent) {
+    if let RuntimeEvent::ItemUpdated { thread_id, item } = event {
+        if context.thread_id.as_ref() == Some(thread_id) {
+            if let Some(child) = codeterm_plugin::agent_runtime::runtime_child(thread_id, item) {
+                if context.thread_parents.len() < 64
+                    && (context.thread_id.as_ref() == Some(&child.parent_thread_id)
+                        || context
+                            .thread_parents
+                            .iter()
+                            .any(|parent| parent.thread_id == child.parent_thread_id))
+                    && !context
+                        .thread_parents
+                        .iter()
+                        .any(|parent| parent.thread_id == child.thread_id)
+                {
+                    context.thread_parents.push(
+                        codeterm_plugin::agent_runtime::RuntimeThreadParent {
+                            thread_id: child.thread_id,
+                            parent_thread_id: child.parent_thread_id,
+                        },
+                    );
+                }
+            }
+        }
+    }
     use codeterm_plugin::agent_runtime::{RuntimeActiveTurn, RuntimeThreadParent};
     let RuntimeEvent::TurnUpdated {
         thread_id,
