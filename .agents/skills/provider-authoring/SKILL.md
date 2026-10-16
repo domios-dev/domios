@@ -5,6 +5,12 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
+`agentRuntime.fastMode` declares a boolean Fast mode control in the shared model
+picker and provider defaults. `RuntimeSettings.fastMode` carries the requested
+value; runtime confirmation must report it explicitly, including false. Providers
+map it to their own protocol and must preserve omission versus an explicit off.
+This adds no host API or sandbox access; native/JS descriptor parity is required.
+
 `capabilities.recordSources` opts JSONL sources into parsed records. Declare
 `sessionTranscript` for `parseSessionRecords(records, meta)` (delta rows) and
 `parseSessionMessageRecords(records, meta)` (search rows), or `storedHistory`

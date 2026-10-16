@@ -183,6 +183,7 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
+  agent_runtime_config?: { fastMode?: boolean; [key: string]: unknown } | null;
   agent_runtime_questions?: import("./agentRuntimeQuestions").AgentRuntimeQuestion[];
   agent_runtime_state?: import("./agentRuntimeState").AgentRuntimeState | null;
   pending_model_selection?: { model: string; effort: string | null } | null;
@@ -1066,7 +1067,7 @@ export interface ModelCatalogueCapability {
 export type ModelSwitchMode = "live" | "live_command" | "next_turn" | "restart_resume" | "unsupported";
 
 export interface ProviderDescriptor {
-  agent_runtime?: { usage?: boolean; goals?: { actions: readonly string[] } };
+  agent_runtime?: { fastMode?: boolean; usage?: boolean; goals?: { actions: readonly string[] } };
   supports_session_fork?: boolean;
   cli_status?: import("./providerCli").ProviderCliStatus;
   schema_version: number;

@@ -229,7 +229,19 @@ impl crate::service::ServiceContext {
     > {
         if let Some(tab) = crate::service::agent_runtime::controls::routed_tab(self, tab) {
             return crate::service::agent_runtime::controls::switch(
-                self, &tab, model, effort, mode,
+                self,
+                &tab,
+                model,
+                effort,
+                mode,
+                options.fast_mode,
+            );
+        }
+        if options.fast_mode.is_some() {
+            return Err(
+                crate::service::agent_restart::ModelSwitchError::NotSwitchable(
+                    "Fast mode requires a capable runtime".into(),
+                ),
             );
         }
         if !options.restart_resume {
@@ -265,7 +277,7 @@ impl crate::service::ServiceContext {
         use crate::service::agent_restart::ModelSwitchError;
         if let Some(tab) = crate::service::agent_runtime::controls::routed_tab(self, tab) {
             return crate::service::agent_runtime::controls::switch(
-                self, &tab, model, effort, mode,
+                self, &tab, model, effort, mode, None,
             );
         }
         if mode.is_some() && for_tab(tab).is_none() {

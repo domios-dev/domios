@@ -929,6 +929,12 @@ fn apply_runtime_controls(
         tab.reasoning_effort_identity.resolved = Some(effort.clone());
         tab.reasoning_effort_identity.actual_source = Some("session-owned".into());
     }
+    if let Some(fast_mode) = settings.fast_mode {
+        let config = tab
+            .agent_runtime_config
+            .get_or_insert_with(|| serde_json::json!({}));
+        config["fastMode"] = fast_mode.into();
+    }
     if let Some(mode) = settings.mode.as_ref() {
         tab.structured_runtime_mode = Some(mode.clone());
     }

@@ -39,10 +39,12 @@ pub fn controls(svc: &ServiceContext, session: &Session, settings: RuntimeSettin
     *session.controls_confirmation.lock() = Some(settings.clone());
     let settings = merge_settings(&context.settings, settings);
     session.context.lock().settings = settings;
+    session.control_changes.send_replace(());
 }
 
 fn merge_settings(previous: &RuntimeSettings, confirmed: RuntimeSettings) -> RuntimeSettings {
     RuntimeSettings {
+        fast_mode: confirmed.fast_mode.or(previous.fast_mode),
         model: confirmed.model.or_else(|| previous.model.clone()),
         effort: confirmed.effort.or_else(|| previous.effort.clone()),
         mode: confirmed.mode.or_else(|| previous.mode.clone()),
