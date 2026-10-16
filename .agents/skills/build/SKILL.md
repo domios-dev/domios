@@ -212,6 +212,12 @@ link logging. The recipe excludes `LINK` from MSYS environment path conversion;
 otherwise `/TIME` becomes a Git directory path and linking fails with
 `LNK1181: cannot open input file C:\Program.obj`.
 
+If Cargo succeeds but build.sh later reports an unexpected `;;`, an edited
+driver may have grown beyond Bash's original read position. The driver now
+exits or returns inside its already parsed invocation block, preventing a
+second parse of the changed tail. Keep scripts fixed during measurements;
+repair the driver and repeat the affected case, preserving the failed log.
+
 Record gateway queue time separately from wall and Cargo times. HTML timings
 separate frontend and codegen where Cargo receives those events; a binary or
 multi-output library's duration is not a pure linker measurement. Fresh shells
@@ -230,6 +236,21 @@ Canonical DEV and check-queue retain incremental compilation.
 CLI builds rely on `cli/build.rs` watching Git HEAD and its branch reference;
 do not touch `cli/src/main.rs` to force a rebuild. Repeated builds at the same
 SHA reuse Cargo artifacts, while commits refresh the embedded CLI SHA.
+
+With sccache, explicitly setting `CARGO_INCREMENTAL=1` is rejected by the cache
+client. Leave it unset to use Cargo's incremental default; use `0` only for
+operations whose measured policy disables incremental. Do not turn off DEV
+incremental compilation merely to clear that diagnostic.
+
+Lane cache troubleshooting: `sccache: Compiler not supported` during `rustc -vV`
+can mean Cargo passed the workspace wrapper to sccache as the compiler. Lane
+wrappers now forward each other and invoke the cache only immediately before
+rustc. Cargo still hashes the per-worktree workspace-wrapper path, preserving
+metadata isolation; do not remove that identity to chase workspace cache hits.
+Ordinary lane checks use an already live sccache server when available and
+respect `CODETERM_USE_SCCACHE=0`; they never start or restart the cache server.
+Run `./build.sh lane-wrapper-check --wait-build` in a fresh Team build shell
+for the small two-worktree metadata fixture and native forwarding tests.
 
 ## Shared compile cache
 

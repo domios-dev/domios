@@ -8,13 +8,28 @@ configure_lane_build_dir() {
   export CARGO_BUILD_BUILD_DIR="$directory"
 }
 
+configure_lane_cache() {
+  if [ -z "${RUSTC_WRAPPER:-}" ] && [ "${CODETERM_USE_SCCACHE:-1}" != 0 ] &&
+      declare -F ct_sccache_server_live >/dev/null && command -v sccache >/dev/null 2>&1 &&
+      ct_sccache_server_live; then
+    ct_require_prestarted_sccache
+  fi
+}
+
 configure_lane_workspace_wrapper() {
-  local directory wrapper
+  local directory wrapper cache_wrapper="${RUSTC_WRAPPER:-}"
   directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" || return $?
   wrapper="$directory/lane-rustc-wrapper.sh"
   case "${OSTYPE:-}" in msys*|cygwin*) wrapper="$(node "$directory/lane-native-wrapper.mjs")" || return $? ;; esac
   # Cargo hashes the wrapper path for workspace units, while registry units stay shared.
   export RUSTC_WORKSPACE_WRAPPER="$wrapper"
+  unset CODETERM_LANE_CACHE_WRAPPER
+  if [ -n "$cache_wrapper" ] && [ "$cache_wrapper" != "$wrapper" ]; then
+    cache_wrapper="$(command -v "$cache_wrapper")" || return $?
+    if command -v cygpath >/dev/null 2>&1; then cache_wrapper="$(cygpath -m "$cache_wrapper")"; fi
+    export CODETERM_LANE_CACHE_WRAPPER="$cache_wrapper"
+    export RUSTC_WRAPPER="$wrapper"
+  fi
 }
 
 lane_check() (
@@ -29,6 +44,7 @@ lane_check() (
     target=(--bin codeterm)
   fi
   configure_lane_build_dir || return $?
+  configure_lane_cache || return $?
   configure_lane_workspace_wrapper || return $?
   prepare_dev_frontend_dist "$(pwd -P)"
   prepare_bundle_stubs
