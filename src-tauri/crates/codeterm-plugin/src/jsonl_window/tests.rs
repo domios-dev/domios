@@ -80,6 +80,17 @@ fn grows_past_cap_for_an_oversized_record() {
 }
 
 #[test]
+fn oversized_first_record_does_not_consume_the_following_page() {
+    let first = format!("{{\"blob\":\"{}\"}}\n", "x".repeat(1100));
+    let body = format!("{first}{}", String::from_utf8(records(30)).unwrap());
+    let path = write_file("oversized-first-page", body.as_bytes());
+    let chunk = read_records_from(&path, 0, 1024).unwrap();
+    assert_eq!(chunk.new_offset, first.len() as u64);
+    assert_eq!(chunk.bytes, first.as_bytes());
+    assert!(chunk.more_available);
+}
+
+#[test]
 fn offset_at_or_past_eof_is_a_noop() {
     let body = records(2);
     let path = write_file("eof", &body);

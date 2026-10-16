@@ -1,6 +1,7 @@
 import { parseCompositeTabId } from "../remoteTabTransport";
 import type { ShellCommandSnapshot } from "@codeterm/chat-core";
 import type { ChatStartResult, ChatBackfillResult } from "../../components/Terminal/chatSessionAuthority";
+import type { ChatResumeResult } from "../../components/Terminal/chatResume";
 import type { ChatSendStatus } from "../../components/Terminal/chatSendStatus";
 import type { SessionBindingFact } from "../../components/Terminal/sessionBindingSurface";
 import type { ResizeOwnerClaim } from "../resizeOwner";
@@ -113,6 +114,9 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         chat_backfill: (a: Args) => clientFor(a).json<ChatBackfillResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/backfill`, {
             before_offset: a.beforeOffset,
             offset_kind: a.offsetKind,
+        }),
+        chat_resume: (a: Args) => clientFor(a).json<ChatResumeResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/resume`, {
+            cursor: s(a, "cursor"),
         }),
         chat_send_text: (a: Args) => clientFor(a).json<ChatSendStatus>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-send`, {
             text: a.text,

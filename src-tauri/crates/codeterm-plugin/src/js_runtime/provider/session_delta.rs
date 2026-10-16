@@ -7,12 +7,13 @@ impl JsProvider {
         &self,
         path: &std::path::Path,
         from_offset: u64,
+        byte_budget: u64,
     ) -> SessionDelta {
         // Seek-based and capped: session files reach hundreds of MB, and this runs on every tailer poll.
         let read = crate::jsonl_window::read_records_from(
             path,
             from_offset,
-            crate::jsonl_window::DELTA_CHUNK_BYTES,
+            byte_budget.min(crate::jsonl_window::DELTA_CHUNK_BYTES),
         );
         let window = match read {
             Ok(w) => w,
