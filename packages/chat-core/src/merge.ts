@@ -2,22 +2,20 @@ import type { NormalizedChatMessage } from "./types";
 
 export function mergeById<T extends NormalizedChatMessage>(prev: T[], incoming: T[]): T[] {
   const slots = new Map<string, number>();
-  const entries: Array<{ message: T; arrival: number }> = [];
-  for (const message of [...prev, ...incoming]) {
+  const entries: T[] = [];
+  const latestIncoming = new Map(incoming.map(message => [message.id, message]));
+  const orderedIncoming = [...latestIncoming.values()].sort((left, right) => {
+    if (left.seq != null && right.seq != null) return left.seq - right.seq;
+    return 0;
+  });
+  for (const message of [...prev, ...orderedIncoming]) {
     const slot = slots.get(message.id);
     if (slot != null) {
-      entries[slot] = { message, arrival: entries[slot].arrival };
+      entries[slot] = message;
       continue;
     }
     slots.set(message.id, entries.length);
-    entries.push({ message, arrival: entries.length });
+    entries.push(message);
   }
-  return entries
-    .sort((a, b) => {
-      const as = a.message.seq;
-      const bs = b.message.seq;
-      if (as != null && bs != null && as !== bs) return as - bs;
-      return a.arrival - b.arrival;
-    })
-    .map((entry) => entry.message);
+  return entries;
 }
