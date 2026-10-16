@@ -64,6 +64,8 @@ pub use launch_delivery::prepare_spawn_input as launch_delivery_prepare_spawn_in
 pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
 pub mod launch_readiness;
+#[cfg(any(test, feature = "test-support"))]
+pub use orchestrator::launch_test_support;
 pub mod launch_session_detection;
 pub mod local_preview;
 pub(crate) mod mesh_artifacts;
