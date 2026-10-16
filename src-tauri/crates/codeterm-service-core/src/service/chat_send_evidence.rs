@@ -231,10 +231,17 @@ pub(crate) fn scan_transcript_evidence(
     }
     for candidate in ledger.evidence_candidates(tab_id) {
         let anchor = &candidate.anchor;
+        let turns = window_evidence_turns(registry, anchor, Some(source));
+        let source_row = turns
+            .iter()
+            .filter(|turn| contains_written_payload(&turn.content, &candidate.payload))
+            .filter_map(|turn| turn.source_row.as_ref())
+            .find(|row| !ledger.source_row_claimed(row));
         let matching_turns =
             unconsumed_matching_turns(registry, ledger, tab_id, anchor, &candidate.payload);
         let claimed = ledger.claimed_turn_anchors(tab_id, &anchor.session_id, &candidate.payload);
-        let assignable = matching_turns > claimed.len()
+        let assignable = source_row.is_some()
+            || matching_turns > claimed.len()
             || nested_windows_assign_every_send(
                 claimed
                     .iter()
@@ -251,12 +258,6 @@ pub(crate) fn scan_transcript_evidence(
                     .collect(),
             );
         if assignable {
-            let turns = window_evidence_turns(registry, anchor, Some(source));
-            let source_row = turns
-                .iter()
-                .filter(|turn| contains_written_payload(&turn.content, &candidate.payload))
-                .filter_map(|turn| turn.source_row.as_ref())
-                .find(|row| !ledger.source_row_claimed(row));
             let has_identity = turns.iter().any(|turn| turn.source_row.is_some());
             if has_identity && source_row.is_none() {
                 continue;
