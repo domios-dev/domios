@@ -8,6 +8,7 @@ import type { AgentRuntime, RuntimeContext, Operation, RuntimeAction, RpcReply, 
 import { collectHistory } from "./runtimeHistoryHost";
 import { notificationMethods } from "../src/runtimeProtocol";
 import { agentActivityOf, buildAgentTree } from "../../../packages/chat-core/src/agentActivity";
+import { descendantThread, historyThread } from "../src/runtimeBinding";
 
 interface Fixture {
   schemaVersion: 1;
@@ -40,6 +41,52 @@ hooks.runtimeReduce = (...args) => {
 const plain = <T>(value:T): T => JSON.parse(JSON.stringify(value));
 let count = 0;
 function check(name:string, run:()=>void) {run();count++;console.log(`  ✓ runtime ${name}`);}
+check("descendant reads require an unambiguous chain to the current root",()=> {
+  const fixture = JSON.parse(fs.readFileSync(new URL("captured/subagent.json",root),"utf8")) as Fixture;
+  const context = {...fixture.context,threadParents:[{threadId:"child",parentThreadId:fixture.context.threadId!},
+    {threadId:"grandchild",parentThreadId:"child"}]};
+  assert.equal(descendantThread(context,"grandchild"),true);
+  for (const parents of [[],[{threadId:"child",parentThreadId:"foreign"}],
+    [{threadId:"child",parentThreadId:"child"}],
+    [...context.threadParents,{threadId:"child",parentThreadId:"foreign"}]]) {
+    assert.equal(descendantThread({...context,threadParents:parents},"child"),false);
+  }
+  assert.equal(historyThread(context,{thread:{id:"child",parentThreadId:context.threadId}},"child"),true);
+  assert.equal(historyThread(context,{thread:{id:"child",parentThreadId:"foreign"}},"child"),false);
+  assert.equal(historyThread(context,{thread:{id:"foreign",parentThreadId:context.threadId}},"child"),false);
+});
+check("captured child identities permit history plans without mutation authority",()=> {
+  for (const name of ["subagent","subagent_v2"]) {
+    const fixture = JSON.parse(fs.readFileSync(new URL(`captured/${name}.json`,root),"utf8")) as Fixture;
+    const result = hooks.runtimeReduce(fixture.context,null,fixture.rpc.flatMap(record=>"frame" in record ? [record.frame] : []));
+    const rows = result.events.flatMap(event=>event.kind === "chatItem" && event.item.toolKind === "agent" ? [event.item] : []);
+    assert.ok(rows.length > 0);
+    const input = rows[0].toolInput as Record<string,JsonValue>;
+    const child = String(input.agent_id);
+    assert.equal(typeof input.agent_ordinal,"number");
+    const context = {...fixture.context,threadParents:[{threadId:child,parentThreadId:fixture.context.threadId!}]};
+    const op:Operation = {kind:"readHistory",threadId:child,order:"desc"};
+    const plan = hooks.runtimePlan(context,op);
+    assert.equal(plan.action.kind,"request");
+    if (plan.action.kind !== "request") throw new Error("Expected history request");
+    assert.equal(plan.action.call.method,"thread/turns/list");
+    assert.equal((plan.action.call.params as Record<string,JsonValue>).threadId,child);
+    assert.throws(()=>hooks.runtimePlan(context,{...op,threadId:"foreign"}));
+    assert.throws(()=>hooks.runtimePlan({...context,threadParents:[]},op));
+    assert.throws(()=>hooks.runtimeResponse({...context,threadParents:[]},op,plan.state,{kind:"success",value:{data:[]}}));
+    const mutations:Operation[] = [
+      {kind:"resumeThread",threadId:child,instructions:"",settings:{}},
+      {kind:"submitTurn",threadId:child,sendId:"send",input:{text:"hello",attachments:[]},settings:{}},
+      {kind:"interrupt",threadId:child},
+      {kind:"control",threadId:child,action:"compact",value:null},
+    ];
+    for (const mutation of mutations) assert.throws(()=>hooks.runtimePlan(context,mutation));
+    const snapshot = hooks.runtimeResponse(context,op,{stage:"snapshot"},{kind:"success",value:{thread:{id:child,parentThreadId:context.threadId!,turns:[]}}});
+    assert.notEqual(snapshot.kind,"refused");
+    const foreign = hooks.runtimeResponse(context,op,{stage:"snapshot"},{kind:"success",value:{thread:{id:"foreign",parentThreadId:context.threadId!,turns:[]}}});
+    assert.equal(foreign.kind,"refused");
+  }
+});
 function allowed(op:Operation, action:RuntimeAction) {
   if (action.kind === "questionAnswer") {assert.equal(op.kind,"answerQuestion");return;}
   if (action.kind === "reply") {assert.equal(op.kind,"answer"); return;}
