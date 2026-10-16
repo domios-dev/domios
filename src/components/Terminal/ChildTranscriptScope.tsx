@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AgentInspectionProvider, MessageBubble } from "@codeterm/chat-ui";
 import { childTranscriptKey, type ChildTranscriptAuthority } from "../../lib/childTranscript";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useChildTranscript } from "./useChildTranscript";
 
 function ChildTranscript({tabId,threadId,authority,onClose}: {tabId:string;threadId:string;authority:ChildTranscriptAuthority;onClose:()=>void}) {
@@ -15,7 +16,7 @@ function ChildTranscript({tabId,threadId,authority,onClose}: {tabId:string;threa
       <button type="button" disabled={transcript.loading} onClick={transcript.refresh}>Refresh transcript</button>
     </header>
     {transcript.child && <p className="m-0 px-3 py-1 text-xs">{[transcript.child.model,transcript.child.effort,transcript.child.status].filter(Boolean).join(" · ")}</p>}
-    {transcript.error && <p role="alert" className="p-3">{transcript.error}</p>}
+    {transcript.error && <div role="alert" className="p-3"><InlineErrorNotice error={transcript.error} operation="loading the subagent transcript" /></div>}
     {transcript.loading && <p role="status" className="p-3">Loading transcript</p>}
     <div role="log" aria-label="Subagent messages" aria-busy={transcript.loading} className="min-h-0 flex-1 overflow-auto p-3">
       {transcript.nextCursor && <button type="button" disabled={transcript.loading} onClick={transcript.older}>Load older messages</button>}
