@@ -1,17 +1,9 @@
-/**
- * Pure view derivation for the global Mesh "Web UI" header control. Maps the
- * backend reconciliation snapshot (webAccess::ServeReconcileSnapshot) onto the
- * exact affordances the header renders — never inferring state from peer cards
- * or the canvas. The component stays a thin renderer of what this returns.
- */
 import type { ServeReconcileSnapshot } from "../../lib/webAccess";
 
 export type WebUiTone = "ready" | "warn" | "conflict" | "error" | "neutral";
 
 export interface WebUiView {
-  /** `data-web-ui-state`: the backend state verbatim, or "loading"/"unknown". */
   state: string;
-  /** Compact chip label: Ready · Setup required · Conflict · Unhealthy · … */
   label: string;
   tone: WebUiTone;
   url: string | null;
@@ -21,7 +13,6 @@ export interface WebUiView {
   canDisable: boolean;
   operatorBootstrap: boolean;
   bootstrapCommand: string | null;
-  /** One truthful supplementary line (conflict reason / health error / skew). */
   detail: string | null;
 }
 
@@ -43,8 +34,6 @@ function readyDetail(snap: ServeReconcileSnapshot): string | null {
   return null;
 }
 
-/** Derive the header view. `loading` only matters before the first snapshot;
- * once a snapshot exists it is the sole source of truth. */
 export function deriveWebUiView(
   snapshot: ServeReconcileSnapshot | null | undefined,
   loading: boolean,
