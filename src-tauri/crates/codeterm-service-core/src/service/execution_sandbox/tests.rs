@@ -11,6 +11,7 @@ fn policy() -> ExecutionSandboxPolicy {
         launch_args: vec!["opaque-arg".into()],
         runtime_mode: Some("opaque-mode".into()),
         writable_roots: Vec::new(),
+        environment: Default::default(),
     }
 }
 
@@ -30,6 +31,21 @@ fn saved_policy_round_trip_rejects_replacement_removal_and_cwd_changes() {
     changed = original.clone();
     changed.runtime_mode = Some("full-access".into());
     assert!(validate_saved(Some(&saved), Some(&changed)).is_err());
+}
+
+#[test]
+fn changed_root_diagnostic_names_the_recorded_or_added_path() {
+    let mut saved = policy();
+    saved.writable_roots = vec!["recorded-root".into()];
+    let mut changed = saved.clone();
+    changed.writable_roots = vec!["new-root".into()];
+    assert!(validate_saved(Some(&saved), Some(&changed))
+        .unwrap_err()
+        .contains("recorded-root"));
+    changed.writable_roots.insert(0, "recorded-root".into());
+    assert!(validate_saved(Some(&saved), Some(&changed))
+        .unwrap_err()
+        .contains("new-root"));
 }
 
 #[test]
@@ -122,6 +138,50 @@ fn resolver_requires_capability_and_canonicalizes_only_the_lane_root() {
     )
     .unwrap_err()
     .contains("Cannot enforce"));
+}
+
+#[test]
+fn task_bound_workers_require_explicit_execution_intent() {
+    use crate::service::orchestrator::types::TaskLaunchAuthority;
+    for binding in 0..3 {
+        for intent in [
+            None,
+            Some(ExecutionIntent::Unspecified),
+            Some(ExecutionIntent::ReadOnly),
+            Some(ExecutionIntent::Mutating),
+        ] {
+            let mut params = SpawnAgentParams {
+                role: Some("Worker".into()),
+                execution_intent: intent.clone(),
+                ..Default::default()
+            };
+            match binding {
+                0 => params.plan_task = Some("task-token".into()),
+                1 => params.task_id = Some("task-token".into()),
+                _ => {
+                    params.task_launch_authority = Some(TaskLaunchAuthority {
+                        plan_id: "plan-token".into(),
+                        task_id: "task-token".into(),
+                        attempt_id: "attempt-token".into(),
+                        lane_base: None,
+                    })
+                }
+            }
+            assert_eq!(
+                crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params).is_ok(),
+                matches!(
+                    intent,
+                    Some(ExecutionIntent::ReadOnly | ExecutionIntent::Mutating)
+                )
+            );
+        }
+    }
+    assert!(
+        crate::service::spawn_plan_task::validate_worker_plan_task_spawn(
+            &SpawnAgentParams::default()
+        )
+        .is_ok()
+    );
 }
 
 #[test]

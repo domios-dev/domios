@@ -175,4 +175,6 @@ Automatic plan reminders use a deterministic rule for both Owners and Workers: a
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-<!-- revision: 119 -->
+Confined mutating Workers receive persisted host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR, TEMP and TMP select the lane-local `.codeterm-tmp` directory. Task-bound Worker spawns require an explicit read_only or mutating intent. Restoring an older task tab without a saved confinement policy retains its existing behavior.
+
+<!-- revision: 120 -->

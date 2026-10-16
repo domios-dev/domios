@@ -3,6 +3,7 @@ use crate::{
     service::{ServiceContext, SpawnAgentParams},
 };
 use codeterm_types::plan::{ExecutionIntent, ExecutionSandboxPolicy};
+mod build_roots;
 
 fn mode_for_intent(
     registry: &AgentRegistry,
@@ -86,6 +87,7 @@ pub(crate) fn resolve(
         launch_args,
         runtime_mode: mode.runtime_mode,
         writable_roots: Vec::new(),
+        environment: Default::default(),
     }))
 }
 
@@ -153,6 +155,13 @@ pub(crate) fn for_launch(
                 .ok_or_else(|| "Execution sandbox root is not Unicode".to_string())
         })
         .collect::<Result<_, _>>()?;
+        let build = build_roots::for_lane(&policy.cwd)?;
+        for root in build.writable_roots {
+            if !policy.writable_roots.contains(&root) {
+                policy.writable_roots.push(root);
+            }
+        }
+        policy.environment = build.environment;
     }
     validate_saved(saved.as_ref(), policy.as_ref())?;
     if let Some(policy) = &policy {
@@ -176,12 +185,46 @@ fn validate_saved(
     resolved: Option<&ExecutionSandboxPolicy>,
 ) -> Result<(), String> {
     if saved.is_some() && saved != resolved {
+        if let (Some(saved), Some(resolved)) = (saved, resolved) {
+            if saved.cwd != resolved.cwd {
+                return Err(format!(
+                    "Execution sandbox working root changed: {} -> {}",
+                    saved.cwd, resolved.cwd
+                ));
+            }
+            for root in &saved.writable_roots {
+                if !resolved.writable_roots.contains(root) {
+                    return Err(format!(
+                        "Execution sandbox recorded writable root no longer resolves: {root}"
+                    ));
+                }
+            }
+            for root in &resolved.writable_roots {
+                if !saved.writable_roots.contains(root) {
+                    return Err(format!(
+                        "Execution sandbox refuses new writable root: {root}"
+                    ));
+                }
+            }
+        }
         return Err(
             "Execution sandbox policy changed; refusing to weaken or replace the recorded policy"
                 .into(),
         );
     }
     Ok(())
+}
+
+pub(crate) fn environment(
+    svc: &ServiceContext,
+    tab: &str,
+) -> std::collections::BTreeMap<String, String> {
+    svc.mux
+        .read()
+        .get_tab(tab)
+        .and_then(|tab| tab.restorable_launch.execution_sandbox.as_ref())
+        .map(|policy| policy.environment.clone())
+        .unwrap_or_default()
 }
 
 pub(crate) fn validate_runtime_settings(

@@ -51,7 +51,13 @@ Core persists the resolved intent, cwd, arguments, mode and host-owned roots,
 revalidates them on relaunch and rejects runtime overrides. Scoped launches
 reject custom arguments; use typed model and effort controls. Read-only adds
 no writable roots. Mutating roots include the lane, its pad and required Git
-metadata. Read-only reports use stdin `--from-pad -`; gates needing writes
+metadata. Confined mutating launches also persist canonical Cargo home, lane-check
+cache, sccache and pnpm store roots, with lane-local temp exported as TMPDIR/TEMP/TMP.
+The lane cache uses `$CODETERM_RUST_CACHE_ROOT/lanes`, falling back to
+`${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. The pnpm store uses host environment configuration, falling back to `<lane>/.codeterm-pnpm-store`.
+Task-bound Workers must explicitly declare read_only or mutating; older restored
+task tabs without a saved policy keep their existing behavior.
+Read-only reports use stdin `--from-pad -`; gates needing writes
 outside the sandbox are explicit owner-run canonical gates. Native/JS parity
 and pure intent/transport/platform tests are required; no host API is added.
 

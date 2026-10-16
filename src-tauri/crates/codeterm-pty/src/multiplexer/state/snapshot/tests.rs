@@ -1066,6 +1066,7 @@ fn restorable_launch_parameters_round_trip_in_snapshot() {
             launch_args: vec!["opaque-read".into()],
             runtime_mode: Some("opaque-read-mode".into()),
             writable_roots: Vec::new(),
+            environment: Default::default(),
         }),
         failed_provider: Some("failed-provider-fixture".into()),
         context_files: None,

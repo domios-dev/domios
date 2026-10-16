@@ -9,4 +9,5 @@ pub struct ExecutionSandboxPolicy {
     pub launch_args: Vec<String>,
     pub runtime_mode: Option<String>,
     pub writable_roots: Vec<String>,
+    pub environment: std::collections::BTreeMap<String, String>,
 }

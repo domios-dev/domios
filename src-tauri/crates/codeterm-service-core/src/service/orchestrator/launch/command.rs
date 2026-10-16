@@ -396,7 +396,9 @@ fn build_agent_command_inner(
                 })
                 .flatten()
         };
-        return command.unwrap_or_default();
+        return command
+            .unwrap_or_default()
+            .with_execution_environment(execution_policy.as_ref());
     }
 
     let launch_task = command_task.and_then(|task| task.text);
@@ -441,7 +443,7 @@ fn build_agent_command_inner(
             )
         })
     };
-    match command {
+    let prepared: PreparedAgentCommand = match command {
         Some(command) if command.trim().is_empty() => Default::default(),
         Some(command) => command.with_stub(agent_cmd),
         None => {
@@ -449,7 +451,8 @@ fn build_agent_command_inner(
             parts.extend(args);
             parts.join(" ").into()
         }
-    }
+    };
+    prepared.with_execution_environment(execution_policy.as_ref())
 }
 
 #[cfg(test)]
