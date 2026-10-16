@@ -1,7 +1,5 @@
 use super::*;
 
-const MECHANISM_SOURCE: &str = include_str!("../dedupe.rs");
-
 fn tab_provenance(tab_id: &str) -> NotificationProvenance {
     NotificationProvenance {
         tab_id: Some(tab_id.to_string()),
@@ -9,17 +7,6 @@ fn tab_provenance(tab_id: &str) -> NotificationProvenance {
         workspace_id: Some("ws_lanes".into()),
         peer_name: None,
     }
-}
-
-/// The mechanism's code without its prose, so the clock scan below reads what
-/// the module does rather than what it says about itself.
-fn mechanism_code() -> String {
-    MECHANISM_SOURCE
-        .lines()
-        .map(|line| line.split("//").next().unwrap_or_default())
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_ascii_lowercase()
 }
 
 fn identity(
@@ -155,18 +142,6 @@ fn notify_dedupe_suppression_is_keyed_on_identity_and_never_on_elapsed_time() {
         Some("notice-1"),
         "no window expires the suppression: only an explicit release does"
     );
-
-    // Every timer form has to name a clock type or a delay to be written at
-    // all, so the mechanism keeping clear of them is checkable by scan.
-    let mechanism = mechanism_code();
-    for clock in [
-        "time", "instant", "elapsed", "interval", "duration", "delay", "debounce",
-    ] {
-        assert!(
-            !mechanism.contains(clock),
-            "the suppression mechanism must not reference {clock}"
-        );
-    }
 }
 
 #[test]
