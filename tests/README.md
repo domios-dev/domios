@@ -54,6 +54,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-app-state-doctor` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --test state_doctor state_dump_quality_gate -- --ignored --nocapture` | `testbench/README.md` |
 | `rust-build-info` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-build-info` | `.agents/skills/gates/SKILL.md` |
 | `rust-account` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest account` | `.agents/skills/gates/SKILL.md` |
+| `rust-entitlements` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-entitlements` | `.agents/skills/gates/SKILL.md` |
 | `rust-billing` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest billing` | `.agents/skills/gates/SKILL.md` |
 | `rust-analytics` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest analytics` | `.agents/skills/gates/SKILL.md` |
 | `rust-frontend-bundle` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest frontend-bundle` | `.agents/skills/gates/SKILL.md` |
