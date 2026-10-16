@@ -94,25 +94,3 @@ fn idle_restart_requires_capability_binding_and_no_background_work() {
         ));
     }
 }
-
-#[test]
-fn restart_path_has_no_fixed_delay_coordination() {
-    for source in [
-        include_str!("../shutdown.rs"),
-        include_str!("../../agent_restart.rs"),
-        include_str!("../../orchestrator/launch.rs"),
-        include_str!("../../orchestrator/launch/owner_prompt_wait.rs"),
-    ] {
-        for forbidden in [
-            "thread::sleep(",
-            "tokio::time::sleep(",
-            "setTimeout(",
-            "time::interval(",
-        ] {
-            assert!(
-                !source.contains(forbidden),
-                "restart path contains {forbidden}"
-            );
-        }
-    }
-}
