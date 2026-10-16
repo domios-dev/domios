@@ -62,6 +62,7 @@ import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./Permissi
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { TabStatusLineModelPicker } from "./StatusLineModelPicker";
 import { useTabActivity } from "../../lib/useTabActivity";
+import { ComposerBackgroundWorkProvider } from "./ComposerBackgroundWorkContext";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
 import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
@@ -1086,30 +1087,32 @@ function TabSessionChatBody({
           void runThreadHistory("revert", turnId, true);
         }}
       />}
-      {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
-        tabId={tabId}
-        tabProvider={tabProvider}
-        currentPtyId={currentPtyId}
-        chatBackend={effectiveChatBackend}
-        isActive={isActive}
-        promptDock={runtimeBadge}
-        pendingPrompt={pendingPrompt}
-        attachments={attachments}
-        addAttachments={addAttachments}
-        removeAttachment={removeAttachment}
-        clearAttachments={clearAttachments}
-        handlePasteEvent={handlePasteEvent}
-        inlineAttachmentSink={inlineSinkRef}
-        pluginError={!runtimeUnavailable && effectiveChatBackend ? error : null}
-        sessionIntent={sessionIntent}
-        contextSlot={contextSlot}
-        onWillSendMessage={willSendMessage}
-        addOptimistic={addOptimistic}
-        updateOptimistic={updateOptimistic}
-        observeChatSendStatus={observeChatSendStatus}
-        showComposerError={showComposerError}
-        onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
-      />}
+      <ComposerBackgroundWorkProvider messages={allMessages}>
+        {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
+          tabId={tabId}
+          tabProvider={tabProvider}
+          currentPtyId={currentPtyId}
+          chatBackend={effectiveChatBackend}
+          isActive={isActive}
+          promptDock={runtimeBadge}
+          pendingPrompt={pendingPrompt}
+          attachments={attachments}
+          addAttachments={addAttachments}
+          removeAttachment={removeAttachment}
+          clearAttachments={clearAttachments}
+          handlePasteEvent={handlePasteEvent}
+          inlineAttachmentSink={inlineSinkRef}
+          pluginError={!runtimeUnavailable && effectiveChatBackend ? error : null}
+          sessionIntent={sessionIntent}
+          contextSlot={contextSlot}
+          onWillSendMessage={willSendMessage}
+          addOptimistic={addOptimistic}
+          updateOptimistic={updateOptimistic}
+          observeChatSendStatus={observeChatSendStatus}
+          showComposerError={showComposerError}
+          onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+        />}
+      </ComposerBackgroundWorkProvider>
       </>
       )}
       </ChatComposerSurface>

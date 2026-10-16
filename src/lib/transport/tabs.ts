@@ -1,5 +1,6 @@
 import { parseCompositeTabId } from "../remoteTabTransport";
 import { childHistorySuffix, type ChildTranscriptAuthority } from "../childTranscript";
+import { backgroundProcessesSuffix, type BackgroundProcessAuthority } from "../backgroundProcesses";
 import type { ShellCommandSnapshot } from "@codeterm/chat-core";
 import type { ChatStartResult, ChatBackfillResult } from "../../components/Terminal/chatSessionAuthority";
 import type { ChatResumeResult } from "../../components/Terminal/chatResume";
@@ -36,6 +37,8 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         agent_runtime_login: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/login`, a.request),
         agent_runtime_retry: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/retry`),
         agent_runtime_child_history: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}${childHistorySuffix(s(a,"threadId"), a.request as ChildTranscriptAuthority & {cursor?:string})}`),
+        agent_runtime_background_processes: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}${backgroundProcessesSuffix(a.request as BackgroundProcessAuthority)}`),
+        agent_runtime_stop_background_process: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/background-processes`, a.request),
         session_binding_state: (a: Args) => clientFor(a).json<SessionBindingFact>("GET", `/api/tabs/${enc(s(a, "tabId"))}/session/binding-state`),
         rebind_tab_session: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/session/rebind`, {
             session_id: s(a, "sessionId"),

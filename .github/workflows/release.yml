@@ -396,6 +396,7 @@ jobs:
     needs: [prepare, quick-checks, tests, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64]
     if: always()
     uses: ./.github/workflows/rust-warnings-summary.yml
+    secrets: inherit
     with:
       source_ref: ${{ needs.prepare.outputs.source_sha || github.sha }}
       report_name: rust-warnings-release-report

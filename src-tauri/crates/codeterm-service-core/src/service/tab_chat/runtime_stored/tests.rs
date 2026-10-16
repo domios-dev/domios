@@ -161,7 +161,7 @@ fn on_demand_stored_windows_reach_first_record_without_gaps() {
 #[test]
 fn kernel_stored_page_matches_text_projection_for_445kb_and_oversized_records() {
     use codeterm_plugin::provider::AgentProvider;
-    let plugins = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+    let plugins = crate::test_support::fixture_manifest_dir().join("../../../plugins");
     let provider = std::fs::read_dir(plugins)
         .unwrap()
         .filter_map(|entry| {

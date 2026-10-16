@@ -30,6 +30,17 @@ it("reads child history with root authority and no send payload",async()=>{
   expect(calls[0]).toMatchObject({method:"GET",path:"/api/tabs/owned/agent/runtime/children/child%2Fa/history?rootThreadId=root&bindingNonce=nonce&epoch=4",body:undefined});
 });
 
+it("lists owned background processes and stops one through the same bound thread", async () => {
+  const request = {rootThreadId:"root",bindingNonce:"nonce",epoch:4};
+  const {transport,calls}=fixture();
+  await transport.agent_runtime_background_processes({tabId:"owned",request});
+  await transport.agent_runtime_stop_background_process({tabId:"owned",request:{...request,threadId:"child",processId:"process"}});
+  expect(calls).toMatchObject([
+    {method:"GET",path:"/api/tabs/owned/agent/runtime/background-processes?rootThreadId=root&bindingNonce=nonce&epoch=4",body:undefined},
+    {method:"POST",path:"/api/tabs/owned/agent/runtime/background-processes",body:{...request,threadId:"child",processId:"process"}},
+  ]);
+});
+
 const simple = [
   ["wake_tab", "POST", "/api/tabs/tab/wake"],
   ["agent_runtime_answer_question", "POST", "/api/tabs/tab/agent/runtime/questions/question/answer"],

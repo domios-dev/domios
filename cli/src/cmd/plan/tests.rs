@@ -528,7 +528,7 @@ fn render_plan_markdown_omits_empty_goal_and_task_quality_fields() {
 mod plan_rpc {
     use crate::client::{RpcClient, RpcError, SocketCallError};
     use crate::cmd::plan::{call_plan_rpc, call_plan_rpc_detailed};
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
     use std::collections::VecDeque;
 
     struct Probe {

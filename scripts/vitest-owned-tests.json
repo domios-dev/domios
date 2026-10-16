@@ -14,6 +14,7 @@
   "src/store/multiplexer/pageSelection.test.ts",
   "src/components/Sidebar/TabItem.hover.test.tsx",
   "src/components/Terminal/ChatComposer.submission-keys.test.ts",
+  "src/components/Terminal/ComposerBackgroundWorkBadges.test.tsx",
   "src/components/Sidebar/sidebarDrawerLayout.test.ts",
   "src/components/Sidebar/SidebarDrawer.test.tsx",
   "src/components/Terminal/useMessageActionHint.test.tsx",
