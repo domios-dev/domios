@@ -27,6 +27,10 @@ fn retain(config: &mut Value, thread: &str, value: &Value) {
         .cloned()
         .unwrap_or_default();
     for entry in incoming {
+        if entry["kind"].as_str() != Some("application") {
+            log::debug!("[agent-runtime] dropping non-application context from retention");
+            continue;
+        }
         if let Some(existing) = entries.iter_mut().find(|item| item["key"] == entry["key"]) {
             *existing = entry.clone();
         } else {
@@ -91,7 +95,15 @@ mod tests {
         retain(&mut config, "own", &first);
         let restored = restore_value(&config, "own");
         assert_eq!(restored["instructions"], "role-and-assignment");
-        assert_eq!(restored["additionalContext"], first["additionalContext"]);
+        assert_eq!(
+            restored["additionalContext"],
+            json!([first["additionalContext"][0]])
+        );
+        assert!(!restored["additionalContext"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["key"] == "user-context"));
         retain(
             &mut config,
             "own",
