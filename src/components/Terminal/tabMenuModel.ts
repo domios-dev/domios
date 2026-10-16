@@ -64,6 +64,7 @@ export type TabMenuAction =
 
 export type TabMenuGlyph =
   | "rename"
+  | "fork"
   | "role"
   | "model"
   | "provider"
@@ -361,7 +362,7 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
   }
   entries.push(...sessionItems(input, session), ...autoConfirmEntries(input));
   if (session.sessionId && input.descriptor?.supports_session_fork === true && !tab.remote_peer_id) {
-    entries.push({kind:"item",id:"fork",label:"Fork session",icon:"restart",action:{type:"fork"}});
+    entries.push({kind:"item",id:"fork",label:"Fork session",icon:"fork",action:{type:"fork"}});
   }
   const plugins = pluginsSubmenu(input);
   if (plugins) entries.push(plugins);
