@@ -18,7 +18,7 @@ import {
   isVerticalPrompt,
   verticalPromptHighlightIndex,
   discoverOpencodeModels,
-  discoverOpencodeGroupUsage,
+  withOpencodeGroupUsage,
   normalizeSessionDirectory,
   parseStructuredCursor,
   opencodeDbPath,
@@ -190,7 +190,7 @@ const plugin: PluginModule = {
   // Cumulative usage per upstream company comes from OpenCode's session store.
   // Model-id prefixes match picker groups, keeping vendor knowledge out of core.
   modelGroupUsage(): ModelGroupUsage[] {
-    return discoverOpencodeGroupUsage();
+    return withOpencodeGroupUsage((usage) => usage);
   },
 
   // because response bytes depend on horizontal vs vertical navigation.
@@ -526,7 +526,7 @@ const plugin: PluginModule = {
     const [sinceMs, seenAtSinceMs] = parsedCursor;
     // Track `time_updated`, not `time_created`: a streamed part keeps its creation
     // instant while its text/output grows, so a creation window skips every update.
-    const rows = host.fs.sqliteQuery<{ id: string | number; ts_created?: number; ts_updated?: number; part?: string; role?: string | null; message?: string }>(
+    return host.fs.sqliteQueryAsync<StructuredChatRow>(
       db,
       "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, " +
         "CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role " +
@@ -536,40 +536,46 @@ const plugin: PluginModule = {
         "FROM message WHERE session_id = ?1 AND time_updated >= ?2 AND octet_length(data) <= ?3 " +
         "AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) " +
         "ORDER BY ts_updated ASC, id ASC",
-      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES]
+      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES],
+      (rows) => structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs),
     );
-    const messages: unknown[] = [];
-    const observations: unknown[] = [];
-    let lastTs = sinceMs;
-    let seenAtLastTs = seenAtSinceMs.slice();
-    for (let i = 0; i < rows.length; i++) {
-      const updated = rows[i].ts_updated || 0;
-      const created = rows[i].ts_created || updated;
-      const id = String(rows[i].id);
-      if (updated > lastTs) {
-        lastTs = updated;
-        seenAtLastTs = [];
-      }
-      if (seenAtLastTs.indexOf(id) !== -1) continue;
-      seenAtLastTs.push(id);
-      const message = safeJson(rows[i].message);
-      const observation = sessionObservations(message);
-      if (observation) observations.push({ role: "assistant", provider_session_id: sessionId, provider_observations: observation });
-      const error = turnError(message);
-      if (error) {
-        messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });
-        continue;
-      }
-      const part = safeJson(rows[i].part);
-      if (!part) continue;
-      const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role as string : "assistant";
-      const cm = partToChatMsg(part as OpencodePart, role, id, created);
-      if (cm) messages.push(cm);
-    }
-    seenAtLastTs.sort();
-    return { messages, observations, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   },
 };
+
+type StructuredChatRow = { id: string | number; ts_created?: number; ts_updated?: number; part?: string; role?: string | null; message?: string };
+
+function structuredChatFromRows(rows: StructuredChatRow[], sessionId: string, sinceMs: number, seenAtSinceMs: string[]): unknown {
+  const messages: unknown[] = [];
+  const observations: unknown[] = [];
+  let lastTs = sinceMs;
+  let seenAtLastTs = seenAtSinceMs.slice();
+  for (let i = 0; i < rows.length; i++) {
+    const updated = rows[i].ts_updated || 0;
+    const created = rows[i].ts_created || updated;
+    const id = String(rows[i].id);
+    if (updated > lastTs) {
+      lastTs = updated;
+      seenAtLastTs = [];
+    }
+    if (seenAtLastTs.indexOf(id) !== -1) continue;
+    seenAtLastTs.push(id);
+    const message = safeJson(rows[i].message);
+    const observation = sessionObservations(message);
+    if (observation) observations.push({ role: "assistant", provider_session_id: sessionId, provider_observations: observation });
+    const error = turnError(message);
+    if (error) {
+      messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });
+      continue;
+    }
+    const part = safeJson(rows[i].part);
+    if (!part) continue;
+    const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role as string : "assistant";
+    const cm = partToChatMsg(part as OpencodePart, role, id, created);
+    if (cm) messages.push(cm);
+  }
+  seenAtLastTs.sort();
+  return { messages, observations, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
+}
 
 function resumeLaunchArgs(args: string[], sessionId: string): string[] {
   const db = opencodeDbPath();

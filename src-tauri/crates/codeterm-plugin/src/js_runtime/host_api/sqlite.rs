@@ -1,10 +1,12 @@
 //! `host.sqliteQueryAllJson`: a read-only query streamed into one JSON array
 //! whose size, and every value SQLite materialises for it, stay under a cap.
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use parking_lot::Mutex;
 use rusqlite::limits::Limit;
 use rusqlite::types::ValueRef;
 
@@ -25,19 +27,8 @@ pub(super) fn host_query(
     sql: &str,
     params_json: Option<&str>,
 ) -> rquickjs::Result<Option<String>> {
-    if !sandbox.can_read(db) {
-        log::warn!("[plugin] denied sqliteQuery outside sandbox: {db}");
+    if !query_allowed(sandbox, observation, db) {
         return Ok(None);
-    }
-    if let Some(compatibility) = observation.sqlite_compatibility(sandbox) {
-        if !compatibility.allows_sqlite_read() {
-            log::debug!(
-                "[provider-compatibility] direct_sqlite disabled verdict={:?} reasons={:?}",
-                compatibility.verdict,
-                compatibility.reasons
-            );
-            return Ok(None);
-        }
     }
     POOL.query(
         sandbox.plugin_id(),
@@ -50,6 +41,107 @@ pub(super) fn host_query(
         log::warn!("[plugin] {error} (db {db})");
         rquickjs::Exception::throw_range(ctx, &error)
     })
+}
+
+/// The same gate as `host_query`, applied before the job starts; the query
+/// then runs on a host thread while the VM is free for other calls.
+pub(super) fn host_query_start(
+    sandbox: &super::PluginSandbox,
+    observation: &super::super::provider_observation::ProviderObservation,
+    db: String,
+    sql: String,
+    params_json: Option<String>,
+) -> String {
+    if !query_allowed(sandbox, observation, &db) {
+        return QUERY_JOB_NO_ROWS.to_string();
+    }
+    #[cfg(test)]
+    if let Some(refused) = async_query_tests::start_refused(&sql) {
+        return refused;
+    }
+    let plugin_id = sandbox.plugin_id();
+    let key = (db, sql, params_json);
+    let mut in_flight = IN_FLIGHT.lock();
+    let jobs = in_flight.entry(plugin_id.to_string()).or_default();
+    jobs.retain(|_, job| super::super::host_exec::retained_job_live(plugin_id, job));
+    if let Some(job) = jobs.get(&key) {
+        if super::super::host_exec::attach_retained(plugin_id, job) {
+            return serde_json::json!({ "jobId": job }).to_string();
+        }
+        jobs.remove(&key);
+    }
+    if jobs.len() >= MAX_IN_FLIGHT_QUERIES_PER_PLUGIN {
+        return serde_json::json!({
+            "error": format!("plugin {plugin_id} reached the in-flight sqlite query limit ({MAX_IN_FLIGHT_QUERIES_PER_PLUGIN})")
+        })
+        .to_string();
+    }
+    let (db, sql, params_json) = key.clone();
+    let worker_plugin = plugin_id.to_string();
+    let started = super::super::host_exec::start_retained_json_job(plugin_id, move || {
+        #[cfg(test)]
+        async_query_tests::park_on_test_gate(&sql);
+        let result = POOL.query(
+            &worker_plugin,
+            &db,
+            &sql,
+            params_json.as_deref(),
+            SQLITE_RESULT_MAX_BYTES,
+        );
+        query_job_result(&db, result)
+    });
+    match started {
+        Ok(job_id) => {
+            #[cfg(test)]
+            async_query_tests::record_start(plugin_id);
+            jobs.insert(key, job_id.clone());
+            serde_json::json!({ "jobId": job_id }).to_string()
+        }
+        Err(error) => serde_json::json!({ "error": error }).to_string(),
+    }
+}
+
+/// One job per distinct (db, sql, params): a call arriving while that query is
+/// still running, or after its waiter timed out, awaits the same job.
+const MAX_IN_FLIGHT_QUERIES_PER_PLUGIN: usize = 32;
+type QueryKey = (String, String, Option<String>);
+/// Taken before `host_exec`'s job map, never while holding it.
+static IN_FLIGHT: LazyLock<Mutex<HashMap<String, HashMap<QueryKey, String>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+const QUERY_JOB_NO_ROWS: &str = "{\"rows\":null}";
+
+fn query_job_result(db: &str, result: Result<Option<String>, String>) -> String {
+    match result {
+        Ok(Some(rows)) => format!("{{\"rows\":{rows}}}"),
+        Ok(None) => QUERY_JOB_NO_ROWS.to_string(),
+        Err(error) => {
+            log::warn!("[plugin] {error} (db {db})");
+            serde_json::json!({ "rangeError": error }).to_string()
+        }
+    }
+}
+
+fn query_allowed(
+    sandbox: &super::PluginSandbox,
+    observation: &super::super::provider_observation::ProviderObservation,
+    db: &str,
+) -> bool {
+    if !sandbox.can_read(db) {
+        log::warn!("[plugin] denied sqliteQuery outside sandbox: {db}");
+        return false;
+    }
+    if let Some(compatibility) = observation.sqlite_compatibility(sandbox) {
+        if !compatibility.allows_sqlite_read() {
+            log::debug!(
+                "[provider-compatibility] direct_sqlite disabled verdict={:?} reasons={:?}",
+                compatibility.verdict,
+                compatibility.reasons
+            );
+            return false;
+        }
+    }
+    true
 }
 
 static POOL: LazyLock<ConnectionPool> = LazyLock::new(ConnectionPool::new);
@@ -273,5 +365,7 @@ fn value_too_big(max_bytes: usize) -> String {
     )
 }
 
+#[cfg(test)]
+mod async_query_tests;
 #[cfg(test)]
 mod tests;
