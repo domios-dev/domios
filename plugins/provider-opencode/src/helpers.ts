@@ -279,22 +279,56 @@ export function isQuestionMenuFooter(line: string): boolean {
 // Model discovery (requires host.exec, host.fs, etc. passed as parameter or from global host)
 declare const host: Host;
 
-export function discoverOpencodeModels(): ModelInfo[] | null {
-  const raw = host.exec(JSON.stringify({
+const MODEL_CATALOGUE_TTL_MS = 10 * 60 * 1000;
+let modelCatalogue: { stamp: string; since: number; models: ModelInfo[] | null } | null = null;
+let modelDiscoveryInFlight = false;
+
+export function cachedOpencodeModels(): ModelInfo[] | null {
+  return modelCatalogue?.models ?? null;
+}
+
+export function discoverOpencodeModels(binaryFingerprint?: string | null): ModelInfo[] | null {
+  return withOpencodeModels(binaryFingerprint, (models) => models);
+}
+
+export function withOpencodeModels<T>(binaryFingerprint: string | null | undefined, then: (models: ModelInfo[] | null) => T): T {
+  const now = host.unixNowMs();
+  if (modelDiscoveryInFlight && modelCatalogue && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) return then(cachedOpencodeModels());
+  const stamp = binaryFingerprint ?? "unresolved";
+  if (modelCatalogue && modelCatalogue.stamp === stamp && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) {
+    return then(modelCatalogue.models);
+  }
+  const previous = cachedOpencodeModels();
+  modelCatalogue = { stamp, since: now, models: previous };
+  const started = safeJson(host.execStart(JSON.stringify({
     bin: "opencode",
     args: ["models", "--verbose"],
     timeoutMs: 3000,
-  }));
-  const result = safeJson(raw) as { code?: number; stdout?: string } | null;
+  }))) as { jobId?: string } | null;
+  if (!started?.jobId) return then(previous);
+  modelDiscoveryInFlight = true;
+  return host.awaitJob(started.jobId, (result) => {
+    try {
+      const models = discoveredOpencodeModels(result);
+      modelCatalogue = { stamp, since: host.unixNowMs(), models: models ?? previous };
+      return then(models);
+    } finally {
+      modelDiscoveryInFlight = false;
+    }
+  });
+}
+
+function discoveredOpencodeModels(result: { code?: number; stdout?: string } | null): ModelInfo[] | null {
   if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
   const models = parseOpencodeModels(result.stdout);
   const db = opencodeDbPath();
   if (!models || !db || !host.fs.fileExists(db)) return models;
   const rows = host.fs.sqliteQuery<{ data: string }>(db,
-    "SELECT data FROM message WHERE octet_length(data) <= ?1 AND json_valid(data) " +
+    "SELECT data FROM (SELECT data, time_updated FROM message ORDER BY time_updated DESC LIMIT 200) " +
+    "WHERE octet_length(data) <= ?1 AND json_valid(data) " +
     "AND json_extract(data, '$.role') = 'assistant' " +
     "AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) " +
-    "ORDER BY time_updated DESC LIMIT 1000",
+    "ORDER BY time_updated DESC LIMIT 200",
     [ASSISTANT_MESSAGE_MAX_BYTES]);
   const rejected = rejectedModelIds(rows.map((row) => {
     const message = safeJson(row.data);

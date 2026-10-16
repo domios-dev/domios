@@ -10,10 +10,14 @@ use serde_json::json;
 
 use super::vm::{call_json, PluginVm, VmError};
 
+#[cfg(test)]
+mod catalogue_tests;
+
 pub struct JsDecisionModel {
     vm: Arc<PluginVm>,
     id: String,
     token_mode: TokenMode,
+    catalogue_fingerprint: std::sync::OnceLock<Option<String>>,
 }
 
 impl JsDecisionModel {
@@ -22,6 +26,7 @@ impl JsDecisionModel {
             vm,
             id: id.into(),
             token_mode,
+            catalogue_fingerprint: std::sync::OnceLock::new(),
         }
     }
 }
@@ -89,7 +94,11 @@ impl DecisionModel for JsDecisionModel {
         let Ok(_env) = self.exec_env_scope() else {
             return Vec::new();
         };
-        call_json_or_default(&self.vm, &self.id, "models")
+        let _catalogue = self.vm.catalogue_gate.lock();
+        let fingerprint = self
+            .catalogue_fingerprint
+            .get_or_init(|| self.vm.binary_fingerprint());
+        call_json(&self.vm, "models", &[json!(fingerprint)]).unwrap_or_default()
     }
 
     fn decide_questions(

@@ -302,6 +302,10 @@ impl AgentProvider for JsProvider {
             .unwrap_or(false)
     }
 
+    fn supports_session_name_detection(&self) -> bool {
+        self.has_js("extractSessionName")
+    }
+
     fn extract_session_name(&self, screen: &str) -> Option<String> {
         self.try_call::<Option<String>>("extractSessionName", &[json!(screen)])
             .flatten()
@@ -1087,9 +1091,14 @@ impl AgentProvider for JsProvider {
     }
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
+        if !self.has_js("discoverModels") {
+            return None;
+        }
+        let _catalogue = self.vm.catalogue_gate.lock();
+        let fingerprint = self.vm.binary_fingerprint();
         // `null` is the plugin's honest "no genuine discovery" signal — it must
         // not deserialize-fail into warn noise, and never falls back to a seed.
-        self.try_call::<Option<Vec<SerdeModelInfo>>>("discoverModels", &[])
+        self.try_call::<Option<Vec<SerdeModelInfo>>>("discoverModels", &[json!(fingerprint)])
             .flatten()
             .map(|models| models.iter().map(ModelInfo::from).collect())
     }

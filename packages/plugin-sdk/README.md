@@ -63,6 +63,8 @@ Build it to the QuickJS-compatible `plugin.js` with Domios's `build-plugin.mjs`
 (esbuild, CJS, `module.exports.default`). QuickJS has no `console`/`fetch`/timers —
 stay on the `host.*` surface. See the Domios plugin authoring guide for details.
 
+The host snapshots callable exports when the bundle evaluates; methods added later are invisible until a bundle reload includes them.
+
 Exports: `Host`, `HostFs`, `HostShell`, `HostPath`, `DirEntry`, `ExecOpts`,
 `ExecResult`, `FetchOpts`, `FetchResult`, and the capability contracts
 (`PluginModule`, `StatusBubble`, `GlanceView`, `ViewNode`, `ViewCall`,
