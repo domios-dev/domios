@@ -7,6 +7,7 @@ export interface PaneStateContext extends ErrorContext {
 
 export interface PaneStateModel {
   icon: "folder-off" | "alert" | "sign-in";
+  pending: boolean;
   title: string;
   sentence: string;
   path: string | null;
@@ -19,6 +20,7 @@ export function paneStateModel(error: unknown, context: PaneStateContext = {}): 
   const missingFolder = description.actions.includes("choose-folder");
   return {
     icon: missingFolder ? "folder-off" : description.actions.includes("sign-in") ? "sign-in" : "alert",
+    pending: description.pending === true,
     title: missingFolder ? "Folder unavailable" : description.title,
     sentence: missingFolder
       ? context.scope === "workspace" ? "Choose a folder to reopen this workspace." : "Choose a folder to start this tab again."
