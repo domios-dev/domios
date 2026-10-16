@@ -218,7 +218,7 @@ export function useChatSession({
     if (attachmentStateRef.current === "attaching"
       && requested?.source_session_id === agentSessionIdRef.current
       && requested.session_binding_nonce === (sessionBindingNonceRef.current ?? null)) return;
-    frontendBootDiagnostic("chat-recovery", { chat: { scope: tabId, edge: "cold_attach", at: performance.now(),
+    frontendBootDiagnostic("chat-scroll", { chat: { scope: tabId, edge: "cold_attach", at: performance.now(),
       state: { cause, state: attachmentStateRef.current, session: agentSessionIdRef.current, nonce: sessionBindingNonceRef.current } } });
     pendingLiveEventsRef.current = [];
     snapshotOnNextLiveEventRef.current = false;
@@ -299,7 +299,7 @@ export function useChatSession({
       const authority = bindingKey(agentSessionIdRef.current, sessionBindingNonceRef.current);
       const forceCold = coldRecoveryRef.current;
       coldRecoveryRef.current = false;
-      frontendBootDiagnostic("chat-recovery", { chat: { scope: tabId, edge: "recovery_requested", at: performance.now(),
+      frontendBootDiagnostic("chat-scroll", { chat: { scope: tabId, edge: "recovery_requested", at: performance.now(),
         state: { cause, forceCold, state: attachmentStateRef.current, cursor: cursor?.token ?? null, authority } } });
       if (forceCold || attachmentStateRef.current !== "attached" || cursor == null || cursor.authority !== authority) {
         resumeCursorRef.current = null;
@@ -316,7 +316,7 @@ export function useChatSession({
         const outcome = await resumeChatCursor(currentCursor.token,
           async token => {
             const result = await invoke<ChatResumeResult>("chat_resume", { tabId, cursor: token });
-            frontendBootDiagnostic("chat-recovery", { chat: { scope: tabId, edge: "resume_result", at: performance.now(),
+            frontendBootDiagnostic("chat-scroll", { chat: { scope: tabId, edge: "resume_result", at: performance.now(),
               state: { kind: result.kind, ...("reason" in result ? { reason: result.reason } : {}),
                 ...("source_kind" in result ? { sourceKind: result.source_kind } : {}) } } });
             return result;
