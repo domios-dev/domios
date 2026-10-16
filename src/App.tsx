@@ -86,7 +86,6 @@ const AnalyticsSupporterSection = deferredComponent(async () => ({ default: (awa
 const CanvasView = deferredComponent(async () => ({ default: (await import("./components/Canvas/CanvasView")).CanvasView }));
 const EssenceMapCanvas = deferredComponent(async () => ({ default: (await import("./components/Canvas/EssenceMapCanvas")).EssenceMapCanvas }));
 const JobsView = deferredComponent(async () => ({ default: (await import("./components/Jobs/JobsView")).JobsView }));
-const GeneralWorkspaceOverview = deferredComponent(async () => ({ default: (await import("./components/General/GeneralWorkspaceOverview")).GeneralWorkspaceOverview }));
 const CronWorkspaceView = deferredComponent(async () => ({ default: (await import("./components/Cron/CronWorkspaceView")).CronWorkspaceView }));
 
 const MemoizedTabContent = memo(TabContent);
@@ -383,9 +382,6 @@ function AppInner() {
     () => state.workspaces.find((ws) => ws.id === state.active_workspace_id),
     [state.workspaces, state.active_workspace_id],
   );
-  const [generalOverviewOpen, setGeneralOverviewOpen] = useState(false);
-  const showGeneralOverview = generalOverviewOpen && activeWs?.protected === true && mainView === "workspace" && !pluginViewId;
-  useEffect(() => setGeneralOverviewOpen(false), [state.active_workspace_id, state.focused_tab_id]);
 
   const activeTab = useMemo(
     () => {
@@ -711,13 +707,7 @@ function AppInner() {
         )}
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-        {activeWs?.protected === true && mainView === "workspace" && !pluginViewId && <div className="shrink-0 border-b border-[var(--ct-border)] px-4 py-2">
-          <button type="button" aria-expanded={showGeneralOverview} aria-controls="general-workspace-overview" onClick={() => setGeneralOverviewOpen((open) => !open)} className="rounded px-3 py-1 text-sm hover:bg-[var(--ct-hover)]">Workspace overview</button>
-        </div>}
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
-          {showGeneralOverview && <div className="absolute inset-0 z-30">
-            <GeneralWorkspaceOverview workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} onNavigate={(workspaceId, tabId) => { setGeneralOverviewOpen(false); void selectTabByTab(workspaceId, tabId); }} />
-          </div>}
           {/* All panels stay mounted — switching mainView only changes visibility.
               Unmounting the workspace would tear down xterm + re-run get_tab_text
               on return, blocking the main thread with MB of escape codes. */}
@@ -886,7 +876,7 @@ function AppInner() {
               <div
                 key={tabId}
                 className="absolute inset-0"
-                inert={!isVisible || !!automationWorkspaceId || showGeneralOverview || undefined}
+                inert={!isVisible || !!automationWorkspaceId || undefined}
                 style={{
                   zIndex: isVisible ? 1 : 0,
                   opacity: isVisible ? 1 : 0,
