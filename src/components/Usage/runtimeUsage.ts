@@ -10,6 +10,7 @@ export function runtimeLimitsSnapshot(snapshot:UsageSnapshot, reading:RuntimeUsa
   const secondary = windows.find(window => window.window === "secondary") ?? windows[1];
   return {...snapshot,id:0,provider:snapshot.provider,account_id:null,
     captured_at:reading.rate_limits?.captured_at ?? reading.token_usage?.captured_at ?? reading.captured_at ?? snapshot.captured_at,
+    resets:reading.resets,
     parsed_ok:true,billing_mode:reading.billing_mode,limits_reported:windows.length > 0,
     session_pct:primary?.usedPercent ?? null,session_resets_at:primary?.resetsAt ?? null,
     weekly_pct:secondary?.usedPercent ?? null,weekly_resets_at:secondary?.resetsAt ?? null,

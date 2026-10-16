@@ -20,6 +20,7 @@ mod ownership;
 pub(crate) mod plan_warning;
 pub(crate) mod process;
 pub(crate) mod projections;
+pub mod reset_credits;
 pub use projections::latest as projections_latest;
 pub(crate) mod prompt_answers;
 mod question_delivery;
