@@ -1,5 +1,5 @@
 use super::{
-    model::{ItemCache, RuntimeFailure, RuntimePhase, RuntimeState},
+    model::{self, ItemCache, RuntimeFailure, RuntimePhase, RuntimeState},
     process::Process,
 };
 use crate::service::ServiceContext;
@@ -472,6 +472,17 @@ async fn ensure_locked(
     .map_err(RuntimeFailure::HookFailed)?;
     super::question_delivery::publish(svc, tab, session, questions)
         .map_err(RuntimeFailure::HookFailed)?;
+    let generation = session.cache.lock().begin_backfill();
+    let mut port = backfill::RpcPort::new(svc, session, &process, tab, &thread_id);
+    let mut replay = backfill::Replay::new(context.epoch, generation, &thread_id);
+    if let Err(reason) = replay.first(session, &mut port).await {
+        session
+            .cache
+            .lock()
+            .finish_backfill(generation, model::HistoryBackfill::Failed);
+        return Err(reason);
+    }
+    let first_page_ms = started.elapsed().as_millis();
     super::bootstrap::submit(svc, session, &process).await?;
     inject_abort_note(svc, provider, session, &process, &thread_id).await;
     if !session.state.lock().load(context.epoch, &thread_id) {
@@ -481,25 +492,21 @@ async fn ensure_locked(
         .thread_loaded
         .store(true, std::sync::atomic::Ordering::Release);
     crate::startup::boot_timing::mark(tab, None, "runtime_ready");
-    let generation = session.cache.lock().begin_backfill();
-    publish(svc, tab, session);
+    let reopen = backfill::Reopen {
+        started,
+        spawned_ms,
+        initialized_ms,
+        resumed_ms,
+        first_page_ms,
+        ready_ms: started.elapsed().as_millis(),
+    };
+    if replay.done {
+        backfill::finish(&port, &replay, Ok(()), &reopen);
+    } else {
+        publish(svc, tab, session);
+        backfill::continue_in_background(port, replay, reopen);
+    }
     svc.emit_state_changed();
-    backfill::start(
-        svc,
-        session,
-        &process,
-        generation,
-        backfill::Reopen {
-            tab: tab.into(),
-            thread: thread_id,
-            epoch: context.epoch,
-            started,
-            spawned_ms,
-            initialized_ms,
-            resumed_ms,
-            ready_ms: started.elapsed().as_millis(),
-        },
-    );
     Ok(())
 }
 
@@ -848,10 +855,15 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
             "login".into(),
             serde_json::to_value(session.login.lock().login.clone()).unwrap_or(Value::Null),
         );
+        let (history, pages) = {
+            let cache = session.cache.lock();
+            (cache.backfill(), cache.history_pages())
+        };
         snapshot.insert(
             "history".into(),
-            serde_json::to_value(session.cache.lock().backfill()).unwrap_or(Value::Null),
+            serde_json::to_value(history).unwrap_or(Value::Null),
         );
+        snapshot.insert("historyPages".into(), Value::from(pages));
         if let Some(adapter) = session.adapter.lock().as_ref() {
             if let Some(login) = adapter.agent_runtime().and_then(|runtime| runtime.login) {
                 snapshot.insert(

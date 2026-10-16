@@ -1,6 +1,6 @@
 use codeterm_types::agent::chat_types::ChatMsg;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -218,17 +218,25 @@ pub enum HistoryBackfill {
 
 #[derive(Default)]
 pub struct ItemCache {
-    items: Vec<ChatMsg>,
-    positions: HashMap<String, usize>,
+    items: VecDeque<ChatMsg>,
+    positions: HashMap<String, i64>,
+    head: i64,
     backfill_generation: u64,
     backfill: HistoryBackfill,
+    history_pages: u32,
     live_during_backfill: HashSet<String>,
     live_added_during_backfill: HashSet<String>,
 }
 impl ItemCache {
+    fn index(&self, id: &str) -> Option<usize> {
+        self.positions
+            .get(id)
+            .map(|slot| (slot - self.head) as usize)
+    }
     pub fn begin_backfill(&mut self) -> u64 {
         self.backfill_generation = self.backfill_generation.wrapping_add(1);
         self.backfill = HistoryBackfill::Loading;
+        self.history_pages = 0;
         self.live_during_backfill.clear();
         self.live_added_during_backfill.clear();
         self.backfill_generation
@@ -248,63 +256,48 @@ impl ItemCache {
     pub fn backfill(&self) -> HistoryBackfill {
         self.backfill
     }
-    /// Lands one history page: known rows update in place unless a live delta superseded
-    /// them; unknown rows go before every cached row (older page) or before live-added rows.
-    pub fn reconcile_backfill(&mut self, page: Vec<ChatMsg>, older: bool) -> Vec<ChatMsg> {
-        let mut landed = Vec::new();
+    pub fn history_pages(&self) -> u32 {
+        self.history_pages
+    }
+    /// Lands one history page without renumbering cached rows. Unknown rows of an older page,
+    /// or of a first page that found only live rows, take seqs below the current minimum.
+    pub fn reconcile_backfill(&mut self, page: Vec<ChatMsg>, older: bool) -> usize {
+        self.history_pages = self.history_pages.saturating_add(1);
+        let mut landed = 0;
         let mut block: Vec<ChatMsg> = Vec::new();
         for mut item in page {
             if self.live_during_backfill.contains(&item.id) {
                 continue;
             }
             if self.positions.contains_key(&item.id) {
-                landed.push(self.reconcile(item));
-            } else if let Some(row) = block.iter_mut().find(|row| row.id == item.id) {
-                item.refresh_segments();
-                *row = item;
-            } else {
-                item.refresh_segments();
-                block.push(item);
+                self.reconcile(item);
+                landed += 1;
+                continue;
+            }
+            item.refresh_segments();
+            match block.iter_mut().find(|row| row.id == item.id) {
+                Some(row) => *row = item,
+                None => block.push(item),
             }
         }
-        if block.is_empty() {
-            return landed;
-        }
-        let anchor = if older {
-            0
-        } else {
-            self.live_added_during_backfill
-                .iter()
-                .filter_map(|id| self.positions.get(id).copied())
-                .min()
-                .unwrap_or(self.items.len())
-        };
-        let inserted = block.len();
-        let start = if anchor == 0 {
-            self.items.first().map_or(0, |row| row.seq) - inserted as i64
-        } else {
-            self.items[anchor - 1].seq + 1
-        };
-        self.items.splice(anchor..anchor, block);
-        let renumbered = if anchor == 0 {
-            inserted
-        } else {
-            self.items.len() - anchor
-        };
-        for (offset, row) in self.items[anchor..anchor + renumbered]
-            .iter_mut()
-            .enumerate()
-        {
-            row.seq = start + offset as i64;
-        }
-        self.positions = self
+        landed += block.len();
+        let only_live = self
             .items
             .iter()
-            .enumerate()
-            .map(|(index, row)| (row.id.clone(), index))
-            .collect();
-        landed.retain(|row| self.positions[&row.id] < anchor || anchor == 0);
-        landed.extend_from_slice(&self.items[anchor..anchor + renumbered]);
+            .all(|row| self.live_added_during_backfill.contains(&row.id));
+        if !older && !only_live {
+            for item in block {
+                self.reconcile(item);
+            }
+            return landed;
+        }
+        let base = self.items.front().map_or(0, |row| row.seq) - block.len() as i64;
+        for (offset, mut item) in block.into_iter().enumerate().rev() {
+            item.seq = base + offset as i64;
+            self.head -= 1;
+            self.positions.insert(item.id.clone(), self.head);
+            self.items.push_front(item);
+        }
         landed
     }
     pub fn reconcile_live(&mut self, mut item: ChatMsg, at: u64) -> ChatMsg {
@@ -315,10 +308,7 @@ impl ItemCache {
             self.live_during_backfill.insert(item.id.clone());
         }
         if let Some(status) = item.tool_status.as_deref() {
-            let previous = self
-                .positions
-                .get(&item.id)
-                .map(|index| &self.items[*index]);
+            let previous = self.index(&item.id).map(|index| &self.items[index]);
             item.tool_started_at_ms = item
                 .tool_started_at_ms
                 .or_else(|| previous.and_then(|row| row.tool_started_at_ms))
@@ -334,21 +324,25 @@ impl ItemCache {
     }
     pub fn reconcile(&mut self, mut item: ChatMsg) -> ChatMsg {
         item.refresh_segments();
-        if let Some(index) = self.positions.get(&item.id).copied() {
+        if let Some(index) = self.index(&item.id) {
             item.seq = self.items[index].seq;
             self.items[index] = item.clone();
         } else {
-            item.seq = self.items.last().map_or(0, |row| row.seq + 1);
-            self.positions.insert(item.id.clone(), self.items.len());
-            self.items.push(item.clone());
+            item.seq = self.items.back().map_or(0, |row| row.seq + 1);
+            self.positions
+                .insert(item.id.clone(), self.head + self.items.len() as i64);
+            self.items.push_back(item.clone());
         }
         item
     }
     pub fn snapshot(&self) -> Vec<ChatMsg> {
-        self.items.clone()
+        self.items.iter().cloned().collect()
     }
     pub fn tail(&self, limit: usize) -> Vec<ChatMsg> {
-        self.items[self.items.len().saturating_sub(limit)..].to_vec()
+        self.items
+            .range(self.items.len().saturating_sub(limit)..)
+            .cloned()
+            .collect()
     }
 }
 

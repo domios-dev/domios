@@ -296,6 +296,7 @@ function TabSessionChatBody({
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
     followTailRef: chatFollowTailRef,
+    history: runtime.state?.history,
   });
   const retryChatDelivery = async (id: string) => {
     const send = beginChatSendRetry(tabId, id);

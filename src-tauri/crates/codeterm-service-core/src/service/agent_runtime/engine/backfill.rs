@@ -2,11 +2,9 @@ use super::{RuntimePhase, Session};
 use crate::service::{agent_runtime::model::HistoryBackfill, ServiceContext};
 use codeterm_plugin::agent_runtime::*;
 use codeterm_types::agent::chat_types::ChatMsg;
-use std::{future::Future, sync::Arc, time::Instant};
+use std::{collections::HashSet, future::Future, sync::Arc, time::Instant};
 
 use super::super::{model::RuntimeFailure, process::Process};
-
-pub(super) const EMITTED_TAIL: usize = 200;
 
 pub(super) trait HistoryPort {
     fn read(
@@ -17,63 +15,98 @@ pub(super) trait HistoryPort {
         &mut self,
         questions: Vec<RuntimeHistoryQuestion>,
     ) -> impl Future<Output = Result<(), RuntimeFailure>> + Send;
-    fn emit(&mut self, rows: &[ChatMsg]);
     fn page_landed(&mut self, _ordinal: u32) {}
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub(super) struct Replayed {
-    pub pages: u32,
-    pub rows: usize,
-}
-
-fn current(session: &Session, epoch: u64, generation: u64, thread: &str) -> bool {
-    let state = session.state.lock();
-    state.epoch == epoch
-        && matches!(state.phase, RuntimePhase::Ready)
-        && session.context.lock().thread_id.as_deref() == Some(thread)
-        && session.cache.lock().backfill_current(generation)
-}
-
-/// Replays history newest page first; refuses to read while the epoch is not Ready.
-pub(super) async fn replay<P: HistoryPort>(
-    session: &Session,
+/// History replay of one epoch: requested newest first; a plugin that answers ascending
+/// is replayed whole before Ready through the append path.
+pub(super) struct Replay {
     epoch: u64,
     generation: u64,
-    thread: &str,
-    port: &mut P,
-) -> Result<Replayed, RuntimeFailure> {
-    let mut cursor = None;
-    let mut cursors = std::collections::HashSet::new();
-    let mut history = RuntimeHistory::default();
-    let mut answers = Vec::new();
-    let mut emitted = 0;
-    let mut replayed = Replayed { pages: 0, rows: 0 };
-    loop {
-        if !current(session, epoch, generation, thread) {
+    thread: String,
+    cursor: Option<String>,
+    cursors: HashSet<String>,
+    history: RuntimeHistory,
+    answers: Vec<ChatMsg>,
+    pub pages: u32,
+    pub rows: usize,
+    pub descending: bool,
+    pub done: bool,
+}
+
+impl Replay {
+    pub fn new(epoch: u64, generation: u64, thread: &str) -> Self {
+        Self {
+            epoch,
+            generation,
+            thread: thread.into(),
+            cursor: None,
+            cursors: HashSet::new(),
+            history: RuntimeHistory::default(),
+            answers: Vec::new(),
+            pages: 0,
+            rows: 0,
+            descending: false,
+            done: false,
+        }
+    }
+
+    fn current(&self, session: &Session, ready: bool) -> bool {
+        let (epoch, phase_ready) = {
+            let state = session.state.lock();
+            (state.epoch, matches!(state.phase, RuntimePhase::Ready))
+        };
+        let (context_epoch, thread) = {
+            let context = session.context.lock();
+            (context.epoch, context.thread_id.clone())
+        };
+        epoch == self.epoch
+            && context_epoch == self.epoch
+            && (!ready || phase_ready)
+            && thread.as_deref() == Some(self.thread.as_str())
+            && session.cache.lock().backfill_current(self.generation)
+    }
+
+    async fn page<P: HistoryPort>(
+        &mut self,
+        session: &Session,
+        port: &mut P,
+        ready: bool,
+    ) -> Result<(), RuntimeFailure> {
+        if !self.current(session, ready) {
             return Err(RuntimeFailure::Superseded);
         }
         let RuntimeResult::HistoryPage {
-            thread_id: read_thread,
+            thread_id,
             items,
             next_cursor,
             open_items,
             questions,
-        } = port.read(cursor).await?
+            order,
+        } = port.read(self.cursor.clone()).await?
         else {
             return Err(RuntimeFailure::HookFailed(
                 "History result is invalid".into(),
             ));
         };
-        if read_thread != thread || !current(session, epoch, generation, thread) {
+        if thread_id != self.thread || !self.current(session, ready) {
             return Err(RuntimeFailure::Superseded);
         }
-        replayed.pages += 1;
-        answers.extend(items.iter().filter(|item| item.kind == "user").cloned());
-        history.reconcile_questions(&answers, questions);
-        if !history.questions().is_empty() {
-            port.questions(history.questions()).await?;
-            if !current(session, epoch, generation, thread) {
+        let descending = order == Some(HistoryOrder::Desc);
+        if self.pages == 0 {
+            self.descending = descending;
+        } else if descending != self.descending {
+            return Err(RuntimeFailure::HookFailed(
+                "History order changed between pages".into(),
+            ));
+        }
+        self.pages += 1;
+        self.answers
+            .extend(items.iter().filter(|item| item.kind == "user").cloned());
+        self.history.reconcile_questions(&self.answers, questions);
+        if !self.history.questions().is_empty() {
+            port.questions(self.history.questions()).await?;
+            if !self.current(session, ready) {
                 return Err(RuntimeFailure::Superseded);
             }
         }
@@ -83,25 +116,56 @@ pub(super) async fn replay<P: HistoryPort>(
                 rows.push(open.item.clone());
             }
         }
-        let landed = session
-            .cache
-            .lock()
-            .reconcile_backfill(rows, replayed.pages > 1);
-        replayed.rows += landed.len();
-        adopt_open_turns(session, thread, &open_items);
-        if emitted < EMITTED_TAIL && !landed.is_empty() {
-            let take = landed.len().min(EMITTED_TAIL - emitted);
-            port.emit(&landed[landed.len() - take..]);
-            emitted += take;
-        }
-        port.page_landed(replayed.pages);
-        let Some(next) = next_cursor else {
-            return Ok(replayed);
+        self.rows += if self.descending {
+            session
+                .cache
+                .lock()
+                .reconcile_backfill(rows, self.pages > 1)
+        } else {
+            let landed = rows.len();
+            let mut cache = session.cache.lock();
+            for row in rows {
+                cache.reconcile(row);
+            }
+            landed
         };
-        if !cursors.insert(next.clone()) {
-            return Err(RuntimeFailure::HookFailed("History cursor limit".into()));
+        adopt_open_turns(session, &self.thread, &open_items);
+        port.page_landed(self.pages);
+        match next_cursor {
+            None => self.done = true,
+            Some(next) => {
+                if !self.cursors.insert(next.clone()) {
+                    return Err(RuntimeFailure::HookFailed("History cursor limit".into()));
+                }
+                self.cursor = Some(next);
+            }
         }
-        cursor = Some(next);
+        Ok(())
+    }
+
+    /// Lands the newest page before Ready so an open restored turn is adopted for steering.
+    pub async fn first<P: HistoryPort>(
+        &mut self,
+        session: &Session,
+        port: &mut P,
+    ) -> Result<(), RuntimeFailure> {
+        self.page(session, port, false).await?;
+        while !self.descending && !self.done {
+            self.page(session, port, false).await?;
+        }
+        Ok(())
+    }
+
+    /// Lands the older pages; refuses to read unless the epoch is Ready.
+    pub async fn rest<P: HistoryPort>(
+        &mut self,
+        session: &Session,
+        port: &mut P,
+    ) -> Result<(), RuntimeFailure> {
+        while !self.done {
+            self.page(session, port, true).await?;
+        }
+        Ok(())
     }
 }
 
@@ -117,14 +181,30 @@ fn adopt_open_turns(session: &Session, thread: &str, open_items: &[OpenItem]) {
     }
 }
 
-struct RpcPort {
+pub(super) struct RpcPort {
     svc: ServiceContext,
     session: Arc<Session>,
     process: Arc<Process>,
     tab: String,
     thread: String,
-    started: Instant,
-    first_page_ms: Option<u128>,
+}
+
+impl RpcPort {
+    pub fn new(
+        svc: &ServiceContext,
+        session: &Arc<Session>,
+        process: &Arc<Process>,
+        tab: &str,
+        thread: &str,
+    ) -> Self {
+        Self {
+            svc: svc.clone(),
+            session: session.clone(),
+            process: process.clone(),
+            tab: tab.into(),
+            thread: thread.into(),
+        }
+    }
 }
 
 impl HistoryPort for RpcPort {
@@ -138,6 +218,7 @@ impl HistoryPort for RpcPort {
             RuntimeOperation::ReadHistory {
                 thread_id: self.thread.clone(),
                 cursor,
+                order: Some(HistoryOrder::Desc),
             },
         )
         .await
@@ -161,95 +242,73 @@ impl HistoryPort for RpcPort {
         super::super::question_delivery::publish(&self.svc, &self.tab, &self.session, questions)
             .map_err(RuntimeFailure::HookFailed)
     }
-    fn emit(&mut self, rows: &[ChatMsg]) {
-        let context = self.session.context.lock().clone();
-        crate::service::tab_chat::structured_sink::emit_chat_msgs(
-            self.svc.ui.as_ref(),
-            &self.tab,
-            rows,
-            None,
-            context.thread_id.as_deref(),
-            Some(&context.binding_nonce),
-        );
-    }
     fn page_landed(&mut self, ordinal: u32) {
-        if ordinal == 1 {
-            self.first_page_ms = Some(self.started.elapsed().as_millis());
-        }
         crate::startup::boot_timing::mark(&self.tab, None, format!("history_page_{ordinal}"));
+        super::publish(&self.svc, &self.tab, &self.session);
     }
 }
 
 pub(super) struct Reopen {
-    pub tab: String,
-    pub thread: String,
-    pub epoch: u64,
     pub started: Instant,
     pub spawned_ms: Option<u128>,
     pub initialized_ms: u128,
     pub resumed_ms: u128,
+    pub first_page_ms: u128,
     pub ready_ms: u128,
 }
 
-pub(super) fn start(
-    svc: &ServiceContext,
-    session: &Arc<Session>,
-    process: &Arc<Process>,
-    generation: u64,
-    reopen: Reopen,
+/// Records the replay outcome once for its generation; a newer generation owns the state.
+pub(super) fn finish(
+    port: &RpcPort,
+    replay: &Replay,
+    outcome: Result<(), RuntimeFailure>,
+    reopen: &Reopen,
 ) {
-    let mut port = RpcPort {
-        svc: svc.clone(),
-        session: session.clone(),
-        process: process.clone(),
-        tab: reopen.tab.clone(),
-        thread: reopen.thread.clone(),
-        started: Instant::now(),
-        first_page_ms: None,
+    let landed = match &outcome {
+        Ok(()) => HistoryBackfill::Complete,
+        Err(_) => HistoryBackfill::Failed,
     };
-    let session = session.clone();
+    if !port
+        .session
+        .cache
+        .lock()
+        .finish_backfill(replay.generation, landed)
+    {
+        return;
+    }
+    let tab = port.tab.as_str();
+    match outcome {
+        Ok(()) => {
+            crate::startup::boot_timing::mark(tab, None, "history_complete");
+            log::debug!(
+                "[agent-runtime] tab={tab} reopen spawn={} init={}ms resume={}ms first_page={}ms ready={}ms history={}ms pages={} rows={}",
+                reopen
+                    .spawned_ms
+                    .map_or_else(|| "reused".to_string(), |ms| format!("{ms}ms")),
+                reopen.initialized_ms,
+                reopen.resumed_ms,
+                reopen.first_page_ms,
+                reopen.ready_ms,
+                reopen.started.elapsed().as_millis(),
+                replay.pages,
+                replay.rows,
+            );
+        }
+        Err(RuntimeFailure::Superseded) => {
+            log::debug!("[agent-runtime] tab={tab} history backfill superseded");
+        }
+        Err(reason) => {
+            log::warn!("[agent-runtime] tab={tab} history backfill failed: {reason}");
+        }
+    }
+    super::publish(&port.svc, tab, &port.session);
+}
+
+pub(super) fn continue_in_background(mut port: RpcPort, mut replay: Replay, reopen: Reopen) {
     crate::async_runtime::spawn(async move {
-        let outcome = replay(
-            &session,
-            reopen.epoch,
-            generation,
-            &reopen.thread,
-            &mut port,
-        )
-        .await;
-        let tab = reopen.tab.as_str();
-        let landed = match &outcome {
-            Ok(_) => HistoryBackfill::Complete,
-            Err(_) => HistoryBackfill::Failed,
-        };
-        if !session.cache.lock().finish_backfill(generation, landed) {
-            return;
-        }
-        match outcome {
-            Ok(replayed) => {
-                crate::startup::boot_timing::mark(tab, None, "history_complete");
-                log::debug!(
-                    "[agent-runtime] tab={tab} reopen spawn={} init={}ms resume={}ms ready={}ms history={}ms first_page={}ms pages={} rows={}",
-                    reopen
-                        .spawned_ms
-                        .map_or_else(|| "reused".to_string(), |ms| format!("{ms}ms")),
-                    reopen.initialized_ms,
-                    reopen.resumed_ms,
-                    reopen.ready_ms,
-                    reopen.started.elapsed().as_millis(),
-                    port.first_page_ms.unwrap_or_default(),
-                    replayed.pages,
-                    replayed.rows,
-                );
-            }
-            Err(RuntimeFailure::Superseded) => {
-                log::debug!("[agent-runtime] tab={tab} history backfill superseded");
-            }
-            Err(reason) => {
-                log::warn!("[agent-runtime] tab={tab} history backfill failed: {reason}");
-            }
-        }
-        super::publish(&port.svc, tab, &session);
+        let session = port.session.clone();
+        let outcome = replay.rest(&session, &mut port).await;
+        finish(&port, &replay, outcome, &reopen);
     });
 }
 
