@@ -32,3 +32,54 @@ incomplete runs and cleanup failures. A completed workload is not a leak-free
 verdict: compare equivalent warm cycles and cleanup, distinguish JS retention
 from native renderer allocation, and account for profiler perturbation. A flat
 DEV run alone does not establish that a different PROD workload is fixed.
+
+## Pure markdown allocation benchmark
+
+Run in separate Node processes from the repository root:
+
+```bash
+pnpm exec tsx evals/perf/chat-memory/markdown-pipeline.mts --out baseline.json
+pnpm exec tsx evals/perf/chat-memory/markdown-pipeline.mts --cached --out shared-parse.json
+```
+
+This uses the same fixture generator, message-part grouping, GFM parsing,
+bare-domain links, code metadata, line breaks and ReactMarkdown conversion as
+Chat. It models render-cache misses for 15 sessions with 24 distinct rows each,
+visited three times (1,080 rows processed, 910,850 source characters). The working
+set exceeds both existing 500,000-character caches, so this measures avoided
+duplicate parsing even when tab switching churns those caches. It excludes DOM,
+highlighting and renderer switch latency. Inspector sampling includes collected
+objects at a 16 KiB interval; JSON records the largest self-allocation frames.
+
+On Windows, Node 22.14.0, the paired run measured:
+
+| Pipeline | Total sampled bytes | Bytes/row | Time/row |
+| --- | ---: | ---: | ---: |
+| Separate part/render parsing | 4,800,503,408 | 4,444,911 | 5.835 ms |
+| Shared syntax, cloned before transforms | 2,804,344,136 | 2,596,615 | 3.342 ms |
+
+Sampled allocations fell 41.6%; elapsed time fell 42.7%. An earlier pair measured
+4.810 GB / 7.024 ms per row versus 2.809 GB / 4.911 ms per row. Timing varies with
+machine load; neither measurement establishes a live Chat latency result.
+The extra syntax cache admits at most 500,000 source characters, 3,000 entries,
+and 50,000 characters per row. Character limits bound admission, not heap bytes.
+Revisions use exact content keys; cached syntax is read by message grouping and
+cloned before mutable render transforms. Message-part cache hits now refresh LRU.
+Changed streaming content still parses in full once: a late reference definition
+can change earlier blocks, which makes splitting an arbitrary tail unsafe.
+
+The original `src-C9djCpjh.js` artifact at DEV b8af7b4bf maps by matching its
+unminified function bodies to the locked dependency sources:
+
+| Served location | Source |
+| --- | --- |
+| `58:28245` (`ed`) | `micromark-util-subtokenize@2.1.0/index.js:123`, `subcontent` |
+| `66:1179` (`u`) | `unist-util-visit-parents@6.0.2/lib/index.js:335`, `visit` |
+| `85:2378` (`o`) | `micromark-extension-gfm-autolink-literal@2.1.0/lib/syntax.js:112`, `tokenizeEmailAutolink.start` |
+
+The pure profile reproduces those source frames. Both production consumers
+previously called `remark-parse` → `mdast-util-from-markdown` with GFM extensions;
+the shared parser eliminates the second tokenizer/autolink pass on a render miss.
+Keel's live follow-up remains the original `run.sh` invocation with
+`--allocations yes`, the integrated DEV SHA, and identical workload flags; compare
+allocation volume, switch latency, stable marker DOM and post-GC retained heap.
