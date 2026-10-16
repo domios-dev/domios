@@ -1,3 +1,4 @@
+import { isGeneralAgent } from "../../lib/roleKind";
 import { pluginTabMenuEntries, type PluginTabMenuEntry, type PluginTabMenuState } from "../../lib/pluginTabMenu";
 import { canMakeOrchestrator } from "../../lib/orchestratorOnboard";
 import { isPlanner } from "../../lib/roleKind";
@@ -357,7 +358,9 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
       action: { type: "makePlanner", planId: activity.planId },
     });
   }
-  for (const submenu of [modelSubmenu(input), providerSubmenu(input), recoverySubmenu(input)]) {
+  // Other tabs switch the model inside the chat picker, and a provider cannot continue another provider's history.
+  const agentSubmenus = isGeneralAgent(tab) ? [modelSubmenu(input), providerSubmenu(input)] : [];
+  for (const submenu of [...agentSubmenus, recoverySubmenu(input)]) {
     if (submenu) entries.push(submenu);
   }
   entries.push(...sessionItems(input, session), ...autoConfirmEntries(input));
