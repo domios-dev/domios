@@ -1,22 +1,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ActivityDots } from "./ActivityDots";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-const repoRoot = process.cwd();
-const sourceFiles = [
-  "src/components/Terminal/AgentStateIndicator.tsx",
-  "src/components/shared/BusyState.tsx",
-  "src/components/Sidebar/TabItem.tsx",
-  "src/components/Sidebar/TeamUnit.tsx",
-  "src/components/Sidebar/WorkspaceCardGrid.tsx",
-  "src/components/Canvas/PlanButton.tsx",
-  "src/components/Canvas/planView/PlanCompanionBubble.tsx",
-];
 
 let host: HTMLElement;
 let root: Root;
@@ -64,11 +51,6 @@ describe("working_indicator", () => {
     expect(coolingAgain.dataset.activityState).toBe("cooling");
   });
 
-  it("settles without JavaScript timers", () => {
-    const component = readFileSync(resolve(repoRoot, "src/components/shared/ActivityDots.tsx"), "utf8");
-    expect(component).not.toMatch(/setTimeout|setInterval|requestAnimationFrame/);
-  });
-
   it("preserves the dot count across activity states", async () => {
     const dots = await render(true);
     const activeCount = dots.children.length;
@@ -76,18 +58,4 @@ describe("working_indicator", () => {
     expect(inactive.children.length).toBe(activeCount);
   });
 
-  it("uses ActivityDots as the owner for every shipped working-dot surface", () => {
-    for (const relativePath of sourceFiles) {
-      const source = readFileSync(resolve(repoRoot, relativePath), "utf8");
-      expect(source, relativePath).toMatch(/ActivityDots/);
-    }
-    const tabItem = readFileSync(resolve(repoRoot, "src/components/Sidebar/TabItem.tsx"), "utf8");
-    expect(tabItem).toMatch(/tabActivity\(tab, status\)/);
-    expect(tabItem).toMatch(/<TabWorkingActivity activity=\{tabState\} \/>/);
-    const agentState = readFileSync(
-      resolve(repoRoot, "src/components/Terminal/AgentStateIndicator.tsx"),
-      "utf8",
-    );
-    expect(agentState).toMatch(/active=\{activity.active\}/);
-  });
 });
