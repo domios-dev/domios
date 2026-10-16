@@ -48,11 +48,19 @@ try {
   }
   capture = true;
   await call("Page.startScreencast", { format: "png", everyNthFrame: 1 });
+  if (process.env.TERMINAL_TRACE_PROFILE === "1") {
+    await call("Profiler.enable");
+    await call("Profiler.start");
+  }
   const result = await call("Runtime.evaluate", {
     awaitPromise: true, returnByValue: true,
     expression: `(${traceSwitch.toString()})(${JSON.stringify(title)},${JSON.stringify(marker)},${JSON.stringify(foreignMarker)})`,
   });
   await call("Page.stopScreencast");
+  if (process.env.TERMINAL_TRACE_PROFILE === "1") {
+    const { profile } = await call("Profiler.stop");
+    writeFileSync(resolve(directory, "cpu-profile.json"), JSON.stringify(profile));
+  }
   capture = false;
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
   const trace = result.result.value;
@@ -77,17 +85,38 @@ function traceSwitch(title, marker, foreignMarker) {
     if (!button) { reject(new Error(`Tab button not found: ${title}`)); return; }
     const start = performance.now();
     window.__outputStreamPerf = { frames: 0, bytes: 0, batches: 0, lastFrameAt: 0 };
-    const samples = [], writes = {}, originals = new Map();
+    const samples = [], writes = {}, originals = new Map(), stages = [], longTasks = [];
+    const stamp = () => performance.now() - start;
+    const longTaskObserver = PerformanceObserver.supportedEntryTypes.includes("longtask")
+      ? new PerformanceObserver(list => {
+        for (const entry of list.getEntries()) {
+          longTasks.push({ ms: entry.startTime - start, duration: entry.duration });
+        }
+      }) : null;
+    longTaskObserver?.observe({ type: "longtask" });
     const hosts = () => [...document.querySelectorAll(".terminal-xterm-host")];
     const captureWrites = host => {
       const tab = host.closest('[data-testid="terminal-tab"]')?.dataset.tabId;
       const term = host.__codetermTerminal;
       if (!term || originals.has(term)) return;
-      const write = term.write;
-      originals.set(term, write);
+      const write = term.write, resize = term.resize;
+      stages.push({ stage: "terminal-discovered", tab, ms: stamp(), cols: term.cols, rows: term.rows });
+      originals.set(term, { write, resize });
       term.write = function(data, done) {
-        writes[tab] = (writes[tab] ?? 0) + (typeof data === "string" ? new TextEncoder().encode(data).length : data.length);
-        return write.call(this, data, done);
+        const bytes = typeof data === "string" ? new TextEncoder().encode(data).length : data.length;
+        writes[tab] = (writes[tab] ?? 0) + bytes;
+        const submitted = stamp();
+        stages.push({ stage: "write-submitted", tab, ms: submitted, bytes });
+        return write.call(this, data, () => {
+          stages.push({ stage: "write-completed", tab, ms: stamp(), submitted, bytes });
+          done?.();
+        });
+      };
+      term.resize = function(cols, rows) {
+        const submitted = stamp();
+        const result = resize.call(this, cols, rows);
+        stages.push({ stage: "resize", tab, ms: submitted, duration: stamp() - submitted, cols, rows });
+        return result;
       };
     };
     const observer = new MutationObserver(() => hosts().forEach(captureWrites));
@@ -99,21 +128,33 @@ function traceSwitch(title, marker, foreignMarker) {
         const term = host.__codetermTerminal;
         captureWrites(host);
         let alpha = 1, visible = true;
+        const scrolledAncestors = [];
         for (let node = host; node && node !== document.body; node = node.parentElement) {
           const style = getComputedStyle(node);
           alpha *= Number(style.opacity);
           visible &&= style.display !== "none" && style.visibility !== "hidden";
+          if (node.scrollLeft) scrolledAncestors.push({ tag: node.tagName, className: node.className, scrollLeft: node.scrollLeft });
         }
         const buffer = term?.buffer.active;
         const text = buffer ? Array.from({ length: term.rows }, (_, i) => buffer.getLine(buffer.viewportY + i)?.translateToString(true)).join("\n") : "";
-        return { tab, alpha, painted: visible && alpha > 0 && host.getBoundingClientRect().width > 0, own: text.includes(marker), foreign: text.includes(foreignMarker) };
+        const bounds = element => {
+          const rect = element?.getBoundingClientRect();
+          return rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null;
+        };
+        return {
+          tab, alpha, painted: visible && alpha > 0 && host.getBoundingClientRect().width > 0,
+          own: text.includes(marker), foreign: text.includes(foreignMarker),
+          cols: term?.cols, rows: term?.rows, host: bounds(host),
+          screen: bounds(host.querySelector(".xterm-screen")), scrolledAncestors,
+        };
       });
       samples.push({ ms: performance.now() - start, layers });
       if (samples.length < 40) requestAnimationFrame(sample);
       else {
         observer.disconnect();
-        for (const [term, write] of originals) term.write = write;
-        resolve({ samples, writes, network: window.__outputStreamPerf });
+        longTaskObserver?.disconnect();
+        for (const [term, original] of originals) Object.assign(term, original);
+        resolve({ samples, writes, stages, longTasks, network: window.__outputStreamPerf });
       }
     };
     button.click();

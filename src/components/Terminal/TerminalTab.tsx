@@ -1,6 +1,6 @@
 import { attachFrontendTerminalViewport } from "../../lib/frontendUpdate/terminal";
 import { useTabActivity } from "../../lib/useTabActivity";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
@@ -48,7 +48,7 @@ import { shouldOfferScrollToBottom } from "../../hooks/terminal/terminalFollowSt
 import { useInputWriteFailure } from "../../hooks/terminal/useInputWriteFailure";
 import { InputWriteFailureLine } from "./InputWriteFailureLine";
 import { openNewSessionPicker } from "../../lib/newSessionChoice";
-import { terminalFrameVisible } from "../../lib/terminalFrameGate";
+import { terminalFrameVisible, terminalLayoutRequired } from "../../lib/terminalFrameGate";
 
 interface TerminalTabProps {
   tabId: string;
@@ -323,20 +323,16 @@ export const TerminalTab = memo(function TerminalTab({
     onInputData: completion.feedInput,
   });
 
-  // Refit xterm when the terminal layout changes so rows match the actual terminal box.
-  useEffect(() => {
-    if (!terminalVisible || !isVisible || !termReady || !frameReady) return;
-    const raf = requestAnimationFrame(() => {
-      const term = termRef.current;
-      if (!term) return;
-      try {
-        fitAddonRef.current?.fit();
-        commitResize();
-        term.refresh(0, term.rows - 1);
-      } catch { /* ignore */ }
-      termRef.current?.focus();
-    });
-    return () => cancelAnimationFrame(raf);
+  useLayoutEffect(() => {
+    if (!terminalLayoutRequired(isVisible, terminalVisible, termReady)) return;
+    const term = termRef.current;
+    if (!term) return;
+    try {
+      fitAddonRef.current?.fit();
+      commitResize();
+      term.refresh(0, term.rows - 1);
+    } catch { /* teardown */ }
+    if (frameReady) term.focus();
   }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, frameReady, termRef, fitAddonRef, commitResize]);
 
   useEffect(() => {
