@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { parse } from 'yaml';
+import { createRequire } from 'node:module';
 
 const WAIT_FLAGS = new Set(['--wait-build', '--wait']);
 const NOTIFY_FLAGS = new Set(['--notify-tab', '-NotifyTab']);
@@ -58,6 +58,9 @@ export function readGateProof(env, read = fs.readFileSync, list = fs.readdirSync
   const directory = path.join(root, 'plans', 'active', env.CODETERM_PLAN_ID);
   let planText;
   try { planText = read(path.join(directory, 'plan.yaml'), 'utf8'); } catch { return readGateProofFromHost(env); }
+  // Lanes without node_modules still get a decision through the host CLI.
+  let parse;
+  try { ({ parse } = createRequire(import.meta.url)('yaml')); } catch { return readGateProofFromHost(env); }
   const plan = parse(planText);
   const tasks = env.CODETERM_TASK_ID ? list(path.join(directory, 'tasks'))
     .filter(file => file.endsWith('.yaml'))
