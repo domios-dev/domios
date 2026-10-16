@@ -90,7 +90,8 @@ fn filler_record(index: usize) -> String {
         serde_json::json!({
             "type": "user",
             "uuid": format!("fill-{index:06}"),
-            "message": {"role": "user", "content": "f".repeat(64 * 1024)}
+            "message": {"role": "user", "content": "f"},
+            "padding": "f".repeat(64 * 1024)
         })
     )
 }
@@ -118,11 +119,12 @@ fn ids(messages: &[ChatMsg]) -> Vec<String> {
 #[test]
 fn tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_backfill() {
     let root = TempDir::new().unwrap();
-    let registry = js_registry("provider-claude", "claude", root.path());
+    let provider_id = "claude";
+    let registry = js_registry("provider-claude", provider_id, root.path());
     let path = registry
-        .with_provider("claude", |p| p.session_jsonl_path(CWD, SID))
+        .with_provider(provider_id, |p| p.session_jsonl_path(CWD, SID))
         .flatten()
-        .expect("claude session path");
+        .expect("session path");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let filler: String = (0..FILLER_RECORDS).map(filler_record).collect();
     std::fs::write(&path, &filler).unwrap();
@@ -134,7 +136,7 @@ fn tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_
     let tailer = spawn_tailer(
         TailConfig {
             tab_id: "identity".into(),
-            provider_id: "claude".into(),
+            provider_id: provider_id.into(),
             cwd: CWD.into(),
             session_id: SID.into(),
             start_offset: plain_start - record_len,
@@ -157,7 +159,7 @@ fn tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_
     tailer.shutdown();
     let total = std::fs::metadata(&path).unwrap().len();
 
-    let snapshot = session_window::snapshot(&registry, "claude", &path);
+    let snapshot = session_window::snapshot(&registry, provider_id, &path);
     assert!(snapshot.start_offset > 0 && snapshot.start_offset < plain_start);
     assert_eq!(snapshot.start_offset % record_len, 0);
     assert_eq!(snapshot.end_offset, total);
@@ -174,15 +176,15 @@ fn tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_
         "window is record-aligned"
     );
     let (window_rows, _) =
-        session_window::parse_window(&registry, "claude", &path, window_start, total);
+        session_window::parse_window(&registry, provider_id, &path, window_start, total);
     let window = rich_rows_to_chat_msgs(&window_rows, window_start);
     let (resume_rows, resume_end) =
-        session_window::parse_window(&registry, "claude", &path, plain_start, total);
+        session_window::parse_window(&registry, provider_id, &path, plain_start, total);
     assert_eq!(resume_end, total);
     let resumed = rich_rows_to_chat_msgs(&resume_rows, plain_start);
 
-    let page =
-        crate::commands::backfill_page(&registry, "claude", &path, total).expect("backfill page");
+    let page = crate::commands::backfill_page(&registry, provider_id, &path, total)
+        .expect("backfill page");
     assert!(
         page.start_offset > 0 && page.start_offset < window_start,
         "backfill page starts at its own aligned record, got {}",
@@ -224,7 +226,7 @@ fn tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_
     assert_eq!(all_ids.len(), snapshot.messages.len());
     let mut before = snapshot.start_offset;
     while before > 0 {
-        let older = crate::commands::backfill_page(&registry, "claude", &path, before)
+        let older = crate::commands::backfill_page(&registry, provider_id, &path, before)
             .expect("older backfill page");
         assert!(older.start_offset < before);
         assert_eq!(older.end_offset, before);
