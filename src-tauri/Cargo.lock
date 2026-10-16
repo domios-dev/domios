@@ -1263,6 +1263,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "codeterm-account",
+ "codeterm-entitlements",
+ "log",
  "parking_lot",
  "reqwest 0.12.28",
  "serde",
