@@ -12,15 +12,15 @@ use crate::agent::provider::AgentProvider;
 /// Parses `{"text":"..."}` records through the same bounded reader the real JS
 /// provider uses, and counts how many bytes each snapshot actually pulled.
 struct WindowProvider {
-    reads: AtomicUsize,
-    bytes: AtomicUsize,
+    reads: Arc<AtomicUsize>,
+    bytes: Arc<AtomicUsize>,
 }
 
 impl WindowProvider {
     fn new() -> Self {
         Self {
-            reads: AtomicUsize::new(0),
-            bytes: AtomicUsize::new(0),
+            reads: Arc::new(AtomicUsize::new(0)),
+            bytes: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -60,15 +60,25 @@ impl AgentProvider for WindowProvider {
     }
 
     fn parse_session_delta(&self, path: &std::path::Path, from_offset: u64) -> SessionDelta {
+        self.parse_session_delta_bounded(path, from_offset, DELTA_CHUNK_BYTES)
+            .unwrap()
+    }
+
+    fn parse_session_delta_bounded(
+        &self,
+        path: &std::path::Path,
+        from_offset: u64,
+        budget: u64,
+    ) -> Option<SessionDelta> {
         self.reads.fetch_add(1, Ordering::Relaxed);
-        let Ok(chunk) = read_records_from(path, from_offset, DELTA_CHUNK_BYTES) else {
-            return SessionDelta {
+        let Ok(chunk) = read_records_from(path, from_offset, budget.min(DELTA_CHUNK_BYTES)) else {
+            return Some(SessionDelta {
                 new_offset: from_offset,
                 messages: vec![],
-            };
+            });
         };
         self.bytes.fetch_add(chunk.bytes.len(), Ordering::Relaxed);
-        let messages = String::from_utf8_lossy(&chunk.bytes)
+        let mut messages: Vec<RichMessage> = String::from_utf8_lossy(&chunk.bytes)
             .lines()
             .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
             .map(|v| RichMessage {
@@ -80,10 +90,17 @@ impl AgentProvider for WindowProvider {
                 ..Default::default()
             })
             .collect();
-        SessionDelta {
+        let indexes: Vec<Option<usize>> = (0..messages.len()).map(Some).collect();
+        codeterm_plugin::jsonl_window::anchor_rows(
+            &mut messages,
+            &indexes,
+            &chunk.bytes,
+            from_offset,
+        );
+        Some(SessionDelta {
             new_offset: chunk.new_offset,
             messages,
-        }
+        })
     }
 }
 
@@ -93,6 +110,8 @@ struct Fixture {
     registry: Arc<AgentRegistry>,
     total: u64,
     per_record: u64,
+    reads: Arc<AtomicUsize>,
+    bytes: Arc<AtomicUsize>,
 }
 
 /// Writes `count` fixed-width records so offsets are exactly predictable.
@@ -113,13 +132,18 @@ fn fixture(name: &str, count: usize, pad: usize) -> Fixture {
     drop(f);
 
     let registry = AgentRegistry::new();
-    registry.register_provider(Box::new(WindowProvider::new()));
+    let provider = WindowProvider::new();
+    let reads = provider.reads.clone();
+    let bytes = provider.bytes.clone();
+    registry.register_provider(Box::new(provider));
     Fixture {
         total: std::fs::metadata(&path).unwrap().len(),
         _dir: dir,
         path,
         registry: Arc::new(registry),
         per_record,
+        reads,
+        bytes,
     }
 }
 
@@ -129,7 +153,7 @@ fn text_of(msg: &ChatMsg) -> String {
 
 #[test]
 fn small_session_snapshots_the_whole_transcript() {
-    let fx = fixture("small", 200, 32);
+    let fx = fixture("small", 100, 32);
     assert!(fx.total < SNAPSHOT_CAP_BYTES);
 
     let snap = snapshot(&fx.registry, "window-test", &fx.path);
@@ -137,9 +161,9 @@ fn small_session_snapshots_the_whole_transcript() {
     assert!(!snap.truncated());
     assert_eq!(snap.total, fx.total);
     assert_eq!(snap.bytes_read, fx.total);
-    assert_eq!(snap.messages.len(), 200);
+    assert_eq!(snap.messages.len(), 100);
     assert!(text_of(&snap.messages[0]).starts_with("00000000"));
-    assert!(text_of(snap.messages.last().unwrap()).starts_with("00000199"));
+    assert!(text_of(snap.messages.last().unwrap()).starts_with("00000099"));
 }
 
 /// The production regression: a session file far past the cap must yield a
@@ -154,24 +178,26 @@ fn oversized_session_reads_only_a_bounded_tail() {
 
     let snap = snapshot(&fx.registry, "window-test", &fx.path);
     assert!(snap.truncated());
+    assert!(fx.bytes.load(Ordering::Relaxed) as u64 <= SNAPSHOT_WINDOW_BYTES);
     assert!(
-        snap.bytes_read <= SNAPSHOT_WINDOW_BYTES + SNAPSHOT_ANCHOR_STRIDE_BYTES,
-        "read {} bytes, window is {} plus at most one anchor stride",
+        snap.bytes_read <= SNAPSHOT_WINDOW_BYTES,
+        "read {} bytes, window is {}",
         snap.bytes_read,
         SNAPSHOT_WINDOW_BYTES
     );
     assert!(
-        snap.bytes_read * 4 < fx.total,
+        snap.bytes_read * 2 < fx.total,
         "bounded read must be a small fraction of {} bytes",
         fx.total
     );
     // Boundary preserved: the window starts on a record and ends at EOF.
     assert_eq!(snap.start_offset % fx.per_record, 0);
-    assert_eq!(snap.start_offset + snap.bytes_read, fx.total);
+    assert_eq!(snap.end_offset, fx.total);
 
     // Last-N semantics: the window holds the TAIL of the transcript.
     let expected = (fx.total - snap.start_offset) / fx.per_record;
     assert_eq!(snap.messages.len() as u64, expected);
+    assert!(snap.messages.len() <= super::super::snapshot_rows::SNAPSHOT_ROW_LIMIT);
     let last = text_of(snap.messages.last().unwrap());
     assert!(last.starts_with(&format!("{:08}", count - 1)), "got {last}");
     let first = text_of(&snap.messages[0]);
@@ -181,12 +207,8 @@ fn oversized_session_reads_only_a_bounded_tail() {
     );
 }
 
-/// A window wider than one delta chunk must drain across passes without
-/// dropping, duplicating, or splitting a record.
-/// A moving window anchor would re-key the whole overlap on every attach, so
-/// the anchor may only advance once growth passes a stride.
 #[test]
-fn snapshot_anchor_is_stable_while_the_session_grows_within_a_stride() {
+fn snapshot_window_tracks_the_tail_within_the_byte_budget() {
     let pad = 4000;
     let per = pad as u64 + 8 + 12;
     let count = ((SNAPSHOT_CAP_BYTES * 3) / per) as usize;
@@ -194,16 +216,11 @@ fn snapshot_anchor_is_stable_while_the_session_grows_within_a_stride() {
 
     let first = snapshot_start_offset(&fx.path, fx.total);
     assert!(first > 0, "oversized session must use a bounded window");
-    let grown = fx.total + SNAPSHOT_ANCHOR_STRIDE_BYTES / 4;
+    assert!(fx.total - first <= SNAPSHOT_WINDOW_BYTES);
     assert_eq!(
-        snapshot_start_offset(&fx.path, grown),
+        snapshot_start_offset(&fx.path, fx.total + 1024),
         first,
-        "growth below one stride must reuse the same window anchor"
-    );
-    let advanced = fx.total + SNAPSHOT_ANCHOR_STRIDE_BYTES;
-    assert!(
-        snapshot_start_offset(&fx.path, advanced) > first,
-        "growth past a stride re-anchors the window forward"
+        "a request past EOF clamps to the actual file"
     );
 }
 
@@ -218,6 +235,7 @@ fn window_wider_than_the_delta_chunk_drains_completely() {
     let (rich, end) = parse_window(&fx.registry, "window-test", &fx.path, 0, fx.total);
     assert_eq!(end, fx.total);
     assert_eq!(rich.len(), count);
+    assert_eq!(fx.reads.load(Ordering::Relaxed), 2);
 }
 
 #[test]
@@ -258,6 +276,36 @@ fn parse_window_terminates_when_a_provider_stops_advancing() {
     let (rich, end) = parse_window(&registry, "stuck", &fx.path, 0, fx.total);
     assert!(rich.is_empty());
     assert_eq!(end, 0);
+}
+
+#[test]
+fn an_interior_window_passes_its_exact_remaining_budget_to_the_host_reader() {
+    let fx = fixture("interior-budget", 100, 64);
+    let until = fx.per_record * 3;
+    let (rows, end) = parse_window(&fx.registry, "window-test", &fx.path, 0, until);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(end, until);
+    assert_eq!(fx.bytes.load(Ordering::Relaxed) as u64, until);
+    assert_eq!(fx.reads.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn backfill_reads_one_megabyte_of_complete_records_without_a_second_raw_copy() {
+    let fx = fixture("backfill-budget", 3000, 1000);
+    let page = parse_page_before(&fx.registry, "window-test", &fx.path, fx.total).unwrap();
+    assert!(page.start_offset > 0);
+    assert_eq!(page.end_offset, fx.total);
+    assert_eq!(page.start_offset % fx.per_record, 0);
+    assert!(fx.bytes.load(Ordering::Relaxed) as u64 <= BACKFILL_PAGE_BYTES);
+    assert_eq!(fx.reads.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn missing_backfill_source_is_an_error_instead_of_empty_history() {
+    let fx = fixture("missing-backfill", 4, 16);
+    std::fs::remove_file(&fx.path).unwrap();
+    assert!(parse_page_before(&fx.registry, "window-test", &fx.path, fx.total).is_err());
+    assert_eq!(fx.reads.load(Ordering::Relaxed), 0);
 }
 
 struct StuckProvider;

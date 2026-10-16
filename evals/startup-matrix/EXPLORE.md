@@ -324,3 +324,7 @@ system PowerShell using README.md's Independent Windows terminal baseline.
 Record actual first-frame/setup/turn signals separately from input readiness
 and model response time; keep blocked authentication/configuration cases.
 This diagnostic remains local-only and is never a CI gate.
+| Long cursor replay performed unbounded sequential reads | locked by test a long replay gap falls back to attachment after eight pages and a large replay page falls back after the byte budget |
+| Cold JSONL attach and backfill parsed excessive history | locked by test oversized_session_reads_only_a_bounded_tail, an_interior_window_passes_its_exact_remaining_budget_to_the_host_reader, backfill_reads_one_megabyte_of_complete_records_without_a_second_raw_copy, and oversized_record_rows_are_whole_and_exact_limit_records_both_survive |
+| Concurrent same-tab clients repeated snapshot parsing | locked by tests in service::tab_chat::snapshot_flight::tests; source identity and binding nonce are part of the shared-flight key |
+| Missing backfill source appeared to be empty history | locked by test missing_backfill_source_is_an_error_instead_of_empty_history |

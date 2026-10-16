@@ -24,6 +24,8 @@ pub mod resume;
 pub mod resume_cursor;
 pub mod runtime_stored;
 pub mod session_window;
+pub mod snapshot_flight;
+mod snapshot_rows;
 pub mod snapshot_source;
 pub mod store_watch;
 mod stored_snapshot;
