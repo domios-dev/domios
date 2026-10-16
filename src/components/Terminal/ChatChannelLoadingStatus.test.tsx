@@ -12,6 +12,7 @@ it("hosts the accessible waiting icon in the existing model row without an extra
   const host = document.createElement("div");
   const root = createRoot(host);
   const label = "Fixture channel pending";
+  const chooseModel = vi.fn();
   const render = async (loading: boolean) => {
     const row = chatChannelLoadingRow(loading, { kind: "none" }, false);
     await act(async () => root.render(
@@ -19,7 +20,7 @@ it("hosts the accessible waiting icon in the existing model row without an extra
         activity={tabActivity({ agent_state: { state: "idle" } })}
         providerName="Fixture provider"
         model="Fixture model"
-        renderIdentity={(identity) => <span>{identity}</span>}
+        renderIdentity={(identity) => <button aria-label="Choose fixture model" onClick={chooseModel}>{identity}</button>}
         channelLoadingLabel={row === "model" ? label : undefined}
       />,
     ));
@@ -27,14 +28,19 @@ it("hosts the accessible waiting icon in the existing model row without an extra
   try {
     await render(false);
     const modelRow = host.firstElementChild;
+    const picker = host.querySelector<HTMLButtonElement>('button[aria-label="Choose fixture model"]');
     expect(host.childElementCount).toBe(1);
     await render(true);
     const icon = host.querySelector('[role="img"]');
     expect(icon?.getAttribute("aria-label")).toBe(label);
     expect(icon?.getAttribute("title")).toBe(label);
-    expect(icon?.parentElement).toBe(modelRow);
+    expect(modelRow?.contains(icon)).toBe(true);
+    expect(host.querySelector('button[aria-label="Choose fixture model"]')).toBe(picker);
+    await act(async () => picker?.click());
+    expect(chooseModel).toHaveBeenCalledTimes(1);
     expect(host.firstElementChild).toBe(modelRow);
     expect(host.childElementCount).toBe(1);
+    expect(host.querySelector('button[aria-label="Choose fixture model"]')).toBe(picker);
     expect(host.querySelectorAll("div")).toHaveLength(1);
     await render(false);
     expect(host.querySelector('[role="img"]')).toBeNull();

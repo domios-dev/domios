@@ -125,6 +125,7 @@ pub mod pending_delivery_payloads;
 pub(crate) mod permission_auto_confirm;
 pub mod permission_decision;
 pub mod permission_policy;
+pub(crate) mod execution_sandbox;
 pub use permission_policy::configured_permission_bypass_for as permission_policy_configured_permission_bypass_for;
 pub mod persona;
 pub mod plan;

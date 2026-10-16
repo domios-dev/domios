@@ -4,6 +4,7 @@ export interface ErrorDescription {
   cause: string;
   actions: ErrorAction[];
   raw: string;
+  pending?: boolean;
 }
 export interface ErrorContext { operation?: string; cwd?: string | null }
 
@@ -64,9 +65,17 @@ function unpack(input: unknown): { raw: string; code: string; status: unknown } 
   return { raw, code: String(object?.code ?? object?.kind ?? detail?.code ?? detail?.kind ?? ""), status: detail?.status ?? object?.status };
 }
 
+export function isPendingRuntimeDeadline(input: unknown): boolean {
+  const { raw, code } = unpack(input);
+  const kind = code.toLowerCase();
+  if (kind) return ["runtime_deadline", "deadline", "deadline_exceeded"].includes(kind);
+  if (/^(?:SpawnFailed|ProcessExited|PipeEof|PipeFailure|InvalidFrame|HookFailed|Refused|PrewriteRefused|Superseded)\b/i.test(raw.trim())) return false;
+  return /\bdeadline\b|runtime did not respond in time/i.test(raw);
+}
+
 export function describeError(input: unknown, context: ErrorContext = {}): ErrorDescription {
   const { raw, code, status } = unpack(input);
-  const result = (title: string, cause: string, actions: ErrorAction[]): ErrorDescription => ({ title, cause, actions, raw });
+  const result = (title: string, cause: string, actions: ErrorAction[], pending = false): ErrorDescription => ({ title, cause, actions, raw, ...(pending ? { pending: true } : {}) });
   const kind = code.toLowerCase();
   const spawn = /spawn|createprocess|executable|shell/i.test(raw);
   // OS codes are interpreted only in spawn errors; e.g. ENOENT elsewhere may mean an attachment.
@@ -98,8 +107,8 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
   if (["provider_access_lost", "access_denied", "forbidden"].includes(kind) || inferred && (status === 403 || /access denied|permission denied|eacces|eperm|os error (?:5|13)\b/i.test(raw))) {
     return result("Access was denied", "Domios could not access the requested resource. Check its permissions before trying again.", ["check-access", "retry"]);
   }
-  if (["runtime_deadline", "deadline", "deadline_exceeded"].includes(kind) || inferred && /\bdeadline\b|runtime did not respond in time/i.test(raw)) {
-    return result("The agent runtime did not respond in time", "The runtime missed its response deadline. Check the agent's state before trying again.", ["retry"]);
+  if (isPendingRuntimeDeadline(input)) {
+    return result("The agent runtime is taking longer than usual", "The runtime response is still pending.", [], true);
   }
   if (kind === "executable_missing" || inferred && spawn && /enoent|os error 2\b|executable.*(?:not found|missing)/i.test(raw)) {
     return result("The program could not be found", "The shell or agent program is unavailable. Check that it is installed and its path is correct.", ["check-executable", "retry"]);

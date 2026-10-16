@@ -244,7 +244,7 @@ describe("chat tail follow", () => {
       await act(async () => { scroller().scrollTop += delta; });
       await flushFrames();
     };
-    while (scroller().scrollTop > 5000) await step(-200);
+    await step(5000 - scroller().scrollTop);
     for (let index = 0; index < 30; index++) {
       const el = scroller();
       const row = Array.from(host.querySelectorAll<HTMLElement>("[data-message-id]")).find((candidate) => candidate.offsetTop >= el.scrollTop)!;

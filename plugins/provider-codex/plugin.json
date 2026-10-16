@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.17",
+  "version": "1.14.23",
   "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Codex",
@@ -63,6 +63,11 @@
           "account/login/cancel",
           "account/rateLimits/read",
           "account/rateLimitResetCredit/consume"
+        ],
+        "backgroundProcesses": [
+          "thread/backgroundTerminals/list",
+          "thread/backgroundTerminals/terminate",
+          "thread/backgroundTerminals/clean"
         ]
       },
       "notificationMethods": [
@@ -104,7 +109,8 @@
         "terminalCommand": "codex login"
       },
       "usage": true,
-      "resetCreditsMinVersion": "0.162.1"
+      "resetCreditsMinVersion": "0.162.1",
+      "backgroundProcesses": true
     },
     "chatBackend": {
       "spawnable": true,
@@ -217,7 +223,69 @@
         "verdict": "waiting"
       }
     ],
-    "usageProbeCommand": "/status"
+    "usageProbeCommand": "/status",
+    "executionSandbox": {
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "readOnly": {
+        "launchArgs": [
+          "--sandbox",
+          "read-only",
+          "-a",
+          "never",
+          "--cd",
+          "{cwd}",
+          "-c",
+          "sandbox_workspace_write.writable_roots=[]",
+          "-c",
+          "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+          "-c",
+          "sandbox_workspace_write.exclude_slash_tmp=true",
+          "-c",
+          "sandbox_workspace_write.network_access=false"
+        ],
+        "runtimeMode": "read-only"
+      },
+      "mutating": {
+        "launchArgs": [
+          "--sandbox",
+          "workspace-write",
+          "-a",
+          "never",
+          "--cd",
+          "{cwd}",
+          "-c",
+          "sandbox_workspace_write.writable_roots=[]",
+          "-c",
+          "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+          "-c",
+          "sandbox_workspace_write.exclude_slash_tmp=true",
+          "-c",
+          "sandbox_workspace_write.network_access=false"
+        ],
+        "runtimeMode": "workspace-write"
+      },
+      "forbiddenArgumentPrefixes": [
+        "-c",
+        "--config",
+        "--sandbox",
+        "-s",
+        "-a",
+        "--ask-for-approval",
+        "--danger",
+        "--yolo",
+        "--full-auto",
+        "--add-dir",
+        "--cd",
+        "-C",
+        "--profile",
+        "-p",
+        "--"
+      ]
+    }
   },
   "models": [
     {

@@ -182,6 +182,8 @@ enum BootFailureReason {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct BootDiagnostic {
     stage: DiagnosticStage,
+    build_sha: Option<String>,
+    device: Option<DeviceDiagnostic>,
     request: Option<RequestFailure>,
     chat: Option<Value>,
     error_name: Option<DiagnosticError>,
@@ -194,6 +196,71 @@ struct BootDiagnostic {
     native: bool,
     injected: bool,
     mounted: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DeviceDiagnostic {
+    entry_asset: Option<String>,
+    app_version: Option<String>,
+    user_agent_family: String,
+    width: u32,
+    height: u32,
+    visual_width: u32,
+    visual_height: u32,
+    pixel_ratio: f64,
+    touch: bool,
+    display_mode: String,
+    scroll_end: bool,
+    overflow_anchor: bool,
+}
+
+fn diagnostic_label(value: &str, max: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= max
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
+}
+
+impl BootDiagnostic {
+    fn validate_identity(&self) -> Result<(), ApiError> {
+        let valid_sha = self
+            .build_sha
+            .as_deref()
+            .is_none_or(|sha| diagnostic_label(sha, 64));
+        let valid_device = self.device.as_ref().is_none_or(|device| {
+            device
+                .app_version
+                .as_deref()
+                .is_none_or(|version| diagnostic_label(version, 64))
+                && device
+                    .entry_asset
+                    .as_deref()
+                    .is_none_or(|asset| diagnostic_label(asset, 100))
+                && ["edge", "firefox", "chrome", "safari", "other"]
+                    .contains(&device.user_agent_family.as_str())
+                && ["standalone", "browser"].contains(&device.display_mode.as_str())
+                && [
+                    device.width,
+                    device.height,
+                    device.visual_width,
+                    device.visual_height,
+                ]
+                .iter()
+                .all(|size| *size <= 32768)
+                && device.pixel_ratio.is_finite()
+                && (0.0..=16.0).contains(&device.pixel_ratio)
+        });
+        if valid_sha && valid_device {
+            Ok(())
+        } else {
+            Err((
+                StatusCode::BAD_REQUEST,
+                "Invalid diagnostic identity metadata".into(),
+            ))
+        }
+    }
 }
 
 fn diagnostic_reason<'de, D: serde::Deserializer<'de>>(
@@ -252,6 +319,10 @@ async fn diagnostic(
             "Frontend diagnostics require a debug build".into(),
         ));
     }
+    body.validate_identity()?;
+    if let Some(device) = &body.device {
+        log::debug!("[frontend-device] client={} build_sha={:?} entry={:?} version={:?} ua={} viewport={}x{} visual={}x{} dpr={} touch={} display={} scroll_end={} overflow_anchor={}", diagnostic_client(&headers), body.build_sha, device.entry_asset, device.app_version, device.user_agent_family, device.width, device.height, device.visual_width, device.visual_height, device.pixel_ratio, device.touch, device.display_mode, device.scroll_end, device.overflow_anchor);
+    }
     if let Some(chat) = &body.chat {
         let encoded = chat.to_string();
         if encoded.len() > 4096 {
@@ -261,8 +332,9 @@ async fn diagnostic(
             ));
         }
         log::debug!(
-            "[chat-scroll] client={} {encoded}",
-            diagnostic_client(&headers)
+            "[chat-scroll] client={} build_sha={:?} {encoded}",
+            diagnostic_client(&headers),
+            body.build_sha
         );
     }
     if let Some(request) = &body.request {
@@ -278,7 +350,7 @@ async fn diagnostic(
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
     });
-    log::debug!("[frontend-shell/page] client={} stage={:?}, native={}, injected={}, mounted={}, error={:?}, reason={:?}, http_status={:?}, source={source:?}, line={:?}, column={:?}", diagnostic_client(&headers), body.stage, body.native, body.injected, body.mounted, body.error_name, body.reason, body.http_status, body.line, body.column);
+    log::debug!("[frontend-shell/page] client={} build_sha={:?} stage={:?}, native={}, injected={}, mounted={}, error={:?}, reason={:?}, http_status={:?}, source={source:?}, line={:?}, column={:?}", diagnostic_client(&headers), body.build_sha, body.stage, body.native, body.injected, body.mounted, body.error_name, body.reason, body.http_status, body.line, body.column);
     Ok(Json(json!({ "ok": true })))
 }
 

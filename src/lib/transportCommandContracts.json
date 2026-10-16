@@ -5,6 +5,7 @@
     "instanceId": "peer",
     "action": "trigger",
     "tabId": "tab",
+    "threadId": "child",
     "workspaceId": "workspace",
     "teamId": "team",
     "planId": "plan",
@@ -45,7 +46,7 @@
       "kind": "blueprint"
     },
     "config": {},
-    "request": {},
+    "request": {"rootThreadId":"root","bindingNonce":"nonce","epoch":4},
     "input": {},
     "patch": {},
     "url": "url",
@@ -1233,6 +1234,9 @@
         "POST",
         "/api/tabs/tab/agent/runtime/retry"
       ]
+    ],
+    "agent_runtime_child_history": [
+      ["GET", "/api/tabs/tab/agent/runtime/children/child/history?rootThreadId=root&bindingNonce=nonce&epoch=4"]
     ],
     "agent_runtime_answer_question": [
       [

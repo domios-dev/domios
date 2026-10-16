@@ -54,7 +54,10 @@ export interface RuntimeContext {
   pendingRequest?: {requestId:RpcId; method:string; params:JsonValue};
 }
 export type HistoryOrder = "asc" | "desc";
+export interface RuntimeBackgroundProcess {processId:string; itemId:string; command:string; cwd:string; osPid:number|null}
+export type RuntimeBackgroundProcessAction = {kind:"list"; cursor:string|null} | {kind:"terminate"; processId:string} | {kind:"clean"};
 export type Operation =
+  | {kind:"backgroundProcesses"; threadId:string; action:RuntimeBackgroundProcessAction}
   | {kind:"initialize"}
   | {kind:"openThread"; instructions:string; settings:RuntimeSettings}
   | {kind:"resumeThread"; threadId:string; instructions:string; settings:RuntimeSettings}
@@ -74,6 +77,8 @@ export type RuntimeAction =
   | {kind:"questionAnswer"; input:TurnInput};
 export interface RuntimePlan { action:RuntimeAction; state:JsonValue }
 export type OperationResult =
+  | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]; nextCursor:string|null}
+  | {kind:"backgroundProcessTermination"; threadId:string; processId:string; acknowledged:boolean}
   | {kind:"initialized"}
   | {kind:"threadLoaded"; threadId:string; settings:RuntimeSettings}
   | {kind:"historyPage"; threadId:string; items:readonly ChatMsg[];
@@ -88,6 +93,7 @@ export type RuntimeStep =
   | {kind:"complete"; result:OperationResult; notification?:RpcCall; events?:readonly AgentEvent[]}
   | {kind:"refused"; reason:RuntimeFailure; beforeAcceptance:boolean};
 export type AgentEvent =
+  | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]}
   | {kind:"chatItem"; threadId:string; item:ChatMsg}
   | {kind:"turnState"; threadId:string; turnId?:string; state:"working"|"idle"|"needs_input"; detail?:RuntimeTurnDetail; statusLine?:string; startedAt?:number; completedAt?:number; parentThreadId?:string}
   | {kind:"sendEvidence"; threadId:string; sendId:string; turnId:string}
@@ -106,6 +112,7 @@ export type ResetCreditOutcome = "reset"|"nothingToReset"|"noCredit"|"alreadyRed
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
 export interface StdioAgentRuntimeCapability {
+  backgroundProcesses?:boolean;
   resetCreditsMinVersion?:string;
   storedHistory?:boolean;
   usage?:boolean;

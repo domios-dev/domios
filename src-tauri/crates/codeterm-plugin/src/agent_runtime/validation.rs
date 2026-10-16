@@ -108,6 +108,20 @@ pub fn validate_runtime_operation(
         | RuntimeOperation::SubmitTurn { settings, .. } => validate_runtime_settings(settings)?,
         _ => {}
     }
+    if let RuntimeOperation::BackgroundProcesses { thread_id, action } = op {
+        if !owns_runtime_thread(ctx, thread_id) {
+            return Err(mismatch("background operation targets an unowned thread"));
+        }
+        match action {
+            RuntimeBackgroundProcessAction::Terminate { process_id } if !identifier(process_id) => {
+                return Err(invalid("invalid background process id"))
+            }
+            RuntimeBackgroundProcessAction::List {
+                cursor: Some(cursor),
+            } if !identifier(cursor) => return Err(invalid("invalid background process cursor")),
+            _ => {}
+        }
+    }
     let thread = match op {
         RuntimeOperation::ResumeThread { thread_id, .. } => {
             if ctx
@@ -142,7 +156,11 @@ pub fn validate_runtime_operation(
         }
         _ => None,
     };
-    if thread.is_some_and(|thread| ctx.thread_id.as_ref() != Some(thread)) {
+    if thread.is_some_and(|thread| {
+        ctx.thread_id.as_ref() != Some(thread)
+            && !(matches!(op, RuntimeOperation::ReadHistory { .. })
+                && runtime_descendant(ctx, thread))
+    }) {
         return Err(mismatch("operation retargets thread"));
     }
     match op {
@@ -195,6 +213,13 @@ pub fn validate_runtime_plan(
     validate_runtime_operation(ctx, op)?;
     validate_runtime_size(plan, MAX_RUNTIME_VALUE_BYTES)?;
     validate_runtime_size(&plan.state, MAX_RUNTIME_STATE_BYTES)?;
+    if let RuntimeOperation::ReadHistory { thread_id, .. } = op {
+        if runtime_descendant(ctx, thread_id)
+            && !super::children::child_history_request(&plan.action, thread_id)
+        {
+            return Err(mismatch("descendant history must be an exact read request"));
+        }
+    }
     if matches!(op, RuntimeOperation::AnswerQuestion { .. })
         && !matches!(plan.action, RuntimeAction::QuestionAnswer { .. })
     {
@@ -241,7 +266,18 @@ pub fn validate_runtime_call(
     op: &RuntimeOperation,
     call: &RpcCall,
 ) -> Result<(), RuntimeFailure> {
-    if matches!(op, RuntimeOperation::Interrupt { .. }) {
+    if let RuntimeOperation::BackgroundProcesses { thread_id, .. } = op {
+        if !cap.background_processes {
+            return Err(mismatch("background processes capability absent"));
+        }
+        if call
+            .target
+            .as_ref()
+            .is_none_or(|target| &target.thread_id != thread_id || target.turn_id.is_some())
+        {
+            return Err(mismatch("background request lacks exact owned target"));
+        }
+    } else if matches!(op, RuntimeOperation::Interrupt { .. }) {
         let target = call
             .target
             .as_ref()
@@ -253,7 +289,11 @@ pub fn validate_runtime_call(
             return Err(mismatch("interrupt targets an inactive or unowned turn"));
         }
     } else if let Some(target) = &call.target {
-        if ctx.thread_id.as_ref() != Some(&target.thread_id)
+        let operation_target = match op {
+            RuntimeOperation::ReadHistory { thread_id, .. } => Some(thread_id),
+            _ => ctx.thread_id.as_ref(),
+        };
+        if operation_target != Some(&target.thread_id)
             || target
                 .turn_id
                 .as_ref()
@@ -309,6 +349,12 @@ pub fn validate_runtime_step(
             notification,
             events,
         } => {
+            if matches!(op, RuntimeOperation::ReadHistory { thread_id, .. } if runtime_descendant(ctx, thread_id))
+                && (notification.is_some()
+                    || events.as_ref().is_some_and(|events| !events.is_empty()))
+            {
+                return Err(mismatch("descendant history cannot publish side effects"));
+            }
             if let Some(events) = events {
                 if events
                     .iter()
@@ -352,6 +398,44 @@ fn validate_runtime_result(
         validate_runtime_settings(settings)?;
     }
     let valid = match (op, result) {
+        (
+            RuntimeOperation::BackgroundProcesses {
+                thread_id: target,
+                action: RuntimeBackgroundProcessAction::List { cursor },
+            },
+            RuntimeResult::BackgroundProcesses {
+                thread_id,
+                processes,
+                next_cursor,
+            },
+        ) => {
+            validate_background_processes(processes)?;
+            target == thread_id
+                && next_cursor
+                    .as_ref()
+                    .is_none_or(|next| identifier(next) && Some(next) != cursor.as_ref())
+        }
+        (
+            RuntimeOperation::BackgroundProcesses {
+                thread_id: target,
+                action:
+                    RuntimeBackgroundProcessAction::Terminate {
+                        process_id: target_process,
+                    },
+            },
+            RuntimeResult::BackgroundProcessTermination {
+                thread_id,
+                process_id,
+                ..
+            },
+        ) => target == thread_id && target_process == process_id,
+        (
+            RuntimeOperation::BackgroundProcesses {
+                action: RuntimeBackgroundProcessAction::Clean,
+                ..
+            },
+            RuntimeResult::Done,
+        ) => true,
         (RuntimeOperation::Initialize, RuntimeResult::Initialized) => true,
         (RuntimeOperation::OpenThread { .. }, RuntimeResult::ThreadLoaded { thread_id, .. }) => {
             ctx.thread_id.is_none() && identifier(thread_id)
@@ -494,6 +578,17 @@ pub fn validate_runtime_reduction(
         .map(|turn| turn.thread_id.clone())
         .collect();
     for event in &reduction.events {
+        if let AgentRuntimeEvent::BackgroundProcesses {
+            thread_id,
+            processes,
+        } = event
+        {
+            if !owns_runtime_thread(ctx, thread_id) {
+                return Err(mismatch("background event targets an unowned thread"));
+            }
+            validate_background_processes(processes)?;
+            continue;
+        }
         if let AgentRuntimeEvent::AuthLogin { login } = event {
             if login.login_id.as_ref().is_some_and(|id| !identifier(id))
                 || login
@@ -595,12 +690,24 @@ pub fn validate_runtime_reduction(
             continue;
         }
         let thread = match event {
-            AgentRuntimeEvent::RateLimits { .. }
+            AgentRuntimeEvent::BackgroundProcesses { .. }
+            | AgentRuntimeEvent::RateLimits { .. }
             | AgentRuntimeEvent::Auth { .. }
             | AgentRuntimeEvent::AuthLogin { .. } => continue,
             AgentRuntimeEvent::ChatItem { thread_id, item } => {
                 if !identifier(&item.id) {
                     return Err(invalid("invalid chat item id"));
+                }
+                if let Some(child) = runtime_child(thread_id, item) {
+                    if !parents.contains_key(&child.parent_thread_id)
+                        || parents
+                            .get(&child.thread_id)
+                            .is_some_and(|parent| parent.as_ref() != Some(&child.parent_thread_id))
+                        || (!parents.contains_key(&child.thread_id) && parents.len() >= 65)
+                    {
+                        return Err(mismatch("child metadata changes proven ancestry"));
+                    }
+                    parents.insert(child.thread_id, Some(child.parent_thread_id));
                 }
                 thread_id
             }

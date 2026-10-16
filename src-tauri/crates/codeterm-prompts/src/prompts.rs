@@ -208,6 +208,12 @@ pub const CARTOGRAPHER_SUFFIX: &str = include_str!("../../../prompts/cartographe
 /// Compact control context placed after a Worker's task-owned identity.
 pub const WORKER_CODETERM_CONTEXT: &str =
     include_str!("../../../prompts/worker_codeterm_context.md");
+pub const READ_ONLY_WORKER_GUIDANCE: &str =
+    include_str!("../../../prompts/read_only_worker_guidance.md");
+
+pub fn with_read_only_worker_guidance(prompt: String) -> String {
+    prompt.replace(AGENT_PAD_RULE.trim(), READ_ONLY_WORKER_GUIDANCE.trim())
+}
 
 /// Shared rich-rendering capability included in every CodeTerm agent contract.
 pub const RICH_RENDERING_GUIDANCE: &str =

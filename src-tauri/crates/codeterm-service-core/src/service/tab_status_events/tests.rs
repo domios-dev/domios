@@ -65,9 +65,9 @@ fn reconciled_completion_is_observable_once_on_shared_event_channel() {
         );
     };
     events.publish(SystemEvent::MuxStateChanged);
-    events.publish_generic("mux-state-changed", serde_json::json!({}));
+    events.publish_generic("mux-state-changed", serde_json::json!({"generation": 0}));
     emit_snapshot();
-    assert_status(&mut receiver, &tab_id, "Working");
+    assert_status(&mut receiver, &tab_id, "Working", None);
     assert!(crate::agent::state_verdict::apply(
         &mux,
         &tab_id,
@@ -79,13 +79,14 @@ fn reconciled_completion_is_observable_once_on_shared_event_channel() {
         TabStatus::Working
     );
     emit_snapshot();
-    assert_status(&mut receiver, &tab_id, "Idle");
+    assert_status(&mut receiver, &tab_id, "Idle", None);
     emit_snapshot();
-    assert!(status_payloads(&mut receiver).is_empty());
+    assert!(status_payloads(&mut receiver, None).is_empty());
 }
 
 fn status_payloads(
     receiver: &mut tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
+    expected_generation: Option<&crate::service::ServiceContext>,
 ) -> Vec<serde_json::Value> {
     let mut statuses = Vec::new();
     loop {
@@ -96,7 +97,11 @@ fn status_payloads(
                 }
                 SystemEvent::MuxStateChanged => {}
                 SystemEvent::Generic { event_type, data } if event_type == "mux-state-changed" => {
-                    assert_eq!(data, serde_json::json!({}));
+                    let generation = data["generation"].as_u64().expect("numeric mux generation");
+                    assert_eq!(data, serde_json::json!({"generation": generation}));
+                    if let Some(expected) = expected_generation {
+                        assert_eq!(generation, expected.published_mux_state_versioned().0);
+                    }
                 }
                 event => panic!("unexpected event: {event:?}"),
             },
@@ -110,9 +115,10 @@ fn assert_status(
     receiver: &mut tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
     tab_id: &str,
     status: &str,
+    expected_generation: Option<&crate::service::ServiceContext>,
 ) {
     assert_eq!(
-        status_payloads(receiver),
+        status_payloads(receiver, expected_generation),
         [serde_json::json!({"tab_id": tab_id, "status": status})]
     );
 }
@@ -143,17 +149,17 @@ fn service_completion_publishes_idle_without_duplicate_events() {
     let mut receiver = service.events.subscribe();
     let mux_rx = mux_snapshots(&fixture);
     assert!(service.mark_agent_turn_started(&tab_id));
-    assert_status(&mut receiver, &tab_id, "Working");
+    assert_status(&mut receiver, &tab_id, "Working", Some(service));
     wait_for_mux_snapshot(&mux_rx);
-    assert!(status_payloads(&mut receiver).is_empty());
+    assert!(status_payloads(&mut receiver, Some(service)).is_empty());
     assert!(service.mark_agent_turn_complete(&tab_id));
-    assert_status(&mut receiver, &tab_id, "Idle");
+    assert_status(&mut receiver, &tab_id, "Idle", Some(service));
     wait_for_mux_snapshot(&mux_rx);
-    assert!(status_payloads(&mut receiver).is_empty());
+    assert!(status_payloads(&mut receiver, Some(service)).is_empty());
     assert_eq!(service.get_tab_status(&tab_id).unwrap().status, "idle");
     assert!(service.mark_agent_turn_complete(&tab_id));
     wait_for_mux_snapshot(&mux_rx);
-    assert!(status_payloads(&mut receiver).is_empty());
+    assert!(status_payloads(&mut receiver, Some(service)).is_empty());
 }
 
 fn rpc_provider() -> crate::plugin::js_runtime::JsProvider {
@@ -228,8 +234,8 @@ fn rpc_declared_turns_publish_once_and_reconcile_pty_idle() {
                 |_| {},
             );
         }
-        assert_status(&mut receiver, &tab_id, &format!("{expected:?}"));
-        assert!(status_payloads(&mut receiver).is_empty());
+        assert_status(&mut receiver, &tab_id, &format!("{expected:?}"), None);
+        assert!(status_payloads(&mut receiver, None).is_empty());
     }
 }
 
@@ -248,7 +254,7 @@ fn rpc_turn_status_owner_updates_api_and_publishes_once() {
     let mux_rx = mux_snapshots(&fixture);
     for (event, expected) in [("turn/started", "Working"), ("turn/completed", "Idle")] {
         super::super::codex_rpc::status::observe_event(service, &tab_id, "own-rpc-thread", event);
-        let statuses = status_payloads(&mut receiver);
+        let statuses = status_payloads(&mut receiver, Some(service));
         assert_eq!(
             statuses,
             [serde_json::json!({"tab_id":tab_id,"status":expected})]
@@ -258,12 +264,12 @@ fn rpc_turn_status_owner_updates_api_and_publishes_once() {
             expected.to_lowercase()
         );
         wait_for_mux_snapshot(&mux_rx);
-        assert!(status_payloads(&mut receiver).is_empty());
+        assert!(status_payloads(&mut receiver, Some(service)).is_empty());
         if event == "turn/started" {
             service.agent_tracker.lock().set_idle("rpc-status-pty");
             service.publish_authoritative_tab_statuses();
             assert_eq!(service.get_tab_status(&tab_id).unwrap().status, "working");
-            assert!(status_payloads(&mut receiver).is_empty());
+            assert!(status_payloads(&mut receiver, Some(service)).is_empty());
         }
     }
 }

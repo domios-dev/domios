@@ -2,6 +2,7 @@ use super::*;
 use codeterm_plugin::agent_runtime::{AgentRuntimeCommand, AgentRuntimeProtocol, RpcCall};
 fn capability() -> AgentRuntimeCapability {
     AgentRuntimeCapability {
+        background_processes: false,
         stored_history: false,
         usage: false,
         reset_credits_min_version: None,

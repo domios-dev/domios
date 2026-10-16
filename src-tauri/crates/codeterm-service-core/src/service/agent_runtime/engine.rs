@@ -81,20 +81,64 @@ pub(super) mod backfill;
 #[path = "engine/test_support.rs"]
 pub(crate) mod test_support;
 
-pub fn stop(tab: &str) {
+pub fn stop_blocking(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    if for_tab(tab).is_none() {
+        return Ok(());
+    }
+    let finish = || crate::async_runtime::block_on(stop(svc, tab));
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(finish)
+        }
+        Ok(_) => Err("Runtime stop requires async stop on a current-thread executor".into()),
+        Err(_) => finish(),
+    }
+}
+
+pub async fn stop(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    let Some(session) = for_tab(tab) else {
+        return Ok(());
+    };
+    let permit = session.gate.try_acquire().ok();
+    session.gate.close();
+    let process = session.process.lock().clone();
+    if let Some(process) = process {
+        if let Err(reason) = super::background::cleanup(
+            svc,
+            &session,
+            &process,
+            super::background::Mode::Shutdown,
+            Vec::new(),
+            permit.is_some(),
+        )
+        .await
+        {
+            let epoch = session.context.lock().epoch;
+            session.state.lock().degrade(epoch, &reason);
+            publish(svc, tab, &session);
+            return Err(reason.to_string());
+        }
+    }
+    {
+        let mut sessions = SESSIONS.lock();
+        if !sessions
+            .get(tab)
+            .is_some_and(|current| Arc::ptr_eq(current, &session))
+        {
+            return Err(RuntimeFailure::Superseded.to_string());
+        }
+        sessions.remove(tab);
+    }
     super::authority::revoke(tab);
     super::environment::revoke(tab);
     super::capture::revoke(tab);
-    if let Some(session) = SESSIONS.lock().remove(tab) {
-        super::login::forget(&session);
-        session.state.lock().phase = RuntimePhase::Unloaded {
-            reason: Some("Runtime stopped".into()),
-        };
-        session.control_changes.send_replace(());
-        if let Some(process) = session.process.close() {
-            process.stop();
-        }
-    }
+    super::login::forget(&session);
+    session.state.lock().phase = RuntimePhase::Unloaded {
+        reason: Some("Runtime stopped".into()),
+    };
+    session.control_changes.send_replace(());
+    session.process.close();
+    Ok(())
 }
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
@@ -266,7 +310,14 @@ async fn ensure_locked(
             .await
             .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
             .map_err(RuntimeFailure::Refused)?;
-    session.context.lock().settings = settings;
+    let resolved_cwd = svc.mux.read().get_tab(tab).and_then(|tab| tab.cwd.clone());
+    {
+        let mut context = session.context.lock();
+        context.settings = settings;
+        if let Some(cwd) = resolved_cwd {
+            context.cwd = cwd;
+        }
+    }
     crate::startup::boot_timing::mark(tab, None, "runtime_options_ready");
     let process = if live {
         old.ok_or(RuntimeFailure::Superseded)?
@@ -342,6 +393,9 @@ async fn ensure_locked(
                         reason: error.to_string(),
                     })?,
             );
+            env.extend(crate::service::execution_sandbox::environment(
+                &owner, &target,
+            ));
             if !super::authority::verifies(&owner, &target, &provider_id, &nonce) {
                 return Err(RuntimeFailure::Superseded);
             }
@@ -588,6 +642,8 @@ async fn run_inner(
     operation: RuntimeOperation,
 ) -> Result<RuntimeResult, RuntimeFailure> {
     let mut context = session.context.lock().clone();
+    crate::service::execution_sandbox::validate_runtime_operation(svc, &context, &operation)
+        .map_err(RuntimeFailure::Refused)?;
     super::model::validate_operation_thread(&context, &operation)?;
     if matches!(operation, RuntimeOperation::SubmitTurn { .. })
         && session.compaction.lock().held(context.epoch)
@@ -602,6 +658,9 @@ async fn run_inner(
         let prompt = pending.prompt.as_ref().ok_or(RuntimeFailure::Superseded)?;
         super::model::validate_prompt_answer(prompt, answer)?;
         context.pending_request = Some(pending.request.clone());
+    }
+    if matches!(operation, RuntimeOperation::SubmitTurn { .. }) {
+        process.begin_turn().await?;
     }
     let adapter = session
         .adapter
@@ -664,11 +723,16 @@ async fn run_inner(
                     RuntimeOperation::SubmitTurn { send_id, .. } => Some(send_id.clone()),
                     _ => None,
                 };
+                let captured_read = matches!(operation, RuntimeOperation::ReadHistory { .. })
+                    .then(|| operation.clone());
                 let guard: super::rpc::PrewriteGuard = Arc::new(move || {
                     if runtime.context.lock().epoch != epoch {
                         return Err(RuntimeFailure::Superseded);
                     }
                     validate_binding(&owner, &runtime)?;
+                    if let Some(read) = &captured_read {
+                        super::model::validate_operation_thread(&runtime.context.lock(), read)?;
+                    }
                     if let Some(send) = &captured_send {
                         if runtime.compaction.lock().held(epoch) {
                             return Err(RuntimeFailure::Refused(
@@ -777,6 +841,7 @@ async fn run_inner(
                     history.append(result);
                     return Ok(history.finish(thread, cursor));
                 }
+                super::owned_context::record(svc, session, &context, &operation, &result)?;
                 return Ok(result);
             }
         }

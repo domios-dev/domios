@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import test from 'node:test';
+import { verifyLaneMetadata } from './lane-metadata-repro.mjs';
+import { laneNativeWrapper } from '../lane-native-wrapper.mjs';
 import { laneBuildDirectory } from '../lane-build-dir.mjs';
 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
@@ -22,6 +24,7 @@ for (const cacheRoot of [false, true]) {
       [ "$CARGO_BUILD_BUILD_DIR" = canonical-build-directory ]
       prepare_dev_frontend_dist() { :; }
       prepare_bundle_stubs() { :; }
+      configure_lane_workspace_wrapper() { :; }
       cargo() { [ "$CARGO_BUILD_BUILD_DIR" != canonical-build-directory ]; printf '%s' "$CARGO_BUILD_BUILD_DIR"; }
       lane_check codeterm-fixture
       [ "$CARGO_BUILD_BUILD_DIR" = canonical-build-directory ]
@@ -68,6 +71,7 @@ test('lane checks cap Cargo jobs, propagate errors and request tests only when n
     source scripts/lane-check.sh
     prepare_dev_frontend_dist() { :; }
     prepare_bundle_stubs() { :; }
+    configure_lane_workspace_wrapper() { :; }
     enter_cargo_gateway() { return 99; }
     cargo() { printf 'jobs=%s %s\\n' "$CARGO_BUILD_JOBS" "$*"; return 41; }
     lane_check codeterm-fixture && exit 1 || [ "$?" = 41 ]
@@ -81,4 +85,43 @@ test('lane checks cap Cargo jobs, propagate errors and request tests only when n
     'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --tests',
     'jobs=4 check --manifest-path cli/Cargo.toml -p codeterm-cli --bin codeterm --tests',
   ]);
+});
+
+
+test('two worktrees use their own exported items while registry metadata stays shared', { timeout: 120_000 }, () => {
+  verifyLaneMetadata();
+});
+
+test('lane workspace wrapper stays scoped to the lane subshell', () => {
+  const result = spawnSync(bash, ['-c', `
+    set -eu
+    source scripts/lane-check.sh
+    export RUSTC_WORKSPACE_WRAPPER=canonical-wrapper
+    prepare_dev_frontend_dist() { :; }
+    prepare_bundle_stubs() { :; }
+    cargo() { [ "$RUSTC_WORKSPACE_WRAPPER" != canonical-wrapper ]; [ -f "$RUSTC_WORKSPACE_WRAPPER" ]; }
+    lane_check codeterm-fixture
+    [ "$RUSTC_WORKSPACE_WRAPPER" = canonical-wrapper ]
+  `], { cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+
+test('native Windows wrapper forwards a command exceeding cmd.exe limits and its exit code', { skip: process.platform !== 'win32' }, () => {
+  const argument = 'unicode-λ spaces "quoted" ' + 'x'.repeat(12_000);
+  const result = spawnSync(laneNativeWrapper(), [process.execPath, '-e', 'process.stdout.write(process.argv[1]); process.exit(37)', argument], { encoding: 'utf8' });
+  assert.equal(result.status, 37, result.stderr);
+  assert.equal(result.stdout, argument);
+});
+
+
+test('real Windows service-core library and test targets accept the native wrapper', {
+  skip: process.platform !== 'win32' || process.env.CODETERM_LANE_REAL_CRATE_TEST !== '1',
+  timeout: 570_000,
+}, () => {
+  const result = spawnSync(bash, ['build.sh', 'lane-check', 'codeterm-service-core', '--tests'], {
+    cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8', timeout: 540_000, maxBuffer: 16 * 1024 * 1024,
+  });
+  assert.equal(result.status, 0, `${result.error?.message ?? ''}\n${result.stdout}\n${result.stderr}`);
+  assert.doesNotMatch(`${result.stdout}${result.stderr}`, /command line is too long/i);
 });
