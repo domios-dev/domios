@@ -27,6 +27,7 @@ export interface JsonlRecordSource {
 export type JsonlRecordSources = Record<string, JsonlRecordSource>;
 
 export interface SessionRecordsMeta {
+  sourceKey?: string;
   fromOffset: number;
   toOffset: number;
   newOffset: number;

@@ -24,13 +24,13 @@ pub fn delta(
         .ok()
 }
 
-pub fn stored(
+pub fn stored_window(
     provider: &dyn AgentProvider,
     session: &str,
     path: &Path,
     before: Option<u64>,
     budget: u64,
-) -> Result<(Vec<crate::agent::chat_types::ChatMsg>, u64, u64), String> {
+) -> Result<codeterm_plugin::jsonl_window::records::RecordWindow, String> {
     let source = provider
         .record_source("storedHistory")
         .ok_or("Stored record source is undeclared")?;
@@ -48,13 +48,16 @@ pub fn stored(
     }
     let (bytes, start) = codeterm_plugin::jsonl_window::read_range(path, page.start, page.end)
         .map_err(|error| error.to_string())?;
-    let window = codeterm_plugin::jsonl_window::records::parse_records_with_limit(
+    let mut window = codeterm_plugin::jsonl_window::records::parse_records_with_limit(
         &bytes,
         start,
         source,
         Some(session),
         budget,
     );
-    let rows = provider.runtime_stored_records(session, &window)?;
-    Ok((rows, start, window.meta.new_offset))
+    window.meta.source_key = Some(path.to_string_lossy().into_owned());
+    if let Some(reason) = &window.projection_error {
+        return Err(reason.clone());
+    }
+    Ok(window)
 }

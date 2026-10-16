@@ -103,6 +103,8 @@ pub struct ParsedRecord {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordMeta {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_key: Option<String>,
     pub from_offset: u64,
     pub to_offset: u64,
     pub new_offset: u64,
@@ -259,6 +261,7 @@ pub fn read_records(
     let cap = budget.min(super::DELTA_CHUNK_BYTES);
     let chunk = super::read_records_from(path, from, cap)?;
     let mut window = parse_records(&chunk.bytes, from, source, session);
+    window.meta.source_key = Some(path.to_string_lossy().into_owned());
     let total = std::fs::metadata(path)?.len();
     window.meta.to_offset = from.saturating_add(cap).min(total).max(from);
     window.meta.truncated_tail = chunk.new_offset < window.meta.to_offset;

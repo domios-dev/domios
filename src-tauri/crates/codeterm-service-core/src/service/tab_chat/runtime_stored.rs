@@ -70,6 +70,11 @@ struct Window {
     frozen: bool,
 }
 
+enum StoredInput {
+    Text(String, u64, u64),
+    Records(codeterm_plugin::jsonl_window::records::RecordWindow),
+}
+
 fn read_window(path: &Path, before: Option<u64>) -> Result<(String, u64, u64), String> {
     let total = std::fs::metadata(path)
         .map_err(|error| error.to_string())?
@@ -127,22 +132,31 @@ fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Optio
         return Ok(None);
     }
     let started = std::time::Instant::now();
-    let (records, start, end) = if provider.record_source("storedHistory").is_some() {
-        (None, 0, 0)
+    let input = if provider.record_source("storedHistory").is_some() {
+        StoredInput::Records(super::jsonl_kernel::stored_window(
+            provider.as_ref(),
+            session,
+            &path,
+            before,
+            WINDOW_BYTES,
+        )?)
     } else {
         let (records, start, end) = read_window(&path, before)?;
-        (Some(records), start, end)
+        StoredInput::Text(records, start, end)
     };
     let read_us = started.elapsed().as_micros();
     let projecting = std::time::Instant::now();
-    let (messages, start, end) = if let Some(records) = &records {
-        (
-            provider.runtime_stored_history(session, records)?,
+    let (messages, start, end) = match input {
+        StoredInput::Text(records, start, end) => (
+            provider.runtime_stored_history(session, &records)?,
             start,
             end,
-        )
-    } else {
-        super::jsonl_kernel::stored(provider.as_ref(), session, &path, before, WINDOW_BYTES)?
+        ),
+        StoredInput::Records(window) => (
+            provider.runtime_stored_records(session, &window)?,
+            window.meta.from_offset,
+            window.meta.new_offset,
+        ),
     };
     let projection_us = projecting.elapsed().as_micros();
     let current = svc.mux.read().get_tab(tab_id).is_some_and(|current| {
