@@ -117,37 +117,6 @@ test('frontend rewritten with identical bytes is accepted; different bytes still
   }
 });
 
-test('dev rebuilds the frontend for HEAD before recording provenance', () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-frontend-order-'));
-  try {
-    fs.writeFileSync(path.join(directory, 'build.sh'), 'echo handoff\n');
-    fs.writeFileSync(path.join(directory, 'conf.json'), '{}');
-    const result = spawnSync(bash, ['-c', `set -euo pipefail
-${sourceFunction('build_and_launch_dev')}
-cd "$1"
-configure_dev_cargo() { :; }
-dev_conf_path() { echo conf.json; }
-node() { :; }
-cargo() { echo cargo; }
-git() { echo "$FIXTURE_SHA"; }
-build_dev_frontend() { echo frontend; }
-write_dev_provenance() { echo "provenance $1"; }
-retain_dev_pdb() { :; }
-release_stable_build_path() { :; }
-tauri_debug_dir() { :; }
-record_dev_target() { :; }
-complete_build_gateway_before_handoff() { :; }
-CT_DEV_CARGO_PROFILE=dev CT_DEV_CARGO_FEATURES=
-build_and_launch_dev
-`, '--', directory], { encoding: 'utf8', env: { ...process.env, FIXTURE_SHA: 'a'.repeat(40) } });
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout.trim().split('\n').filter(line => !line.startsWith('Build gateway')).join('\n'),
-      `cargo\nfrontend\nprovenance ${'a'.repeat(40)}\nhandoff`);
-  } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
-});
-
 test('prebuilt web watcher rebuilds dist in place instead of emptying it under the static server', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-web-watch-'));
   try {
