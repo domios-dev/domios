@@ -1,4 +1,5 @@
 [
+  "src/components/shared/deferredComponent.test.tsx",
   "src/components/shared/DeferredPresence.test.tsx",
   "src/components/shared/ErrorNotice.test.tsx",
   "src/components/Sidebar/Sidebar.edge.test.tsx",
