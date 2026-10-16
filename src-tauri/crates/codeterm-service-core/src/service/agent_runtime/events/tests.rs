@@ -99,3 +99,32 @@ fn a_working_turn_becomes_active_and_idle_clears_it() {
     observe(&mut context, &turn(RuntimeTurnState::Idle));
     assert!(context.active_turns.is_empty());
 }
+
+#[test]
+fn idle_thread_prunes_its_background_roster() {
+    let mut maps = RuntimeMaps::default();
+    fold(
+        &mut maps,
+        1,
+        &RuntimeEvent::BackgroundProcessesUpdated {
+            thread_id: "child".into(),
+            processes: Vec::new(),
+        },
+    );
+    assert!(maps.background_processes.contains_key("child"));
+    fold(
+        &mut maps,
+        1,
+        &RuntimeEvent::TurnUpdated {
+            thread_id: "child".into(),
+            turn_id: Some("turn".into()),
+            state: RuntimeTurnState::Idle,
+            detail: None,
+            status_line: None,
+            started_at: None,
+            completed_at: None,
+            parent_thread_id: Some("root".into()),
+        },
+    );
+    assert!(!maps.background_processes.contains_key("child"));
+}
