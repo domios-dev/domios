@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn session_parser_argument_channels_preserve_rows() {
-    let plugins = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+    let plugins = crate::test_support::fixture_manifest_dir().join("../../../plugins");
     let mut cases = 0;
     for entry in std::fs::read_dir(plugins).unwrap() {
         let directory = entry.unwrap().path();
