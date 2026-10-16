@@ -13,10 +13,8 @@ import { clampFloatingPosition } from "../shared/floatingPosition";
 import { ActivityDots } from "../shared/ActivityDots";
 import { KebabGlyph } from "../shared/RowMenuButton";
 import { PLAN_STATUS_COLORS, SegmentedDonut } from "../shared/SegmentedDonut";
-import {
-  PlanStatusBreakdown,
-  type PlanStatusCounts,
-} from "../shared/PlanStatusBreakdown";
+import { TeamStatusTally } from "./TeamStatusTally";
+import type { PlanStatusCounts } from "../shared/PlanStatusBreakdown";
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
 import { refusalText } from "../../lib/refusalText";
 import { useProviderModelUsage } from "../../hooks/useProviderModelUsage";
@@ -615,7 +613,7 @@ export function TeamUnit({
         </span>
       )}
       {plan && (
-        <PlanStatusBreakdown
+        <TeamStatusTally
           key={`tally-${planMotion.revision}`}
           data-testid="team-status-tally"
           data-team-card-region="status-tally"

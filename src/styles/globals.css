@@ -2141,12 +2141,14 @@ button,
 }
 
 .sidebar-team-header {
+  --team-controls-width: 38px;
+  --team-controls-gap: 6px;
   display: grid;
   position: relative;
   grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   align-items: start;
-  gap: 6px;
+  gap: var(--team-controls-gap);
   margin: 0 0 9px;
   padding: 7px 3px 0 14px;
   border-radius: 7px;
@@ -2640,7 +2642,6 @@ button,
   gap: 4px;
   line-height: 1;
   container-type: inline-size;
-  container-name: team-summary;
   pointer-events: auto;
 }
 
@@ -2728,8 +2729,9 @@ button,
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
-  width: 38px;
+  width: var(--team-controls-width);
   height: 22px;
+  margin-top: -4px;
 }
 
 .sidebar-team-menu-root {
@@ -2864,6 +2866,7 @@ button,
 
 .sidebar-team-readout {
   display: flex;
+  width: max-content;
   margin: 0;
   line-height: 1;
   justify-content: flex-start;
@@ -2878,8 +2881,13 @@ button,
   transition-duration: 0.5s;
 }
 
-@container team-summary (max-width: 190px) {
-  .sidebar-team-readout .ct-plan-status-breakdown-label { display: none; }
+.sidebar-team-status-fit {
+  min-width: 0;
+  width: calc(100% + var(--team-controls-width) + var(--team-controls-gap));
+}
+
+.sidebar-team-status-fit[data-compact] .ct-plan-status-breakdown-label {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
