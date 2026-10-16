@@ -1,21 +1,21 @@
 //! `host.sqliteQueryAllJson`: a read-only query streamed into one JSON array
 //! whose size, and every value SQLite materialises for it, stay under a cap.
 
-use std::collections::HashMap;
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use parking_lot::Mutex;
 use rusqlite::limits::Limit;
 use rusqlite::types::ValueRef;
+
+mod pool;
+
+use pool::ConnectionPool;
+pub use pool::PluginSqliteLease;
 
 /// Upper bound for one query's JSON result and for any single SQLite value.
 const SQLITE_RESULT_MAX_BYTES: usize = 64 << 20;
 const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_millis(250);
-const POOL_CONNECTIONS_PER_PLUGIN: usize = 8;
 
 pub(super) fn host_query(
     ctx: &rquickjs::Ctx<'_>,
@@ -54,67 +54,17 @@ pub(super) fn host_query(
 
 static POOL: LazyLock<ConnectionPool> = LazyLock::new(ConnectionPool::new);
 
+/// Pools `plugin_id`'s sqlite connections for the guard's lifetime; take it for
+/// a long-lived reader such as a structured-chat poller, never per call.
+pub fn lease_plugin_sqlite(plugin_id: &str) -> PluginSqliteLease<'static> {
+    POOL.lease(plugin_id)
+}
+
 pub(in crate::js_runtime) fn drop_plugin_connections(plugin_id: &str) {
     POOL.drop_plugin(plugin_id);
 }
 
-/// Read-only connections reused per (plugin id, canonical db path), LRU-bounded.
-/// `entries` is a leaf lock held only for map edits: never across a query, a VM
-/// call or a mux guard, and connections open and close outside it.
-struct ConnectionPool {
-    entries: Mutex<HashMap<String, Vec<PooledConnection>>>,
-    opens: AtomicUsize,
-}
-
-struct PooledConnection {
-    requested: String,
-    canonical: PathBuf,
-    identity: FileIdentity,
-    conn: rusqlite::Connection,
-}
-
-/// Which file a path names, so a replaced db never serves the old inode.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct FileIdentity {
-    volume: u64,
-    file: u128,
-}
-
-impl FileIdentity {
-    fn of(path: &Path) -> Option<Self> {
-        let metadata = std::fs::metadata(path).ok()?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            Some(Self {
-                volume: metadata.dev(),
-                file: u128::from(metadata.ino()),
-            })
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::MetadataExt;
-            Some(Self {
-                volume: 0,
-                file: u128::from(metadata.creation_time()),
-            })
-        }
-        #[cfg(not(any(unix, windows)))]
-        {
-            let _ = metadata;
-            Some(Self { volume: 0, file: 0 })
-        }
-    }
-}
-
 impl ConnectionPool {
-    fn new() -> Self {
-        Self {
-            entries: Mutex::new(HashMap::new()),
-            opens: AtomicUsize::new(0),
-        }
-    }
-
     /// `Ok(None)` keeps the null contract for an unreadable db, bad SQL, or bad
     /// params; `Err` is a cap breach the caller surfaces as a JS exception.
     fn query(
@@ -128,92 +78,13 @@ impl ConnectionPool {
         let Some(params) = parse_params(params_json) else {
             return Ok(None);
         };
-        let resolved = std::fs::canonicalize(db_path)
-            .ok()
-            .and_then(|canonical| Some((FileIdentity::of(&canonical)?, canonical)));
-        let Some((identity, canonical)) = resolved else {
-            drop(self.evict_requested(plugin_id, db_path));
-            log::debug!("[sqlite-session-probe] stage=open db={db_path} error=missing");
+        let Some(entry) = self.acquire(plugin_id, db_path) else {
             return Ok(None);
         };
-        let conn = match self.checkout(plugin_id, &canonical, identity) {
-            Some(conn) => conn,
-            None => {
-                let Some(conn) = open_read_only(db_path) else {
-                    return Ok(None);
-                };
-                self.opens.fetch_add(1, Ordering::Relaxed);
-                conn
-            }
-        };
-        let result = query_connection(&conn, db_path, sql, params, max_bytes);
-        // A plugin-issued BEGIN would pin a stale snapshot for every later call.
-        if conn.is_autocommit() {
-            self.checkin(
-                plugin_id,
-                PooledConnection {
-                    requested: db_path.to_string(),
-                    canonical,
-                    identity,
-                    conn,
-                },
-            );
-        }
+        let mut faulted = false;
+        let result = query_connection(&entry.conn, db_path, sql, params, max_bytes, &mut faulted);
+        self.checkin(plugin_id, entry, faulted);
         result
-    }
-
-    fn checkout(
-        &self,
-        plugin_id: &str,
-        canonical: &Path,
-        identity: FileIdentity,
-    ) -> Option<rusqlite::Connection> {
-        let taken = {
-            let mut entries = self.entries.lock();
-            let list = entries.get_mut(plugin_id)?;
-            let index = list.iter().position(|entry| entry.canonical == canonical)?;
-            list.remove(index)
-        };
-        (taken.identity == identity).then_some(taken.conn)
-    }
-
-    fn checkin(&self, plugin_id: &str, entry: PooledConnection) {
-        let evicted = {
-            let mut entries = self.entries.lock();
-            let list = entries.entry(plugin_id.to_string()).or_default();
-            let mut evicted = Vec::new();
-            if let Some(index) = list.iter().position(|e| e.canonical == entry.canonical) {
-                evicted.push(list.remove(index));
-            }
-            list.push(entry);
-            while list.len() > POOL_CONNECTIONS_PER_PLUGIN {
-                evicted.push(list.remove(0));
-            }
-            evicted
-        };
-        drop(evicted);
-    }
-
-    fn evict_requested(&self, plugin_id: &str, requested: &str) -> Vec<PooledConnection> {
-        let mut entries = self.entries.lock();
-        let Some(list) = entries.get_mut(plugin_id) else {
-            return Vec::new();
-        };
-        let (gone, kept) = std::mem::take(list)
-            .into_iter()
-            .partition(|entry| entry.requested == requested);
-        *list = kept;
-        gone
-    }
-
-    fn drop_plugin(&self, plugin_id: &str) {
-        let removed = self.entries.lock().remove(plugin_id);
-        drop(removed);
-    }
-
-    #[cfg(test)]
-    fn pooled(&self, plugin_id: &str) -> usize {
-        self.entries.lock().get(plugin_id).map_or(0, Vec::len)
     }
 }
 
@@ -256,7 +127,7 @@ fn query_all_json(
     let Some(conn) = open_read_only(db_path) else {
         return Ok(None);
     };
-    query_connection(&conn, db_path, sql, params, max_bytes)
+    query_connection(&conn, db_path, sql, params, max_bytes, &mut false)
 }
 
 fn query_connection(
@@ -265,6 +136,7 @@ fn query_connection(
     sql: &str,
     params: Vec<serde_json::Value>,
     max_bytes: usize,
+    faulted: &mut bool,
 ) -> Result<Option<String>, String> {
     // SQLite refuses to load a value past this length instead of allocating it.
     conn.set_limit(
@@ -275,6 +147,7 @@ fn query_connection(
         Ok(stmt) => stmt,
         Err(error) => {
             log::debug!("[sqlite-session-probe] stage=prepare db={db_path} error={error}");
+            *faulted = is_connection_fault(&error);
             return Ok(None);
         }
     };
@@ -291,6 +164,7 @@ fn query_connection(
         Ok(rows) => rows,
         Err(error) => {
             log::debug!("[sqlite-session-probe] stage=query db={db_path} error={error}");
+            *faulted = is_connection_fault(&error);
             return Ok(None);
         }
     };
@@ -303,6 +177,7 @@ fn query_connection(
             Err(error) if is_too_big(&error) => return Err(value_too_big(max_bytes)),
             Err(error) => {
                 log::debug!("[sqlite-session-probe] stage=row db={db_path} error={error}");
+                *faulted = is_connection_fault(&error);
                 return Ok(None);
             }
         };
@@ -373,6 +248,16 @@ fn ensure_room(out: &[u8], incoming: usize, max_bytes: usize) -> Result<(), Stri
         ));
     }
     Ok(())
+}
+
+/// Errors that mean the handle no longer reads the file the path names.
+fn is_connection_fault(error: &rusqlite::Error) -> bool {
+    use rusqlite::ErrorCode::*;
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(e, _)
+            if matches!(e.code, SystemIoFailure | CannotOpen | DatabaseCorrupt | NotADatabase | FileLockingProtocolFailed)
+    )
 }
 
 fn is_too_big(error: &rusqlite::Error) -> bool {
