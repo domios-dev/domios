@@ -218,5 +218,8 @@
   "packages/chat-ui/src/toolcard/ToolCallProgress.test.tsx",
   "packages/chat-ui/src/VoiceCard.test.tsx",
   "packages/chat-ui/src/MessageBubble.envelope.test.tsx",
-  "src/components/Terminal/ComposerIssuesIndicator.test.tsx"
+  "src/components/Terminal/ComposerIssuesIndicator.test.tsx",
+  "src/lib/buildDriftReload.test.ts",
+  "src/lib/webEvents.bootChanged.test.ts",
+  "src/components/StaleBuildBanner.test.tsx"
 ]

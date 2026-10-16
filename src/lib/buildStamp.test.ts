@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { appVersion, buildHash } from "./buildStamp";
 import { __resetForTest, checkBuildMismatch } from "./buildMismatchGuard";
+import { frontendApiContract } from "./frontendApiContract";
 
 const STAMP_IDENTIFIERS = /(__BUILD_HASH__|__APP_VERSION__)/;
 const STAMP_IDENTIFIERS_GLOBAL = /(^|[^.\w$])(__BUILD_HASH__|__APP_VERSION__)\b/g;
@@ -94,7 +95,7 @@ async function main() {
   console.log("\nbuildMismatchGuard: consumes the accessor:");
   __resetForTest();
   setStamps(undefined, undefined);
-  stubHealth({ build: "0000000", version: "1.9.4", apiVersion: 2 });
+  stubHealth({ build: "0000000", version: "1.9.4", apiVersion: frontendApiContract.minApiVersion });
   assert(
     "a compatible daemon accepts an uninjected frontend identity",
     (await checkBuildMismatch("http://fixture")) === null,
@@ -110,7 +111,7 @@ async function main() {
 
   __resetForTest();
   setStamps("9f3ac21", undefined);
-  stubHealth({ build: "independent-daemon", apiVersion: 2 });
+  stubHealth({ build: "independent-daemon", apiVersion: frontendApiContract.minApiVersion });
   assert(
     "an independent compatible daemon raises nothing",
     (await checkBuildMismatch("http://fixture")) === null,

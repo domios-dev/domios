@@ -22,6 +22,8 @@ const runtimeFailures: readonly (readonly [RegExp, string, string])[] = [
 
 const knownNotices: Record<string, readonly [string, string]> = {
   frontend_version_mismatch: ["The interface needs an update", "The interface and daemon use incompatible API versions. Update Domios, then reload the interface."],
+  frontend_build_drift: ["A newer interface is available", "The daemon was updated, but this page still runs the previous interface. Reload the interface to use the new one."],
+  frontend_build_drift_unreachable: ["The interface reload did not take effect", "A reload was attempted, but the daemon is unreachable and this page still runs the previous interface. Reload once the daemon is back."],
   memory_run_incomplete: ["The memory run needs attention", "Some results could not be saved. Review the run report before trying again."],
   terminal_input_failed: ["Terminal input failed", "The terminal could not accept the input. Check the connection before sending again."],
   automation_unavailable: ["Automations could not be loaded", "Retained records may be stale, so stopping is disabled. Refresh to check the current state."],

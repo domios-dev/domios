@@ -20,6 +20,7 @@ import { createSeqGapTracker } from "./eventSeqGaps";
 import { RECONNECT_FIRST_MS, nextReconnectBackoff, reconnectDelay, transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
 import { signalEventStreamReady } from "./eventStreamReady";
+import { WEB_BOOT_CHANGED_EVENT, WEB_EVENTS_READY_EVENT, type BootChangedDetail } from "./buildDriftReload";
 
 let eventClient: TransportClient | undefined;
 export function bindWebEventsTransport(client: TransportClient): void {
@@ -42,6 +43,7 @@ interface OverflowData {
   boot: string;
   next_seq: number;
   oldest?: number;
+  build?: string;
 }
 
 const handlers = new Map<string, Set<Handler>>();
@@ -56,6 +58,7 @@ let wakeReconnectWait: (() => void) | null = null;
 let streamGeneration = 0;
 let wakeRequested = false;
 let receiveDeadline: ReturnType<typeof setTimeout> | null = null;
+let streamRelayed = false;
 
 export function webReconnectEnabled(): boolean {
   try {
@@ -167,9 +170,9 @@ function runFullResync(info: OverflowData): void {
   fireResync(info.reason === "boot-changed" ? "epoch_changed" : "overflow");
   if (info.reason === "boot-changed") {
     // and needs revalidation after a daemon restart (usePtyConnection.ts).
-    window.dispatchEvent(
-      new CustomEvent("codeterm-web-boot-changed", { detail: { boot: info.boot } }),
-    );
+    const detail: BootChangedDetail = { boot: info.boot, relayed: streamRelayed };
+    if (typeof info.build === "string") detail.build = info.build;
+    window.dispatchEvent(new CustomEvent(WEB_BOOT_CHANGED_EVENT, { detail }));
   }
 }
 
@@ -223,9 +226,11 @@ async function runStream(): Promise<void> {
     hasAttemptedConnection = true;
     let connected = false;
     const client = eventClient ?? createTransportClient({ origin: apiHost(), token: currentToken });
+    const target = relayTarget();
     await new Promise<void>((resolve) => {
-      client.subscribe(webEventStreamUrl(cursor).slice(client.origin().length), (_name, data) => {
+      client.subscribe(webEventStreamUrl(cursor, target).slice(client.origin().length), (_name, data) => {
         if (abort.signal.aborted || generation !== streamGeneration) return;
+        streamRelayed = target !== null;
         const frame = data as EventFrame;
         if (!frame || typeof frame.event_type !== "string") return;
         const firstFrame = !connected;
@@ -244,7 +249,9 @@ async function runStream(): Promise<void> {
       }, {
         signal: abort.signal, raw: true,
         onReady() {
-          if (!abort.signal.aborted && generation === streamGeneration) signalEventStreamReady();
+          if (abort.signal.aborted || generation !== streamGeneration) return;
+          signalEventStreamReady();
+          if (reconnecting) window.dispatchEvent(new Event(WEB_EVENTS_READY_EVENT));
         },
         onActivity() { lastFrameAt = Date.now(); armReceiveDeadline(abort); },
         onEnd(end) {
