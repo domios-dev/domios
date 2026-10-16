@@ -210,6 +210,9 @@ button.ct-status-identity:focus-visible {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding-block: 8px;
+  scroll-padding-block: 12px;
+  mask-image: linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent);
 }
 
 .ct-menu-row.ct-model-picker__option {
@@ -228,7 +231,7 @@ button.ct-status-identity:focus-visible {
 }
 
 .ct-model-picker__name {
-  overflow: hidden;
+  overflow: clip;
   white-space: nowrap;
   text-overflow: ellipsis;
   font-family: var(--ct-font-mono);
