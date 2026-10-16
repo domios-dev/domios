@@ -1,6 +1,4 @@
-import { unified } from "unified";
-import remarkParse from "remark-parse";
-import remarkGfm from "remark-gfm";
+import { parsedMarkdown } from "./markdownParse";
 import { isolateBlockDirectives } from "./blockDirectives";
 import { normalizeMultilineHtmlBlocks } from "./htmlSanitize";
 
@@ -35,13 +33,16 @@ export function normalizedMarkdown(source: string) {
   return { text, start: (offset: number) => original(offset), end: (offset: number) => original(offset) };
 }
 
-const parser = unified().use(remarkParse).use(remarkGfm);
 const cache = new Map<string, { source: string; parts: MessagePart[] }>();
 let cachedChars = 0;
 
 export function messageParts(id: string, source: string): MessagePart[] {
   const previous = cache.get(id);
-  if (previous?.source === source) return previous.parts;
+  if (previous?.source === source) {
+    cache.delete(id);
+    cache.set(id, previous);
+    return previous.parts;
+  }
   if (previous) {
     cachedChars -= previous.source.length;
     cache.delete(id);
@@ -62,7 +63,7 @@ export function messageParts(id: string, source: string): MessagePart[] {
 
 function parseMessageParts(id: string, source: string): MessagePart[] {
   const normalized = normalizedMarkdown(source);
-  const blocks = parser.parse(normalized.text).children;
+  const blocks = parsedMarkdown(normalized.text).children;
   const ranges: Array<{ start: number; end: number }> = [];
   for (let index = 0; index < blocks.length; index++) {
     const block = blocks[index];
