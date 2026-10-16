@@ -418,16 +418,22 @@ fn activation(
     }
 }
 #[derive(Default)]
-struct MemoryGrants(parking_lot::Mutex<Option<serde_json::Value>>);
+struct MemoryGrants(
+    parking_lot::Mutex<Option<serde_json::Value>>,
+    std::sync::atomic::AtomicUsize,
+    std::sync::atomic::AtomicUsize,
+);
 impl GrantStore for MemoryGrants {
     fn load(&self) -> Result<Option<serde_json::Value>> {
         Ok(self.0.lock().clone())
     }
     fn save(&self, raw: &serde_json::Value) -> Result<()> {
+        self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *self.0.lock() = Some(raw.clone());
         Ok(())
     }
     fn clear(&self) -> Result<()> {
+        self.2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *self.0.lock() = None;
         Ok(())
     }
@@ -898,13 +904,13 @@ async fn revision_refusal_refetches_once_and_never_reinstates_paid() {
     let free =
         Reading::from(serde_json::from_str::<ApplicationEnvelope>(vector.response.get()).unwrap());
     let provider = GrantReplies::new(vec![Ok(free), Ok(paid_grant()), Ok(paid_grant())]);
-    let (_, clock) = clock(1_700_000_060);
+    let (_, first_clock) = clock(1_700_000_060);
     let store = Arc::new(MemoryGrants::default());
     let billing = Billing::new(provider.clone()).with_test_grants(
         activation(codeterm_entitlements::Phase::B, "fixture-phase-b"),
         "fixture-installation",
         store.clone(),
-        clock,
+        first_clock,
     );
     let user = session("fixture-user");
     billing
@@ -914,9 +920,40 @@ async fn revision_refusal_refetches_once_and_never_reinstates_paid() {
         .refresh(Some(&user), RefreshEvent::CheckoutReturned, Instant::now())
         .await;
     assert_eq!(provider.count(), 3);
-    assert!(snapshot.grant.is_none());
+    assert_eq!(snapshot.grant.unwrap().revision, 11);
     assert!(!billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
-    assert!(store.load().unwrap().is_none());
+    assert_eq!(
+        store.load().unwrap(),
+        Some(
+            serde_json::from_str::<serde_json::Value>(vector.response.get()).unwrap()["grant"]
+                .clone()
+        )
+    );
+
+    let (activation, newer, older) = signed_paid_revisions();
+    let provider = GrantReplies::new(vec![Ok(newer.clone()), Ok(older.clone()), Ok(older)]);
+    let (_, injected_clock) = clock(1_700_000_060);
+    let retained = Arc::new(MemoryGrants::default());
+    let billing = Billing::new(provider.clone()).with_test_grants(
+        activation,
+        "fixture-installation",
+        retained.clone(),
+        injected_clock,
+    );
+    billing
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await;
+    let bytes = serde_json::to_vec(&retained.load().unwrap()).unwrap();
+    let snapshot = billing
+        .refresh(Some(&user), RefreshEvent::CheckoutReturned, Instant::now())
+        .await;
+    assert_eq!(provider.count(), 3);
+    assert_eq!(snapshot.grant.unwrap().revision, 11);
+    assert!(billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
+    assert_eq!(
+        serde_json::to_vec(&retained.load().unwrap()).unwrap(),
+        bytes
+    );
 }
 
 #[test]
@@ -951,5 +988,90 @@ fn single_grant_verification_timing() {
     );
     if !cfg!(debug_assertions) {
         assert!(elapsed < Duration::from_millis(1), "{elapsed:?}");
+    }
+}
+
+fn signed_paid_revisions() -> (codeterm_entitlements::Activation, Reading, Reading) {
+    use base64::{
+        engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+        Engine,
+    };
+    use ed25519_dalek::{Signer, SigningKey};
+    let key = SigningKey::generate(&mut rand::rngs::OsRng);
+    let mut spki = vec![
+        0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+    ];
+    spki.extend_from_slice(key.verifying_key().as_bytes());
+    let mut activation = activation(codeterm_entitlements::Phase::B, "fixture-phase-b");
+    activation.keys = Box::leak(
+        vec![codeterm_entitlements::CompiledKey {
+            key_id: "ephemeral-replay-test",
+            spki_der_base64: Box::leak(STANDARD.encode(spki).into_boxed_str()),
+        }]
+        .into_boxed_slice(),
+    );
+    let original = paid_grant();
+    let mut payload: serde_json::Value = serde_json::from_slice(
+        &URL_SAFE_NO_PAD
+            .decode(
+                original.grant.as_ref().unwrap()["payload"]
+                    .as_str()
+                    .unwrap(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    let mut sign = |revision| {
+        payload["revision"] = serde_json::json!(revision);
+        let bytes = codeterm_entitlements::jcs::encode(&payload).unwrap();
+        let mut reading = original.clone();
+        reading.grant = Some(
+            serde_json::json!({"alg":"Ed25519", "key_id":"ephemeral-replay-test", "payload":URL_SAFE_NO_PAD.encode(bytes.as_bytes()), "signature":URL_SAFE_NO_PAD.encode(key.sign(bytes.as_bytes()).to_bytes())}),
+        );
+        reading
+    };
+    (activation, sign(11), sign(10))
+}
+
+async fn assert_reply_retains_cached_grant(reply: Reading) {
+    let store = Arc::new(MemoryGrants::default());
+    let provider = GrantReplies::new(vec![Ok(paid_grant()), Ok(reply)]);
+    let (_, injected_clock) = clock(1_700_000_060);
+    let billing = Billing::new(provider).with_test_grants(
+        activation(codeterm_entitlements::Phase::B, "fixture-phase-b"),
+        "fixture-installation",
+        store.clone(),
+        injected_clock,
+    );
+    let user = session("fixture-user");
+    let first = billing
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await;
+    let bytes = serde_json::to_vec(&store.load().unwrap()).unwrap();
+    let writes = store.1.load(std::sync::atomic::Ordering::SeqCst);
+    let clears = store.2.load(std::sync::atomic::Ordering::SeqCst);
+    let second = billing
+        .refresh(Some(&user), RefreshEvent::CheckoutReturned, Instant::now())
+        .await;
+    assert_eq!(first.grant, second.grant);
+    assert_eq!(store.1.load(std::sync::atomic::Ordering::SeqCst), writes);
+    assert_eq!(store.2.load(std::sync::atomic::Ordering::SeqCst), clears);
+    assert!(billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
+    assert_eq!(serde_json::to_vec(&store.load().unwrap()).unwrap(), bytes);
+}
+
+#[tokio::test]
+async fn envelope_only_reply_keeps_the_cached_grant() {
+    let mut reply = Reading::current(Entitlements::default());
+    reply.grant = None;
+    assert_reply_retains_cached_grant(reply).await;
+}
+
+#[tokio::test]
+async fn refused_reply_keeps_the_cached_grant_and_store_bytes() {
+    for field in ["signature", "key_id"] {
+        let mut reply = paid_grant();
+        reply.grant.as_mut().unwrap()[field] = "invalid".into();
+        assert_reply_retains_cached_grant(reply).await;
     }
 }

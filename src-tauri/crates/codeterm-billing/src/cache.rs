@@ -121,6 +121,7 @@ impl Billing {
         self.observer = Some(observer);
         self
     }
+    // Identity changes can remove the grant file; callers must keep this off the async runtime.
     fn bind(&self, cache: &mut Cache, session: Option<&codeterm_account::Session>) {
         let uid = session.map(|s| s.identity.uid.clone());
         if cache.uid != uid {
@@ -328,12 +329,10 @@ impl Billing {
                             }
                             cache.verified = Some(verified);
                         }
-                        _ => {
-                            cache.verified = None;
-                            if let Err(error) = grants.store.clear() {
-                                log::debug!("Grant removal failed: {error}");
-                            }
+                        Some(Err(refusal)) => {
+                            log::debug!("Reply grant refused; retaining cached grant: {refusal:?}");
                         }
+                        None => log::debug!("Reply has no grant; retaining cached grant"),
                     }
                 } else if reading.grant.is_some() {
                     log::debug!("Detached grant ignored: compiled activation is absent");
