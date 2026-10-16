@@ -1,7 +1,6 @@
 import { tabActivity } from "../../lib/tabActivity";
 import { useMemo, type ReactNode } from "react";
-import { Clock3, MonitorUp, Plus, X } from "lucide-react";
-import { invoke } from "../../lib/bridge";
+import { MonitorUp, Plus } from "lucide-react";
 import type {
   Tab,
   TabStatus,
@@ -21,19 +20,16 @@ import { buildSidebarDragModel, unitsInOrder, withSiblingOrder, workspaceTabOrde
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
 import { CursorTooltip } from "../shared/CursorTooltip";
-import { TabItem, type TabStartedBy } from "./TabItem";
+import { TabItem } from "./TabItem";
 import { remoteTeamIdentity } from "./remoteOwnership";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
-import { cronSelectionStore } from "../Cron/cronSelectionStore";
-import { DropdownMenu } from "../shared/DropdownMenu";
-import { RowMenuButton } from "../shared/RowMenuButton";
 import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { TabAttention } from "./tabAttention";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
-import { cronReportTitle, terminalOrigin } from "./teamRowLabels";
-import { SurfaceOwnerBlock } from "./SurfaceAttachments";
-import { attachmentInset, ownerRowInset, surfaceAttachmentsByOwner, type OwnerRowContext } from "./surfaceAttachmentModel";
+import { SidebarCronRow } from "./SidebarResourceRow";
+import { SidebarShellRow, SidebarOwnerTabRow } from "./SidebarShellRow";
+import { surfaceAttachmentsByOwner, type OwnerRowContext } from "./surfaceAttachmentModel";
 
 import {
   effectiveTeamId,
@@ -262,76 +258,29 @@ export function SidebarWorkspaceTabs({
     owner: Tab,
     attachments: readonly Tab[],
     context: OwnerRowContext,
-    renderOwner: Parameters<typeof SurfaceOwnerBlock>[0]["renderOwner"],
+    renderOwner: Parameters<typeof SidebarOwnerTabRow>[0]["renderOwner"],
   ): ReactNode => {
-    const inset = attachmentInset(ownerRowInset(context, touchMode));
-    return (
-      <SurfaceOwnerBlock
-        ownerId={owner.id}
-        attachments={attachments}
-        compact={compact}
-        renderOwner={renderOwner}
-        wrapAttachments={(rows) => (
-          <SortableContext items={attachments.map((surface) => `${TAB_PREFIX}${surface.id}`)} strategy={verticalListSortingStrategy}>
-            {rows}
-          </SortableContext>
-        )}
-        renderAttachment={(surface, surfaceIndex) => (
-          <SidebarSingleTabRow
-            tab={surface}
-            ownerTitle={surfaceOwnerTitle(surface, tabs)}
-            index={surfaceIndex}
-            activity={resolveTabTabActivity(planIndex, surface.id, tabs)}
-            activeWork={activeWork}
-            isClosing={closingTabIds.has(surface.id)}
-            isAppearing={appearingTabIds.has(surface.id)}
-            group="child"
-            groupKey={owner.id}
-            pinnedIds={[]}
-            toWorkspaceOrder={reorderSiblings}
-            variant="attachment"
-            insetPx={inset}
-            ownerBadgeTab={compact ? owner : null}
-            {...sharedRow}
-          />
-        )}
-      />
-    );
+    return <SidebarOwnerTabRow
+      tab={owner} index={0} attachments={attachments} context={context}
+      tabs={tabs} planIndex={planIndex} activeWork={activeWork}
+      closingTabIds={closingTabIds} appearingTabIds={appearingTabIds}
+      compact={compact} group="team" groupKey={owner.id} pinnedIds={[]}
+      toWorkspaceOrder={reorderSiblings} renderOwner={renderOwner} {...sharedRow}
+    />;
   };
 
-  const startedByOf = (tab: Tab): TabStartedBy => {
-    const creatorId = tab.spawned_by_tab_id ?? null;
-    const creator = creatorId ? tabs[creatorId] : null;
-    const origin = terminalOrigin(creatorId, creator?.title, Boolean(creator));
-    if (origin.kind === "tab") return { id: origin.id, label: origin.label, onOpen: () => onActivateTab(origin.id) };
-    if (origin.kind === "closed") return { id: origin.id, label: "a closed tab" };
-    return { id: null, label: "an unknown tab" };
-  };
-
-  const renderMemberRow = (member: TeamTabMember, section: TeamSection, startedBy?: TabStartedBy): ReactNode => (
-    <div key={member.tab.id} className="sidebar-team-member">
-      {renderOwnerWithAttachments(member.tab, attachmentsByOwner.get(member.tab.id) ?? [], "team", (toggle) => (
-        <SidebarSingleTabRow
-          tab={member.tab}
-          ownerTitle={surfaceOwnerTitle(member.tab, tabs)}
-          index={member.index}
-          activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
-          activeWork={activeWork}
-          isClosing={closingTabIds.has(member.tab.id)}
-          isAppearing={appearingTabIds.has(member.tab.id)}
-          group="team"
-          groupKey={`${section.teamId}:${section.index}`}
-          pinnedIds={[]}
-          toWorkspaceOrder={reorderSiblings}
-          attachmentToggle={toggle}
-          startedBy={startedBy}
-          {...sharedRow}
-        />
-      ))}
-    </div>
+  const renderMemberRow = (member: TeamTabMember, section: TeamSection, shell = false): ReactNode => (
+    <SidebarShellRow key={member.tab.id}
+      tab={member.tab} index={member.index} showStartedBy={shell}
+      attachments={attachmentsByOwner.get(member.tab.id) ?? []}
+      tabs={tabs} planIndex={planIndex} activeWork={activeWork}
+      closingTabIds={closingTabIds} appearingTabIds={appearingTabIds}
+      compact={compact} group="team" groupKey={`${section.teamId}:${section.index}`}
+      pinnedIds={[]} toWorkspaceOrder={reorderSiblings} {...sharedRow}
+    />
   );
 
-  const renderTerminalRow = (member: TeamTabMember, section: TeamSection): ReactNode => renderMemberRow(member, section, startedByOf(member.tab));
+  const renderTerminalRow = (member: TeamTabMember, section: TeamSection): ReactNode => renderMemberRow(member, section, true);
 
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
@@ -464,32 +413,8 @@ export function SidebarWorkspaceTabs({
         }
         cronCount={teamCrons.length}
         crons={teamCrons.map((job) => (
-          <div key={job.id} className="sidebar-team-cron-row">
-            <button
-              type="button"
-              className="sidebar-team-cron-main"
-              onClick={() => {
-                onBeforeOpenPlan();
-                cronSelectionStore.open({ cronId: job.id, workspaceId: ws.id });
-              }}
-              title={cronReportTitle(job.report_target_tab_id, job.report_target_tab_id ? tabs[job.report_target_tab_id]?.title : null)}
-            >
-              <Clock3 size={11} aria-hidden="true" />
-              <span className="sidebar-team-cron-name">{job.name}</span>
-              <span className="sidebar-team-cron-state">{job.enabled ? "active" : "paused"}</span>
-            </button>
-            <DropdownMenu
-              className="sidebar-team-cron-menu"
-              menuLabel="Cron actions"
-              items={[{
-                label: "Delete cron",
-                icon: <X size={11} strokeWidth={2} />,
-                danger: true,
-                onClick: () => { void invoke("cron_delete", { id: job.id }).then(() => refreshCrons()); },
-              }]}
-              trigger={<RowMenuButton label={`Cron actions for ${job.name}`} title="Cron actions" />}
-            />
-          </div>
+          <SidebarCronRow key={job.id} job={job} tabs={tabs}
+            onBeforeOpen={onBeforeOpenPlan} onDeleted={refreshCrons} />
         ))}
         providers={providers}
         providersLoading={providersLoading}
