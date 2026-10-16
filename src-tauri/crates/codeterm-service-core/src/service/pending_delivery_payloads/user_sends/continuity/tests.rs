@@ -98,6 +98,18 @@ fn only_a_known_different_session_ends_the_session_authority() {
 }
 
 #[test]
+fn carrying_cannot_erase_a_dead_generation_except_into_a_new_prelaunch() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = UserSendStore::open(dir.path()).unwrap();
+    let record = admit(&store, 1);
+    let mut current = next_launch();
+    current.pty_session_generation = None;
+    assert!(!can_carry_held_send(&record, &current));
+    current.prelaunch = true;
+    assert!(can_carry_held_send(&record, &current));
+}
+
+#[test]
 fn daemon_restart_carries_originals_in_order_and_claims_once_after_readiness() {
     let dir = tempfile::tempdir().unwrap();
     let old = UserSendStore::open(dir.path()).unwrap();
