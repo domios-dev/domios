@@ -57,7 +57,7 @@ Team utilities inherit cleanup; use `--no-team` only to outlive it deliberately.
 Plan adoption binds the Team's unique live Planner.
 
 Transfer an acknowledged Worker between Teams only through its current parent;
-`codeterm docs LANES` covers preserved identity and transfer refusals.
+The LANES document linked above covers preserved identity and transfer refusals.
 
 Lane safety: two hard stops, otherwise nudges; see `LANES`.
 
@@ -168,4 +168,4 @@ A `[provider access lost]` notice means recover the login or respawn on another 
 
 Confined mutating Workers receive persisted host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR, TEMP and TMP select the lane-local `.codeterm-tmp` directory. Task-bound Worker spawns require an explicit read_only or mutating intent. Restoring an older task tab without a saved confinement policy retains its existing behavior.
 
-<!-- revision: 121 -->
+<!-- revision: 122 -->
