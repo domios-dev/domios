@@ -566,3 +566,324 @@ fn restored_snapshot_fresh_launch_carries_the_tabs_marker_and_resume_carries_non
     assert!(!resumed.contains("--launch-marker"), "{resumed}");
     assert_eq!(registered_launch_marker("tab-snapshot-resume"), None);
 }
+
+#[cfg(test)]
+mod restore_boot_stage_tests {
+    use super::super::{reattach_boot_stage, restore_materialization_core};
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryRecord};
+    use crate::service::boot_stage::{apply_boot_stage, BootStage};
+    use codeterm_util::lock_hold::TimedRwLock;
+    use sha2::Digest;
+    use std::sync::Arc;
+
+    struct RestoreFixture {
+        _temp: tempfile::TempDir,
+        store: crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore,
+        mux: MuxState,
+        tab_id: String,
+        digest: String,
+    }
+
+    /// A restored agent tab whose pending-delivery payload is absent from the
+    /// store, so the resolve step is guaranteed to fail.
+    fn unresolvable_restored_tab(live_pty: bool) -> RestoreFixture {
+        let digest = format!(
+            "{:x}",
+            sha2::Sha256::digest("missing restored fallback brief".as_bytes())
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let store = crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
+            temp.path(),
+            &std::collections::HashSet::new(),
+        )
+        .unwrap();
+        let (mut state, tab_id) = MultiplexerState::new();
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("fixture-provider".into());
+        tab.cwd = Some("fixture-cwd".into());
+        tab.restored_from_snapshot = true;
+        tab.pty_id = live_pty.then(|| "live-pty".to_string());
+        tab.pending_delivery = Some(PendingDeliveryRecord::new(
+            digest.clone(),
+            PendingDeliveryChannel::InteractiveInput,
+        ));
+        RestoreFixture {
+            _temp: temp,
+            store,
+            mux: Arc::new(TimedRwLock::new("restore-boot-stage-test", state)),
+            tab_id,
+            digest,
+        }
+    }
+
+    fn restore_with_failing_resolve(
+        fixture: &RestoreFixture,
+    ) -> (Result<(), String>, Vec<(BootStage, String)>, bool) {
+        let emitted = parking_lot::Mutex::new(Vec::new());
+        let launched = parking_lot::Mutex::new(false);
+        let result = restore_materialization_core(
+            &fixture.mux,
+            &fixture.tab_id,
+            "fixture-provider",
+            None,
+            Some("fixture-cwd"),
+            false,
+            |_| {
+                fixture
+                    .store
+                    .resolve(&fixture.digest)
+                    .map(Some)
+                    .map_err(|error| error.to_string())
+            },
+            |stage, reason, _| emitted.lock().push((stage, reason.to_string())),
+            |_, _| *launched.lock() = true,
+        );
+        let stages = emitted.lock().clone();
+        let launched = *launched.lock();
+        (result.map(|_| ()), stages, launched)
+    }
+
+    #[test]
+    fn restore_failure_on_live_shell_reports_agent_spawn_failed() {
+        let fixture = unresolvable_restored_tab(true);
+        let (result, stages, launched) = restore_with_failing_resolve(&fixture);
+
+        assert_eq!(
+            result.unwrap_err(),
+            format!("RestorePayloadMissing: {}", fixture.digest),
+            "the resolve error must still surface to the caller"
+        );
+        assert_eq!(
+            stages,
+            [(
+                BootStage::SpawnFailed,
+                format!("RestorePayloadMissing: {}", fixture.digest)
+            )]
+        );
+        assert!(!launched, "a failed resolve must not launch an agent");
+    }
+
+    #[test]
+    fn restore_failure_without_live_pty_still_reports_spawn_failed() {
+        let fixture = unresolvable_restored_tab(false);
+        let (result, stages, launched) = restore_with_failing_resolve(&fixture);
+
+        assert!(result.is_err());
+        assert_eq!(
+            stages,
+            vec![(
+                BootStage::SpawnFailed,
+                format!("RestorePayloadMissing: {}", fixture.digest)
+            )],
+            "with no live PTY a real spawn failure must stay distinguishable"
+        );
+        assert!(!launched);
+    }
+
+    #[test]
+    fn proven_reattach_clears_a_latched_failure_without_restart() {
+        let (mut state, tab_id) = MultiplexerState::new();
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        let mut sequence = Vec::new();
+
+        apply_boot_stage(
+            tab,
+            BootStage::SpawnFailed,
+            Some("RestorePayloadMissing: deadbeef"),
+        );
+        sequence.push(tab.boot_stage.unwrap());
+        assert_eq!(
+            tab.boot_failure_reason.as_deref(),
+            Some("RestorePayloadMissing: deadbeef"),
+            "precondition: the Tab starts with a latched failure"
+        );
+
+        let reattached = reattach_boot_stage(tab.boot_stage, tab.boot_failure_reason.as_deref())
+            .expect("reattach clears the latch");
+        apply_boot_stage(tab, reattached, None);
+        sequence.push(tab.boot_stage.unwrap());
+
+        assert_eq!(
+            sequence,
+            vec![BootStage::SpawnFailed, BootStage::PtyReattached],
+            "the UI-visible stage must transition out of the failure on reattach"
+        );
+        assert_eq!(
+            tab.boot_failure_reason, None,
+            "the latched failure reason must be cleared, not merely overdrawn"
+        );
+        assert!(
+            reattach_boot_stage(tab.boot_stage, tab.boot_failure_reason.as_deref()).is_none(),
+            "reattach is idempotent"
+        );
+    }
+
+    #[test]
+    fn reattach_preserves_restore_failures_that_explain_an_unavailable_agent() {
+        for reason in [
+            "restored_provider_unresolved: no unique owner",
+            "restored_role_without_provider: no provider or session",
+        ] {
+            assert_eq!(
+                reattach_boot_stage(Some(BootStage::SpawnFailed), Some(reason)),
+                None,
+                "a shell PTY reattach must not erase its agent restore failure"
+            );
+        }
+    }
+
+    #[test]
+    fn reattach_never_rewrites_an_already_honest_stage() {
+        for stage in [
+            None,
+            Some(BootStage::AgentReady),
+            Some(BootStage::ShellReady),
+            Some(BootStage::AgentLaunching),
+            Some(BootStage::PtyReattached),
+        ] {
+            assert_eq!(
+                reattach_boot_stage(stage, None),
+                None,
+                "reattach must not stomp an in-flight or ready boot: {stage:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn restored_snapshot_service_builder_keeps_direct_spec_and_owned_session() {
+    use crate::plugin::js_runtime::{JsProvider, PluginVm};
+    let (state, tab_id) = MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(state);
+    let manifest = serde_json::json!({
+        "id": "direct-restore-fixture", "version": "0.1.0", "displayName": "Fixture"
+    });
+    let source = r#"module.exports.default = {
+        buildResumeCommand(sessionId) { return 'fixture --resume ' + sessionId; },
+        buildLaunchSpec(ctx) {
+            return {program: 'fixture', args: ['--resume', ctx.resume.sessionId]};
+        }
+    };"#;
+    let vm = PluginVm::from_source("direct-restore-fixture", source.into()).unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(
+            serde_json::from_value(manifest).unwrap(),
+            Arc::new(vm),
+        )));
+    let input = restored_snapshot_launch_input(
+        &fixture.service.agent_registry,
+        RestoredLaunch {
+            provider_id: "direct-restore-fixture".into(),
+            session_id: Some("exact-own-session".into()),
+            cwd: Some(fixture.temp.path().to_string_lossy().into_owned()),
+            model: None,
+            launch_parameters: RestorableLaunchParameters {
+                captured: true,
+                ..Default::default()
+            },
+            role: None,
+            role_profile: None,
+        },
+        None,
+        None,
+    );
+    let command = super::restored_snapshot_launch_command_for_service(
+        &fixture.service,
+        &tab_id,
+        "direct-restore-fixture",
+        &input,
+    );
+    let spec = command.direct.as_ref().unwrap();
+    assert_eq!(spec.program, "fixture");
+    assert_eq!(spec.args, ["--resume", "exact-own-session"]);
+    let claim = fixture.service.pty_ownership.acquire(&tab_id);
+    fixture
+        .service
+        .ensure_restored_launch_host_with_claim(&claim, &command)
+        .unwrap();
+    assert!(fixture.service.resolve_pty_id(&tab_id).is_err());
+}
+
+#[test]
+fn restored_snapshot_shell_commands_match_the_service_builders_byte_for_byte() {
+    use crate::plugin::js_runtime::{JsProvider, PluginVm};
+    for session_id in [Some("owned-shell-session"), None] {
+        let (state, tab_id) = MultiplexerState::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(state);
+        let registry = &fixture.service.agent_registry;
+        let provider_id = "shell-restore-fixture";
+        let manifest = serde_json::json!({
+            "id": provider_id, "version": "0.1.0", "displayName": "Fixture"
+        });
+        let source = r#"module.exports.default = {
+            buildLaunchCommand(params) { return 'fixture ' + JSON.stringify(params.args); },
+            buildResumeCommand(sessionId) { return 'fixture --resume ' + sessionId; }
+        };"#;
+        let vm = PluginVm::from_source(provider_id, source.into()).unwrap();
+        registry.register_provider(Box::new(JsProvider::new(
+            serde_json::from_value(manifest).unwrap(),
+            Arc::new(vm),
+        )));
+        assert_eq!(
+            registry.with_provider(provider_id, |provider| provider.declares_launch_spec()),
+            Some(false)
+        );
+        let input = restored_snapshot_launch_input(
+            registry,
+            RestoredLaunch {
+                provider_id: provider_id.into(),
+                session_id: session_id.map(str::to_owned),
+                cwd: Some(fixture.temp.path().to_string_lossy().into_owned()),
+                model: None,
+                launch_parameters: RestorableLaunchParameters {
+                    captured: true,
+                    args: Some(vec![
+                        "--opaque".into(),
+                        "value with spaces".into(),
+                        "$literal".into(),
+                    ]),
+                    ..Default::default()
+                },
+                role: None,
+                role_profile: None,
+            },
+            None,
+            None,
+        );
+        let prepared = super::restored_snapshot_launch_command_for_service(
+            &fixture.service,
+            &tab_id,
+            provider_id,
+            &input,
+        );
+        let expected = if session_id.is_some() {
+            crate::service::orchestrator::build_agent_command_for_service(
+                &fixture.service,
+                &tab_id,
+                provider_id,
+                &input.params,
+                input.launch_task.as_deref(),
+                None,
+                registry,
+            )
+        } else {
+            crate::service::launch_session_detection::marked_agent_command_for_service(
+                &fixture.service,
+                &tab_id,
+                provider_id,
+                &input.params,
+                input.launch_task.as_deref(),
+                None,
+                registry,
+            )
+        };
+        crate::service::launch_session_detection::clear_launch_marker(&tab_id);
+        assert!(prepared.direct.is_none());
+        assert!(!expected.is_empty());
+        assert_eq!(prepared.shell_command, expected);
+    }
+}
