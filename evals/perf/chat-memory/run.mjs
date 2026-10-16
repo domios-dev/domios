@@ -11,6 +11,7 @@ import {summarizeAllocations} from './allocations.mjs';
 import {workloadDuration,continueWorkload,sampleWorkload} from './duration.mjs';
 import {attach} from '../streaming-soak/runtime.mjs';
 import {memoryInstrumentation} from './instrumentation.mjs';
+import {CENSUS} from './census.mjs';
 
 const flags=Object.fromEntries(process.argv.slice(2).reduce((all,x,i,args)=>x.startsWith('--')?[...all,[x.slice(2),args[i+1]]]:all,[]));
 const bundle=flags.bundle??'dev';
@@ -73,7 +74,7 @@ async function sample(phase,{gc=false,snapshot=false}={}){
   const heap=instrumentation.profiler?await cdp.send('Runtime.getHeapUsage'):
     await evaluate(cdp,'({usedSize:performance.memory?.usedJSHeapSize??null,totalSize:performance.memory?.totalJSHeapSize??null,measurement:"performance.memory"})');
   const dom=instrumentation.profiler?await cdp.send('Memory.getDOMCounters'):{nodes:null,documents:null,jsEventListeners:null};
-  const census=await evaluate(cdp,`({elements:document.querySelectorAll('*').length,chatRows:document.querySelectorAll('[data-source-message-id]').length,chatRoots:document.querySelectorAll('[data-testid="tab-session-chat"]').length,xterms:document.querySelectorAll('.xterm').length,canvases:document.querySelectorAll('canvas').length,callbacks:window.__TAURI_INTERNALS__?.callbacks?.size??null})`);
+  const census=await evaluate(cdp,CENSUS);
   const row={phase,at:new Date().toISOString(),gc,heap,dom,census,processes:processSample()};
   samples.push(row);save();console.log(`CHAT_MEMORY_SAMPLE phase=${phase} heap=${heap.usedSize} nodes=${dom.nodes}`);
   if(snapshot)await takeHeapSnapshot(cdp,path.join(out,phase+'.heapsnapshot'));

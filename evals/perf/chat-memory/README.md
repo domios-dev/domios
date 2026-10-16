@@ -29,6 +29,13 @@ forcing GC or collecting snapshots. It reads `performance.memory` and process
 private/working bytes; DOM/listener profiler counters remain unknown. These
 heap samples include collectible allocations and are not post-GC retained size.
 
+Every sample also records per-tab chat element/row counts, mounted terminal
+normal/alternate/active buffer lengths when the DEV terminal handle is available,
+canvas backing pixels and image intrinsic pixels. Missing terminal handles stay
+unknown. Pixel counts are surface dimensions, not measured native allocations.
+The user-agent memory API capability is recorded without invoking that potentially
+expensive/GC-triggering API in the minimal control.
+
 Samples preserve JS heap, DOM/listener counts, mounted chat and terminal counts,
 Windows private/working bytes and process creation identities. Warm and paused
 snapshots are optional; compare them with the existing renderer-memory snapshot
