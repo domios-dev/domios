@@ -1606,6 +1606,9 @@ function recordedItem(raw) {
     const value = object(part);
     return { ...value, ...typeof value.type === "string" ? { type: value.type.replace(/^./, (letter) => letter.toLowerCase()) } : {} };
   });
+  if (item.type === "agentMessage" && typeof item.text !== "string" && Array.isArray(item.content)) {
+    item.text = item.content.map(object).filter((part) => part.type === "text" && typeof part.text === "string").map((part) => part.text).join("\n");
+  }
   return item;
 }
 function storedRecordType(line) {
