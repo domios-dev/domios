@@ -17,6 +17,7 @@ pub trait ProviderUpdateHost: Clone + Send + Sync + 'static {
 }
 use state::Admission;
 
+mod boot;
 mod command;
 mod idle;
 mod policy;
@@ -49,37 +50,75 @@ pub fn check_available(service: Arc<impl ProviderUpdateHost>, api_port: u16, all
         watch::start(service.as_ref());
         idle::schedule_async(service.as_ref(), None);
     }
-    let providers = service.providers();
-    spawn_utility("provider-update-check", move || {
-        for provider in providers {
-            if !provider.supports_update_check() {
-                continue;
-            }
-            let Some(command) = provider.update_command(command::platform_key()) else {
-                continue;
-            };
-            let Some(version) = provider.check_for_update() else {
-                continue;
-            };
-            if allowed {
-                start_update(
-                    service.as_ref(),
-                    Update {
-                        provider,
-                        version,
-                        command,
-                    },
-                );
-            } else {
-                log::info!(
-                    "[provider-update] {} {} -> {} available; instance updates are disabled",
-                    provider.display_name(),
-                    version.current_version,
-                    version.latest_version
-                );
-            }
+    boot::RESTORE_GATE.defer(Box::new(move || {
+        spawn_utility("provider-update-check", move || {
+            check_providers(service.as_ref(), allowed)
+        });
+    }));
+    if codeterm_agent_model::restore_report::wave_is_settled() {
+        restore_completed();
+    }
+}
+
+/// The restore wave settled; the deferred startup availability check may run now.
+pub fn restore_completed() {
+    boot::RESTORE_GATE.open();
+}
+
+fn check_providers(service: &impl ProviderUpdateHost, allowed: bool) {
+    for provider in service.providers() {
+        if !provider.supports_update_check() {
+            continue;
         }
-    });
+        let Some(command) = provider.update_command(command::platform_key()) else {
+            continue;
+        };
+        if allowed && !claim_check(provider.id()) {
+            log::debug!(
+                "[provider-update] {}: availability checked within the last day",
+                provider.id()
+            );
+            continue;
+        }
+        let started = std::time::Instant::now();
+        let available = provider.check_for_update();
+        log::debug!(
+            "[provider-update] {}: availability check elapsed_ms={}",
+            provider.id(),
+            started.elapsed().as_millis()
+        );
+        let Some(version) = available else {
+            continue;
+        };
+        if allowed {
+            start_update(
+                service,
+                Update {
+                    provider,
+                    version,
+                    command,
+                },
+            );
+        } else {
+            log::info!(
+                "[provider-update] {} {} -> {} available; instance updates are disabled",
+                provider.display_name(),
+                version.current_version,
+                version.latest_version
+            );
+        }
+    }
+}
+
+fn claim_check(provider: &str) -> bool {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    storage::transact(|state| state.claim_check(provider, now_ms)).unwrap_or_else(|error| {
+        log::warn!("[provider-update] {provider}: check stamp unavailable: {error}");
+        true
+    })
 }
 
 pub fn coordinates_prompt(service: &impl ProviderUpdateHost, provider: &str) -> bool {

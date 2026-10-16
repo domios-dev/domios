@@ -1,12 +1,4 @@
-export interface UpdateHost {
-  exec: (opts: string) => string;
-  fetch: (opts: string) => string;
-}
-
-export interface UpdateAvailability {
-  currentVersion: string;
-  latestVersion: string;
-}
+import { checkProviderUpdate, type UpdateAvailability, type UpdateHost } from "../../provider-shared/updateCheck";
 
 export function parseVersion(value: unknown): [number, number, number] | null {
   if (typeof value !== "string") return null;
@@ -26,6 +18,7 @@ export function updateAvailable(current: unknown, latest: unknown): boolean {
 }
 
 function record(value: unknown): Record<string, unknown> | null {
+  if (value !== null && typeof value === "object") return value as Record<string, unknown>;
   if (typeof value !== "string") return null;
   try {
     const parsed: unknown = JSON.parse(value);
@@ -35,24 +28,14 @@ function record(value: unknown): Record<string, unknown> | null {
   }
 }
 
-export function checkCodexUpdate(host: UpdateHost): UpdateAvailability | null {
-  const installed = record(host.exec(JSON.stringify({
-    bin: "codex",
-    args: ["--version"],
-    timeoutMs: 5000,
-  })));
+function installedCodexVersion(result: unknown): string | null {
+  const installed = record(result);
   if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
   const current = installed.stdout.match(/\d+\.\d+\.\d+/)?.[0];
-  if (!current) return null;
-  const response = record(host.fetch(JSON.stringify({
-    url: "https://registry.npmjs.org/@openai%2Fcodex/latest",
-    method: "GET",
-    timeoutMs: 6000,
-  })));
-  if (response?.status !== 200 || typeof response.body !== "string") return null;
-  const metadata = record(response.body);
-  const latest = metadata?.version;
-  return updateAvailable(current, latest) && typeof latest === "string"
-    ? { currentVersion: current, latestVersion: latest }
-    : null;
+  return current && parseVersion(current) ? current : null;
+}
+
+export function checkCodexUpdate(host: UpdateHost): UpdateAvailability | null {
+  return checkProviderUpdate(host, "codex", "https://registry.npmjs.org/@openai%2Fcodex/latest", undefined,
+    installedCodexVersion);
 }
