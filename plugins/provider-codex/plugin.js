@@ -1560,7 +1560,8 @@ function completedActivity(value, ts, timestamp, turnId) {
 
 // plugins/provider-codex/src/runtimeStoredHistory.ts
 function projectHistoryItem(raw, seq, turn, timestamp) {
-  const rows = boundHistoryRows(runtimeItems(historyItem(raw), seq));
+  const source = object(raw);
+  const rows = source.historyTruncated === true ? [{ id: String(source.id), seq, type: "system", content: "[content truncated: history item exceeds display budget]" }] : boundHistoryRows(runtimeItems(historyItem(raw), seq));
   for (const row2 of rows) {
     row2.toolFlowId = turn;
     if (typeof timestamp === "number" && Number.isFinite(timestamp)) row2.timestamp = new Date(timestamp).toISOString();
@@ -1616,16 +1617,18 @@ function encode(position) {
   return PREFIX + JSON.stringify(position);
 }
 function decode(op) {
-  if (!op.cursor) return { pager: 1, thread: op.threadId, stage: "turns", cursor: null };
+  if (!op.cursor) return { pager: 1, thread: op.threadId, stage: "turns", cursor: null, historyItemLimit: 16 };
   if (!op.cursor.startsWith(PREFIX) || op.cursor.length > 128 * 1024) failure("Invalid history checkpoint");
   const position = JSON.parse(op.cursor.slice(PREFIX.length));
   if (position.pager !== 1 || position.thread !== op.threadId || !["turns", "items", "goal"].includes(position.stage) || position.cursor !== null && typeof position.cursor !== "string" || position.stage === "items" && !text(object(position.turn).id)) failure("History checkpoint differs from bound thread");
+  position.historyItemLimit ?? (position.historyItemLimit = 16);
+  if (!Number.isSafeInteger(position.historyItemLimit) || position.historyItemLimit < 1 || position.historyItemLimit > 16) failure("Invalid history item limit");
   return position;
 }
 function pagedHistoryPlan(op) {
   const state = decode(op);
   const params = { threadId: op.threadId, sortDirection: "desc", cursor: state.cursor };
-  const call = state.stage === "items" ? { method: "thread/items/list", params: { ...params, turnId: state.turn.id, limit: 16 } } : state.stage === "goal" ? { method: "thread/goal/get", params: { threadId: op.threadId } } : { method: "thread/turns/list", params: { ...params, itemsView: "notLoaded", limit: 1 } };
+  const call = state.stage === "items" ? { method: "thread/items/list", params: { ...params, turnId: state.turn.id, limit: state.historyItemLimit } } : state.stage === "goal" ? { method: "thread/goal/get", params: { threadId: op.threadId } } : { method: "thread/turns/list", params: { ...params, itemsView: "notLoaded", limit: 1 } };
   return { action: { kind: "request", call: { ...call, params: call.params } }, state };
 }
 function nextCursor(value, previous) {
@@ -1648,6 +1651,10 @@ function pagedHistoryResponse(op, raw, reply) {
   const state = raw;
   if (state.thread !== op.threadId) failure("History checkpoint differs from bound thread");
   if (reply.kind === "error") {
+    const smaller = object(reply.error.data).historyPageLimit;
+    if (state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < (state.historyItemLimit ?? 16)) {
+      return { kind: "continue", plan: pagedHistoryPlan({ ...op, cursor: encode({ ...state, historyItemLimit: smaller }) }) };
+    }
     if (state.stage === "goal") return finish(op, [], [], []);
     failure(`History ${state.stage} read failed (${reply.error.code}): ${reply.error.message}`);
   }
@@ -1673,7 +1680,7 @@ function pagedHistoryResponse(op, raw, reply) {
     };
     return { kind: "continue", plan: pagedHistoryPlan({ ...op, cursor: encode(position2) }) };
   }
-  if (value.data.length > 16) failure("History item page exceeds requested limit");
+  if (value.data.length > (state.historyItemLimit ?? 16)) failure("History item page exceeds requested limit");
   const items = [], openItems = [];
   let questions = [], bytes = 0;
   const offset = state.offset ?? 0;
@@ -2783,16 +2790,19 @@ function respondOperation(ctx, op, raw, reply) {
   }
   if (op.kind === "readHistory" && state.pager === 1) {
     if (reply.kind === "error" && reply.error.code === -32601 && ["turns", "items"].includes(String(state.stage)))
-      return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", seq: 0 }));
+      return historyComplete(op, { items: [], openItems: [] });
     return pagedHistoryResponse(op, state, reply);
   }
   if (reply.kind === "error") {
+    const smaller = object(reply.error.data).historyPageLimit;
+    if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))
+      return historyItems(op, { ...state, historyItemLimit: smaller }, text(state.cursor));
     if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" } };
     if (op.kind === "initialize" && state.stage === "initializeLimits") return { kind: "complete", result: { kind: "initialized" }, events: [state.auth] };
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
     if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
-      return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", seq: 0 }));
+      return historyComplete(op, { items: [], openItems: [] });
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error, op.activeTurnId))
       return continuation(request("turn/start", turnParams(ctx, op)), true);
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && archivedResume(reply.error.message))
@@ -2822,7 +2832,7 @@ function respondOperation(ctx, op, raw, reply) {
       return { kind: "complete", result: { kind: "threadLoaded", threadId: op.threadId, settings: state.settings } };
     }
     case "readHistory":
-      return historyResponse(ctx, op, state, value);
+      return historyResponse(op, state, value);
     case "submitTurn": {
       const turnId = text(object(value.turn).id) ?? text(value.turnId);
       return { kind: "complete", result: { kind: "turnAccepted", threadId: op.threadId, sendId: op.sendId, ...turnId ? { turnId } : {} } };
@@ -2850,24 +2860,7 @@ function respondOperation(ctx, op, raw, reply) {
       return { kind: "complete", result: { kind: "done" } };
   }
 }
-function historyResponse(ctx, op, state, value) {
-  if (state.stage === "snapshot") {
-    if (!historyThread(ctx, value, op.threadId)) return refused("History snapshot thread identity unverified");
-    const turns2 = object(value.thread).turns;
-    if (!Array.isArray(turns2)) return refused("Missing history snapshot turns");
-    let collected2 = { ...state, items: [], openItems: [], questions: [] };
-    for (const raw of turns2.slice(Number(state.snapshotTurn ?? 0))) {
-      const turn2 = object(raw);
-      if (!text(turn2.id) || !Array.isArray(turn2.items)) return refused("Missing history snapshot turn items");
-      collected2 = collectHistoryItems(op, collected2, turn2, turn2.items);
-      if (collected2.offset != null) return streamHistory(op, continuation(request(
-        "thread/read",
-        { threadId: op.threadId, includeTurns: true },
-        { ...collected2, stage: "snapshot", snapshotTurn: turns2.indexOf(raw) }
-      )), collected2);
-    }
-    return historyGoal(op, collected2);
-  }
+function historyResponse(op, state, value) {
   if (state.stage === "goal") {
     const objective = text(object(sanitizeHistory(object(value.goal))).objective);
     if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: goalIntent(value.goal) ?? { goal: objective } }];
@@ -2929,7 +2922,7 @@ function collectHistoryItems(op, state, turn, entries) {
 function historyItems(op, state, cursor) {
   const turn = object(list(state.turns)[Number(state.index)]);
   if (!text(turn.id)) return refused("Missing history turn id");
-  return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: 100, cursor }, { ...state, cursor: cursor ?? null }));
+  return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: Number(state.historyItemLimit ?? 100), cursor }, { ...state, historyItemLimit: Number(state.historyItemLimit ?? 100), cursor: cursor ?? null }));
 }
 function historyGoal(op, state) {
   if (text(state.nextCursor)) return historyComplete(op, state);
