@@ -39,8 +39,10 @@ provider-codex 1.14.29, are retained in `offline-s1a-results.json`:
 
 | Built plugin | Mean execute ms | p95 execute ms | Parsed bytes | Parsed lines |
 |---|---:|---:|---:|---:|
-| Before | 21.70 | 79.36 | 26,713,427 | 9,263 |
-| After | 19.70 | 64.82 | 19,878,178 | 6,660 |
+| Before | 17.54 | 59.57 | 26,713,427 | 9,263 |
+| After | 17.08 | 55.88 | 19,878,178 | 6,660 |
 
 All 40 pages projected identical rows. The parsed-byte reduction is 25.6% for
 these windows; their record mix differs from the full-rollout byte census.
+Unclassified prefixes fall through to the full parser, preserving rows when
+the writer puts payload before the top-level type.
