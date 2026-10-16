@@ -257,6 +257,7 @@ export interface Tab {
   worker_id?: string | null;
   agent_booting?: boolean;
   frozen?: boolean;
+  slept_at_ms?: number | null;
   last_active_at_ms?: number | null;
   /** True only when this visible session explicitly bypasses provider permissions/sandbox. */
   auto_approve?: boolean;
@@ -823,6 +824,7 @@ export interface UiConfig {
 }
 
 export interface AppConfig {
+  tab_sleep?: { enabled: boolean; idle_minutes: number };
   restore?: { active_window_hours: number };
   updater?: {
     channel?: string;
