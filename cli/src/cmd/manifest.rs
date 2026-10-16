@@ -256,6 +256,61 @@ mod tests {
             .join("../packages/chat-ui/src/codeterm/commandPaths.ts")
     }
 
+    // Instruction surfaces not embedded in `DOCS`, and so otherwise unvalidated.
+    const PRESCRIPTION_CORPUS: &[&str] = &["skills", "src-tauri/prompts", "generated/cli/cli.md"];
+
+    fn markdown_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                markdown_files(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "md") {
+                out.push(path);
+            }
+        }
+    }
+
+    fn corpus_origin(path: &std::path::Path, rel_root: &str) -> String {
+        let root = repo_path(rel_root);
+        let tail = path.strip_prefix(&root).unwrap_or(path);
+        let tail = tail.to_string_lossy().replace('\\', "/");
+        if tail.is_empty() {
+            rel_root.to_string()
+        } else {
+            format!("{rel_root}/{tail}")
+        }
+    }
+
+    fn prescription_corpus() -> Vec<(std::path::PathBuf, String)> {
+        let mut sources = Vec::new();
+        for &rel in PRESCRIPTION_CORPUS {
+            let path = repo_path(rel);
+            assert!(
+                path.exists(),
+                "prescription corpus entry `{rel}` does not exist — a corpus that resolves to nothing validates nothing"
+            );
+            if path.is_dir() {
+                let mut found = Vec::new();
+                markdown_files(&path, &mut found);
+                assert!(
+                    !found.is_empty(),
+                    "prescription corpus entry `{rel}` contains no markdown"
+                );
+                found.sort();
+                sources.extend(found.into_iter().map(|p| {
+                    let origin = corpus_origin(&p, rel);
+                    (p, origin)
+                }));
+            } else {
+                sources.push((path, rel.to_string()));
+            }
+        }
+        sources
+    }
+
     #[test]
     fn cli_manifest_is_fresh() {
         let committed = std::fs::read_to_string(output_path("cli-manifest.json")).expect(
@@ -398,6 +453,11 @@ mod tests {
 
     // Contract for the flags the CLI-guidance prompt documents: introspect the
     // live clap tree so a renamed/removed flag fails here, not in an agent's hands.
+    fn find_sub<'a>(cmd: &'a Command, name: &str) -> Option<&'a Command> {
+        cmd.get_subcommands()
+            .find(|c| c.get_name() == name || c.get_all_aliases().any(|a| a == name))
+    }
+
     fn subcommand<'a>(root: &'a Command, path: &[&str]) -> Option<&'a Command> {
         let mut cur = root;
         for seg in path {
