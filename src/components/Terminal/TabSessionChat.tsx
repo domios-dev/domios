@@ -355,6 +355,7 @@ function TabSessionChatBody({
   const {
     scrollRef,
     showScrollDown,
+    gestureOwned,
     scrollToBottom,
     followSend: rawFollowSentMessage,
     prepareForHistoryPrepend,
@@ -986,9 +987,11 @@ function TabSessionChatBody({
         onClear={messageSelection.clear}
       />
       {(showScrollDown || newerMessageCount > 0) && (
-        <div className="absolute right-4 z-30" style={{ bottom: floatingBottomInset + 16 }}>
+        <div className="absolute right-4 z-30" style={{ bottom: floatingBottomInset + 16, pointerEvents: "none" }}>
         <ScrollToLatestButton
           testId="chat-scroll-bottom"
+          gestureOwned={gestureOwned}
+          userScrollingRef={chatUserScrollingRef}
           onClick={() => {
             showLatest();
             scrollToBottom();

@@ -9,10 +9,6 @@ import { indexChatTranscript, indexedChatAnchor, type ChatTranscriptIndex } from
 import { chatAnchorShift, chatShiftAnchorAt, chatSpacerAfterLayout, chatSpacerFold, chatSpacerHeight, chatSpacerTranslation, chatLayoutViewportTop, shouldAbsorbChatShift,
   type ChatShiftAnchor } from "./chatSpacerDrift";
 
-function supportsNativeScrollAnchoring(): boolean {
-  return typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("overflow-anchor", "auto");
-}
-
 function mountedRowTops(el: HTMLElement): { rows: ChatShiftAnchor[]; heights: number[] } {
   const origin = el.getBoundingClientRect().top - el.scrollTop;
   const rows: ChatShiftAnchor[] = [];
@@ -31,15 +27,13 @@ function translateRows(rows: HTMLElement | null, translation: number): void {
   if (rows) rows.style.transform = translation === 0 ? "" : `translateY(${translation}px)`;
 }
 
-export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, sessionKey, userScrollingRef,
-  nativeAnchoring = supportsNativeScrollAnchoring() }: {
+export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, sessionKey, userScrollingRef }: {
   rows: readonly ChatWindowRow[];
   scrollRef: RefObject<HTMLDivElement | null>;
   active: boolean;
   followTailRef: MutableRefObject<boolean>;
   sessionKey: string;
   userScrollingRef?: MutableRefObject<boolean>;
-  nativeAnchoring?: boolean;
 }) {
   const heights = useRef(new Map<string, number>());
   const persisted = getPersistedChatScrollState(sessionKey);
@@ -94,7 +88,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
       const row = anchor && Array.from(scrollRef.current?.querySelectorAll<HTMLElement>("[data-chat-window-row]") ?? [])
         .find(row => row.dataset.chatWindowRow === anchor.id);
       return [driftRef.current, chatSpacerTranslation(live.current.range.top, driftRef.current), live.current.range.start,
-        live.current.range.end, traceIdentity(anchor?.id), row?.getBoundingClientRect().top ?? 0];
+        live.current.range.end, row ? traceIdentity(anchor?.id) : 0, row?.getBoundingClientRect().top ?? 0];
     });
   }, [active, sessionKey, scrollRef]);
 
@@ -122,7 +116,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     }
     else {
       const absorb = anchor != null
-        && shouldAbsorbChatShift({ nativeAnchoring, pinned: false, userScrolling: userScrollingRef?.current ?? false });
+        && shouldAbsorbChatShift({ pinned: false, userScrolling: userScrollingRef?.current ?? false });
       const top = absorb ? mountedRowTops(el).rows.find((row) => row.id === anchor.id)?.top ?? null : null;
       if (DEV_BUILD && chatTraceActive(keyRef.current)) {
         const measuredTop = !absorb && anchor ? mountedRowTops(el).rows.find(row => row.id === anchor.id)?.top ?? null : top;
@@ -136,7 +130,7 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     if (spacer.style.height !== height) spacer.style.height = height;
     translateRows(rowsRef.current, chatSpacerTranslation(base, driftRef.current));
     captureShiftAnchor();
-  }, [captureShiftAnchor, followTailRef, nativeAnchoring, scrollRef, userScrollingRef]);
+  }, [captureShiftAnchor, followTailRef, scrollRef, userScrollingRef]);
 
   const foldDrift = useCallback(() => {
     const spacer = topSpacerRef.current;
