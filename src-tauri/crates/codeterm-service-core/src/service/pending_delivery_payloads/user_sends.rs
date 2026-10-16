@@ -18,6 +18,7 @@ mod runtime_observers;
 pub use admission_evidence::UserAdmissionEvidence;
 use runtime_observers::RuntimeAdmission;
 pub(crate) mod continuity;
+pub(crate) mod ended_launch;
 mod handoff;
 mod ready_launch;
 mod reservations;
@@ -549,12 +550,16 @@ impl UserSendStore {
             && record.state == UserSendState::Queued
             && !tab.revoked.load(Ordering::Acquire)
             && !tab.failed.load(Ordering::Acquire)
-            && !tab
-                .admissions
-                .lock()
-                .pending
-                .iter()
-                .any(|ordinal| *ordinal <= record.reservation)
+            && !self.waiting_for_preparation(record)
+    }
+
+    pub(crate) fn waiting_for_preparation(&self, record: &UserSendRecord) -> bool {
+        self.tab(&record.authority.tab_id)
+            .admissions
+            .lock()
+            .pending
+            .iter()
+            .any(|ordinal| *ordinal <= record.reservation)
     }
 
     pub fn claim<'a>(
