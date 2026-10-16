@@ -16,6 +16,7 @@ impl ChatSendLedger {
             sequence: reservation.ledger_sequence,
             retained_from: reservation.ledger_sequence,
             correlation_id: reservation.client_token.clone(),
+            matched_row: None,
             pending_reason: None,
             system_send: None,
         }
@@ -51,6 +52,7 @@ impl ChatSendLedger {
             sequence: record.ledger_sequence,
             retained_from: record.ledger_sequence,
             correlation_id: record.client_token.clone(),
+            matched_row: None,
             pending_reason: None,
             system_send: None,
         };
@@ -166,6 +168,7 @@ impl ChatSendLedger {
             sequence: receipt.ledger_sequence,
             retained_from: receipt.ledger_sequence,
             correlation_id: receipt.client_token.clone(),
+            matched_row: None,
             pending_reason: None,
             system_send: None,
         };

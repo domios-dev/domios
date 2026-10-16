@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 mod bounded_window_tests;
+mod source_claim_tests;
 mod status_tests;
 mod structured_sequential_tests;
 mod trace_tests;
@@ -66,13 +67,21 @@ impl AgentProvider for WindowedJsonlProvider {
         file.seek(SeekFrom::Start(from_offset)).unwrap();
         let mut window = Vec::new();
         file.read_to_end(&mut window).unwrap();
+        let mut record_start = from_offset;
         let messages = window
             .split(|byte| *byte == b'\n')
-            .filter_map(|line| serde_json::from_slice::<serde_json::Value>(line).ok())
-            .filter_map(|value| {
+            .filter_map(|line| {
+                let start = record_start;
+                record_start += line.len() as u64 + 1;
+                serde_json::from_slice::<serde_json::Value>(line)
+                    .ok()
+                    .map(|value| (start, value))
+            })
+            .filter_map(|(record_start, value)| {
                 let role = value.get("role")?.as_str()?.to_string();
                 let content = value.get("content")?.as_str()?.to_string();
                 Some(RichMessage {
+                    record_start: Some(record_start),
                     role,
                     uuid: value
                         .get("id")
