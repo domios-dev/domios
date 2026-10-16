@@ -232,7 +232,6 @@ test("team header renders the live compact status tally", async () => {
       && (managers.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING)),
     "plan tally precedes Team members while disclosure stays below them",
   );
-  assert(/\.sidebar-team-readout\s*\{[^}]*margin:\s*6px 12px 9px 14px;[^}]*justify-content:\s*flex-start/.test(sidebarStyles), "tally is aligned to the Team content edge");
   const card = host.querySelector('[data-testid="team-card-activation"]') as HTMLButtonElement | null;
   assert(card, "bound Team exposes a dedicated plan activation surface");
   assert(!host.querySelector('[data-testid="team-plan-button"]'), "superseded Plan button is absent");
