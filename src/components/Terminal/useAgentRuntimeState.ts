@@ -28,6 +28,7 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
   const snapshotDuration = snapshot?.last_turn_duration_ms;
   const snapshotHistory = snapshot?.history;
   const snapshotHistoryPages = snapshot?.historyPages;
+  const snapshotHistoryError = snapshot?.historyError;
   const pending = useRef(false);
   const publish = (state: AgentRuntimeState | null) => {
     current.current = { key, state, questions: current.current.key === key ? current.current.questions : snapshotQuestions };
@@ -39,13 +40,13 @@ export function useAgentRuntimeState(tabId: string, nonce: string | null, snapsh
     const next = snapshotState !== undefined && snapshotEpoch !== undefined
       ? { state: snapshotState, epoch: snapshotEpoch, reason: snapshotReason, auth:snapshotAuth, login:snapshotLogin, loginMethods:snapshotLoginMethods, loginProviderName:snapshotLoginProviderName, loginTerminal:snapshotLoginTerminal,
         active_turn_started_at_ms: snapshotStartedAt, last_turn_duration_ms: snapshotDuration,
-        history: snapshotHistory, historyPages: snapshotHistoryPages } : null;
+        history: snapshotHistory, historyPages: snapshotHistoryPages, historyError: snapshotHistoryError } : null;
     const state = runtimeStateFromSnapshot(current.current.key === key ? current.current.state : null, next);
     if (state?.auth === "signedOut") clearResetCreditsForTab(tabId);
     if (current.current.key === key && current.current.state === state && current.current.questions === snapshotQuestions) return;
     current.current = { key, state, questions: snapshotQuestions };
     setRecord(current.current);
-  }, [key, snapshotState, snapshotEpoch, snapshotReason, snapshotStartedAt, snapshotDuration, snapshotHistory, snapshotHistoryPages, snapshotQuestions, snapshotAuth, snapshotLogin, snapshotLoginMethods, snapshotLoginProviderName, snapshotLoginTerminal, tabId]);
+  }, [key, snapshotState, snapshotEpoch, snapshotReason, snapshotStartedAt, snapshotDuration, snapshotHistory, snapshotHistoryPages, snapshotHistoryError, snapshotQuestions, snapshotAuth, snapshotLogin, snapshotLoginMethods, snapshotLoginProviderName, snapshotLoginTerminal, tabId]);
 
   useEffect(() => {
     generation.current++;

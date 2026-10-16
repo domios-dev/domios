@@ -118,6 +118,12 @@ pub struct RuntimeSnapshot {
     pub active_turn_started_at_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_turn_duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history: Option<HistoryBackfill>,
+    #[serde(rename = "historyPages", skip_serializing_if = "Option::is_none")]
+    pub history_pages: Option<u32>,
+    #[serde(rename = "historyError", skip_serializing_if = "Option::is_none")]
+    pub history_error: Option<String>,
 }
 
 impl RuntimeState {
@@ -129,6 +135,9 @@ impl RuntimeState {
             RuntimePhase::Degraded { reason } => ("degraded", Some(reason.clone())),
         };
         RuntimeSnapshot {
+            history: None,
+            history_pages: None,
+            history_error: None,
             state: state.into(),
             epoch: self.epoch,
             reason,
@@ -207,7 +216,7 @@ impl RuntimeState {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum HistoryBackfill {
     Loading,
@@ -261,7 +270,16 @@ impl ItemCache {
             return false;
         }
         self.backfill = outcome;
-        self.live_during_backfill.clear();
+        if outcome == HistoryBackfill::Complete {
+            self.live_during_backfill.clear();
+        }
+        true
+    }
+    pub fn resume_backfill(&mut self, generation: u64) -> bool {
+        if !self.backfill_current(generation) || self.backfill != HistoryBackfill::Failed {
+            return false;
+        }
+        self.backfill = HistoryBackfill::Loading;
         true
     }
     pub fn backfill(&self) -> HistoryBackfill {
@@ -305,7 +323,7 @@ impl ItemCache {
         landed
     }
     pub fn reconcile_live(&mut self, mut item: ChatMsg, at: u64) -> ChatMsg {
-        if self.backfill == HistoryBackfill::Loading {
+        if self.backfill != HistoryBackfill::Complete {
             self.live_during_backfill.insert(item.id.clone());
         }
         if let Some(status) = item.tool_status.as_deref() {

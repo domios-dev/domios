@@ -1,5 +1,6 @@
 use super::*;
 use crate::agent_runtime::{RuntimeFailure, RuntimeFailureCode, MAX_RUNTIME_VALUE_BYTES};
+mod timing;
 
 const INVOKE: &str = r#"
 (function () {
@@ -27,9 +28,18 @@ pub(crate) fn call_runtime_hook<R: serde::de::DeserializeOwned>(
     args: &[serde_json::Value],
     deadline: std::time::Instant,
 ) -> Result<R, RuntimeFailure> {
+    let mut timing = timing::HookTiming::new(method);
     crate::agent_runtime::validate_runtime_size(&args, MAX_RUNTIME_VALUE_BYTES)?;
     let args_json =
         serde_json::to_string(args).map_err(|e| failure(RuntimeFailureCode::InvalidSchema, e))?;
+    timing.bytes = args_json.len();
+    if let Some(reply) = args.get(3) {
+        log::debug!(
+            "[runtime-hook] method={method} reply_bytes={}",
+            timing::serialized_bytes(reply)
+        );
+    }
+    timing.enter("vm_wait");
     let remaining = deadline.saturating_duration_since(std::time::Instant::now());
     let mut runtime_inner = vm
         .runtime_inner
@@ -38,12 +48,14 @@ pub(crate) fn call_runtime_hook<R: serde::de::DeserializeOwned>(
     if std::time::Instant::now() >= deadline {
         return Err(failure(
             RuntimeFailureCode::Deadline,
-            "runtime hook deadline",
+            "runtime hook preparation deadline",
         ));
     }
     if runtime_inner.is_none() {
+        timing.enter("initialize");
         *runtime_inner = Some(create_runtime_context(vm, deadline)?);
     }
+    timing.enter("execute");
     let inner = runtime_inner
         .as_ref()
         .ok_or_else(|| failure(RuntimeFailureCode::HookFailed, "runtime context missing"))?;
@@ -73,11 +85,12 @@ pub(crate) fn call_runtime_hook<R: serde::de::DeserializeOwned>(
     if std::time::Instant::now() >= deadline {
         return Err(failure(
             RuntimeFailureCode::Deadline,
-            "runtime hook deadline",
+            "runtime hook execution deadline",
         ));
     }
     let result =
         outcome.map_err(|_| failure(RuntimeFailureCode::HookFailed, "runtime hook panicked"))??;
+    timing.enter("decode");
     if result.len() > MAX_RUNTIME_VALUE_BYTES {
         return Err(failure(
             RuntimeFailureCode::SizeLimit,
@@ -156,3 +169,6 @@ fn create_runtime_context(
         manifest_json,
     })
 }
+
+#[cfg(test)]
+mod tests;
