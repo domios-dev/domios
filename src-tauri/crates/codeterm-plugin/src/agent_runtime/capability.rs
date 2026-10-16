@@ -25,6 +25,8 @@ pub struct AgentRuntimeCapability {
     pub background_processes: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goals: Option<RuntimeGoalCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_history: Option<RuntimeThreadHistoryCapability>,
     #[serde(default)]
     pub stored_history: bool,
     #[serde(default)]
@@ -70,4 +72,17 @@ pub enum RuntimeGoalAction {
     Pause,
     Resume,
     Complete,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeThreadHistoryCapability {
+    pub actions: Vec<RuntimeThreadHistoryAction>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeThreadHistoryAction {
+    Fork,
+    Revert,
 }

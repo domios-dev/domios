@@ -98,6 +98,16 @@ impl AgentRuntimeCapability {
         }) {
             return Err(RuntimeManifestError::InvalidMethods);
         }
+        if self.thread_history.as_ref().is_some_and(|history| {
+            history.actions.is_empty()
+                || history
+                    .actions
+                    .iter()
+                    .enumerate()
+                    .any(|(index, action)| history.actions[..index].contains(action))
+        }) {
+            return Err(RuntimeManifestError::InvalidMethods);
+        }
         let command = &self.command;
         let executable = command
             .binary

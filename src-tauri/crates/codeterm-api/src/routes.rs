@@ -1,8 +1,8 @@
 use axum::{
+    Router,
     http::{HeaderMap, StatusCode},
     middleware,
     routing::{delete, get, patch, post},
-    Router,
 };
 use tower_http::{
     catch_panic::CatchPanicLayer,
@@ -51,7 +51,9 @@ fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) -> Cor
                 origins.push(value);
             }
         } else {
-            log::warn!("[rest-cors] refused api.cors_allow_origins entry={index}: expected an exact HTTP(S) origin");
+            log::warn!(
+                "[rest-cors] refused api.cors_allow_origins entry={index}: expected an exact HTTP(S) origin"
+            );
         }
     }
     CorsLayer::new()
@@ -592,6 +594,10 @@ pub(super) fn create_router_with_preview_admission(
             post(super::runtime_login::goal),
         )
         .route(
+            "/api/tabs/{id}/agent/runtime/thread-history",
+            post(super::runtime_login::thread_history),
+        )
+        .route(
             "/api/tabs/{id}/agent/runtime/reset-credits",
             post(super::runtime_login::reset_credits),
         )
@@ -606,6 +612,11 @@ pub(super) fn create_router_with_preview_admission(
         .route(
             "/api/tabs/{id}/agent/runtime/children/{thread}/history",
             get(super::runtime_login::child_history),
+        )
+        .route(
+            "/api/tabs/{id}/agent/runtime/background-processes",
+            get(super::runtime_login::background_processes)
+                .post(super::runtime_login::stop_background_process),
         )
         .route(
             "/api/tabs/{id}/agent/runtime/questions/{item}/answer",

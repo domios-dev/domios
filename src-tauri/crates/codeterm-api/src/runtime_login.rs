@@ -1,10 +1,50 @@
-use super::routes::{check_auth, AppState};
+use super::routes::{AppState, check_auth};
 use axum::{
+    Json,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    Json,
 };
-use codeterm_service_core::service::agent_runtime::login::{operate, LoginRequest};
+use codeterm_service_core::service::agent_runtime::login::{LoginRequest, operate};
+
+pub(super) async fn background_processes(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(tab): Path<String>,
+    axum::extract::Query(request): axum::extract::Query<
+        codeterm_service_core::service::agent_runtime::background::BackgroundProcessAuthority,
+    >,
+) -> Result<
+    Json<codeterm_service_core::service::agent_runtime::background::BackgroundProcessSnapshot>,
+    (StatusCode, String),
+> {
+    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
+    codeterm_service_core::service::agent_runtime::background::list_for_tab(
+        &state.svc, &tab, request,
+    )
+    .await
+    .map(Json)
+    .map_err(|reason| (StatusCode::CONFLICT, reason))
+}
+
+pub(super) async fn stop_background_process(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(tab): Path<String>,
+    Json(request): Json<
+        codeterm_service_core::service::agent_runtime::background::StopBackgroundProcessRequest,
+    >,
+) -> Result<
+    Json<codeterm_service_core::service::agent_runtime::background::BackgroundProcessSnapshot>,
+    (StatusCode, String),
+> {
+    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
+    codeterm_service_core::service::agent_runtime::background::stop_for_tab(
+        &state.svc, &tab, request,
+    )
+    .await
+    .map(Json)
+    .map_err(|reason| (StatusCode::CONFLICT, reason))
+}
 
 pub(super) async fn child_history(
     State(state): State<AppState>,
@@ -71,4 +111,21 @@ pub(super) async fn goal(
         .await
         .map(Json)
         .map_err(|reason| (StatusCode::CONFLICT, reason))
+}
+
+pub(super) async fn thread_history(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(tab): Path<String>,
+    Json(request): Json<
+        codeterm_service_core::service::agent_runtime::thread_history::ThreadHistoryRequest,
+    >,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
+    codeterm_service_core::service::agent_runtime::thread_history::operate(
+        &state.svc, &tab, request,
+    )
+    .await
+    .map(Json)
+    .map_err(|reason| (StatusCode::CONFLICT, reason))
 }

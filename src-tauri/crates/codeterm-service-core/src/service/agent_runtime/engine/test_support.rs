@@ -38,6 +38,7 @@ pub(crate) fn live_runtime(tab: &Tab) -> LiveRuntime {
         }),
         controls_confirmation: Mutex::new(None),
         control_changes: tokio::sync::watch::channel(()).0,
+        reverted_thread: Mutex::new(None),
         completions: Mutex::new(Default::default()),
         state: Mutex::new(state),
         cache: Mutex::new(Default::default()),

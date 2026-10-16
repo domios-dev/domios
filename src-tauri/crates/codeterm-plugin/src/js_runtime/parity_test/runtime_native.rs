@@ -1,7 +1,7 @@
 use crate::agent_runtime::*;
 use crate::provider::AgentProvider;
 use codeterm_types::agent::chat_types::ChatMsg;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 
 pub(super) struct NativeRuntime(pub AgentRuntimeCapability);
@@ -222,6 +222,17 @@ impl AgentProvider for NativeRuntime {
                             },
                         )?,
                     },
+                    RuntimeOperation::Control {
+                        thread_id: Some(source_thread_id),
+                        action,
+                        value: request,
+                    } if action == "threadHistory" && request["action"] == "fork" => {
+                        RuntimeResult::ThreadForked {
+                            source_thread_id: source_thread_id.clone(),
+                            thread_id: value["thread"]["id"].as_str().unwrap_or_default().into(),
+                            turn_id: request["turnId"].as_str().unwrap_or_default().into(),
+                        }
+                    }
                     RuntimeOperation::Control { action, .. } if action == "redeemResetCredit" => {
                         RuntimeResult::ResetCreditConsumed {
                             outcome: serde_json::from_value(value["outcome"].clone()).map_err(

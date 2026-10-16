@@ -5,7 +5,7 @@ import { subscribeTabOutput, type TabOutputSink } from "../../lib/outputStream";
 import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
-import { writeTerminalOutput } from "./terminalOutputWrite";
+import { shouldAttachTerminalOutput, writeTerminalOutputAndWait } from "./terminalOutputWrite";
 import { writeTerminalInput } from "./terminalInputWrite";
 import {
   captureTerminalViewport,
@@ -33,6 +33,7 @@ export interface UsePtyConnectionOptions {
   onOutputChunk: (text: string) => void;
   ioEnabled?: boolean;
   renderEnabled?: boolean;
+  onHistoryReplayStateChange?: (replaying: boolean) => void;
   onFrameReady?: (ptyId: string) => void;
   onConnectionStateChange?: (ready: boolean) => void;
 }
@@ -52,6 +53,7 @@ export function usePtyConnection({
   onOutputChunk,
   ioEnabled = true,
   renderEnabled = true,
+  onHistoryReplayStateChange,
   onFrameReady,
   onConnectionStateChange,
 }: UsePtyConnectionOptions): UsePtyConnectionReturn {
@@ -96,10 +98,11 @@ export function usePtyConnection({
 
   useEffect(() => {
     const term = termRef.current;
-    if (!term || !termReady || !ioEnabled) return;
+    if (!term || !termReady || !shouldAttachTerminalOutput(ioEnabled, renderEnabled)) return;
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
     onConnectionStateChange?.(false);
+    onHistoryReplayStateChange?.(false);
 
     const connect = async () => {
       let id = ptyId;
@@ -120,17 +123,25 @@ export function usePtyConnection({
         onReplayComplete() {
           if (disposed) return;
           onConnectionStateChange?.(true);
-          writeTerminalOutput(term, "", () => { if (termRef.current === term) onFrameReady?.(id); });
+          return writeTerminalOutputAndWait(term, "", () => {
+            if (termRef.current === term) onFrameReady?.(id);
+          });
         },
         onOutput: (text) => {
           if (disposed) return;
-          writeTerminalOutput(term, text, () => { if (termRef.current === term) onFrameReady?.(id); });
+          const written = writeTerminalOutputAndWait(term, text, () => {
+            if (termRef.current === term) onFrameReady?.(id);
+          });
           onOutputChunk(text);
+          return written;
         },
         onBytes: (bytes) => {
           if (disposed) return;
-          writeTerminalOutput(term, bytes, () => { if (termRef.current === term) onFrameReady?.(id); });
+          const written = writeTerminalOutputAndWait(term, bytes, () => {
+            if (termRef.current === term) onFrameReady?.(id);
+          });
           onOutputChunk(new TextDecoder().decode(bytes.slice(-200)));
+          return written;
         },
         onTruncated: (from) => {
           if (!disposed) term.writeln(`\r\n\x1b[90m[output truncated — resuming from byte ${from}]\x1b[0m`);
@@ -157,7 +168,7 @@ export function usePtyConnection({
       connectedPtyRef.current = null;
       onConnectionStateChange?.(false);
     };
-  }, [ptyId, tabId, termReady, ioEnabled, onPtySpawned, onConnectionStateChange, onFrameReady, onShellReady, onOutputChunk, connectedPtyRef, termRef]);
+  }, [ptyId, tabId, termReady, ioEnabled, renderEnabled, onPtySpawned, onConnectionStateChange, onHistoryReplayStateChange, onFrameReady, onShellReady, onOutputChunk, connectedPtyRef, termRef]);
 
   return { writePty };
 }

@@ -1,7 +1,7 @@
 use crate::service::MuxEmitCause;
 mod abort_provenance;
 pub(crate) mod authority;
-mod background;
+pub mod background;
 pub(crate) mod blocking;
 mod bootstrap;
 pub(crate) mod capture;
@@ -28,6 +28,7 @@ mod process_boundary;
 mod process_slot;
 pub(crate) mod projections;
 pub mod reset_credits;
+pub mod thread_history;
 pub use projections::latest as projections_latest;
 pub(crate) mod prompt_answers;
 mod question_delivery;

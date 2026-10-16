@@ -35,10 +35,10 @@ export function bindOutputStreamTransport(client: TransportClient): void {
 }
 
 export interface TabOutputSink {
-  onOutput(text: string): void;
+  onOutput(text: string): void | Promise<void>;
   onReady?(): void;
-  onReplayComplete?(): void;
-  onBytes?(bytes: Uint8Array): void;
+  onReplayComplete?(): void | Promise<void>;
+  onBytes?(bytes: Uint8Array): void | Promise<void>;
   onTruncated(from: number): void;
   onEnded(): void;
   onStreamError?(error: Error): void;
@@ -139,7 +139,7 @@ function accountOutputFrame(bytes?: Uint8Array) {
   return perf;
 }
 
-function handleFrame(msg: OutputFrame): void {
+async function handleFrame(msg: OutputFrame): Promise<void> {
   const bytes = typeof msg.b64 === "string" ? decodeOutputBytes(msg.b64) : undefined;
   const perf = accountOutputFrame(bytes);
   if (msg.boot_changed && msg.boot) {
@@ -162,7 +162,7 @@ function handleFrame(msg: OutputFrame): void {
   if (msg.replay_complete) {
     if (set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
     completedReplays.set(tab, msg);
-    if (set) for (const sink of set) deliverReplayComplete(tab, sink, msg);
+    if (set) await Promise.all([...set].map((sink) => deliverReplayComplete(tab, sink, msg)));
     return;
   }
   if (bytes && set && ![...set].some(sink => acceptsSinkOutput(tab, sink, msg))) return;
@@ -178,7 +178,7 @@ function handleFrame(msg: OutputFrame): void {
     });
     if (set) {
       perf && (perf.batches += 1);
-      for (const sink of set) deliverOutput(tab, sink, msg, bytes);
+      await Promise.all([...set].map((sink) => deliverOutput(tab, sink, msg, bytes)));
     }
     return;
   }
@@ -209,22 +209,22 @@ function acceptsSinkOutput(tabId: string, sink: TabOutputSink, frame: OutputFram
   return acceptsTerminalOutput(frameTabId, sinkIdentities.get(sink)?.boundPtyId, frame.tab_id, frame.pty_id);
 }
 
-function deliverReplayComplete(tabId: string, sink: TabOutputSink, frame: OutputFrame): void {
-  if (acceptsSinkOutput(tabId, sink, frame)) sink.onReplayComplete?.();
+function deliverReplayComplete(tabId: string, sink: TabOutputSink, frame: OutputFrame): void | Promise<void> {
+  if (acceptsSinkOutput(tabId, sink, frame)) return sink.onReplayComplete?.();
 }
 
-function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame, bytes: Uint8Array): void {
+function deliverOutput(tabId: string, sink: TabOutputSink, frame: OutputFrame, bytes: Uint8Array): void | Promise<void> {
   if (!acceptsSinkOutput(tabId, sink, frame)) return;
   const identity = sinkIdentities.get(sink) ?? { terminal: sink, ptyId: frame.pty_id ?? tabId };
-  replay.deliver(identity.terminal, tabId, {
+  return replay.deliver(identity.terminal, tabId, {
     boot: frame.boot ?? boot ?? "", ptyId: frame.pty_id ?? identity.ptyId,
     offset: frame.offset ?? bytes.length, bytes,
   }, (payload) => writeSinkBytes(sink, payload));
 }
 
-function writeSinkBytes(sink: TabOutputSink, bytes: Uint8Array): void {
-  if (sink.onBytes) sink.onBytes(bytes);
-  else sink.onOutput(new TextDecoder().decode(bytes));
+function writeSinkBytes(sink: TabOutputSink, bytes: Uint8Array): void | Promise<void> {
+  if (sink.onBytes) return sink.onBytes(bytes);
+  return sink.onOutput(new TextDecoder().decode(bytes));
 }
 
 function recoverOutputStream(): void {
@@ -237,7 +237,7 @@ function openAggregateStream(): () => void {
   const client = outputClient ?? createTransportClient({ origin: apiHost(), token: currentToken });
   client.subscribe(outputStreamUrl().slice(client.origin().length), (_name, data) => {
     if (abort.signal.aborted || streamAbort !== abort) return;
-    handleFrame(data as OutputFrame);
+    return handleFrame(data as OutputFrame);
   }, {
     signal: abort.signal, raw: true,
     onActivity() { for (const set of sinks.values()) for (const sink of set) sink.onReady?.(); },
@@ -393,7 +393,7 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
   const client = outputClient ?? createTransportClient({ origin: transport.base, token: () => remoteTabTransportHttp().token });
   client.subscribe(path, (_name, data) => {
     if (abort.signal.aborted || !record.recovery.isCurrent(generation)) return;
-    handleRemoteOutputFrame(ordinaryTabId, record, generation, remoteTabId, data as OutputFrame);
+    return handleRemoteOutputFrame(ordinaryTabId, record, generation, remoteTabId, data as OutputFrame);
   }, {
     signal: abort.signal, raw: true, onActivity() {
       deadline.arm();
@@ -412,13 +412,13 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
   });
 }
 
-function handleRemoteOutputFrame(
+async function handleRemoteOutputFrame(
   ordinaryTabId: string,
   record: RemoteOutputRecord,
   generation: number,
   remoteTabId: string,
   message: OutputFrame,
-): void {
+): Promise<void> {
   if (message.tab_id && message.tab_id !== remoteTabId) return;
   if (message.replay_complete) {
     const targets = remoteSinks.get(ordinaryTabId);
@@ -427,7 +427,7 @@ function handleRemoteOutputFrame(
       boot: message.boot, ptyId: message.pty_id, offset: message.offset ?? 0,
     });
     record.replayComplete = message;
-    for (const target of targets) deliverReplayComplete(ordinaryTabId, target, message);
+    await Promise.all([...targets].map((target) => deliverReplayComplete(ordinaryTabId, target, message)));
     return;
   }
   if (message.truncated && typeof message.from === "number") {
@@ -453,7 +453,7 @@ function handleRemoteOutputFrame(
     };
     if (!record.recovery.noteProgress(generation, next)) return; // duplicate replay or stale generation dropped.
     if (perf) perf.batches++;
-    for (const target of remoteSinks.get(ordinaryTabId) ?? []) deliverOutput(ordinaryTabId, target, { ...message, boot: next.boot }, bytes);
+    await Promise.all([...(remoteSinks.get(ordinaryTabId) ?? [])].map((target) => deliverOutput(ordinaryTabId, target, { ...message, boot: next.boot }, bytes)));
     return;
   }
   if (message.boot) {

@@ -84,6 +84,7 @@ export type OperationResult =
   | {kind:"backgroundProcessTermination"; threadId:string; processId:string; acknowledged:boolean}
   | {kind:"initialized"}
   | {kind:"threadLoaded"; threadId:string; settings:RuntimeSettings}
+  | {kind:"threadForked"; sourceThreadId:string; threadId:string; turnId:string}
   | {kind:"historyPage"; threadId:string; items:readonly ChatMsg[];
       nextCursor?:string; openItems:readonly OpenItem[]; questions?:readonly RuntimeHistoryQuestion[];
       /** Echo of the requested order; absent means ascending. */
@@ -105,6 +106,7 @@ export type AgentEvent =
   | {kind:"promptResolved"; threadId:string; requestId:RpcId}
   | {kind:"controlsConfirmed"; threadId:string; settings:RuntimeSettings}
   | {kind:"contextCompacted"; threadId:string; itemId:string}
+  | {kind:"threadReverted"; threadId:string}
   | {kind:"question"; threadId:string; itemId:string; questions:readonly RuntimeQuestion[]; response:"message"}
   | {kind:"authLogin"; login:RuntimeLoginState}
   | {kind:"auth"; state:"signedIn"|"signedOut"|"unknown"; billingMode?:"subscription"|"api"|"unknown"; detail?:string}
@@ -118,6 +120,7 @@ export interface StdioAgentRuntimeCapability {
   fastMode?:boolean;
   backgroundProcesses?:boolean;
   goals?:{actions:readonly RuntimeGoalAction[]};
+  threadHistory?:{actions:readonly ("fork"|"revert")[]};
   resetCreditsMinVersion?:string;
   storedHistory?:boolean;
   usage?:boolean;

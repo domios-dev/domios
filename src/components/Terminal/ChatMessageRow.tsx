@@ -30,8 +30,8 @@ function Gutter({ side, children }: { side: DotSide; children?: ReactNode }) {
 }
 
 /** One chat row: the bubble, a quiet actions dot in its gutter that follows the pointer, and its place in a block selection. */
-export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, deliveryState, sourceOrdinal, ariaLabel, selected, joinNext, selecting, cursor, handlers, onDelete, children }: {
-  msg: { id: string; type: string; sourceMessageId?: string };
+export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, deliveryState, sourceOrdinal, ariaLabel, selected, joinNext, selecting, cursor, handlers, onDelete, onForkFromHere, onRevertToHere, children }: {
+  msg: { id: string; type: string; sourceMessageId?: string; toolFlowId?: string | null };
   timestamp?: number;
   deliveryState?: string;
   sourceOrdinal?: number;
@@ -43,6 +43,8 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, del
   handlers: MessageRowHandlers;
   children: ReactNode;
   onDelete?: () => void;
+  onForkFromHere?: () => void;
+  onRevertToHere?: () => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [hot, setHot] = useState(false);
@@ -61,7 +63,9 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, timestamp, del
     quote: handlers.quote,
     ask: handlers.ask,
     select: () => handlers.select(targetId),
-  }), [handlers, targetId, onDelete]);
+    fork: onForkFromHere,
+    revert: onRevertToHere,
+  }), [handlers, targetId, onDelete, onForkFromHere, onRevertToHere]);
   useMessageTouch(rowRef, {
     selecting,
     open: (id) => { setPartId(id); setTouchMenu(true); setMenuOpen(true); hint.opened(); },
