@@ -1,7 +1,4 @@
-use super::{
-    engine,
-    model::{ItemCache, RuntimeFailure},
-};
+use super::{engine, model::ItemCache};
 use crate::multiplexer::types::TabBacking;
 use crate::service::{ServiceContext, SpawnAgentParams};
 use codeterm_plugin::agent_runtime::{RuntimeOperation, RuntimeResult, RuntimeThreadHistoryAction};
@@ -241,7 +238,7 @@ pub async fn operate(
                     &source_tab.id,
                     &cwd,
                     target_cwd,
-                    Some(&forked_binding.binding_nonce),
+                    Some(forked_binding.binding_nonce.as_str()),
                 )
             {
                 close_fork_tab(svc, &spawned.tab_id).await;
