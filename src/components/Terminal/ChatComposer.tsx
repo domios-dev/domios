@@ -1,3 +1,4 @@
+import { useLatestCallback } from "../../hooks/useLatestCallback";
 import type { ChatSessionIntent } from "@codeterm/chat-core";
 import { canSendDelayedMessage, sendCurrentDelayedMessage } from "./delayedMessageModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvents";
@@ -5,7 +6,7 @@ import { onResync } from "../../lib/resync";
 import { createDelayedMessageFeed } from "./delayedMessageFeed";
 import {ProviderCapabilityBadge} from "./ProviderCapabilityBadge";
 import {cachedSlashCommands} from "../../lib/providerCapabilities";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
 import { ComposerBubbleRow } from "./ComposerBubbles";
 import { ComposerDock } from "./ComposerDock";
 import { useComposerLayout } from "./useComposerLayout";
@@ -231,7 +232,7 @@ function ChatComposerImpl({
 
   const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`);
   const recall = useComposerRecall(tabId);
-  const workspaceId = useMuxSelector(useCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));
+  const workspaceId = useMuxSelector(useLatestCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
   const touchMode = useTouchOptimizedUi();
@@ -252,7 +253,7 @@ function ChatComposerImpl({
   // Screen-reader-visible mirror of showComposerError: the field's current
   // content was rejected, until the user edits it again.
   const [composerInvalid, setComposerInvalid] = useState(false);
-  const flagComposerError = useCallback(
+  const flagComposerError = useLatestCallback(
     (message: string) => {
       setComposerInvalid(true);
       showComposerError(message);
@@ -273,14 +274,14 @@ function ChatComposerImpl({
   const capsulesActive = !composing && hasCapsuleTokens(input);
   const pendingUploads = draftHasPendingUploads(input, capsules.registry);
   const attachInline = async (paths: string[]) => capsules.insert(await classifyAttachmentPaths(paths));
-  const capabilities = useMuxSelector(useCallback(state => state.tabs[tabId]?.provider_signals?.capabilities, [tabId]));
+  const capabilities = useMuxSelector(useLatestCallback(state => state.tabs[tabId]?.provider_signals?.capabilities, [tabId]));
   const firstLine = input.split("\n")[0] || "";
   const suggestions = useMemo(
     () => filterSlashCommands(firstLine, cachedSlashCommands(capabilities)),
     [firstLine, capabilities],
   );
 
-  const refocusComposer = useCallback(() => {
+  const refocusComposer = useLatestCallback(() => {
     if (!isActiveRef.current) return;
     const focus = () => {
       if (!isActiveRef.current) return;
@@ -316,7 +317,7 @@ function ChatComposerImpl({
 
   const delayedFeedRef = useRef<ReturnType<typeof createDelayedMessageFeed> | null>(null);
   const delayedTabRef = useRef<string | null>(null);
-  const refreshDelayedMessages = useCallback(async () => {
+  const refreshDelayedMessages = useLatestCallback(async () => {
     await delayedFeedRef.current?.refresh();
   }, []);
 
