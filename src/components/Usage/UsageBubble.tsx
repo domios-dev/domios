@@ -2,6 +2,7 @@ import {uid} from "../../lib/uid";
 import {invoke} from "../../lib/bridge";
 import {resetCreditsForTab, type ResetResponse} from "./resetCreditsModel";
 import {ResetCreditsSection} from "./ResetCreditsSection";
+import {InlineErrorNotice} from "../shared/ErrorNotice";
 import { ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown } from "./runtimeUsage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
@@ -207,7 +208,7 @@ export function UsageBubble({
       {open && !tokenSession && isSpend && (
         <UsageSpendDetail
           snapshot={active}
-          resetSection={tabId && runtime && resetModel ? <><ResetCreditsSection resets={active.resets} model={resetModel} />{resetReadError && active.resets && <div role="alert">{resetReadError}</div>}</> : undefined}
+          resetSection={tabId && runtime && resetModel ? <><ResetCreditsSection resets={active.resets} model={resetModel} />{resetReadError && active.resets && <InlineErrorNotice error={resetReadError} operation="reading the reset credits" />}</> : undefined}
           flipUp={flipUp}
           onRefresh={refreshUsage}
           onOpenHistory={() => {
@@ -220,7 +221,7 @@ export function UsageBubble({
       {open && !tokenSession && !isSpend && (
         <UsageDetail
           snapshot={active}
-          resetSection={tabId && runtime && resetModel ? <><ResetCreditsSection resets={active.resets} model={resetModel} />{resetReadError && active.resets && <div role="alert">{resetReadError}</div>}</> : undefined}
+          resetSection={tabId && runtime && resetModel ? <><ResetCreditsSection resets={active.resets} model={resetModel} />{resetReadError && active.resets && <InlineErrorNotice error={resetReadError} operation="reading the reset credits" />}</> : undefined}
           flipUp={flipUp}
           onRefresh={refreshUsage}
           onOpenHistory={() => {
