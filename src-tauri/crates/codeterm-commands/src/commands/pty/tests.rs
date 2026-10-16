@@ -307,6 +307,7 @@ mod spawn_pty_restore_tests {
         tab.restorable_launch = RestorableLaunchParameters {
             failed_provider: None,
             structured_runtime_mode: None,
+            execution_sandbox: None,
             context_files: None,
             context_skills: None,
             worker_restart: None,
