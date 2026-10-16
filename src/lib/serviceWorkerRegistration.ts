@@ -1,10 +1,34 @@
 import { IS_WEB } from "./webApi";
+import { interfaceReloadUrl, prepareInterfaceReload } from "./interfaceReload";
 
 const REG_FAIL_KEY = "codeterm-sw-reg-failures";
 const MAX_REG_FAILS = 3;
 const SW_PATH = "./sw.js";
 
 let refreshing = false;
+let reloadTarget: string | null = null;
+let reloadPending: Promise<void> | null = null;
+
+export function __resetServiceWorkerForTest(): void {
+  refreshing = false;
+  reloadTarget = null;
+  reloadPending = null;
+}
+
+function reloadPageOnce(): void {
+  if (refreshing) return;
+  refreshing = true;
+  if (reloadTarget) window.location.replace(reloadTarget);
+  else window.location.reload();
+}
+
+export function reloadInterface(build: string): Promise<void> {
+  if (reloadPending) return reloadPending;
+  reloadTarget = interfaceReloadUrl(window.location.href, build);
+  reloadPending = prepareInterfaceReload(navigator.serviceWorker, AbortSignal.timeout(15000))
+    .then(reloadPageOnce).finally(() => { reloadPending = null; reloadTarget = null; });
+  return reloadPending;
+}
 
 function recordRegistrationFailure(): void {
   try {
@@ -53,9 +77,8 @@ export function registerServiceWorker(): void {
 
   const hadController = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (!hadController || refreshing) return;
-    refreshing = true;
-    window.location.reload();
+    if (!hadController) return;
+    reloadPageOnce();
   });
 
   void navigator.serviceWorker
