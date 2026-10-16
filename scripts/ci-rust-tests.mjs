@@ -5,6 +5,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { classifyInventory } from './ci-rust-classification.mjs';
 import { archiveTargets, loadReleaseRust } from './ci-rust-archives.mjs';
+import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
 
 // The catalogue's release tier names every package and target, including path dependencies outside the workspace.
 const { runners: RELEASE_RUST } = loadReleaseRust(path.resolve(import.meta.dirname, '..'));
@@ -41,14 +42,15 @@ export function generatedDirectories(messages) {
   return directories;
 }
 
-function compile(lane) {
+export function compile(lane, { execute = execFileSync, writeError = text => process.stderr.write(text) } = {}) {
   let messages = '';
   try {
-    messages = execFileSync('cargo-nextest', ['nextest', 'run', '--no-run', '--manifest-path', lane.manifest, ...lane.targets, '--locked', '--cargo-message-format', 'json'],
+    messages = execute('cargo-nextest', ['nextest', 'run', '--no-run', '--manifest-path', lane.manifest, ...lane.targets, '--locked', '--cargo-message-format', 'json'],
       { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });
     return messages;
   } catch (error) {
     messages = error.stdout?.toString() || '';
+    writeError(renderedCompilerErrors(messages));
     throw error;
   } finally {
     if (process.env.RUST_WARNING_LOG) {

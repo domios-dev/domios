@@ -49,8 +49,7 @@ export type TranscriptOutcome =
   | "ignored_stale"
   | "ignored_empty"
   | "rejected_range"
-  | "recover_gap"
-  | "recover_overlap";
+  | "recover_gap";
 
 export interface TranscriptResult {
   state: TranscriptState;
@@ -240,6 +239,32 @@ function reduceSnapshot(
   );
 }
 
+function supersedeRows(
+  segments: TranscriptSegment[],
+  incoming: NormalizedChatMessage[],
+): TranscriptSegment[] {
+  const incomingIds = new Set(incoming.map(row => row.id));
+  const preserved: TranscriptSegment[] = [];
+  const superseded: TranscriptSegment[] = [];
+  let anchorStart = Number.POSITIVE_INFINITY;
+  let anchorEnd = 0;
+  for (const segment of segments) {
+    const rows = segment.rows.filter(row => !incomingIds.has(row.id));
+    if (rows.length > 0) {
+      preserved.push({ ...segment, rows });
+    } else if (segment.range != null) {
+      if (superseded.length === 0) superseded.push({ ...segment, rows });
+      anchorStart = Math.min(anchorStart, segment.range.start);
+      anchorEnd = Math.max(anchorEnd, segment.range.end);
+    }
+  }
+  const anchor = superseded[0];
+  return anchor == null ? preserved : [
+    ...preserved,
+    { ...anchor, range: { ...anchor.range, start: anchorStart, end: anchorEnd } },
+  ];
+}
+
 function reduceDelta(
   state: TranscriptState,
   batch: TranscriptBatch,
@@ -251,16 +276,17 @@ function reduceDelta(
   }
   const range = batch.range;
   const end = transcriptCommittedEnd(state);
-  // A committed transcript never grows a hole: only a range that continues the
-  // committed span is adopted, everything else asks for an authoritative parse.
   if (end != null) {
     if (range.end <= end) return { state, outcome: "ignored_stale" };
-    if (range.start < end) return { state, outcome: "recover_overlap" };
     if (range.start > end) return { state, outcome: "recover_gap" };
   }
+  const incoming = ownedRows(batch.authority, batch.rows);
+  const preserved = end != null && range.start < end
+    ? supersedeRows(state.segments, incoming)
+    : state.segments;
   return committed(
     state,
-    [...state.segments, { kind: "delta", range, rows: ownedRows(batch.authority, batch.rows) }],
+    [...preserved, { kind: "delta", range, rows: incoming }],
     "adopted",
     limit,
   );

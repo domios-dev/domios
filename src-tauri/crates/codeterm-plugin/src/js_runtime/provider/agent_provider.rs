@@ -792,7 +792,16 @@ impl AgentProvider for JsProvider {
         path: &std::path::Path,
         from_offset: u64,
     ) -> codeterm_types::agent::chat_types::SessionDelta {
-        self.js_parse_session_delta(path, from_offset)
+        self.js_parse_session_delta(path, from_offset, crate::jsonl_window::DELTA_CHUNK_BYTES)
+    }
+
+    fn parse_session_delta_bounded(
+        &self,
+        path: &std::path::Path,
+        from_offset: u64,
+        byte_budget: u64,
+    ) -> Option<codeterm_types::agent::chat_types::SessionDelta> {
+        (byte_budget > 0).then(|| self.js_parse_session_delta(path, from_offset, byte_budget))
     }
 
     fn parse_interactive_events(

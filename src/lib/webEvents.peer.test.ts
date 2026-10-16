@@ -58,6 +58,19 @@ async function main() {
     assert.equal(local.url.pathname, "/api/events/stream");
     await deliver(local, 10, "pl_local");
 
+    const originalStorage = globalThis.sessionStorage;
+    try {
+      globalThis.sessionStorage = {
+        getItem() { throw new Error("opaque-storage-unavailable"); },
+        setItem() { throw new Error("opaque-storage-unavailable"); },
+      } as unknown as Storage;
+      resetWebEvents();
+      const memoryReplay = await nextConnection();
+      assert.equal(memoryReplay.url.searchParams.get("since"), "boot:10", "same-target reconnect retains its applied cursor without storage");
+    } finally {
+      globalThis.sessionStorage = originalStorage;
+    }
+
     setRelayTarget("ubunta", "ubunta");
     resetWebEvents();
     const peer = await nextConnection();

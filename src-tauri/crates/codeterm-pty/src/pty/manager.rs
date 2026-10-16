@@ -482,6 +482,13 @@ pub fn build_session_with_profile(
         cmd.env("SHELL", &shell);
     }
 
+    super::shell_integration::apply_agent_startup(
+        &mut cmd,
+        &shell,
+        env_vars
+            .get(super::shell_integration::AGENT_SHELL_ENV)
+            .is_some_and(|value| value == "1"),
+    );
     if let Some(profile) = profile.filter(|_| command.is_none()) {
         super::shell_profiles::apply_profile(
             &mut cmd,
