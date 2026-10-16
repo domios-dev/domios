@@ -1,5 +1,6 @@
 import { createEventSubscriptionRegistry, eventStreamKey, shareEventSubscriptions } from "./eventSubscriptionRegistry";
 import { frontendBootDiagnostic } from "./frontendBootDiagnostic";
+import { installWebDiagnosticPort } from "./webDiagnosticPort";
 import { createTransportClient, type TokenSource, type TransportClient } from "./transportClient";
 
 export interface DaemonBootstrap { origin: string; token: TokenSource; frontendOrigin?: string }
@@ -67,6 +68,7 @@ export function configureDaemonTransport(input: DaemonBootstrap | ReloadCredenti
 export function initializeDaemonTransport(): TransportClient | undefined {
   if (base) return base;
   if (typeof window === "undefined") return undefined;
+  if (!("__TAURI_INTERNALS__" in window)) installWebDiagnosticPort(body => baseDaemonTransport().localJson("POST", "/api/frontend/diagnostic", body, { signal: AbortSignal.timeout(5000) }));
   const injected = window.__CODETERM_DAEMON__;
   frontendBootDiagnostic(injected ? "bootstrap-consumed" : "bootstrap-missing");
   delete window.__CODETERM_DAEMON__;
