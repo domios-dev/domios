@@ -27,6 +27,12 @@ allocation estimates, not retained bytes or native renderer memory. Profiling
 can perturb the workload; compare with the unprofiled control.
 All created tabs are closed on exit. Real sessions, drafts and PROD are untouched.
 
+Add `--revisit yes` for a reverse visit to all warm tabs and three switches
+between the first two, before appending new records. Each observation records
+whether its ready chat DOM was already mounted before the click. Correlate
+remounts with `chat_start.unchanged` log lines before calling them cache hits;
+the DOM observation alone does not prove a cached attach.
+
 `result.json` records each marker observation and switch latency, including
 incomplete runs and cleanup failures. A completed workload is not a leak-free
 verdict: compare equivalent warm cycles and cleanup, distinguish JS retention

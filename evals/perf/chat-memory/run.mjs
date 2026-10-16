@@ -38,7 +38,9 @@ async function selectWorkspace(name){
   await evaluate(cdp,`(()=>{(${button('Select workspace '+name)}).click();return true})()`);
 }
 async function visit(fixture,phase){
-  const begin=performance.now(),selector=`[data-testid="tab-session-chat"][data-tab-id="${fixture.tab}"]`;
+  const selector=`[data-testid="tab-session-chat"][data-tab-id="${fixture.tab}"]`;
+  const mountedBefore=await evaluate(cdp,`Boolean(document.querySelector(${JSON.stringify(selector)})?.dataset.snapshotReady==='true')`);
+  const begin=performance.now();
   await waitFunction(button('Open tab '+fixture.title));
   await evaluate(cdp,`(()=>{(${button('Open tab '+fixture.title)}).click();return true})()`);
   await waitFunction(`document.querySelector(${JSON.stringify(selector)})?.dataset.snapshotReady==='true'`);
@@ -47,7 +49,7 @@ async function visit(fixture,phase){
   await waitFunction(`document.querySelector(${JSON.stringify(selector)})?.innerText.includes(${JSON.stringify(fixture.marker)})`);
   const seen=await evaluate(cdp,`(()=>{const root=document.querySelector(${JSON.stringify(selector)});const ids=[...root.querySelectorAll('[data-source-message-id]')].map(e=>e.getAttribute('data-source-message-id'));return {rows:ids.length,unique:new Set(ids).size,markerVisible:root.innerText.includes(${JSON.stringify(fixture.marker)})}})()`);
   if(seen.rows!==seen.unique)throw Error('Duplicate mounted source ids');
-  visits.push({phase,tab:fixture.tab,firstVisibleMs,readyMs:performance.now()-begin,...seen});save();
+  visits.push({phase,tab:fixture.tab,mountedBefore,firstVisibleMs,readyMs:performance.now()-begin,...seen});save();
 }
 function processSample(){
   if(process.platform!=='win32')return null;
@@ -89,6 +91,11 @@ try{
   save();await selectWorkspace(workspace.name);
   for(const f of created)await visit(f,'warm');
   await sample('warm',{gc:true,snapshot:flags.snapshots==='yes'});
+  if(flags.revisit==='yes'){
+    for(const f of [...created].reverse())await visit(f,'revisit');
+    for(let pass=0;pass<3;pass++)for(const f of created.slice(0,2))await visit(f,'revisitPair');
+    await sample('revisited');
+  }
   if(allocations){
     await cdp.send('HeapProfiler.startSampling',{samplingInterval:32768,includeObjectsCollectedByMajorGC:true,includeObjectsCollectedByMinorGC:true});
     sampling=true;
