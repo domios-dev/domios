@@ -614,6 +614,18 @@ export function TeamUnit({
           )}
         </span>
       )}
+      {plan && (
+        <PlanStatusBreakdown
+          key={`tally-${planMotion.revision}`}
+          data-testid="team-status-tally"
+          data-team-card-region="status-tally"
+          data-team-card-hit-target="team-card-activation"
+          className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
+          counts={statusCounts}
+          tone="muted"
+          itemTestIdPrefix="team-status"
+        />
+      )}
       {renameError && <div data-testid="team-rename-error"><InlineErrorNotice error={renameError} operation="updating this Team" blocking /></div>}
     </div>
   </>;
@@ -686,18 +698,6 @@ export function TeamUnit({
             />
         </span>
       </div>
-      {plan && (
-        <PlanStatusBreakdown
-          key={`tally-${planMotion.revision}`}
-          data-testid="team-status-tally"
-          data-team-card-region="status-tally"
-          data-team-card-hit-target="team-card-activation"
-          className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
-          counts={statusCounts}
-          tone="muted"
-          itemTestIdPrefix="team-status"
-        />
-      )}
       {expanded && (
         <div
           className="sidebar-team-body"
