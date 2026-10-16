@@ -2155,6 +2155,16 @@ button,
   color: var(--ct-fg);
 }
 
+.sidebar-team-header:has(> .sidebar-team-card-static):not(:has(.sidebar-team-readout)) {
+  align-items: center;
+  margin-bottom: 0;
+  padding-block: 7px;
+}
+
+.sidebar-team-header:has(> .sidebar-team-card-static):not(:has(.sidebar-team-readout)) > .sidebar-team-progress-slot {
+  margin-top: 0;
+}
+
 .sidebar-team-unit:is(:hover, :focus-within)::before {
   opacity: 1;
 }
