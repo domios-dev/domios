@@ -3,6 +3,7 @@
 //! new model launch args. The first assistant turn after the transcript
 //! boundary confirms the model; a ready relaunch without one returns pending.
 
+use crate::service::MuxEmitCause;
 use std::time::{Duration, Instant};
 
 use super::{
@@ -344,7 +345,7 @@ impl ModelSwitchLaunch {
         ) {
             log::warn!("[agent-model] tab={tab_id} failed to persist the switched model: {error}");
         }
-        svc.emit_state_changed();
+        svc.emit_state_changed(MuxEmitCause::Model);
     }
 }
 
@@ -795,7 +796,7 @@ impl ServiceContext {
                 );
             }
             self.persist_current_attempt_session_model(tab_id);
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Model);
         }
         Ok(())
     }

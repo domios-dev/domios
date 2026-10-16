@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use codeterm_types::agent::role_kind::{self, builtins};
 
 use crate::multiplexer::state::MultiplexerState;
@@ -213,7 +214,7 @@ impl ServiceContext {
         for changed_tab_id in changed_bindings {
             self.record_role_transition(&changed_tab_id);
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::AgentIdentity);
         for plan_id in &changed_plan_ids {
             self.emit_plan_changed(plan_id);
         }

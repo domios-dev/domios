@@ -1,4 +1,5 @@
 use super::ServiceContext;
+use crate::service::MuxEmitCause;
 use codeterm_plugin::provider::CapabilityProbe;
 use codeterm_provider_ops::capability_probe::{CapabilityProbeHost, ProbeTarget};
 use codeterm_types::agent::capability_probe::{ProbeFailure, ProbeSnapshot};
@@ -93,6 +94,6 @@ impl CapabilityProbeHost for ServiceContext {
             }
         }
         drop(mux);
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Capability);
     }
 }

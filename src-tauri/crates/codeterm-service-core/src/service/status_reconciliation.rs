@@ -116,7 +116,7 @@ static SNAPSHOT_RELEASE_WAKE_ARMED: AtomicBool = AtomicBool::new(false);
 impl ServiceContext {
     /// Keeps a refusal's promise of a later state event, including when the
     /// lock owner itself never emits one (a session save, for example).
-    pub fn emit_state_changed_when_snapshot_readable(self: &Arc<Self>) {
+    pub fn emit_state_changed_when_snapshot_readable(self: &Arc<Self>, cause: super::MuxEmitCause) {
         if SNAPSHOT_RELEASE_WAKE_ARMED.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -126,7 +126,7 @@ impl ServiceContext {
             .spawn(move || {
                 wait_until_snapshot_readable(&svc.mux, &svc.agent_tracker);
                 SNAPSHOT_RELEASE_WAKE_ARMED.store(false, Ordering::Release);
-                svc.emit_state_changed();
+                svc.emit_state_changed(cause);
             });
         if let Err(error) = spawned {
             SNAPSHOT_RELEASE_WAKE_ARMED.store(false, Ordering::Release);

@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -467,7 +468,7 @@ impl ServiceContext {
             if tab_created_by_spawn {
                 self.rollback_provisional_tab_via_close(&tab_id);
             }
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::TabLifecycle);
             return Err(format!(
                 "task-bound dispatch for Tab {tab_id} could not register a startup supervisor"
             ));
@@ -485,7 +486,7 @@ impl ServiceContext {
                 if tab_created_by_spawn {
                     self.rollback_provisional_tab_via_close(&tab_id);
                 }
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::TabLifecycle);
                 return Err(e);
             }
             if role_str == "Worker" || role_str == "Manager" {
@@ -494,7 +495,7 @@ impl ServiceContext {
                         if tab_created_by_spawn {
                             self.rollback_provisional_tab_via_close(&tab_id);
                         }
-                        self.emit_state_changed();
+                        self.emit_state_changed(MuxEmitCause::TabLifecycle);
                         return Err(e);
                     }
                 }
@@ -543,7 +544,7 @@ impl ServiceContext {
                         .write()
                         .close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
                 }
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::TabLifecycle);
                 return Err(error);
             }
         }
@@ -581,7 +582,7 @@ impl ServiceContext {
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabLifecycle);
 
         let preamble_wrapped_task = agent.task.as_ref().map(|t| {
             if let Some(ref preamble) = agent.task_preamble {
@@ -986,7 +987,7 @@ impl ServiceContext {
                 wrapped_task.clone(),
             );
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabLifecycle);
 
         let model_args =
             hidden_launch_args(self, &tab_id, &agent, &launch_model, permission_bypass);

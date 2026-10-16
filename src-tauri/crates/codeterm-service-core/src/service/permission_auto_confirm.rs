@@ -2,6 +2,7 @@
 //! backed by a hook-reported permission request and recognized by the
 //! provider's own capability is answered, once, with its affirmative option.
 
+use crate::service::MuxEmitCause;
 use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -366,7 +367,7 @@ impl ServiceContext {
             serde_json::to_value(serde_json::json!({ "tab_id": tab_id, "enabled": enabled }))
                 .unwrap_or_default(),
         );
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Prompt);
         Ok(enabled)
     }
 
@@ -619,7 +620,7 @@ impl ServiceContext {
             )
             .unwrap_or_default(),
         );
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Prompt);
         true
     }
 
@@ -673,7 +674,7 @@ impl ServiceContext {
                 serde_json::to_value(serde_json::json!({ "tab_id": tab_id, "prompt": null }))
                     .unwrap_or_default(),
             );
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Prompt);
         }
     }
 
@@ -692,7 +693,7 @@ impl ServiceContext {
                 serde_json::to_value(serde_json::json!({ "tab_id": tab_id, "prompt": prompt }))
                     .unwrap_or_default(),
             );
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Prompt);
         }
     }
 }

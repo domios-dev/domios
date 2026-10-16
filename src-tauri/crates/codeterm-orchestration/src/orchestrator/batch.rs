@@ -1,3 +1,4 @@
+use codeterm_service_core::service::MuxEmitCause;
 use codeterm_service_core::service::{json_str, resolve_refs, ServiceContext};
 use codeterm_service_core::service::{BatchOp, SpawnAgentParams};
 
@@ -37,7 +38,7 @@ pub async fn batch(svc: &ServiceContext, commands: Vec<BatchOp>) -> Vec<serde_js
         }
     }
 
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::Team);
     results
 }
 

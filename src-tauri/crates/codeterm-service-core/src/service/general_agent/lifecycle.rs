@@ -1,5 +1,6 @@
 //! Start / restart / readiness-poll for the General Agent PTY+launch flow.
 
+use crate::service::MuxEmitCause;
 mod launch;
 mod readiness;
 mod runtime_launch;
@@ -621,7 +622,7 @@ fn restart_general_agent_inner(
                 if let Some(tab) = mux.write().get_tab_mut(&tab_id) {
                     tab.agent_booting = false;
                 }
-                svc.emit_state_changed();
+                svc.emit_state_changed(MuxEmitCause::GeneralAgent);
             }
             return;
         }
@@ -803,7 +804,7 @@ fn fail_general_agent_start(
         tab.agent_booting = false;
     }
     svc.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason));
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::GeneralAgent);
 }
 
 const BINDING_UNREPORTED: &str = "authoritative provider session binding was not reported";
@@ -892,7 +893,7 @@ fn defer_general_agent_start(
             stage.as_str()
         ),
     }
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::GeneralAgent);
 }
 
 #[cfg(test)]

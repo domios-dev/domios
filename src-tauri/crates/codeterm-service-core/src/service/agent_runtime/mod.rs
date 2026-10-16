@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 mod abort_provenance;
 pub(crate) mod authority;
 mod background;
@@ -63,7 +64,7 @@ pub async fn retry(
     engine::validate_binding(svc, &session).map_err(|reason| reason.to_string())?;
     engine::backfill::retry(svc, tab, &session).map_err(|reason| reason.to_string())?;
     let snapshot = engine::snapshot(&session);
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     Ok(snapshot)
 }
 

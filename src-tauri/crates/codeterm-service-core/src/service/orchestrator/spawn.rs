@@ -19,7 +19,7 @@ use crate::multiplexer::types::TabCloseReason;
 use crate::service::general_agent::{
     refuse_general_agent_team_membership, refuse_parenting_under_general_agent, shape_for_tab,
 };
-use crate::service::{spawn_title, ServiceContext};
+use crate::service::{spawn_title, MuxEmitCause, ServiceContext};
 
 /// Build effort provenance for a launch where the requested effort has already
 /// passed capability validation. No silent downgrade ⇒ `resolved == requested`.
@@ -563,7 +563,7 @@ impl ServiceContext {
             params.creator_tab_id.as_deref(),
         );
         if emit_state_change {
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::Team);
         }
 
         // (its hierarchy lives on the origin) — skip_local_worker_role avoids a 500.

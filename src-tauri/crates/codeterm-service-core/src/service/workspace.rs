@@ -1,5 +1,6 @@
 //! Workspace & tab operations.
 
+use crate::service::MuxEmitCause;
 use std::collections::HashSet;
 
 use super::ServiceContext;
@@ -161,7 +162,7 @@ impl ServiceContext {
         }
         ws.cwd_missing = self.refresh_workspace_cwd_state(&ws.id)?;
         self.ensure_workspace_plans_loaded(cwd.as_deref());
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
         self.record_product_event(codeterm_analytics::Event::WorkspaceCreated { workspaces });
@@ -190,7 +191,7 @@ impl ServiceContext {
             .and_then(|w| w.cwd);
         self.refresh_workspace_cwd_state(id)?;
         self.ensure_workspace_plans_loaded(cwd.as_deref());
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
@@ -199,7 +200,7 @@ impl ServiceContext {
     pub fn rename_workspace(&self, id: &str, name: &str) -> Result<(), String> {
         validate_workspace_name(name)?;
         self.mux.write().rename_workspace(id, name)?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
         Ok(())
     }
@@ -568,7 +569,7 @@ impl ServiceContext {
         }
         self.reap_orphaned_startup_teams();
         session_persist::persist_session_after_close(self);
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         if pre_focus != post_focus {
             if let Some(new) = post_focus {
                 self.emit_tab_focus_changed(&new);
@@ -596,7 +597,7 @@ impl ServiceContext {
         self.mux
             .write()
             .move_tab(tab_id, from_workspace_id, to_workspace_id)?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
@@ -611,7 +612,7 @@ impl ServiceContext {
         self.mux
             .write()
             .reorder_tabs(workspace_id, ordered_tab_ids)?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
@@ -626,7 +627,7 @@ impl ServiceContext {
         self.mux
             .write()
             .reorder_children(parent_tab_id, ordered_tab_ids)?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
@@ -641,7 +642,7 @@ impl ServiceContext {
         self.mux
             .write()
             .reorder_display(workspace_id, ordered_tab_ids)?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
@@ -650,7 +651,7 @@ impl ServiceContext {
     /// Reorder workspaces to match `ordered_workspace_ids`.
     pub fn reorder_workspace(&self, ordered_workspace_ids: &[String]) -> Result<(), String> {
         self.mux.write().reorder_workspaces(ordered_workspace_ids)?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
@@ -671,7 +672,7 @@ impl ServiceContext {
         };
         self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Terminal);
         self.emit_tab_title_pinned(&tab_id, title);
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
         Ok(tab_id)
     }
@@ -690,7 +691,7 @@ impl ServiceContext {
             tab_id
         };
         self.record_kpi_tab_created(&result, crate::agent::kpi_ledger::TabCreatedKind::Terminal);
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
         Ok(result)
@@ -698,7 +699,7 @@ impl ServiceContext {
 
     pub fn set_active_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
         self.mux.write().set_active_tab(workspace_id, tab_id)?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
@@ -716,7 +717,7 @@ impl ServiceContext {
             mux.set_active_workspace(workspace_id)?;
             mux.set_active_tab(workspace_id, tab_id)?;
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
@@ -742,7 +743,7 @@ impl ServiceContext {
             let _ = mux.set_active_tab(workspace_id, &result);
             result
         };
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         Ok(tab_id)
     }
 
@@ -761,7 +762,7 @@ impl ServiceContext {
             let _ = mux.set_active_tab(&r.0, &r.1);
             r
         };
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         Ok(result)
     }
 
@@ -775,7 +776,7 @@ impl ServiceContext {
             let _ = mux.set_active_tab(&r.0, &r.1);
             r
         };
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Workspace);
         Ok(result)
     }
 }

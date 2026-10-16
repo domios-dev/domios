@@ -2,6 +2,7 @@ use super::super::{
     engine,
     model::{RuntimeFailure, RuntimePhase},
 };
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::{RuntimeContext, RuntimeOperation, RuntimeResult};
 use std::{collections::HashSet, sync::Arc, time::Duration};
@@ -167,7 +168,7 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
                 {
                     session.state.lock().degrade(target.epoch, &reason);
                     engine::publish(svc, tab, &session);
-                    svc.emit_state_changed();
+                    svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
                 }
                 return Err(reason);
             }
@@ -234,7 +235,7 @@ async fn wait(
                 session.state.lock().degrade(target.epoch, &reason);
                 let tab = session.context.lock().tab_id.clone();
                 engine::publish(svc, &tab, session);
-                svc.emit_state_changed();
+                svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
             }
             Err(reason)
         }

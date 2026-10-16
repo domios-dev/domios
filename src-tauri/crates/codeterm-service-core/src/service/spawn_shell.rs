@@ -2,6 +2,7 @@
 
 use super::spawn::{resolve_spawn_workspace_id, SpawnTabSpec, TabHandle};
 use super::ServiceContext;
+use crate::service::MuxEmitCause;
 
 impl ServiceContext {
     pub(crate) fn resolve_shell_profile(
@@ -146,7 +147,7 @@ impl ServiceContext {
         } else if reused.is_some() {
             self.cancel_utility_timeout(&tab_id)?;
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabLifecycle);
 
         let pty_id = if spec.eager || spec.cmd.is_some() || reused.is_some() {
             self.ensure_tab_pty_for_send(&tab_id)?;

@@ -3,6 +3,7 @@ use super::{
     model::{RuntimeFailure, RuntimePhase},
     process::Process,
 };
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
 use std::sync::Arc;
@@ -111,7 +112,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                 session.state.lock().degrade(epoch, &reason);
                 let tab = session.context.lock().tab_id.clone();
                 engine::publish(&svc, &tab, &session);
-                svc.emit_state_changed();
+                svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
                 log::error!("[agent-runtime] tab={tab} owned process cleanup failed: {reason}");
                 return;
             }
@@ -147,7 +148,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                     );
                 }
                 engine::publish(&svc, &context.tab_id, &session);
-                svc.emit_state_changed();
+                svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
             }
             let owner = svc.clone();
             let ending = expired;

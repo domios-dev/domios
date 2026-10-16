@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use serde::Deserialize;
 
 use crate::multiplexer::state::MultiplexerState;
@@ -137,7 +138,7 @@ impl ServiceContext {
         }) {
             self.rollback_provisional_tab(&request.workspace_id, &tab_id);
             let _ = self.revoke_agent_pad(&tab_id);
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::GeneralAgent);
             return Err(error);
         }
         let service = std::sync::Arc::new(self.clone());
@@ -153,7 +154,7 @@ impl ServiceContext {
                 selection,
             );
         });
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::GeneralAgent);
         Ok(AtomicSpawn {
             snapshot: self.mux.read().snapshot(),
             tab_id,

@@ -6,6 +6,7 @@
 //! Manager + planner binding in `Self::spawn_agent`) - this module
 //! only sequences the two spawns and records the pending pair.
 
+use codeterm_service_core::service::MuxEmitCause;
 use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER};
 use codeterm_types::team::general_agent_membership::{CorrectiveShape, MembershipAttempt};
 use serde::{Deserialize, Serialize};
@@ -415,7 +416,7 @@ fn restore_claimed_pair_tab(
             "claimed Tab {tab_id} disappeared during pair rollback"
         ));
     }
-    service.emit_state_changed();
+    service.emit_state_changed(MuxEmitCause::Team);
     errors
 }
 
@@ -480,7 +481,7 @@ fn rollback_pair_tabs(service: &ServiceContext, reserved: &ReservedPairTabs) -> 
     }
     drop(mux);
     codeterm_service_core::service::session_persist::persist_session_after_close(service);
-    service.emit_state_changed();
+    service.emit_state_changed(MuxEmitCause::Team);
     cleanup_errors
 }
 
@@ -757,7 +758,7 @@ impl OrchestrationPairExt for ServiceContext {
                     }
                 }
                 let _ = self.focus_tab(&orch_tab_id);
-                self.emit_state_changed();
+                self.emit_state_changed(MuxEmitCause::Team);
                 // final count is the authoritative one for the nudge.
                 let budget_notice = self.workspace_tab_budget_notice(&workspace_id);
                 if reserved.team_minted {

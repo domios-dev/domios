@@ -1,6 +1,7 @@
 use super::*;
 use crate::service::general_agent::session_contract::{LaunchOwnership, TabLaunch};
 use crate::service::spawn::{AgentSpawnSpec, ChatBackendLaunchMetadata};
+use crate::service::MuxEmitCause;
 
 pub(super) fn start_main(
     svc: &crate::ServiceState,
@@ -239,7 +240,7 @@ fn launch(
         crate::service::supporter_tab_state::ObservationTrigger::SpawnReady,
         "general_agent_runtime_ready",
     );
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::GeneralAgent);
     Ok(())
 }
 
