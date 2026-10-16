@@ -221,6 +221,10 @@ pub(super) fn from_item(item: &Value, previous: Option<&ChatMsg>) -> Option<Chat
         "sessionIntent" => {
             message.kind = "custom".into();
             message.session_intent = Some(ChatSessionIntent {
+                goal_status: item
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
                 title: item.get("title").and_then(Value::as_str).map(str::to_owned),
                 goal: item
                     .get("objective")
@@ -292,7 +296,7 @@ pub(super) fn attachments(item: &Value) -> Option<Vec<ChatAttachment>> {
 pub(super) fn notification_item(method: &str, params: &Value) -> Option<Value> {
     if method == "thread/goal/updated" {
         return Some(
-            json!({"id":"thread:goal","type":"sessionIntent","objective":params["goal"]["objective"]}),
+            json!({"id":"thread:goal","type":"sessionIntent","objective":params["goal"]["objective"],"status":params["goal"]["status"]}),
         );
     }
     let turn = params
