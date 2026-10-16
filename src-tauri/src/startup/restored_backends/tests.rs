@@ -27,7 +27,7 @@ fn bounded_transports_progress_independently_without_starving_queued_tabs() {
             |kind| *kind,
             || vec![super::Priority::Background; 13],
             |_| Ok(()),
-            |kind| {
+            |kind, _| {
                 entered.send(*kind).unwrap();
                 match kind {
                     RestoreTransport::Pty => pty_tokens.lock().unwrap().recv().unwrap(),
@@ -256,18 +256,36 @@ fn five_workers_serve_visible_burst_before_any_completion() {
             |_| RestoreTransport::Pty,
             || vec![super::Priority::Visible; 5],
             |_| Ok(()),
-            |item| {
-                entered.send(*item).unwrap();
+            |item, admission| {
+                entered.send((*item, admission)).unwrap();
                 tokens.lock().unwrap().recv().unwrap();
                 Ok(())
             },
         )
     });
-    let mut admitted = (0..5)
+    let admitted = (0..5)
         .map(|_| observed.recv_timeout(Duration::from_secs(2)).unwrap())
         .collect::<Vec<_>>();
-    admitted.sort();
-    assert_eq!(admitted, [0, 1, 2, 3, 4]);
+    assert!(admitted
+        .iter()
+        .all(|(_, admission)| admission.priority == super::Priority::Visible));
+    assert_eq!(
+        admitted
+            .iter()
+            .filter(|(_, admission)| admission.permit == super::AdmissionPermit::Reserved)
+            .count(),
+        1
+    );
+    assert_eq!(
+        admitted
+            .iter()
+            .filter(|(_, admission)| admission.permit == super::AdmissionPermit::Shared)
+            .count(),
+        4
+    );
+    let mut ids = admitted.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+    ids.sort();
+    assert_eq!(ids, [0, 1, 2, 3, 4]);
     for _ in 0..5 {
         release.send(()).unwrap();
     }
@@ -298,21 +316,28 @@ fn focus_event_uses_reserved_worker_while_all_shared_workers_are_busy() {
                     .collect()
             },
             |_| Ok(()),
-            |item| {
-                entered.send(*item).unwrap();
+            |item, admission| {
+                entered.send((*item, admission)).unwrap();
                 tokens.lock().unwrap().recv().unwrap();
                 Ok(())
             },
         )
     });
-    let mut background = (0..4)
+    let background = (0..4)
         .map(|_| observed.recv_timeout(Duration::from_secs(2)).unwrap())
         .collect::<Vec<_>>();
-    background.sort();
-    assert_eq!(background, [0, 1, 2, 3]);
+    assert!(background.iter().all(|(_, admission)| admission.priority
+        == super::Priority::Background
+        && admission.permit == super::AdmissionPermit::Shared));
+    let mut ids = background.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
+    ids.sort();
+    assert_eq!(ids, [0, 1, 2, 3]);
     focused.store(4, Ordering::SeqCst);
     super::changes().notify();
-    assert_eq!(observed.recv_timeout(Duration::from_secs(2)).unwrap(), 4);
+    let (id, admission) = observed.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(id, 4);
+    assert_eq!(admission.priority, super::Priority::Focused);
+    assert_eq!(admission.permit, super::AdmissionPermit::Reserved);
     for _ in 0..6 {
         release.send(()).unwrap();
     }

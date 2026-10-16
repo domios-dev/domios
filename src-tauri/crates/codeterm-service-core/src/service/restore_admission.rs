@@ -39,6 +39,58 @@ pub fn priority(mux: &crate::multiplexer::state::MultiplexerState, tab_id: &str)
     )
 }
 
+impl Priority {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Focused => "focused",
+            Self::Visible => "visible",
+            Self::Background => "background",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AdmissionPermit {
+    Reserved,
+    Shared,
+    Ungated,
+}
+
+impl AdmissionPermit {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Reserved => "reserved",
+            Self::Shared => "shared",
+            Self::Ungated => "ungated",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Admission {
+    pub priority: Priority,
+    pub permit: AdmissionPermit,
+}
+
+impl Admission {
+    pub(crate) fn ungated(service: &ServiceContext, tab_id: &str) -> Self {
+        Self {
+            priority: priority(&service.mux.read(), tab_id),
+            permit: AdmissionPermit::Ungated,
+        }
+    }
+
+    pub fn mark(self, tab_id: &str, pty_id: Option<&str>, phase: &'static str) {
+        crate::startup::boot_timing::mark_admission(
+            tab_id,
+            pty_id,
+            phase,
+            self.priority.label(),
+            self.permit.label(),
+        );
+    }
+}
+
 #[derive(Default)]
 pub struct Changes {
     revision: Mutex<u64>,
@@ -82,41 +134,67 @@ enum Permit {
 struct Permits {
     foreground: bool,
     shared: usize,
+    shared_domains: HashSet<ProviderDomain>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct ProviderDomain {
+    mux: usize,
+    provider: String,
+}
+
+#[derive(Clone)]
+struct Candidate {
+    priority: Priority,
+    domain: Option<ProviderDomain>,
 }
 
 impl Permits {
-    fn available(&self, priority: Priority) -> Option<Permit> {
+    fn available(&self, priority: Priority, domain: Option<&ProviderDomain>) -> Option<Permit> {
         if priority != Priority::Background && !self.foreground {
             Some(Permit::Foreground)
-        } else if self.shared < 3 {
+        } else if self.shared < 3
+            && domain.is_none_or(|domain| !self.shared_domains.contains(domain))
+        {
             Some(Permit::Shared)
         } else {
             None
         }
     }
 
-    fn take(&mut self, priority: Priority) -> Option<Permit> {
-        let permit = self.available(priority)?;
+    fn take(&mut self, priority: Priority, domain: Option<&ProviderDomain>) -> Option<Permit> {
+        let permit = self.available(priority, domain)?;
         match permit {
             Permit::Foreground => self.foreground = true,
-            Permit::Shared => self.shared += 1,
+            Permit::Shared => {
+                self.shared += 1;
+                self.shared_domains.extend(domain.cloned());
+            }
         }
         Some(permit)
     }
 
-    fn release(&mut self, permit: Permit) {
+    fn release(&mut self, permit: Permit, domain: Option<&ProviderDomain>) {
         match permit {
             Permit::Foreground => self.foreground = false,
-            Permit::Shared => self.shared -= 1,
+            Permit::Shared => {
+                self.shared -= 1;
+                if let Some(domain) = domain {
+                    self.shared_domains.remove(domain);
+                }
+            }
         }
     }
 
-    fn next(&self, priorities: &[Priority]) -> Option<usize> {
-        priorities
+    fn next(&self, candidates: &[Candidate]) -> Option<usize> {
+        candidates
             .iter()
             .enumerate()
-            .filter(|(_, priority)| self.available(**priority).is_some())
-            .min_by_key(|(_, priority)| **priority)
+            .filter(|(_, candidate)| {
+                self.available(candidate.priority, candidate.domain.as_ref())
+                    .is_some()
+            })
+            .min_by_key(|(_, candidate)| candidate.priority)
             .map(|(index, _)| index)
     }
 }
@@ -138,21 +216,37 @@ struct PreparationState {
 }
 
 impl PreparationState {
-    fn priorities(&self) -> Vec<Priority> {
-        let mut priorities = vec![Priority::Background; self.waiting.len()];
+    fn candidates(&self) -> Vec<Candidate> {
+        let mut candidates = vec![
+            Candidate {
+                priority: Priority::Background,
+                domain: None
+            };
+            self.waiting.len()
+        ];
         let mut classified = HashSet::new();
         for waiting in &self.waiting {
-            if !classified.insert(Arc::as_ptr(&waiting.mux) as usize) {
+            let instance = Arc::as_ptr(&waiting.mux) as usize;
+            if !classified.insert(instance) {
                 continue;
             }
             let mux = waiting.mux.read();
-            for (index, candidate) in self.waiting.iter().enumerate() {
-                if Arc::ptr_eq(&candidate.mux, &waiting.mux) {
-                    priorities[index] = priority(&mux, &candidate.tab_id);
+            for (index, waiting) in self.waiting.iter().enumerate() {
+                if Arc::as_ptr(&waiting.mux) as usize == instance {
+                    candidates[index] = Candidate {
+                        priority: priority(&mux, &waiting.tab_id),
+                        domain: mux
+                            .get_tab(&waiting.tab_id)
+                            .and_then(|tab| tab.agent_type.clone())
+                            .map(|provider| ProviderDomain {
+                                mux: instance,
+                                provider,
+                            }),
+                    };
                 }
             }
         }
-        priorities
+        candidates
     }
 }
 
@@ -167,6 +261,7 @@ struct PreparationTicket<'a> {
     ticket: u64,
     key: PreparationKey,
     permit: Option<Permit>,
+    domain: Option<ProviderDomain>,
 }
 
 impl PreparationGate {
@@ -190,24 +285,42 @@ impl PreparationGate {
             ticket,
             key,
             permit: None,
+            domain: None,
         })
     }
 }
 
 impl PreparationTicket<'_> {
-    fn acquire(&mut self) {
+    fn acquire(&mut self) -> Admission {
         loop {
             let observed = changes().revision();
             let mut state = self.gate.state.lock();
-            let priorities = state.priorities();
-            if let Some(index) = state.permits.next(&priorities) {
-                if state.waiting[index].ticket == self.ticket {
-                    self.permit = state.permits.take(priorities[index]);
-                    state.waiting.remove(index);
-                    drop(state);
-                    notify_changed();
-                    return;
-                }
+            let candidates = state.candidates();
+            let selected = state
+                .permits
+                .next(&candidates)
+                .filter(|index| state.waiting[*index].ticket == self.ticket);
+            if let Some((index, permit)) = selected.and_then(|index| {
+                state
+                    .permits
+                    .take(
+                        candidates[index].priority,
+                        candidates[index].domain.as_ref(),
+                    )
+                    .map(|permit| (index, permit))
+            }) {
+                self.permit = Some(permit);
+                self.domain = candidates[index].domain.clone();
+                state.waiting.remove(index);
+                drop(state);
+                notify_changed();
+                return Admission {
+                    priority: candidates[index].priority,
+                    permit: match permit {
+                        Permit::Foreground => AdmissionPermit::Reserved,
+                        Permit::Shared => AdmissionPermit::Shared,
+                    },
+                };
             }
             drop(state);
             changes().wait(observed);
@@ -219,7 +332,7 @@ impl Drop for PreparationTicket<'_> {
     fn drop(&mut self) {
         let mut state = self.gate.state.lock();
         if let Some(permit) = self.permit {
-            state.permits.release(permit);
+            state.permits.release(permit, self.domain.as_ref());
         } else {
             state
                 .waiting
@@ -231,7 +344,11 @@ impl Drop for PreparationTicket<'_> {
     }
 }
 
-pub fn admit_restored_pty(service: &ServiceContext, tab_id: &str) -> Result<(), String> {
+pub fn admit_restored_pty(
+    service: &ServiceContext,
+    tab_id: &str,
+    admission: Admission,
+) -> Result<(), String> {
     let resolved = service
         .mux
         .read()
@@ -244,8 +361,10 @@ pub fn admit_restored_pty(service: &ServiceContext, tab_id: &str) -> Result<(), 
         return Err(refusal);
     }
     let pty_id = {
+        crate::startup::boot_timing::mark(&resolved, None, "pty_claim_enter");
         let claim = service.pty_ownership.acquire(&resolved);
-        service.ensure_tab_pty_linked_with_claim(&claim)?;
+        crate::startup::boot_timing::mark(&resolved, None, "pty_claim_acquired");
+        service.ensure_tab_pty_linked_with_claim(&claim, Some(admission))?;
         service.resolve_pty_id(&resolved)?
     };
     schedule_preparation(service, resolved, pty_id);
@@ -269,8 +388,8 @@ fn schedule_preparation(
     Some(codeterm_util::named_thread::spawn(
         "restore-prepare",
         move || {
-            ticket.acquire();
-            crate::startup::boot_timing::mark(&resolved, Some(&pty_id), "prepare_admitted");
+            let admission = ticket.acquire();
+            admission.mark(&resolved, Some(&pty_id), "prepare_admitted");
             let claim = service.pty_ownership.acquire(&resolved);
             if service.resolve_pty_id(&resolved).as_deref() != Ok(pty_id.as_str()) {
                 crate::startup::boot_timing::mark(&resolved, Some(&pty_id), "prepare_cancelled");
@@ -299,28 +418,55 @@ fn schedule_preparation(
 mod tests {
     use super::*;
 
+    fn unkeyed(priorities: &[Priority]) -> Vec<Candidate> {
+        priorities
+            .iter()
+            .map(|priority| Candidate {
+                priority: *priority,
+                domain: None,
+            })
+            .collect()
+    }
+
     #[test]
     fn preparation_background_never_consumes_reserved_permit() {
         let mut permits = Permits::default();
         for _ in 0..3 {
-            assert_eq!(permits.take(Priority::Background), Some(Permit::Shared));
+            assert_eq!(
+                permits.take(Priority::Background, None),
+                Some(Permit::Shared)
+            );
         }
-        assert_eq!(permits.take(Priority::Background), None);
-        assert_eq!(permits.take(Priority::Focused), Some(Permit::Foreground));
-        assert_eq!(permits.take(Priority::Visible), None);
-        permits.release(Permit::Foreground);
-        assert_eq!(permits.take(Priority::Visible), Some(Permit::Foreground));
+        assert_eq!(permits.take(Priority::Background, None), None);
+        assert_eq!(
+            permits.take(Priority::Focused, None),
+            Some(Permit::Foreground)
+        );
+        assert_eq!(permits.take(Priority::Visible, None), None);
+        permits.release(Permit::Foreground, None);
+        assert_eq!(
+            permits.take(Priority::Visible, None),
+            Some(Permit::Foreground)
+        );
     }
 
     #[test]
     fn preparation_selects_live_focus_before_visible_and_background() {
         let permits = Permits::default();
         assert_eq!(
-            permits.next(&[Priority::Background, Priority::Visible, Priority::Focused]),
+            permits.next(&unkeyed(&[
+                Priority::Background,
+                Priority::Visible,
+                Priority::Focused
+            ])),
             Some(2)
         );
         assert_eq!(
-            permits.next(&[Priority::Focused, Priority::Visible, Priority::Background]),
+            permits.next(&unkeyed(&[
+                Priority::Focused,
+                Priority::Visible,
+                Priority::Background
+            ])),
             Some(0)
         );
     }
@@ -328,12 +474,12 @@ mod tests {
     #[test]
     fn preparation_completion_releases_only_the_owned_permit() {
         let mut permits = Permits::default();
-        let shared = permits.take(Priority::Background).unwrap();
-        let foreground = permits.take(Priority::Focused).unwrap();
-        permits.release(shared);
+        let shared = permits.take(Priority::Background, None).unwrap();
+        let foreground = permits.take(Priority::Focused, None).unwrap();
+        permits.release(shared, None);
         assert_eq!(permits.shared, 0);
         assert!(permits.foreground);
-        permits.release(foreground);
+        permits.release(foreground, None);
         assert!(!permits.foreground);
     }
 
@@ -423,7 +569,7 @@ mod tests {
                 let claim = fixture.service.pty_ownership.acquire(&tab_id);
                 fixture
                     .service
-                    .ensure_tab_pty_linked_with_claim(&claim)
+                    .ensure_tab_pty_linked_with_claim(&claim, None)
                     .unwrap();
                 assert!(calls.lock().is_empty());
                 let pty_id = fixture.service.resolve_pty_id(&tab_id).unwrap();
@@ -504,5 +650,65 @@ mod tests {
         assert_eq!(state.permits.shared, 0);
         assert!(!state.permits.foreground);
         assert!(state.active.is_empty());
+    }
+
+    #[test]
+    fn shared_preparation_permits_serve_distinct_vm_domains_without_queuing_on_one_vm() {
+        let domains = ["first", "second", "third"].map(|provider| ProviderDomain {
+            mux: 0,
+            provider: provider.into(),
+        });
+        let mut permits = Permits::default();
+        assert_eq!(
+            permits.take(Priority::Background, Some(&domains[0])),
+            Some(Permit::Shared)
+        );
+        assert_eq!(permits.take(Priority::Background, Some(&domains[0])), None);
+        assert_eq!(permits.shared, 1);
+        for domain in &domains[1..] {
+            assert_eq!(
+                permits.take(Priority::Background, Some(domain)),
+                Some(Permit::Shared)
+            );
+        }
+        assert_eq!(permits.shared, 3);
+        assert_eq!(permits.shared_domains.len(), 3);
+        assert_eq!(
+            permits.take(Priority::Focused, Some(&domains[0])),
+            Some(Permit::Foreground)
+        );
+        permits.release(Permit::Foreground, Some(&domains[0]));
+        assert!(permits.shared_domains.contains(&domains[0]));
+        permits.release(Permit::Shared, Some(&domains[0]));
+        assert_eq!(
+            permits.take(Priority::Background, Some(&domains[0])),
+            Some(Permit::Shared)
+        );
+    }
+
+    #[test]
+    fn waiting_vm_does_not_block_another_vm_and_domains_are_instance_scoped() {
+        let domain = ProviderDomain {
+            mux: 0,
+            provider: "fixture".into(),
+        };
+        let other = ProviderDomain {
+            mux: 1,
+            provider: "fixture".into(),
+        };
+        let mut permits = Permits::default();
+        permits.take(Priority::Background, Some(&domain));
+        let candidates = [
+            Candidate {
+                priority: Priority::Background,
+                domain: Some(domain),
+            },
+            Candidate {
+                priority: Priority::Background,
+                domain: Some(other),
+            },
+        ];
+        assert_eq!(permits.next(&candidates), Some(1));
+        assert_eq!(permits.shared, 1);
     }
 }

@@ -1,6 +1,8 @@
 use std::sync::Mutex;
 
-use codeterm_service_core::service::restore_admission::{changes, Priority};
+use codeterm_service_core::service::restore_admission::{
+    changes, Admission, AdmissionPermit, Priority,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum RestoreTransport {
@@ -70,7 +72,7 @@ fn run_wave<T: Sync>(
                 .collect()
         },
         validate,
-        materialize,
+        |item, _| materialize(item),
     )
 }
 
@@ -80,7 +82,7 @@ pub(super) fn run_transport_waves<T: Sync>(
     transport: impl Fn(&T) -> RestoreTransport,
     priorities: impl Fn() -> Vec<Priority> + Sync,
     mut validate: impl FnMut(&T) -> Result<(), String>,
-    materialize: impl Fn(&T) -> Result<(), String> + Sync,
+    materialize: impl Fn(&T, Admission) -> Result<(), String> + Sync,
 ) -> Vec<Result<(), String>> {
     assert!(budgets.background > 0 && budgets.chat > 0);
     let checked = items.iter().map(&mut validate).collect::<Vec<_>>();
@@ -116,14 +118,27 @@ pub(super) fn run_transport_waves<T: Sync>(
                         if pending.is_empty() {
                             break;
                         }
-                        take_prioritized(&mut pending, &priorities(), foreground_only)
+                        let priorities = priorities();
+                        take_prioritized(&mut pending, &priorities, foreground_only).map(|index| {
+                            (
+                                index,
+                                Admission {
+                                    priority: priorities[index],
+                                    permit: if foreground_only {
+                                        AdmissionPermit::Reserved
+                                    } else {
+                                        AdmissionPermit::Shared
+                                    },
+                                },
+                            )
+                        })
                     };
-                    let Some(index) = index else {
+                    let Some((index, admission)) = index else {
                         changes().wait(observed);
                         continue;
                     };
                     changes().notify();
-                    let result = materialize(&items[index]);
+                    let result = materialize(&items[index], admission);
                     results.lock().unwrap()[index] = Some(result);
                     changes().notify();
                 });
