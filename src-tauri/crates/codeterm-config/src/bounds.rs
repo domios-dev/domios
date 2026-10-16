@@ -52,6 +52,7 @@ const fn enumeration(path: &'static str, values: &'static [&'static str]) -> Con
 }
 
 const CONFIG_BOUNDS: &[ConfigBound] = &[
+    integer("tab_sleep.idle_minutes", 15.0, 10080.0),
     integer("api.port", 1.0, 65535.0),
     integer("font.size", 8.0, 72.0),
     integer("terminal.scrollback", 100.0, 500000.0),

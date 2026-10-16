@@ -2,6 +2,7 @@ pub mod dream_hygiene;
 pub mod model_defaults;
 pub mod schema;
 pub mod supporter;
+pub mod tab_sleep;
 
 pub use dream_hygiene::DreamHygieneConfig;
 pub use model_defaults::{ModelDefaultsConfig, ReplacedModelDefault};
