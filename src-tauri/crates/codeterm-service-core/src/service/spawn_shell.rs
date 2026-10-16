@@ -103,7 +103,11 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             let result = match &reused {
                 Some(id) => id.clone(),
-                None => mux.create_tab(&ws_id)?,
+                None => {
+                    let tab_id = mux.create_tab(&ws_id)?;
+                    crate::startup::boot_timing::bind_request(&tab_id);
+                    tab_id
+                }
             };
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.shell_profile = profile.clone();
@@ -224,6 +228,7 @@ impl ServiceContext {
         let tab_id = {
             let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
+            crate::startup::boot_timing::bind_request(&result);
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.hidden = true;
                 tab.show_in_tabbar = false;

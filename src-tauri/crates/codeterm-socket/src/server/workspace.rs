@@ -86,6 +86,7 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
+            codeterm_service_core::startup::boot_timing::bind_request(&tab_id);
             let pty_id = if eager {
                 svc.ensure_tab_pty_for_send(&tab_id)
                     .map_err(|e| JsonRpcError {
