@@ -8,11 +8,14 @@ import {connect,evaluate,takeHeapSnapshot} from '../renderer-memory/cdp.mjs';
 import {fixtureRecord} from './fixture.mjs';
 import {aggregateVisitMeasures} from './measures.mjs';
 import {summarizeAllocations} from './allocations.mjs';
+import {workloadDuration,continueWorkload,sampleWorkload} from './duration.mjs';
+import {attach} from '../streaming-soak/runtime.mjs';
 
 const flags=Object.fromEntries(process.argv.slice(2).reduce((all,x,i,args)=>x.startsWith('--')?[...all,[x.slice(2),args[i+1]]]:all,[]));
 const bundle=flags.bundle??'dev';
 if(!['dev','production'].includes(bundle))throw Error('Invalid bundle: use dev or production');
 const allocations=flags.allocations==='yes';
+const duration=workloadDuration(flags.seconds);
 const count=Number(flags.tabs??15),cycles=Number(flags.cycles??4),perCycle=Number(flags.records??64),initial=Number(flags.initial??480);
 for(const [name,value,max] of [['tabs',count,15],['cycles',cycles,8],['records',perCycle,128],['initial',initial,600]]) {
   if(!Number.isSafeInteger(value)||value<1||value>max)throw Error(`Invalid ${name}`);
@@ -26,9 +29,9 @@ const api=async route=>{const r=await fetch('http://127.0.0.1:7686'+route,{heade
 const health=await api('/api/health');if(health.build_sha!==expected)throw Error('Build drift');
 const before=await api('/api/mux/state');
 const created=[],samples=[],visits=[];let workspace,junction,cdp,productionTarget,productionController,sampling=false;
-const result={status:'incomplete',bundle,run,health,count,cycles,perCycle,initial,created,samples,visits};
+const result={status:'incomplete',bundle,run,health,count,cycles,perCycle,initial,duration,created,samples,visits};
 const save=()=>fs.writeFileSync(path.join(out,'result.json'),JSON.stringify(result,null,2));
-const bound=AbortSignal.timeout(420000);
+const bound=AbortSignal.timeout(duration===null?420000:duration+180000);
 const append=(fixture,n)=>{
   let chunk='';for(let i=0;i<n;i++){const row=fixtureRecord({session:fixture.session,cwd:workspace.cwd,index:fixture.next++,parent:fixture.parent,run});fixture.parent=row.uuid;fixture.marker=row.marker;chunk+=row.line;}
   fs.appendFileSync(fixture.path,chunk);
@@ -72,6 +75,10 @@ async function sample(phase,{gc=false,snapshot=false}={}){
 }
 try{
   console.log(`CHAT_MEMORY_PREPARE out=${out} tabs=${count} build=${expected}`);
+  if(duration!==null){
+    const attribution=await attach(bound);
+    try{result.processIdentity=attribution.identity;}finally{attribution.close();}
+  }
   const targets=await(await fetch(`http://127.0.0.1:${health.instance.cdp_port}/json/list`,{signal:AbortSignal.timeout(5000)})).json();
   const pages=targets.filter(t=>t.type==='page'&&(bundle==='production'||new URL(t.url).port===String(health.instance.vite_port)));
   if(pages.length===0||(bundle==='dev'&&pages.length!==1))throw Error('Expected CDP page target missing or ambiguous');
@@ -124,15 +131,21 @@ try{
     result.allocationSampling={intervalBytes:32768,includesCollectedObjects:true};save();
   }
   console.log(`CHAT_MEMORY_ARMED tabs=${created.length} providerLaunched=false`);
-  for(let cycle=1;cycle<=cycles;cycle++){
+  const workloadStart=performance.now();let lastSample=workloadStart;
+  result.workloadStartedAt=Date.now();save();
+  for(let cycle=1;continueWorkload({duration,started:workloadStart,now:performance.now(),cycle,cycles});cycle++){
     if(bound.aborted)throw Error('Scenario deadline');
     for(let slot=0;slot<created.length;slot++){
       const burst=Math.floor(perCycle/created.length)+(slot<perCycle%created.length?1:0);
       if(burst)for(const fixture of created)append(fixture,burst);
       await visit(created[slot],'cycle'+cycle);
     }
-    await sample('cycle'+cycle);
+    if(sampleWorkload({duration,now:performance.now(),lastSample})){
+      await sample('cycle'+cycle,{gc:duration!==null});lastSample=performance.now();
+    }
+    result.completedCycles=cycle;
   }
+  result.workloadElapsedMs=performance.now()-workloadStart;save();
   if(sampling)await finishAllocations();
   await sample('paused',{gc:true,snapshot:flags.snapshots==='yes'});
   result.status='measured';
