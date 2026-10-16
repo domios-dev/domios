@@ -180,7 +180,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     if (IS_WEB) saveStateSnapshot(s);
   }, [applyRemoteProjection]);
 
+  const cachedBackendGenerationRef = useRef<number | undefined>(undefined);
   const acceptBackendState = useCallback((s: MultiplexerState) => {
+    cachedBackendGenerationRef.current = s.generation;
     const wasReconciled = reconciledRef.current;
     applyBackendState(s);
     reconciledRef.current = true;
@@ -253,8 +255,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [refreshRemoteProjection]);
   remoteRefreshRunRef.current = runRemoteRefresh;
 
-  // A bare `mux-state-changed` frame carries no snapshot, so every one of them
-  // asks for a full state fetch. The coalescer keeps a burst to one in flight.
   const runRefresh = useCallback(async (): Promise<boolean> => {
     try {
       const s = await invoke<MultiplexerState>("mux_get_state");
@@ -279,7 +279,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const runRefreshRef = useRef(runRefresh);
   runRefreshRef.current = runRefresh;
   const refreshCoalescerRef = useRef(
-    createRefreshCoalescer(() => runRefreshRef.current(), isSnapshotRefusal),
+    createRefreshCoalescer(() => runRefreshRef.current(), isSnapshotRefusal,
+      () => cachedBackendGenerationRef.current),
   );
   const peerRebindGateRef = useRef(
     createPeerRebindGate({
@@ -291,7 +292,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }),
   );
   const refreshFromBackend = useCallback(
-    (): Promise<boolean> => refreshCoalescerRef.current.request(),
+    (generation?: number): Promise<boolean> => refreshCoalescerRef.current.request(generation),
     [],
   );
 
@@ -488,7 +489,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           window.dispatchEvent(new Event("codeterm-tab-resize"));
         });
       } else {
-        refreshFromBackend();
+        void refreshFromBackend(s?.generation);
       }
     };
     // The authoritative read follows the bind: a refused read waits for the next
