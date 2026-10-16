@@ -1,4 +1,4 @@
-import { WorkspaceFolderError } from "./components/Sidebar/WorkspaceFolderError";
+import { WorkspacePaneState } from "./components/shared/FolderPaneState";
 import { emitFeatureUsed } from "./lib/productAnalytics";
 import { localJson } from "./lib/webApi";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
@@ -867,15 +867,15 @@ function AppInner() {
               Storage unavailable, your data is preserved, see the incident.
             </div>
           ) : state.workspaces.length > 0 ? (
-            state.workspaces.flatMap((ws) =>
-              ws.tabs.map((tabId) => {
+            state.workspaces.map((ws) => <WorkspacePaneState key={ws.id} workspace={ws} visible={mainView === "workspace" && !pluginViewId && ws.id === state.active_workspace_id}>
+              {ws.tabs.map((tabId) => {
                 const tab = state.tabs[tabId];
                 if (!tab) return null;
                 const isActiveTab = ws.id === state.active_workspace_id && tabId === state.activeTabIds[ws.id];
                 // lazy — mount it on boot so its chat/SSE state is live.
                 const isMainTab =
                   ws.protected === true && tab.protected === true;
-                const shouldMountTab = !ws.cwd_missing && (isActiveTab || isMainTab || prewarmTabIds.has(tabId));
+                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tabId);
                 if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab && !workspaceCanvasVisible;
                 return (
@@ -907,14 +907,11 @@ function AppInner() {
                 />
               </div>
                 );
-              })
+              })}</WorkspacePaneState>
             )
           ) : mainView === "workspace" ? (
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
-          {mainView === "workspace" && !pluginViewId && activeWs?.cwd_missing && (
-            <div className="absolute inset-0 z-30"><WorkspaceFolderError workspace={activeWs} /></div>
-          )}
           <PlanSidePanelHost api={stableApiConfig} />
         </main>
         </div>
