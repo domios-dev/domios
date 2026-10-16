@@ -2978,6 +2978,17 @@ button,
   cursor: pointer;
 }
 
+@media (hover: hover) {
+  .sidebar-team-cron-row .sidebar-team-cron-menu {
+    opacity: 0;
+  }
+
+  .sidebar-team-cron-row:hover .sidebar-team-cron-menu,
+  .sidebar-team-cron-row:focus-within .sidebar-team-cron-menu {
+    opacity: 1;
+  }
+}
+
 .chat-launch-ring {
   --launch-progress: 16%;
   align-items: center;
