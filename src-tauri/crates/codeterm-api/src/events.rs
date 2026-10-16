@@ -48,6 +48,25 @@ mod tests {
         );
     }
 
+    fn is_ui_receiver(prefix: &str) -> bool {
+        let receiver = prefix
+            .trim_end()
+            .rsplit(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '.')
+            .next()
+            .unwrap_or_default();
+        receiver == "ui" || receiver.ends_with(".ui")
+    }
+
+    #[test]
+    fn event_seam_recognizes_multiline_ui_receivers_only() {
+        for prefix in ["ui", "self.ui", "self.ui\n    ", "state\n .svc\n .ui\n "] {
+            assert!(is_ui_receiver(prefix), "{prefix:?}");
+        }
+        for prefix in ["app", "self.app\n ", "state\n .svc\n .events\n ", "not_ui"] {
+            assert!(!is_ui_receiver(prefix), "{prefix:?}");
+        }
+    }
+
     /// CI guard: no frontend-listened event may be delivered ONLY via a raw
     /// `app.emit()` — it must go through `UiEvents::emit` (native + SSE bus) or
     /// carry a typed `SystemEvent` whose `type_name()` reaches the bus via
@@ -145,11 +164,7 @@ mod tests {
         let mut offenders = Vec::new();
         for (path, source) in &backend_sources {
             for capture in raw_re.captures_iter(source) {
-                let receiver = source[..capture.get(0).unwrap().start()]
-                    .rsplit(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '.')
-                    .next()
-                    .unwrap_or_default();
-                if receiver == "ui" || receiver.ends_with(".ui") {
+                if is_ui_receiver(&source[..capture.get(0).unwrap().start()]) {
                     continue;
                 }
                 let names = if let Some(value) = capture.get(1) {
