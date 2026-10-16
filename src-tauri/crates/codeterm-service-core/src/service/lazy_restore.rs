@@ -8,6 +8,8 @@ use std::sync::LazyLock;
 
 static WAKING: LazyLock<parking_lot::Mutex<HashSet<String>>> = LazyLock::new(Default::default);
 
+mod user_send;
+
 struct WakeRequest(String);
 
 impl Drop for WakeRequest {

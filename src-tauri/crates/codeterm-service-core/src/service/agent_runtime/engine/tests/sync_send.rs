@@ -117,6 +117,154 @@ module.exports = {
 }
 
 #[test]
+fn restored_and_slept_user_sends_hold_then_flush_once_in_order() {
+    use std::sync::atomic::Ordering;
+    for asleep in [false, true] {
+        let (fixture, tab_id, peer, _cleanup) = runtime_fixture();
+        let session = for_tab(&tab_id).unwrap();
+        session.state.lock().phase = RuntimePhase::Loading;
+        let owner = fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .tab(&tab_id);
+        // Drive the existing owner explicitly so readiness is an event under test control.
+        owner.running.store(true, Ordering::Release);
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.restored_from_snapshot = true;
+            tab.frozen = asleep;
+            tab.slept_at_ms = asleep.then_some(42);
+            tab.session_binding_nonce = None;
+            tab.reported_session_binding_nonce = None;
+            tab.boot_stage = None;
+        }
+        let first = fixture
+            .service
+            .start_chat_send(
+                &tab_id,
+                "first opaque turn".into(),
+                None,
+                Some("first-token".into()),
+            )
+            .unwrap();
+        let reservation = fixture
+            .service
+            .reserve_user_send_with_replay_only(&tab_id, Some("second-token".into()), false)
+            .unwrap();
+        let second = fixture
+            .service
+            .prepare_and_admit_user_send(reservation, "second opaque turn".into(), false)
+            .unwrap();
+        let queued = fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .queued(&tab_id)
+            .unwrap();
+        assert_eq!(queued.len(), 2);
+        let send_ids = queued
+            .iter()
+            .map(|record| record.send_id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(send_ids[0], first.send_id);
+        assert_eq!(serde_json::to_value(second).unwrap()["state"], "held");
+        for id in &send_ids {
+            assert_eq!(
+                fixture.service.chat_send_ledger.status(id).unwrap().state,
+                ChatSendState::Pending
+            );
+            assert!(!fixture
+                .service
+                .chat_send_ledger
+                .user_payload_may_have_been_written(id));
+        }
+        assert!(queued.iter().all(|record| record.held_before_readiness));
+        let nonce = {
+            let mux = fixture.service.mux.read();
+            let tab = mux.get_tab(&tab_id).unwrap();
+            assert!(!tab.frozen);
+            assert_eq!(tab.agent_session_id.as_deref(), Some("own-thread"));
+            tab.session_binding_nonce.clone().unwrap()
+        };
+        session.context.lock().binding_nonce = nonce.clone();
+        let peer = crate::async_runtime::spawn(async move {
+            let mut peer = BufReader::new(peer);
+            let mut observed = Vec::new();
+            for expected in ["first opaque turn", "second opaque turn"] {
+                let mut line = String::new();
+                tokio::time::timeout(Duration::from_secs(2), peer.read_line(&mut line))
+                    .await
+                    .unwrap()
+                    .unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["method"], "fixture/submit");
+                assert_eq!(request["params"]["threadId"], "own-thread");
+                assert_eq!(request["params"]["input"]["text"], expected);
+                observed.push(request["params"]["sendId"].as_str().unwrap().to_string());
+                let response = json!({"id":request["id"],"result":{"turnId":"accepted-turn"}});
+                peer.get_mut()
+                    .write_all(format!("{response}\n").as_bytes())
+                    .await
+                    .unwrap();
+            }
+            (peer, observed)
+        });
+        let epoch = session.context.lock().epoch;
+        assert!(session.state.lock().load(epoch, "own-thread"));
+        bind(&fixture.service, &session, "own-thread").unwrap();
+        fixture.service.drain_user_owner(&tab_id).unwrap();
+        let (mut peer, observed) = crate::async_runtime::block_on(peer).unwrap();
+        assert_eq!(observed, send_ids);
+        for (index, id) in send_ids.iter().enumerate() {
+            assert_eq!(
+                fixture.service.chat_send_ledger.status(id).unwrap().state,
+                ChatSendState::Written
+            );
+            assert!(fixture
+                .service
+                .chat_send_ledger
+                .confirm_rpc_send(
+                    &tab_id,
+                    "own-thread",
+                    &nonce,
+                    id,
+                    Some(&format!("own-item-{index}")),
+                )
+                .is_some());
+            assert_eq!(
+                fixture.service.chat_send_ledger.status(id).unwrap().state,
+                ChatSendState::Sent
+            );
+        }
+        assert!(fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .queued(&tab_id)
+            .unwrap()
+            .is_empty());
+        fixture.service.prepare_user_send_target(&tab_id).unwrap();
+        fixture.service.drain_user_owner(&tab_id).unwrap();
+        use std::{
+            pin::Pin,
+            task::{Context, Poll, Wake, Waker},
+        };
+        use tokio::io::AsyncBufRead;
+        struct Noop;
+        impl Wake for Noop {
+            fn wake(self: Arc<Self>) {}
+        }
+        let waker = Waker::from(Arc::new(Noop));
+        assert!(matches!(
+            Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(&waker)),
+            Poll::Pending
+        ));
+    }
+}
+
+#[test]
 fn sync_send_from_plain_thread_writes_one_rpc_turn_and_never_replays_it() {
     assert_sync_send(false, false, false);
 }
