@@ -66,7 +66,10 @@
           "account/rateLimitResetCredit/consume",
           "thread/goal/get",
           "thread/goal/set",
-          "thread/goal/clear"
+          "thread/goal/clear",
+          "thread/turns/list",
+          "thread/fork",
+          "thread/revert"
         ],
         "backgroundProcesses": [
           "thread/backgroundTerminals/list",
@@ -84,6 +87,7 @@
         "thread/compacted",
         "thread/goal/updated",
         "thread/goal/cleared",
+        "thread/reverted",
         "model/rerouted",
         "turn/diff/updated",
         "account/rateLimits/updated",
@@ -122,6 +126,12 @@
           "pause",
           "resume",
           "complete"
+        ]
+      },
+      "threadHistory": {
+        "actions": [
+          "fork",
+          "revert"
         ]
       }
     },

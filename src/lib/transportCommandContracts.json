@@ -1250,6 +1250,12 @@
         "/api/tabs/tab/agent/runtime/goal"
       ]
     ],
+    "agent_runtime_thread_history": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/thread-history"
+      ]
+    ],
     "agent_runtime_login": [
       [
         "POST",

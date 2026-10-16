@@ -55,8 +55,8 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | thread/backgroundTerminals/list / terminate | Background terminal control | No | Deferred | Requires owned-process/task UI and capability |
 | execCommandApproval / applyPatchApproval | Legacy protocol approvals | No | Deferred | CLI compatibility requires current 0.159/0.160 API; do not revive legacy adapters |
 | thread/unsubscribe | Drop subscription | Existing client lifetime only | Host runtime teardown | No provider protocol shutdown hook in frozen API |
-| thread/fork | Fork at native turn boundary | No | Deferred | Needs thread identity/result and UI action |
-| thread/revert | Roll back to boundary | No | Deferred | Reference pages history to beforeTurnId; never send obsolete numTurns |
+| thread/fork | Fork at native turn boundary | Yes | Supported | Resolve the bound turn, use inclusive lastTurnId, verify the returned thread before opening a new host binding |
+| thread/revert | Roll back to boundary | Yes | Supported | Resolve the following turn to beforeTurnId; host truncates only after thread/reverted |
 | feedback/upload | Submit feedback | No | Deferred | Requires explicit user flow |
 
 ## Approach provenance and deliberate differences
@@ -75,7 +75,7 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | JSON display | CodexAdapterV2.ts dynamic tool JSON presentation | Recursively sorted keys make Node and the serde/QuickJS bridge render identically; source string results remain verbatim |
 | Errors | CodexAdapterV2.ts error handler | Retain retryable/class metadata on stable system row; avoid classifying a retry notice as terminal failure |
 | Timing | CodexAdapterV2.ts codexTimestamp / turn handlers | Seconds to ms, host stamps receipt time; plugin never reads a clock |
-| Resume/archive/history | CodexAdapterV2.ts resumeThread; CodexThreadRevert.ts pagination | excludeTurns and archive recovery retained; no rollback/fork action implemented without approved UI/result contract |
+| Resume/archive/history | CodexAdapterV2.ts resumeThread; CodexThreadRevert.ts pagination | excludeTurns and archive recovery retained; fork/revert use native turn boundaries and host-owned binding/evidence |
 | Host process/guarded initialize | codex-app-server-client client and provider managed runtime | Owned by core/Bridge lanes; no process/FS/env/network access in these hooks |
 
 Canonical must regenerate the shared InteractiveOption generated TypeScript after the Rust value field lands. This lane fills source native values structurally and never edits generated artifacts.
