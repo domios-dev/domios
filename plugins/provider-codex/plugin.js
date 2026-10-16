@@ -2049,6 +2049,9 @@ function restoreContextItems(raw) {
 }
 
 // plugins/provider-codex/src/runtimeSettings.ts
+function codexServiceTier(settings) {
+  return settings.fastMode === void 0 ? {} : { serviceTier: settings.fastMode ? "priority" : null };
+}
 function codexRuntimePolicy(settings) {
   const selected = settings.mode ?? "auto-accept-edits";
   const policies = {
@@ -2087,16 +2090,19 @@ function codexReportedSettings(raw) {
   const root = object(raw);
   const settings = root.threadSettings ? object(root.threadSettings) : root;
   const thread = object(settings.thread);
+  const tier = settings.serviceTier !== void 0 ? settings.serviceTier : thread.serviceTier;
+  const fastMode = tier === void 0 ? void 0 : tier === "priority" || tier === "fast";
   const model = text(settings.model) ?? text(thread.model);
   const effort = text(settings.reasoningEffort) ?? text(settings.effort) ?? text(thread.reasoningEffort) ?? text(thread.effort);
   const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;
   const approval = settings.approvalPolicy ?? thread.approvalPolicy;
   const reviewer = settings.approvalsReviewer ?? thread.approvalsReviewer;
   const mode = text(settings.mode) ?? text(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "never" && sandbox === "readOnly" ? "read-only" : approval === "never" && sandbox === "workspaceWrite" ? "workspace-write" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
-  return { ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} };
+  return { ...fastMode !== void 0 ? { fastMode } : {}, ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} };
 }
 function codexEffectiveSettings(requested, reply) {
-  return { ...requested, ...codexReportedSettings(reply) };
+  const { fastMode: _requestedFastMode, ...other } = requested;
+  return { ...other, ...codexReportedSettings(reply) };
 }
 
 // plugins/provider-codex/src/runtimeErrors.ts
@@ -2712,6 +2718,7 @@ function settingsParams(ctx, settings, instructions) {
   return {
     cwd: ctx.cwd,
     model: settings.model,
+    ...codexServiceTier(settings),
     threadSource: "user",
     config: codexThreadConfig(settings),
     approvalPolicy: policies.approvalPolicy,
@@ -2734,6 +2741,7 @@ function turnParams(ctx, op) {
     input,
     cwd: ctx.cwd,
     ...codexRuntimePolicy(op.settings),
+    ...codexServiceTier(op.settings),
     model: op.settings.model,
     effort: op.settings.effort
   };
@@ -2806,8 +2814,9 @@ function planOperation(ctx, op) {
       if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
       const settings = op.action === "settings" ? { ...ctx.settings, ...object(op.value) } : { ...ctx.settings, [op.action]: op.value };
       for (const key of ["model", "effort", "mode"]) if (settings[key] !== void 0 && typeof settings[key] !== "string") fail2("invalid_schema", `Invalid ${key}`);
+      if (settings.fastMode !== void 0 && typeof settings.fastMode !== "boolean") fail2("invalid_schema", "Invalid fastMode");
       const parsed = settings;
-      return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
+      return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), ...codexServiceTier(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
     }
   }
 }
@@ -2899,7 +2908,8 @@ function respondOperation(ctx, op, raw, reply) {
       }
       if (op.action === "login") return loginResponse(state, value);
       if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
-      return { kind: "complete", result: { kind: "done" }, ...state.stage === "thread/settings/update" ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
+      const awaitingTier = state.stage === "thread/settings/update" && object(state.settings).fastMode !== void 0 && codexReportedSettings(value).fastMode === void 0;
+      return { kind: "complete", result: { kind: "done" }, ...state.stage === "thread/settings/update" && !awaitingTier ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
     }
     case "answer":
     case "answerQuestion":

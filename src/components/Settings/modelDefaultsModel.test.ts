@@ -50,3 +50,13 @@ test("model default help follows its setting namespace", () => {
   assert.equal(modelDefaultGuideSection(row), "memory");
   assert.equal(modelDefaultGuideSection({ ...row, key: "agents.fixture.default_model" }), "agents");
 });
+
+
+test("provider tier defaults persist explicit on and off alongside model defaults", () => {
+  const original = config({ agents: { arbitrary: { default_model: "old", visible_in_menu: false } } });
+  const row = modelDefaultRows(original)[0];
+  for (const fastMode of [true, false]) {
+    assert.deepEqual(modelDefaultPatch(original, row, "next", fastMode).agents?.arbitrary,
+      { default_model: "next", visible_in_menu: false, default_fast_mode: fastMode });
+  }
+});

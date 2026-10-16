@@ -87,6 +87,7 @@ impl AgentProvider for Adapter {
     }
     fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
         Some(AgentRuntimeCapability {
+            fast_mode: false,
             background_processes: false,
             goals: None,
             stored_history: false,

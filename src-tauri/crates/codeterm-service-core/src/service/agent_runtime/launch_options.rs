@@ -246,6 +246,7 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
         .and_then(|tab| tab.restorable_launch.runtime_launch_options.as_ref())
         .ok_or("Runtime launch options unavailable")?;
     Ok(RuntimeSettings {
+        fast_mode: settings.fast_mode,
         model: settings.model,
         effort: settings.effort,
         ..runtime_settings(options)
