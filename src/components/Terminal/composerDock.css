@@ -1,7 +1,6 @@
 :root {
   --ct-composer-gutter-x: 0.75rem;
   --ct-composer-gutter-b: var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)));
-  --ct-composer-lane-max: 56rem;
   --ct-composer-radius: 1.215rem;
   --ct-composer-editor-max: min(230px, 40dvh);
   --ct-composer-float-min-width: 30rem;
@@ -22,7 +21,7 @@
   transition: padding var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
     border-color var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
 }
-.ct-composer-lane { max-width: var(--ct-composer-lane-max); }
+.ct-composer-lane { max-width: var(--ct-chat-readable-width); }
 .ct-composer-card {
   border: var(--ct-composer-card-border) solid var(--ct-border);
   border-radius: var(--ct-composer-radius);
@@ -102,7 +101,7 @@
 .ct-chat-shell { container: ct-chat / inline-size; }
 .ct-chat-bottom-bar {
   position: relative;
-  margin: 0 max(0.5rem, calc((100% - 58rem) / 2)) 0.5rem;
+  margin: 0 max(0.5rem, calc((100% - var(--ct-chat-readable-width) - 2rem) / 2)) 0.5rem;
   padding-block: 0.5rem 0.375rem;
   border-radius: 1.575rem;
   background-color: var(--ct-bg);

@@ -12,6 +12,7 @@ let root: Root;
 let api: ReturnType<typeof useMountedChatWindow>;
 let scroller: HTMLDivElement | null = null;
 let scrollTop = 3000;
+let writes = 0;
 const userScrolling = { current: true };
 const followTailRef = { current: false };
 
@@ -30,7 +31,7 @@ function contentTop(element: Element): number {
     if (sibling === element) break;
     top += extent(sibling);
   }
-  return top;
+  return top + Number(element instanceof HTMLElement ? element.style.transform.match(/translateY\((-?[\d.]+)px\)/)?.[1] ?? 0 : 0);
 }
 
 function Harness() {
@@ -44,11 +45,13 @@ function Harness() {
     Object.defineProperties(element, {
       clientHeight: { configurable: true, get: () => VIEWPORT },
       scrollHeight: { configurable: true, get: () => extent(element) },
-      scrollTop: { configurable: true, get: () => scrollTop, set: (value: number) => { scrollTop = value; } },
+      scrollTop: { configurable: true, get: () => scrollTop, set: (value: number) => { writes++; scrollTop = value; } },
     });
   }}>
     <div ref={api.topSpacerRef} data-testid="spacer" style={{ height: api.topSpacer }} />
+    <div ref={api.rowsRef}>
     {rows.slice(api.range.start, api.range.end).map(({ msg }) => <div key={msg.id} data-chat-window-row={msg.id} />)}
+    </div>
     <div style={{ height: api.range.bottom }} />
   </div>;
 }
@@ -58,6 +61,7 @@ const mountedRows = () => Array.from(host.querySelectorAll<HTMLElement>("[data-c
 
 beforeEach(() => {
   scrollTop = 3000;
+  writes = 0;
   userScrolling.current = true;
   for (const { msg } of rows) heights.set(msg.id, 100);
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
@@ -77,6 +81,34 @@ afterEach(() => {
 });
 
 describe("useMountedChatWindow spacer drift", () => {
+  it("holds a growing row beyond spacer exhaustion without touching native scrollTop", async () => {
+    userScrolling.current = false;
+    await act(async () => root.render(<Harness />));
+    const [, second] = mountedRows();
+    followTailRef.current = false;
+    scrollTop = contentTop(second) + 10;
+    await act(async () => root.render(<Harness />));
+    const measured = mountedRows();
+    const anchor = measured.find(row => row.getBoundingClientRect().top <= 0 && row.getBoundingClientRect().bottom > 0)!;
+    const changed = measured[0];
+    expect(changed).not.toBe(anchor);
+    const anchorId = anchor.dataset.chatWindowRow;
+    const before = anchor.getBoundingClientRect().top;
+    const base = api.range.top;
+    userScrolling.current = true;
+    heights.set(changed.dataset.chatWindowRow!, 100 + base + 500);
+    await act(async () => root.render(<Harness />));
+    expect(writes).toBe(0);
+    expect(Number.parseFloat(spacer().style.height)).toBe(0);
+    const retained = host.querySelector<HTMLElement>(`[data-chat-window-row="${anchorId}"]`)!;
+    expect(retained.getBoundingClientRect().top).toBe(before);
+    userScrolling.current = false;
+    const correction = api.foldDrift();
+    scroller!.scrollTop += correction;
+    expect(retained.getBoundingClientRect().top).toBe(before);
+    expect(writes).toBe(1);
+    expect(api.foldDrift()).toBe(0);
+  });
   it("holds the viewport through a mid-gesture shift above it and releases it as a scroll delta", async () => {
     userScrolling.current = false;
     await act(async () => root.render(<Harness />));

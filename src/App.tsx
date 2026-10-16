@@ -1,4 +1,4 @@
-import { WorkspaceFolderError } from "./components/Sidebar/WorkspaceFolderError";
+import { WorkspacePaneState } from "./components/shared/FolderPaneState";
 import { emitFeatureUsed } from "./lib/productAnalytics";
 import { localJson } from "./lib/webApi";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
@@ -45,11 +45,13 @@ import type { ReturnTo } from "./lib/returnTo";
 import { OPEN_JOB_EVENT, type OpenJobDetail } from "./components/Jobs/openJobEvent";
 import { jobsEntryFilter, jobsOpenEntry, type JobsOpenScope } from "./components/Jobs/jobsLayout";
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
+import { PageDataProvider } from "./hooks/PageDataProvider";
 import { useConfig } from "./hooks/useConfig";
 import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useSidebarViewport } from "./hooks/useSidebarViewport";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
+import { workspacePrewarmInput } from "./hooks/terminal/workspacePrewarmModel";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
 import { useAgentProviderCachePublisher } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
@@ -420,15 +422,7 @@ function AppInner() {
     });
   }, []);
   const prewarmTabIds = useTabPrewarm({
-    workspaceId: activeWs?.id ?? null,
-    activeTabId: activeTab?.id ?? null,
-    tabIds:
-      activeWs?.tabs
-        .filter((tabId) => {
-          const tab = state.tabs[tabId];
-          return tab && !(activeWs.protected === true && tab.protected === true);
-        })
-        ?? [],
+    ...workspacePrewarmInput(activeWs, activeTab?.id ?? null, state.tabs),
     liveTabIds: state.workspaces.flatMap((ws) => ws.tabs),
     prewarmTab: prewarmBackendTab,
   });
@@ -867,15 +861,15 @@ function AppInner() {
               Storage unavailable, your data is preserved, see the incident.
             </div>
           ) : state.workspaces.length > 0 ? (
-            state.workspaces.flatMap((ws) =>
-              ws.tabs.map((tabId) => {
+            state.workspaces.map((ws) => <WorkspacePaneState key={ws.id} workspace={ws} visible={mainView === "workspace" && !pluginViewId && ws.id === state.active_workspace_id}>
+              {ws.tabs.map((tabId) => {
                 const tab = state.tabs[tabId];
                 if (!tab) return null;
                 const isActiveTab = ws.id === state.active_workspace_id && tabId === state.activeTabIds[ws.id];
                 // lazy — mount it on boot so its chat/SSE state is live.
                 const isMainTab =
                   ws.protected === true && tab.protected === true;
-                const shouldMountTab = !ws.cwd_missing && (isActiveTab || isMainTab || prewarmTabIds.has(tabId));
+                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tabId);
                 if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab && !workspaceCanvasVisible;
                 return (
@@ -907,14 +901,11 @@ function AppInner() {
                 />
               </div>
                 );
-              })
+              })}</WorkspacePaneState>
             )
           ) : mainView === "workspace" ? (
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
-          {mainView === "workspace" && !pluginViewId && activeWs?.cwd_missing && (
-            <div className="absolute inset-0 z-30"><WorkspaceFolderError workspace={activeWs} /></div>
-          )}
           <PlanSidePanelHost api={stableApiConfig} />
         </main>
         </div>
@@ -938,9 +929,11 @@ function AppInner() {
 export function App() {
   return (
     <MultiplexerProvider>
+      <PageDataProvider>
       <UpdateProvider>
         <UpdatePanelProvider><AppInner /></UpdatePanelProvider>
       </UpdateProvider>
+      </PageDataProvider>
     </MultiplexerProvider>
   );
 }

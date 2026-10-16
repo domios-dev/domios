@@ -64,7 +64,7 @@ fn generic_provider_with_history(dir: &Path, stored_history: bool) -> JsProvider
         .iter()
         .map(|kind| ((*kind).into(), json!([kind])))
         .collect();
-    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"storedHistory":stored_history,"usage":true,"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
+    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"storedHistory":stored_history,"usage":true,"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
     let source = std::fs::read_to_string(dir.join("plugin.js"))
         .expect("generic runtime plugin path must exist");
     JsProvider::new(
@@ -111,6 +111,13 @@ async fn runtime_native_quickjs_shared_fixture_parity() {
     let native = native::NativeRuntime(js.agent_runtime().unwrap());
     assert_eq!(js.agent_runtime(), native.agent_runtime());
     assert!(js.agent_runtime().unwrap().usage);
+    assert_eq!(
+        js.agent_runtime()
+            .unwrap()
+            .reset_credits_min_version
+            .as_deref(),
+        Some("0.162.1")
+    );
     assert_eq!(
         js.describe().settings_schema,
         native.describe().settings_schema

@@ -298,6 +298,9 @@ pub enum RuntimeResult {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         turn_id: Option<String>,
     },
+    ResetCreditConsumed {
+        outcome: ResetCreditOutcome,
+    },
     Done,
 }
 
@@ -406,6 +409,8 @@ pub enum AgentRuntimeEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread_id: Option<String>,
         rate_limits: Vec<RuntimeRateLimit>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        resets: Option<ResetCredits>,
     },
     ChatItem {
         thread_id: String,
@@ -598,4 +603,39 @@ pub enum RuntimeLoginStatus {
     Completed,
     Failed,
     Canceled,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResetCredits {
+    pub available_count: u64,
+    pub next_expiry: Option<u64>,
+    pub credits: Option<Vec<ResetCredit>>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResetCredit {
+    pub id: String,
+    pub status: ResetCreditStatus,
+    pub expires_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ResetCreditStatus {
+    Available,
+    Redeeming,
+    Redeemed,
+    Unknown,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ResetCreditOutcome {
+    Reset,
+    NothingToReset,
+    NoCredit,
+    AlreadyRedeemed,
 }

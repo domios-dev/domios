@@ -30,11 +30,95 @@ pub async fn mux_state(
         .ensure_storage_available()
         .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error))?;
 
-    Ok((
-        [(axum::http::header::CONTENT_TYPE, "application/json")],
-        state.svc.published_mux_state(),
-    )
-        .into_response())
+    let (generation, json) = state.svc.published_mux_state_versioned();
+    Ok(generation_response(&headers, generation, || {
+        (
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            json,
+        )
+            .into_response()
+    }))
+}
+
+fn generation_etag(generation: u64) -> String {
+    format!("W/\"{generation}\"")
+}
+
+fn etag_matches(headers: &HeaderMap, etag: &str) -> bool {
+    let etag = etag.strip_prefix("W/").unwrap_or(etag);
+    headers
+        .get_all(axum::http::header::IF_NONE_MATCH)
+        .iter()
+        .any(|value| {
+            value.to_str().is_ok_and(|value| {
+                value.split(',').any(|candidate| {
+                    let candidate = candidate.trim();
+                    candidate == "*" || candidate.strip_prefix("W/").unwrap_or(candidate) == etag
+                })
+            })
+        })
+}
+
+fn generation_response(
+    headers: &HeaderMap,
+    generation: u64,
+    body: impl FnOnce() -> axum::response::Response,
+) -> axum::response::Response {
+    conditional_response(headers, &generation_etag(generation), body)
+}
+
+fn conditional_response(
+    headers: &HeaderMap,
+    etag: &str,
+    body: impl FnOnce() -> axum::response::Response,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let mut response = if etag_matches(headers, etag) {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else {
+        body()
+    };
+    response.headers_mut().insert(
+        axum::http::header::ETAG,
+        // Validators contain only quotes, ASCII prefixes and integer digits.
+        etag.parse().expect("generated ASCII validator"),
+    );
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, no-cache"),
+    );
+    response
+}
+
+pub async fn tabs(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    query: Query<crate::tab_routes::TabListQuery>,
+) -> Result<axum::response::Response, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let body = crate::tab_routes::list_tabs(AxumState(state), headers.clone(), query).await?;
+    let json = serde_json::to_vec(&body.0).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to serialize Tabs",
+        )
+    })?;
+    Ok(tabs_response(&headers, json))
+}
+
+fn tabs_response(headers: &HeaderMap, json: Vec<u8>) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    json.hash(&mut hasher);
+    let etag = format!("\"{:016x}\"", hasher.finish());
+    conditional_response(headers, &etag, || {
+        (
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            json,
+        )
+            .into_response()
+    })
 }
 
 pub async fn tab_focus(

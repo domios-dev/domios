@@ -9,6 +9,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 
 | Id | Kind | Lang | Tier | Instance | Live agent | Budget (s) | Discovery | Runner | Owner doc |
 |---|---|---|---|---|---|---|---|---|---|
+| `eval-bubble-geometry` | eval | mixed | manual | yes | no | 60 | single | `bash evals/bubble-geometry/run.sh` | `evals/bubble-geometry/README.md` |
 | `ts-unit` | unit | ts | pr | no | no | 300 | glob `src/**/*.test.ts` `src/**/*.test.tsx` `packages/**/*.test.ts` `packages/**/*.test.tsx` minus `**/node_modules/**` `**/dist/**` minus `scripts/vitest-owned-tests.json` | `pnpm test:unit` | `.agents/skills/testing/SKILL.md` |
 | `frontend-windows-build` | guard | ts | pr | no | no | 300 | single | `bash build.sh frontend-build` | `.agents/skills/github-release/SKILL.md` |
 | `ts-vitest` | unit | ts | pr | no | no | 180 | list-file `scripts/vitest-owned-tests.json` | `pnpm test:vitest --maxWorkers=4` | `.agents/skills/testing/SKILL.md` |
@@ -54,6 +55,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-app-state-doctor` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --test state_doctor state_dump_quality_gate -- --ignored --nocapture` | `testbench/README.md` |
 | `rust-build-info` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-build-info` | `.agents/skills/gates/SKILL.md` |
 | `rust-account` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest account` | `.agents/skills/gates/SKILL.md` |
+| `rust-entitlements` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-entitlements` | `.agents/skills/gates/SKILL.md` |
 | `rust-billing` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest billing` | `.agents/skills/gates/SKILL.md` |
 | `rust-analytics` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest analytics` | `.agents/skills/gates/SKILL.md` |
 | `rust-frontend-bundle` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest frontend-bundle` | `.agents/skills/gates/SKILL.md` |

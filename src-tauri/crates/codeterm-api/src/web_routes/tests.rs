@@ -212,3 +212,169 @@ fn constant_time_eq_rejects_last_byte_diff() {
         "identical tokens must match"
     );
 }
+
+#[tokio::test]
+async fn snapshot_wire_validators_and_gzip() {
+    use axum::response::IntoResponse;
+    use axum::routing::get;
+    use tower_http::compression::CompressionLayer;
+    for path in ["/api/mux/state", "/api/tabs"] {
+        let payload = serde_json::json!({"generation": 8, "tabs": "x".repeat(4096)}).to_string();
+        let response_payload = payload.clone();
+        let router = Router::new()
+            .route(
+                path,
+                get(move |headers: axum::http::HeaderMap| {
+                    let payload = response_payload.clone();
+                    async move {
+                        if path == "/api/tabs" {
+                            super::tabs_response(&headers, payload.into_bytes())
+                        } else {
+                            super::generation_response(&headers, 8, || {
+                                ([("content-type", "application/json")], payload).into_response()
+                            })
+                        }
+                    }
+                }),
+            )
+            .layer(CompressionLayer::new());
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header("if-none-match", "\"stale\"")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let etag = response.headers()["etag"].clone();
+        assert_eq!(
+            to_bytes(response.into_body(), usize::MAX).await.unwrap(),
+            payload
+        );
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header("if-none-match", etag.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(response.headers()["etag"], etag);
+        assert!(to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .is_empty());
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header("accept-encoding", "gzip")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["content-encoding"], "gzip");
+        let compressed = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(&compressed[..2], &[0x1f, 0x8b]);
+        assert!(compressed.len() < payload.len());
+    }
+}
+
+#[tokio::test]
+async fn tabs_projection_change_invalidates_etag_without_mux_generation_change() {
+    let headers = axum::http::HeaderMap::new();
+    let first = super::tabs_response(&headers, br#"[{"id":"remote","status":"idle"}]"#.to_vec());
+    let mut headers = headers;
+    headers.insert("if-none-match", first.headers()["etag"].clone());
+    let changed = super::tabs_response(&headers, br#"[{"id":"remote","status":"busy"}]"#.to_vec());
+    assert_eq!(changed.status(), StatusCode::OK);
+    assert_ne!(changed.headers()["etag"], first.headers()["etag"]);
+    assert!(!to_bytes(changed.into_body(), usize::MAX)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn generation_validator_accepts_weak_strong_lists_and_wildcard() {
+    for value in ["W/\"8\"", "\"8\"", "\"old\", W/\"8\"", "*"] {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("if-none-match", value.parse().unwrap());
+        assert!(super::etag_matches(&headers, &super::generation_etag(8)));
+        if value != "*" {
+            assert!(!super::etag_matches(&headers, &super::generation_etag(9)));
+        }
+    }
+}
+
+#[tokio::test]
+async fn registered_snapshot_routes_compress_and_revalidate() {
+    use codeterm_host_runtime::test_fixture::HostFixture;
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace = mux.snapshot().workspaces[0].id.clone();
+    for _ in 0..12 {
+        mux.create_tab(&workspace).unwrap();
+    }
+    let fixture = HostFixture::new(mux);
+    let app = crate::routes::create_router(crate::transport_tabs::fixture::app_state(&fixture));
+    for path in ["/api/mux/state", "/api/tabs?local_only=true"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header("authorization", "Bearer preview-test-token")
+                    .header("accept-encoding", "gzip")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(response.headers()["content-encoding"], "gzip", "{path}");
+        let etag = response.headers()["etag"].clone();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header("authorization", "Bearer preview-test-token")
+                    .header("if-none-match", etag.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED, "{path}");
+        assert_eq!(response.headers()["etag"], etag);
+        assert!(to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+}
+
+#[tokio::test]
+async fn newer_mux_generation_returns_body_and_new_validator() {
+    use axum::response::IntoResponse;
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("if-none-match", super::generation_etag(8).parse().unwrap());
+    let response = super::generation_response(&headers, 9, || "new snapshot".into_response());
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["etag"], "W/\"9\"");
+    assert_eq!(
+        to_bytes(response.into_body(), usize::MAX).await.unwrap(),
+        "new snapshot"
+    );
+}

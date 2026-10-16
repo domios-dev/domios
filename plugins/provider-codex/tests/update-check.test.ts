@@ -59,8 +59,9 @@ assert(!updateAvailable(current.currentVersion, current.latestVersion), "current
 assert(updateAvailable(available.currentVersion, available.latestVersion), "newer versions are available");
 assert(loadPlugin(available.currentVersion, available.latestVersion).checkForUpdate()?.latestVersion === available.latestVersion,
   "the provider bridge offers the checked newer version");
-assert(loadPlugin(current.currentVersion, current.latestVersion).checkForUpdate() === null,
-  "the provider bridge returns no update for the current version");
+const answered = loadPlugin(current.currentVersion, current.latestVersion).checkForUpdate() as { currentVersion: string; latestVersion: string } | null;
+assert(answered !== null && answered.latestVersion === answered.currentVersion,
+  "the provider bridge answers the current version without a newer target");
 const missing = asyncHost(
   () => ({ done: true, code: 1, stdout: "", stderr: "not installed" }),
   () => ({ status: 200, body: JSON.stringify({ version: "99.0.0" }) }),

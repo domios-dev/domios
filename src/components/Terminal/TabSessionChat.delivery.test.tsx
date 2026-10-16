@@ -127,7 +127,7 @@ function muxActions(): MultiplexerActionsContextType {
 
 type ChatEventHandler = (event: { payload: unknown }) => void;
 
-async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState): Promise<{
+async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeState, sessionIntent?: { title: string; goal: string }, chatError?: string): Promise<{
   host: HTMLDivElement;
   root: Root;
   dispatch: (event: string, payload: unknown) => void;
@@ -140,10 +140,11 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
     calls.push(command);
     if (command === "agent_runtime_retry") return { state: "loaded", epoch: 3 };
     if (command === "chat_start") {
+      if (chatError) throw new Error(chatError);
       return {
         text: "",
         offset: 0,
-        messages: [],
+        messages: sessionIntent ? [{ id: "intent", type: "custom", content: "", timestamp: 1, sessionIntent }] : [],
         source_session_id: "session-1",
         session_binding_nonce: "nonce-1",
         subscription_id: "delivery-subscription",
@@ -189,6 +190,53 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
   };
 }
 
+
+for (const narrow of [false, true]) {
+  test(`session goal is reachable in the composer (narrow: ${narrow})`, async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = (query) => ({
+      media: query, matches: narrow, onchange: null,
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => true,
+    });
+    const intent = { title: "fixture-title", goal: "fixture-goal" };
+    const { host, root } = await renderChat("delivery-tab", undefined, intent);
+    try {
+      const composer = host.querySelector('[data-testid="composer-context-header"]');
+      const goal = composer?.querySelector<HTMLButtonElement>('button[aria-label="Session goal"]');
+      assert(goal, "composer exposes the session goal control");
+      assert(!host.querySelector('[role="group"][aria-label="Session intent"]'), "chat has no intent strip");
+      assert(!host.querySelector('[role="log"] [aria-label="Session goal"]'), "goal is outside the transcript");
+      await act(async () => { goal.click(); });
+      const details = host.querySelector('[role="dialog"][aria-label="Session goal"]');
+      assert(details?.textContent?.includes(intent.title) && details.textContent.includes(intent.goal), "opening the goal reveals both supplied values");
+      await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
+      assert(!host.querySelector('[role="dialog"][aria-label="Session goal"]'), "Escape dismisses the goal");
+    } finally {
+      await act(async () => { root.unmount(); });
+      host.remove();
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+}
+
+test("removed plugin details are reachable from the composer status bubble", async () => {
+  const error = JSON.stringify({ code: "chat_backend_plugin_removed", plugin_id: "fixture-plugin" });
+  const { host, root } = await renderChat("delivery-tab", undefined, undefined, error);
+  try {
+    const composer = host.querySelector('[data-testid="composer-context-header"]');
+    const status = composer?.querySelector<HTMLButtonElement>('button[aria-label="Plugin removed"]');
+    assert(status, "composer exposes the removed plugin status");
+    assert(host.querySelectorAll('[aria-label="Plugin removed"]').length === 1, "no persistent removed plugin notice exists outside the bubble");
+    await act(async () => { status.click(); });
+    const details = composer?.querySelector('[role="dialog"][aria-label="Plugin removed"]');
+    assert(details?.querySelector('[aria-label="Plugin removed"]'), "status opens the existing error notice with its details and actions");
+    await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
+    assert(!host.querySelector('[role="dialog"][aria-label="Plugin removed"]'), "Escape dismisses plugin details");
+  } finally {
+    await act(async () => { root.unmount(); });
+    host.remove();
+  }
+});
 
 for (const touch of [false, true]) {
   for (const state of ["degraded", "unloaded", "loading"] as const) {

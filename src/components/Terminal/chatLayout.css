@@ -8,7 +8,10 @@
   overflow-y: auto;
   overflow-wrap: anywhere;
 }
-.ct-chat-surface .ct-chat-message-row { max-width: none; }
+.ct-chat-surface .ct-chat-message-row {
+  max-width: var(--ct-chat-readable-width);
+  margin-inline: auto;
+}
 .ct-chat-surface .ct-chat-message-time--left { right: calc(100% + 8px); }
 .ct-chat-time-measure { visibility: hidden; width: max-content; }
 .ct-chat-surface[data-time-gutter="false"] .ct-chat-message-time { display: none; }
