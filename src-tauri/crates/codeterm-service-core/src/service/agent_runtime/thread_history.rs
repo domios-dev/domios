@@ -3,7 +3,7 @@ use crate::multiplexer::types::TabBacking;
 use crate::service::{ServiceContext, SpawnAgentParams};
 use codeterm_plugin::agent_runtime::{RuntimeOperation, RuntimeResult, RuntimeThreadHistoryAction};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -396,25 +396,21 @@ mod tests {
         let before = cache.snapshot();
         assert!(truncate_after_evidence(&mut cache, "turn-two", "source-thread", None).is_err());
         assert_eq!(cache.snapshot(), before);
-        assert!(
-            truncate_after_evidence(
-                &mut cache,
-                "turn-two",
-                "source-thread",
-                Some("foreign-thread")
-            )
-            .is_err()
-        );
+        assert!(truncate_after_evidence(
+            &mut cache,
+            "turn-two",
+            "source-thread",
+            Some("foreign-thread")
+        )
+        .is_err());
         assert_eq!(cache.snapshot(), before);
-        assert!(
-            truncate_after_evidence(
-                &mut cache,
-                "turn-two",
-                "source-thread",
-                Some("source-thread")
-            )
-            .is_ok()
-        );
+        assert!(truncate_after_evidence(
+            &mut cache,
+            "turn-two",
+            "source-thread",
+            Some("source-thread")
+        )
+        .is_ok());
         assert_eq!(
             cache
                 .snapshot()

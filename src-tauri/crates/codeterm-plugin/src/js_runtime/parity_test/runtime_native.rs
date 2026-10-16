@@ -1,7 +1,7 @@
 use crate::agent_runtime::*;
 use crate::provider::AgentProvider;
 use codeterm_types::agent::chat_types::ChatMsg;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::path::PathBuf;
 
 pub(super) struct NativeRuntime(pub AgentRuntimeCapability);
