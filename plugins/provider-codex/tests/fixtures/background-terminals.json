@@ -1,0 +1,334 @@
+{
+  "captured": {
+    "cliVersion": "codex-cli 0.162.1",
+    "model": "gpt-6-luna",
+    "scenario": "background-terminals"
+  },
+  "threadStart": [
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/start",
+          "params": {
+            "cwd": "/work/capture",
+            "model": "gpt-6-luna",
+            "threadSource": "user",
+            "config": {
+              "check_for_update_on_startup": false,
+              "project_doc_max_bytes": 65536,
+              "model_reasoning_effort": "low"
+            },
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "sandbox": "danger-full-access",
+            "developerInstructions": "Keep responses minimal. Do only the explicitly requested trivial capture exercise."
+          }
+        }
+      },
+      "receiptMs": 3942.459
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "thread": {
+            "id": "01a14401-7713-7ef1-bb80-e5348c22767f",
+            "environments": [
+              {
+                "environmentId": "local",
+                "cwd": "/work/capture",
+                "runtimeWorkspaceRoots": [
+                  "/work/capture"
+                ]
+              }
+            ],
+            "extra": null,
+            "sessionId": "01a14401-7713-7ef1-bb80-e5348c22767f",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "preview": "",
+            "ephemeral": false,
+            "section": null,
+            "sectionEnteredAt": null,
+            "projectId": null,
+            "historyMode": "paginated",
+            "modelProvider": "openai",
+            "model": "gpt-6-luna",
+            "reasoningEffort": "low",
+            "createdAt": 1792142309,
+            "updatedAt": 1792142309,
+            "recencyAt": 1792142309,
+            "status": {
+              "type": "idle"
+            },
+            "path": "/home/capture\\.codex\\sessions\\2026\\10\\16\\rollout-2026-10-16T12-18-29-01a14401-7713-7ef1-bb80-e5348c22767f.jsonl",
+            "cwd": "/work/capture",
+            "cliVersion": "0.162.1",
+            "originator": "domios",
+            "source": "vscode",
+            "canAcceptDirectInput": true,
+            "threadSource": "user",
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "daybreakEnabled": null,
+            "turns": []
+          },
+          "model": "gpt-6-luna",
+          "modelProvider": "openai",
+          "serviceTier": "priority",
+          "disabledPluginIds": [],
+          "cwd": "/work/capture",
+          "runtimeWorkspaceRoots": [
+            "/work/capture"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "never",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "dangerFullAccess"
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": "low",
+          "multiAgentMode": "explicitRequestOnly"
+        }
+      },
+      "receiptMs": 4604.178
+    }
+  ],
+  "cases": [
+    {
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14401-7713-7ef1-bb80-e5348c22767f"
+      },
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "01a14401-7713-7ef1-bb80-e5348c22767f",
+        "action": {
+          "kind": "list",
+          "cursor": null
+        }
+      },
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/backgroundTerminals/list",
+          "params": {
+            "threadId": "01a14401-7713-7ef1-bb80-e5348c22767f",
+            "cursor": null,
+            "limit": 256
+          }
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "data": [
+            {
+              "itemId": "exec-e32cc25f-84cd-4aa5-b3b3-608ede538960",
+              "processId": "23832",
+              "command": "node -e \"require('net').createServer().listen(0,'127.0.0.1')\"",
+              "cwd": "/work/capture",
+              "osPid": null,
+              "cpuPercent": null,
+              "rssKb": null
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14401-7713-7ef1-bb80-e5348c22767f"
+      },
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "01a14401-7713-7ef1-bb80-e5348c22767f",
+        "action": {
+          "kind": "terminate",
+          "processId": "23832"
+        }
+      },
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/backgroundTerminals/terminate",
+          "params": {
+            "threadId": "01a14401-7713-7ef1-bb80-e5348c22767f",
+            "processId": "23832"
+          }
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "terminated": true
+        }
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14401-7713-7ef1-bb80-e5348c22767f"
+      },
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "01a14401-7713-7ef1-bb80-e5348c22767f",
+        "action": {
+          "kind": "list",
+          "cursor": null
+        }
+      },
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/backgroundTerminals/list",
+          "params": {
+            "threadId": "01a14401-7713-7ef1-bb80-e5348c22767f",
+            "cursor": null,
+            "limit": 256
+          }
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "data": [],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14401-7713-7ef1-bb80-e5348c22767f"
+      },
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "01a14401-7713-7ef1-bb80-e5348c22767f",
+        "action": {
+          "kind": "clean"
+        }
+      },
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/backgroundTerminals/clean",
+          "params": {
+            "threadId": "01a14401-7713-7ef1-bb80-e5348c22767f"
+          }
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "00000000-0000-0000-0000-000000000000"
+      },
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "00000000-0000-0000-0000-000000000000",
+        "action": {
+          "kind": "list",
+          "cursor": null
+        }
+      },
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/backgroundTerminals/list",
+          "params": {
+            "threadId": "00000000-0000-0000-0000-000000000000",
+            "cursor": null,
+            "limit": 256
+          }
+        }
+      },
+      "reply": {
+        "kind": "error",
+        "error": {
+          "code": -32600,
+          "message": "thread not found: 00000000-0000-0000-0000-000000000000"
+        }
+      }
+    }
+  ]
+}

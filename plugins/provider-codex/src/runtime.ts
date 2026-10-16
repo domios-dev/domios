@@ -11,6 +11,7 @@ import { loginPlan, loginResponse } from "./runtimeLogin";
 import { rateLimitEvents } from "./runtimeUsage";
 import {resetOutcome} from "./resetCredits";
 import { accountAuth } from "./runtimeAuth";
+import {backgroundOwns, backgroundPlan, backgroundResponse} from "./runtimeBackground";
 import { interruptTargets } from "./runtimeInterrupt";
 import { descendantThread, historyThread } from "./runtimeBinding";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
@@ -46,6 +47,10 @@ function turnParams(ctx: RuntimeContext, op: Extract<Operation,{kind:"submitTurn
     ...codexRuntimePolicy(op.settings),model:op.settings.model,effort:op.settings.effort};
 }
 function validateBinding(ctx: RuntimeContext, op: Operation): void {
+  if (op.kind === "backgroundProcesses") {
+    if (!backgroundOwns(ctx,op.threadId)) fail("binding_mismatch","Background thread is not owned");
+    return;
+  }
   if (op.kind === "readHistory" && !ctx.threadId) fail("binding_mismatch","History requires a bound root thread");
   if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId
     && !(op.kind === "readHistory" && descendantThread(ctx,op.threadId))) fail("binding_mismatch","Thread differs from the bound thread");
@@ -64,6 +69,7 @@ export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
 function planOperation(ctx: RuntimeContext, op: Operation): RuntimePlan {
   validateBinding(ctx,op);
   switch (op.kind) {
+    case "backgroundProcesses": return backgroundPlan(ctx,op);
     case "initialize":
       return request("initialize",{clientInfo:{name:"domios",version:ctx.hostVersion},capabilities:{experimentalApi:true,optOutNotificationMethods:[]}});
     case "openThread": return request("thread/start",settingsParams(ctx,op.settings,op.instructions));
@@ -123,6 +129,7 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
 
 function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, reply: RpcReply): RuntimeStep {
   validateBinding(ctx,op);
+  if (op.kind === "backgroundProcesses") return backgroundResponse(op,reply);
   const state = object(raw);
   if (op.kind === "readHistory" && reply.kind === "error" && state.stage === "turns"
     && !op.cursor && reply.error.code === -32600

@@ -27,6 +27,12 @@ declares live-focus navigation; native providers declare it through
 `live_prompt_response`. The generic arrow-down default is unsupported
 for this automatic path. The host consumes one returned step, then re-observes.
 
+`agentRuntime.backgroundProcesses` declares pure `backgroundProcesses` operations:
+list returns a bounded page and next cursor; terminate returns an acknowledgement;
+clean returns Done. The host owns pagination, exact root/descendant authority and
+termination verification. An acknowledgement never proves absence. No filesystem,
+network, subprocess or environment host function is added by this capability.
+
 How to build a JS drop-in agent provider for Domios — the manifest schema, the
 JS exports the host calls, what falls back to what, and what tests you owe.
 General plugin anatomy (build pipeline, QuickJS sandbox, `host.*` API, the

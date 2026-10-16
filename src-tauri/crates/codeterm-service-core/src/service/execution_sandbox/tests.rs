@@ -142,7 +142,7 @@ fn resolver_requires_capability_and_canonicalizes_only_the_lane_root() {
 
 #[test]
 fn task_bound_workers_require_explicit_execution_intent() {
-    use crate::service::orchestrator::types::TaskLaunchAuthority;
+    use crate::service::orchestrator::TaskLaunchAuthority;
     for binding in 0..3 {
         for intent in [
             None,

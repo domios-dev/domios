@@ -64,10 +64,24 @@ fn descendant_authority_is_read_only_and_requires_current_ancestry() {
 
 #[test]
 fn captured_spawn_metadata_requires_provider_parent_proof() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+    let mut directories: Vec<_> = std::fs::read_dir(root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|dir| dir.join("tests/runtime-manifest.json").is_file())
+        .collect();
+    directories.sort();
+    let mut cases = Vec::new();
     for name in ["subagent", "subagent_v2"] {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-            "../../../plugins/provider-codex/tests/fixtures/runtime/captured/{name}.json"
-        ));
+        let paths: Vec<_> = directories
+            .iter()
+            .map(|dir| dir.join(format!("tests/fixtures/runtime/captured/{name}.json")))
+            .filter(|path| path.is_file())
+            .collect();
+        assert!(!paths.is_empty(), "missing recorded {name} scenario");
+        cases.extend(paths.into_iter().map(|path| (name, path)));
+    }
+    for (name, path) in cases {
         let fixture: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         let root = fixture["context"]["threadId"].as_str().unwrap();
         let mut count = 0;
