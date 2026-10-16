@@ -50,6 +50,7 @@ pub fn check_available(service: Arc<impl ProviderUpdateHost>, api_port: u16, all
         watch::start(service.as_ref());
         idle::schedule_async(service.as_ref(), None);
     }
+    // The gate runs this on the opener's thread (the restore worker), so it must only spawn.
     boot::RESTORE_GATE.defer(Box::new(move || {
         spawn_utility("provider-update-check", move || {
             check_providers(service.as_ref(), allowed)
@@ -73,22 +74,34 @@ fn check_providers(service: &impl ProviderUpdateHost, allowed: bool) {
         let Some(command) = provider.update_command(command::platform_key()) else {
             continue;
         };
-        if allowed && !claim_check(provider.id()) {
-            log::debug!(
-                "[provider-update] {}: availability checked within the last day",
-                provider.id()
-            );
-            continue;
-        }
+        let claim = if allowed {
+            let Some(claimed_at) = claim_check(provider.id()) else {
+                log::debug!(
+                    "[provider-update] {}: availability checked within the last day",
+                    provider.id()
+                );
+                continue;
+            };
+            Some(claimed_at)
+        } else {
+            None
+        };
         let started = std::time::Instant::now();
-        let available = provider.check_for_update();
+        let answer = classify(provider.check_for_update());
         log::debug!(
-            "[provider-update] {}: availability check elapsed_ms={}",
+            "[provider-update] {}: availability check elapsed_ms={} answer={answer:?}",
             provider.id(),
             started.elapsed().as_millis()
         );
-        let Some(version) = available else {
-            continue;
+        let version = match answer {
+            CheckAnswer::Update(version) => version,
+            CheckAnswer::Current => continue,
+            CheckAnswer::Unanswered => {
+                if let Some(claimed_at) = claim {
+                    release_check(provider.id(), claimed_at);
+                }
+                continue;
+            }
         };
         if allowed {
             start_update(
@@ -110,15 +123,52 @@ fn check_providers(service: &impl ProviderUpdateHost, allowed: bool) {
     }
 }
 
-fn claim_check(provider: &str) -> bool {
+#[derive(Debug, PartialEq, Eq)]
+enum CheckAnswer {
+    Update(ProviderUpdateAvailability),
+    Current,
+    Unanswered,
+}
+
+/// A provider answers "no newer target" with latest equal to current; `None` means it could not answer.
+fn classify(available: Option<ProviderUpdateAvailability>) -> CheckAnswer {
+    match available {
+        Some(version) if version.latest_version != version.current_version => {
+            CheckAnswer::Update(version)
+        }
+        Some(_) => CheckAnswer::Current,
+        None => CheckAnswer::Unanswered,
+    }
+}
+
+/// The provider's update target, if it offers one newer than what is installed.
+pub fn newer_target(
+    available: Option<ProviderUpdateAvailability>,
+) -> Option<ProviderUpdateAvailability> {
+    match classify(available) {
+        CheckAnswer::Update(version) => Some(version),
+        CheckAnswer::Current | CheckAnswer::Unanswered => None,
+    }
+}
+
+fn claim_check(provider: &str) -> Option<u64> {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
-    storage::transact(|state| state.claim_check(provider, now_ms)).unwrap_or_else(|error| {
-        log::warn!("[provider-update] {provider}: check stamp unavailable: {error}");
-        true
-    })
+    match storage::transact(|state| state.claim_check(provider, now_ms)) {
+        Ok(claimed) => claimed.then_some(now_ms),
+        Err(error) => {
+            log::warn!("[provider-update] {provider}: check stamp unavailable: {error}");
+            Some(now_ms)
+        }
+    }
+}
+
+fn release_check(provider: &str, claimed_at: u64) {
+    if let Err(error) = storage::transact(|state| state.release_check(provider, claimed_at)) {
+        log::warn!("[provider-update] {provider}: check stamp release failed: {error}");
+    }
 }
 
 pub fn coordinates_prompt(service: &impl ProviderUpdateHost, provider: &str) -> bool {
@@ -147,8 +197,7 @@ pub fn manual_prompt_observed(
     let screen = snapshot.screen_text.clone();
     let service = service.clone();
     spawn_utility("provider-update-prompt", move || {
-        if let Some(version) = provider
-            .check_for_update()
+        if let Some(version) = newer_target(provider.check_for_update())
             .or_else(|| provider.update_prompt_availability(&screen))
         {
             start_update(
