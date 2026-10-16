@@ -5,12 +5,15 @@ const ITEM_BYTES = 64 * 1024;
 const STRING_BYTES = 16 * 1024;
 
 export function utf8Bytes(value: string): number {
-  let bytes = 0;
-  for (const char of value) {
-    const point = char.codePointAt(0)!;
-    bytes += point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
+  // Native codecs avoid QuickJS interpreting a loop for every displayed byte.
+  try {
+    return unescape(encodeURIComponent(value)).length;
+  } catch {
+    return value.length
+      + (value.match(/[\u0080-\u07ff]/g)?.length ?? 0)
+      + 2 * (value.match(/[\u0800-\uffff]/g)?.length ?? 0)
+      - 2 * (value.match(/[\ud800-\udbff][\udc00-\udfff]/g)?.length ?? 0);
   }
-  return bytes;
 }
 export function serializedBytes(value: unknown): number {
   return utf8Bytes(JSON.stringify(value));
