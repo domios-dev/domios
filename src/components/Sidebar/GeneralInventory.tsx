@@ -23,9 +23,9 @@ function InventoryGroup({ name, count, children, touchMode }: { name: GroupName;
   const [expanded, setExpanded] = useState(() => readExpanded(name));
   const id = useId();
   const open = count > 0 && expanded;
-  return <section aria-label={name} className="min-w-0 px-2">
+  return <section aria-label={name} className="sidebar-team-section min-w-0">
     <SidebarDisclosure expanded={open} aria-label={`${name}, ${count}`} aria-controls={id} disabled={count === 0} touchMode={touchMode}
-      className="sidebar-structural-toggle w-full min-w-0"
+      className="sidebar-team-workers-toggle"
       onClick={() => {
         const next = !expanded;
         setExpanded(next);
@@ -34,9 +34,9 @@ function InventoryGroup({ name, count, children, touchMode }: { name: GroupName;
           localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...states, [name]: next }));
         } catch { /* Storage can be unavailable in a private viewer. */ }
       }}>
-      <span className="min-w-0 flex-1 truncate text-left">{name}</span><span className="tabular-nums text-[var(--ct-muted)]">{count}</span>
+      {open ? name.toUpperCase() : `${count} ${count === 1 ? name.toLowerCase().replace(/s$/, "") : name.toLowerCase()}`}
     </SidebarDisclosure>
-    <ul id={id} aria-label={name} hidden={!open} className="min-w-0 pl-3">{children}</ul>
+    <ul id={id} aria-label={name} hidden={!open} className="sidebar-team-member-list min-w-0">{children}</ul>
   </section>;
 }
 
