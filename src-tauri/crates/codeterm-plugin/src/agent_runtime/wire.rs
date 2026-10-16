@@ -159,6 +159,10 @@ pub struct RuntimeContext {
     deny_unknown_fields
 )]
 pub enum RuntimeOperation {
+    BackgroundProcesses {
+        thread_id: String,
+        action: super::RuntimeBackgroundProcessAction,
+    },
     Initialize,
     OpenThread {
         instructions: String,
@@ -209,6 +213,7 @@ pub enum RuntimeOperation {
 impl RuntimeOperation {
     pub fn kind(&self) -> &'static str {
         match self {
+            Self::BackgroundProcesses { .. } => "backgroundProcesses",
             Self::Initialize => "initialize",
             Self::OpenThread { .. } => "openThread",
             Self::ResumeThread { .. } => "resumeThread",
@@ -275,6 +280,16 @@ pub enum HistoryOrder {
     deny_unknown_fields
 )]
 pub enum RuntimeResult {
+    BackgroundProcesses {
+        thread_id: String,
+        processes: Vec<super::RuntimeBackgroundProcess>,
+        next_cursor: Option<String>,
+    },
+    BackgroundProcessTermination {
+        thread_id: String,
+        process_id: String,
+        acknowledged: bool,
+    },
     Initialized,
     ThreadLoaded {
         thread_id: String,
@@ -389,6 +404,10 @@ impl RuntimeTurnDetail {
     deny_unknown_fields
 )]
 pub enum AgentRuntimeEvent {
+    BackgroundProcesses {
+        thread_id: String,
+        processes: Vec<super::RuntimeBackgroundProcess>,
+    },
     AuthLogin {
         login: RuntimeLoginState,
     },

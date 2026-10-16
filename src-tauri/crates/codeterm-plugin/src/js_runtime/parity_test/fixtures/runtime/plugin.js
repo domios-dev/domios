@@ -7,12 +7,14 @@ module.exports = {
   runtimePlan(_ctx, op) {
     if (op.kind === 'answerQuestion') return {action:{kind:'questionAnswer',input:{text:op.answers.flatMap(answer=>answer.values).join('\n'),attachments:[]}},state:null};
     if (op.kind === 'answer') return {action:{kind:'reply',requestId:op.requestId,result:{kind:'success',value:op.answer}},state:null};
+    if (op.kind === 'backgroundProcesses') return {action:{kind:'request',call:{method:op.kind,params:op,target:{threadId:op.threadId}}},state:null};
     if (op.kind === 'interrupt') return {action:{kind:'request',call:{method:op.kind,params:op,target:{threadId:op.threadId,...(op.activeTurnId ? {turnId:op.activeTurnId} : {})}}},state:null};
     return {action:{kind:'request',call:{method:op.kind,params:op}},state:null};
   },
   runtimeResponse(_ctx, op, _state, reply) {
     if (reply.kind === 'error') return {kind:'refused',reason:{code:'provider_refused',message:reply.error.message},beforeAcceptance:true};
     switch (op.kind) {
+      case 'backgroundProcesses': return {kind:'complete',result:op.action.kind === 'list' ? {kind:'backgroundProcesses',threadId:op.threadId,processes:reply.value.processes,nextCursor:null} : op.action.kind === 'terminate' ? {kind:'backgroundProcessTermination',threadId:op.threadId,processId:op.action.processId,acknowledged:reply.value.acknowledged === true} : {kind:'done'}};
       case 'initialize': return {kind:'complete',result:{kind:'initialized'}};
       case 'openThread': return {kind:'complete',result:{kind:'threadLoaded',threadId:reply.value.threadId,settings:op.settings}};
       case 'resumeThread': return {kind:'complete',result:{kind:'threadLoaded',threadId:op.threadId,settings:op.settings}};

@@ -52,6 +52,7 @@ function validateBinding(ctx: RuntimeContext, op: Operation): void {
 export function runtimePlan(ctx: RuntimeContext, op: Operation): RuntimePlan {
   validateBinding(ctx,op);
   switch (op.kind) {
+    case "backgroundProcesses": return fail("unsupported","Background processes are unavailable");
     case "initialize":
       return request("initialize",{clientInfo:{name:"domios",version:ctx.hostVersion},capabilities:{experimentalApi:true,optOutNotificationMethods:[]}});
     case "openThread": return request("thread/start",settingsParams(ctx,op.settings,op.instructions));
@@ -128,6 +129,7 @@ export function runtimeResponse(ctx: RuntimeContext, op: Operation, raw: JsonVal
   }
   const value = object(reply.value);
   switch (op.kind) {
+    case "backgroundProcesses": return fail("unsupported","Background processes are unavailable");
     case "initialize":
       if (state.stage === "initialize") return continuation({action:{kind:"notification",notification:{method:"initialized",params:{}}},state:{stage:"initializedNotification"}});
       if (state.stage === "initializedNotification") return continuation(request("account/read",{refreshToken:false},{stage:"initializeAccount"}));

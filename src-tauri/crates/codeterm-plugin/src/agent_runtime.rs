@@ -1,8 +1,10 @@
 mod authority;
 mod history;
 pub use history::*;
+mod background;
 mod capability;
 pub use authority::*;
+pub use background::*;
 mod validation;
 mod wire;
 pub use validation::*;
