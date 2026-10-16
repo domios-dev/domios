@@ -1,6 +1,8 @@
 export function parseBootPhase(line) {
   const match = line.match(/\[boot-phase\] tab=(\S+) pty=(\S+) phase=("[^"]+"|\S+) at_us=(\d+)/);
-  return match ? { tab: match[1], pty: match[2], phase: match[3].replaceAll('"', ''), atUs: Number(match[4]), line } : null;
+  if (match) return { tab: match[1], pty: match[2], phase: match[3].replaceAll('"', ''), atUs: Number(match[4]), line };
+  const bound = line.match(/\[boot-request\] tab=(\S+) .* bound_at_us=(\d+)/);
+  return bound ? { tab: bound[1], pty: '-', phase: 'request_bound', atUs: Number(bound[2]), line } : null;
 }
 
 export function phasesForTab(marks, tab) {
