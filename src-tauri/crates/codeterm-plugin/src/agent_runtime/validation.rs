@@ -108,6 +108,20 @@ pub fn validate_runtime_operation(
         | RuntimeOperation::SubmitTurn { settings, .. } => validate_runtime_settings(settings)?,
         _ => {}
     }
+    if let RuntimeOperation::BackgroundProcesses { thread_id, action } = op {
+        if !owns_runtime_thread(ctx, thread_id) {
+            return Err(mismatch("background operation targets an unowned thread"));
+        }
+        match action {
+            RuntimeBackgroundProcessAction::Terminate { process_id } if !identifier(process_id) => {
+                return Err(invalid("invalid background process id"))
+            }
+            RuntimeBackgroundProcessAction::List {
+                cursor: Some(cursor),
+            } if !identifier(cursor) => return Err(invalid("invalid background process cursor")),
+            _ => {}
+        }
+    }
     let thread = match op {
         RuntimeOperation::ResumeThread { thread_id, .. } => {
             if ctx
@@ -241,7 +255,18 @@ pub fn validate_runtime_call(
     op: &RuntimeOperation,
     call: &RpcCall,
 ) -> Result<(), RuntimeFailure> {
-    if matches!(op, RuntimeOperation::Interrupt { .. }) {
+    if let RuntimeOperation::BackgroundProcesses { thread_id, .. } = op {
+        if !cap.background_processes {
+            return Err(mismatch("background processes capability absent"));
+        }
+        if call
+            .target
+            .as_ref()
+            .is_none_or(|target| &target.thread_id != thread_id || target.turn_id.is_some())
+        {
+            return Err(mismatch("background request lacks exact owned target"));
+        }
+    } else if matches!(op, RuntimeOperation::Interrupt { .. }) {
         let target = call
             .target
             .as_ref()
@@ -352,6 +377,44 @@ fn validate_runtime_result(
         validate_runtime_settings(settings)?;
     }
     let valid = match (op, result) {
+        (
+            RuntimeOperation::BackgroundProcesses {
+                thread_id: target,
+                action: RuntimeBackgroundProcessAction::List { cursor },
+            },
+            RuntimeResult::BackgroundProcesses {
+                thread_id,
+                processes,
+                next_cursor,
+            },
+        ) => {
+            validate_background_processes(processes)?;
+            target == thread_id
+                && next_cursor
+                    .as_ref()
+                    .is_none_or(|next| identifier(next) && Some(next) != cursor.as_ref())
+        }
+        (
+            RuntimeOperation::BackgroundProcesses {
+                thread_id: target,
+                action:
+                    RuntimeBackgroundProcessAction::Terminate {
+                        process_id: target_process,
+                    },
+            },
+            RuntimeResult::BackgroundProcessTermination {
+                thread_id,
+                process_id,
+                ..
+            },
+        ) => target == thread_id && target_process == process_id,
+        (
+            RuntimeOperation::BackgroundProcesses {
+                action: RuntimeBackgroundProcessAction::Clean,
+                ..
+            },
+            RuntimeResult::Done,
+        ) => true,
         (RuntimeOperation::Initialize, RuntimeResult::Initialized) => true,
         (RuntimeOperation::OpenThread { .. }, RuntimeResult::ThreadLoaded { thread_id, .. }) => {
             ctx.thread_id.is_none() && identifier(thread_id)
@@ -494,6 +557,17 @@ pub fn validate_runtime_reduction(
         .map(|turn| turn.thread_id.clone())
         .collect();
     for event in &reduction.events {
+        if let AgentRuntimeEvent::BackgroundProcesses {
+            thread_id,
+            processes,
+        } = event
+        {
+            if !owns_runtime_thread(ctx, thread_id) {
+                return Err(mismatch("background event targets an unowned thread"));
+            }
+            validate_background_processes(processes)?;
+            continue;
+        }
         if let AgentRuntimeEvent::AuthLogin { login } = event {
             if login.login_id.as_ref().is_some_and(|id| !identifier(id))
                 || login
@@ -595,7 +669,8 @@ pub fn validate_runtime_reduction(
             continue;
         }
         let thread = match event {
-            AgentRuntimeEvent::RateLimits { .. }
+            AgentRuntimeEvent::BackgroundProcesses { .. }
+            | AgentRuntimeEvent::RateLimits { .. }
             | AgentRuntimeEvent::Auth { .. }
             | AgentRuntimeEvent::AuthLogin { .. } => continue,
             AgentRuntimeEvent::ChatItem { thread_id, item } => {

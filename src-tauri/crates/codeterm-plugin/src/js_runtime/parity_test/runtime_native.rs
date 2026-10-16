@@ -67,6 +67,16 @@ impl AgentProvider for NativeRuntime {
     ) -> Result<RuntimePlan, RuntimeFailure> {
         validate_runtime_operation(ctx, op)?;
         let action = match op {
+            RuntimeOperation::BackgroundProcesses { thread_id, .. } => RuntimeAction::Request {
+                call: RpcCall {
+                    target: Some(RuntimeCallTarget {
+                        thread_id: thread_id.clone(),
+                        turn_id: None,
+                    }),
+                    method: op.kind().into(),
+                    params: json!(op),
+                },
+            },
             RuntimeOperation::AnswerQuestion { answers, .. } => RuntimeAction::QuestionAnswer {
                 input: TurnInput {
                     text: answers
@@ -128,6 +138,29 @@ impl AgentProvider for NativeRuntime {
             },
             RpcReply::Success { value } => {
                 let result = match op {
+                    RuntimeOperation::BackgroundProcesses {
+                        thread_id,
+                        action: RuntimeBackgroundProcessAction::List { .. },
+                    } => RuntimeResult::BackgroundProcesses {
+                        thread_id: thread_id.clone(),
+                        processes: serde_json::from_value(value["processes"].clone()).map_err(
+                            |error| {
+                                RuntimeFailure::new(
+                                    RuntimeFailureCode::InvalidSchema,
+                                    error.to_string(),
+                                )
+                            },
+                        )?,
+                        next_cursor: None,
+                    },
+                    RuntimeOperation::BackgroundProcesses {
+                        thread_id,
+                        action: RuntimeBackgroundProcessAction::Terminate { process_id },
+                    } => RuntimeResult::BackgroundProcessTermination {
+                        thread_id: thread_id.clone(),
+                        process_id: process_id.clone(),
+                        acknowledged: value["acknowledged"] == true,
+                    },
                     RuntimeOperation::Initialize => RuntimeResult::Initialized,
                     RuntimeOperation::OpenThread { settings, .. } => RuntimeResult::ThreadLoaded {
                         thread_id: value["threadId"]
