@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import type { Tab, Team, Workspace } from "../../lib/types";
 import { Circle, Clock3 } from "lucide-react";
 import { SidebarCronRow, SidebarResourceRow } from "./SidebarResourceRow";
+import { DropdownMenu } from "../shared/DropdownMenu";
+import { RowMenuButton } from "../shared/RowMenuButton";
 import { SidebarShellRow, type SidebarOwnerTabRowProps } from "./SidebarShellRow";
 import { persistTabRename } from "./SidebarPlanPeerPair";
 import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
@@ -79,7 +81,10 @@ export function GeneralInventorySections({ workspaces, teams, tabs, onNavigate, 
       {jobs.map((job) => <li key={`${job.kind}:${mergedJobId(job)}`}>
         {job.kind === "cron" ? <SidebarCronRow job={job.cron} tabs={tabs} onDeleted={onJobsChanged} />
           : <SidebarResourceRow name={job.title} state={jobStateLabel(job.state)} icon={<Clock3 size={11} aria-hidden="true" />}
-            accessibleName={`Open job ${job.title}`} onOpen={() => onOpenJob(job)} />}
+            accessibleName={`Open job ${job.title}`} onOpen={() => onOpenJob(job)}
+            actions={<DropdownMenu className="sidebar-team-cron-menu" menuLabel="Job actions"
+              items={[{ label: "System job cannot be changed", disabled: true, title: "System job cannot be changed" }]}
+              trigger={<RowMenuButton label={`Job actions for ${job.title}`} title="Job actions" />} />} />}
       </li>)}
       {resourceRows(remoteSchedules)}
     </InventoryGroup>
