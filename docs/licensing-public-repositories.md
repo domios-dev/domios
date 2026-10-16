@@ -2,6 +2,10 @@
 
 Effective date: 2026-10-16. No public changes were performed by this task.
 
+2026-10-16: All versions of this software, including every prior revision in this repository's history, are licensed solely under the PolyForm Shield License 1.0.0. No revision was ever distributed under the MIT License.
+
+Pending owner decision: packages/plugin-sdk and packages/chat-engine retain their pre-task ISC package licence fields. This exception must be resolved before publishing those packages under different terms.
+
 ## Observed public state
 
 GitHub API inventory on 2026-10-16:
@@ -16,22 +20,24 @@ The source repository rollacode/codeterm is private. Other public rollacode repo
 
 ## Exact proposed content
 
-For codeterm-releases, copy the newly committed root LICENSE byte for byte. It contains the official plain text from https://polyformproject.org/licenses/noncommercial/1.0.0.txt unchanged, followed by:
+For codeterm-releases, copy the newly committed root LICENSE and NOTICE byte for byte. It contains the official plain text from https://polyformproject.org/licenses/shield/1.0.0.txt unchanged, followed by:
 
 ```text
 Required Notice: Copyright (c) 2025 Andrey Kovalev
 ```
 
-Append this README paragraph:
+Append these README paragraphs:
 
 ```markdown
-Licensed under [PolyForm Noncommercial 1.0.0](LICENSE) from 2026-10-16. Required Notice: Copyright (c) 2025 Andrey Kovalev. Commercial rights are reserved by the copyright holder.
+Licensed under [PolyForm Shield 1.0.0](LICENSE) from 2026-10-16. Required Notice: Copyright (c) 2025 Andrey Kovalev.
+
+2026-10-16: All versions of this software, including every prior revision in this repository's history, are licensed solely under the PolyForm Shield License 1.0.0. No revision was ever distributed under the MIT License.
 ```
 
 Append this separate paragraph to each existing release description, preserving the existing body:
 
 ```text
-Licensed under PolyForm Noncommercial 1.0.0 from 2026-10-16
+Licensed under PolyForm Shield 1.0.0 from 2026-10-16
 ```
 
 ## Commands after the owner relays GO
@@ -42,23 +48,25 @@ Run from the integrated source checkout in PowerShell. These are proposed comman
 $sourceLicense = (Resolve-Path ./LICENSE).Path
 gh repo clone rollacode/codeterm-releases ../codeterm-releases-license
 Set-Location ../codeterm-releases-license
-git switch -c license/polyform-noncommercial
+git switch -c license/polyform-shield
 Copy-Item -LiteralPath $sourceLicense -Destination ./LICENSE
-$line = 'Licensed under [PolyForm Noncommercial 1.0.0](LICENSE) from 2026-10-16. Required Notice: Copyright (c) 2025 Andrey Kovalev. Commercial rights are reserved by the copyright holder.'
+Copy-Item -LiteralPath (Join-Path (Split-Path $sourceLicense) NOTICE) -Destination ./NOTICE
+$line = 'Licensed under [PolyForm Shield 1.0.0](LICENSE) from 2026-10-16. Required Notice: Copyright (c) 2025 Andrey Kovalev.'
+$notice = [IO.File]::ReadAllText((Join-Path (Get-Location) NOTICE)).Trim()
 $readme = [IO.File]::ReadAllText((Resolve-Path ./README.md))
-[IO.File]::WriteAllText((Join-Path (Get-Location) README.md), $readme.TrimEnd() + "`n`n" + $line + "`n")
+[IO.File]::WriteAllText((Join-Path (Get-Location) README.md), $readme.TrimEnd() + "`n`n" + $line + "`n`n" + $notice + "`n")
 git diff --check
 git diff
-git add LICENSE README.md
-git commit -m 'docs: declare PolyForm Noncommercial licensing'
-git push -u origin license/polyform-noncommercial
-gh pr create --repo rollacode/codeterm-releases --title 'docs: declare PolyForm Noncommercial licensing' --body-file ../codeterm-release-license-pr.md
+git add LICENSE NOTICE README.md
+git commit -m 'docs: declare PolyForm Shield licensing'
+git push -u origin license/polyform-shield
+gh pr create --repo rollacode/codeterm-releases --title 'docs: declare PolyForm Shield licensing' --body-file ../codeterm-release-license-pr.md
 ```
 
 Create `../codeterm-release-license-pr.md` containing:
 
 ```markdown
-Declare PolyForm Noncommercial 1.0.0 licensing from 2026-10-16 and include the copyright holder notice. Existing tags and release assets remain unchanged.
+Declare PolyForm Shield 1.0.0 licensing from 2026-10-16 and include the copyright holder notice. Existing tags and release assets remain unchanged.
 
 Validation: LICENSE matches the integrated source licence byte for byte; README links to LICENSE.
 ```
@@ -66,7 +74,7 @@ Validation: LICENSE matches the integrated source licence byte for byte; README 
 After the approved PR is merged, append notes without changing tags or assets:
 
 ```powershell
-$note = 'Licensed under PolyForm Noncommercial 1.0.0 from 2026-10-16'
+$note = 'Licensed under PolyForm Shield 1.0.0 from 2026-10-16'
 $pages = gh api --paginate --slurp repos/rollacode/codeterm-releases/releases | ConvertFrom-Json
 foreach ($page in $pages) {
   foreach ($release in $page) {

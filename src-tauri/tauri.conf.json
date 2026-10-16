@@ -29,7 +29,7 @@
   },
   "bundle": {
     "active": true,
-    "license": "PolyForm-Noncommercial-1.0.0",
+    "license": "PolyForm-Shield-1.0.0",
     "licenseFile": "../LICENSE",
     "copyright": "Copyright (c) 2025 Andrey Kovalev",
     "createUpdaterArtifacts": true,
@@ -50,6 +50,7 @@
     "resources": {
       "../dist": "dist",
       "../LICENSE": "LICENSE",
+      "../NOTICE": "NOTICE",
       "../skills": "skills",
       "bundled-cli/*": "cli/",
       "conpty/x64/*": "conpty/x64/",

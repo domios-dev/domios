@@ -55,7 +55,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "PolyForm-Shield-1.0.0",
   "packageManager": "pnpm@10.32.1",
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
