@@ -195,7 +195,7 @@ function TabDescriptionSubtitle({ description }: { description: string | null })
   return (
     <span
       data-testid="tab-description-subtitle"
-      className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]/80"
+      className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)] opacity-70"
     >
       {text}
     </span>
@@ -205,7 +205,7 @@ function TabDescriptionSubtitle({ description }: { description: string | null })
 function StartedByLine({ origin }: { origin: TabStartedBy }) {
   const open = origin.onOpen;
   return (
-    <span data-testid="tab-started-by" className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]/80">
+    <span data-testid="tab-started-by" className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)] opacity-70">
       started by{" "}
       {open ? (
         <span

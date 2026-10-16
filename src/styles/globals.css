@@ -2023,14 +2023,20 @@ button,
   }
 }
 
+.ct-sidebar-content {
+  scrollbar-gutter: stable both-edges;
+}
+
 .sidebar-team-unit {
+  --team-surface: color-mix(in srgb, var(--ct-bg) 98%, white);
+  --ct-bg-selected: color-mix(in srgb, var(--team-surface) 96%, white);
   position: relative;
   min-width: 0;
   margin: 4px 0;
   padding: 3px 0 0;
   overflow: visible;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--ct-fg) 3%, transparent);
+  background: var(--team-surface);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 4%, transparent);
   container-type: inline-size;
 }
@@ -2052,33 +2058,22 @@ button,
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 32px;
-  height: 6px;
+  width: 25.6px;
+  height: 8px;
   transform: translate(-50%, -50%);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: color-mix(in srgb, var(--ct-muted-fg) 38%, transparent);
+  transition: color 160ms ease;
 }
 
-.sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-glyph::after {
-  position: absolute;
-  top: 2px;
-  width: 17px;
-  height: 1px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ct-muted-fg) 38%, transparent);
-  content: "";
-  transition: transform 160ms ease, background 160ms ease;
+.sidebar-team-disclosure-glyph path {
+  d: path("M1 4 L13 4 L25 4");
+  transition: d 160ms ease;
 }
-
-.sidebar-team-disclosure-glyph::before {
-  right: calc(50% - 0.5px);
-  transform-origin: right center;
-}
-
-.sidebar-team-disclosure-glyph::after {
-  left: calc(50% - 0.5px);
-  transform-origin: left center;
-}
-
 .sidebar-team-disclosure-label,
 .sidebar-team-disclosure-count {
   position: absolute;
@@ -2107,25 +2102,23 @@ button,
 .sidebar-team-disclosure-bar:hover .sidebar-team-disclosure-count,
 .sidebar-team-disclosure-bar:focus-visible .sidebar-team-disclosure-count { opacity: 0; }
 
-.sidebar-team-disclosure-bar:hover .sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-bar:hover .sidebar-team-disclosure-glyph::after,
-.sidebar-team-disclosure-bar:focus-visible .sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-bar:focus-visible .sidebar-team-disclosure-glyph::after {
-  background: color-mix(in srgb, var(--ct-accent) 72%, var(--ct-muted-fg));
+.sidebar-team-disclosure-bar:hover .sidebar-team-disclosure-glyph,
+.sidebar-team-disclosure-bar:focus-visible .sidebar-team-disclosure-glyph {
+  color: var(--ct-muted-fg);
 }
 
-.sidebar-team-disclosure-bar[aria-expanded="true"]:hover .sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-bar[aria-expanded="true"]:focus-visible .sidebar-team-disclosure-glyph::before { transform: rotate(-8deg); }
+.sidebar-team-disclosure-bar[aria-expanded="true"]:is(:hover, :focus-visible) .sidebar-team-disclosure-glyph path {
+  d: path("M1 5 L13 2 L25 5");
+}
 
-.sidebar-team-disclosure-bar[aria-expanded="true"]:hover .sidebar-team-disclosure-glyph::after,
-.sidebar-team-disclosure-bar[aria-expanded="true"]:focus-visible .sidebar-team-disclosure-glyph::after { transform: rotate(8deg); }
+.sidebar-team-disclosure-bar[aria-expanded="false"]:is(:hover, :focus-visible) .sidebar-team-disclosure-glyph path {
+  d: path("M1 2 L13 5 L25 2");
+}
 
-.sidebar-team-disclosure-bar[aria-expanded="false"]:hover .sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-bar[aria-expanded="false"]:focus-visible .sidebar-team-disclosure-glyph::before { transform: rotate(8deg); }
-
-.sidebar-team-disclosure-bar[aria-expanded="false"]:hover .sidebar-team-disclosure-glyph::after,
-.sidebar-team-disclosure-bar[aria-expanded="false"]:focus-visible .sidebar-team-disclosure-glyph::after { transform: rotate(-8deg); }
-
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-team-disclosure-glyph,
+  .sidebar-team-disclosure-glyph path { transition: none; }
+}
 .sidebar-team-disclosure-bar:focus-visible {
   outline: 1px solid var(--ct-accent);
   outline-offset: -2px;
@@ -2146,7 +2139,7 @@ button,
 
 .sidebar-team-header-active:hover,
 .sidebar-team-header-active:focus-within {
-  background: var(--ct-hover);
+  background: color-mix(in srgb, var(--team-surface) 98%, white);
 }
 
 .sidebar-disclosure {
@@ -2234,6 +2227,7 @@ button,
 .sidebar-team-unit-activatable .sidebar-team-card-activation:hover,
 .sidebar-team-unit-activatable .sidebar-team-card-activation:focus-visible {
   background: var(--ct-hover);
+  opacity: 0.35;
 }
 
 .sidebar-disclosure:focus-visible {
@@ -2891,6 +2885,7 @@ button,
 
 .sidebar-team-member-list {
   min-width: 0;
+  padding-inline: 6px;
 }
 
 .sidebar-team-member .sidebar-tab,
