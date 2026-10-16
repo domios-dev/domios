@@ -16,6 +16,8 @@
 }
 
 .ct-user-bubble {
+  width: fit-content;
+  max-width: 100%;
   padding: var(--ct-bubble-pad-y) var(--ct-bubble-pad-x);
   border: 1px solid color-mix(in srgb, var(--ct-fg) 10%, transparent);
   border-radius: var(--ct-bubble-radius) var(--ct-bubble-radius) var(--ct-bubble-tail-radius) var(--ct-bubble-radius);

@@ -12,7 +12,7 @@ Optional `--target ID` selects one DEV page when several are open. The runner us
 
 See [SCENARIOS.md](SCENARIOS.md). Exit 0 means all four sizes passed. Missing prerequisites, protocol errors, widths or alignment outside a 2px tolerance fail. Each scenario also runs a negative control against a copied measurement to prove that the oracle rejects an uncapped row. No CSS-class or inline-style assertions are added to unit tests.
 
-The shared max is imported from `chatLayoutTokens.ts`; the in-page root font converts rem to pixels. Available width and center exclude transcript gutters and the scrollbar. User bubbles, assistant columns and transcript rows must fill that available width up to the token cap. Composer width must stay below the same cap.
+The shared max is imported from `chatLayoutTokens.ts`; the in-page root font converts rem to pixels. Available width and center exclude transcript gutters and the scrollbar. Assistant columns and transcript rows fill that available width up to the token cap. User bubbles size to their contents up to the frame width and start at its left edge. Composer width stays below the same cap.
 
 Surface selection requires exactly one visible, ready, non-busy Chat. Retained surfaces under hidden, inert, aria-hidden, display:none, invisible or transparent ancestors are excluded even when their rectangles have dimensions. Composer measurements are scoped to that Chat, and JSON records its tab ID. The pure `chatGeometrySurface.test.ts` covers a retained hidden surface preceding the selected surface, readiness, busy state and ambiguity.
 

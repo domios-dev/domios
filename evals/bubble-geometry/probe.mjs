@@ -111,9 +111,14 @@ function check(sample, width) {
   assert(sample.rows.length && sample.bubbles.length && sample.assistants.length && sample.composers.length,
     "loaded transcript must include rows, user bubbles, assistant text and composer");
   if (width >= 1440) assert(sample.available.width > max, "wide scenario must exercise the max width");
-  for (const box of [...sample.rows, ...sample.bubbles, ...sample.assistants]) {
+  for (const box of [...sample.rows, ...sample.assistants]) {
     assert(Math.abs(box.width - expected) <= 2, `width ${box.width} differs from readable width ${expected}`);
     assert(Math.abs(box.center - sample.available.center) <= 2, `off-center by ${box.center - sample.available.center}px`);
+  }
+  const messageLeft = sample.available.center - expected / 2;
+  for (const box of sample.bubbles) {
+    assert(box.width > 0 && box.width <= expected + 2, "user bubble exceeds its message frame");
+    assert(Math.abs(box.left - messageLeft) <= 2, "user bubble must start at the message frame edge");
   }
   for (const box of sample.composers) assert(box.width <= max + 2, "composer exceeds shared readable width");
 }
@@ -129,8 +134,8 @@ try {
     regressed.rows[0].width = sample.available.width + 100;
     assert.throws(() => check(regressed, width), "oracle must reject an uncapped row");
     const displaced = structuredClone(sample);
-    displaced.bubbles[0].center += 20;
-    assert.throws(() => check(displaced, width), "oracle must reject an off-center bubble");
+    displaced.bubbles[0].left += 20;
+    assert.throws(() => check(displaced, width), "oracle must reject a displaced bubble");
     console.log(`PASS ${width}: geometry and negative control`);
   }
 } finally {
