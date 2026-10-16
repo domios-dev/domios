@@ -4,6 +4,51 @@ use codeterm_service_core::pty::manager::OutputBuffer;
 use codeterm_service_core::service::test_fixture::ServiceFixture;
 use std::sync::Arc;
 
+#[test]
+fn replay_completion_waits_for_the_last_chunk_and_identifies_an_empty_pty_once() {
+    let mut completed = false;
+    assert!(output_replay_complete_frame("tab", "pty", "boot", 0, true, &mut completed).is_none());
+    let held = plan_emit(0, &[0xe2], 1, PER_TAB_SWEEP_CAP);
+    assert!(output_replay_complete_frame(
+        "tab",
+        "pty",
+        "boot",
+        held.new_offset,
+        held.has_more || held.new_offset < 1,
+        &mut completed
+    )
+    .is_none());
+    assert!(!completed);
+    assert_eq!(
+        output_replay_complete_frame("tab", "pty", "boot", 0, false, &mut completed),
+        Some(serde_json::json!({
+            "tab_id": "tab", "pty_id": "pty", "boot": "boot",
+            "offset": 0, "replay_complete": true
+        }))
+    );
+    assert!(output_replay_complete_frame("tab", "pty", "boot", 1, false, &mut completed).is_none());
+}
+
+#[test]
+fn silent_pty_sweep_emits_replay_completion_without_output_once() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-quiet".into());
+    let fixture = ServiceFixture::new(mux);
+    let service = Arc::new(fixture.service.clone());
+    let mut tracked = HashMap::new();
+    let dirty = HashSet::from(["pty-quiet".to_string()]);
+    let (frames, _, _) = sweep(&service, &mut tracked, None, &dirty, false);
+    assert_eq!(
+        frames,
+        vec![serde_json::json!({
+            "tab_id": tab_id, "pty_id": "pty-quiet", "boot": service.events.boot_id(),
+            "offset": 0, "replay_complete": true
+        })]
+    );
+    let (frames, _, _) = sweep(&service, &mut tracked, None, &dirty, false);
+    assert!(frames.is_empty());
+}
+
 // ── cursor wire form ──
 
 #[test]
@@ -401,6 +446,7 @@ fn replacement_pty_output_before_mux_event_starts_at_zero() {
             pty_id: "pty-old".into(),
             offset: 7,
             ended: false,
+            replay_complete: false,
         },
     )]);
     let dirty = HashSet::from(["pty-new".to_string()]);

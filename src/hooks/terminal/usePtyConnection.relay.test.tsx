@@ -79,6 +79,16 @@ test("mounted bare relay terminals open one composite stream each despite the lo
       assert.equal(urls[0].searchParams.has("since"), false);
       assert.equal(ready.get(tabId), false);
     }
+    const emptyTab = tabIds[0];
+    await act(async () => controllers.get(emptyTab)!.enqueue(new TextEncoder().encode(
+      `data: ${JSON.stringify({ tab_id: emptyTab, pty_id: `pty-${emptyTab}`, boot: "boot", offset: 0, replay_complete: true })}\n\n`,
+    )));
+    assert.equal(frameReady.get(emptyTab), `pty-${emptyTab}`);
+    assert.equal(ready.get(emptyTab), true);
+    await act(async () => controllers.get(emptyTab)!.enqueue(new TextEncoder().encode(
+      `data: ${JSON.stringify({ tab_id: emptyTab, pty_id: "foreign-pty", boot: "boot", offset: 99, b64: "WA" })}\n\n`,
+    )));
+    assert.deepEqual(writes.get(emptyTab), []);
     for (const [text, offset] of [["history", 7], ["live", 11]] as const) {
       await act(async () => {
         for (const tabId of tabIds) controllers.get(tabId)!.enqueue(new TextEncoder().encode(
@@ -86,7 +96,7 @@ test("mounted bare relay terminals open one composite stream each despite the lo
         ));
       });
       for (const tabId of tabIds) {
-        if (text === "history") assert.equal(frameReady.has(tabId), false);
+        if (text === "history" && tabId !== emptyTab) assert.equal(frameReady.has(tabId), false);
         parsed.get(tabId)!();
         assert.equal(frameReady.get(tabId), `pty-${tabId}`);
       }
