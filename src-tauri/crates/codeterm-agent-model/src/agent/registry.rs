@@ -242,9 +242,19 @@ impl AgentRegistry {
     /// Detect agent provider from PTY output.
     /// Returns the provider id if found.
     pub fn detect_from_output(&self, text: &str) -> Option<String> {
+        self.detect_from_output_for(None, text)
+    }
+
+    pub fn detect_from_output_for(&self, agent_type: Option<&str>, text: &str) -> Option<String> {
         let guard = self.providers.read();
+        if let Some(provider) = agent_type.and_then(|id| guard.get(id)) {
+            if provider.detect_from_output(text) {
+                return Some(provider.id().to_string());
+            }
+        }
         guard
             .values()
+            .filter(|p| Some(p.id()) != agent_type)
             .find(|p| p.detect_from_output(text))
             .map(|p| p.id().to_string())
     }
@@ -390,6 +400,7 @@ impl Default for AgentRegistry {
 
 #[cfg(test)]
 mod tests {
+    mod output_detection;
     use super::*;
     use crate::plugin::agent_claude::ClaudeProvider;
 

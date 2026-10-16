@@ -578,6 +578,13 @@ impl ServiceContext {
         if tab_id.is_empty() || agent_id.is_empty() {
             return;
         }
+        if !self
+            .agent_registry
+            .with_provider(agent_id, |p| p.supports_session_name_detection())
+            .unwrap_or(false)
+        {
+            return;
+        }
         let svc = self.clone();
         let tab_id = tab_id.to_string();
         let agent_id = agent_id.to_string();

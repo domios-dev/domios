@@ -55,6 +55,9 @@ it("reads the 410 from a real SQLite own session, advances on message updates, a
       envGet: (key: string) => key === "OPENCODE_DB" ? join(dir, "opencode.db") : null,
       expandHome: (value: string) => value,
       exec: () => JSON.stringify({ code: 0, stdout: 'opencode/exo-free\n{"name":"Exo"}\nopencode/good\n{"name":"Good"}' }),
+      execStart: () => JSON.stringify({ jobId: "discovery" }),
+      awaitJob: (_id: string, then: (result: unknown) => unknown) => then({ code: 0, stdout: 'opencode/exo-free\n{"name":"Exo"}\nopencode/good\n{"name":"Good"}' }),
+      unixNowMs: () => 1_000_000,
       fs: { fileExists: () => true, sqliteQuery: (_path: string, sql: string, params: Array<string | number>) => queryLikeHost(db, sql, params) },
     } });
     const delta = plugin.readStructuredChat("/work", "ses_own", '[20,[]]') as {

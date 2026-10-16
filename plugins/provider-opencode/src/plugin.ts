@@ -183,8 +183,8 @@ const plugin: PluginModule = {
     return events;
   },
 
-  discoverModels(): ModelInfo[] | null {
-    return discoverOpencodeModels();
+  discoverModels(binaryFingerprint?: string | null): ModelInfo[] | null {
+    return discoverOpencodeModels(binaryFingerprint);
   },
 
   // Cumulative usage per upstream company comes from OpenCode's session store.
