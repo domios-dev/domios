@@ -1561,10 +1561,10 @@ function runtimeStoredHistory(sessionId, records) {
   const rows = /* @__PURE__ */ new Map();
   for (const line of records.split("\n")) {
     if (!line.trim()) continue;
-    const record5 = object(JSON.parse(line));
-    const payload = object(record5.payload);
-    if (record5.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
-    if (record5.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
+    const record6 = object(JSON.parse(line));
+    const payload = object(record6.payload);
+    if (record6.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
+    if (record6.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
     const turn = text(payload.turn_id);
     if (!turn || !text(object(payload.item).id)) throw new Error("Stored runtime item identity missing");
     const projected = projectHistoryItem(recordedItem(payload.item), rows.size, turn, payload.started_at_ms ?? payload.completed_at_ms);
@@ -2622,12 +2622,12 @@ function collectHistoryItems(op, state, turn, entries) {
   let questions = list(state.questions);
   let bytes = serializedBytes({ items, openItems, questions });
   for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
-    const record5 = object(entries[index]);
-    const rawItem = historyItem(record5.item ?? record5);
+    const record6 = object(entries[index]);
+    const rawItem = historyItem(record6.item ?? record6);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
-    const timestamp = record5.startedAtMs ?? record5.completedAtMs;
+    const timestamp = record6.startedAtMs ?? record6.completedAtMs;
     const rows = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp);
-    const active = turn.status === "inProgress" && turn.startedAt != null && record5.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
+    const active = turn.status === "inProgress" && turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
     const opened = active ? rows.map((item) => ({ turnId: String(turn.id), item })) : [];
     const rowBytes = serializedBytes(rows) + serializedBytes(opened) + serializedBytes(nextQuestions);
     if (bytes + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
@@ -2710,7 +2710,7 @@ function statusCode2(value) {
   if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
   return null;
 }
-function classifyAccessError(error, record5) {
+function classifyAccessError(error, record6) {
   const detail = object2(error);
   const info = detail?.codexErrorInfo;
   const infoObject = object2(info);
@@ -2725,11 +2725,11 @@ function classifyAccessError(error, record5) {
     typeof info === "string" ? info : null,
     ...Object.keys(infoObject ?? {}),
     ...Object.values(infoObject ?? {}).map((value) => object2(value)?.httpStatusCode),
-    record5.status,
-    record5.statusCode,
-    record5.status_code,
-    record5.apiErrorStatus,
-    record5.apiErrorCode
+    record6.status,
+    record6.statusCode,
+    record6.status_code,
+    record6.apiErrorStatus,
+    record6.apiErrorCode
   ];
   const named = (codes) => fields.some((value) => typeof value === "string" && codes.includes(value));
   const prefixed = (prefix) => fields.some((value) => typeof value === "string" && value.startsWith(prefix));
@@ -2753,15 +2753,15 @@ function readRetry(value) {
   }
   return null;
 }
-function retryAfterSecs(error, record5) {
-  return readRetry(object2(error)) ?? readRetry(record5);
+function retryAfterSecs(error, record6) {
+  return readRetry(object2(error)) ?? readRetry(record6);
 }
-function observationTurnId(record5) {
+function observationTurnId(record6) {
   for (const key of ["uuid", "turn_id", "turnId", "requestId"]) {
-    const value = record5[key];
+    const value = record6[key];
     if (typeof value === "string" && value) return value;
   }
-  const payload = object2(record5.payload);
+  const payload = object2(record6.payload);
   if (!payload) return null;
   for (const key of ["turn_id", "turnId", "uuid", "requestId"]) {
     const value = payload[key];
@@ -2769,32 +2769,32 @@ function observationTurnId(record5) {
   }
   return null;
 }
-function observationRetrying(error, record5) {
-  return record5.willRetry === true || object2(error)?.willRetry === true;
+function observationRetrying(error, record6) {
+  return record6.willRetry === true || object2(error)?.willRetry === true;
 }
-function observationExtras(error, record5) {
+function observationExtras(error, record6) {
   const extras = {};
-  const retry = retryAfterSecs(error, record5);
+  const retry = retryAfterSecs(error, record6);
   if (retry != null) extras.retry_after_secs = retry;
-  const turn = observationTurnId(record5);
+  const turn = observationTurnId(record6);
   if (turn) extras.turn_id = turn;
-  if (observationRetrying(error, record5)) extras.retrying = true;
+  if (observationRetrying(error, record6)) extras.retrying = true;
   return extras;
 }
 
 // plugins/provider-codex/src/signals.ts
 function parseSessionObservations(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record5 = value;
-  if (record5.type !== "event_msg" || !record5.payload || typeof record5.payload !== "object" || Array.isArray(record5.payload)) return null;
-  const payload = record5.payload;
+  const record6 = value;
+  if (record6.type !== "event_msg" || !record6.payload || typeof record6.payload !== "object" || Array.isArray(record6.payload)) return null;
+  const payload = record6.payload;
   if (payload.type === "error") {
     const error = payload.error ?? payload;
     return {
       api_error: classifyAccessError(error, payload),
       permission_mode: null,
       clears_api_error: false,
-      ...observationExtras(error, record5)
+      ...observationExtras(error, record6)
     };
   }
   if (payload.type === "task_complete") return { api_error: null, permission_mode: null, clears_api_error: true };
@@ -3349,6 +3349,94 @@ function codexParseWeeklyResets(raw, nowMs) {
   return cand.getTime();
 }
 
+// plugins/provider-shared/updateCheck.ts
+function record4(raw) {
+  if (raw !== null && typeof raw === "object") return raw;
+  if (typeof raw !== "string") return null;
+  try {
+    const value = JSON.parse(raw);
+    return value !== null && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+function versionParts(version) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) return null;
+  const parts = version.split(".").map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+function compare(left, right) {
+  const a = versionParts(left), b = versionParts(right);
+  if (!a || !b) return null;
+  for (let index = 0; index < 3; index++) {
+    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
+  }
+  return 0;
+}
+function matchesRange(version, range) {
+  return range.split(",").every((clause) => {
+    const match = clause.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
+    if (!match) return false;
+    const order = compare(version, match[2]);
+    if (order === null) return false;
+    switch (match[1] ?? "=") {
+      case ">=":
+        return order >= 0;
+      case "<=":
+        return order <= 0;
+      case ">":
+        return order > 0;
+      case "<":
+        return order < 0;
+      default:
+        return order === 0;
+    }
+  });
+}
+function newestSupportedVersion(versions, compatibility) {
+  return versions.reduce((best, version) => {
+    if (!versionParts(version) || !compatibility.supported.some((range) => matchesRange(version, range)) || compatibility.breaking?.some((rule) => matchesRange(version, rule.range))) return best;
+    return best === null || compare(version, best) === 1 ? version : best;
+  }, null);
+}
+function installedVersion(result) {
+  const installed = record4(result);
+  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
+  const version = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
+  return version && versionParts(version) ? version : null;
+}
+function availableUpdate(currentVersion, result, compatibility) {
+  const response = record4(result);
+  if (response?.status !== 200) return null;
+  const metadata = record4(response.body);
+  let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
+  if (compatibility) {
+    if (!metadata?.versions || typeof metadata.versions !== "object") return null;
+    latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
+  }
+  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : null;
+}
+function startedJob(raw) {
+  const job = record4(raw)?.jobId;
+  return typeof job === "string" && job !== "" ? job : null;
+}
+function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
+  const probe = startedJob(host2.execStart(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
+  if (!probe) return null;
+  return host2.awaitJob(probe, (installed) => {
+    const currentVersion = parseInstalled(installed);
+    if (!currentVersion) return null;
+    const metadata = startedJob(host2.fetchStart(JSON.stringify({
+      url: metadataUrl,
+      method: "GET",
+      timeoutMs: 6e3,
+      headers: { Accept: "application/vnd.npm.install-v1+json" }
+    })));
+    if (!metadata) return null;
+    return host2.awaitJob(metadata, (response) => availableUpdate(currentVersion, response, compatibility));
+  });
+}
+
 // plugins/provider-codex/src/update.ts
 function parseVersion(value) {
   if (typeof value !== "string") return null;
@@ -3356,16 +3444,8 @@ function parseVersion(value) {
   if (!match) return null;
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
-function updateAvailable(current, latest) {
-  const installed = parseVersion(current);
-  const offered = parseVersion(latest);
-  if (!installed || !offered) return false;
-  for (let i = 0; i < 3; i += 1) {
-    if (offered[i] !== installed[i]) return offered[i] > installed[i];
-  }
-  return false;
-}
-function record4(value) {
+function record5(value) {
+  if (value !== null && typeof value === "object") return value;
   if (typeof value !== "string") return null;
   try {
     const parsed = JSON.parse(value);
@@ -3374,24 +3454,20 @@ function record4(value) {
     return null;
   }
 }
-function checkCodexUpdate(host2) {
-  const installed = record4(host2.exec(JSON.stringify({
-    bin: "codex",
-    args: ["--version"],
-    timeoutMs: 5e3
-  })));
+function installedCodexVersion(result) {
+  const installed = record5(result);
   if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
   const current = installed.stdout.match(/\d+\.\d+\.\d+/)?.[0];
-  if (!current) return null;
-  const response = record4(host2.fetch(JSON.stringify({
-    url: "https://registry.npmjs.org/@openai%2Fcodex/latest",
-    method: "GET",
-    timeoutMs: 6e3
-  })));
-  if (response?.status !== 200 || typeof response.body !== "string") return null;
-  const metadata = record4(response.body);
-  const latest = metadata?.version;
-  return updateAvailable(current, latest) && typeof latest === "string" ? { currentVersion: current, latestVersion: latest } : null;
+  return current && parseVersion(current) ? current : null;
+}
+function checkCodexUpdate(host2) {
+  return checkProviderUpdate(
+    host2,
+    "codex",
+    "https://registry.npmjs.org/@openai%2Fcodex/latest",
+    void 0,
+    installedCodexVersion
+  );
 }
 
 // plugins/provider-codex/src/patchEdits.ts

@@ -1,6 +1,7 @@
 export interface UpdateHost {
-  exec: (opts: string) => string;
-  fetch: (opts: string) => string;
+  execStart: (opts: string) => string;
+  fetchStart: (opts: string) => string;
+  awaitJob: <T>(jobId: string, then: (result: unknown) => T) => T;
 }
 
 export interface CliCompatibility {
@@ -14,6 +15,7 @@ export interface UpdateAvailability {
 }
 
 function record(raw: unknown): Record<string, unknown> | null {
+  if (raw !== null && typeof raw === "object") return raw as Record<string, unknown>;
   if (typeof raw !== "string") return null;
   try {
     const value: unknown = JSON.parse(raw);
@@ -61,19 +63,19 @@ export function newestSupportedVersion(versions: string[], compatibility: CliCom
   }, null);
 }
 
-export function checkProviderUpdate(
-  host: UpdateHost,
-  binary: string,
-  metadataUrl: string,
+export function installedVersion(result: unknown): string | null {
+  const installed = record(result);
+  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
+  const version = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
+  return version && versionParts(version) ? version : null;
+}
+
+export function availableUpdate(
+  currentVersion: string,
+  result: unknown,
   compatibility?: CliCompatibility,
 ): UpdateAvailability | null {
-  const installed = record(host.exec(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5000 })));
-  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
-  const currentVersion = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
-  if (!currentVersion || !versionParts(currentVersion)) return null;
-  const response = record(host.fetch(JSON.stringify({ url: metadataUrl, method: "GET", timeoutMs: 6000,
-    headers: { Accept: "application/vnd.npm.install-v1+json" },
-  })));
+  const response = record(result);
   if (response?.status !== 200) return null;
   const metadata = record(response.body);
   let latestVersion: string | null = typeof metadata?.version === "string" ? metadata.version : null;
@@ -83,4 +85,30 @@ export function checkProviderUpdate(
   }
   return latestVersion && compare(latestVersion, currentVersion) === 1
     ? { currentVersion, latestVersion } : null;
+}
+
+function startedJob(raw: string): string | null {
+  const job = record(raw)?.jobId;
+  return typeof job === "string" && job !== "" ? job : null;
+}
+
+// Each probe yields the plugin VM through awaitJob, so the VM is held only to start a job and read its answer.
+export function checkProviderUpdate(
+  host: UpdateHost,
+  binary: string,
+  metadataUrl: string,
+  compatibility?: CliCompatibility,
+  parseInstalled: (result: unknown) => string | null = installedVersion,
+): UpdateAvailability | null {
+  const probe = startedJob(host.execStart(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5000 })));
+  if (!probe) return null;
+  return host.awaitJob(probe, installed => {
+    const currentVersion = parseInstalled(installed);
+    if (!currentVersion) return null;
+    const metadata = startedJob(host.fetchStart(JSON.stringify({ url: metadataUrl, method: "GET", timeoutMs: 6000,
+      headers: { Accept: "application/vnd.npm.install-v1+json" },
+    })));
+    if (!metadata) return null;
+    return host.awaitJob(metadata, response => availableUpdate(currentVersion, response, compatibility));
+  });
 }
