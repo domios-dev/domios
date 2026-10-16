@@ -70,12 +70,14 @@ export function useChatAttachment(
   }, [stop]);
 
   const discardForeign = useCallback((subscriptionId: string | null | undefined) => {
-    if (subscriptionId && subscriptionId !== adoptedIdRef.current) stop(subscriptionId);
+    if (subscriptionId && subscriptionId !== adoptedIdRef.current
+      && subscriptionId !== requestedIdRef.current) stop(subscriptionId);
   }, [stop]);
 
   const release = useCallback(() => {
     const subscriptionId = adoptedIdRef.current;
     adoptedIdRef.current = null;
+    requestedIdRef.current = null;
     if (subscriptionId) stop(subscriptionId);
   }, [stop]);
 
