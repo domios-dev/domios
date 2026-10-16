@@ -62,7 +62,6 @@ pub struct RestoreReport {
     pub unobserved: u32,
     /// False while any pane is unobserved; such a report belongs to this boot
     /// but is not its verdict yet.
-    #[serde(default)]
     pub finalized: bool,
     /// How the previous epoch ended, when the recovery record knows: a clean
     /// shutdown reason, a crash classification, or nothing. Restore attributing
