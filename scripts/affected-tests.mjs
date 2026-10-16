@@ -240,11 +240,18 @@ function vitestFiles(repoRoot, files) {
 }
 
 function pluginCommands(files) {
+  const pluginFiles = files.filter((file) => file.startsWith("plugins/"));
   const directories = [...new Set(files
-    .filter((file) => file.startsWith("plugins/"))
+    .filter((file) => /^plugins\/[^/]+\/.+/.test(file))
     .map((file) => file.split("/")[1])
     .filter(Boolean))].sort();
   const commands = [];
+  if (pluginFiles.some((file) => /^plugins\/[^/]+$/.test(file))) {
+    commands.push({
+      command: "node scripts/release-plugin.mjs check",
+      reason: "plugin root metadata changed",
+    });
+  }
   const providerSuites = ["provider-claude", "provider-codex", "provider-opencode", "provider-cursor"];
   for (const provider of directories) {
     if (provider === "analytics") continue;
