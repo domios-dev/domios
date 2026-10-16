@@ -15,17 +15,62 @@ pub struct Process {
     pub client: Client,
     pub ended: watch::Receiver<Option<RuntimeFailure>>,
     stop: watch::Sender<bool>,
+    boundary: Option<Arc<super::process_boundary::Boundary>>,
 }
 impl Process {
     #[cfg(test)]
     pub(super) fn for_test(client: Client) -> Self {
-        let (stop, _) = watch::channel(false);
-        let ended = client.ended();
+        let (stop, mut stopping) = watch::channel(false);
+        let (ended, exit) = watch::channel(None);
+        let dying = client.clone();
+        crate::async_runtime::spawn(async move {
+            let _ = stopping.changed().await;
+            let reason = RuntimeFailure::ProcessExited {
+                code: Some(0),
+                signal: None,
+                stderr: String::new(),
+                requested: true,
+            };
+            dying.close(reason.clone());
+            ended.send_replace(Some(reason));
+        });
         Self {
             client,
-            ended,
+            ended: exit,
             stop,
+            boundary: None,
         }
+    }
+
+    pub(super) async fn observe(
+        &self,
+    ) -> Result<Vec<super::process_boundary::Member>, RuntimeFailure> {
+        let Some(boundary) = self.boundary.clone() else {
+            return Ok(Vec::new());
+        };
+        tokio::task::spawn_blocking(move || boundary.observe())
+            .await
+            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    }
+
+    pub(super) async fn verify_interrupt(
+        &self,
+        captured: Vec<super::process_boundary::Member>,
+        roster: Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>,
+    ) -> Result<(), RuntimeFailure> {
+        let Some(boundary) = self.boundary.clone() else {
+            return Ok(());
+        };
+        tokio::task::spawn_blocking(move || boundary.verify_interrupt(captured, &roster))
+            .await
+            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    }
+
+    pub(super) fn terminated(&self) -> bool {
+        matches!(
+            *self.ended.borrow(),
+            Some(RuntimeFailure::ProcessExited { .. })
+        )
     }
 
     pub fn stop(&self) {
@@ -34,11 +79,15 @@ impl Process {
     pub async fn finish(&self) -> Result<(), RuntimeFailure> {
         self.stop();
         let mut ended = self.ended.clone();
-        tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::time::timeout(Duration::from_secs(10), async {
             while ended.borrow_and_update().is_none() {
                 ended.changed().await.map_err(|_| RuntimeFailure::PipeEof)?;
             }
-            Ok(())
+            match ended.borrow().clone() {
+                Some(RuntimeFailure::ProcessExited { .. }) => Ok(()),
+                Some(reason) => Err(reason),
+                None => Err(RuntimeFailure::PipeEof),
+            }
         })
         .await
         .map_err(|_| RuntimeFailure::Deadline)?
@@ -134,8 +183,15 @@ pub fn spawn(
         reason: "Process id unavailable".into(),
     })?;
     #[cfg(windows)]
-    let job = crate::service::windows_job::Job::attach(&child)
-        .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
+    let job = Arc::new(
+        crate::service::windows_job::Job::attach(&child)
+            .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?,
+    );
+    let boundary = Arc::new(super::process_boundary::Boundary::new(
+        pid,
+        #[cfg(windows)]
+        job.clone(),
+    )?);
     let writer = child.stdin.take().ok_or(RuntimeFailure::PipeEof)?;
     let reader = child.stdout.take().ok_or(RuntimeFailure::PipeEof)?;
     let mut stderr = child.stderr.take().ok_or(RuntimeFailure::PipeEof)?;
@@ -170,46 +226,52 @@ pub fn spawn(
             }
         }
     });
+    let retiring = boundary.clone();
     crate::async_runtime::spawn(async move {
         #[cfg(unix)]
-        let status = {
-            let terminate = tokio::select! {_ = stopping.changed()=>true,result=&mut witnessed=>matches!(result,Ok(Ok(())))};
-            if terminate {
-                unsafe {
-                    libc::kill(-(pid as i32), libc::SIGKILL);
-                }
-                child.wait().await
-            } else {
-                tokio::select! {_ = stopping.changed()=>{unsafe{libc::kill(-(pid as i32),libc::SIGKILL);}child.wait().await},status=child.wait()=>status}
-            }
+        let retirement = {
+            tokio::select! {_=stopping.changed()=>{},_=&mut witnessed=>{}}
+            let owned = retiring.clone();
+            tokio::task::spawn_blocking(move || owned.retire()).await
         };
         #[cfg(windows)]
-        let status = tokio::select! {_ = stopping.changed()=>{job.terminate();let _=child.kill().await;child.wait().await},status=child.wait()=>status};
-        #[cfg(windows)]
-        drop(job);
+        let retirement = {
+            tokio::select! {_=stopping.changed()=>{},_=child.wait()=>{}}
+            let owned = retiring.clone();
+            tokio::task::spawn_blocking(move || owned.retire()).await
+        };
+        let _ = retiring.force_terminate();
+        let status = child.wait().await;
         #[cfg(unix)]
         drop(lease);
+        let retirement = retirement
+            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))
+            .and_then(|result| result);
         let _ = tokio::time::timeout(Duration::from_secs(1), stderr_reader).await;
-        let end = match status {
-            Ok(status) => {
-                #[cfg(unix)]
-                let signal = {
-                    use std::os::unix::process::ExitStatusExt;
-                    status.signal()
-                };
-                #[cfg(not(unix))]
-                let signal = None;
-                RuntimeFailure::ProcessExited {
-                    code: status.code(),
-                    signal,
-                    stderr: String::from_utf8_lossy(&output.lock()).into_owned(),
-                    requested: *stopping.borrow(),
+        let end = if let Err(reason) = retirement {
+            reason
+        } else {
+            match status {
+                Ok(status) => {
+                    #[cfg(unix)]
+                    let signal = {
+                        use std::os::unix::process::ExitStatusExt;
+                        status.signal()
+                    };
+                    #[cfg(not(unix))]
+                    let signal = None;
+                    RuntimeFailure::ProcessExited {
+                        code: status.code(),
+                        signal,
+                        stderr: String::from_utf8_lossy(&output.lock()).into_owned(),
+                        requested: *stopping.borrow(),
+                    }
                 }
+                Err(error) => RuntimeFailure::PipeFailure {
+                    stream: "process".into(),
+                    reason: error.to_string(),
+                },
             }
-            Err(error) => RuntimeFailure::PipeFailure {
-                stream: "process".into(),
-                reason: error.to_string(),
-            },
         };
         log::debug!("[agent-runtime] tab={process_tab} pid={pid} end={end:?}");
         dying.close(end.clone());
@@ -219,6 +281,7 @@ pub fn spawn(
         client,
         ended: exit,
         stop,
+        boundary: Some(boundary),
     })
 }
 fn effective_env(command: &std::process::Command) -> HashMap<String, String> {

@@ -1,5 +1,6 @@
 mod abort_provenance;
 pub(crate) mod authority;
+mod background;
 pub(crate) mod blocking;
 mod bootstrap;
 pub(crate) mod capture;
@@ -19,6 +20,7 @@ pub mod model;
 mod ownership;
 pub(crate) mod plan_warning;
 pub(crate) mod process;
+mod process_boundary;
 mod process_slot;
 pub(crate) mod projections;
 pub mod reset_credits;

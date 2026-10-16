@@ -600,7 +600,7 @@ impl ServiceContext {
                 tab.agent_type.as_deref() == Some(plugin_id)
                     && tab.agent_session_id.as_deref() == Some(session_id)
             }) {
-                super::agent_runtime::engine::stop(&tab.id);
+                super::agent_runtime::engine::stop(self, &tab.id)?;
             }
             return Ok(());
         }

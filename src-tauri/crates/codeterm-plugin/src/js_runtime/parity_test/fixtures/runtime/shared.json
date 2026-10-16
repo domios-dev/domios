@@ -858,6 +858,70 @@
           "kind": "done"
         }
       }
+    },
+    {
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "child",
+        "action": {
+          "kind": "list",
+          "cursor": null
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "root",
+        "activeTurns": [],
+        "threadParents": [
+          {
+            "threadId": "child",
+            "parentThreadId": "root"
+          }
+        ]
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "processes": [],
+          "nextCursor": "next-page"
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "backgroundProcesses",
+            "params": {
+              "kind": "backgroundProcesses",
+              "threadId": "child",
+              "action": {
+                "kind": "list",
+                "cursor": null
+              }
+            },
+            "target": {
+              "threadId": "child"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "backgroundProcesses",
+          "threadId": "child",
+          "processes": [],
+          "nextCursor": "next-page"
+        }
+      }
     }
   ],
   "reductions": [

@@ -94,6 +94,27 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             }
         }
         if session.context.lock().epoch == epoch {
+            let permit = session.gate.try_acquire().ok();
+            let cleanup = super::background::cleanup(
+                &svc,
+                &session,
+                &process,
+                super::background::Mode::Shutdown,
+                Vec::new(),
+                permit.is_some(),
+            )
+            .await;
+            if session.context.lock().epoch != epoch {
+                return;
+            }
+            if let Err(reason) = cleanup {
+                session.state.lock().degrade(epoch, &reason);
+                let tab = session.context.lock().tab_id.clone();
+                engine::publish(&svc, &tab, &session);
+                svc.emit_state_changed();
+                log::error!("[agent-runtime] tab={tab} owned process cleanup failed: {reason}");
+                return;
+            }
             let reason = exited
                 .borrow()
                 .clone()
@@ -137,7 +158,6 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                     .runtime_process_exited(&owner, &ending, detail);
             })
             .await;
-            process.stop();
         }
     });
 }

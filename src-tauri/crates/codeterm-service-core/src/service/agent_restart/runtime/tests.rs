@@ -54,7 +54,7 @@ impl std::ops::Deref for RuntimeFixture {
 }
 impl Drop for RuntimeFixture {
     fn drop(&mut self) {
-        agent_runtime::engine::stop(&self.tab);
+        agent_runtime::engine::stop(&self.fixture.service, &self.tab).unwrap();
         crate::service::session_persist::stop_worker(&self.fixture.service).unwrap();
     }
 }
