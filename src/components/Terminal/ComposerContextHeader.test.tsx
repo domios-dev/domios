@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import type { CronJob } from "../../lib/types";
+import type { CronJob, ProviderDescriptor } from "../../lib/types";
+import { setAgentDescriptors } from "../../lib/agentDescriptorCache";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import type { DelayedMessage } from "./delayedSend";
 import type { ExtendedState } from "../../store/multiplexer/tree";
@@ -36,10 +37,18 @@ async function main() {
     import("../../store/multiplexer/selectorStore"),
   ]);
   const state = {
-    workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+    workspaces: [], tabs: {
+      "tab-a": { agent_type: "codex" }, "tab-b": { agent_type: "codex" }, "claude-tab": { agent_type: "claude" },
+    }, teams: [], active_workspace_id: null, focused_tab_id: null,
     notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
   } as unknown as ExtendedState;
   const store = createMuxStateStore(() => state);
+  setAgentDescriptors([
+    { id: "codex", agent_runtime: { goals: { actions: ["read"] } } },
+    { id: "claude" },
+  ] as unknown as ProviderDescriptor[]);
+  const goalReads: unknown[] = [];
+  let failGoalRead = false;
 
   const job: CronJob = {
     id: "cron-rss", name: "rust-rss-new-videos", description: null, workspace_id: "workspace-a", team_id: null, schedule: "*/5 * * * *", enabled: true,
@@ -52,8 +61,13 @@ async function main() {
     assert.equal(path, "/api/crons");
     return jobs as T;
   }));
-  __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+  __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
     if (command === "cron_list") return jobs as T;
+    if (command === "agent_runtime_goal") {
+      goalReads.push(args);
+      if (failGoalRead) throw new Error("Fixture read failure");
+      return { supported: true, intent: { goal: "Read objective" }, actions: [] } as T;
+    }
     throw new Error(`unexpected invoke: ${command}`);
   });
   __setListenForTest(async () => () => undefined);
@@ -136,18 +150,29 @@ async function main() {
 
   await act(async () => { crons.click(); });
   await act(async () => { host.querySelector<HTMLButtonElement>('.ct-ctx-kind[data-kind="crons"]')!.click(); });
-  assert.equal(host.querySelector(".ct-ctx__reveal")?.hasAttribute("data-open"), false, "pressing the open kind again folds the strip");
+  assert.equal(host.querySelector(".ct-ctx__reveal"), null, "pressing the open kind again removes the strip");
 
   await act(async () => { host.querySelector<HTMLButtonElement>('.ct-ctx-kind[data-kind="crons"]')!.click(); });
   assert.equal(host.querySelector(".ct-ctx__reveal")?.hasAttribute("data-open"), true);
   await act(async () => { render("tab-a", [stashed, delayed], true); });
-  assert.equal(host.querySelector(".ct-ctx__reveal")?.hasAttribute("data-open"), false, "starting a draft folds the open strip away");
+  assert.equal(host.querySelector(".ct-ctx__reveal"), null, "starting a draft removes the open strip");
 
   await act(async () => { render("tab-b", []); });
   assert.equal(host.querySelector('[data-testid="composer-context-header"]'), null, "a tab with nothing linked shows no header");
 
   for (const width of [1280, 390]) {
     await act(async () => { win.happyDOM.setWindowSize({ width, height: 900 }); });
+    for (const intent of [{ title: "Claude title" }, { title: "Claude title", goal: "Foreign goal" }]) {
+      await act(async () => { root.render(null); });
+      await act(async () => { root.render(
+        <MuxStateStoreContext.Provider value={store}><ComposerContextHeader
+          tabId="claude-tab" workspaceId="workspace-a" delayed={[]} adapter={adapter} sessionIntent={intent}
+          onEditDelayed={() => undefined} onDeleteDelayed={() => undefined} onScheduleDelayed={() => undefined}
+        /></MuxStateStoreContext.Provider>,
+      ); });
+      assert.equal(host.childElementCount, 0);
+      assert.equal(goalReads.length, 0);
+    }
     for (const theme of ["light", "dark"]) {
       document.documentElement.dataset.theme = theme;
       await act(async () => { root.render(null); });
@@ -196,8 +221,35 @@ async function main() {
         assert.equal(fold, null);
         assert.equal(group.hidden, false);
       }
+      assert.equal(host.querySelector('[role="dialog"][aria-label="Session goal"]'), null);
+      const goalChip = host.querySelector<HTMLButtonElement>('button[aria-label="Session goal"]')!;
+      const delayedChip = host.querySelector<HTMLButtonElement>('button[aria-label="1 delayed messages"]');
+      if (delayedChip) assert.equal(goalChip.parentElement, delayedChip.parentElement);
+      await act(async () => { goalChip.click(); });
+      assert.ok(host.querySelector('[role="dialog"][aria-label="Session goal"]'));
+      if (delayedChip) {
+        await act(async () => { delayedChip.click(); });
+        assert.equal(host.querySelector('[role="dialog"][aria-label="Session goal"]'), null);
+        assert.ok(host.querySelector('[role="group"][aria-label="Delayed messages"]'));
+        await act(async () => { goalChip.click(); });
+      }
+      await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
+      assert.equal(host.querySelector('[role="dialog"][aria-label="Session goal"]'), null);
     }
+    goalReads.length = 0;
   }
+
+  failGoalRead = true;
+  await act(async () => { root.render(null); });
+  await act(async () => { root.render(
+    <MuxStateStoreContext.Provider value={store}><ComposerContextHeader
+      tabId="tab-b" workspaceId="workspace-a" delayed={[]} adapter={adapter} sessionIntent={{ goal: "Failed read" }}
+      onEditDelayed={() => undefined} onDeleteDelayed={() => undefined} onScheduleDelayed={() => undefined}
+    /></MuxStateStoreContext.Provider>,
+  ); });
+  await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label="Session goal"]')!.click(); });
+  assert.equal(goalReads.length, 1);
+  assert.equal(host.childElementCount, 0, "a failed read removes the button, strip, and any error UI");
 
   await act(async () => { root.unmount(); });
   console.log("Composer context header wiring passed");
