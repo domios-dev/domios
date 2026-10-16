@@ -2,6 +2,8 @@ pub mod adapters;
 mod build_config;
 mod cache;
 mod envelope;
+mod grant_store;
+pub use grant_store::{FileGrantStore, GrantStore};
 mod model;
 use async_trait::async_trait;
 pub use cache::{Billing, RefreshEvent, Snapshot};

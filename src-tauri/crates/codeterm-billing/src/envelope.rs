@@ -25,6 +25,8 @@ pub struct ApplicationEnvelope {
     pub billing: Option<Effective>,
     pub billing_inventory: BillingInventory,
     pub application_access: ApplicationAccess,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant: Option<serde_json::Value>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -138,12 +140,14 @@ impl Access {
 /// One provider reply: `entitlements` is `None` when the producer still requires an inventory pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reading {
+    pub grant: Option<serde_json::Value>,
     pub entitlements: Option<Entitlements>,
     pub access: Access,
 }
 impl Reading {
     pub fn current(entitlements: Entitlements) -> Self {
         Self {
+            grant: None,
             access: Access::for_entitlements(&entitlements),
             entitlements: Some(entitlements),
         }
@@ -166,8 +170,41 @@ impl From<ApplicationEnvelope> for Reading {
             }),
         };
         Self {
+            grant: envelope.grant,
             entitlements,
             access,
+        }
+    }
+}
+impl Access {
+    pub(crate) fn from_effective(access: &codeterm_entitlements::EffectiveAccess) -> Self {
+        Self {
+            authority: match access.authority {
+                codeterm_entitlements::Authority::Admin => Authority::Admin,
+                codeterm_entitlements::Authority::Billing => Authority::Billing,
+                codeterm_entitlements::Authority::Free => Authority::Free,
+            },
+            full_access: access.authority == codeterm_entitlements::Authority::Admin,
+            max_mesh_machines: access.limits.mesh_machines.max,
+            max_workspaces: access.limits.workspaces.max,
+            sponsor: access.perks.sponsor,
+            priority_support: access.perks.priority_support,
+        }
+    }
+    pub(crate) fn shadow_access(&self) -> codeterm_entitlements::ApplicationAccess {
+        codeterm_entitlements::ApplicationAccess {
+            schema_version: 1,
+            authority: match self.authority {
+                Authority::Admin => codeterm_entitlements::Authority::Admin,
+                Authority::Billing => codeterm_entitlements::Authority::Billing,
+                Authority::Free => codeterm_entitlements::Authority::Free,
+            },
+            full_access: self.full_access,
+            max_mesh_machines: self.max_mesh_machines,
+            max_workspaces: self.max_workspaces,
+            priority_support: self.priority_support,
+            sponsor: self.sponsor,
+            admin_generation: None,
         }
     }
 }

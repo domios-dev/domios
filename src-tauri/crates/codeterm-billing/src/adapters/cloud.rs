@@ -5,25 +5,34 @@ use std::time::Duration;
 pub struct Cloud {
     base: url::Url,
     client: reqwest::Client,
+    installation_id: codeterm_account::InstallationId,
 }
 impl Cloud {
-    pub fn configured(override_url: Option<&str>) -> Result<std::sync::Arc<dyn BillingProvider>> {
-        Self::configured_from(override_url, crate::build_config::functions_url())
+    pub fn configured(
+        override_url: Option<&str>,
+        installation_id: codeterm_account::InstallationId,
+    ) -> Result<std::sync::Arc<dyn BillingProvider>> {
+        Self::configured_from(
+            override_url,
+            crate::build_config::functions_url(),
+            installation_id,
+        )
     }
     fn configured_from(
         override_url: Option<&str>,
         build_url: Option<&str>,
+        installation_id: codeterm_account::InstallationId,
     ) -> Result<std::sync::Arc<dyn BillingProvider>> {
         let endpoint = override_url
             .filter(|value| !value.trim().is_empty())
             .or(build_url);
         match endpoint {
-            Some(endpoint) => Ok(std::sync::Arc::new(Self::new(endpoint)?)),
+            Some(endpoint) => Ok(std::sync::Arc::new(Self::new(endpoint, installation_id)?)),
             None => Ok(std::sync::Arc::new(super::local::Unavailable)),
         }
     }
 
-    pub fn new(base: &str) -> Result<Self> {
+    pub fn new(base: &str, installation_id: codeterm_account::InstallationId) -> Result<Self> {
         let base = url::Url::parse(base).map_err(|_| "Invalid billing endpoint")?;
         if base.scheme() != "https"
             || base.host_str().is_none()
@@ -40,7 +49,19 @@ impl Cloud {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|_| "Billing transport unavailable")?;
-        Ok(Self { base, client })
+        Ok(Self {
+            base,
+            client,
+            installation_id,
+        })
+    }
+    #[cfg(test)]
+    pub(crate) fn fixture(base: &str, id: codeterm_account::InstallationId) -> Self {
+        Self {
+            base: url::Url::parse(base).unwrap(),
+            client: reqwest::Client::new(),
+            installation_id: id,
+        }
     }
     async fn call<T: DeserializeOwned>(
         &self,
@@ -98,7 +119,8 @@ impl Cloud {
 #[async_trait]
 impl BillingProvider for Cloud {
     async fn entitlements(&self, session: &Session) -> Result<Reading> {
-        self.call::<ApplicationEnvelope>(session, "getEntitlements", serde_json::json!({}))
+        let data = serde_json::json!({"installation_id":self.installation_id});
+        self.call::<ApplicationEnvelope>(session, "getEntitlements", data)
             .await
             .map(Reading::from)
     }
@@ -119,9 +141,12 @@ impl BillingProvider for Cloud {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn id() -> codeterm_account::InstallationId {
+        codeterm_account::InstallationId::parse("fixture-installation".into()).unwrap()
+    }
     #[tokio::test]
     async fn build_endpoint_missing_uses_local_free_and_honest_actions() {
-        let local = Cloud::configured_from(None, None).unwrap();
+        let local = Cloud::configured_from(None, None, id()).unwrap();
         let session = Session {
             identity: codeterm_account::Identity {
                 uid: "user".into(),
@@ -140,7 +165,9 @@ mod tests {
             .await
             .unwrap_err()
             .contains("unavailable"));
-        assert!(Cloud::configured_from(None, Some("https://example.test/")).is_ok());
-        assert!(Cloud::configured_from(Some("https://override.test/"), Some("invalid")).is_ok());
+        assert!(Cloud::configured_from(None, Some("https://example.test/"), id()).is_ok());
+        assert!(
+            Cloud::configured_from(Some("https://override.test/"), Some("invalid"), id()).is_ok()
+        );
     }
 }

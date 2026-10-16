@@ -113,10 +113,11 @@ fn envelope_ignores_grant_and_consent_riders() {
     let mut bare = value.clone();
     bare.as_object_mut().unwrap().remove("grant");
     bare.as_object_mut().unwrap().remove("consent");
-    assert_eq!(
-        Reading::from(serde_json::from_value::<ApplicationEnvelope>(value).unwrap()),
-        Reading::from(serde_json::from_value::<ApplicationEnvelope>(bare).unwrap())
-    );
+    let with_grant = Reading::from(serde_json::from_value::<ApplicationEnvelope>(value).unwrap());
+    let without = Reading::from(serde_json::from_value::<ApplicationEnvelope>(bare).unwrap());
+    assert!(with_grant.grant.is_some());
+    assert_eq!(with_grant.entitlements, without.entitlements);
+    assert_eq!(with_grant.access, without.access);
 }
 #[test]
 fn envelope_inner_records_are_exact() {
@@ -374,4 +375,581 @@ async fn local_config_and_browser_routes() {
         provider.portal_url(&session).await.unwrap().path(),
         "/billing/portal"
     );
+}
+
+#[derive(serde::Deserialize)]
+struct ProducerVector {
+    id: String,
+    request: serde_json::Value,
+    response: Box<serde_json::value::RawValue>,
+    caller_context: serde_json::Value,
+}
+fn producer_vectors() -> Vec<ProducerVector> {
+    #[derive(serde::Deserialize)]
+    struct Packet {
+        vectors: Vec<ProducerVector>,
+    }
+    serde_json::from_str::<Packet>(include_str!(
+        "../../codeterm-entitlements/vectors/vectors.json"
+    ))
+    .unwrap()
+    .vectors
+}
+fn activation(
+    phase: codeterm_entitlements::Phase,
+    epoch: &'static str,
+) -> codeterm_entitlements::Activation {
+    use codeterm_entitlements::*;
+    static KEYS: &[CompiledKey] = &[CompiledKey {
+        key_id: "e5-rfc8032-test-only",
+        spki_der_base64: "MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+    }];
+    Activation {
+        phase,
+        project: "demo-domios",
+        mode: Mode::Test,
+        policy_version: 1,
+        policy_epoch: epoch,
+        enforcement: Enforcement {
+            enabled: false,
+            rollback: false,
+        },
+        keys: KEYS,
+    }
+}
+#[derive(Default)]
+struct MemoryGrants(parking_lot::Mutex<Option<serde_json::Value>>);
+impl GrantStore for MemoryGrants {
+    fn load(&self) -> Result<Option<serde_json::Value>> {
+        Ok(self.0.lock().clone())
+    }
+    fn save(&self, raw: &serde_json::Value) -> Result<()> {
+        *self.0.lock() = Some(raw.clone());
+        Ok(())
+    }
+    fn clear(&self) -> Result<()> {
+        *self.0.lock() = None;
+        Ok(())
+    }
+}
+struct GrantReplies {
+    replies: parking_lot::Mutex<std::collections::VecDeque<Result<Reading>>>,
+    calls: std::sync::atomic::AtomicUsize,
+}
+impl GrantReplies {
+    fn new(replies: Vec<Result<Reading>>) -> Arc<Self> {
+        Arc::new(Self {
+            replies: parking_lot::Mutex::new(replies.into()),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+    fn count(&self) -> usize {
+        self.calls.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+#[async_trait]
+impl BillingProvider for GrantReplies {
+    async fn entitlements(&self, _: &codeterm_account::Session) -> Result<Reading> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.replies
+            .lock()
+            .pop_front()
+            .unwrap_or_else(|| Err("offline".into()))
+    }
+    async fn checkout_url(&self, _: &codeterm_account::Session, _: &str) -> Result<url::Url> {
+        Err("unused".into())
+    }
+    async fn portal_url(&self, _: &codeterm_account::Session) -> Result<url::Url> {
+        Err("unused".into())
+    }
+}
+fn paid_grant() -> Reading {
+    let vector = producer_vectors()
+        .into_iter()
+        .find(|v| v.id == "valid-paid")
+        .unwrap();
+    Reading::from(serde_json::from_str::<ApplicationEnvelope>(vector.response.get()).unwrap())
+}
+fn clock(
+    value: u64,
+) -> (
+    Arc<std::sync::atomic::AtomicU64>,
+    Arc<dyn Fn() -> u64 + Send + Sync>,
+) {
+    let value = Arc::new(std::sync::atomic::AtomicU64::new(value));
+    let cloned = value.clone();
+    (
+        value,
+        Arc::new(move || cloned.load(std::sync::atomic::Ordering::SeqCst)),
+    )
+}
+
+#[tokio::test]
+async fn dormant_activation_ignores_even_malformed_grants() {
+    let mut reading = paid_grant();
+    reading.grant = Some(serde_json::json!({"arbitrary":"invalid"}));
+    let provider = GrantReplies::new(vec![Ok(reading.clone())]);
+    let store = Arc::new(MemoryGrants::default());
+    let id = codeterm_account::InstallationId::parse("fixture-installation".into()).unwrap();
+    let billing = Billing::new(provider)
+        .with_grants(&id, store.clone())
+        .unwrap();
+    let snapshot = billing
+        .refresh(
+            Some(&session("fixture-user")),
+            RefreshEvent::SignIn,
+            Instant::now(),
+        )
+        .await;
+    assert_eq!(snapshot.entitlements, reading.entitlements.unwrap());
+    assert_eq!(snapshot.access, Some(reading.access));
+    assert!(snapshot.grant.is_none());
+    assert!(store.load().unwrap().is_none());
+    assert!(billing.entitlement_allows(Some(&session("fixture-user")), Capability::PaidFeatures));
+}
+
+#[tokio::test]
+async fn verdict_recomputes_half_open_windows_and_offline_access() {
+    use codeterm_entitlements::{Phase, TimeState};
+    let user = session("fixture-user");
+    let provider = GrantReplies::new(vec![Ok(paid_grant())]);
+    let store = Arc::new(MemoryGrants::default());
+    let (now, clock) = clock(1_700_000_060);
+    let billing = Billing::new(provider).with_test_grants(
+        activation(Phase::B, "fixture-phase-b"),
+        "fixture-installation",
+        store,
+        clock,
+    );
+    billing
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await;
+    for (instant, state, paid) in [
+        (1_699_999_999, TimeState::NotYetValid, false),
+        (1_700_000_000, TimeState::Fresh, true),
+        (1_700_086_399, TimeState::Fresh, true),
+        (1_700_086_400, TimeState::Stale, true),
+        (1_700_604_799, TimeState::Stale, true),
+        (1_700_604_800, TimeState::Grace, true),
+        (1_701_209_599, TimeState::Grace, true),
+        (1_701_209_600, TimeState::PastGrace, false),
+    ] {
+        now.store(instant, std::sync::atomic::Ordering::SeqCst);
+        let snapshot = billing.snapshot(Some(&user));
+        assert_eq!(snapshot.grant.unwrap().state, state);
+        assert_eq!(
+            billing.entitlement_allows(Some(&user), Capability::PaidFeatures),
+            paid
+        );
+        assert_eq!(
+            snapshot.access.unwrap().max_workspaces,
+            if paid { None } else { Some(2) }
+        );
+    }
+}
+
+#[tokio::test]
+async fn focus_bypasses_throttle_in_stale_and_grace_checkout_still_bypasses() {
+    use codeterm_entitlements::Phase;
+    let provider = GrantReplies::new(vec![Ok(paid_grant())]);
+    let (now, clock) = clock(1_700_000_060);
+    let billing = Billing::new(provider.clone()).with_test_grants(
+        activation(Phase::B, "fixture-phase-b"),
+        "fixture-installation",
+        Arc::new(MemoryGrants::default()),
+        clock,
+    );
+    let user = session("fixture-user");
+    let focus = Instant::now();
+    billing
+        .refresh(Some(&user), RefreshEvent::SignIn, focus)
+        .await;
+    billing
+        .refresh(Some(&user), RefreshEvent::Focus, focus)
+        .await;
+    assert_eq!(provider.count(), 1);
+    for instant in [1_700_086_400, 1_700_604_800] {
+        now.store(instant, std::sync::atomic::Ordering::SeqCst);
+        let snapshot = billing
+            .refresh(Some(&user), RefreshEvent::Focus, focus)
+            .await;
+        assert!(snapshot.stale);
+        assert!(snapshot.grant.is_some());
+        assert!(billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
+    }
+    assert_eq!(provider.count(), 3);
+    now.store(1_700_000_060, std::sync::atomic::Ordering::SeqCst);
+    billing
+        .refresh(Some(&user), RefreshEvent::CheckoutReturned, focus)
+        .await;
+    assert_eq!(provider.count(), 4);
+}
+
+#[tokio::test]
+async fn grant_reload_reverifies_and_signout_epoch_and_refusal_remove_it() {
+    use codeterm_entitlements::Phase;
+    let user = session("fixture-user");
+    let raw = paid_grant().grant.unwrap();
+    let store = Arc::new(MemoryGrants::default());
+    store.save(&raw).unwrap();
+    let (_, injected_clock) = clock(1_700_000_060);
+    let make = |epoch| {
+        Billing::new(GrantReplies::new(vec![])).with_test_grants(
+            activation(Phase::B, epoch),
+            "fixture-installation",
+            store.clone(),
+            injected_clock.clone(),
+        )
+    };
+    let billing = make("fixture-phase-b");
+    let snapshot = billing
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await;
+    assert!(snapshot.grant.is_some());
+    assert_eq!(store.load().unwrap(), Some(raw.clone()));
+    billing.snapshot(None);
+    assert!(store.load().unwrap().is_none());
+    store.save(&raw).unwrap();
+    let changed = make("new-epoch");
+    assert!(changed
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await
+        .grant
+        .is_none());
+    assert!(store.load().unwrap().is_none());
+    let mut corrupted = raw;
+    corrupted["signature"] = "invalid".into();
+    store.save(&corrupted).unwrap();
+    let reloaded = make("fixture-phase-b");
+    assert!(reloaded
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await
+        .grant
+        .is_none());
+    assert!(store.load().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn phase_b_no_grant_is_compiled_free_even_with_paid_envelope() {
+    let (_, clock) = clock(1_700_000_060);
+    let mut unsigned = paid_grant();
+    unsigned.grant = None;
+    let billing = Billing::new(GrantReplies::new(vec![Ok(unsigned)])).with_test_grants(
+        activation(codeterm_entitlements::Phase::B, "fixture-phase-b"),
+        "fixture-installation",
+        Arc::new(MemoryGrants::default()),
+        clock,
+    );
+    let user = session("fixture-user");
+    let snapshot = billing
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await;
+    assert_eq!(snapshot.access.unwrap().max_workspaces, Some(2));
+    assert!(!billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
+}
+
+fn fixture_server(
+    response: &str,
+    count: usize,
+) -> (String, std::thread::JoinHandle<Vec<serde_json::Value>>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}/", listener.local_addr().unwrap());
+    let response = format!("{{\"result\":{response}}}");
+    let thread = std::thread::spawn(move || {
+        let mut requests = Vec::new();
+        for _ in 0..count {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut bytes = Vec::new();
+            let header_end = loop {
+                let mut buffer = [0u8; 4096];
+                let length = stream.read(&mut buffer).unwrap();
+                assert!(length > 0);
+                bytes.extend_from_slice(&buffer[..length]);
+                if let Some(offset) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break offset + 4;
+                }
+            };
+            let header = String::from_utf8(bytes[..header_end].to_vec()).unwrap();
+            assert!(header.starts_with("POST /getEntitlements HTTP/1.1"));
+            assert!(header
+                .to_ascii_lowercase()
+                .contains("authorization: bearer fixture"));
+            let length: usize = header
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|value| value.trim().parse().unwrap())
+                })
+                .unwrap();
+            while bytes.len() < header_end + length {
+                let mut buffer = [0u8; 4096];
+                let length = stream.read(&mut buffer).unwrap();
+                assert!(length > 0);
+                bytes.extend_from_slice(&buffer[..length]);
+            }
+            requests.push(serde_json::from_slice(&bytes[header_end..header_end + length]).unwrap());
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+        }
+        requests
+    });
+    (address, thread)
+}
+
+#[tokio::test]
+async fn producer_vectors_replay_exact_response_bytes_through_cloud_and_cache() {
+    use codeterm_entitlements::{Phase, TimeState};
+    for vector in producer_vectors() {
+        let count = if vector.id == "older-policy-epoch" {
+            2
+        } else {
+            1
+        };
+        let (address, server) = fixture_server(vector.response.get(), count);
+        let inst = vector.caller_context["installation_id"].as_str().unwrap();
+        let requested_inst = vector.request["installation_id"].as_str().unwrap();
+        let id = codeterm_account::InstallationId::parse(requested_inst.into()).unwrap();
+        let provider = Arc::new(adapters::cloud::Cloud::fixture(&address, id));
+        let epoch = if vector.id == "valid-admin" {
+            "fixture-phase-a"
+        } else {
+            "fixture-phase-b"
+        };
+        let (_, clock) = clock(vector.caller_context["now"].as_u64().unwrap());
+        let store = Arc::new(MemoryGrants::default());
+        let billing = Billing::new(provider).with_test_grants(
+            activation(Phase::B, epoch),
+            inst,
+            store.clone(),
+            clock,
+        );
+        let user = session(vector.request["uid"].as_str().unwrap());
+        let snapshot = billing
+            .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+            .await;
+        match vector.id.as_str() {
+            "valid-paid" => assert_eq!(snapshot.grant.as_ref().unwrap().state, TimeState::Fresh),
+            "valid-admin" => assert_eq!(
+                snapshot.access.as_ref().unwrap().authority,
+                Authority::Admin
+            ),
+            "signed-free-downgrade" => {
+                assert_eq!(snapshot.access.as_ref().unwrap().authority, Authority::Free)
+            }
+            "expired-lease" => assert_eq!(snapshot.grant.as_ref().unwrap().state, TimeState::Grace),
+            "past-grace" => {
+                assert_eq!(snapshot.grant.as_ref().unwrap().state, TimeState::PastGrace)
+            }
+            _ => assert!(snapshot.grant.is_none(), "{}", vector.id),
+        }
+        if snapshot.grant.is_some() {
+            let expected: serde_json::Value = serde_json::from_str(vector.response.get()).unwrap();
+            assert_eq!(store.load().unwrap().unwrap(), expected["grant"]);
+        } else {
+            assert!(store.load().unwrap().is_none());
+        }
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), count);
+        for request in requests {
+            assert_eq!(
+                request,
+                serde_json::json!({"data":{"installation_id":requested_inst}})
+            );
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn phase_a_keeps_envelope_and_logs_shadow_divergence() {
+    struct Logger(parking_lot::Mutex<Vec<String>>);
+    static LOGGER: Logger = Logger(parking_lot::Mutex::new(Vec::new()));
+    impl log::Log for Logger {
+        fn enabled(&self, _: &log::Metadata<'_>) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record<'_>) {
+            self.0.lock().push(format!("{}", record.args()));
+        }
+        fn flush(&self) {}
+    }
+    let _ = log::set_logger(&LOGGER);
+    log::set_max_level(log::LevelFilter::Debug);
+    let mut mismatch = paid_grant();
+    mismatch.access.authority = Authority::Free;
+    mismatch.access.max_workspaces = Some(2);
+    let provider = GrantReplies::new(vec![Ok(mismatch)]);
+    let (_, clock) = clock(1_700_000_060);
+    let billing = Billing::new(provider).with_test_grants(
+        activation(codeterm_entitlements::Phase::A, "fixture-phase-b"),
+        "fixture-installation",
+        Arc::new(MemoryGrants::default()),
+        clock,
+    );
+    let user = session("fixture-user");
+    let snapshot = billing
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await;
+    assert!(snapshot.grant.is_some());
+    assert_eq!(snapshot.access.unwrap().max_workspaces, Some(2));
+    assert!(!billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
+    assert!(LOGGER
+        .0
+        .lock()
+        .iter()
+        .any(|line| line.contains("Grant shadow divergence:")));
+}
+
+#[tokio::test]
+async fn policy_refusal_refetches_once_then_uses_envelope() {
+    let mut rejected = paid_grant();
+    let vector = producer_vectors()
+        .into_iter()
+        .find(|v| v.id == "older-policy-epoch")
+        .unwrap();
+    rejected.grant =
+        Reading::from(serde_json::from_str::<ApplicationEnvelope>(vector.response.get()).unwrap())
+            .grant;
+    let provider = GrantReplies::new(vec![Ok(rejected.clone()), Ok(rejected)]);
+    let (_, clock) = clock(1_700_000_060);
+    let store = Arc::new(MemoryGrants::default());
+    let billing = Billing::new(provider.clone()).with_test_grants(
+        activation(codeterm_entitlements::Phase::A, "fixture-phase-b"),
+        "fixture-installation",
+        store.clone(),
+        clock,
+    );
+    let user = session("fixture-user");
+    let snapshot = billing
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await;
+    assert_eq!(provider.count(), 2);
+    assert!(snapshot.grant.is_none());
+    assert_eq!(snapshot.access.unwrap().authority, Authority::Billing);
+    assert!(store.load().unwrap().is_none());
+}
+
+#[test]
+fn file_grant_store_persists_detached_bytes_only() {
+    let root = std::env::temp_dir().join(format!(
+        "codeterm-grant-test-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let store = FileGrantStore::new(root.clone());
+    let raw = paid_grant().grant.unwrap();
+    assert!(store.load().unwrap().is_none());
+    store.save(&raw).unwrap();
+    let path = root.join("state/account/grant.json");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&std::fs::read(&path).unwrap()).unwrap(),
+        raw
+    );
+    let reload = FileGrantStore::new(root.clone());
+    assert_eq!(reload.load().unwrap(), Some(raw.clone()));
+    let policy = activation(codeterm_entitlements::Phase::B, "fixture-phase-b")
+        .policy()
+        .unwrap();
+    let verified = crate::grant_store::authenticate(
+        &reload.load().unwrap().unwrap(),
+        &policy,
+        "fixture-user",
+        "fixture-installation",
+        None,
+        1_700_000_060,
+    )
+    .unwrap();
+    assert_eq!(
+        verified.verdict(1_700_604_800).state,
+        codeterm_entitlements::TimeState::Grace
+    );
+    let changed = activation(codeterm_entitlements::Phase::B, "new-epoch")
+        .policy()
+        .unwrap();
+    assert_eq!(
+        crate::grant_store::authenticate(
+            &raw,
+            &changed,
+            "fixture-user",
+            "fixture-installation",
+            None,
+            1_700_000_060
+        ),
+        Err(codeterm_entitlements::Refusal::PolicyEpoch)
+    );
+    reload.clear().unwrap();
+    assert!(!path.exists());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn revision_refusal_refetches_once_and_never_reinstates_paid() {
+    let vector = producer_vectors()
+        .into_iter()
+        .find(|v| v.id == "signed-free-downgrade")
+        .unwrap();
+    let free =
+        Reading::from(serde_json::from_str::<ApplicationEnvelope>(vector.response.get()).unwrap());
+    let provider = GrantReplies::new(vec![Ok(free), Ok(paid_grant()), Ok(paid_grant())]);
+    let (_, clock) = clock(1_700_000_060);
+    let store = Arc::new(MemoryGrants::default());
+    let billing = Billing::new(provider.clone()).with_test_grants(
+        activation(codeterm_entitlements::Phase::B, "fixture-phase-b"),
+        "fixture-installation",
+        store.clone(),
+        clock,
+    );
+    let user = session("fixture-user");
+    billing
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await;
+    let snapshot = billing
+        .refresh(Some(&user), RefreshEvent::CheckoutReturned, Instant::now())
+        .await;
+    assert_eq!(provider.count(), 3);
+    assert!(snapshot.grant.is_none());
+    assert!(!billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
+    assert!(store.load().unwrap().is_none());
+}
+
+#[test]
+fn single_grant_verification_timing() {
+    let raw = paid_grant().grant.unwrap();
+    let policy = activation(codeterm_entitlements::Phase::B, "fixture-phase-b")
+        .policy()
+        .unwrap();
+    let started = Instant::now();
+    let verified = crate::grant_store::authenticate(
+        std::hint::black_box(&raw),
+        &policy,
+        "fixture-user",
+        "fixture-installation",
+        None,
+        1_700_000_060,
+    )
+    .unwrap();
+    let elapsed = started.elapsed();
+    assert_eq!(
+        verified.verdict(1_700_000_060).authority,
+        codeterm_entitlements::Authority::Billing
+    );
+    eprintln!(
+        "single_grant_verify profile={} elapsed_ns={}",
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        },
+        elapsed.as_nanos()
+    );
+    if !cfg!(debug_assertions) {
+        assert!(elapsed < Duration::from_millis(1), "{elapsed:?}");
+    }
 }

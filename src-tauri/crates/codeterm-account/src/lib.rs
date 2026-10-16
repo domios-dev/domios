@@ -2,7 +2,9 @@ mod account;
 pub mod adapters;
 mod build_config;
 mod flow;
+mod installation;
 mod loopback;
+pub use installation::{FileInstallationStore, InstallationId, InstallationStore};
 
 pub use account::{Account, Status};
 use async_trait::async_trait;

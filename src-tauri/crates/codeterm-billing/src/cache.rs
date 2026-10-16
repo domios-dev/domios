@@ -1,4 +1,7 @@
 use crate::*;
+use codeterm_entitlements::{
+    Phase, Policy, Refusal, TimeState, Verdict, VerifiedGrant, ACTIVATION,
+};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::{
@@ -11,6 +14,8 @@ pub struct Snapshot {
     pub entitlements: Entitlements,
     pub stale: bool,
     pub access: Option<Access>,
+    #[serde(skip)]
+    pub grant: Option<Verdict>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RefreshEvent {
@@ -26,27 +31,108 @@ struct Cache {
     last_focus: Option<Instant>,
     checkout_pending: bool,
     observed: bool,
+    verified: Option<VerifiedGrant>,
+    loaded: bool,
 }
+#[derive(Clone)]
 pub struct Billing {
     provider: Arc<dyn BillingProvider>,
-    cache: Mutex<Cache>,
+    cache: Arc<Mutex<Cache>>,
     observer: Option<ProductObserver>,
+    grants: Option<Grants>,
+    clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+}
+#[derive(Clone)]
+struct Grants {
+    phase: Phase,
+    policy: Policy,
+    installation_id: String,
+    store: Arc<dyn GrantStore>,
 }
 impl Billing {
     pub fn new(provider: Arc<dyn BillingProvider>) -> Self {
         Self {
             provider,
-            cache: Mutex::new(Cache::default()),
+            cache: Arc::new(Mutex::new(Cache::default())),
             observer: None,
+            grants: None,
+            clock: Arc::new(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            }),
         }
+    }
+    pub fn with_grants(
+        mut self,
+        installation_id: &codeterm_account::InstallationId,
+        store: Arc<dyn GrantStore>,
+    ) -> Result<Self> {
+        if let Some(activation) = ACTIVATION {
+            self.grants = Some(Grants {
+                phase: activation.phase,
+                policy: activation
+                    .policy()
+                    .map_err(|error| format!("Invalid compiled grant policy: {error:?}"))?,
+                installation_id: installation_id.as_str().into(),
+                store,
+            });
+        }
+        Ok(self)
+    }
+    #[cfg(test)]
+    pub(crate) fn with_test_grants(
+        mut self,
+        activation: codeterm_entitlements::Activation,
+        installation_id: &str,
+        store: Arc<dyn GrantStore>,
+        clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    ) -> Self {
+        self.grants = Some(Grants {
+            phase: activation.phase,
+            policy: activation.policy().unwrap(),
+            installation_id: installation_id.into(),
+            store,
+        });
+        self.clock = clock;
+        self
+    }
+    fn recompute(&self, cache: &Cache) -> Snapshot {
+        let mut snapshot = cache.snapshot.clone();
+        snapshot.grant = cache
+            .verified
+            .as_ref()
+            .map(|grant| grant.verdict((self.clock)()));
+        if self
+            .grants
+            .as_ref()
+            .is_some_and(|grants| grants.phase == Phase::B)
+        {
+            let access = snapshot
+                .grant
+                .as_ref()
+                .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective);
+            snapshot.access = Some(Access::from_effective(&access));
+        }
+        snapshot
     }
     pub fn with_observer(mut self, observer: ProductObserver) -> Self {
         self.observer = Some(observer);
         self
     }
-    fn bind(cache: &mut Cache, session: Option<&codeterm_account::Session>) {
+    fn bind(&self, cache: &mut Cache, session: Option<&codeterm_account::Session>) {
         let uid = session.map(|s| s.identity.uid.clone());
         if cache.uid != uid {
+            if cache.uid.is_some() {
+                if let Some(grants) = &self.grants {
+                    if let Err(error) = grants.store.clear() {
+                        log::debug!("Grant removal failed: {error}");
+                    }
+                }
+            }
+            cache.verified = None;
+            cache.loaded = false;
             cache.uid = uid;
             cache.generation += 1;
             cache.snapshot = Snapshot::default();
@@ -57,15 +143,22 @@ impl Billing {
     }
     pub fn snapshot(&self, session: Option<&codeterm_account::Session>) -> Snapshot {
         let mut cache = self.cache.lock();
-        Self::bind(&mut cache, session);
-        cache.snapshot.clone()
+        self.bind(&mut cache, session);
+        self.recompute(&cache)
     }
     pub fn entitlement_allows(
         &self,
         session: Option<&codeterm_account::Session>,
         capability: Capability,
     ) -> bool {
-        entitlement_allows(&self.snapshot(session).entitlements, capability)
+        let snapshot = self.snapshot(session);
+        if self.grants.is_some() {
+            return capability == Capability::Terminal
+                || snapshot
+                    .access
+                    .is_some_and(|access| access.authority != Authority::Free);
+        }
+        entitlement_allows(&snapshot.entitlements, capability)
     }
     pub async fn refresh(
         &self,
@@ -73,36 +166,184 @@ impl Billing {
         event: RefreshEvent,
         now: Instant,
     ) -> Snapshot {
-        let generation = {
-            let mut cache = self.cache.lock();
-            Self::bind(&mut cache, session);
-            if session.is_none() {
-                return cache.snapshot.clone();
+        let worker = self.clone();
+        let owned_session = session.cloned();
+        let generation = tokio::task::spawn_blocking(move || {
+            worker.begin_refresh(owned_session.as_ref(), event, now)
+        })
+        .await;
+        let generation = match generation {
+            Ok(Ok(generation)) => generation,
+            Ok(Err(snapshot)) => return snapshot,
+            Err(error) => {
+                log::debug!("Grant cache task failed: {error}");
+                return self.snapshot(session);
             }
-            if event == RefreshEvent::Focus
-                && !cache.checkout_pending
-                && cache.last_focus.is_some_and(|last| {
-                    now.saturating_duration_since(last) < Duration::from_secs(60)
-                })
-            {
-                return cache.snapshot.clone();
-            }
-            cache.last_focus = Some(now);
-            cache.checkout_pending = false;
-            cache.generation += 1;
-            cache.generation
         };
-        let result = match session {
+        let mut result = match session {
             Some(session) => self.provider.entitlements(session).await,
             None => return Snapshot::default(),
         };
+        if let (Some(grants), Some(session)) = (&self.grants, session) {
+            let worker = self.clone();
+            let owned_session = session.clone();
+            let cached =
+                tokio::task::spawn_blocking(move || worker.load_grant(generation, &owned_session))
+                    .await
+                    .unwrap_or(None);
+            let refusal = result
+                .as_ref()
+                .ok()
+                .and_then(|reading| reading.grant.as_ref())
+                .and_then(|raw| {
+                    crate::grant_store::authenticate(
+                        raw,
+                        &grants.policy,
+                        &session.identity.uid,
+                        &grants.installation_id,
+                        cached.as_ref(),
+                        (self.clock)(),
+                    )
+                    .err()
+                });
+            if matches!(refusal, Some(Refusal::PolicyEpoch | Refusal::Revision)) {
+                let retry = self.provider.entitlements(session).await;
+                if retry.is_ok() {
+                    result = retry;
+                }
+            }
+        }
+        let worker = self.clone();
+        let owned_session = session.cloned();
+        match tokio::task::spawn_blocking(move || {
+            worker.finish_refresh(owned_session.as_ref(), generation, result)
+        })
+        .await
+        {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                log::debug!("Grant cache task failed: {error}");
+                self.snapshot(session)
+            }
+        }
+    }
+    fn begin_refresh(
+        &self,
+        session: Option<&codeterm_account::Session>,
+        event: RefreshEvent,
+        now: Instant,
+    ) -> std::result::Result<u64, Snapshot> {
+        let mut cache = self.cache.lock();
+        self.bind(&mut cache, session);
+        if session.is_none() {
+            return Err(self.recompute(&cache));
+        }
+        if event == RefreshEvent::Focus
+            && !cache.verified.as_ref().is_some_and(|grant| {
+                matches!(
+                    grant.verdict((self.clock)()).state,
+                    TimeState::Stale | TimeState::Grace
+                )
+            })
+            && !cache.checkout_pending
+            && cache
+                .last_focus
+                .is_some_and(|last| now.saturating_duration_since(last) < Duration::from_secs(60))
+        {
+            return Err(self.recompute(&cache));
+        }
+        cache.last_focus = Some(now);
+        cache.checkout_pending = false;
+        cache.generation += 1;
+        Ok(cache.generation)
+    }
+    fn load_grant(
+        &self,
+        generation: u64,
+        session: &codeterm_account::Session,
+    ) -> Option<VerifiedGrant> {
+        let grants = self.grants.as_ref()?;
+
+        let mut cache = self.cache.lock();
+        if cache.generation != generation {
+            return None;
+        }
+        if !cache.loaded {
+            cache.loaded = true;
+            match grants.store.load() {
+                Ok(Some(raw)) => match crate::grant_store::authenticate(
+                    &raw,
+                    &grants.policy,
+                    &session.identity.uid,
+                    &grants.installation_id,
+                    None,
+                    (self.clock)(),
+                ) {
+                    Ok(verified) => cache.verified = Some(verified),
+                    Err(refusal) => {
+                        log::debug!("Stored grant refused: {refusal:?}");
+                        if let Err(error) = grants.store.clear() {
+                            log::debug!("Grant removal failed: {error}");
+                        }
+                    }
+                },
+                Ok(None) => {}
+                Err(error) => {
+                    log::debug!("Stored grant unreadable: {error}");
+                    if let Err(error) = grants.store.clear() {
+                        log::debug!("Grant removal failed: {error}");
+                    }
+                }
+            }
+        }
+        cache.verified.clone()
+    }
+    fn finish_refresh(
+        &self,
+        session: Option<&codeterm_account::Session>,
+        generation: u64,
+        result: Result<Reading>,
+    ) -> Snapshot {
         let mut cache = self.cache.lock();
         let mut product_event = None;
         if cache.generation == generation {
+            if let Ok(reading) = &result {
+                if let (Some(grants), Some(session)) = (&self.grants, session) {
+                    let accepted = reading.grant.as_ref().map(|raw| {
+                        crate::grant_store::authenticate(
+                            raw,
+                            &grants.policy,
+                            &session.identity.uid,
+                            &grants.installation_id,
+                            cache.verified.as_ref(),
+                            (self.clock)(),
+                        )
+                    });
+                    match accepted {
+                        Some(Ok(verified)) => {
+                            if let Some(raw) = &reading.grant {
+                                if let Err(error) = grants.store.save(raw) {
+                                    log::debug!("Grant persistence failed: {error}");
+                                }
+                            }
+                            cache.verified = Some(verified);
+                        }
+                        _ => {
+                            cache.verified = None;
+                            if let Err(error) = grants.store.clear() {
+                                log::debug!("Grant removal failed: {error}");
+                            }
+                        }
+                    }
+                } else if reading.grant.is_some() {
+                    log::debug!("Detached grant ignored: compiled activation is absent");
+                }
+            }
             match result {
                 Ok(Reading {
                     entitlements: None,
                     access,
+                    ..
                 }) => {
                     cache.snapshot.stale = true;
                     cache.snapshot.access = Some(access);
@@ -110,6 +351,7 @@ impl Billing {
                 Ok(Reading {
                     entitlements: Some(entitlements),
                     access,
+                    ..
                 }) => {
                     let changed = !cache.observed
                         || cache.snapshot.entitlements.plan != entitlements.plan
@@ -125,12 +367,27 @@ impl Billing {
                         entitlements,
                         stale: false,
                         access: Some(access),
+                        grant: None,
                     };
                 }
                 Err(_) => cache.snapshot.stale = true,
             }
         }
-        let snapshot = cache.snapshot.clone();
+        if self
+            .grants
+            .as_ref()
+            .is_some_and(|grants| grants.phase == Phase::A)
+        {
+            if let (Some(grant), Some(access)) = (&cache.verified, &cache.snapshot.access) {
+                for divergence in codeterm_entitlements::shadow(
+                    &grant.verdict((self.clock)()),
+                    &access.shadow_access(),
+                ) {
+                    log::debug!("Grant shadow divergence: {divergence:?}");
+                }
+            }
+        }
+        let snapshot = self.recompute(&cache);
         drop(cache);
         if let (Some(event), Some(observer)) = (product_event, &self.observer) {
             observer(event);
@@ -156,7 +413,7 @@ impl Billing {
     }
     pub fn browser_opened(&self, session: &codeterm_account::Session) {
         let mut cache = self.cache.lock();
-        Self::bind(&mut cache, Some(session));
+        self.bind(&mut cache, Some(session));
         cache.checkout_pending = true;
     }
 }
