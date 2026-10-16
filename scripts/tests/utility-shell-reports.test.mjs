@@ -586,10 +586,14 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
   }
 });
 
+function writeFakeTool(dir, name, body) {
+  const tool = path.join(dir, "parent-bin", name);
+  writeFileSync(tool, "#!/usr/bin/env bash\n" + body + "\n", { mode: 0o755 });
+  chmodSync(tool, 0o755);
+}
+
 function writeFakeCargo(dir, body) {
-  const cargo = path.join(dir, "parent-bin", "cargo");
-  writeFileSync(cargo, "#!/usr/bin/env bash\n" + body + "\n", { mode: 0o755 });
-  chmodSync(cargo, 0o755);
+  writeFakeTool(dir, "cargo", body);
 }
 
 test("build_notify_tab_success_sends_one_ok_receipt", () => {
@@ -610,7 +614,7 @@ test("build_notify_tab_success_sends_one_ok_receipt", () => {
 test("build_notify_tab_failure_names_step_first_error_and_log", () => {
   const h = makeHarness();
   try {
-    writeFakeCargo(h.dir, "echo 'Diff in src/foo.rs:1:'; exit 1");
+    writeFakeTool(h.dir, "rustfmt", "echo 'Diff in src/foo.rs:1:'; exit 1");
     const started = Date.now();
     const result = runBash([buildPath, "install-local", "--notify-tab", "agent-tab"], h.env);
     assert.equal(result.status, 1);
@@ -628,7 +632,7 @@ test("build_notify_tab_failure_names_step_first_error_and_log", () => {
 test("build_notify_tab_reports_gateway_busy_and_env_equivalent", () => {
   const h = makeHarness();
   try {
-    writeFakeCargo(h.dir, "exit 75");
+    writeFakeTool(h.dir, "rustfmt", "exit 75");
     const result = runBash([buildPath, "fmt-check"], { ...h.env, BUILD_NOTIFY_TAB: "env-tab" });
     assert.equal(result.status, 75);
     const sent = records(h.parentRecord);
