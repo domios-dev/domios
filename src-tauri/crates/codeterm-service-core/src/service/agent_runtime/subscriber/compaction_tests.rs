@@ -1,4 +1,30 @@
 use super::*;
+use serde_json::json;
+
+fn restore_value(instructions: Option<&str>) -> Value {
+    crate::service::agent_runtime::owned_context::restore_value(
+        &json!({"systemPrompt":instructions}),
+        "thread",
+    )
+}
+
+#[test]
+fn restores_abort_notice_alongside_composed_role_and_task_context() {
+    let context =
+        crate::service::agent_runtime::abort_provenance::abort_note_context("opaque-cause");
+    let config = json!({
+        "systemPrompt":"opaque-role-and-task-fragments",
+        "ownedContext":{"threadId":"thread","entries":context["additionalContext"]}
+    });
+    let value = crate::service::agent_runtime::owned_context::restore_value(&config, "thread");
+    assert_eq!(value["instructions"], config["systemPrompt"]);
+    assert_eq!(value["additionalContext"], context["additionalContext"]);
+    assert_eq!(
+        crate::service::agent_runtime::owned_context::restore_value(&config, "foreign")
+            ["additionalContext"],
+        json!([])
+    );
+}
 
 #[test]
 fn restore_requires_content_and_exact_epoch_tab_thread_and_binding() {
@@ -83,12 +109,44 @@ async fn mock_runtime_restores_once_off_reader_and_holds_failed_restoration() {
         session.clone(),
         process.clone(),
     );
+    let notice =
+        crate::service::agent_runtime::abort_provenance::abort_note_context("opaque-cause");
+    let operation = RuntimeOperation::Control {
+        thread_id: Some("thread".into()),
+        action: "restoreContext".into(),
+        value: notice.clone(),
+    };
+    let owner = scene.fixture.service.clone();
+    let target = session.clone();
+    let child = process.clone();
+    let injection = crate::async_runtime::spawn(async move {
+        engine::run(&owner, &target.provider, &target, &child, operation).await
+    });
+    let request = fixtures::read(&mut scene.peer).await;
+    assert_eq!(request["params"], notice);
+    let tab = session.context.lock().tab_id.clone();
+    assert!(scene
+        .fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .agent_runtime_config
+        .as_ref()
+        .unwrap()["ownedContext"]
+        .is_null());
+    fixtures::write(&mut scene.peer, json!({"id":request["id"],"result":{}})).await;
+    assert!(matches!(
+        injection.await.unwrap().unwrap(),
+        RuntimeResult::Done
+    ));
     let task = schedule(&scene.fixture.service, &session, epoch, "thread", "item").unwrap();
     let request = fixtures::read(&mut scene.peer).await;
     assert_eq!(request["method"], "fixture/restore");
     assert_eq!(
         request["params"],
-        restore_value(Some("opaque instructions"))
+        json!({"instructions":"opaque instructions","additionalContext":notice["additionalContext"]})
     );
     assert!(schedule(&scene.fixture.service, &session, epoch, "thread", "item").is_none());
     assert!(session.compaction.lock().held(epoch));
@@ -107,8 +165,22 @@ async fn mock_runtime_restores_once_off_reader_and_holds_failed_restoration() {
         .unwrap();
     assert!(!session.compaction.lock().held(epoch));
 
+    scene
+        .fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .agent_runtime_config
+        .as_mut()
+        .unwrap()["systemPrompt"] = Value::Null;
     let task = schedule(&scene.fixture.service, &session, epoch, "thread", "next").unwrap();
     let request = fixtures::read(&mut scene.peer).await;
+    assert_eq!(
+        request["params"],
+        json!({"instructions":null,"additionalContext":notice["additionalContext"]})
+    );
     fixtures::write(
         &mut scene.peer,
         json!({"id":request["id"],"error":{"code":-32000,"message":"opaque failure"}}),
