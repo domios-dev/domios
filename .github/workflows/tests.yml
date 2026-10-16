@@ -137,7 +137,8 @@ jobs:
     name: guards
     needs: changed
     if: ${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}
-    runs-on: [self-hosted, light]
+    # The Node and Python release contracts assume Linux paths (macOS /var is a symlink).
+    runs-on: [self-hosted, Linux, light]
     permissions:
       contents: read
       actions: write
