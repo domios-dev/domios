@@ -1,4 +1,5 @@
 *.sh text eol=lf
+prod-docs/*.md text eol=lf
 generated/cli/cli.md text eol=lf
 generated/cli/cli-manifest.json text eol=lf
 
