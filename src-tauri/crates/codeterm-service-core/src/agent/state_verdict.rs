@@ -5,6 +5,7 @@
 //! never against a provider id. An undeclared event yields nothing and changes
 //! nothing.
 
+use crate::service::MuxEmitCause;
 use codeterm_plugin::agent_runtime::{RuntimeTurnDetail, RuntimeTurnState};
 use codeterm_types::pty::{AgentLiveState, QuestionSubtype, TabVerdict, TimelineState};
 
@@ -133,7 +134,7 @@ pub fn observe_declared_event(
         "[agent-state-event] tab={tab_id} session={session_id} event={event} changed={changed}"
     );
     changed.then(|| {
-        svc.emit_state_changed();
+        svc.emit_state_changed(MuxEmitCause::TabStatus);
         svc.record_turn_resume_edge(tab_id);
         verdict
     })

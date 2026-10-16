@@ -1,5 +1,6 @@
 use super::ServiceContext;
 use crate::agent::status::TabStatus;
+use crate::service::MuxEmitCause;
 
 pub(crate) mod delivery_readiness;
 
@@ -184,7 +185,7 @@ impl ServiceContext {
         crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
             &pty_id, previous, current,
         );
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabStatus);
         true
     }
 }

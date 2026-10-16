@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_service_core::service::MuxEmitCause;
 use std::collections::BTreeMap;
 
 use crate::routes::{check_auth, resolve_tab, AppState};
@@ -218,7 +219,7 @@ fn ensure_agent_state(state: &AppState, tab_id: &str) {
         Some(tab_id),
     );
     log::info!("[hook] set agent_type={} for Tab {}", owner, tab_id);
-    state.svc.emit_state_changed();
+    state.svc.emit_state_changed(MuxEmitCause::ProviderSignal);
     state.svc.emit_session_binding_state(tab_id);
 }
 

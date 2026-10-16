@@ -1,4 +1,5 @@
 use super::{lifecycle::Sidecar, protocol::Frame, routing::verified_user_thread};
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 use serde_json::{json, Value};
 use std::sync::{atomic::Ordering, Arc};
@@ -291,7 +292,7 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
             log::error!(
                 "[codex-rpc] tab={tab} control unavailable; server retained and sends held"
             );
-            svc.emit_state_changed();
+            svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
         }
     });
 }

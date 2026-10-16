@@ -2,6 +2,7 @@ use super::{
     engine,
     questions::{QuestionReceipt, QuestionRecord},
 };
+use crate::service::MuxEmitCause;
 use crate::service::{
     chat_send_transaction::ChatSendStatus,
     pending_delivery_payloads::user_sends::runtime_questions::QuestionResolution, ServiceContext,
@@ -27,7 +28,7 @@ pub fn publish(
     }
     let state = session.state.lock().snapshot();
     svc.notify_event("agent-runtime-state", serde_json::json!({"tab_id":tab,"session_binding_nonce":nonce,"state":state,"questions":value}));
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::Prompt);
     Ok(())
 }
 

@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use std::sync::mpsc::{channel, Sender};
 use std::time::{Duration, Instant};
 
@@ -489,7 +490,7 @@ impl ServiceContext {
             tab.pending_model_selection = None;
         }
         drop(mux);
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Model);
     }
 
     pub(crate) fn apply_staged_model_switch_on_idle(&self, tab_id: &str) {
@@ -663,7 +664,7 @@ impl ServiceContext {
                 "could not stage model switch: {error}"
             )));
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Model);
         // Recheck after subscribing so an idle edge during staging cannot be lost.
         if staged_tab_idle(
             self,
@@ -759,7 +760,7 @@ impl ServiceContext {
                 );
             }
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::Model);
         !retry
     }
 }

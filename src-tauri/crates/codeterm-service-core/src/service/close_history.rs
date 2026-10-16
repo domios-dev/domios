@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
@@ -209,7 +210,7 @@ impl ServiceContext {
             mux.discard_closed_structure(id)?;
         }
         drop(mux);
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabLifecycle);
         Ok(())
     }
 
@@ -281,7 +282,7 @@ impl ServiceContext {
         self.restore_history_automation(&resources)?;
         record.state = StructureState::Restored;
         self.mux.read().save_closed_structure(&record)?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabLifecycle);
         Ok(Some(result))
     }
 
@@ -390,7 +391,7 @@ impl ServiceContext {
         if let Some(command) = command {
             self.send_shell_cmd(tab_id, &command)?;
         }
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::TabLifecycle);
         Ok(())
     }
 

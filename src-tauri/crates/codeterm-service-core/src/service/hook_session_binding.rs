@@ -1,5 +1,6 @@
 //! Session binding shared by the hook routes and launch-session detection.
 
+use crate::service::MuxEmitCause;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::http::StatusCode;
@@ -306,7 +307,7 @@ pub async fn finish_session_binding(
     {
         log::warn!("[context-epoch] failed to persist reset boundary: {error}");
     }
-    svc.emit_state_changed();
+    svc.emit_state_changed(MuxEmitCause::SessionBinding);
     Ok(Json(serde_json::json!({"ok": true, "changed": true})))
 }
 

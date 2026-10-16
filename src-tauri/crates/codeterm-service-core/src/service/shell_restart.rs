@@ -1,3 +1,4 @@
+use crate::service::MuxEmitCause;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -71,7 +72,7 @@ impl ServiceContext {
         }
         self.ensure_tab_pty_for_send(tab_id)?;
         let new_pty_id = self.resolve_pty_id(tab_id)?;
-        self.emit_state_changed();
+        self.emit_state_changed(MuxEmitCause::AgentRestart);
 
         Ok(ShellRestartOutcome {
             tab_id: tab_id.to_string(),

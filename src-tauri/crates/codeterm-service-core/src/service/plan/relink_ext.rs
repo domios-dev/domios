@@ -1,4 +1,5 @@
 use crate::service::plan::relink_to_owner;
+use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
 
 impl ServiceContext {
@@ -15,7 +16,7 @@ impl ServiceContext {
             )
         };
         if relinked > 0 {
-            self.emit_state_changed();
+            self.emit_state_changed(MuxEmitCause::PlanTask);
         }
         relinked
     }

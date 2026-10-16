@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_service_core::service::MuxEmitCause;
 
 /// Hook endpoint: agent stopped (task complete). Called by the Stop hook of
 /// whichever provider declares the stop route in its roster.
@@ -66,7 +67,7 @@ pub async fn hook_stop(
     if let Some(identity) = state.svc.clear_pending_prompt(&tab_id) {
         state.svc.resolve_prompt_notifications(&tab_id, &identity);
     }
-    state.svc.emit_state_changed();
+    state.svc.emit_state_changed(MuxEmitCause::ProviderSignal);
 
     // A nonce-verified report is the completion-via-report path; a nonce-less legacy post keeps today's tab-keyed behavior.
     match (verdict, report_nonce.as_deref()) {
