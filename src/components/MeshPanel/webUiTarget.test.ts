@@ -2,7 +2,7 @@
 
 import type { AppConfig } from "../../lib/types";
 import type { ServeReconcileSnapshot, ServeStatus } from "../../lib/webAccess";
-import { buildWebUiTarget, type NetworkInfo } from "./webUiTarget";
+import { buildWebUiTarget, classifyWebUiRoute, displayedWebUrl, type NetworkInfo } from "./webUiTarget";
 
 let passed = 0;
 let failed = 0;
@@ -121,6 +121,23 @@ assert(
   "http://100.64.10.3:7685/#token=secret",
 );
 assert("network IP is fallback", fallback.usingFallback, true);
+
+for (const [net, status, kind, expectedHost] of [
+  [network, serve(), "tailscale_https", "rollacode-bot.example-tailnet.ts.net"],
+  [network, null, "tailscale_ip", "100.64.10.3"],
+  [{ local_ip: "192.168.1.20" }, null, "lan", "192.168.1.20"],
+  [null, null, "loopback", "127.0.0.1"],
+  [{ local_ip: "localhost" }, null, "loopback", "localhost"],
+  [network, serve({ active: true, snapshot: { ...readySnapshot(), state: "unhealthy", url: null } }), "tailscale_ip", "100.64.10.3"],
+] as const) {
+  const target = buildWebUiTarget(config, net, status);
+  const route = classifyWebUiRoute(config, net, status);
+  assert("route agrees with selected target", [route.kind, new URL(target.link).hostname], [kind, expectedHost]);
+  assert("display URL has no token", displayedWebUrl(target.link).includes("secret"), false);
+  assert("authenticated link keeps token", new URL(target.link).hash.includes("token=secret"), true);
+}
+assert("display strips token query too", displayedWebUrl("http://localhost:7686/?token=secret#token=secret"), "http://localhost:7686/");
+assert("loopback explains phone limitation", classifyWebUiRoute(config, null).reason.includes("phone"), true);
 
 if (failed > 0) {
   console.error(`\n${failed} webUiTarget tests failed`);

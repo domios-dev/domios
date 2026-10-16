@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { ArrowRight, Plus } from "lucide-react";
+import { ArrowRight, Globe, Plus } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
 import { ConnectionLine } from "./ConnectionLine";
 import type { Service } from "./types";
@@ -8,7 +8,7 @@ import { CanvasToolbar } from "../Canvas/CanvasToolbar";
 import { useCanvasViewport, formatLayerTransform } from "../Canvas/useCanvasViewport";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
-import { groupServicesByPeer } from "./meshProjection";
+import { groupServicesByPeer, webGatewayGraph } from "./meshProjection";
 
 export interface RecentPush {
   source_id: string;
@@ -40,6 +40,9 @@ interface PushStats {
 }
 
 interface Props {
+  onWebClick?: () => void;
+  webSelected?: boolean;
+  webStatus?: string;
   thisMachine: { name: string; ip: string };
   peers: PeerStatus[];
   services: Service[];
@@ -67,6 +70,9 @@ const CARD_GAP = 60;
 const CARD_FULL_WIDTH = CARD_HALF_WIDTH * 2;
 
 export function MeshCanvas({
+  onWebClick,
+  webSelected = false,
+  webStatus = "Unavailable",
   thisMachine,
   peers,
   services,
@@ -95,8 +101,8 @@ export function MeshCanvas({
         id: "__self__",
         name: thisMachine.name,
         ip: thisMachine.ip,
-        x: cx,
-        y: cy,
+        x: cx + Math.cos(-Math.PI / 2) * radius,
+        y: cy + Math.sin(-Math.PI / 2) * radius,
         isThisMachine: true,
         webUrl: webUiBaseUrl
           ? webLinkWithTokenAndRelay(webUiBaseUrl, webUiToken, null)
@@ -106,7 +112,7 @@ export function MeshCanvas({
     ];
     peers.forEach((p, i) => {
       const angle =
-        (i / Math.max(peers.length, 1)) * Math.PI * 2 - Math.PI / 2;
+        ((i + 1) / (peers.length + 1)) * Math.PI * 2 - Math.PI / 2;
       items.push({
         id: p.instance_id,
         name: p.name,
@@ -158,6 +164,8 @@ export function MeshCanvas({
     [width, height, thisMachine.name, thisMachine.ip, showGhost, peers],
   );
 
+  const gateway = { x: width / 2, y: height / 2 };
+  const gatewayGraph = webGatewayGraph(peers);
   const local = layout[0];
   const remoteLayout = useMemo(() => layout.slice(1), [layout]);
   const serviceByPeer = useMemo(() => groupServicesByPeer(services), [services]);
@@ -200,12 +208,12 @@ export function MeshCanvas({
 
   const contentBounds = useMemo(() => {
     if (!layout.length) return null;
-    const minX = Math.min(...layout.map((p) => p.x - CARD_HALF_WIDTH));
-    const maxX = Math.max(...layout.map((p) => p.x + CARD_HALF_WIDTH));
-    const minY = Math.min(...layout.map((p) => p.y - CARD_HALF_HEIGHT));
-    const maxY = Math.max(...layout.map((p) => p.y + CARD_HALF_HEIGHT));
+    const minX = Math.min(gateway.x - 120, ...layout.map((p) => p.x - CARD_HALF_WIDTH));
+    const maxX = Math.max(gateway.x + 120, ...layout.map((p) => p.x + CARD_HALF_WIDTH));
+    const minY = Math.min(gateway.y - 60, ...layout.map((p) => p.y - CARD_HALF_HEIGHT));
+    const maxY = Math.max(gateway.y + 60, ...layout.map((p) => p.y + CARD_HALF_HEIGHT));
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
-  }, [layout]);
+  }, [layout, gateway.x, gateway.y]);
 
   useEffect(() => {
     if (!contentBounds || width <= 0 || height <= 0) return;
@@ -249,6 +257,27 @@ export function MeshCanvas({
           height={height}
           style={{ overflow: "visible" }}
         >
+          {gatewayGraph.edges.map((edge) => {
+            const machine = layout.find((item) => item.id === edge.machineId);
+            if (!machine) return null;
+            const label = `${machine.name}: ${edge.online ? "online" : "offline"} ${edge.label}`;
+            const launch = () => {
+              if (machine.isThisMachine) onWebClick?.();
+              else if (machine.webUrl) onOpenPeerWebUi?.(machine.webUrl);
+            };
+            return (
+              <g key={edge.machineId} role="button" tabIndex={0} aria-label={label} aria-disabled={!machine.isThisMachine && !machine.webUrl}
+                style={{ pointerEvents: "auto", cursor: "pointer" }}
+                onClick={launch}
+                onKeyDown={(event) => {
+                  if (event.code === "Enter" || event.code === "Space") { event.preventDefault(); launch(); }
+                }}>
+                <title>{label}</title>
+                <line x1={gateway.x} y1={gateway.y} x2={machine.x} y2={machine.y} stroke="var(--ct-accent)" strokeWidth={2} strokeDasharray={edge.online ? undefined : "6 4"} />
+                <text x={(gateway.x + machine.x) / 2} y={(gateway.y + machine.y) / 2} fill="var(--ct-muted-fg)" fontSize={11} textAnchor="middle">{edge.online ? "online" : "offline"} · {edge.label}</text>
+              </g>
+            );
+          })}
           {remoteLayout.map((p, i) => {
             if (p.isGhost) {
               return (
@@ -292,6 +321,13 @@ export function MeshCanvas({
               );
             })}
         </svg>
+        <button type="button" data-peer-card aria-label="Web" aria-pressed={webSelected} onClick={onWebClick}
+          className="absolute flex w-[240px] flex-col items-center gap-2 rounded-xl border border-[var(--ct-accent)] bg-[var(--ct-bg)] px-5 py-4 text-[var(--ct-fg)] focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]"
+          style={{ left: gateway.x, top: gateway.y, transform: "translate(-50%,-50%)" }}>
+          <Globe size={24} aria-hidden="true" />
+          <strong>Web</strong>
+          <span className="text-xs">{webStatus}</span>
+        </button>
         {layout.map((p, i) => (
           <div
             key={`${p.id}-${i}`}

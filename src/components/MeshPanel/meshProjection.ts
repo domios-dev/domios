@@ -37,3 +37,15 @@ export function groupServicesByPeer(services: Service[]): Map<string, Service[]>
 export function pairedPeers(peers: PeerStatus[]): PeerStatus[] {
   return peers.filter((p) => !p.pending);
 }
+
+export const WEB_NODE_ID = "__web__";
+
+export function webGatewayGraph(peers: PeerStatus[]) {
+  return {
+    nodes: [WEB_NODE_ID, SELF_PEER_KEY, ...peers.map((peer) => peer.instance_id)],
+    edges: [
+      { machineId: SELF_PEER_KEY, online: true, label: "via this machine's gateway" },
+      ...pairedPeers(peers).map((peer) => ({ machineId: peer.instance_id, online: peer.online, label: "via this machine's gateway" })),
+    ],
+  };
+}
