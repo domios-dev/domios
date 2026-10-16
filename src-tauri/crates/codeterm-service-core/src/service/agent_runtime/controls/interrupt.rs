@@ -168,7 +168,7 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
                 {
                     session.state.lock().degrade(target.epoch, &reason);
                     engine::publish(svc, tab, &session);
-                    svc.emit_state_changed();
+                    svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
                 }
                 return Err(reason);
             }

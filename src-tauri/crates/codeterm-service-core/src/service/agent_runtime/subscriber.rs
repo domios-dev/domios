@@ -112,7 +112,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                 session.state.lock().degrade(epoch, &reason);
                 let tab = session.context.lock().tab_id.clone();
                 engine::publish(&svc, &tab, &session);
-                svc.emit_state_changed();
+                svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
                 log::error!("[agent-runtime] tab={tab} owned process cleanup failed: {reason}");
                 return;
             }
