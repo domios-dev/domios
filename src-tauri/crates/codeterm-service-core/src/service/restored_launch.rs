@@ -132,6 +132,15 @@ pub(crate) fn restored_launch_task(
             role_profile,
         )
     };
+    let task = if launch
+        .execution_sandbox
+        .as_ref()
+        .is_some_and(|policy| policy.intent == crate::plan::ExecutionIntent::ReadOnly)
+    {
+        task.map(crate::prompts::with_read_only_worker_guidance)
+    } else {
+        task
+    };
     (prompt_capable, task)
 }
 

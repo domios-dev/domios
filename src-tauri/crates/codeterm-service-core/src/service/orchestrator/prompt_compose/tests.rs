@@ -1,6 +1,25 @@
 use super::{agent_system_prompt, spawn_onboarding_task, worker_agent_system_prompt};
 use crate::service::orchestrator::types::SpawnAgentParams;
 
+#[test]
+fn read_only_pty_brief_selects_the_stdin_reporting_fragment_once() {
+    let params = SpawnAgentParams {
+        role: Some("Worker".into()),
+        execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+        task: Some("opaque-assignment".into()),
+        ..Default::default()
+    };
+    let prompt = super::spawn_launch_task(&params, true).unwrap();
+    assert_eq!(
+        prompt
+            .matches(crate::prompts::READ_ONLY_WORKER_GUIDANCE.trim())
+            .count(),
+        1
+    );
+    assert!(!prompt.contains(crate::prompts::AGENT_PAD_RULE.trim()));
+    assert_eq!(prompt.matches("opaque-assignment").count(), 1);
+}
+
 fn orchestrator_params(task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
         agent: Some("test-provider".into()),

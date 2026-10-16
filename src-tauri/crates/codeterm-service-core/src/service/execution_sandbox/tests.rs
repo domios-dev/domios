@@ -223,6 +223,7 @@ fn restore_reapplies_saved_intent_and_cwd_above_requested_bypass() {
     let policy = policy();
     let params = SpawnAgentParams {
         agent: Some("opaque-provider".into()),
+        role: Some("Worker".into()),
         execution_intent: Some(ExecutionIntent::Mutating),
         cwd: Some("foreign-cwd".into()),
         skip_permissions: Some(true),
@@ -248,6 +249,14 @@ fn restore_reapplies_saved_intent_and_cwd_above_requested_bypass() {
     assert!(!restored
         .params
         .permission_bypass_requested("opaque-provider"));
+    let prompt = restored.launch_task.unwrap();
+    assert_eq!(
+        prompt
+            .matches(crate::prompts::READ_ONLY_WORKER_GUIDANCE.trim())
+            .count(),
+        1
+    );
+    assert!(!prompt.contains(crate::prompts::AGENT_PAD_RULE.trim()));
 }
 
 #[test]
@@ -305,4 +314,78 @@ fn tab_policy_survives_missing_restore_intent_and_refuses_weakening() {
             .execution_sandbox,
         Some(initial)
     );
+}
+
+#[test]
+fn pty_fresh_and_resume_forward_the_declared_sandbox_without_bypass() {
+    let launches = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let resumes = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("opaque-provider")
+            .with_structured_prompt_launch_log(launches.clone())
+            .with_resume_context_log(resumes.clone())
+            .with_execution_sandbox(ExecutionSandboxCapability {
+                platforms: vec![crate::agent::provider::current_platform_tag().into()],
+                read_only: Some(ExecutionSandboxMode {
+                    launch_args: vec!["opaque-sandbox".into()],
+                    runtime_mode: Some("opaque-mode".into()),
+                }),
+                ..Default::default()
+            }),
+    ));
+    let directory = tempfile::tempdir().unwrap();
+    let params = SpawnAgentParams {
+        cwd: Some(directory.path().to_str().unwrap().into()),
+        execution_intent: Some(ExecutionIntent::ReadOnly),
+        skip_permissions: Some(true),
+        permission_bypass_authorization: Some(
+            crate::service::permission_policy::PermissionBypassAuthorization::for_test(
+                "opaque-provider",
+            ),
+        ),
+        ..Default::default()
+    };
+    let command = crate::service::orchestrator::build_agent_command(
+        "opaque-provider",
+        &params,
+        None,
+        None,
+        &registry,
+    );
+    assert!(!command.is_empty());
+    assert_eq!(launches.lock().len(), 1);
+    assert!(!launches.lock()[0].skip_permissions);
+    assert_eq!(
+        launches.lock()[0].args.as_deref().unwrap(),
+        &["opaque-sandbox".to_string()]
+    );
+    let resumed = SpawnAgentParams {
+        resume_session_id: Some("opaque-session".into()),
+        ..params.clone()
+    };
+    assert!(!crate::service::orchestrator::build_agent_command(
+        "opaque-provider",
+        &resumed,
+        None,
+        None,
+        &registry
+    )
+    .is_empty());
+    assert_eq!(resumes.lock().len(), 1);
+    assert!(!resumes.lock()[0].skip_permissions);
+    assert_eq!(resumes.lock()[0].args, vec!["opaque-sandbox"]);
+    let overridden = SpawnAgentParams {
+        args: Some(vec!["--override".into()]),
+        ..params
+    };
+    assert!(crate::service::orchestrator::build_agent_command(
+        "opaque-provider",
+        &overridden,
+        None,
+        None,
+        &registry
+    )
+    .is_empty());
+    assert_eq!(launches.lock().len(), 1);
 }
