@@ -152,6 +152,7 @@ export interface SidebarWorkspaceTabsProps {
   onOpenRemoteTab?: () => void;
   newSessionDisabled?: boolean;
   onRenameTeam?: (teamId: string, name: string, managerTabId: string | null) => void | Promise<void>;
+  onRenamePlan?: (planId: string, title: string) => Promise<void>;
   onAddTeamMember?: (
     teamId: string,
     role: TeamMemberRole,
@@ -194,6 +195,7 @@ export function SidebarWorkspaceTabs({
   onOpenRemoteTab,
   newSessionDisabled = false,
   onRenameTeam,
+  onRenamePlan,
   onAddTeamMember,
   onCloseTeam,
   closingTeamIds,
@@ -421,6 +423,7 @@ export function SidebarWorkspaceTabs({
       workspace_id: ws.id,
     };
     const managerTabId = selectTeamStaffingManager(managers.map((member) => member.tab));
+    const plan = plansByTeam.get(teamId) ?? null;
     const teamCrons = workspaceCrons.filter((job) => job.team_id === teamId);
 
     rows.push(
@@ -433,7 +436,7 @@ export function SidebarWorkspaceTabs({
         sentinelScope={onOpenSentinelJob && teamById.has(teamId) ? { workspace_id: ws.id, team_id: teamId } : undefined}
         onOpenSentinel={onOpenSentinelJob ? (scenarioId) => onOpenSentinelJob({ teamId, scenarioId }) : undefined}
         team={team}
-        plan={plansByTeam.get(teamId) ?? null}
+        plan={plan}
         tabs={tabs}
         managerCount={managers.length}
         managers={
@@ -493,9 +496,9 @@ export function SidebarWorkspaceTabs({
         ))}
         providers={providers}
         providersLoading={providersLoading}
-        onRenameTeam={onRenameTeam
-          ? (teamId, name) => onRenameTeam(teamId, name, managerTabId)
-          : undefined}
+        onRenameTeam={plan
+          ? onRenamePlan ? (_teamId, name) => onRenamePlan(plan.id, name) : undefined
+          : onRenameTeam ? (teamId, name) => onRenameTeam(teamId, name, managerTabId) : undefined}
         onOpenEffort={(target) => {
           onBeforeOpenPlan();
           openTeamPlanCanvas({ ...target, managerTabId });

@@ -557,7 +557,7 @@ export function TeamUnit({
 
   const commitRename = async () => {
     const trimmed = name.trim();
-    if (!trimmed || trimmed === displayTitle || trimmed === (team.name?.trim() || "Team") || !onRenameTeam) {
+    if (!trimmed || trimmed === displayTitle || !onRenameTeam) {
       setName(team.name?.trim() || "Team");
       setEditing(false);
       return;
@@ -675,7 +675,7 @@ export function TeamUnit({
               providersLoading={providersLoading}
               contextMenuTargetRef={headerRef}
               onOpenPlan={plan ? () => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id }) : undefined}
-              onRename={!plan && onRenameTeam ? () => {
+              onRename={onRenameTeam ? () => {
                 setRenameError(null);
                 setName(displayTitle);
                 setEditing(true);
