@@ -810,9 +810,6 @@ release_stable_build_path() {
 
 enter_build_gateway() {
   ct_gateway_acquire "$*"
-  if [ "$CMD" != gc ]; then
-    ct_cache_retention auto || echo "[cache-policy] retention refused; build continues" >&2
-  fi
   local gateway_log
   CT_BUILD_ARTIFACT_DIR="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.artifacts"
   mkdir -p "$CT_BUILD_ARTIFACT_DIR"
@@ -820,6 +817,10 @@ enter_build_gateway() {
   gateway_log="$(ct_gateway_log_path)"
   echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
   [ "$CMD" = check-queue ] || [ "$CMD" = check-workspace ] || enter_stable_build_path
+  # Runs after the stable mapping so retention sees X: and refreshes the recorded gateway build directory.
+  if [ "$CMD" != gc ]; then
+    ct_cache_retention auto || echo "[cache-policy] retention refused; build continues" >&2
+  fi
   if [ "${CT_BUILD_GATEWAY_NO_TEE:-0}" = "1" ] && [ "${CODETERM_BUILD_FINGERPRINTS:-0}" != 1 ]; then
     echo "WARNING: build gateway log duplication is disabled by CT_BUILD_GATEWAY_NO_TEE=1" >&2
     return
