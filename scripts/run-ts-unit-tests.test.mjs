@@ -342,11 +342,14 @@ socket.on("error", () => {});
     RUNNER_TEST_PORT: String(server.address().port),
     TS_UNIT_JOBS: "1",
     TS_UNIT_TIMEOUT_SECONDS: "20",
-    TS_UNIT_SUITE_TIMEOUT_SECONDS: "1",
+    // The deadline must outlast a cold tsx worker start on a loaded runner, or it fires before the worker connects.
+    TS_UNIT_SUITE_TIMEOUT_SECONDS: "8",
     CODETERM_TS_UNIT_RUNNER_TEST_LIST: listFile,
     TS_UNIT_TRACE: "1",
   });
-  await connected;
+  await Promise.race([connected, run.then((early) => {
+    throw new Error(`runner exited before the worker connected\n${early.stdout}${early.stderr}`);
+  })]);
   const result = await run;
   await closed;
 
@@ -406,16 +409,19 @@ socket.on("error", () => {});
     RUNNER_TEST_PORT: String(server.address().port),
     TS_UNIT_JOBS: "1",
     TS_UNIT_TIMEOUT_SECONDS: "20",
-    TS_UNIT_SUITE_TIMEOUT_SECONDS: "1",
+    // The deadline must outlast a cold tsx worker start on a loaded runner, or it fires before the worker connects.
+    TS_UNIT_SUITE_TIMEOUT_SECONDS: "8",
     CODETERM_TS_UNIT_RUNNER_TEST_LIST: listFile,
     TS_UNIT_TRACE: "1",
   });
-  await connected;
+  await Promise.race([connected, run.then((early) => {
+    throw new Error(`runner exited before the worker connected\n${early.stdout}${early.stderr}`);
+  })]);
   const result = await run;
   await closed;
   assert.equal(result.code, 1, result.stdout + result.stderr);
   assert.match(result.stdout, /TS UNIT SUITE INCOMPLETE/);
-  assert.match(result.stdout, /global deadline reached after 1s/);
+  assert.match(result.stdout, /global deadline reached after 8s/);
   const workerPid = Number(
     result.stdout.match(/\[ts-unit trace\] started index=0 child=(\d+)/)?.[1],
   );
