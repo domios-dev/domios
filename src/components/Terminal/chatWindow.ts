@@ -119,3 +119,21 @@ export function chatReadingWindowAnchor(
   if (anchorKey != null || followTail || previousTail == null) return anchorKey;
   return rekeyedChatWindowAnchor(items, previousTail);
 }
+
+export type OlderChatAction = { kind: "reveal"; anchorKey: string | null }
+  | { kind: "backfill"; beforeOffset: number }
+  | { kind: "none" };
+
+export function olderChatAction(
+  items: readonly TimelineItem[],
+  anchorKey: string | null,
+  anchorLoaded: boolean,
+  cursor: number | null,
+  inFlight: boolean,
+): OlderChatAction {
+  if (inFlight) return { kind: "none" };
+  if (anchorLoaded && chatWindowRange(items, anchorKey).start > 0) {
+    return { kind: "reveal", anchorKey: slideChatWindowOlder(items, anchorKey) };
+  }
+  return cursor != null && cursor > 0 ? { kind: "backfill", beforeOffset: cursor } : { kind: "none" };
+}
