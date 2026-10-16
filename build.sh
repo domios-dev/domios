@@ -368,8 +368,8 @@ run_nextest_scope() {
       targets=("${CT_APP_TEST_TARGET_ARGS[@]}")
       ;;
     shell) package="codeterm"; targets+=(--lib --test main) ;;
-    mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets+=(--lib) ;;
-    paths|codeterm-paths) package="codeterm-paths"; targets+=(--lib) ;;
+    mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets=(--lib) ;;
+    paths|codeterm-paths) package="codeterm-paths"; targets=(--lib) ;;
     input-platform) targets+=(--lib -p codeterm-input-macos -p codeterm-input-windows) ;;
     frontend-bundle|codeterm-frontend-bundle) package="codeterm-frontend-bundle"; targets+=(--lib) ;;
     notification-core|codeterm-notification-core) package="codeterm-notification-core"; targets+=(--lib) ;;
@@ -2498,8 +2498,8 @@ EOF
         prepare_exceptional_worktree_target
         scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm --lib --test main "$test_filter"
         ;;
-      mem-store) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-mem-store --lib "$test_filter" ;;
-      paths) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-paths --lib "$test_filter" ;;
+      mem-store|codeterm-mem-store) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-mem-store --lib "$test_filter" ;;
+      paths|codeterm-paths) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-paths --lib "$test_filter" ;;
       input-macos|input-windows)
         scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
         ;;
