@@ -51,6 +51,7 @@ import { openNewSessionPicker } from "../../lib/newSessionChoice";
 import { terminalFrameVisible, terminalLayoutRequired } from "../../lib/terminalFrameGate";
 
 interface TerminalTabProps {
+  wakingTranscript?: boolean;
   tabId: string;
   ptyId?: string | null;
   isFocused?: boolean;
@@ -68,6 +69,7 @@ interface TerminalTabProps {
 export const TerminalTab = memo(function TerminalTab({
   tabId,
   ptyId,
+  wakingTranscript = false,
   isFocused = false,
   isVisible = true,
   hasSplits = false,
@@ -114,7 +116,8 @@ export const TerminalTab = memo(function TerminalTab({
       chatCapable,
     });
   }, [tabId, chatCapable]);
-  const [uiMode, setUiMode] = useState<TabUiMode>(computeMode);
+  const [preferredUiMode, setUiMode] = useState<TabUiMode>(computeMode);
+  const uiMode = wakingTranscript ? "chat" : preferredUiMode;
   const [keptFailureKey, setKeptFailureKey] = useState<string | null>(null);
   const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
   const [framePtyId, setFramePtyId] = useState<string | null>(null);
@@ -124,6 +127,7 @@ export const TerminalTab = memo(function TerminalTab({
   const [searchOpen, setSearchOpen] = useState(false);
   const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
   const ownsLivePty = terminalOwnsLivePty({
+    frozen: tab?.frozen,
     terminalVisible,
     tabVisible: isVisible,
     ptyId,

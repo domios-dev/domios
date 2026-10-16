@@ -1,6 +1,11 @@
 import { strict as assert } from "node:assert";
 import { terminalOwnsLivePty, terminalRenderEnabled } from "./terminalOwnership";
 
+for (const isWeb of [true, false]) {
+  assert.equal(terminalOwnsLivePty({ isWeb, frozen: true, terminalVisible: true, tabVisible: true, ptyId: null }), false,
+    "frozen transcript must not spawn a replacement shell");
+}
+
 assert.equal(
   terminalOwnsLivePty({
     isWeb: false,
