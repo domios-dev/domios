@@ -1796,8 +1796,10 @@ function historyThread(ctx, value, expected) {
   if (!descendantThread(ctx, expected)) return false;
   const thread = object(object(value).thread);
   if (text(thread.id) !== expected) return false;
-  const parent = text(thread.parentThreadId) ?? text(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
-  return parent === ctx.threadParents.find((entry) => entry.threadId === expected)?.parentThreadId;
+  const parent = ctx.threadParents.find((entry) => entry.threadId === expected)?.parentThreadId;
+  const declared = text(thread.parentThreadId);
+  const source = text(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
+  return (declared !== void 0 || source !== void 0) && (declared === void 0 || declared === parent) && (source === void 0 || source === parent);
 }
 
 // plugins/provider-codex/src/runtimePrompts.ts
@@ -2060,7 +2062,7 @@ function reduceRuntimeAgents(state, items, parents, parent, raw, seq) {
     state.rows[agent] = row2.id;
     parents[agent] = parent;
     state.ordinal += 1;
-    row2.toolInput = { ...object(row2.toolInput), agent_ordinal: spawn ? object(row2.toolInput).agent_ordinal : state.ordinal };
+    row2.toolInput = { ...object(row2.toolInput), agent_parent_thread_id: parent, agent_ordinal: state.ordinal };
     return [row2];
   });
 }
@@ -2335,6 +2337,11 @@ function runtimeReduce(ctx, raw, frames) {
       continue;
     }
     if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents, params.threadId) && frame.method !== "serverRequest/resolved") {
+      if ((frame.method === "item/started" || frame.method === "item/completed") && ctx.threadId) {
+        state.agents ?? (state.agents = { rows: /* @__PURE__ */ Object.create(null), ordinal: 0 });
+        const agents = reduceRuntimeAgents(state.agents, state.items, state.parents, params.threadId, params.item, state.seq + 1);
+        if (agents) for (const activity of agents) events.push({ kind: "chatItem", threadId: ctx.threadId, item: stamp(state, activity, params) });
+      }
       const threadId2 = params.threadId;
       const turnId2 = text(object(params.turn).id) ?? text(params.turnId);
       if (!turnId2) continue;
@@ -2589,7 +2596,14 @@ function validateBinding(ctx, op) {
   if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId && !(op.kind === "readHistory" && descendantThread(ctx, op.threadId))) fail2("binding_mismatch", "Thread differs from the bound thread");
   if ("activeTurnId" in op && op.activeTurnId && op.activeTurnId !== ctx.activeTurnId) fail2("binding_mismatch", "Active turn differs from the bound turn");
 }
+function historyTarget(ctx, op, plan) {
+  if (op.kind !== "readHistory" || op.threadId === ctx.threadId || plan.action.kind !== "request") return plan;
+  return { ...plan, action: { ...plan.action, call: { ...plan.action.call, target: { threadId: op.threadId } } } };
+}
 function runtimePlan(ctx, op) {
+  return historyTarget(ctx, op, planOperation(ctx, op));
+}
+function planOperation(ctx, op) {
   validateBinding(ctx, op);
   switch (op.kind) {
     case "initialize":
@@ -2650,6 +2664,10 @@ function continuation(plan, beforeAcceptance) {
   return { kind: "continue", plan, ...beforeAcceptance ? { beforeAcceptance } : {} };
 }
 function runtimeResponse(ctx, op, raw, reply) {
+  const step = respondOperation(ctx, op, raw, reply);
+  return step.kind === "continue" ? { ...step, plan: historyTarget(ctx, op, step.plan) } : step;
+}
+function respondOperation(ctx, op, raw, reply) {
   validateBinding(ctx, op);
   const state = object(raw);
   if (op.kind === "readHistory" && state.pager === 1) {

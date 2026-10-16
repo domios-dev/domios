@@ -14,6 +14,8 @@ Pin host/JS budget and record-identity parity before extending another parser.
 
 `agentRuntime.storedHistory` declares that `runtimeStoredHistory(sessionId, records)` projects bounded native session records to the same item ids and row order as runtime history. It is pure: no process, filesystem or new sandbox host API. Reject foreign session metadata, ignore foreign-thread events, and test offline/runtime projection parity. The host keeps stored byte cursors separate from runtime item cursors.
 
+Runtime agent rows may carry `agent_parent_thread_id` beside `agent_id`, `agent_ordinal`, `agent_state`, `agent_description`, `agent_model` and `agent_reasoning_effort` in `toolInput`. Emit the parent marker only for provider-authenticated spawn/activity receivers. The host records those children under the current root binding and permits descendant `readHistory` requests with an exact `call.target.threadId`, never child sends, rebinds, notifications or response side effects. Ordinary references to another thread grant no inspection authority.
+
 `launchOnboardingSafeChoice(screen)` declares the exact option value associated
 with `launchOnboardingResponse(screen)`. Missing or null means unsupported. The
 host requires a unique provider-parsed option, a delegated Worker/Planner role,
