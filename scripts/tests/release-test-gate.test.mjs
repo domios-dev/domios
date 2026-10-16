@@ -16,7 +16,7 @@ const tests = workflow("tests");
 const builds = ["macos-arm64", "macos-x64", "linux-arm64", "linux-x86_64", "windows-x64", "windows-arm64"];
 const dependencies = job => [job.needs].flat();
 
-const fastJobs = ["file-sizes", "plugin-metadata", "plugins", "fmt", "clippy-linux", "ts-static", "frontend-windows", "ts-types", "ts-unit", "ts-vitest", "ts-plugins", "release-contracts"];
+const fastJobs = ["guards", "plugins", "clippy-linux", "ts-static", "frontend-windows", "ts-types", "ts-unit", "ts-vitest", "ts-plugins"];
 const longJobs = ["rust-tests", "rust-platform", "rust-embeddings", "rust-receipts"];
 const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
 
@@ -25,106 +25,107 @@ const afterFast = ["linux-x86_64", "tests"];
 const app = { result: "success", outputs: { kind: "app", published: "false", dry_run: "false" } };
 const results = ["success", "failure", "cancelled", "skipped"];
 
-test("one fast-check caller runs per mode, and the overlapping one cancels the run when it fails", () => {
-  for (const id of ["quick-checks", "fast-gate"]) {
-    const job = release.jobs[id];
-    assert.equal(job.uses, "./.github/workflows/tests.yml");
-    assert.equal(job.with.phase, "fast");
-    assert.deepEqual(dependencies(job), ["prepare"]);
-    assert.equal(job.with.source_ref, "${{ needs.prepare.outputs.source_sha }}");
-  }
-  for (const overlap of [undefined, "true", "false"]) {
-    const vars = { RELEASE_OVERLAP_FAST_CHECKS: overlap };
-    const running = ["quick-checks", "fast-gate"].filter(id => condition(release.jobs[id].if, { needs: { prepare: app }, inputs: {}, vars }));
-    assert.deepEqual(running, [overlap === "false" ? "fast-gate" : "quick-checks"], String(overlap));
-  }
-  const abort = release.jobs["fast-checks-failed"];
-  assert.deepEqual(dependencies(abort), ["quick-checks"]);
-  for (const result of results) assert.equal(condition(abort.if, { needs: { "quick-checks": { result } } }), result === "failure", result);
-  assert.match(abort.steps.map(step => step.run).join("\n"), /gh run cancel \$\{\{ github\.run_id \}\}/);
-  for (const id of [...builds, "tests", "quick-checks", "fast-gate"]) assert.notEqual(release.jobs[id]["continue-on-error"], true);
+test("one fast-check caller runs, and it cancels the run when a check fails", () => {
+  const job = release.jobs["quick-checks"];
+  assert.equal(job.uses, "./.github/workflows/tests.yml");
+  assert.equal(job.with.phase, "fast");
+  assert.deepEqual(dependencies(job), ["prepare"]);
+  assert.equal(job.with.source_ref, "${{ needs.prepare.outputs.source_sha }}");
+  assert.equal(job.with.cancel_run, true);
+  const callers = Object.entries(release.jobs).filter(([, entry]) => entry.uses === "./.github/workflows/tests.yml").map(([id]) => id);
+  assert.deepEqual(callers.sort(), ["quick-checks", "tests"]);
+  for (const id of [...builds, "tests", "quick-checks"]) assert.notEqual(release.jobs[id]["continue-on-error"], true);
 });
 
 test("builds on machines no fast check uses start at once; the rest wait for the fast checks", () => {
   for (const id of overlapped) {
     const job = release.jobs[id];
-    assert.deepEqual(dependencies(job), ["prepare", "fast-gate"]);
-    for (const gate of results) {
-      const needs = { prepare: app, "fast-gate": { result: gate } };
-      assert.equal(condition(job.if, { needs }), ["success", "skipped"].includes(gate), `${id}: ${gate}`);
-      assert.equal(condition(job.if, { needs, cancelled: true }), false);
-    }
-    assert.equal(dependencies(job).includes("tests"), false, "builds overlap the Rust tests");
+    assert.deepEqual(dependencies(job), ["prepare"]);
+    assert.equal(condition(job.if, { needs: { prepare: app } }), true, id);
+    assert.equal(condition(job.if, { needs: { prepare: app }, cancelled: true }), false);
   }
   for (const id of afterFast) {
     const job = release.jobs[id];
-    assert.deepEqual(dependencies(job), ["prepare", "quick-checks", "fast-gate"]);
+    assert.deepEqual(dependencies(job), ["prepare", "quick-checks"]);
     for (const fast of results) {
-      for (const [overlapping, gating] of [[fast, "skipped"], ["skipped", fast]]) {
-        const needs = { prepare: app, "quick-checks": { result: overlapping }, "fast-gate": { result: gating } };
-        assert.equal(condition(job.if, { needs, inputs: {} }), fast === "success", `${id}: ${overlapping}/${gating}`);
-      }
+      const needs = { prepare: app, "quick-checks": { result: fast } };
+      assert.equal(condition(job.if, { needs, inputs: {} }), fast === "success", `${id}: ${fast}`);
     }
   }
   assert.equal(release.jobs.tests.with.phase, "long");
-  assert.deepEqual(new Set(dependencies(release.jobs["release-manifest"])), new Set(["prepare", "quick-checks", "fast-gate", "tests", ...builds]));
+  assert.deepEqual(new Set(dependencies(release.jobs["release-manifest"])), new Set(["prepare", "quick-checks", "tests", ...builds]));
 });
 
 test("dry runs use both test stages by default; bundle-only diagnostics explicitly bypass them", () => {
   assert.equal(release.on.workflow_dispatch.inputs.dry_run_tests.default, true);
   const base = "(needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'";
-  assert.equal(release.jobs["quick-checks"].if, `${base} && vars.RELEASE_OVERLAP_FAST_CHECKS != 'false'`);
-  assert.equal(release.jobs["fast-gate"].if, `${base} && vars.RELEASE_OVERLAP_FAST_CHECKS == 'false'`);
+  assert.equal(release.jobs["quick-checks"].if, base);
   const dry = { result: "success", outputs: { kind: "app", published: "false", dry_run: "true" } };
   for (const id of builds) {
     assert.equal(release.jobs[id].with.dry_run, "${{ needs.prepare.outputs.dry_run == 'true' }}");
-    const needs = { prepare: dry, "quick-checks": { result: "skipped" }, "fast-gate": { result: "skipped" } };
+    const needs = { prepare: dry, "quick-checks": { result: "skipped" } };
     assert.equal(condition(release.jobs[id].if, { needs, inputs: { dry_run_tests: false } }), true, id);
   }
   const draft = release.jobs.prepare.steps.find(step => step.name === "Create draft releases before parallel uploads");
   assert.equal(draft.if, "steps.release.outputs.dry_run != 'true' && steps.release.outputs.published != 'true' && steps.release.outputs.kind == 'app'");
 });
 
-test("file sizes gate every other fast check, and test phases partition every check", () => {
+test("guards gate every other fast check, and test phases partition every check", () => {
   assert.deepEqual(Object.keys(tests.jobs).sort(), ["changed", "rust-warnings", ...fastJobs, ...longJobs].sort());
-  const needs = { changed: { result: "success", outputs: { heavy: "true", rust: "true", frontend: "true", plugins: '[{"id":"test"}]' } }, fmt: { result: "success" }, "rust-tests": { result: "success" }, "rust-platform": { result: "success" }, "rust-embeddings": { result: "success" } };
+  const needs = { changed: { result: "success", outputs: { heavy: "true", rust: "true", frontend: "true", plugins: '[{"id":"test"}]' } }, guards: { result: "success" }, "rust-tests": { result: "success" }, "rust-platform": { result: "success" }, "rust-embeddings": { result: "success" } };
   for (const id of fastJobs) {
-    assert.deepEqual(dependencies(tests.jobs[id]), id === "file-sizes" ? ["changed"] : ["changed", "file-sizes"], id);
+    assert.deepEqual(dependencies(tests.jobs[id]), id === "guards" ? ["changed"] : ["changed", "guards"], id);
     for (const phase of ["all", "fast", "long"]) assert.equal(condition(tests.jobs[id].if, { needs, inputs: { phase } }), ["all", "fast"].includes(phase), `${id}/${phase}`);
   }
   for (const id of longJobs) {
     for (const phase of ["all", "fast", "long"]) assert.equal(condition(tests.jobs[id].if, { needs, inputs: { phase } }), ["all", "long"].includes(phase), `${id}/${phase}`);
   }
-  const skipped = { ...needs, fmt: { result: "skipped" } };
+  const steps = tests.jobs.guards.steps.filter(step => step.run && !/gh run cancel/.test(step.run));
+  assert.equal(steps[0].id, "catalogue");
+  assert.equal(steps[1].run, "bash scripts/check-file-sizes.sh --fail", "file sizes run first");
+  for (const step of steps.slice(2)) assert.match(step.if, /^\$\{\{ !cancelled\(\)/, `${step.name}: one red guard still reports the rest`);
+  const skipped = { ...needs, guards: { result: "skipped" } };
   for (const id of ["rust-tests", "rust-platform", "rust-embeddings"]) assert.ok(condition(tests.jobs[id].if, { needs: skipped, inputs: { phase: "long" } }), id);
   assert.match(tests.concurrency.group, /inputs.phase/);
 });
 
-test("only a fast-check failure cancels the run; publication needs every stage to succeed", () => {
+test("each fast check cancels the calling run on its own failure; nothing else cancels it", () => {
   const cancelsRun = /actions\/runs\/[^\s"]*\/cancel|gh run cancel/;
   for (const name of ["tests", "release", "rust-warnings-summary"]) {
     for (const [id, job] of Object.entries(workflow(name).jobs)) {
-      if (name === "release" && id === "fast-checks-failed") continue;
-      for (const step of job.steps || []) assert.doesNotMatch(step.run ?? "", cancelsRun, `${name}/${id}`);
+      const cancels = (job.steps || []).filter(step => cancelsRun.test(step.run ?? ""));
+      if (name !== "tests" || !fastJobs.includes(id)) {
+        assert.deepEqual(cancels, [], `${name}/${id}`);
+        continue;
+      }
+      assert.equal(cancels.length, 1, id);
+      assert.equal(cancels[0].if, "failure() && inputs.cancel_run", id);
+      assert.match(cancels[0].run, /^gh run cancel \$\{\{ github\.run_id \}\}/m, id);
+      const announce = cancels[0].run.indexOf("::error title=Fast check failed::$FAILED_CHECK");
+      assert.ok(announce >= 0 && announce < cancels[0].run.indexOf("gh run cancel"), `${id}: names the failed check before cancelling`);
+      assert.equal(cancels[0].env.FAILED_CHECK, "${{ github.job }}", id);
+      assert.equal(job.permissions.actions, "write", id);
+      const after = job.steps.slice(job.steps.indexOf(cancels[0]) + 1);
+      assert.ok(after.every(step => step.if === "always()"), `${id}: only cleanup follows the cancel`);
     }
   }
+  assert.equal(tests.on.workflow_call.inputs.cancel_run.default, false, "pull requests and pushes never cancel themselves");
+});
+
+test("publication needs every stage to succeed", () => {
   const vars = { RELEASE_PUBLISH_ENABLED: "true" };
   const ok = Object.fromEntries([...builds, "tests"].map(id => [id, { result: "success" }]));
   const manifest = release.jobs["release-manifest"];
-  for (const [overlapping, gating] of [["success", "skipped"], ["skipped", "success"]]) {
-    const needs = { ...ok, prepare: app, "quick-checks": { result: overlapping }, "fast-gate": { result: gating } };
-    assert.equal(condition(manifest.if, { needs, vars }), true);
-    assert.equal(condition(manifest.if, { needs, vars: {} }), false, "publication stays off without the variable");
-    for (const id of [...builds, "tests"]) {
-      for (const result of ["failure", "cancelled", "skipped"]) {
-        assert.equal(condition(manifest.if, { needs: { ...needs, [id]: { result } }, vars }), false, `${id}: ${result}`);
-      }
+  const needs = { ...ok, prepare: app, "quick-checks": { result: "success" } };
+  assert.equal(condition(manifest.if, { needs, vars }), true);
+  assert.equal(condition(manifest.if, { needs, vars: {} }), false, "publication stays off without the variable");
+  for (const id of [...builds, "tests", "quick-checks"]) {
+    for (const result of ["failure", "cancelled", "skipped"]) {
+      assert.equal(condition(manifest.if, { needs: { ...needs, [id]: { result } }, vars }), false, `${id}: ${result}`);
     }
   }
-  const failed = { ...ok, prepare: app, "quick-checks": { result: "failure" }, "fast-gate": { result: "skipped" } };
-  assert.equal(condition(manifest.if, { needs: failed, vars }), false);
   for (const id of ["release-manifest", "frontend"]) {
-    assert.ok(["tests", "quick-checks", "fast-gate"].every(need => dependencies(release.jobs[id]).includes(need)), id);
+    assert.ok(["tests", "quick-checks"].every(need => dependencies(release.jobs[id]).includes(need)), id);
   }
 });
 
@@ -166,7 +167,7 @@ test("reusable tests require the release SHA and force scope through both skip g
   assert.equal(tests.on.schedule, undefined, "no nightly trigger without a scheduled catalogue tier");
   assert.equal(tests.on.workflow_call.inputs.source_ref.required, true);
   assert.equal(tests.on.workflow_call.inputs.source_ref.type, "string");
-  assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref", "scope", "phase"]);
+  assert.deepEqual(Object.keys(tests.on.workflow_call.inputs), ["source_ref", "scope", "phase", "cancel_run"]);
   const changed = tests.jobs.changed;
   assert.equal(changed.if, "${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}", "only a release branch's own pull request skips; release calls inherit the push event");
   assert.equal(changed.steps.find(step => step.id === "tree").env.CI_RELEASE_CALL, "${{ inputs.source_ref != '' }}");
@@ -208,9 +209,9 @@ test("platform builders do not push release tags before the test gate", () => {
 test("a frontend-only release builds and publishes only the frontend after the frontend tests", () => {
   const frontend = release.jobs.frontend;
   assert.equal(frontend.uses, "./.github/workflows/frontend-release.yml");
-  assert.deepEqual(new Set(dependencies(frontend)), new Set(["prepare", "quick-checks", "fast-gate", "tests"]));
+  assert.deepEqual(new Set(dependencies(frontend)), new Set(["prepare", "quick-checks", "tests"]));
   const frontendRelease = { result: "success", outputs: { kind: "frontend", published: "false", dry_run: "false" } };
-  const needs = { prepare: frontendRelease, tests: { result: "success" }, "quick-checks": { result: "success" }, "fast-gate": { result: "skipped" } };
+  const needs = { prepare: frontendRelease, tests: { result: "success" }, "quick-checks": { result: "success" } };
   const vars = { RELEASE_PUBLISH_ENABLED: "true" };
   assert.equal(condition(frontend.if, { needs, vars }), true);
   assert.equal(condition(frontend.if, { needs: { ...needs, tests: { result: "failure" } }, vars }), false);
