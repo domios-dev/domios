@@ -80,7 +80,7 @@ function sendEvidence(ctx: RuntimeContext, item: Record<string,unknown>, turnId:
     if (expected.url) return image.type === "image" && image.url === expected.url;
     return !!expected.path && image.type === "localImage" && image.path === expected.path;
   })) return undefined;
-  return {kind:"sendEvidence",threadId:claim.threadId,sendId:claim.sendId,turnId};
+  return {kind:"sendEvidence",threadId:claim.threadId,sendId:claim.sendId,turnId,...(text(item.id) ? {itemId:text(item.id)!} : {})};
 }
 function stamp(state: ReduceState, row: RuntimeItem, params: Record<string,unknown>): RuntimeItem {
   const previous = state.items[row.id];

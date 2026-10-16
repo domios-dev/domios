@@ -70,3 +70,21 @@ fn prepared_options_refuse_foreign_provider_or_nonce_before_launch() {
         assert!(apply_prepared(serde_json::json!({}), provider, nonce, Some(&options)).is_err());
     }
 }
+
+#[test]
+fn fast_mode_defaults_follow_capability_and_preserve_explicit_tab_choices() {
+    for value in [true, false] {
+        let mut config = serde_json::json!({"model":"opaque"});
+        apply_fast_mode_default(&mut config, true, Some(value));
+        assert_eq!(config["fastMode"], value);
+        assert_eq!(
+            crate::service::agent_runtime::model::settings_from_config(&config).fast_mode,
+            Some(value)
+        );
+        apply_fast_mode_default(&mut config, true, Some(!value));
+        assert_eq!(config["fastMode"], value);
+        let mut unsupported = serde_json::json!({});
+        apply_fast_mode_default(&mut unsupported, false, Some(value));
+        assert_eq!(unsupported, serde_json::json!({}));
+    }
+}

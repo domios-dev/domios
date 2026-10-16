@@ -57,6 +57,7 @@ It prints the file path and the running build SHA; open the PNG with your file-r
 ```bash
 node scripts/dev-wheel-probe.mjs                                   # sidebar: tab label, same row icon, empty space
 node scripts/dev-wheel-probe.mjs '[data-testid=tab-title]' '.sidebar-tab-badge'   # custom points
+node scripts/dev-wheel-probe.mjs '.sidebar-workspace-card[data-selected="true"] .sidebar-workspace-card-initials' '.sidebar-workspace-card-edit' '.sidebar-workspace-card[data-selected="false"] .sidebar-workspace-card-initials'
 node scripts/dev-wheel-probe.mjs --api-port 7686 --delta 480
 ```
 
@@ -346,3 +347,58 @@ The skill lives at: `.agents/skills/dev-testing/SKILL.md`
 Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [references/memory-internals.md](references/memory-internals.md) — memory storage, ranking, wake-up selection, workers and dreaming internals
+
+## Routed-message first-paint proof (Keel)
+
+Run after integration in canonical DEV; Workers do not start a lane server.
+Verify `/api/health` build equals the integration SHA. Use the Domios Browser
+(`codeterm plugin browser status`, `open --profile clean`, then `goto` the DEV
+web client), and select an owned, empty throwaway agent chat. Use a separate
+owned DEV agent as sender; never send a probe to an owner's working chat.
+
+Before the first routed send, open the Browser's DevTools Performance panel,
+enable Screenshots, and start recording. In its console install this frame
+probe while the empty target chat is selected:
+
+```js
+window.routeFrames = [];
+window.routeProbeActive = true;
+function routeFrame() {
+  if (!window.routeProbeActive) return;
+  const log = document.querySelector('[data-testid="tab-session-chat-messages"]');
+  window.routeFrames.push({ at: performance.now(), text: log?.textContent ?? "" });
+  requestAnimationFrame(routeFrame);
+}
+requestAnimationFrame(routeFrame);
+```
+
+From the DEV-locked bench shell, source `evals/_lib/lib.sh`. Set `sender` and
+`target` to those two owned DEV tab IDs. Author the body in the sender's pad:
+
+```bash
+proof_pad=$(dc --as-tab "$sender" pad path)
+cat > "$proof_pad/routed-proof.md" <<'EOF'
+route-first-paint-opaque-token: acknowledge this token once.
+EOF
+dc --as-tab "$sender" send --tab "$target" --require-agent --from-pad routed-proof.md
+```
+
+Wait for the target chat to show the token and its committed transcript echo,
+then stop the Performance recording and run in the console:
+
+```js
+window.routeProbeActive = false;
+({ frames: routeFrames.length,
+   observed: routeFrames.some(f => f.text.includes('route-first-paint-opaque-token')),
+   leaks: routeFrames.filter(f => /<\/?(?:domios|tip)\b/.test(f.text)) });
+```
+
+Pass requires nonzero frames, `observed: true`, `leaks: []`, and a clean sender
+card with one body throughout the screenshot filmstrip, including the first
+insertion and replacement by the committed echo. Save the recording and frame
+JSON in the QA pad. Reload the target and confirm one clean persisted body.
+Repeat with a fresh target for each transport under review, especially a
+structured runtime that publishes `chat-send-status.system_send` before its
+transcript row. A send acknowledgement alone is not proof. Close only the
+throwaway tabs and Browser this check created. Pure regression command:
+`pnpm exec tsx src/components/Terminal/chatEnrichment.routedSends.test.ts`.

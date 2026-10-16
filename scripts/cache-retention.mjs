@@ -93,6 +93,11 @@ export function mark(gateway, checkout, target, now = Date.now(), owner = proces
     owners: [...new Set([...owners, owner])] });
 }
 
+export function retentionDue(gateway, now) {
+  const last = readJson(path.join(gateway, 'cache-retention.json'))?.lastRun;
+  return !(Number.isFinite(last) && now - last >= 0 && now - last < 3600000);
+}
+
 export function retain(gateway, checkout, { dryRun = false, automatic = false, now = Date.now(),
   capBytes = Number(process.env.CODETERM_EXCEPTIONAL_CACHE_GB || 40) * 1024 ** 3,
   maxAgeDays = Number(process.env.CODETERM_CACHE_MAX_AGE_DAYS || 3),
@@ -102,8 +107,7 @@ export function retain(gateway, checkout, { dryRun = false, automatic = false, n
   gateway = physical(gateway);
   checkout = physical(checkout);
   const stamp = path.join(gateway, 'cache-retention.json');
-  const last = readJson(stamp)?.lastRun;
-  if (automatic && Number.isFinite(last) && now - last >= 0 && now - last < 3600000) return 0;
+  if (automatic && !retentionDue(gateway, now)) return 0;
   const root = path.join(home, 'targets', 'exceptional');
   const records = [];
   const buildingCheckouts = new Set();
@@ -183,8 +187,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const [operation, gateway, checkout, target, home = gateway] = process.argv.slice(2);
     if (operation === 'mark') mark(gateway, checkout, target, Date.now(), process.ppid, home);
     else if (operation === 'gc' || operation === 'auto') {
-      if (operation === 'gc' && process.env.CT_BUILD_GATEWAY_SCOPE !== 'fixture') {
-        collectCargoBuilds(checkout, { dryRun: target === '--dry-run' });
+      if (process.env.CT_BUILD_GATEWAY_SCOPE !== 'fixture' && (operation === 'gc' || retentionDue(gateway, Date.now()))) {
+        try {
+          collectCargoBuilds(checkout, { dryRun: target === '--dry-run', record: path.join(gateway, 'stable-build-dirs.json') });
+        } catch (error) {
+          if (operation === 'gc') throw error;
+          log(`orphan build collection refused: ${error.message}; build continues`);
+        }
       }
       retain(gateway, checkout, { automatic: operation === 'auto', dryRun: target === '--dry-run',
         sweep: process.env.CT_BUILD_GATEWAY_SCOPE !== 'fixture', home });

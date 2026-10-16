@@ -38,6 +38,7 @@ pub(crate) fn switch(
     model: &str,
     effort: Option<&str>,
     mode: Option<RuntimeMode>,
+    fast_mode: Option<bool>,
 ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
     if !model.trim().is_empty() {
         let provider = svc
@@ -54,7 +55,7 @@ pub(crate) fn switch(
         .map_err(ModelSwitchError::InvalidModel)?;
     }
     crate::async_runtime::block_on(async {
-        switch_inner(svc, tab, model, effort, mode)
+        switch_inner(svc, tab, model, effort, mode, fast_mode)
             .await
             .map_err(|reason| ModelSwitchError::RuntimeControlRefused(reason.to_string()))
     })
@@ -66,6 +67,7 @@ async fn switch_inner(
     model: &str,
     effort: Option<&str>,
     mode: Option<RuntimeMode>,
+    fast_mode: Option<bool>,
 ) -> Result<ModelSwitchOutcome, RuntimeFailure> {
     let session = engine::ensure(svc, tab).await?;
     let _permit = session
@@ -82,6 +84,20 @@ async fn switch_inner(
     if let Some(effort) = effort {
         settings.effort = Some(effort.into());
     }
+    if let Some(fast_mode) = fast_mode {
+        let supported = svc
+            .agent_registry
+            .with_provider(&session.provider, |provider| {
+                provider
+                    .agent_runtime()
+                    .is_some_and(|capability| capability.fast_mode)
+            })
+            .unwrap_or(false);
+        if !supported {
+            return Err(RuntimeFailure::Refused("Fast mode is unsupported".into()));
+        }
+        settings.fast_mode = Some(fast_mode);
+    }
     if let Some(mode) = mode {
         settings.mode = serde_json::to_value(mode)
             .ok()
@@ -93,6 +109,7 @@ async fn switch_inner(
         value: serde_json::to_value(&settings)
             .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?,
     };
+    let mut changes = session.control_changes.subscribe();
     session.controls_confirmation.lock().take();
     let process = session
         .process
@@ -104,12 +121,41 @@ async fn switch_inner(
     if session.context.lock().epoch != before.epoch {
         return Err(RuntimeFailure::Superseded);
     }
-    let confirmed = session.controls_confirmation.lock().take();
-    let confirmed = confirmed
-        .filter(|confirmed| matches!(result, RuntimeResult::Done) && confirms(&settings, confirmed))
-        .ok_or_else(|| {
+    if !matches!(result, RuntimeResult::Done) {
+        return Err(RuntimeFailure::Refused(
+            "Runtime did not apply requested controls".into(),
+        ));
+    }
+    let confirmed = if settings.fast_mode.is_some() {
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let confirmed = session.controls_confirmation.lock().take();
+                if let Some(confirmed) = confirmed {
+                    return Ok::<_, RuntimeFailure>(confirmed);
+                }
+                changes
+                    .changed()
+                    .await
+                    .map_err(|_| RuntimeFailure::PipeEof)?;
+                engine::validate_binding(svc, &session)?;
+            }
+        })
+        .await
+        .map_err(|_| RuntimeFailure::Refused("Runtime settings confirmation deadline".into()))??
+    } else {
+        session.controls_confirmation.lock().take().ok_or_else(|| {
             RuntimeFailure::Refused("Runtime did not confirm requested controls".into())
-        })?;
+        })?
+    };
+    engine::validate_binding(svc, &session)?;
+    if session.context.lock().epoch != before.epoch {
+        return Err(RuntimeFailure::Superseded);
+    }
+    if !confirms(&settings, &confirmed) {
+        return Err(RuntimeFailure::Refused(
+            "Runtime did not confirm requested controls".into(),
+        ));
+    }
     let actual_model = confirmed
         .model
         .clone()
@@ -176,13 +222,16 @@ async fn switch_inner(
 }
 
 fn confirms(requested: &RuntimeSettings, confirmed: &RuntimeSettings) -> bool {
-    [
-        (&requested.model, &confirmed.model),
-        (&requested.effort, &confirmed.effort),
-        (&requested.mode, &confirmed.mode),
-    ]
-    .into_iter()
-    .all(|(requested, confirmed)| requested.is_none() || requested == confirmed)
+    requested
+        .fast_mode
+        .is_none_or(|value| confirmed.fast_mode == Some(value))
+        && [
+            (&requested.model, &confirmed.model),
+            (&requested.effort, &confirmed.effort),
+            (&requested.mode, &confirmed.mode),
+        ]
+        .into_iter()
+        .all(|(requested, confirmed)| requested.is_none() || requested == confirmed)
 }
 
 #[cfg(test)]

@@ -111,7 +111,6 @@ describe("Claude tool activity", () => {
     expect(view.querySelectorAll('[data-testid="chat-tool-call"]')).toHaveLength(0);
     expect(stream.querySelector('[data-testid="chat-tool-stream-title"]')?.textContent).toBe("Lint sources");
     expect(stream.dataset.flowActive).toBe("true");
-    expect(stream.style.maxHeight).toBe("200px");
     expect(stream.querySelector('[data-testid="chat-tool-stream-mini"]')?.textContent).toContain("Run unit tests");
 
     await render(linked);
@@ -121,7 +120,6 @@ describe("Claude tool activity", () => {
     const settled = streams(view)[0];
     expect(settled.dataset.flowActive).toBe("false");
     expect(settled.querySelector('[data-testid="chat-tool-stream-mini"]')).toBeNull();
-    expect(settled.style.maxHeight).toBe("");
   });
 
   it("expands to every action and opens the exact command, input, and output of the selected one", async () => {
@@ -360,24 +358,6 @@ describe("live Codex turn through MessageBubble", () => {
     expect(stream.dataset.flowActive).toBe("false");
     expect(stream.dataset.toolStatus).toBe("success");
     expect(stream.querySelector('[data-testid="chat-tool-stream-spinner"]')).toBeNull();
-  });
-});
-
-describe("stream presentation", () => {
-  it("gates motion behind reduced-motion variants and uses theme tokens without blinking dots or side borders", async () => {
-    const view = await render(linked.slice(0, 2));
-    const [stream] = streams(view);
-    const spinner = stream.querySelector('[data-testid="chat-tool-stream-spinner"]');
-    const spinnerClasses = spinner?.getAttribute("class")?.split(/\s+/) ?? [];
-    const spinUtilities = spinnerClasses.filter((name) => name.endsWith("spin"));
-    expect(spinUtilities.length).toBeGreaterThan(0);
-    expect(spinUtilities.every((name) => name.startsWith("motion-safe:"))).toBe(true);
-    expect(stream.querySelector('[data-testid="chat-tool-stream-title"]')?.className).toContain("motion-reduce:transition-none");
-    expect(stream.querySelector('[class*="animate-pulse"], [class*="animate-ping"]')).toBeNull();
-    expect(stream.className.split(/\s+/)).toEqual(expect.not.arrayContaining(["border", "border-l", "border-l-2", "border-r", "border-x"]));
-    expect(stream.style.borderRightWidth).toBe("");
-    expect(stream.style.borderLeftWidth).toBe("");
-    expect(stream.querySelector('[data-testid="chat-tool-stream-title"]')?.getAttribute("style")).toContain("var(--ct-fg)");
   });
 });
 

@@ -1,0 +1,12 @@
+Copyright Individual Entrepreneur Andrey Kovalev (ინდივიდუალური მეწარმე ანდრეი კოვალევ), Georgian identification number 302218142
+Contact: g.andry90@gmail.com
+
+Domios is licensed under the GNU Affero General Public License version 3 only
+(SPDX: AGPL-3.0-only); see LICENSE.
+
+packages/plugin-sdk, packages/chat-engine and the plugins under plugins/ are
+licensed under Apache-2.0; see their respective LICENSE files.
+Third-party components retain their own licenses.
+All revisions in this repository are licensed as stated above.
+
+Terms of Service and Privacy Policy: see the legal/ directory.

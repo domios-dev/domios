@@ -15,6 +15,27 @@ The latest marker must reach the actual chat DOM. This exercises file parsing,
 tailing, delivery, transcript retention and rendering, without a real PTY agent.
 It does not reproduce provider RPCs or partial-token amendments.
 
+For a bounded ten-minute load, add `--seconds 600 --tabs 5 --records 16`.
+The duration starts after warm-up; consumer acknowledgements drive each cycle,
+and elapsed time only stops the workload. Timed mode samples post-GC at the
+first completed cycle after each minute, with a final paused sample. Actual
+sample times and cycle count remain in `result.json`; this short capture measures
+growth and does not establish an hours-long plateau. Give the owning QA shell
+enough remaining lifetime for warm-up, the workload and cleanup.
+
+Use `--instrumentation minimal --snapshots no --allocations no` for the same
+load and switching control without enabling CDP performance/heap profiling,
+forcing GC or collecting snapshots. It reads `performance.memory` and process
+private/working bytes; DOM/listener profiler counters remain unknown. These
+heap samples include collectible allocations and are not post-GC retained size.
+
+Every sample also records per-tab chat element/row counts, mounted terminal
+normal/alternate/active buffer lengths when the DEV terminal handle is available,
+canvas backing pixels and image intrinsic pixels. Missing terminal handles stay
+unknown. Pixel counts are surface dimensions, not measured native allocations.
+The user-agent memory API capability is recorded without invoking that potentially
+expensive/GC-triggering API in the minimal control.
+
 Samples preserve JS heap, DOM/listener counts, mounted chat and terminal counts,
 Windows private/working bytes and process creation identities. Warm and paused
 snapshots are optional; compare them with the existing renderer-memory snapshot
@@ -38,6 +59,27 @@ incomplete runs and cleanup failures. A completed workload is not a leak-free
 verdict: compare equivalent warm cycles and cleanup, distinguish JS retention
 from native renderer allocation, and account for profiler perturbation. A flat
 DEV run alone does not establish that a different PROD workload is fixed.
+
+Add `--bundle production` to open the daemon-served bundle at
+`http://127.0.0.1:7686/` in an owned CDP page instead of the native Vite page.
+The dev-locked bench library supplies the bearer token; credentials never enter
+URLs or result files. The owned page closes during cleanup. Run both modes with
+separate `--out` directories and the same fixture options for comparison.
+
+Each visit records renderer clock boundaries (`rendererStartTime` and
+`rendererEndTime`), `clientTiming.measures`, and stages grouped by request id.
+Subtract the visit start from a request measure's `startTime` to see client work
+before dispatch. The stages are:
+`response` (request to arrival), `adopted` (arrival to store adoption), `painted`
+(adoption to the first frame after a committed row has had a paint opportunity),
+and `total` (request to that frame). `responseBytes` is the UTF-8 byte size of the
+JSON-serialized decoded response, not compressed wire bytes. Two animation frames
+observe a paint opportunity; they do not prove compositor presentation. Retained
+visits without a request have empty measures. Instrumentation uses `DEV_BUILD`:
+a daemon-served development bundle retains these marks with production React;
+a release bundle strips them and reports empty client timing.
+
+Pure aggregation check: `node --test evals/perf/chat-memory/measures.test.mjs`.
 
 ## Pure markdown allocation benchmark
 

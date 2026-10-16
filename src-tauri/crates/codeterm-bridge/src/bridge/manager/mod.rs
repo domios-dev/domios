@@ -846,10 +846,23 @@ async fn inject_message(
             .build(),
     };
 
-    tab.deliver_inbound(&tab_id, &prefixed, agent_type.as_deref())
+    let tab = tab.clone();
+    deliver_off_runtime(move || tab.deliver_inbound(&tab_id, &prefixed, agent_type.as_deref()))
+        .await
+}
+
+async fn deliver_off_runtime(
+    work: impl FnOnce() -> Result<(), String> + Send + 'static,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("Bridge inbound delivery task failed: {error}"))?
 }
 
 pub mod threaded;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod off_runtime_tests;

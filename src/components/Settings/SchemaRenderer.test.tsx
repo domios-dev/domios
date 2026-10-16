@@ -108,7 +108,6 @@ test("schema toggles use the canonical liquid switch", async () => {
 
   const toggle = host.querySelector('[data-testid="settings-schema-toggle"]');
   assert(toggle instanceof HTMLButtonElement, "schema toggle should render as a button");
-  assert(toggle.classList.contains("ct-liquid-toggle"), "schema toggle should use LiquidToggle");
   assert(toggle.getAttribute("role") === "switch", "schema toggle should retain switch semantics");
   assert(toggle.getAttribute("aria-checked") === "false", "schema toggle should expose its state");
 

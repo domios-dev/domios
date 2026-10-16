@@ -157,3 +157,68 @@ fn on_demand_stored_windows_reach_first_record_without_gaps() {
     }
     assert!(pages > 2);
 }
+
+#[test]
+fn kernel_stored_page_matches_text_projection_for_445kb_and_oversized_records() {
+    use codeterm_plugin::provider::AgentProvider;
+    let plugins = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+    let provider = std::fs::read_dir(plugins)
+        .unwrap()
+        .filter_map(|entry| {
+            let path = entry.ok()?.path().join("plugin.json");
+            let manifest = codeterm_plugin::js_runtime::PluginManifest::load(&path).ok()?;
+            manifest
+                .capabilities
+                .record_sources
+                .contains_key("storedHistory")
+                .then(|| codeterm_plugin::js_runtime::load_one(&path).unwrap())
+        })
+        .next()
+        .expect("bundled stored record provider");
+    let file = tempfile::NamedTempFile::new().unwrap();
+    for size in [445_000, 2 * 1024 * 1024] {
+        let first = stored_item("first", 1);
+        let last = stored_item("last", size);
+        std::fs::write(file.path(), format!("{first}{last}")).unwrap();
+        let (text, start, end) = read_window(file.path(), None).unwrap();
+        let expected: Vec<ChatMsg> = codeterm_plugin::js_runtime::call_json(
+            provider.vm(),
+            "runtimeStoredHistory",
+            &[serde_json::json!("own"), serde_json::json!(text)],
+        )
+        .unwrap();
+        let parsed = super::super::jsonl_kernel::stored_window(
+            &provider,
+            "own",
+            file.path(),
+            None,
+            WINDOW_BYTES,
+        )
+        .unwrap();
+        let actual = provider.runtime_stored_records("own", &parsed).unwrap();
+        assert_eq!(
+            (parsed.meta.from_offset, parsed.meta.new_offset),
+            (start, end)
+        );
+        assert_eq!(
+            serde_json::to_value(&actual).unwrap(),
+            serde_json::to_value(expected).unwrap()
+        );
+        assert!(actual.iter().any(|row| row.id == "last"));
+        if size > WINDOW_BYTES as usize {
+            assert_eq!(actual[0].kind, "system");
+            let source = provider.record_source("storedHistory").unwrap();
+            let window = codeterm_plugin::jsonl_window::records::parse_records_with_limit(
+                last.as_bytes(),
+                start,
+                source,
+                Some("own"),
+                WINDOW_BYTES,
+            );
+            assert!(window.records[0].oversized);
+            assert!(window.records[0].value["payload"]["item"]
+                .get("text")
+                .is_none());
+        }
+    }
+}

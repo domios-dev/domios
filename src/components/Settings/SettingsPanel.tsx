@@ -1,3 +1,4 @@
+import { DropdownSelect } from "../shared/DropdownMenu";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "../../lib/bridge";
@@ -20,6 +21,7 @@ import { UpdateSection } from "./UpdateSection";
 import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { ShellProfilesCard } from "./ShellProfilesCard";
+import { TabSleepCard } from "./TabSleepCard";
 import { GeneralAgentCard } from "./GeneralAgentCard";
 import { NotificationsOverview } from "./NotificationsTab";
 import { MessengersCard } from "./MessengersCard";
@@ -158,6 +160,16 @@ export function SettingsPanel({
     [saveDraft],
   );
 
+  const switchGeneralProvider = useCallback(async (provider: string) => {
+    const previous = draftRef.current.config;
+    const next = { ...previous, general_agent: { ...previous.general_agent, agent_provider: provider } };
+    await onUpdateConfig(next);
+    const updated = { config: next, save: onUpdateConfig };
+    draftRef.current = updated;
+    setDraft(updated);
+    if (next.general_agent.enabled !== false) await invoke("restart_general_agent");
+  }, [onUpdateConfig]);
+
   const headerTitle =
     top.kind === "root"
       ? "Settings"
@@ -247,25 +259,15 @@ export function SettingsPanel({
                 <SettingsCard icon={<Palette size={16} />} title="Appearance">
                   <label className="ct-settings-toggle">
                     <span>Theme</span>
-                    <select
-                      data-testid="settings-theme-select"
-                      value={localConfig.theme.name}
-                      onChange={(e) => update("theme", { name: e.target.value })}
-                      className="ct-field w-56"
-                    >
-                      <optgroup label="Built-in">
-                        {themes.filter(t => builtinThemes.includes(t)).map((t) => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                      </optgroup>
-                      {themes.some(t => !builtinThemes.includes(t)) && (
-                        <optgroup label="Custom">
-                          {themes.filter(t => !builtinThemes.includes(t)).map((t) => (
-                            <option key={t} value={t}>{t}</option>
-                          ))}
-                        </optgroup>
-                      )}
-                    </select>
+                    <div className="w-56 min-w-0">
+                      <DropdownSelect
+                        data-testid="settings-theme-select"
+                        aria-label="Theme"
+                        value={localConfig.theme.name}
+                        onChange={(name) => update("theme", { name })}
+                        options={themes.map((name) => ({ value: name, label: name, group: builtinThemes.includes(name) ? "Built-in" : "Custom" }))}
+                      />
+                    </div>
                   </label>
                   <div className="flex items-center gap-2">
                     <div className="flex gap-1 flex-1">
@@ -343,13 +345,14 @@ export function SettingsPanel({
                   />
                 </SettingsCard>
 
-                <GeneralAgentCard config={localConfig} onUpdate={update} />
+                <GeneralAgentCard config={localConfig} onUpdate={update} onSwitchProvider={switchGeneralProvider} onOpenGuide={(helpSection) => push({ kind: "section", id: "guide", helpSection })} />
 
                 <SettingsCardAnchor id="telegram-bridge" focused={top.card === "telegram-bridge"}>
                   <MessengersCard config={localConfig} onUpdate={update} />
                 </SettingsCardAnchor>
 
                 <ShellProfilesCard config={localConfig} onUpdate={update} />
+                <TabSleepCard config={localConfig} onUpdate={update} />
 
                 <SettingsCard icon={<MousePointer size={16} />} title="Terminal">
                   <label className="ct-settings-toggle">
@@ -413,6 +416,7 @@ export function SettingsPanel({
             {top.kind === "section" && top.id === "agents" && (
               <SettingsPage title="Agents">
                 <AgentsOverview
+                  onSwitchGeneralProvider={switchGeneralProvider}
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}
                   onOpenProvider={(providerId) => push({ kind: "agent-provider", providerId })}

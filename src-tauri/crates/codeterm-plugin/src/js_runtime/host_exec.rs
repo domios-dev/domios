@@ -179,8 +179,8 @@ pub(super) fn run_with_host_env(
         }
     }
     // would block the child on write() while we wait, deadlocking until timeout.
-    let (out_tx, out_rx) = std::sync::mpsc::channel::<String>();
-    let (err_tx, err_rx) = std::sync::mpsc::channel::<String>();
+    let (out_tx, out_rx) = std::sync::mpsc::channel();
+    let (err_tx, err_rx) = std::sync::mpsc::channel();
     let _out_thread = child.stdout.take().map(|mut s| {
         std::thread::spawn(move || {
             let buf = bounded_output(&mut s);
@@ -218,12 +218,12 @@ pub(super) fn run_with_host_env(
         Duration::from_secs(60)
     };
     let deadline = std::time::Instant::now() + drain;
-    let recv_until = |rx: &std::sync::mpsc::Receiver<String>| {
+    let recv_until = |rx: &std::sync::mpsc::Receiver<(String, bool)>| {
         let budget = deadline.saturating_duration_since(std::time::Instant::now());
         rx.recv_timeout(budget).unwrap_or_default()
     };
-    let out = recv_until(&out_rx);
-    let errout = recv_until(&err_rx);
+    let (out, stdout_truncated) = recv_until(&out_rx);
+    let (errout, stderr_truncated) = recv_until(&err_rx);
     drop(registration);
     let mut value = serde_json::json!({
         "code": status_code,
@@ -232,6 +232,9 @@ pub(super) fn run_with_host_env(
     });
     if let Some(e) = timeout_error {
         value["error"] = serde_json::json!(e);
+    }
+    if stdout_truncated || stderr_truncated {
+        value["truncated"] = serde_json::json!(true);
     }
     value.to_string()
 }
@@ -416,19 +419,22 @@ fn json_rpc_response_id(line: &str) -> Option<u64> {
         .as_u64()
 }
 
-fn bounded_output(reader: &mut impl Read) -> String {
+fn bounded_output(reader: &mut impl Read) -> (String, bool) {
     const LIMIT: usize = 128 * 1024;
     let mut kept = Vec::new();
+    let mut truncated = false;
     let mut chunk = [0u8; 8192];
     loop {
         match reader.read(&mut chunk) {
             Ok(0) | Err(_) => break,
             Ok(count) => {
-                kept.extend_from_slice(&chunk[..count.min(LIMIT.saturating_sub(kept.len()))])
+                let retain = count.min(LIMIT.saturating_sub(kept.len()));
+                truncated |= retain < count;
+                kept.extend_from_slice(&chunk[..retain]);
             }
         }
     }
-    String::from_utf8_lossy(&kept).into_owned()
+    (String::from_utf8_lossy(&kept).into_owned(), truncated)
 }
 
 #[cfg(windows)]
@@ -500,6 +506,7 @@ struct ExecJob {
     stdout: Option<String>,
     stderr: Option<String>,
     error: Option<String>,
+    truncated: bool,
     result: Option<serde_json::Value>,
     process: Arc<control::Process>,
     waiters: Vec<crate::converter::ConversionCancellation>,
@@ -631,6 +638,9 @@ pub(super) fn poll(plugin_id: &str, job_id: &str) -> String {
     }
     if let Some(error) = &job.error {
         out.insert("error".to_string(), serde_json::json!(error));
+    }
+    if job.truncated {
+        out.insert("truncated".to_string(), serde_json::json!(true));
     }
     jobs.remove(job_id);
     serde_json::Value::Object(out).to_string()
@@ -912,6 +922,7 @@ fn finish_exec_job(job_id: &str, value: &serde_json::Value) {
     if let Some(job) = jobs.get_mut(job_id) {
         job.done = true;
         job.finished_at = Some(Instant::now());
+        job.truncated = value.get("truncated").and_then(|v| v.as_bool()) == Some(true);
         job.code = value.get("code").and_then(|v| v.as_i64()).map(|c| c as i32);
         job.stdout = value
             .get("stdout")

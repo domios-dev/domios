@@ -841,6 +841,7 @@ impl ChatSendLedger {
 
     /// Confirm one send by id after exact append-window evidence was found in
     /// its own recorded session transcript. No-op if already sent.
+    #[cfg(test)]
     pub(crate) fn confirm_send(&self, send_id: &str) -> Option<ChatSendStatus> {
         self.confirm_send_with_row(send_id, None)
     }
@@ -1024,6 +1025,7 @@ impl ChatSendLedger {
         tab_id: &str,
         session_id: &str,
         payload: &str,
+        source_row: Option<&SourceRowRef>,
     ) -> Vec<SendEvidenceAnchor> {
         let state = self.state.lock();
         state
@@ -1032,6 +1034,25 @@ impl ChatSendLedger {
             .filter(|status| status.tab_id == tab_id && status.state == ChatSendState::Sent)
             .filter(|status| {
                 state.payload_by_id.get(&status.send_id).map(String::as_str) == Some(payload)
+            })
+            .filter(|status| match (status.matched_row.as_ref(), source_row) {
+                (Some(claimed), Some(current))
+                    if claimed.source.source_session_id == current.source_session_id =>
+                {
+                    match (&claimed.source.record, &current.record) {
+                        (
+                            SourceRecord::Jsonl {
+                                incarnation: prior, ..
+                            },
+                            SourceRecord::Jsonl {
+                                incarnation: current,
+                                ..
+                            },
+                        ) if !prior.is_empty() && !current.is_empty() => prior == current,
+                        _ => true,
+                    }
+                }
+                _ => true,
             })
             .filter_map(|status| state.anchor_by_id.get(&status.send_id))
             .filter(|anchor| anchor.session_id == session_id)

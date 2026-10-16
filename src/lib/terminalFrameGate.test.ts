@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { terminalFrameVisible, acceptsTerminalOutput } from "./terminalFrameGate";
+import { terminalFrameVisible, terminalLayoutRequired, acceptsTerminalOutput } from "./terminalFrameGate";
 
 describe("terminal frame identity", () => {
+  it("fits a ready destination before its first identity-confirmed frame can be revealed", () => {
+    expect(terminalLayoutRequired(true, true, true)).toBe(true);
+    expect(terminalFrameVisible(true, true, false)).toBe(false);
+    expect(terminalFrameVisible(true, true, true)).toBe(true);
+    expect(terminalLayoutRequired(false, true, true)).toBe(false);
+    expect(terminalLayoutRequired(true, false, true)).toBe(false);
+    expect(terminalLayoutRequired(true, true, false)).toBe(false);
+  });
+
   it("hides the previous pane immediately and gates the first destination frame", () => {
     expect(terminalFrameVisible(false, true, true)).toBe(false);
     expect(terminalFrameVisible(true, true, false)).toBe(false);

@@ -72,9 +72,9 @@ async function main() {
       onClose={() => undefined} canClose={false} workspaceId="fixture-workspace" />,
   ));
   await renderSleeping(true);
-  assert(host.querySelectorAll('[role="img"][aria-label="Sleeping"]').length === 1, "sleeping snapshot exposes one accessible indicator");
+  assert(host.querySelectorAll('[role="img"][aria-label="Asleep"]').length === 1, "sleeping snapshot exposes one accessible indicator");
   await renderSleeping(false);
-  assert(!host.querySelector('[aria-label="Sleeping"]'), "waking clears the sleeping indicator");
+  assert(!host.querySelector('[aria-label="Asleep"]'), "waking clears the sleeping indicator");
 
   await act(async () => root.unmount());
   host.remove();

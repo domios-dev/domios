@@ -3,6 +3,7 @@ import { Minus, Plus, RefreshCw } from "lucide-react";
 
 export interface CanvasToolbarProps {
   label?: string;
+  floating?: boolean;
   view?: ReactNode;
   extras?: ReactNode;
   onFit?: () => void;
@@ -12,13 +13,13 @@ export interface CanvasToolbarProps {
   refreshTestId?: string;
 }
 
-export function CanvasToolbar({ label = "Graph controls", view, extras, onFit, onZoomOut, onZoomIn, onRefresh, refreshTestId }: CanvasToolbarProps) {
+export function CanvasToolbar({ label = "Graph controls", floating = true, view, extras, onFit, onZoomOut, onZoomIn, onRefresh, refreshTestId }: CanvasToolbarProps) {
   return <div
     role="toolbar"
     aria-label={label}
     data-testid="canvas-toolbar"
     data-graph-toolbar
-    className="absolute left-3 top-3 z-20 flex max-w-[calc(100%-1.5rem)] min-w-0 flex-wrap items-center gap-1.5 rounded-full bg-[var(--ct-bg)] p-1.5 shadow-[var(--ct-shadow-capsule)]"
+    className={`${floating ? "absolute left-3 top-3" : "relative w-fit"} z-20 flex max-w-[calc(100%-1.5rem)] min-w-0 flex-wrap items-center gap-1.5 rounded-full bg-[var(--ct-bg)] p-1.5 shadow-[var(--ct-shadow-capsule)]`}
     onMouseDown={(event) => event.stopPropagation()}
     onPointerDown={(event) => event.stopPropagation()}
     onTouchStart={(event) => event.stopPropagation()}

@@ -1,7 +1,7 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, ClipboardList, LogOut, Pencil, UserPlus, UsersRound } from "lucide-react";
+import { ChevronLeft, ChevronRight, ClipboardList, LogOut, Pencil, UserPlus } from "lucide-react";
 import type { ModelInfo, Tab, ProviderDescriptor, Team } from "../../lib/types";
 import type { TeamCloseInventory, TeamMemberRole } from "../../lib/teamActions";
 import { ProviderGlyph } from "../ProviderGlyph";
@@ -12,15 +12,9 @@ import { SidebarDisclosure } from "./SidebarDisclosure";
 import { clampFloatingPosition } from "../shared/floatingPosition";
 import { ActivityDots } from "../shared/ActivityDots";
 import { KebabGlyph } from "../shared/RowMenuButton";
-import {
-  PLAN_STATUS_COLORS,
-  SegmentedDonut,
-  type SegmentedDonutSegment,
-} from "../shared/SegmentedDonut";
-import {
-  PlanStatusBreakdown,
-  type PlanStatusCounts,
-} from "../shared/PlanStatusBreakdown";
+import { PLAN_STATUS_COLORS, SegmentedDonut } from "../shared/SegmentedDonut";
+import { TeamStatusTally } from "./TeamStatusTally";
+import type { PlanStatusCounts } from "../shared/PlanStatusBreakdown";
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
 import { refusalText } from "../../lib/refusalText";
 import { useProviderModelUsage } from "../../hooks/useProviderModelUsage";
@@ -501,14 +495,6 @@ export function TeamUnit({
     () => (plan ? deriveTeamTaskBuckets(plan, tabs) : EMPTY_BUCKETS),
     [plan, tabs],
   );
-  const donutSegments = useMemo<SegmentedDonutSegment[]>(
-    () => buckets.map((bucket) => ({
-      status: bucket.key,
-      count: bucket.count,
-      color: bucket.color,
-    })),
-    [buckets],
-  );
   const statusCounts = useMemo<PlanStatusCounts>(
     () => deriveCardStatusCounts(buckets),
     [buckets],
@@ -569,7 +555,7 @@ export function TeamUnit({
 
   const commitRename = async () => {
     const trimmed = name.trim();
-    if (!trimmed || trimmed === (team.name?.trim() || "Team") || !onRenameTeam) {
+    if (!trimmed || trimmed === displayTitle || !onRenameTeam) {
       setName(team.name?.trim() || "Team");
       setEditing(false);
       return;
@@ -587,17 +573,6 @@ export function TeamUnit({
   };
 
   const cardContents = <>
-    {plan ? (
-      <SegmentedDonut
-        key={`donut-${planMotion.revision}`}
-        data-testid="team-donut"
-        segments={donutSegments}
-        size={22}
-        aria-label={`Task status composition: ${statusCounts.todo} todo, ${statusCounts.review} review, ${statusCounts.blocked} blocked, ${statusCounts.paused} paused, ${statusCounts.done} done`}
-      />
-    ) : (
-      <span data-testid="team-icon" className="sidebar-team-icon" aria-hidden><UsersRound size={14} /></span>
-    )}
     <div className="sidebar-team-title-block">
       {editing ? (
         <input
@@ -637,6 +612,16 @@ export function TeamUnit({
           )}
         </span>
       )}
+      <TeamStatusTally
+        key={`tally-${planMotion.revision}`}
+        data-testid="team-status-tally"
+        data-team-card-region="status-tally"
+        data-team-card-hit-target="team-card-activation"
+        className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
+        counts={statusCounts}
+        tone="muted"
+        itemTestIdPrefix="team-status"
+      />
       {renameError && <div data-testid="team-rename-error"><InlineErrorNotice error={renameError} operation="updating this Team" blocking /></div>}
     </div>
   </>;
@@ -664,14 +649,33 @@ export function TeamUnit({
         ref={headerRef}
         className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}${planMotion.completionSweep ? " sidebar-plan-entry-completion" : ""}`}
         data-menu-dismissed={menuDismissed ? "true" : undefined}
+        onClick={(event) => {
+          if (!editing && event.target instanceof Element && event.target.closest(".sidebar-team-title-block")) {
+            onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id });
+          }
+        }}
       >
-        {plan && !editing ? (
+        {!editing ? (
           <div
             data-testid="team-card-title-area"
             data-team-card-region="title"
             data-team-card-hit-target="team-card-activation"
             className="sidebar-team-card-visual"
           >
+            <button
+              type="button"
+              className="sidebar-team-status-trigger"
+              aria-label={`Open task status for ${displayTitle}`}
+              onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id })}
+            >
+              <SegmentedDonut
+                data-testid="team-donut"
+                className="sidebar-team-status-donut"
+                segments={buckets}
+                size={27}
+                aria-hidden="true"
+              />
+            </button>
             {cardContents}
           </div>
         ) : (
@@ -698,8 +702,9 @@ export function TeamUnit({
               providersLoading={providersLoading}
               contextMenuTargetRef={headerRef}
               onOpenPlan={plan ? () => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id }) : undefined}
-              onRename={!plan && onRenameTeam ? () => {
+              onRename={onRenameTeam ? () => {
                 setRenameError(null);
+                setName(displayTitle);
                 setEditing(true);
               } : undefined}
               addableRoles={addableRoles}
@@ -708,17 +713,6 @@ export function TeamUnit({
             />
         </span>
       </div>
-      {plan && (
-        <PlanStatusBreakdown
-          key={`tally-${planMotion.revision}`}
-          data-testid="team-status-tally"
-          data-team-card-region="status-tally"
-          data-team-card-hit-target="team-card-activation"
-          className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
-          counts={statusCounts}
-          itemTestIdPrefix="team-status"
-        />
-      )}
       {expanded && (
         <div
           className="sidebar-team-body"
@@ -821,7 +815,9 @@ export function TeamUnit({
         aria-expanded={expanded}
         onClick={toggleExpanded}
       >
-        <span className="sidebar-team-disclosure-glyph" aria-hidden="true" />
+        <svg className="sidebar-team-disclosure-glyph" viewBox="0 0 26 8" aria-hidden="true">
+          <path d="M1 4 L13 4 L25 4" />
+        </svg>
         <span className="sidebar-team-disclosure-label" aria-hidden="true">
           {expanded ? "Hide" : "Show"}
         </span>

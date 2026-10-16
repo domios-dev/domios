@@ -6,10 +6,19 @@ import {randomUUID} from 'node:crypto';
 import {dcJson,dc} from '../../core-journeys/lib/env.mjs';
 import {connect,evaluate,takeHeapSnapshot} from '../renderer-memory/cdp.mjs';
 import {fixtureRecord} from './fixture.mjs';
+import {aggregateVisitMeasures} from './measures.mjs';
 import {summarizeAllocations} from './allocations.mjs';
+import {workloadDuration,continueWorkload,sampleWorkload} from './duration.mjs';
+import {attach} from '../streaming-soak/runtime.mjs';
+import {memoryInstrumentation} from './instrumentation.mjs';
+import {CENSUS} from './census.mjs';
 
 const flags=Object.fromEntries(process.argv.slice(2).reduce((all,x,i,args)=>x.startsWith('--')?[...all,[x.slice(2),args[i+1]]]:all,[]));
+const bundle=flags.bundle??'dev';
+if(!['dev','production'].includes(bundle))throw Error('Invalid bundle: use dev or production');
 const allocations=flags.allocations==='yes';
+const duration=workloadDuration(flags.seconds);
+const instrumentation=memoryInstrumentation(flags);
 const count=Number(flags.tabs??15),cycles=Number(flags.cycles??4),perCycle=Number(flags.records??64),initial=Number(flags.initial??480);
 for(const [name,value,max] of [['tabs',count,15],['cycles',cycles,8],['records',perCycle,128],['initial',initial,600]]) {
   if(!Number.isSafeInteger(value)||value<1||value>max)throw Error(`Invalid ${name}`);
@@ -22,10 +31,10 @@ const headers={Authorization:`Bearer ${process.env.CODETERM_API_TOKEN}`,'Content
 const api=async route=>{const r=await fetch('http://127.0.0.1:7686'+route,{headers,signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error(`API ${route}: ${r.status}`);return r.json();};
 const health=await api('/api/health');if(health.build_sha!==expected)throw Error('Build drift');
 const before=await api('/api/mux/state');
-const created=[],samples=[],visits=[];let workspace,junction,cdp,sampling=false;
-const result={status:'incomplete',run,health,count,cycles,perCycle,initial,created,samples,visits};
+const created=[],samples=[],visits=[];let workspace,junction,cdp,productionTarget,productionController,sampling=false;
+const result={status:'incomplete',bundle,run,health,count,cycles,perCycle,initial,duration,instrumentation,created,samples,visits};
 const save=()=>fs.writeFileSync(path.join(out,'result.json'),JSON.stringify(result,null,2));
-const bound=AbortSignal.timeout(420000);
+const bound=AbortSignal.timeout(duration===null?420000:duration+180000);
 const append=(fixture,n)=>{
   let chunk='';for(let i=0;i<n;i++){const row=fixtureRecord({session:fixture.session,cwd:workspace.cwd,index:fixture.next++,parent:fixture.parent,run});fixture.parent=row.uuid;fixture.marker=row.marker;chunk+=row.line;}
   fs.appendFileSync(fixture.path,chunk);
@@ -40,6 +49,7 @@ async function selectWorkspace(name){
 async function visit(fixture,phase){
   const selector=`[data-testid="tab-session-chat"][data-tab-id="${fixture.tab}"]`;
   const mountedBefore=await evaluate(cdp,`Boolean(document.querySelector(${JSON.stringify(selector)})?.dataset.snapshotReady==='true')`);
+  const visitStart=await evaluate(cdp,`performance.now()`);
   const begin=performance.now();
   await waitFunction(button('Open tab '+fixture.title));
   await evaluate(cdp,`(()=>{(${button('Open tab '+fixture.title)}).click();return true})()`);
@@ -49,7 +59,9 @@ async function visit(fixture,phase){
   await waitFunction(`document.querySelector(${JSON.stringify(selector)})?.innerText.includes(${JSON.stringify(fixture.marker)})`);
   const seen=await evaluate(cdp,`(()=>{const root=document.querySelector(${JSON.stringify(selector)});const ids=[...root.querySelectorAll('[data-source-message-id]')].map(e=>e.getAttribute('data-source-message-id'));return {rows:ids.length,unique:new Set(ids).size,markerVisible:root.innerText.includes(${JSON.stringify(fixture.marker)})}})()`);
   if(seen.rows!==seen.unique)throw Error('Duplicate mounted source ids');
-  visits.push({phase,tab:fixture.tab,mountedBefore,firstVisibleMs,readyMs:performance.now()-begin,...seen});save();
+  const timing=await evaluate(cdp,`({endTime:performance.now(),entries:performance.getEntriesByType('measure').map(e=>e.toJSON())})`);
+  const clientTiming=aggregateVisitMeasures(timing.entries,{tabId:fixture.tab,startTime:visitStart,endTime:timing.endTime});
+  visits.push({rendererStartTime:visitStart,rendererEndTime:timing.endTime,clientTiming,phase,tab:fixture.tab,mountedBefore,firstVisibleMs,readyMs:performance.now()-begin,...seen});save();
 }
 function processSample(){
   if(process.platform!=='win32')return null;
@@ -57,21 +69,44 @@ function processSample(){
   return JSON.parse(execFileSync('powershell.exe',['-NoLogo','-NoProfile','-Command',script],{encoding:'utf8',timeout:15000}));
 }
 async function sample(phase,{gc=false,snapshot=false}={}){
+  gc=gc&&instrumentation.profiler;
   if(gc)await cdp.send('HeapProfiler.collectGarbage');
-  const heap=await cdp.send('Runtime.getHeapUsage'),dom=await cdp.send('Memory.getDOMCounters');
-  const census=await evaluate(cdp,`({elements:document.querySelectorAll('*').length,chatRows:document.querySelectorAll('[data-source-message-id]').length,chatRoots:document.querySelectorAll('[data-testid="tab-session-chat"]').length,xterms:document.querySelectorAll('.xterm').length,canvases:document.querySelectorAll('canvas').length,callbacks:window.__TAURI_INTERNALS__?.callbacks?.size??null})`);
+  const heap=instrumentation.profiler?await cdp.send('Runtime.getHeapUsage'):
+    await evaluate(cdp,'({usedSize:performance.memory?.usedJSHeapSize??null,totalSize:performance.memory?.totalJSHeapSize??null,measurement:"performance.memory"})');
+  const dom=instrumentation.profiler?await cdp.send('Memory.getDOMCounters'):{nodes:null,documents:null,jsEventListeners:null};
+  const census=await evaluate(cdp,CENSUS);
   const row={phase,at:new Date().toISOString(),gc,heap,dom,census,processes:processSample()};
   samples.push(row);save();console.log(`CHAT_MEMORY_SAMPLE phase=${phase} heap=${heap.usedSize} nodes=${dom.nodes}`);
   if(snapshot)await takeHeapSnapshot(cdp,path.join(out,phase+'.heapsnapshot'));
 }
 try{
   console.log(`CHAT_MEMORY_PREPARE out=${out} tabs=${count} build=${expected}`);
+  if(duration!==null){
+    const attribution=await attach(bound);
+    try{result.processIdentity=attribution.identity;}finally{attribution.close();}
+  }
   const targets=await(await fetch(`http://127.0.0.1:${health.instance.cdp_port}/json/list`,{signal:AbortSignal.timeout(5000)})).json();
-  const pages=targets.filter(t=>t.type==='page'&&new URL(t.url).port===String(health.instance.vite_port));
-  if(pages.length!==1)throw Error('Exactly one native DEV page required');
-  result.target={id:pages[0].id,url:pages[0].url};cdp=await connect(pages[0].webSocketDebuggerUrl);
+  const pages=targets.filter(t=>t.type==='page'&&(bundle==='production'||new URL(t.url).port===String(health.instance.vite_port)));
+  if(pages.length===0||(bundle==='dev'&&pages.length!==1))throw Error('Expected CDP page target missing or ambiguous');
+  if(bundle==='production'){
+    productionController=await connect(pages[0].webSocketDebuggerUrl);
+    productionTarget=(await productionController.send('Target.createTarget',{url:'about:blank'})).targetId;
+    const opened=await(await fetch(`http://127.0.0.1:${health.instance.cdp_port}/json/list`,{signal:AbortSignal.timeout(5000)})).json();
+    const page=opened.find(t=>t.id===productionTarget);
+    if(!page)throw Error('Production bundle page target missing');
+    cdp=await connect(page.webSocketDebuggerUrl);
+    const origin='http://127.0.0.1:7686';
+    await cdp.send('Page.enable');
+    const {identifier}=await cdp.send('Page.addScriptToEvaluateOnNewDocument',{source:`if(location.origin===${JSON.stringify(origin)})localStorage.setItem('codeterm-web-token:'+location.origin,${JSON.stringify(process.env.CODETERM_API_TOKEN)})`});
+    await cdp.send('Page.navigate',{url:origin+'/'});
+    await waitFunction(`Boolean(${button('Show all workspaces')}||document.querySelector('[aria-label^="Select workspace "]'))`);
+    await cdp.send('Page.removeScriptToEvaluateOnNewDocument',{identifier});
+    result.target={id:page.id,url:origin+'/'};
+  }else{
+    result.target={id:pages[0].id,url:pages[0].url};cdp=await connect(pages[0].webSocketDebuggerUrl);
+  }
   bound.addEventListener('abort',()=>cdp.close(),{once:true});
-  await cdp.send('Performance.enable');await cdp.send('HeapProfiler.enable');
+  if(instrumentation.profiler){await cdp.send('Performance.enable');await cdp.send('HeapProfiler.enable');}
   await sample('before');
   const made=await dcJson(['workspace','create','Memsoak'+run,'--provision']);workspace=made.workspace??made;
   if(!workspace.id||!workspace.cwd)throw Error('Workspace identity missing');result.workspace=workspace;save();
@@ -102,15 +137,21 @@ try{
     result.allocationSampling={intervalBytes:32768,includesCollectedObjects:true};save();
   }
   console.log(`CHAT_MEMORY_ARMED tabs=${created.length} providerLaunched=false`);
-  for(let cycle=1;cycle<=cycles;cycle++){
+  const workloadStart=performance.now();let lastSample=workloadStart;
+  result.workloadStartedAt=Date.now();save();
+  for(let cycle=1;continueWorkload({duration,started:workloadStart,now:performance.now(),cycle,cycles});cycle++){
     if(bound.aborted)throw Error('Scenario deadline');
     for(let slot=0;slot<created.length;slot++){
       const burst=Math.floor(perCycle/created.length)+(slot<perCycle%created.length?1:0);
       if(burst)for(const fixture of created)append(fixture,burst);
       await visit(created[slot],'cycle'+cycle);
     }
-    await sample('cycle'+cycle);
+    if(sampleWorkload({duration,now:performance.now(),lastSample})){
+      await sample('cycle'+cycle,{gc:duration!==null});lastSample=performance.now();
+    }
+    result.completedCycles=cycle;
   }
+  result.workloadElapsedMs=performance.now()-workloadStart;save();
   if(sampling)await finishAllocations();
   await sample('paused',{gc:true,snapshot:flags.snapshots==='yes'});
   result.status='measured';
@@ -122,8 +163,11 @@ finally{
   for(const fixture of created){const closed=await dc(['tab','close','--tab',fixture.tab]);result.cleanup.push({tab:fixture.tab,exit:closed.code});save();}
   if(junction){try{if(fs.lstatSync(junction).isSymbolicLink())fs.unlinkSync(junction);}catch(error){result.junctionCleanupError=String(error);}}
   if(workspace){const closed=await dc(['workspace','close',workspace.id]);result.workspaceCloseExit=closed.code;}
-  if(cdp){try{const old=before.workspaces.find(w=>w.id===before.active_workspace_id);if(old)await selectWorkspace(old.name);const oldTab=before.tabs[before.focused_tab_id];if(oldTab)await evaluate(cdp,`(()=>{(${button('Open tab '+oldTab.title)})?.click();return true})()`);await sample('cleanup',{gc:true});}catch(error){result.cleanupSampleError=String(error);}cdp.close();}
+  if(cdp){try{const old=before.workspaces.find(w=>w.id===before.active_workspace_id);if(old)await selectWorkspace(old.name);const oldTab=before.tabs[before.focused_tab_id];if(oldTab)await evaluate(cdp,`(()=>{(${button('Open tab '+oldTab.title)})?.click();return true})()`);await sample('cleanup',{gc:true});}catch(error){result.cleanupSampleError=String(error);}}
   if(result.cleanup.some(x=>x.exit!==0)||result.workspaceCloseExit!==0)process.exitCode=1;
+  if(productionTarget&&productionController){try{await productionController.send('Target.closeTarget',{targetId:productionTarget});}catch(error){result.targetCleanupError=String(error);process.exitCode=1;}}
+  productionController?.close();
+  cdp?.close();
   save();console.log(`CHAT_MEMORY_COMPLETE status=${result.status} out=${out}`);
 }
 

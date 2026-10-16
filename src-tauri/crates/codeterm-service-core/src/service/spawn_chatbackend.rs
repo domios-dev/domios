@@ -688,6 +688,22 @@ impl ServiceContext {
                     tab.restorable_launch.runtime_launch_options.as_ref(),
                 )?
             };
+            let mut config = config;
+            let supports_fast = self
+                .agent_registry
+                .with_provider(&plugin_id, |provider| {
+                    provider
+                        .agent_runtime()
+                        .is_some_and(|capability| capability.fast_mode)
+                })
+                .unwrap_or(false);
+            let default_fast_mode = self
+                .configuration()
+                .agents
+                .get(&plugin_id)
+                .and_then(|provider| provider.extra.get("default_fast_mode"))
+                .and_then(toml::Value::as_bool);
+            launch_options::apply_fast_mode_default(&mut config, supports_fast, default_fast_mode);
             return super::agent_runtime::transport::launch(self, &plugin_id, &tab_id, config);
         }
         let session_id = self

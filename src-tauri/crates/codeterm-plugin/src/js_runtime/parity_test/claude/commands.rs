@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn exact_session_resume_native_js_parity() {
+    let (native, bundled) = pair();
+    let js = load_inline_js(
+        "resume-fixture",
+        "module.exports = {sessionResume: () => ({exact: true})};",
+    );
+    assert!(native.supports_exact_session_resume());
+    assert_eq!(
+        native.supports_exact_session_resume(),
+        js.supports_exact_session_resume()
+    );
+    assert_eq!(
+        native.supports_exact_session_resume(),
+        bundled.supports_exact_session_resume()
+    );
+}
+
+#[test]
 fn idle_restart_termination_native_js_parity() {
     if require_plugins().is_none() {
         return;

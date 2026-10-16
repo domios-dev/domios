@@ -701,7 +701,8 @@
         "kind": "sendEvidence",
         "threadId": "thread-fixture",
         "sendId": "before",
-        "turnId": "turn-a"
+        "turnId": "turn-a",
+        "itemId": "before-user"
       },
       {
         "kind": "auth",
@@ -740,7 +741,8 @@
         "kind": "sendEvidence",
         "threadId": "thread-fixture",
         "sendId": "after",
-        "turnId": "turn-b"
+        "turnId": "turn-b",
+        "itemId": "after-user"
       },
       {
         "kind": "chatItem",

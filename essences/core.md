@@ -61,6 +61,8 @@ What one Domios instance remembers across restarts: configuration, the workspace
 - Invariants: each instance keeps its own data directory, so development never reads or writes production's state; after storage cutover, `state.db` is the sole restore source and legacy JSON is import input only; restoring this state after a restart is unconditional and the journal is telemetry, not authority; writes to held configuration fail without changing live settings until the file is repaired or restored; secrets arrive on stdin, stay on their machine and never appear in a configuration dump.
 - Dependent capabilities: workspaces and tabs, session continuity, scheduling, service registry, secret store, configuration, usage and Analytics.
 
+System cron ownership is persisted explicitly and exposed to clients. System jobs allow enable/disable and refuse deletion or schedule/task edits; their built-in creator restores protection during startup.
+
 A missing or unreadable workspace folder, including a retired drive or volume, is checked at startup, workspace open and spawn refusal without polling. The sidebar marks the workspace and its view offers Choose folder instead of session creation. Relocation validates the new folder and keeps workspace, tab, Team, Plan and session identities; paths beneath the old root are rebased for bound Plans, idle tabs and stored launches, while active or outside-root paths are reported unchanged. Launches refuse an unusable cwd with a human recovery message and never fall back to another folder.
 
 ### PTY {#core:pty}
@@ -94,7 +96,7 @@ Exit or pipe failure unloads that runtime epoch and keeps an honest visible stat
 
 Signed-out runtimes offer provider-declared browser, device-code and masked API-key sign-in in Chat and through `agent login`. Local browser sign-in opens the default system browser; remote sign-in presents its link and device code. Credentials go only to the provider through stdin or a masked field, never command arguments, logs or the mesh. One provider login may be pending at a time; cancel releases it, and a verified completion resumes the same thread without restarting or replaying input.
 
-A NextTurn model, effort or runtime-mode request is pending until thread-owned settings or model evidence confirms it. It never restarts the tab. The next turn carries those controls without changing machine-global defaults. Completed compaction items restore the developer contract and cached client context; duplicate notifications do not inject twice.
+A provider-declared Fast mode control is shared by the model picker and Settings defaults. Its current value comes from the bound runtime; saving a default affects new sessions. A NextTurn model, effort, Fast mode or runtime-mode request is pending until thread-owned settings or model evidence confirms it. It never restarts the tab. The next turn carries those controls without changing machine-global defaults. Completed compaction items restore the developer contract and cached client context; duplicate notifications do not inject twice.
 
 Providers may declare live model and effort commands. These run only at an idle prompt in the same verified session. Confirmation comes from fresh output or a changed provider-declared identity record in that session; a timeout reports failure and never restarts automatically. Restart and resume remains an explicit fallback. The provider owns whether its command also saves a default for future sessions.
 

@@ -1,0 +1,664 @@
+{
+  "budget": 1048576,
+  "pageCount": 40,
+  "alternatingOrder": true,
+  "identicalRows": true,
+  "before": {
+    "runtime": "Node vm built plugin (not QuickJS)",
+    "meanMs": 17.53617750000001,
+    "p95Ms": 59.57349999999997,
+    "parsedBytes": 26713427,
+    "parsedLines": 9263,
+    "pages": [
+      {
+        "start": 483221892,
+        "end": 484270306,
+        "executeMs": 87.17989999999999,
+        "parsedBytes": 2161491,
+        "parsedLines": 831,
+        "rowCount": 146
+      },
+      {
+        "start": 482217581,
+        "end": 483221892,
+        "executeMs": 50.202800000000025,
+        "parsedBytes": 1782019,
+        "parsedLines": 673,
+        "rowCount": 125
+      },
+      {
+        "start": 481173736,
+        "end": 482217581,
+        "executeMs": 34.47230000000002,
+        "parsedBytes": 1618343,
+        "parsedLines": 729,
+        "rowCount": 124
+      },
+      {
+        "start": 480125395,
+        "end": 481173736,
+        "executeMs": 53.34070000000008,
+        "parsedBytes": 1881031,
+        "parsedLines": 771,
+        "rowCount": 145
+      },
+      {
+        "start": 479233862,
+        "end": 480125395,
+        "executeMs": 59.57349999999997,
+        "parsedBytes": 1863377,
+        "parsedLines": 597,
+        "rowCount": 112
+      },
+      {
+        "start": 478185855,
+        "end": 479233862,
+        "executeMs": 57.06880000000001,
+        "parsedBytes": 1889784,
+        "parsedLines": 637,
+        "rowCount": 117
+      },
+      {
+        "start": 477144615,
+        "end": 478185855,
+        "executeMs": 73.18290000000002,
+        "parsedBytes": 2049724,
+        "parsedLines": 1152,
+        "rowCount": 217
+      },
+      {
+        "start": 476244015,
+        "end": 477144615,
+        "executeMs": 50.015699999999924,
+        "parsedBytes": 1866021,
+        "parsedLines": 468,
+        "rowCount": 90
+      },
+      {
+        "start": 475195779,
+        "end": 476244015,
+        "executeMs": 42.719100000000026,
+        "parsedBytes": 1687611,
+        "parsedLines": 641,
+        "rowCount": 119
+      },
+      {
+        "start": 474147451,
+        "end": 475195779,
+        "executeMs": 53.50479999999993,
+        "parsedBytes": 2209536,
+        "parsedLines": 611,
+        "rowCount": 113
+      },
+      {
+        "start": 473183617,
+        "end": 474147451,
+        "executeMs": 20.67190000000005,
+        "parsedBytes": 1309923,
+        "parsedLines": 356,
+        "rowCount": 66
+      },
+      {
+        "start": 472142379,
+        "end": 473183617,
+        "executeMs": 24.20739999999978,
+        "parsedBytes": 1447915,
+        "parsedLines": 412,
+        "rowCount": 76
+      },
+      {
+        "start": 471100815,
+        "end": 472142379,
+        "executeMs": 39.58200000000011,
+        "parsedBytes": 2059849,
+        "parsedLines": 666,
+        "rowCount": 124
+      },
+      {
+        "start": 470307066,
+        "end": 471100815,
+        "executeMs": 28.595199999999977,
+        "parsedBytes": 1227708,
+        "parsedLines": 455,
+        "rowCount": 85
+      },
+      {
+        "start": 469263375,
+        "end": 470307066,
+        "executeMs": 25.46010000000001,
+        "parsedBytes": 1546670,
+        "parsedLines": 249,
+        "rowCount": 46
+      },
+      {
+        "start": 469195419,
+        "end": 469263375,
+        "executeMs": 1.6463999999998578,
+        "parsedBytes": 112425,
+        "parsedLines": 15,
+        "rowCount": 3
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.010500000000092768,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0018999999999778083,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0011000000001786248,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0005000000001018634,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0003999999998995918,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0003999999998995918,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.00040000000012696546,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0003999999998995918,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0006000000000767614,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0005000000001018634,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0005999999998493877,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0005000000001018634,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0004999999998744897,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0005000000001018634,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.00040000000012696546,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0004999999998744897,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0005000000001018634,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0005000000001018634,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0003999999998995918,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0006000000000767614,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.00040000000012696546,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0004999999998744897,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0006000000000767614,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.00040000000012696546,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      }
+    ]
+  },
+  "after": {
+    "runtime": "Node vm built plugin (not QuickJS)",
+    "meanMs": 17.084719999999997,
+    "p95Ms": 55.878600000000006,
+    "parsedBytes": 19878178,
+    "parsedLines": 6660,
+    "pages": [
+      {
+        "start": 483221892,
+        "end": 484270306,
+        "executeMs": 74.93560000000002,
+        "parsedBytes": 1752824,
+        "parsedLines": 590,
+        "rowCount": 146
+      },
+      {
+        "start": 482217581,
+        "end": 483221892,
+        "executeMs": 54.80309999999997,
+        "parsedBytes": 1407475,
+        "parsedLines": 488,
+        "rowCount": 125
+      },
+      {
+        "start": 481173736,
+        "end": 482217581,
+        "executeMs": 38.64100000000002,
+        "parsedBytes": 965795,
+        "parsedLines": 488,
+        "rowCount": 124
+      },
+      {
+        "start": 480125395,
+        "end": 481173736,
+        "executeMs": 46.80880000000002,
+        "parsedBytes": 1466250,
+        "parsedLines": 548,
+        "rowCount": 145
+      },
+      {
+        "start": 479233862,
+        "end": 480125395,
+        "executeMs": 51.336400000000026,
+        "parsedBytes": 1507153,
+        "parsedLines": 436,
+        "rowCount": 112
+      },
+      {
+        "start": 478185855,
+        "end": 479233862,
+        "executeMs": 50.52170000000001,
+        "parsedBytes": 1272438,
+        "parsedLines": 451,
+        "rowCount": 117
+      },
+      {
+        "start": 477144615,
+        "end": 478185855,
+        "executeMs": 69.59799999999996,
+        "parsedBytes": 1608031,
+        "parsedLines": 845,
+        "rowCount": 217
+      },
+      {
+        "start": 476244015,
+        "end": 477144615,
+        "executeMs": 46.90759999999989,
+        "parsedBytes": 1527188,
+        "parsedLines": 339,
+        "rowCount": 90
+      },
+      {
+        "start": 475195779,
+        "end": 476244015,
+        "executeMs": 45.983400000000074,
+        "parsedBytes": 1050017,
+        "parsedLines": 469,
+        "rowCount": 119
+      },
+      {
+        "start": 474147451,
+        "end": 475195779,
+        "executeMs": 55.878600000000006,
+        "parsedBytes": 1813490,
+        "parsedLines": 444,
+        "rowCount": 113
+      },
+      {
+        "start": 473183617,
+        "end": 474147451,
+        "executeMs": 24.863399999999956,
+        "parsedBytes": 1028928,
+        "parsedLines": 258,
+        "rowCount": 66
+      },
+      {
+        "start": 472142379,
+        "end": 473183617,
+        "executeMs": 22.27039999999988,
+        "parsedBytes": 851091,
+        "parsedLines": 301,
+        "rowCount": 76
+      },
+      {
+        "start": 471100815,
+        "end": 472142379,
+        "executeMs": 43.304800000000114,
+        "parsedBytes": 1684690,
+        "parsedLines": 484,
+        "rowCount": 124
+      },
+      {
+        "start": 470307066,
+        "end": 471100815,
+        "executeMs": 31.153500000000122,
+        "parsedBytes": 912269,
+        "parsedLines": 330,
+        "rowCount": 85
+      },
+      {
+        "start": 469263375,
+        "end": 470307066,
+        "executeMs": 24.450000000000045,
+        "parsedBytes": 965203,
+        "parsedLines": 178,
+        "rowCount": 46
+      },
+      {
+        "start": 469195419,
+        "end": 469263375,
+        "executeMs": 1.9103000000000065,
+        "parsedBytes": 65336,
+        "parsedLines": 11,
+        "rowCount": 3
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.011199999999917054,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0008000000000265572,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0004999999998744897,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0006000000000767614,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0003999999998995918,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0003999999998995918,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.00040000000012696546,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0005000000001018634,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0003999999998995918,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0005000000001018634,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0004999999998744897,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0006000000000767614,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0004999999998744897,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0006000000000767614,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0003999999998995918,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0003999999998995918,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.00040000000012696546,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0005000000001018634,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0003999999998995918,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0004999999998744897,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.00040000000012696546,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.0004999999998744897,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.00040000000012696546,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      },
+      {
+        "start": 469195419,
+        "end": 469195419,
+        "executeMs": 0.00040000000012696546,
+        "parsedBytes": 0,
+        "parsedLines": 0,
+        "rowCount": 0
+      }
+    ]
+  }
+}

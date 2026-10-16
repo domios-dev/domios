@@ -145,7 +145,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
       (value) => (value as { enabled?: boolean })?.enabled === true,
     );
     case "restart_agent_tab": return call("POST", "/agent/restart", { fresh: args.fresh === true });
-    case "switch_agent_model": return call("POST", "/agent/model", { model: args.model, reasoning_effort: args.reasoningEffort, runtime_mode: args.runtimeMode, ...(args.restartResume === true ? { restart_resume: true } : {}), ...(args.cancel === true ? { cancel: true } : {}) });
+    case "switch_agent_model": return call("POST", "/agent/model", { model: args.model, reasoning_effort: args.reasoningEffort, runtime_mode: args.runtimeMode, ...(typeof args.fastMode === "boolean" ? { fast_mode: args.fastMode } : {}), ...(args.restartResume === true ? { restart_resume: true } : {}), ...(args.cancel === true ? { cancel: true } : {}) });
     default: return null;
   }
 }

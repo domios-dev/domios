@@ -1,3 +1,4 @@
+import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 import { ChildTranscriptScope } from "./ChildTranscriptScope";
 import { chatLayoutTokens } from "./chatLayoutTokens";
@@ -14,7 +15,7 @@ import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
-import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Fragment, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
   ChatDaySeparator,
@@ -215,14 +216,14 @@ function TabSessionChatBody({
 
   const { setFocusedTab, selectTabByTab, addNotification, answerNotification } = useMultiplexer();
   const openPlanTarget = usePlanTargetNavigation();
-  const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
+  const tabSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
-  const workspaceSelector = useCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
+  const workspaceSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
   const workspaceId = useMuxSelector(workspaceSelector);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
   const tabAgentTypes = useMuxSelector(selectTabAgentTypes, tabAgentTypesEqual);
-  const askSelector = useCallback((s: Parameters<typeof selectTabAsks>[0]) => selectTabAsks(s, tabId), [tabId]);
+  const askSelector = useLatestCallback((s: Parameters<typeof selectTabAsks>[0]) => selectTabAsks(s, tabId), [tabId]);
   const asks = useMuxSelector(askSelector, tabAsksEqual);
   const { index: planIndex } = usePlanIndexOptional();
   const tabProvider = tab?.agent_type ?? null;
@@ -253,7 +254,7 @@ function TabSessionChatBody({
   const resolvePeerName = useMeshPeerNameResolver(isActive);
   const resolvePluginName = usePluginDisplayNameResolver();
 
-  const showComposerError = useCallback((message: string) => {
+  const showComposerError = useLatestCallback((message: string) => {
     addNotification({
       tab_id: tabId,
       workspace_id: null,
@@ -393,14 +394,14 @@ function TabSessionChatBody({
     prepareMessage: (id) => mountedWindow.prepareMessage(id) || prepareMessage(id),
   });
 
-  const followSentMessage = useCallback(() => {
+  const followSentMessage = useLatestCallback(() => {
     showLatest();
     rawFollowSentMessage();
   }, [showLatest, rawFollowSentMessage]);
   const choiceHost = useTabChoiceHost(tabId, { messages: allMessages, addOptimistic, followSentMessage, observeChatSendStatus });
   const chatBlockHost = useMemo(() => ({ ...tabBlockHost, choice: choiceHost }), [tabBlockHost, choiceHost]);
 
-  const willSendMessage = useCallback(() => {
+  const willSendMessage = useLatestCallback(() => {
     followSentMessage();
   }, [followSentMessage]);
 
@@ -418,7 +419,7 @@ function TabSessionChatBody({
   }, [pendingPrompt]);
 
   const promptResponseInFlight = useRef(false);
-  const handleRespondPrompt = useCallback(
+  const handleRespondPrompt = useLatestCallback(
     async (value: string) => {
       if (promptResponseInFlight.current) return;
       promptResponseInFlight.current = true;
@@ -436,7 +437,7 @@ function TabSessionChatBody({
     [pendingPrompt, structuredPrompts, tabId, showComposerError],
   );
   // input path the composer uses; jump surfaces the live terminal output.
-  const handleRerunShellCommand = useCallback((command: string) => {
+  const handleRerunShellCommand = useLatestCallback((command: string) => {
     if (!currentPtyId) {
       showComposerError("Tab has no PTY");
       return;
@@ -446,18 +447,18 @@ function TabSessionChatBody({
     );
   }, [currentPtyId, showComposerError, tabId, tab?.managed]);
 
-  const handleJumpToShellCommand = useCallback(() => {
+  const handleJumpToShellCommand = useLatestCallback(() => {
     onOpenTerminalFallback?.();
   }, [onOpenTerminalFallback]);
 
-  const focusComposer = useCallback(() => {
+  const focusComposer = useLatestCallback(() => {
     chatRootRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
   }, []);
 
   const interruptTarget = useMemo(() => ({ id: tabId, pty_id: currentPtyId, managed: tab?.managed, backing: tab?.backing }),
     [tabId, currentPtyId, tab?.managed, tab?.backing]);
   const canInterrupt = interruptAgentArgs(interruptTarget) !== null;
-  const handleStopAgent = useCallback(() => {
+  const handleStopAgent = useLatestCallback(() => {
     const args = interruptAgentArgs(interruptTarget);
     if (!args) {
       showComposerError("Tab has no interrupt route");
@@ -473,11 +474,11 @@ function TabSessionChatBody({
     );
   }, [interruptTarget, showComposerError]);
 
-  const openJobs = useCallback(() => {
+  const openJobs = useLatestCallback(() => {
     window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:jobs" } }));
   }, []);
 
-  const handleStopReminder = useCallback(async (id: string) => {
+  const handleStopReminder = useLatestCallback(async (id: string) => {
     try {
       await invoke("delayed_send_delete", { id });
     } catch (error) {
@@ -485,7 +486,7 @@ function TabSessionChatBody({
     }
   }, [showComposerError]);
 
-  const handleAnswerInteractive = useCallback<InteractiveAnswerHandler>(
+  const handleAnswerInteractive = useLatestCallback<InteractiveAnswerHandler>(
     async (text, element) => {
       const answer = text.trim();
       if (!answer) return;
@@ -547,7 +548,7 @@ function TabSessionChatBody({
     return names;
   }, [enrichedMessages, tabTitleMap]);
 
-  const resolveTabName = useCallback(
+  const resolveTabName = useLatestCallback(
     (tabRef: string): string | undefined => communicationTabNames.get(tabRef.slice(0, 8)),
     [communicationTabNames],
   );
@@ -624,7 +625,7 @@ function TabSessionChatBody({
   }), [renderedEnrichedMessages, localToday]);
   const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
   const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId, prepareMessage: mountedWindow.prepareMessage, contentVersion: mountedContentVersion });
-  const jumpToQuoted = useCallback((messageId: string) => { requestChatMessageReveal(tabId, messageId); }, [tabId]);
+  const jumpToQuoted = useLatestCallback((messageId: string) => { requestChatMessageReveal(tabId, messageId); }, [tabId]);
 
   const sessionIntent = useMemo(() => sessionIntentFromMessages(allMessages), [allMessages]);
   // The rails are content, so they answer to the same authority the setup view
@@ -686,7 +687,7 @@ function TabSessionChatBody({
     api ?? DISABLED_PLAN_API,
     visiblePlanRefs,
   );
-  const resolvePlanRef = useCallback(
+  const resolvePlanRef = useLatestCallback(
     (planId: string, targetId?: string, targetKind?: "plan" | "task" | "section") => {
       const kind = targetKind ?? (targetId ? "task" : "plan");
       const key = `${kind}:${planId}:${targetId ?? ""}`;
@@ -710,7 +711,7 @@ function TabSessionChatBody({
     [resolvedPlanRefs, planIndex, planNav.workspaces],
   );
 
-  const onOpenPlan = useCallback(
+  const onOpenPlan = useLatestCallback(
     (planId: string, taskId?: string, targetKind?: "plan" | "task" | "section") => {
       const kind = targetKind ?? (taskId ? "task" : "plan");
       const resolved = resolvedPlanRefs.refs.get(`${kind}:${planId}:${taskId ?? ""}`);
@@ -723,7 +724,7 @@ function TabSessionChatBody({
     [openPlanTarget, resolvedPlanRefs.refs],
   );
 
-  const resolveFocusTab = useCallback((ref: string) => {
+  const resolveFocusTab = useLatestCallback((ref: string) => {
     const target = resolveTabNavigationTarget(ref, Object.keys(tabAgentTypes), planNav.workspaces);
     if (target) void selectTabByTab(target.workspaceId, target.tabId);
   }, [tabAgentTypes, planNav.workspaces, selectTabByTab]);

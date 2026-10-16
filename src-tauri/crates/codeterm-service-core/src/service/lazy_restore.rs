@@ -8,6 +8,8 @@ use std::sync::LazyLock;
 
 static WAKING: LazyLock<parking_lot::Mutex<HashSet<String>>> = LazyLock::new(Default::default);
 
+mod user_send;
+
 struct WakeRequest(String);
 
 impl Drop for WakeRequest {
@@ -98,6 +100,23 @@ fn wake_with(
     allow_failed: bool,
     materialize: impl FnOnce(&str, bool) -> Result<(), String>,
 ) -> Result<(), String> {
+    let retirement = {
+        let mut mux = svc.mux.write();
+        let resolved = mux
+            .resolve_tab_id(tab_id)
+            .ok_or_else(|| format!("Tab {tab_id} not found"))?;
+        if let Some(tab) = mux.get_tab_mut(&resolved) {
+            tab.record_activity();
+        }
+        super::agent_restart::sleep_transition::request_wake(
+            svc.ext::<super::agent_restart::RestartTracker>(),
+            &resolved,
+        )
+    };
+    super::agent_restart::sleep_transition::wait_for_retirement(
+        retirement,
+        super::agent_restart::sleep_transition::wake_deadline(),
+    )?;
     let id = {
         let mux = svc.mux.read();
         let id = mux
@@ -265,6 +284,25 @@ mod tests {
             .unwrap();
         }
         assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn waking_keeps_runtime_sleep_marker_and_exact_session() {
+        let (mut mux, id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.frozen = true;
+        tab.slept_at_ms = Some(42);
+        tab.agent_session_id = Some("own-session".into());
+        let fixture = ServiceFixture::new(mux);
+        wake_with(&fixture.service, &id, false, |resolved, _| {
+            let mux = fixture.service.mux.read();
+            let tab = mux.get_tab(resolved).unwrap();
+            assert!(!tab.frozen);
+            assert_eq!(tab.slept_at_ms, Some(42));
+            assert_eq!(tab.agent_session_id.as_deref(), Some("own-session"));
+            Ok(())
+        })
+        .unwrap();
     }
 
     #[test]

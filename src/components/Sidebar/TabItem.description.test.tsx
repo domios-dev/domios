@@ -55,13 +55,13 @@ function subtitleText(html: string): string | null {
 const ORCHESTRATOR: Partial<Tab> = { role: "Manager", role_profile: "orchestrator" };
 
 describe("tab description subtitle", () => {
-  it("renders the description between the tab name and its role", () => {
+  it("renders the role before the description beneath the tab name", () => {
     const html = render({ ...ORCHESTRATOR, description: "compiling shaders" });
     expect(subtitleText(html)).toBe("compiling shaders");
     const title = html.indexOf('data-testid="tab-title"');
     const subtitle = html.indexOf(SUBTITLE_TESTID);
     const role = html.indexOf('data-testid="tab-subline"');
-    expect(title >= 0 && subtitle > title && role > subtitle).toBe(true);
+    expect(title >= 0 && role > title && subtitle > role).toBe(true);
   });
 
   it("adds nothing but the subtitle node to a row that already had a description tooltip", () => {

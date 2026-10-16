@@ -292,6 +292,14 @@ check("delivery cannot use old text, foreign thread or unmatched client",()=> {
   assert.equal(hooks.runtimeReduce(empty,null,[genuine.frame]).events.some(e=>e.kind === "sendEvidence"),false);
   assert.deepEqual(plain(hooks.runtimeReduce({...ctx,threadId:"foreign"},null,[genuine.frame]).events),[]);
 });
+check("identical steering sends retain distinct protocol item identities",()=> {
+  const claimedSends = ["repeat-a","repeat-b"].map(sendId=>({sendId,threadId:ctx.threadId!,input:{text:"same input",attachments:[]}}));
+  const frames:RuntimeFrame[] = claimedSends.map((claim,index)=>({kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"same-turn",item:{id:`user-${index}`,type:"userMessage",clientId:claim.sendId,content:[{type:"text",text:"same input"}]}}}));
+  const events = hooks.runtimeReduce({...ctx,claimedSends},null,frames).events.filter(e=>e.kind === "sendEvidence");
+  assert.deepEqual(events,claimedSends.map((claim,index)=>({kind:"sendEvidence",threadId:ctx.threadId!,sendId:claim.sendId,turnId:"same-turn",itemId:`user-${index}`})));
+  const missingId:RuntimeFrame = {kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"same-turn",item:{type:"userMessage",clientId:"repeat-a",content:[{type:"text",text:"same input"}]}}};
+  assert.deepEqual(hooks.runtimeReduce({...ctx,claimedSends},null,[missingId]).events.filter(e=>e.kind === "sendEvidence"),[{kind:"sendEvidence",threadId:ctx.threadId!,sendId:"repeat-a",turnId:"same-turn"}]);
+});
 check("claim evidence is emitted once",()=> {
   const entry = sample.rpc.find(r=>"frame" in r && r.frame.method === "item/completed")!;
   assert.ok("frame" in entry);
@@ -1115,3 +1123,40 @@ check("descending bounded history never falls back to a full-thread read",()=> {
   const step=plain(hooks.runtimeResponse(ctx,op,plan.state,{kind:"error",error:{code:-32601,message:"unsupported"}}));
   assert.deepEqual(step,{kind:"complete",result:{kind:"historyPage",threadId:ctx.threadId!,items:[],openItems:[],order:"desc"}});
 });
+
+check("Fast mode maps both values through thread settings and the next turn with runtime readback",()=> {
+  for (const fastMode of [true,false]) {
+    const serviceTier = fastMode ? "priority" : null;
+    const context = {...ctx,settings:{...ctx.settings,fastMode:!fastMode}};
+    const op:Operation = {kind:"control",threadId:ctx.threadId!,action:"settings",value:{model:"selected",effort:"high",fastMode}};
+    const plan = hooks.runtimePlan(context,op);
+    assert.equal(plan.action.kind,"request");
+    if (plan.action.kind !== "request") throw new Error("Expected settings request");
+    assert.equal(plan.action.call.method,"thread/settings/update");
+    assert.equal((plan.action.call.params as Record<string,JsonValue>).serviceTier,serviceTier);
+    const step = plain(hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:{threadSettings:{model:"selected",effort:"high",serviceTier}}}));
+    if (step.kind !== "complete") throw new Error("Expected confirmation");
+    const event = step.events?.find(event=>event.kind === "controlsConfirmed");
+    assert.ok(event?.kind === "controlsConfirmed");
+    assert.equal(event.settings.fastMode,fastMode);
+    const turn = hooks.runtimePlan(context,{...submit,kind:"submitTurn",settings:event.settings} as Operation);
+    assert.equal(turn.action.kind,"request");
+    if (turn.action.kind !== "request") throw new Error("Expected turn request");
+    assert.equal((turn.action.call.params as Record<string,JsonValue>).serviceTier,serviceTier);
+    const missing = hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:{}});
+    if (missing.kind !== "complete") throw new Error("Expected completion");
+    assert.equal(missing.events?.find(event=>event.kind === "controlsConfirmed"),undefined);
+    for (const kind of ["openThread","resumeThread"] as const) {
+      const launch = hooks.runtimePlan(context,{kind,instructions:"",...(kind === "resumeThread" ? {threadId:ctx.threadId!} : {}),settings:{...ctx.settings,fastMode}} as Operation);
+      assert.equal(launch.action.kind,"request");
+      if (launch.action.kind !== "request") throw new Error("Expected thread request");
+      assert.equal((launch.action.call.params as Record<string,JsonValue>).serviceTier,serviceTier);
+    }
+    const notification = hooks.runtimeReduce(context,null,[{kind:"notification",method:"thread/settings/updated",params:{threadId:ctx.threadId!,threadSettings:{serviceTier}}}]);
+    const reported = notification.events.find(event=>event.kind === "controlsConfirmed");
+    assert.ok(reported?.kind === "controlsConfirmed");
+    assert.equal(reported.settings.fastMode,fastMode);
+  }
+});
+
+console.log(`runtime Fast mode regressions: ${count} checks passed`);

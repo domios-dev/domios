@@ -1,4 +1,5 @@
 import type { AgentRuntime } from "./agentRuntime";
+import type { ParsedSessionRecord, SessionRecordsMeta } from "./jsonlRecords";
 export type PreTrustOutcome =
   | { status: "already_trusted" | "granted" }
   | { status: "skipped" | "failed"; reason: string };
@@ -23,6 +24,10 @@ export interface TurnEvidenceNormalization {
 /** Manifest spawn contract; absent means the provider does not restore chat on resume. */
 export interface ResumeHistoryCapability {
   restoresConversationHistoryOnResume?: boolean;
+}
+
+export interface SessionResumeCapability {
+  exact: boolean;
 }
 
 export interface TabContext {
@@ -266,6 +271,7 @@ export interface SettingField {
 }
 
 export interface AgentProvider {
+  sessionResume?(): SessionResumeCapability;
   authStatusProbe?(): {args: string[]; timeoutMs: number} | null;
   tracksBackgroundWork?(): boolean;
   parseBackgroundWork?(record: unknown): {id:string;state:"running"|"completed"|"failed"|"killed"}[];
@@ -339,6 +345,9 @@ export interface AgentProvider {
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
   /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */
   parseSessionDelta?(chunk: string, context?: SessionDeltaContext): unknown;
+  /** Rows retain each source record's original recordIndex for host byte anchoring. */
+  parseSessionRecords?(records: readonly ParsedSessionRecord[], meta: SessionRecordsMeta): unknown;
+  parseSessionMessageRecords?(records: readonly ParsedSessionRecord[], meta: SessionRecordsMeta): unknown[];
   detectSessionId?(cwd: string, exclude?: string, maxAgeMs?: number): string | null;
   /** Session named by this launch's own provider record; null when none names it. */
   detectLaunchSession?(evidence: LaunchSessionEvidence): LaunchSessionDetection | null;

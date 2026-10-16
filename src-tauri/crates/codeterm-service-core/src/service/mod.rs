@@ -24,6 +24,7 @@ pub mod agent_runtime;
 pub mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 pub mod lazy_restore;
+pub mod tab_sleep_policy;
 pub use ai_helper_spawn::AiHelperRequest;
 pub mod analytics;
 mod analytics_host;

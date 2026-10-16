@@ -1,0 +1,182 @@
+[
+  {
+    "timestamp": "2026-10-16T19:07:54.906Z",
+    "ordinal": 10,
+    "type": "event_msg",
+    "payload": {
+      "type": "item_completed",
+      "thread_id": "fixture-identity-1",
+      "turn_id": "fixture-identity-2",
+      "item": {
+        "type": "AgentMessage",
+        "id": "fixture-identity-3",
+        "content": [
+          {
+            "type": "Text",
+            "text": "ACK-CODEX"
+          }
+        ],
+        "phase": "final_answer"
+      },
+      "started_at_ms": 1792177674833,
+      "completed_at_ms": 1792177674906
+    }
+  },
+  {
+    "timestamp": "2026-10-16T19:07:54.919Z",
+    "ordinal": 11,
+    "type": "response_item",
+    "payload": {
+      "type": "message",
+      "id": "fixture-identity-3",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "ACK-CODEX"
+        }
+      ],
+      "phase": "final_answer",
+      "internal_chat_message_metadata_passthrough": {
+        "turn_id": "fixture-identity-2",
+        "create_time": 1792177674.8207872,
+        "content_item_kinds": [
+          "unknown"
+        ]
+      }
+    },
+    "metadata": {
+      "retained_source": {
+        "id": {
+          "message_id": "fixture-identity-3",
+          "turn_id": "fixture-identity-2",
+          "role": "assistant"
+        },
+        "revision": "fixture-identity-4",
+        "complete": true
+      },
+      "client_authored": false,
+      "user_input_order": 1
+    }
+  },
+  {
+    "timestamp": "2026-10-16T19:08:09.982Z",
+    "ordinal": 32,
+    "type": "event_msg",
+    "payload": {
+      "type": "item_completed",
+      "thread_id": "fixture-identity-1",
+      "turn_id": "fixture-identity-5",
+      "item": {
+        "type": "AgentMessage",
+        "id": "fixture-identity-6",
+        "content": [
+          {
+            "type": "Text",
+            "text": "CACK-3"
+          }
+        ],
+        "phase": "final_answer"
+      },
+      "started_at_ms": 1792177689876,
+      "completed_at_ms": 1792177689982
+    }
+  },
+  {
+    "timestamp": "2026-10-16T19:08:09.995Z",
+    "ordinal": 33,
+    "type": "response_item",
+    "payload": {
+      "type": "message",
+      "id": "fixture-identity-6",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "CACK-3"
+        }
+      ],
+      "phase": "final_answer",
+      "internal_chat_message_metadata_passthrough": {
+        "turn_id": "fixture-identity-5",
+        "create_time": 1792177689.836253,
+        "content_item_kinds": [
+          "unknown"
+        ]
+      }
+    },
+    "metadata": {
+      "retained_source": {
+        "id": {
+          "message_id": "fixture-identity-6",
+          "turn_id": "fixture-identity-5",
+          "role": "assistant"
+        },
+        "revision": "fixture-identity-7",
+        "complete": true
+      },
+      "client_authored": false,
+      "user_input_order": 6
+    }
+  },
+  {
+    "timestamp": "2026-10-16T19:08:33.234Z",
+    "ordinal": 46,
+    "type": "event_msg",
+    "payload": {
+      "type": "item_completed",
+      "thread_id": "fixture-identity-1",
+      "turn_id": "fixture-identity-8",
+      "item": {
+        "type": "AgentMessage",
+        "id": "fixture-identity-9",
+        "content": [
+          {
+            "type": "Text",
+            "text": "ACK-FAST-MODEL"
+          }
+        ],
+        "phase": "final_answer"
+      },
+      "started_at_ms": 1792177713110,
+      "completed_at_ms": 1792177713234
+    }
+  },
+  {
+    "timestamp": "2026-10-16T19:08:33.245Z",
+    "ordinal": 47,
+    "type": "response_item",
+    "payload": {
+      "type": "message",
+      "id": "fixture-identity-9",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "ACK-FAST-MODEL"
+        }
+      ],
+      "phase": "final_answer",
+      "internal_chat_message_metadata_passthrough": {
+        "turn_id": "fixture-identity-8",
+        "create_time": 1792177713.0952427,
+        "content_item_kinds": [
+          "unknown"
+        ]
+      }
+    },
+    "metadata": {
+      "retained_source": {
+        "id": {
+          "message_id": "fixture-identity-9",
+          "turn_id": "fixture-identity-8",
+          "role": "assistant"
+        },
+        "revision": "fixture-identity-10",
+        "complete": true
+      },
+      "client_authored": false,
+      "user_input_order": 8
+    }
+  }
+]

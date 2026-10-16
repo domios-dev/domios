@@ -18,6 +18,7 @@ export interface ExecOpts {
 }
 
 export interface ExecResult {
+  truncated?: boolean;
   code?: number;
   stdout?: string;
   stderr?: string;
@@ -31,6 +32,7 @@ export interface ExecStartResult {
 }
 
 export interface ExecPollResult {
+  truncated?: boolean;
   done: boolean;
   code?: number;
   stdout?: string;

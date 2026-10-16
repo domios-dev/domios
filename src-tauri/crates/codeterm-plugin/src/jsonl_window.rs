@@ -8,6 +8,10 @@ use std::path::Path;
 
 use codeterm_types::agent::chat_types::RichMessage;
 
+pub(crate) mod ordered;
+pub mod projection;
+pub mod records;
+
 /// Bytes one delta read pulls before yielding. Hitting the cap leaves the rest
 /// for the next call, which is why [`JsonlChunk::more_available`] exists.
 pub const DELTA_CHUNK_BYTES: u64 = 8 * 1024 * 1024;

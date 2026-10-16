@@ -54,7 +54,7 @@ export function ConfirmDialog({
         <div style={{ fontSize: 16, fontWeight: 620, marginBottom: 10 }}>{title}</div>
         <p
           data-testid={`${testId}-message`}
-          style={{ fontSize: 13, color: "var(--ct-muted)", margin: "0 0 18px", lineHeight: 1.5, whiteSpace: "pre-wrap" }}
+          style={{ fontSize: 13, color: "var(--ct-muted-fg)", margin: "0 0 18px", lineHeight: 1.5, whiteSpace: "pre-wrap" }}
         >
           {message}
         </p>

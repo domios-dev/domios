@@ -54,7 +54,7 @@ export function ChatSetupState({
   return (
     <DeferredPresence present={visible && view.kind === "starting"} className="chat-launch-overlay">
     <div className="h-full" data-testid="chat-setup-state" onKeyDown={handleKeyDown}>
-      <RestoreStatePanel providerId={tab?.agent_type} view={view.kind === "starting" ? transcriptLoadingStageView(tab ?? {}) : restoreStageView(tab ?? {})} onRetry={() => {}} />
+      <RestoreStatePanel providerId={tab?.agent_type} view={view.kind === "starting" ? transcriptLoadingStageView(tab ?? {}) : restoreStageView(tab ?? {})} />
     </div>
     </DeferredPresence>
   );

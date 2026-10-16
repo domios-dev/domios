@@ -66,20 +66,44 @@ function branchOf(cwd: string): string | null {
 
 // --- capabilities ---
 
+const lastBubbles = new Map<string, StatusBubble>();
+
 function statusBubble(ctx: TabContext): StatusBubble | null {
   const cwd = ctx && ctx.cwd;
   if (!cwd) return null;
-  const branch = branchOf(cwd);
-  if (!branch) return null; // not a repo → no pill
-  const d = parsePorcelain(git(cwd, ["status", "--porcelain"]).stdout);
-  return {
-    label: branch,
-    tone: "default",
-    icon: "git",
-    tooltip: d.total ? `${d.total} changed — open Git` : "clean — open Git",
-    // Click opens the plugin's own Git view (its sandboxed iframe UI).
-    action: "openPanel:view:git",
-  };
+  const opts = (args: string[]): ExecOpts => ({
+    bin: "git",
+    args: ["-C", cwd].concat(args),
+    env: { GIT_OPTIONAL_LOCKS: "0" },
+    timeoutMs: 4000,
+  });
+  return host.exec.async<StatusBubble | null>(opts(["rev-parse", "--abbrev-ref", "HEAD"]), (result) => {
+    if (result.error || result.truncated) return lastBubbles.get(cwd) || null;
+    if (result.code !== 0) {
+      lastBubbles.delete(cwd);
+      return null;
+    }
+    const branch = (result.stdout || "").trim();
+    if (!branch) {
+      lastBubbles.delete(cwd);
+      return null;
+    }
+    return host.exec.async<StatusBubble | null>(opts(["status", "--porcelain"]), (status) => {
+      if (status.error || status.truncated || status.code !== 0) return lastBubbles.get(cwd) || null;
+      const d = parsePorcelain(status.stdout);
+      const bubble: StatusBubble = {
+        label: branch,
+        tone: "default",
+        icon: "git",
+        tooltip: d.total ? `${d.total} changed — open Git` : "clean — open Git",
+        action: "openPanel:view:git",
+      };
+      lastBubbles.delete(cwd);
+      lastBubbles.set(cwd, bubble);
+      if (lastBubbles.size > 128) lastBubbles.delete(lastBubbles.keys().next().value as string);
+      return bubble;
+    });
+  });
 }
 
 function renderGlance(ctx: TabContext): GlanceView {

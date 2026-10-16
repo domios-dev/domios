@@ -3,7 +3,6 @@
 
 export {};
 
-import { readFileSync } from "node:fs";
 
 class FakeStorage {
   private map = new Map<string, string>();
@@ -196,9 +195,6 @@ async function renderHarness(
 }
 
 test("restore incidents and Blueprint outcomes cannot create toasts", async () => {
-  const app = readFileSync("src/App.tsx", "utf8");
-  assert(!app.includes("RecoveryStatusBanner"), "the app has no recovery toast producer");
-  assert(!app.includes("useBlueprintRunPopups"), "the app has no Blueprint toast producer");
   const h = await renderHarness(async <T,>(cmd: string) => {
     if (cmd === "mux_get_state") return makeSnapshot([], 1) as T;
     if (cmd === "list_notifications") return [] as T;

@@ -392,21 +392,33 @@ At the same hook, installed `cargo-sweep` prunes the current checkout's `src-tau
 
 Run `./build.sh gc --dry-run` to preview or `./build.sh gc` to reclaim immediately (Windows: `.\build.ps1 gc --dry-run` / `.\build.ps1 gc`). Manual GC acquires the machine gateway, bypasses the hourly throttle, and reports exceptional bytes reclaimed plus sweep output. Dry-run preserves artifacts and the hourly timestamp. Normal targets have an age policy; current artifacts and protected exceptional targets can exceed their usual retained size.
 
-Manual GC also maps every existing Git worktree of this repository and the sibling
+Orphan build-directory GC runs in manual GC and in the hourly automatic retention.
+It maps every existing Git worktree of this repository and the sibling
 `codeterm-plugins` repository, plus the gateway's stable `X:` checkout, through
 `cargo metadata --format-version 1 --offline --no-deps`. Cargo 1.95 exposes
 `build_directory`; no hash approximation is used. Set `CODETERM_PLUGINS_CHECKOUT`
-when the plugin repository is elsewhere. Missing repositories, failed metadata,
-or a missing gateway mapping refuse deletion. Each workspace mapping is printed.
-The configured two-level `{workspace-path-hash}` cache roots are discovered from
-these paths, rather than hardcoding BLACKSTAR's RustCaches location.
+when the plugin repository is elsewhere. Missing repositories or failed metadata
+refuse deletion. Each workspace mapping is printed. The configured two-level
+`{workspace-path-hash}` cache roots are discovered from these paths, rather than
+hardcoding BLACKSTAR's RustCaches location.
 
-Only unmapped build directories are removed, regardless of age. A live checkout's
-old build directory remains protected; `CODETERM_CACHE_MAX_AGE_DAYS` continues to
-govern exceptional targets and cargo-sweep, not deletion of live build directories.
+`X:` exists only inside a gateway job. Whenever GC sees it mapped it records the
+gateway build directory in `stable-build-dirs.json` in the machine gateway dir;
+when `X:` is unmapped (for example during `check-queue`) that record protects it,
+and with neither the mapping nor a record GC refuses. Automatic retention runs
+after the job's stable mapping so the record stays fresh. A worktree created or
+removed mid-run triggers a remap; a directory that became live is skipped.
+Automatic orphan-GC refusals are logged and the build continues.
+
+**Protection rule.** Never delete the build directory of the canonical checkout,
+of the gateway (`X:`), or of any live checkout, regardless of idle time: cold
+rebuilds of those stall every agent on the machine. Only unmapped build
+directories (whose checkout no longer exists) are removed. Directory mtime is
+not a usage signal: Cargo writes deep inside the hash directory, so a live
+directory can look idle for days. `CODETERM_CACHE_MAX_AGE_DAYS` governs
+exceptional targets and cargo-sweep, not deletion of live build directories.
 `codeterm plan lanes --clean` removes worktrees upstream: their build directories
-become orphans on the next manual GC. Automatic hourly retention keeps its existing
-scope because the stable drive may not yet be mapped when that hook runs.
+become orphans on the next hourly retention.
 
 GC takes nonblocking exclusive locks on every `.cargo-lock` below each orphan and
 holds them through removal; a busy or unreadable lock protects the entire directory.

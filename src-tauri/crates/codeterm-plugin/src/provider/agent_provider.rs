@@ -47,6 +47,25 @@ pub trait AgentProvider: Send + Sync {
         Err("Provider has no native stored runtime history projection".into())
     }
 
+    fn record_source(&self, _source: &str) -> Option<&crate::jsonl_window::records::RecordSource> {
+        None
+    }
+
+    fn parse_session_records(
+        &self,
+        _window: &crate::jsonl_window::records::RecordWindow,
+    ) -> Result<codeterm_types::agent::chat_types::SessionDelta, String> {
+        Err("Provider has no parsed session record hook".into())
+    }
+
+    fn runtime_stored_records(
+        &self,
+        _session: &str,
+        _window: &crate::jsonl_window::records::RecordWindow,
+    ) -> Result<Vec<codeterm_types::agent::chat_types::ChatMsg>, String> {
+        Err("Provider has no stored record hook".into())
+    }
+
     fn authorize_agent_runtime(
         &self,
         authority: &crate::agent_runtime::LaunchAuthority,
@@ -306,15 +325,17 @@ pub trait AgentProvider: Send + Sync {
         self.session_file_path(cwd, session_id)?.try_exists().ok()
     }
 
-    /// Session creation time, for providers whose sessions have no per-session
-    /// file (sqlite-backed, e.g. opencode).
-    /// Default `None` — file-based providers rely on filesystem timestamps.
+    /// Creation evidence for sessions without a per-session file.
     fn session_created_at(&self, _cwd: &str, _session_id: &str) -> Option<std::time::SystemTime> {
         None
     }
 
     /// Build a command to resume an existing session.
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String>;
+
+    fn supports_exact_session_resume(&self) -> bool {
+        false
+    }
 
     /// Resume command carrying the full launch context: trailing `args` plus
     /// `system_prompt` re-applied through this provider's own system-prompt
@@ -420,10 +441,7 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Extract conversation messages from a session file produced by this
-    /// provider. Called by the search pipeline for each candidate session;
-    /// returning `vec![]` means this provider can't participate in content
-    /// search yet. Must be pure + I/O-only (no locks, no process calls).
+    /// Pure, I/O-only session content search projection.
     fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
         let _ = file_path;
         Vec::new()
@@ -444,20 +462,12 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Resolve the actual session JSONL file for `(cwd, session_id)`. The
-    /// chat tailer reads this file with byte-offset bookmarks. Returns
-    /// `None` when the provider doesn't store sessions as a single JSONL
-    /// (opencode is sqlite-backed — returns `None`; the UI will hide
-    /// the toggle for those providers).
+    /// This session's JSONL path, or None for a different storage capability.
     fn session_jsonl_path(&self, _cwd: &str, _session_id: &str) -> Option<std::path::PathBuf> {
         None
     }
 
-    /// Parse new messages from `path` starting at `from_offset` bytes,
-    /// returning the delta + new offset. Implementations must be
-    /// tolerant of partial last lines (a poll can land mid-write): if
-    /// trailing bytes don't terminate in `\n`, hold them back and return
-    /// `new_offset` pointing at the start of the incomplete line.
+    /// Hold incomplete trailing records at their start byte for the next read.
     fn parse_session_delta(
         &self,
         _path: &std::path::Path,
@@ -1153,14 +1163,7 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Build the STRUCTURED pending prompt for an interactive tab, if one is
-    /// active and unanswered, from this provider's structured source. `cwd` /
-    /// `session_id` identify the tab's own session (detection keys off the
-    /// tab's OWN session, never "latest global"). Pure + I/O-only (no locks,
-    /// no process calls) — same contract as `parse_session_delta`. Returns
-    /// `None` when there is no active structured prompt; core then falls back
-    /// to the native PTY detector. Only ever invoked when
-    /// `supports_structured_prompts()` is true.
+    /// Pending prompt from this exact session; pure, I/O-only, capability gated.
     fn structured_pending_prompt(
         &self,
         _cwd: &str,
@@ -1169,12 +1172,7 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Whether this provider's structured handle is a local SERVER the host must
-    /// bind: the host allocates a fixed `127.0.0.1:port`, passes it at launch
-    /// (`AgentLaunchParams::structured_prompt_server`), and subscribes to it.
-    /// True for opencode (SSE bus); false for pull-handle providers like claude
-    /// that read their own on-disk transcript. Implies
-    /// `supports_structured_prompts`.
+    /// Whether the host must bind a local server for structured prompts.
     fn needs_structured_prompt_server(&self) -> bool {
         false
     }
