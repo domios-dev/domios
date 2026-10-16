@@ -91,6 +91,37 @@ fn oversized_first_record_does_not_consume_the_following_page() {
 }
 
 #[test]
+fn backward_page_keeps_complete_records_within_its_byte_budget() {
+    let path = write_file("backward-page", b"aaa\nbbb\nccc\npartial");
+    assert_eq!(
+        page_before(&path, 19, 8).unwrap(),
+        RecordPage { start: 4, end: 12 }
+    );
+    assert_eq!(
+        page_before(&path, 4, 8).unwrap(),
+        RecordPage { start: 0, end: 4 }
+    );
+    assert_eq!(
+        page_before(&path, 100, 4).unwrap(),
+        RecordPage { start: 8, end: 12 }
+    );
+}
+
+#[test]
+fn backward_page_returns_one_oversized_last_record_without_older_rows() {
+    let path = write_file("backward-oversized", b"old\nlong-record\n");
+    assert_eq!(
+        page_before(&path, 16, 4).unwrap(),
+        RecordPage { start: 4, end: 16 }
+    );
+    let path = write_file("backward-single", b"long-record\n");
+    assert_eq!(
+        page_before(&path, 12, 4).unwrap(),
+        RecordPage { start: 0, end: 12 }
+    );
+}
+
+#[test]
 fn offset_at_or_past_eof_is_a_noop() {
     let body = records(2);
     let path = write_file("eof", &body);
