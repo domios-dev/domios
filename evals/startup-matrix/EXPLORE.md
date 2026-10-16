@@ -355,3 +355,5 @@ prompt, user profile and OSC 633 separately. CLI request time includes wrapper
 overhead and must not be reported as the daemon's exact tab-creation timestamp.
 Actually visit each created tab, capture/view its screenshot, and reconcile the
 unique probe token against its own bound session before claiming a launch pass.
+
+Manifest reload acknowledgement observation is locked by tests in evals/_lib/log-ack.test.mjs: capture the tail position and subscribe before editing, scan each complete new chunk before retention, preserve split markers, reject old acknowledgements and close on cancellation. Directory notifications trigger bounded reads; elapsed time never acknowledges a reload.
