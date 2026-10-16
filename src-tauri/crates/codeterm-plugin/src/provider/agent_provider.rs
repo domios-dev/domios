@@ -156,6 +156,7 @@ pub trait AgentProvider: Send + Sync {
     /// Build the shell command to launch this agent.
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String;
 
+    /// Direct launches skip `preparation::start`; providers returning a spec must not depend on it.
     fn launch_spec(
         &self,
         _params: &crate::provider::LaunchSpecParams<'_>,

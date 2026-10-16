@@ -1,6 +1,49 @@
 use super::*;
 
 #[test]
+fn quoted_direct_spec_retires_previous_settings_and_preserves_its_current_file() {
+    let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let mut fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_pad_data_dir = fixture.temp.path().join("launch 'quoted' юникод 😀");
+    let service = &fixture.service;
+    let write = |body, suffix| {
+        crate::service::task_files::capture(service, &tab_id, || {
+            std::path::PathBuf::from(codeterm_util::task_files::write(body, Some(suffix)).unwrap())
+        })
+    };
+    let previous = write("previous settings", ".ct-settings.json");
+    let current = write("current settings", ".ct-settings.json");
+    let task = write("opaque task", ".ct-task.md");
+    let command = PreparedAgentCommand::from_spec(codeterm_types::agent::LaunchSpec {
+        program: "fixture".into(),
+        args: vec!["--settings".into(), current.to_str().unwrap().into()],
+        ..Default::default()
+    });
+    assert_ne!(
+        command.shell_command,
+        format!("fixture --settings {}", current.display())
+    );
+    crate::service::task_files::retire_settings_for_launch(
+        service,
+        &tab_id,
+        &command.shell_command,
+    );
+    assert!(!previous.exists());
+    assert_eq!(
+        std::fs::read_to_string(&current).unwrap(),
+        "current settings"
+    );
+    assert_eq!(std::fs::read_to_string(&task).unwrap(), "opaque task");
+    let retained = service
+        .ext::<crate::service::task_files::LaunchTaskFiles>()
+        .0
+        .lock();
+    assert_eq!(retained[&tab_id].len(), 2);
+    assert!(retained[&tab_id].contains(&current));
+    assert!(!retained[&tab_id].contains(&previous));
+}
+
+#[test]
 fn direct_launch_environment_preserves_values_and_host_identity_without_shell_quoting() {
     use codeterm_types::agent::LaunchSpec;
     let cli_dir = crate::pty::manager::cli_dir_of(std::ffi::OsStr::new(cli_path())).unwrap();
