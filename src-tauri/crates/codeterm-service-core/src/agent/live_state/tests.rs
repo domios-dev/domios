@@ -84,7 +84,9 @@ fn restore_wave_does_not_clear_identity_of_a_launching_tab() {
     let restored_ids = [launching_tab_id.clone(), waiting_tab_id.clone()]
         .into_iter()
         .collect::<BTreeSet<_>>();
+    let data_dir = tempfile::tempdir().expect("report tempdir");
     crate::crash::restore_report::arm(
+        data_dir.path().to_path_buf(),
         vec![
             crate::crash::restore_report::RestorePane {
                 tab_id: launching_tab_id.clone(),
@@ -105,6 +107,17 @@ fn restore_wave_does_not_clear_identity_of_a_launching_tab() {
     );
 
     fixture.service.settle_restore_report();
+    let report_path = data_dir
+        .path()
+        .join("state")
+        .join("recovery")
+        .join("last_restore_report.json");
+    let persisted: crate::crash::restore_report::RestoreReport =
+        serde_json::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
+    assert!(
+        !persisted.finalized,
+        "the fixture wave persists only inside its own tempdir"
+    );
     assert_eq!(
         observe_tab_liveness(&fixture.service, &launching_tab_id),
         AgentLiveness::Unobserved,
@@ -231,4 +244,146 @@ fn unobserved_liveness_pane_remains_relaunchable() {
             .unwrap()
             .is_none()
     );
+}
+
+fn evidence(
+    stage: crate::service::boot_stage::BootStage,
+    in_flight: bool,
+    pty_live: Option<bool>,
+) -> LivenessEvidence {
+    LivenessEvidence {
+        declares_agent: true,
+        backing: AgentBacking::Pty { pty_live },
+        boot_stage: Some(stage),
+        boot_in_flight: in_flight,
+        provider_exit_observed: false,
+        pending_prompt: false,
+    }
+}
+
+#[test]
+fn restore_classifier_counts_failed_and_unbound_launches_as_observed() {
+    use crate::service::boot_stage::BootStage;
+    use RestoreVerdict::{Observed, Unbound};
+
+    let rows = [
+        // stage, in flight, pty, snapshot pending, authenticated, deadline, verdict
+        (
+            BootStage::SpawnFailed,
+            false,
+            None,
+            true,
+            false,
+            false,
+            Observed(AgentLiveness::Absent),
+        ),
+        (
+            BootStage::SpawnFailed,
+            false,
+            None,
+            false,
+            false,
+            false,
+            Observed(AgentLiveness::Absent),
+        ),
+        (
+            BootStage::SpawnFailed,
+            true,
+            Some(true),
+            false,
+            false,
+            false,
+            Observed(AgentLiveness::Unobserved),
+        ),
+        (
+            BootStage::AgentReady,
+            false,
+            Some(true),
+            false,
+            false,
+            true,
+            Unbound,
+        ),
+        (
+            BootStage::LaunchWritten,
+            false,
+            Some(true),
+            false,
+            false,
+            true,
+            Unbound,
+        ),
+        (
+            BootStage::LaunchBindingUnconfirmed,
+            false,
+            Some(true),
+            false,
+            false,
+            true,
+            Unbound,
+        ),
+        (
+            BootStage::AgentReady,
+            false,
+            Some(true),
+            false,
+            false,
+            false,
+            Observed(AgentLiveness::Unobserved),
+        ),
+        (
+            BootStage::LaunchWritten,
+            true,
+            Some(true),
+            false,
+            false,
+            true,
+            Observed(AgentLiveness::Unobserved),
+        ),
+        (
+            BootStage::AgentReady,
+            false,
+            Some(true),
+            true,
+            false,
+            true,
+            Observed(AgentLiveness::Unobserved),
+        ),
+        (
+            BootStage::ShellReady,
+            false,
+            Some(true),
+            false,
+            false,
+            true,
+            Observed(AgentLiveness::Unobserved),
+        ),
+        (
+            BootStage::AgentReady,
+            false,
+            Some(true),
+            false,
+            true,
+            true,
+            Observed(AgentLiveness::Live),
+        ),
+    ];
+    for (stage, in_flight, pty_live, snapshot_pending, authenticated, deadline, expected) in rows {
+        let verdict = classify_restore_facts(RestoreFacts {
+            evidence: evidence(stage, in_flight, pty_live),
+            snapshot_pending,
+            authenticated,
+            binding_deadline_elapsed: deadline,
+        });
+        assert_eq!(
+            verdict, expected,
+            "stage={stage:?} in_flight={in_flight} pty={pty_live:?} pending={snapshot_pending} auth={authenticated} deadline={deadline}"
+        );
+    }
+    assert_eq!(Unbound.liveness(), AgentLiveness::Absent);
+    assert!(
+        !Unbound.reconciles(),
+        "an unbound launch keeps its identity for recovery"
+    );
+    assert!(Observed(AgentLiveness::Absent).reconciles());
 }

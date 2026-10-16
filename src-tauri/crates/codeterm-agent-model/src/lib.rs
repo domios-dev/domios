@@ -8,6 +8,7 @@ pub(crate) use codeterm_pty::{multiplexer, session};
 pub mod cron;
 pub mod restore_report;
 pub mod storage;
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) use codeterm_paths as paths;
 pub(crate) use codeterm_plan::plan;
 #[cfg(any(test, feature = "test-support"))]

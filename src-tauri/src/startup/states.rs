@@ -421,6 +421,7 @@ pub(crate) fn init_states() -> AppStates {
     if storage.storage().is_some() && !agent_panes_at_shutdown.is_empty() {
         let restored_pane_ids = restored_agent_pane_ids(&mux_state_inner);
         codeterm_service_core::crash::restore_report::arm(
+            codeterm_service_core::paths::data_dir(),
             agent_panes_at_shutdown,
             &restored_pane_ids,
         );
