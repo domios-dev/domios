@@ -47,11 +47,15 @@ Object.defineProperty(globalThis, "HTMLElement", { configurable: true, value: te
 Object.defineProperty(globalThis, "Event", { configurable: true, value: testWindow.Event });
 Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: ResizeObserverStub });
 Object.defineProperty(testWindow, "ResizeObserver", { configurable: true, value: ResizeObserverStub });
-Object.defineProperty(testWindow.HTMLElement.prototype, "offsetTop", {
+Object.defineProperty(testWindow.HTMLElement.prototype, "getBoundingClientRect", {
   configurable: true,
-  get(this: HTMLElement) {
-    if (!this.parentElement) return 0;
-    return Array.from(this.parentElement.children).indexOf(this) * 20;
+  value(this: HTMLElement) {
+    const scroll = this.closest<HTMLElement>('[data-testid="scroll"]');
+    const message = this.hasAttribute("data-message-id");
+    const top = message && this.parentElement
+      ? Array.from(this.parentElement.children).indexOf(this) * 20 - (scroll?.scrollTop ?? 0) : 0;
+    const height = message ? 20 : this.clientHeight;
+    return { top, bottom: top + height, left: 0, right: 800, width: 800, height, x: 0, y: top, toJSON: () => ({}) };
   },
 });
 Object.defineProperty(globalThis, "requestAnimationFrame", {
@@ -345,7 +349,7 @@ async function main(): Promise<void> {
   const refilledAnchor = document.querySelector<HTMLElement>(`[data-message-id="${refillId}"]`);
   assert(refilledAnchor, "older refill preserves the previously visible row");
   assert(
-    view().scroll.scrollTop === refilledAnchor.offsetTop,
+    refilledAnchor.getBoundingClientRect().top === view().scroll.getBoundingClientRect().top,
     "older refill compensates exactly for the prepended rows",
   );
 
