@@ -46,6 +46,8 @@ import {
   commitTranscriptBatch,
   forgetTranscriptWindowCursor,
   readTranscriptWindow,
+  readTranscriptMemo,
+  retainedTranscriptMemo,
   rememberTranscriptWindow,
   markTranscriptSnapshotReady,
   reconcileTranscriptWindow,
@@ -58,6 +60,7 @@ import {
 import { reconcileTrackedChatMessages, type ChatSendStatus } from "./chatSendStatus";
 import { chatSendAt, observeDeliveryStatus } from "./chatSendStore";
 import { clearPersistedChatScrollState } from "./chatViewport";
+import { adoptChatStartTiming, beginChatStartTiming, chatStartTimingEdge } from "./chatStartTiming";
 import { useChatWindowView } from "./useChatWindowView";
 
 export {
@@ -260,11 +263,12 @@ export function useChatSession({
 
   const markAttached = useCallback(() => {
     markTranscriptSnapshotReady(windowKeyRef.current, sessionBindingNonceRef.current);
+    adoptChatStartTiming(tabId);
     attachmentStateRef.current = "attached";
     setAttachmentState("attached");
     setTranscriptUnavailable(null);
     setLoading(false);
-  }, []);
+  }, [tabId]);
 
   const rememberCursor = useCallback((payload: Pick<ChatMsgEvent, "cursor" | "offset" | "source_session_id" | "session_binding_nonce"> & { file_length?: number },
     outcome: TranscriptOutcome) => {
@@ -275,7 +279,7 @@ export function useChatSession({
     if (previous?.authority === authority && previous.offset > payload.offset) return;
     resumeCursorRef.current = { token: payload.cursor!, offset: payload.offset, authority };
     if (payload.source_session_id != null) {
-      const previousWindow = readTranscriptWindow(windowKeyRef.current).knownWindow;
+      const previousWindow = readTranscriptMemo(windowKeyRef.current);
       rememberTranscriptWindow(windowKeyRef.current, {
         source_session_id: payload.source_session_id,
         session_binding_nonce: payload.session_binding_nonce,
@@ -580,11 +584,16 @@ export function useChatSession({
         });
         const flight = attachFlightRef.current;
         if (!flight) return;
-        const outcome = await flight.run(requestedSubscriptionId, () => invoke<ChatStartResult>("chat_start", {
-          tabId, agentSessionId: requestedSessionId, subscriptionId: requestedSubscriptionId,
-          knownWindow: knownWindowForAuthority(readTranscriptWindow(windowKeyRef.current).knownWindow,
-            requestedSessionId, requestedSessionBindingNonce),
-        }));
+        const outcome = await flight.run(requestedSubscriptionId, async () => {
+          const timing = beginChatStartTiming(tabId);
+          const result = await invoke<ChatStartResult>("chat_start", {
+            tabId, agentSessionId: requestedSessionId, subscriptionId: requestedSubscriptionId,
+            knownWindow: knownWindowForAuthority(retainedTranscriptMemo(windowKeyRef.current),
+              requestedSessionId, requestedSessionBindingNonce),
+          });
+          chatStartTimingEdge(timing, "response", result);
+          return result;
+        });
         if (outcome.kind === "superseded") return;
         const res = outcome.value;
         if (cancelled || !owner.isCurrent(generationAtRequest)) {

@@ -104,6 +104,7 @@ export async function renderSidebar({
   onCloseTab = () => {},
   onRenameTab = () => {},
   onRenameTeam,
+  onRenamePlan,
   onAddTeamMember,
   onCloseTeam = () => {},
   newSessionDisabled = false,
@@ -119,6 +120,7 @@ export async function renderSidebar({
   onCloseTab?: (tabId: string) => void;
   onRenameTab?: (tabId: string, title: string) => void;
   onRenameTeam?: (teamId: string, name: string, managerTabId: string | null) => void | Promise<void>;
+  onRenamePlan?: (planId: string, title: string) => Promise<void>;
   onAddTeamMember?: (
     teamId: string,
     role: TeamMemberRole,
@@ -173,6 +175,7 @@ export async function renderSidebar({
           onNewSession={() => {}}
           newSessionDisabled={newSessionDisabled}
           onRenameTeam={onRenameTeam}
+          onRenamePlan={onRenamePlan}
           onAddTeamMember={onAddTeamMember}
           onCloseTeam={onCloseTeam}
         />

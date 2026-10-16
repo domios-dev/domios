@@ -163,6 +163,7 @@ export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIco
   /** Frontend join context for a parser sequence; sequence values repeat when a
    * tab rotates to a new agent session. */
   sourceSessionId?: string;
+  inheritedFromSessionId?: string | null;
   /** Stable client send-correlation token. Set on the optimistic row and echoed
    *  by the server onto the committed user turn, so an optimistic bubble
    *  reconciles with its echo by identity — never content, which diverges once

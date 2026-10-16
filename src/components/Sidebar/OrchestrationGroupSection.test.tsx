@@ -112,8 +112,8 @@ test("seeded group (orch + planner + 2 workers) renders both section headers, pl
   // Planner lives inside the Managers band.
   const managersWrap = host.querySelector('[data-group-section-wrap="manager"]')!;
   assert(managersWrap.querySelector('[data-row="planner"]'), "planner row under Managers");
-  assert(host.textContent?.includes("ORCHESTRATOR"), "orchestrator label text");
-  assert(host.textContent?.includes("PLANNER"), "planner label text");
+  assert(host.textContent?.includes("Orchestrator"), "orchestrator label text");
+  assert(host.textContent?.includes("Planner"), "planner label text");
   assert(!host.textContent?.includes("★"), "no orchestrator star glyph remains");
   await act(async () => root.unmount());
 });

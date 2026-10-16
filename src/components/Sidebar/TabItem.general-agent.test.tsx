@@ -66,8 +66,8 @@ async function main() {
 
   const orchestrator = await renderTab(tab({ title: "Lead", role: "Manager", role_profile: "orchestrator" }));
   assert(
-    orchestrator.host.querySelector('[data-testid="tab-subline"]')?.textContent === "ORCHESTRATOR",
-    "Team Orchestrator label is unchanged",
+    orchestrator.host.querySelector('[data-testid="tab-subline"]')?.textContent === "Orchestrator",
+    "Team Orchestrator label uses normal title case",
   );
   await act(async () => orchestrator.root.unmount());
 }

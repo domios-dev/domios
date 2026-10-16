@@ -1852,7 +1852,8 @@
             "settings": {
               "model": "gpt-6-luna",
               "effort": "low",
-              "mode": "approval-required"
+              "mode": "approval-required",
+              "fastMode": true
             }
           }
         }
@@ -1954,7 +1955,8 @@
         "kind": "sendEvidence",
         "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
         "sendId": "capture-compact-1",
-        "turnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765"
+        "turnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+        "itemId": "01a14402-ba1c-73e2-bb70-316b7a001afb"
       },
       {
         "kind": "chatItem",
@@ -2128,7 +2130,8 @@
         "kind": "sendEvidence",
         "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
         "sendId": "capture-compact-2",
-        "turnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702"
+        "turnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+        "itemId": "01a14402-de6d-7892-8496-af3374f57abd"
       },
       {
         "kind": "chatItem",

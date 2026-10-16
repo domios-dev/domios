@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn tab_sleep_threshold_bounds_allow_the_owner_default_and_reject_invalid_values() {
+    for (minutes, valid) in [
+        (0, false),
+        (14, false),
+        (15, true),
+        (60, true),
+        (10080, true),
+        (10081, false),
+    ] {
+        let mut config = AppConfig::default();
+        config.tab_sleep.idle_minutes = minutes;
+        assert_eq!(validate_app_config(&config).is_ok(), valid, "{minutes}");
+    }
+}
+
+#[test]
 fn config_bounds_table_enforced() {
     let mut defaults = serde_json::to_value(AppConfig::default()).unwrap();
     defaults["notifications"]["channels"]["test"] = serde_json::json!({"per_scope_limit": 12});

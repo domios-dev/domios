@@ -107,6 +107,7 @@ struct Fixture {
     root: PathBuf,
     registry: AgentRegistry,
     ledger: ChatSendLedger,
+    source: JsonlSource,
     parse_offsets: Arc<Mutex<Vec<u64>>>,
 }
 
@@ -125,6 +126,7 @@ impl Fixture {
             root,
             registry,
             ledger: ChatSendLedger::default(),
+            source: JsonlSource::default(),
             parse_offsets,
         }
     }
@@ -162,9 +164,13 @@ impl Fixture {
 
     fn scan(&self, tab_id: &str) -> Vec<ChatSendStatus> {
         let mut confirmed = Vec::new();
-        scan_transcript_evidence(&self.registry, &self.ledger, tab_id, |status| {
-            confirmed.push(status)
-        });
+        scan_transcript_evidence(
+            &self.registry,
+            &self.ledger,
+            &self.source,
+            tab_id,
+            |status| confirmed.push(status),
+        );
         confirmed
     }
 }
@@ -666,6 +672,7 @@ struct StructuredFixture {
     provider: StructuredStoreProvider,
     registry: AgentRegistry,
     ledger: ChatSendLedger,
+    source: JsonlSource,
 }
 
 impl StructuredFixture {
@@ -677,6 +684,7 @@ impl StructuredFixture {
             provider,
             registry,
             ledger: ChatSendLedger::default(),
+            source: JsonlSource::default(),
         }
     }
 
@@ -709,9 +717,13 @@ impl StructuredFixture {
 
     fn scan(&self, tab_id: &str) -> Vec<ChatSendStatus> {
         let mut confirmed = Vec::new();
-        scan_transcript_evidence(&self.registry, &self.ledger, tab_id, |status| {
-            confirmed.push(status)
-        });
+        scan_transcript_evidence(
+            &self.registry,
+            &self.ledger,
+            &self.source,
+            tab_id,
+            |status| confirmed.push(status),
+        );
         confirmed
     }
 }

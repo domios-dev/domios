@@ -342,7 +342,8 @@ impl ChatSendLedger {
         if !still_owned || !still_current {
             return Vec::new();
         }
-        let Some(source_row) = super::SourceRowRef::jsonl(session_id, position) else {
+        let Some(source_row) = super::SourceRowRef::jsonl(session_id, &incarnation.id, position)
+        else {
             return Vec::new();
         };
         if !Self::claim_rows_locked(&mut state, &matching_ids, &source_row) {

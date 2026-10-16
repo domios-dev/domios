@@ -59,20 +59,43 @@ function branchOf(cwd) {
   if (r.error || r.code !== 0) return null;
   return (r.stdout || "").trim() || null;
 }
+var lastBubbles = /* @__PURE__ */ new Map();
 function statusBubble(ctx) {
   const cwd = ctx && ctx.cwd;
   if (!cwd) return null;
-  const branch = branchOf(cwd);
-  if (!branch) return null;
-  const d = parsePorcelain(git(cwd, ["status", "--porcelain"]).stdout);
-  return {
-    label: branch,
-    tone: "default",
-    icon: "git",
-    tooltip: d.total ? `${d.total} changed \u2014 open Git` : "clean \u2014 open Git",
-    // Click opens the plugin's own Git view (its sandboxed iframe UI).
-    action: "openPanel:view:git"
-  };
+  const opts = (args) => ({
+    bin: "git",
+    args: ["-C", cwd].concat(args),
+    env: { GIT_OPTIONAL_LOCKS: "0" },
+    timeoutMs: 4e3
+  });
+  return host.exec.async(opts(["rev-parse", "--abbrev-ref", "HEAD"]), (result) => {
+    if (result.error || result.truncated) return lastBubbles.get(cwd) || null;
+    if (result.code !== 0) {
+      lastBubbles.delete(cwd);
+      return null;
+    }
+    const branch = (result.stdout || "").trim();
+    if (!branch) {
+      lastBubbles.delete(cwd);
+      return null;
+    }
+    return host.exec.async(opts(["status", "--porcelain"]), (status) => {
+      if (status.error || status.truncated || status.code !== 0) return lastBubbles.get(cwd) || null;
+      const d = parsePorcelain(status.stdout);
+      const bubble = {
+        label: branch,
+        tone: "default",
+        icon: "git",
+        tooltip: d.total ? `${d.total} changed \u2014 open Git` : "clean \u2014 open Git",
+        action: "openPanel:view:git"
+      };
+      lastBubbles.delete(cwd);
+      lastBubbles.set(cwd, bubble);
+      if (lastBubbles.size > 128) lastBubbles.delete(lastBubbles.keys().next().value);
+      return bubble;
+    });
+  });
 }
 function renderGlance(ctx) {
   const cwd = ctx && ctx.cwd;

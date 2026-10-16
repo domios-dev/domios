@@ -39,11 +39,12 @@ function parseArgs(argv) {
     repo: scriptRoot,
     rustMode: "",
     files: [],
+    metadata: "",
     explicitBase: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--base" || arg === "--repo" || arg === "--rust-mode") {
+    if (arg === "--base" || arg === "--repo" || arg === "--rust-mode" || arg === "--metadata") {
       const value = argv[index + 1];
       if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value`);
       if (arg === "--base") {
@@ -65,8 +66,8 @@ function parseArgs(argv) {
     if (arg.startsWith("--")) throw new Error(`unknown option: ${arg}`);
     options.files.push(arg);
   }
-  if (options.rustMode && !["whole-crate", "module-filters"].includes(options.rustMode)) {
-    throw new Error("--rust-mode must be whole-crate or module-filters");
+  if (options.rustMode && options.rustMode !== "module-filters") {
+    throw new Error("--rust-mode must be module-filters");
   }
   return options;
 }
@@ -166,23 +167,19 @@ function addUnique(list, value) {
 
 function getGroup(groups, pkg, scope) {
   if (!groups.has(scope)) {
-    groups.set(scope, { package: pkg, scope, filters: new Map(), wholeReasons: [] });
+    groups.set(scope, { package: pkg, scope, filters: new Map(), reviewReasons: [] });
   }
   return groups.get(scope);
 }
 
-function addWhole(groups, pkg, scope, reason) {
+function addReview(groups, pkg, scope, reason) {
   const group = getGroup(groups, pkg, scope);
   group.filters.clear();
-  addUnique(group.wholeReasons, reason);
+  addUnique(group.reviewReasons, reason);
 }
 
 function addFilter(groups, pkg, scope, filter, reason) {
   const group = getGroup(groups, pkg, scope);
-  if (group.wholeReasons.length > 0) {
-    addUnique(group.wholeReasons, `${reason}; included by the whole-crate selection`);
-    return;
-  }
   if (!group.filters.has(filter)) group.filters.set(filter, []);
   addUnique(group.filters.get(filter), reason);
 }
@@ -203,11 +200,13 @@ function renderRustCommands(groups) {
     .map((group) => {
       const filters = [...group.filters.keys()];
       const filterset = filters.join(" | ");
-      const command = `./build.sh nextest ${group.scope}${filterset ? ` ${shellQuote(filterset)}` : ""}`;
-      const reasons = group.wholeReasons.length > 0
-        ? group.wholeReasons
+      const command = filterset
+        ? `./build.sh nextest ${group.scope} ${shellQuote(filterset)}`
+        : `  Hand over ${group.scope}: select a focused test module in canonical (Orchestrator).`;
+      const reasons = group.reviewReasons.length > 0
+        ? group.reviewReasons
         : filters.flatMap((filter) => group.filters.get(filter).map((reason) => `${filter}: ${reason}`));
-      const selectionCost = filters.length > 0 ? `${filters.length} filter(s)` : "whole touched crate";
+      const selectionCost = filters.length > 0 ? `${filters.length} filter(s)` : "touched crate (module path unavailable; narrow selector requires review)";
       return {
         command,
         reasonLines: reasons.map((reason) => `  Reason: ${reason}`),
@@ -240,11 +239,18 @@ function vitestFiles(repoRoot, files) {
 }
 
 function pluginCommands(files) {
+  const pluginFiles = files.filter((file) => file.startsWith("plugins/"));
   const directories = [...new Set(files
-    .filter((file) => file.startsWith("plugins/"))
+    .filter((file) => /^plugins\/[^/]+\/.+/.test(file))
     .map((file) => file.split("/")[1])
     .filter(Boolean))].sort();
   const commands = [];
+  if (pluginFiles.some((file) => /^plugins\/[^/]+$/.test(file))) {
+    commands.push({
+      command: "node scripts/release-plugin.mjs check",
+      reason: "plugin root metadata changed",
+    });
+  }
   const providerSuites = ["provider-claude", "provider-codex", "provider-opencode", "provider-cursor"];
   for (const provider of directories) {
     if (provider === "analytics") continue;
@@ -292,6 +298,12 @@ function renderParallelCommands(repoRoot, files) {
 }
 
 function loadPackageSets(options, files) {
+  if (options.metadata) {
+    return JSON.parse(readFileSync(options.metadata, "utf8")).packages.map((pkg) => ({
+      ...pkg, manifestFile: path.resolve(options.repo, pkg.manifest_path),
+      packageRoot: path.dirname(path.resolve(options.repo, pkg.manifest_path)),
+    }));
+  }
   const sets = [];
   if (files.some((file) => file.startsWith("src-tauri/") || file.startsWith("plugins/provider-"))) {
     sets.push(...runMetadata(options.repo, "src-tauri/Cargo.toml"));
@@ -314,15 +326,7 @@ function affectedPackages(repoRoot, inputs, packages) {
     addUnique(result.get(key).files, file);
   };
 
-  const workspaceWide = inputs.some((file) => file === "src-tauri/Cargo.toml" || file === "src-tauri/Cargo.lock");
-  if (workspaceWide) {
-    for (const pkg of packages.filter((item) => item.manifestFile.startsWith(path.join(repoRoot, "src-tauri") + path.sep))) {
-      add(pkg, "src-tauri/Cargo.toml or Cargo.lock changed");
-    }
-  }
-
   for (const file of inputs) {
-    if (file === "src-tauri/Cargo.toml" || file === "src-tauri/Cargo.lock") continue;
     const directManifest = packages.find((pkg) =>
       path.resolve(repoRoot, file) === pkg.manifestFile,
     );
@@ -339,7 +343,7 @@ function affectedPackages(repoRoot, inputs, packages) {
 function printSelection(options, files) {
   const changedRust = rustInputs(files);
   if (changedRust.length > 0 && !options.rustMode) {
-    throw new Error("Rust files changed; pass --rust-mode whole-crate or --rust-mode module-filters");
+    throw new Error("Rust files changed; pass --rust-mode module-filters");
   }
 
   const packages = loadPackageSets(options, files);
@@ -348,31 +352,17 @@ function printSelection(options, files) {
   for (const entry of affected) {
     const { package: pkg, files: packageFiles } = entry;
     const scope = packageScope(pkg, packageFiles[0]);
-    if (options.rustMode === "whole-crate") {
-      addWhole(groups, pkg, scope, `whole touched crate selected for ${packageFiles.join(", ")}`);
-      continue;
-    }
-    if (pkg.name !== "codeterm") {
-      addFilter(
-        groups,
-        pkg,
-        scope,
-        `rdeps(${pkg.name})`,
-        `${packageFiles.join(", ")} changed; select tests in reverse-dependent packages`,
-      );
-      continue;
-    }
     for (const file of packageFiles.filter((candidate) => candidate.endsWith(".rs"))) {
       const modulePath = modulePathForRust(options.repo, file, pkg);
       if (modulePath) {
         const filter = moduleFilter(modulePath);
         addFilter(groups, pkg, scope, filter, `${file} maps to Rust module ${modulePath}`);
       } else {
-        addWhole(groups, pkg, scope, `${file} has no module path; run the touched app crate`);
+        addReview(groups, pkg, scope, `${file} has no module path; select a focused module in canonical`);
       }
     }
     if (packageFiles.some((file) => !file.endsWith(".rs"))) {
-      addWhole(groups, pkg, scope, `${packageFiles.filter((file) => !file.endsWith(".rs")).join(", ")} changes app package configuration`);
+      addReview(groups, pkg, scope, `${packageFiles.filter((file) => !file.endsWith(".rs")).join(", ")} changes package configuration`);
     }
   }
 
@@ -408,13 +398,12 @@ function printSelection(options, files) {
   const compileFallback = rustChanged && rustCommands.length === 0;
 
   if (compileFallback) {
-    console.log("Rust compile fallback");
-    console.log("./build.sh check-tests");
+    console.log("Rust — canonical (Orchestrator): hand over a focused selector; no touched test crate resolved.");
     console.log("  Reason: Rust changes were found but cargo metadata selected no test crate.");
-    console.log("  Cost: app and CLI test-profile compile; no test filters selected.");
+    console.log("  Cost: no compile selected; focused selector requires review.");
   }
   if (rustCommands.length > 0) {
-    console.log("Rust");
+    console.log("Rust — canonical (Orchestrator)");
     for (const selection of rustCommands) {
       for (const reason of selection.reasonLines) console.log(reason);
       console.log(selection.command);
@@ -435,7 +424,7 @@ function printSelection(options, files) {
 }
 
 function printHelp() {
-  console.log("Usage: node scripts/affected-tests.mjs [--base REF] [--rust-mode whole-crate|module-filters] [changed-file ...]");
+  console.log("Usage: node scripts/affected-tests.mjs [--base REF] [--rust-mode module-filters] [--metadata FILE] [changed-file ...]");
   console.log("Without file arguments, reads git diff --name-only <base>...HEAD (default base: origin/master).");
 }
 

@@ -1,6 +1,7 @@
 {
+  "license": "PolyForm-Shield-1.0.0",
   "name": "@codeterm/plugin-git",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "CodeTerm Git plugin: status bubble, glance popover, and full Git view.",

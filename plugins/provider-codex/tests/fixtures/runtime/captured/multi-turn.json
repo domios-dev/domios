@@ -1389,7 +1389,8 @@
             "settings": {
               "model": "gpt-6-luna",
               "effort": "low",
-              "mode": "approval-required"
+              "mode": "approval-required",
+              "fastMode": true
             }
           }
         }
@@ -1464,7 +1465,8 @@
         "kind": "sendEvidence",
         "threadId": "01a143fc-b641-7a63-836a-b9ab9e3b5e4e",
         "sendId": "capture-send-1",
-        "turnId": "01a143fc-b72c-74f2-ba07-83c4b9a8a39f"
+        "turnId": "01a143fc-b72c-74f2-ba07-83c4b9a8a39f",
+        "itemId": "01a143fc-be40-73a3-8875-eb8a8b717294"
       },
       {
         "kind": "chatItem",
@@ -1567,7 +1569,8 @@
         "kind": "sendEvidence",
         "threadId": "01a143fc-b641-7a63-836a-b9ab9e3b5e4e",
         "sendId": "capture-send-2",
-        "turnId": "01a143fc-c58f-7a01-baa9-abde2cfc2593"
+        "turnId": "01a143fc-c58f-7a01-baa9-abde2cfc2593",
+        "itemId": "01a143fc-c5c2-7162-9cd0-8512984ca3de"
       },
       {
         "kind": "chatItem",

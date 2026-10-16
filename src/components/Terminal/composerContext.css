@@ -89,7 +89,7 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   min-width: 0;
   flex-wrap: wrap;
   gap: 6px;
-  margin-left: 0;
+  margin-left: auto;
 }
 
 .ct-ctx__kinds[hidden] { display: none; }
@@ -210,11 +210,11 @@ button.ct-ctx__title:hover .ct-ctx__primary {
 
 .ct-ctx[data-phone] .ct-ctx__head {
   flex-direction: column;
-  align-items: flex-start;
+  align-items: flex-end;
   gap: 8px;
 }
 
-.ct-ctx[data-phone] .ct-ctx__kinds { flex-wrap: wrap; margin-left: 0; }
+.ct-ctx[data-phone] .ct-ctx__kinds { flex-wrap: wrap; margin-left: auto; margin-right: 8px; }
 
 .ct-ctx[data-phone] .ct-ctx-kind {
   gap: 6px;

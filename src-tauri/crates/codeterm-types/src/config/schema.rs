@@ -14,11 +14,13 @@ pub use super::model_defaults::ModelDefaultsConfig;
 pub use super::supporter::{
     MemoryRerankConfig, SupporterConfig, SupporterConnection, SupporterSources,
 };
+pub use super::tab_sleep::TabSleepConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub restore: RestoreConfig,
+    pub tab_sleep: TabSleepConfig,
     pub account: serde_json::Value,
     pub billing: serde_json::Value,
     pub theme: ThemeConfig,
@@ -73,6 +75,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             restore: RestoreConfig::default(),
+            tab_sleep: TabSleepConfig::default(),
             account: serde_json::json!({}),
             billing: serde_json::json!({"provider": "cloud"}),
             theme: ThemeConfig::default(),

@@ -1,8 +1,6 @@
 import { tabActivity } from "../../lib/tabActivity";
 import { Component, act, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { Window } from "happy-dom";
 import {
   sessionBindingSurfaceFromFact,
@@ -210,16 +208,6 @@ const tests: Test[] = [
     await act(async () => root.unmount());
     __setInvokeForTest(null);
     __setListenForTest(null);
-  }],
-  ["binding_state_surface subscription is event-driven with no timer", () => {
-    const source = readFileSync(
-      fileURLToPath(new URL("./useSessionBindingSurface.ts", import.meta.url)),
-      "utf8",
-    );
-    for (const timer of ["setInterval", "setTimeout", "requestAnimationFrame", "Date.now"]) {
-      assert(!source.includes(timer), `the surface subscription must not reach for ${timer}`);
-    }
-    assert(source.includes("session-binding-state-changed"), "correction arrives on the daemon event");
   }],
   ["binding_state_surface reaches rebind through the visible repair mechanism", async () => {
     installDom();

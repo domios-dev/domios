@@ -1,4 +1,5 @@
 {
+  "license": "PolyForm-Shield-1.0.0",
   "name": "@codeterm/plugin-analytics",
   "version": "1.10.20",
   "private": true,

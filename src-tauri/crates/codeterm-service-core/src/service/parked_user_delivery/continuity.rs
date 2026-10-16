@@ -45,6 +45,7 @@ impl super::super::ServiceContext {
         {
             return Ok(());
         }
+        self.bind_user_send_owner();
         let store = &self.pending_delivery_payloads.user_sends;
         for receipt in store.receipts(tab_id)? {
             self.chat_send_ledger.restore_user_receipt(&receipt);

@@ -5,7 +5,9 @@ export function terminalOwnsLivePty(args: {
   terminalVisible: boolean;
   tabVisible: boolean;
   ptyId?: string | null;
+  frozen?: boolean;
 }): boolean {
+  if (args.frozen) return false;
   const isWeb = args.isWeb ?? IS_WEB;
   return (!isWeb || args.terminalVisible) && (args.tabVisible || !!args.ptyId);
 }

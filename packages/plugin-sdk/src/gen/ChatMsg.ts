@@ -14,7 +14,7 @@ import type { MessageSegment } from "./MessageSegment";
  * `id` must be stable across polls so the UI merges an updated message in
  * place instead of duplicating it.
  */
-export type ChatMsg = { id: string, type: string, content: string, segments?: Array<MessageSegment> | null, timestamp?: string | null, 
+export type ChatMsg = { id: string, inheritedFromSessionId?: string | null, type: string, content: string, segments?: Array<MessageSegment> | null, timestamp?: string | null, 
 /**
  * Monotonic source-order ordinal (JSONL rich-message index / structured row
  * position). The client's stable transcript-sort tiebreaker when timestamps

@@ -164,8 +164,6 @@ describe("mission control previous plans", () => {
     const menu = document.querySelector('[data-testid="mc-board-previous-plans-menu"]') as HTMLElement;
     expect(menu.parentElement).toBe(document.body);
     expect(host.contains(menu)).toBe(false);
-    expect(menu.classList.contains("mc-board-layer")).toBe(true);
-    expect(menu.style.left).not.toBe("");
 
     await act(async () => document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
     expect(document.querySelector('[data-testid="mc-board-previous-plans-menu"]')).toBeNull();

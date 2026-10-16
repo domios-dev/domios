@@ -563,6 +563,12 @@ export function layoutEssenceMapProject(nodes: EssenceMapNode[], availableWidth:
   return availableWidth < 560 ? layoutEssenceMapProjectGrid(nodes, availableWidth, edges) : layoutEssenceMapProjectClustered(nodes, availableWidth, edges);
 }
 
+export function visibleEssenceProjects(projects: EssenceMapProject[]): EssenceMapProject[] {
+  return projects.some((project) => project.status === "valid" && project.nodes.length > 0)
+    ? projects.filter((project) => project.status !== "missing")
+    : projects;
+}
+
 export function layoutEssenceMapWorld(
   projects: EssenceMapProject[],
   availableWidth: number,
@@ -572,7 +578,7 @@ export function layoutEssenceMapWorld(
   const columns = viewportWidth >= 1100 ? 2 : 1;
   const gap = 72;
   const projectHeaderHeight = 58;
-  const laidOut = projects.map((project) => ({ project, layout: layoutEssenceMapProject(project.nodes, mapWidth, project.edges) }));
+  const laidOut = visibleEssenceProjects(projects).map((project) => ({ project, layout: layoutEssenceMapProject(project.nodes, mapWidth, project.edges) }));
   const rowHeights: number[] = [];
   for (let index = 0; index < laidOut.length; index += columns) {
     rowHeights.push(Math.max(...laidOut.slice(index, index + columns).map(({ layout }) => layout.height + projectHeaderHeight), 220));

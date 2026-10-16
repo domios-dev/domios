@@ -1758,6 +1758,7 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "include_dir",
+ "indexmap 2.13.0",
  "libc",
  "log",
  "md-5",

@@ -30,6 +30,11 @@ export interface PickerModelGroup {
 export interface PickerSelection {
   model: string;
   effort?: string;
+  fastMode?: boolean;
+}
+
+export function pickerSelection(descriptor: ProviderDescriptor, model: string, effort?: string, fastMode?: boolean): PickerSelection {
+  return { model, effort, ...(descriptor.agent_runtime?.fastMode && fastMode !== undefined ? { fastMode } : {}) };
 }
 
 export type PickerPlan =
@@ -152,12 +157,12 @@ export function effortAfterModelChange(
 
 export function planSelection(
   gate: StatusLineSwitchGate,
-  current: { model?: string; effort?: string },
+  current: { model?: string; effort?: string; fastMode?: boolean },
   next: PickerSelection,
 ): PickerPlan {
   if (!gate.interactive) return { action: "none" };
   const sameModel = current.model?.toLowerCase() === next.model.toLowerCase();
-  if (sameModel && (current.effort ?? undefined) === (next.effort ?? undefined)) return { action: "none" };
+  if (sameModel && current.fastMode === next.fastMode && (current.effort ?? undefined) === (next.effort ?? undefined)) return { action: "none" };
   return { action: gate.confirmRestart ? "confirm" : "apply", selection: next };
 }
 

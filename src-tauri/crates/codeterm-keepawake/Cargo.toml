@@ -1,4 +1,5 @@
 [package]
+license = "PolyForm-Shield-1.0.0"
 name = "codeterm-keepawake"
 version = "1.6.2"
 edition = "2021"

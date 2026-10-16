@@ -92,6 +92,7 @@ pub fn resume_window(
     Some((
         kind,
         SessionSnapshot {
+            row_record_starts: Vec::new(),
             context_usage: rich.iter().rev().find_map(|row| row.context_usage.clone()),
             messages: super::rich_rows_to_chat_msgs(&rich, known.end_offset),
             runtime_observations: rich,
@@ -110,6 +111,7 @@ pub const SNAPSHOT_WINDOW_BYTES: u64 = SNAPSHOT_CAP_BYTES;
 
 #[derive(Clone, Default)]
 pub struct SessionSnapshot {
+    pub row_record_starts: Vec<u64>,
     pub runtime_observations: Vec<RichMessage>,
     pub context_usage: Option<codeterm_types::agent::context::TurnContext>,
     pub messages: Vec<ChatMsg>,
@@ -146,7 +148,7 @@ pub fn parse_window(
     while offset < until {
         let Some(delta) = registry
             .with_provider(provider_id, |p| {
-                let mut delta = p.parse_session_delta_bounded(path, offset, until - offset)?;
+                let mut delta = super::jsonl_kernel::delta(p, path, offset, until - offset)?;
                 for m in &mut delta.messages {
                     super::enrich_interactive(m, p);
                 }
@@ -205,6 +207,16 @@ pub fn snapshot(registry: &Arc<AgentRegistry>, provider_id: &str, path: &Path) -
     let (rich, end) = parse_window(registry, provider_id, path, page.start, page.end);
     let (start_offset, messages) = super::snapshot_rows::retain_tail(&rich, page.start);
     SessionSnapshot {
+        row_record_starts: messages
+            .iter()
+            .map(|message| {
+                usize::try_from(message.seq)
+                    .ok()
+                    .and_then(|index| rich.get(index))
+                    .and_then(|row| row.record_start)
+                    .unwrap_or(start_offset)
+            })
+            .collect(),
         runtime_observations: rich
             .iter()
             .map(|row| RichMessage {

@@ -55,7 +55,7 @@ fn restored_head_waits_with_reason_then_writes_once_after_current_nonce_binding(
 }
 
 #[test]
-fn agent_ready_snapshot_without_its_transition_does_not_release_user_sends() {
+fn authenticated_agent_ready_snapshot_reconciles_user_readiness() {
     let (fixture, tab) = queue_fixture(true, None);
     attach_fixture_pty(&fixture, &tab);
     {
@@ -66,7 +66,132 @@ fn agent_ready_snapshot_without_its_transition_does_not_release_user_sends() {
     }
     let authority = fixture.service.user_send_authority(&tab).unwrap();
 
+    assert!(fixture.service.user_authority_is_ready(&authority));
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .ready_launch_is_latched(&authority));
+}
+
+#[test]
+fn agent_ready_snapshot_cannot_latch_an_unbound_or_stale_pty_authority() {
+    let (fixture, tab) = queue_fixture(true, None);
+    attach_fixture_pty(&fixture, &tab);
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    let authority = fixture.service.user_send_authority(&tab).unwrap();
     assert!(!fixture.service.user_authority_is_ready(&authority));
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .reported_session_binding_nonce = Some(authority.binding_nonce.clone());
+    let mut stale = authority.clone();
+    stale.pty_session_generation = authority
+        .pty_session_generation
+        .map(|generation| generation.wrapping_add(1));
+    assert!(!fixture.service.user_authority_is_ready(&stale));
+    stale = authority.clone();
+    stale.binding_nonce = "another-launch".into();
+    assert!(!fixture.service.user_authority_is_ready(&stale));
+    assert!(fixture.service.user_authority_is_ready(&authority));
+}
+
+#[test]
+fn in_place_model_request_with_ready_snapshot_flushes_chat_sends_once_in_order() {
+    let (fixture, tab) = queue_fixture(true, None);
+    attach_fixture_pty(&fixture, &tab);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab).unwrap();
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    }
+    let authority = fixture.service.user_send_authority(&tab).unwrap();
+    assert!(!fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .ready_launch_is_latched(&authority));
+    fixture
+        .service
+        .record_live_model_request(
+            &tab,
+            &authority.provider_id,
+            "opaque-session",
+            "next-model",
+            None,
+        )
+        .unwrap();
+    fixture
+        .service
+        .staged_model_turn_completed(&tab, "opaque-session", &authority.binding_nonce);
+    assert_eq!(
+        fixture.service.user_send_authority(&tab).unwrap(),
+        authority
+    );
+    let (writes_tx, writes_rx) = mpsc::channel();
+    let _boundary = UserSubmitBoundary::install(
+        &tab,
+        Arc::new(move |record, text| {
+            writes_tx
+                .send((record.send_id.clone(), text.to_owned()))
+                .unwrap();
+            Err(DeliveryError::SubmitUnconfirmed {
+                tab: record.authority.tab_id.clone(),
+                detail: "opaque-evidence-pending".into(),
+            })
+        }),
+    );
+    let first = fixture
+        .service
+        .start_chat_send(&tab, "first".into(), None, None)
+        .unwrap();
+    let second = fixture
+        .service
+        .start_chat_send(&tab, "second".into(), None, None)
+        .unwrap();
+    await_owner_idle(&fixture, &tab);
+    assert_eq!(
+        writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+        (first.send_id.clone(), "first".into())
+    );
+    assert_eq!(
+        writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+        (second.send_id.clone(), "\n\nsecond".into())
+    );
+    for send in [&first, &second] {
+        assert_eq!(
+            fixture
+                .service
+                .chat_send_ledger
+                .status(&send.send_id)
+                .unwrap()
+                .state,
+            ChatSendState::Unknown
+        );
+    }
+    fixture.service.wake_parked_user_send(&tab);
+    await_owner_idle(&fixture, &tab);
+    assert!(matches!(
+        writes_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]

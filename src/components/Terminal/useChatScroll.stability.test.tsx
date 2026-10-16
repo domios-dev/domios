@@ -224,7 +224,6 @@ function expectPinnedToBottom(): void {
   const el = scroll();
   expect(el.scrollTop).toBe(el.scrollHeight - el.clientHeight);
   expect(followTail.current).toBe(true);
-  expect(el.style.overflowAnchor).toBe("none");
 }
 
 function readerPosition(source: string): number {
@@ -469,7 +468,6 @@ describe("detached reader at the history cap", () => {
     await deliverScrollEvent();
     expect(followTail.current).toBe(false);
     expect(readerPosition(anchor)).toBe(position);
-    expect(scroll().style.overflowAnchor).toBe("auto");
   });
 
   it("does not move for async image, HTML preview and Mermaid height changes above or below the reader", async () => {

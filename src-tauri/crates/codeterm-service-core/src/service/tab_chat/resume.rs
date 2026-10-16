@@ -95,14 +95,12 @@ pub fn read_page(
     read_page_with(source, path, epoch, cursor, |from, budget| {
         registry
             .with_provider(provider_id, |provider| {
-                provider
-                    .parse_session_delta_bounded(path, from, budget)
-                    .map(|mut delta| {
-                        for message in &mut delta.messages {
-                            super::enrich_interactive(message, provider);
-                        }
-                        delta
-                    })
+                super::jsonl_kernel::delta(provider, path, from, budget).map(|mut delta| {
+                    for message in &mut delta.messages {
+                        super::enrich_interactive(message, provider);
+                    }
+                    delta
+                })
             })
             .flatten()
     })

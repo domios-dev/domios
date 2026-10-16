@@ -12,10 +12,20 @@
 
 #[path = "parity_test/execution_sandbox.rs"]
 mod execution_sandbox;
+#[path = "parity_test/host_exec.rs"]
+mod host_exec;
 #[path = "parity_test/inline_fixture.rs"]
 mod inline_fixture;
+#[path = "parity_test/parsed_record_fixtures.rs"]
+mod parsed_record_fixtures;
+#[path = "parity_test/parsed_records.rs"]
+mod parsed_records;
+#[path = "parity_test/raw_arguments.rs"]
+mod raw_arguments;
 #[path = "parity_test/runtime.rs"]
 mod runtime;
+#[path = "parity_test/session_resume.rs"]
+mod session_resume;
 use inline_fixture::load_inline_js;
 
 use std::path::PathBuf;

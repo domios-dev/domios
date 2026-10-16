@@ -393,6 +393,12 @@ impl CronStore {
             .get(id)
             .cloned()
             .ok_or_else(|| format!("Cron job not found: {}", id))?;
+        if job.protected && (patch.schedule.is_some() || patch.task.is_some()) {
+            return Err(format!(
+                "System cron job '{}' cannot edit schedule or task. Use enable/disable instead.",
+                job.name
+            ));
+        }
         let schedule_changed = patch.schedule.is_some();
         let enabled_requested = patch.enabled == Some(true);
 

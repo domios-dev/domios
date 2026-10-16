@@ -288,6 +288,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             model: s(a, "model"),
             reasoning_effort: a.reasoningEffort,
             runtime_mode: a.runtimeMode,
+            ...(typeof a.fastMode === "boolean" ? { fast_mode: a.fastMode } : {}),
             ...(a.cancel === true ? { cancel: true } : {}),
             ...(a.restartResume === true ? { restart_resume: true } : {}),
         }),

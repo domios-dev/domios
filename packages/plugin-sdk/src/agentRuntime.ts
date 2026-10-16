@@ -1,5 +1,6 @@
 import type { ChatMsg } from "./gen/ChatMsg";
 import type { ChatAttachment } from "./gen/ChatAttachment";
+import type { ParsedSessionRecord, SessionRecordsMeta } from "./jsonlRecords";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type RpcId = string | number;
@@ -9,7 +10,7 @@ export type RuntimeFrame =
   | {kind:"notification"; method:string; params:JsonValue}
   | {kind:"request"; requestId:RpcId; method:string; params:JsonValue};
 
-export interface RuntimeSettings { model?:string; effort?:string; mode?:string; additionalDirectories?:readonly string[]; networkAccess?:boolean }
+export interface RuntimeSettings { fastMode?:boolean; model?:string; effort?:string; mode?:string; additionalDirectories?:readonly string[]; networkAccess?:boolean }
 export interface TurnInput { text:string; attachments:readonly ChatAttachment[] }
 export type PromptAnswer =
   | {kind:"choice"; values:readonly string[]}
@@ -98,7 +99,7 @@ export type AgentEvent =
   | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]}
   | {kind:"chatItem"; threadId:string; item:ChatMsg}
   | {kind:"turnState"; threadId:string; turnId?:string; state:"working"|"idle"|"needs_input"; detail?:RuntimeTurnDetail; statusLine?:string; startedAt?:number; completedAt?:number; parentThreadId?:string}
-  | {kind:"sendEvidence"; threadId:string; sendId:string; turnId:string}
+  | {kind:"sendEvidence"; threadId:string; sendId:string; turnId:string; itemId?:string}
   | {kind:"usage"; threadId:string; usage:TokenUsage}
   | {kind:"prompt"; threadId:string; requestId:RpcId; prompt:PendingPrompt}
   | {kind:"promptResolved"; threadId:string; requestId:RpcId}
@@ -114,6 +115,7 @@ export type ResetCreditOutcome = "reset"|"nothingToReset"|"noCredit"|"alreadyRed
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
 export interface StdioAgentRuntimeCapability {
+  fastMode?:boolean;
   backgroundProcesses?:boolean;
   goals?:{actions:readonly RuntimeGoalAction[]};
   resetCreditsMinVersion?:string;
@@ -128,6 +130,7 @@ export interface StdioAgentRuntimeCapability {
 }
 export interface AgentRuntime {
   runtimeStoredHistory?(sessionId:string, records:string): readonly ChatMsg[];
+  runtimeStoredRecords?(sessionId:string, records:readonly ParsedSessionRecord[], meta:SessionRecordsMeta): readonly ChatMsg[];
   runtimePlan(ctx:RuntimeContext, op:Operation): RuntimePlan;
   runtimeResponse(ctx:RuntimeContext, op:Operation, state:JsonValue, reply:RpcReply): RuntimeStep;
   runtimeReduce(ctx:RuntimeContext, state:JsonValue, frames:readonly RuntimeFrame[]): RuntimeReduction;

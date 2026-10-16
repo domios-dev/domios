@@ -379,6 +379,7 @@ fn p99(samples: &mut [Duration]) -> Duration {
 }
 
 #[tokio::test]
+#[ignore = "Manual performance check: absolute wall-clock throughput depends on host load; see the testing skill"]
 async fn runtime_quickjs_frame_mapping_benchmark() {
     for paths in paths() {
         benchmark(&paths).await;

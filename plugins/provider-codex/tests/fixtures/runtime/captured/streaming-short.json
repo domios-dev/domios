@@ -15138,7 +15138,8 @@
             "settings": {
               "model": "gpt-6-luna",
               "effort": "low",
-              "mode": "approval-required"
+              "mode": "approval-required",
+              "fastMode": true
             }
           }
         }
@@ -15201,7 +15202,8 @@
         "kind": "sendEvidence",
         "threadId": "01a143fd-97d3-7173-99c7-d8aadda32e8a",
         "sendId": "capture-streaming",
-        "turnId": "01a143fd-9880-77b3-af84-050ca94d1a5b"
+        "turnId": "01a143fd-9880-77b3-af84-050ca94d1a5b",
+        "itemId": "01a143fd-a065-7032-93ec-b59f6f24b777"
       },
       {
         "kind": "chatItem",

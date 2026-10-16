@@ -4,6 +4,7 @@ import {
   Check,
   Copy,
   Cpu,
+  GitFork,
   MessageSquare,
   MessageSquareX,
   Pencil,
@@ -31,6 +32,7 @@ import {
 
 const GLYPHS: Record<TabMenuGlyph, LucideIcon> = {
   rename: Pencil,
+  fork: GitFork,
   role: UserCog,
   model: Cpu,
   provider: Bot,
