@@ -23,13 +23,17 @@ impl RestoreTransport {
 pub(super) struct RestoreBudgets {
     pub foreground: usize,
     pub background: usize,
-    pub chat: usize,
+    pub chat_foreground: usize,
+    pub chat_background: usize,
 }
+
+const CHAT_BACKGROUND_BUDGET: usize = 3;
 
 pub(super) const RESTORE_BUDGETS: RestoreBudgets = RestoreBudgets {
     foreground: 1,
     background: 4,
-    chat: 2,
+    chat_foreground: 1,
+    chat_background: CHAT_BACKGROUND_BUDGET,
 };
 
 pub(super) fn ordered_ids(mut tabs: Vec<(String, bool, Option<u64>)>) -> Vec<String> {
@@ -56,7 +60,8 @@ fn run_wave<T: Sync>(
         RestoreBudgets {
             foreground: 0,
             background: limit,
-            chat: 1,
+            chat_foreground: 0,
+            chat_background: 1,
         },
         |_| RestoreTransport::Pty,
         || {
@@ -84,7 +89,7 @@ pub(super) fn run_transport_waves<T: Sync>(
     mut validate: impl FnMut(&T) -> Result<(), String>,
     materialize: impl Fn(&T, Admission) -> Result<(), String> + Sync,
 ) -> Vec<Result<(), String>> {
-    assert!(budgets.background > 0 && budgets.chat > 0);
+    assert!(budgets.background > 0 && budgets.chat_background > 0);
     let checked = items.iter().map(&mut validate).collect::<Vec<_>>();
     let mut ready = [Vec::new(), Vec::new()];
     for (index, result) in checked.iter().enumerate() {
@@ -106,7 +111,8 @@ pub(super) fn run_transport_waves<T: Sync>(
         for (kind, limit, foreground_only) in [
             (RestoreTransport::Pty, budgets.foreground, true),
             (RestoreTransport::Pty, budgets.background, false),
-            (RestoreTransport::Chat, budgets.chat, false),
+            (RestoreTransport::Chat, budgets.chat_foreground, true),
+            (RestoreTransport::Chat, budgets.chat_background, false),
         ] {
             let pending = &pending[kind.index()];
             let workers = limit.min(pending.lock().unwrap().len());
