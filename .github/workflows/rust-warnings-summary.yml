@@ -47,13 +47,18 @@ jobs:
           WARNING_ARTIFACTS: ${{ inputs.artifacts }}
           WARNING_SEED: ${{ inputs.comment }}
         run: node scripts/rust-warnings-report.mjs ci-rust-warnings
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - name: Store warning report
         if: always()
         continue-on-error: true
-        with:
-          overwrite: true
-          name: ${{ inputs.report_name }}
-          path: rust-warnings-report/*
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+          WARNING_REPORT_NAME: ${{ inputs.report_name }}
+        run: |
+          for file in rust-warnings-report/*; do
+            [ -f "$file" ] || continue
+            bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/$WARNING_REPORT_NAME/${file##*/}" "$file"
+          done
       - name: Comment on associated release PR
         if: ${{ always() && inputs.comment }}
         continue-on-error: true

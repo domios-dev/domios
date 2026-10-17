@@ -30,6 +30,15 @@ test("warning collection resolves Git Bash explicitly on Windows", () => {
   }
 });
 
+test("warning summary stores reports in MinIO without GitHub artifact quota", () => {
+  const steps = workflow("rust-warnings-summary").jobs.report.steps;
+  assert.ok(steps.every(step => !step.uses?.startsWith("actions/upload-artifact@")));
+  const store = steps.find(step => step.name === "Store warning report");
+  assert.equal(store.env.WARNING_REPORT_NAME, "${{ inputs.report_name }}");
+  assert.ok(store.env.AWS_ACCESS_KEY_ID && store.env.AWS_SECRET_ACCESS_KEY);
+  assert.match(store.run, /ci-artifact\.sh put "\$GITHUB_RUN_ID\/\$WARNING_REPORT_NAME\//);
+});
+
 const overlapped = ["macos-arm64", "macos-x64", "linux-arm64", "windows-x64", "windows-arm64"];
 const afterFast = ["linux-x86_64", "tests"];
 const app = { result: "success", outputs: { kind: "app", published: "false", dry_run: "false" } };
