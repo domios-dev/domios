@@ -11,9 +11,8 @@ import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 import { generalInventorySections, generalWorkspaceJobs, projectUtilityShells } from "../General/generalOverviewModel";
 import { ServiceDrawer, type DrawerState } from "../MeshPanel/ServiceDrawer";
 import { useMeshData, type MeshDataResult } from "../MeshPanel/useMeshData";
-import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { Button } from "../shared/Button";
 import { SidebarDisclosure } from "./SidebarDisclosure";
+import { inventoryGroupVisibility } from "./generalInventoryModel";
 import { useGeneralJobs } from "./useGeneralJobs";
 import { jobStateLabel, mergedJobId, type MergedJob } from "../Jobs/jobsModel";
 import { openTabJob } from "../Jobs/useTabJobs";
@@ -29,9 +28,10 @@ function readExpanded(name: GroupName): boolean {
 function InventoryGroup({ name, count, children, touchMode, onShowAll }: { onShowAll?: () => void; name: GroupName; count: number; children: ReactNode; touchMode: boolean }) {
   const [expanded, setExpanded] = useState(() => readExpanded(name));
   const id = useId();
-  const open = (count > 0 || !!onShowAll) && expanded;
+  const { visible, open, showAll } = inventoryGroupVisibility(count, expanded, !!onShowAll);
+  if (!visible) return null;
   return <section aria-label={name} className="sidebar-team-section min-w-0">
-    <SidebarDisclosure expanded={open} aria-label={`${name}, ${count}`} aria-controls={id} disabled={count === 0 && !onShowAll} touchMode={touchMode}
+    <SidebarDisclosure expanded={open} aria-label={`${name}, ${count}`} aria-controls={id} touchMode={touchMode}
       className="sidebar-team-workers-toggle"
       onClick={() => {
         const next = !expanded;
@@ -43,8 +43,7 @@ function InventoryGroup({ name, count, children, touchMode, onShowAll }: { onSho
       }}>
       {open ? name.toUpperCase() : `${count} ${count === 1 ? name.toLowerCase().replace(/s$/, "") : name.toLowerCase()}`}
     </SidebarDisclosure>
-    {onShowAll && <Button variant="ghost" aria-label="Show all jobs" onClick={onShowAll}>Show all</Button>}
-    <ul id={id} aria-label={name} hidden={!open} className="sidebar-team-member-list min-w-0">{children}</ul>
+    <ul id={id} aria-label={name} hidden={!open} className="sidebar-team-member-list min-w-0">{children}{showAll && onShowAll && <li><SidebarResourceRow name="Show all" state="" icon={<Clock3 size={11} aria-hidden="true" />} accessibleName="Show all jobs" onOpen={onShowAll} /></li>}</ul>
   </section>;
 }
 
@@ -61,7 +60,7 @@ export interface GeneralInventoryProps {
   rowState?: Pick<SidebarOwnerTabRowProps, "tabStatuses" | "tabAttentionByTab" | "planIndex" | "activeWork" | "closingTabIds" | "appearingTabIds" | "orchestrators" | "uiFontScale">;
 }
 
-export function GeneralInventorySections({ generalWorkspaceId, onShowAllJobs, workspaces, teams, tabs, onNavigate, touchMode = false, onCloseTab, onRenameTab, rowState, inventory, jobs, jobsFailed = false, onOpenJob = openTabJob, onJobsChanged = () => {} }: GeneralInventoryProps & {
+export function GeneralInventorySections({ generalWorkspaceId, onShowAllJobs, workspaces, teams, tabs, onNavigate, touchMode = false, onCloseTab, onRenameTab, rowState, inventory, jobs, onOpenJob = openTabJob, onJobsChanged = () => {} }: GeneralInventoryProps & {
   inventory: MeshDataResult;
   jobs: readonly MergedJob[];
   jobsFailed?: boolean;
@@ -113,8 +112,6 @@ export function GeneralInventorySections({ generalWorkspaceId, onShowAllJobs, wo
           }} />
       </li>)}
     </InventoryGroup>
-    {jobsFailed && <InlineErrorNotice error={{ code: "jobs_unavailable", raw: "" }} />}
-    {inventory.error && <InlineErrorNotice error={inventory.error} />}
     {drawer && createPortal(<div className="[&_[role=dialog]]:max-w-[calc(100vw-2rem)]"><ServiceDrawer state={drawer} services={inventory.services} peers={inventory.peers} thisMachineName={inventory.thisMachine.name} thisMachineIp={inventory.thisMachine.ip} onClose={() => setDrawer(null)} onActionDone={inventory.refresh} /></div>, document.body)}
   </div>;
 }
