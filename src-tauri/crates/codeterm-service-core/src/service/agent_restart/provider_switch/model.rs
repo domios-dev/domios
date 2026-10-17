@@ -58,6 +58,10 @@ pub(super) fn runtime_idle(live: bool, active_turn: bool, pending_prompts: bool)
     live && !active_turn && !pending_prompts
 }
 
+pub(super) fn sleeping_source_idle(tab: &Tab) -> bool {
+    tab.frozen && tab.pty_id.is_none() && !tab.agent_booting && tab.pending_prompt.is_none()
+}
+
 pub(super) fn reset_for_target(
     tab: &mut Tab,
     target: &str,
@@ -76,6 +80,7 @@ pub(super) fn reset_for_target(
     tab.session_binding_nonce = None;
     tab.reported_session_binding_nonce = None;
     tab.restored_from_snapshot = false;
+    tab.frozen = false;
     tab.close_restore = None;
     tab.pty_id = None;
     tab.agent_booting = true;
