@@ -156,7 +156,9 @@ Sign in to the tab's runtime provider without a terminal
 Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`
 
 - `--force` — Explicitly override the background-work restart guard and report the affected work
-- `<name>` — Model id. Run `agent models PROVIDER` to list
+- `--list-speeds` — List this tab's currently available service tiers
+- `<name>` — Model id. Run `agent models PROVIDER` to list. Model id. Omit when changing only the service tier
+- `--speed` — Service tier id or `default` to clear the selection
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm agent models`
@@ -237,6 +239,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
+- `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `--system` — Override the shell system prompt of a chatBackend shell; refused for PTY agents
 - `--task` — Task to send after agent starts
 - `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task
@@ -2713,6 +2716,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `<plan_id>`
 - `--provider-reserve-pct` — Optional minimum remaining provider allowance for mutating work (0 = no reserve)
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
+- `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `<task_id>`
 - `--workspace`
 
