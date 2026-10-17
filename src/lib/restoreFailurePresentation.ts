@@ -35,7 +35,7 @@ export function restoreFailurePresentation(
     actions: {
       startFreshAgent: failed && !pending && facts.agentType == null && !missingSession,
       startNewSession: failed && !pending && missingSession,
-      retry: failed && !pending && facts.protectedTab && facts.agentType != null,
+      retry: failed && !pending && !missingSession && facts.agentType != null,
       keepShell: failed && !pending && !keepShell,
     },
   };

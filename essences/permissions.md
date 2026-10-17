@@ -4,7 +4,7 @@ Domios keeps execution access, role authority, plugin grants, folder trust and m
 
 ## Agent execution access
 
-Workers launch with full machine access by default. Execution intent governs plan and report authority independently of the OS sandbox. A launch may explicitly request read-only or workspace-write confinement; its saved policy remains immutable across restore. Other agents follow the global `agent.full_access` choice; until the owner has chosen, their spawn is refused before a tab is created.
+Workers launch with full machine access by default. Execution intent governs plan and report authority independently of the OS sandbox. A launch may explicitly request read-only or workspace-write confinement; restore never widens its saved policy. Unavailable or redirected recorded writable roots are dropped with a warning; host-owned cache directories may be recreated at the recorded path. Read-only confinement and the working root remain unchanged. Other agents follow the global `agent.full_access` choice; until the owner has chosen, their spawn is refused before a tab is created.
 
 Without full access, a model whose provider declares no unattended permission mode receives launch-scoped grants for its role's Domios commands. Launching an Orchestrator or Planner on such a model is refused before tab creation, with the model named; Team pairing checks both members first. Provider capabilities determine this behavior, not provider identity.
 
