@@ -5,14 +5,14 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::{
-    accept_watcher_verdict_id, apply_watcher_outcome_to_spec, clear_stale_watcher_inflight_spec,
-    delta_signature, execute_watcher_actions_with, extract_watcher_verdicts, next_poll_delay_ms,
-    plan_poll_tick, plan_watcher_tick, tick_input_json, WatcherTickPlan, POLL_ACTIVE_MS,
-    POLL_IDLE_MS,
+    POLL_ACTIVE_MS, POLL_IDLE_MS, WatcherTickPlan, accept_watcher_verdict_id,
+    apply_watcher_outcome_to_spec, clear_stale_watcher_inflight_spec, delta_signature,
+    execute_watcher_actions_with, extract_watcher_verdicts, next_poll_delay_ms, plan_poll_tick,
+    plan_watcher_tick, tick_input_json,
 };
 use crate::agent::chat_types::{ChatMsg, StructuredChat};
 use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
-use crate::service::watcher::{apply_guardrails, parse_verdict, WatcherVerdictStatus};
+use crate::service::watcher::{WatcherVerdictStatus, apply_guardrails, parse_verdict};
 
 fn delta(n: usize, cursor: Option<&str>) -> StructuredChat {
     StructuredChat {
@@ -404,6 +404,7 @@ fn runtime_worker_identity_is_stamped_before_launch() {
         },
         params: Default::default(),
         owner_linkage: None,
+        runtime_fork: None,
     };
     let tab = mux.get_tab_mut(&tab_id).unwrap();
     super::stamp_chatbackend_launch_identity(tab, &metadata);

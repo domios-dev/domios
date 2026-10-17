@@ -4,7 +4,7 @@ use super::{
 };
 use crate::service::MuxEmitCause;
 use crate::service::{
-    chat_send_transaction::SendLiveBinding, delivery_error::DeliveryError, ServiceContext,
+    ServiceContext, chat_send_transaction::SendLiveBinding, delivery_error::DeliveryError,
 };
 use codeterm_plugin::agent_runtime::*;
 use serde_json::Value;
@@ -259,6 +259,33 @@ pub fn launch(
     tab: &str,
     config: Value,
 ) -> Result<(), String> {
+    launch_with_fork(svc, provider, tab, config, None)
+}
+
+pub(crate) fn launch_fork(
+    svc: &ServiceContext,
+    provider: &str,
+    tab: &str,
+    config: Value,
+    source_thread_id: &str,
+    turn_id: &str,
+) -> Result<(), String> {
+    launch_with_fork(
+        svc,
+        provider,
+        tab,
+        config,
+        Some((source_thread_id, turn_id)),
+    )
+}
+
+fn launch_with_fork(
+    svc: &ServiceContext,
+    provider: &str,
+    tab: &str,
+    config: Value,
+    fork: Option<(&str, &str)>,
+) -> Result<(), String> {
     svc.ensure_agent_pad(tab)?;
     let nonce = svc.ensure_session_binding_nonce(tab);
     {
@@ -270,10 +297,19 @@ pub fn launch(
         target.chat_view = true;
     }
     super::authority::record_spawn(svc, tab, provider, &nonce)?;
-    let result = crate::async_runtime::block_on(engine::ensure(svc, tab))
-        .map(|_| ())
-        .map_err(|error| format!("Runtime tab {tab} degraded: {error}"));
-    svc.emit_state_changed(MuxEmitCause::TabLifecycle);
+    let result = crate::async_runtime::block_on(async {
+        match fork {
+            Some((source_thread_id, turn_id)) => {
+                engine::ensure_fork(svc, tab, source_thread_id, turn_id).await
+            }
+            None => engine::ensure(svc, tab).await,
+        }
+    })
+    .map(|_| ())
+    .map_err(|error| format!("Runtime tab {tab} degraded: {error}"));
+    if fork.is_none() {
+        svc.emit_state_changed(MuxEmitCause::TabLifecycle);
+    }
     result
 }
 

@@ -53,6 +53,7 @@ fn generic_provider_with_history(dir: &Path, stored_history: bool) -> JsProvider
         "backgroundProcesses",
         "initialize",
         "openThread",
+        "forkThread",
         "resumeThread",
         "readHistory",
         "submitTurn",
@@ -63,7 +64,14 @@ fn generic_provider_with_history(dir: &Path, stored_history: bool) -> JsProvider
     ];
     let methods: serde_json::Map<String, Value> = kinds
         .iter()
-        .map(|kind| ((*kind).into(), json!([kind])))
+        .map(|kind| {
+            let methods = if *kind == "forkThread" {
+                json!(["thread/turns/list", "thread/fork"])
+            } else {
+                json!([kind])
+            };
+            ((*kind).into(), methods)
+        })
         .collect();
     let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"storedHistory":stored_history,"fastMode":true,"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
     let source = std::fs::read_to_string(dir.join("plugin.js"))
@@ -432,21 +440,54 @@ async fn thread_history_capability_native_quickjs_parity() {
     ctx.binding_nonce = "fixture-nonce".into();
     ctx.cwd = "/fixture".into();
     ctx.host_version = "1.0.0".into();
-    ctx.thread_id = Some("source-thread".into());
-    let op = RuntimeOperation::Control {
-        thread_id: ctx.thread_id.clone(),
-        action: "threadHistory".into(),
-        value: json!({"action":"fork","turnId":"turn-two"}),
+    let op = RuntimeOperation::ForkThread {
+        source_thread_id: "source-thread".into(),
+        turn_id: "turn-two".into(),
     };
-    let reply = RpcReply::Success {
-        value: json!({"thread":{"id":"fork-thread"}}),
+    let mut bound_ctx = ctx.clone();
+    bound_ctx.thread_id = Some("already-bound".into());
+    assert!(native.runtime_plan(&bound_ctx, &op).await.is_err());
+    assert!(js.runtime_plan(&bound_ctx, &op).await.is_err());
+    let native_plan = native.runtime_plan(&ctx, &op).await.unwrap();
+    let quickjs_plan = js.runtime_plan(&ctx, &op).await.unwrap();
+    assert_eq!(native_plan, quickjs_plan);
+    let turns_reply = RpcReply::Success {
+        value: json!({"data":[{"id":"turn-two","status":"completed"}]}),
     };
     let native_step = native
-        .runtime_response(&ctx, &op, &Value::Null, &reply)
+        .runtime_response(&ctx, &op, &native_plan.state, &turns_reply)
         .await
         .unwrap();
     let quickjs_step = js
-        .runtime_response(&ctx, &op, &Value::Null, &reply)
+        .runtime_response(&ctx, &op, &quickjs_plan.state, &turns_reply)
+        .await
+        .unwrap();
+    assert_eq!(native_step, quickjs_step);
+    let RuntimeStep::Continue {
+        plan: next_plan, ..
+    } = native_step
+    else {
+        panic!("fork boundary lookup must continue to thread/fork")
+    };
+    assert_eq!(
+        next_plan.action,
+        RuntimeAction::Request {
+            call: crate::agent_runtime::RpcCall {
+                target: None,
+                method: "thread/fork".into(),
+                params: json!({"threadId":"source-thread","lastTurnId":"turn-two"}),
+            },
+        }
+    );
+    let fork_reply = RpcReply::Success {
+        value: json!({"thread":{"id":"fork-thread"}}),
+    };
+    let native_step = native
+        .runtime_response(&ctx, &op, &next_plan.state, &fork_reply)
+        .await
+        .unwrap();
+    let quickjs_step = js
+        .runtime_response(&ctx, &op, &next_plan.state, &fork_reply)
         .await
         .unwrap();
     assert_eq!(native_step, quickjs_step);
