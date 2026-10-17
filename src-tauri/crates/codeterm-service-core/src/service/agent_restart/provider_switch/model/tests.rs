@@ -70,6 +70,14 @@ fn busy_switch_requires_explicit_stop_and_refuses_an_inflight_launch() {
 }
 
 #[test]
+fn runtime_idle_requires_live_binding_and_no_active_turn_or_question() {
+    assert!(runtime_idle(true, false, false));
+    assert!(!runtime_idle(false, false, false));
+    assert!(!runtime_idle(true, true, false));
+    assert!(!runtime_idle(true, false, true));
+}
+
+#[test]
 fn backing_transition_preserves_tab_and_task_identity_in_both_directions() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
