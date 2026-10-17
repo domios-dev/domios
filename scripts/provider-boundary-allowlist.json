@@ -2,6 +2,10 @@
   "version": 1,
   "splits": [
     {
+      "from": "src-tauri/crates/codeterm-service-core/src/service/spawn_plan_task.rs",
+      "to": ["src-tauri/crates/codeterm-service-core/src/service/spawn_plan_task/tests.rs"]
+    },
+    {
       "from": "src-tauri/crates/codeterm-plugin/src/provider/agent_provider.rs",
       "to": [
         "src-tauri/crates/codeterm-plugin/src/provider/agent_provider/catalogue.rs",
@@ -13293,7 +13297,7 @@
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/spawn_plan_task.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/spawn_plan_task/tests.rs",
       "token": "codex",
       "count": 2,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
