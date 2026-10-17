@@ -39,7 +39,7 @@ export function codexReportedSettings(raw: unknown): RuntimeSettings {
   const settings = root.threadSettings ? object(root.threadSettings) : root;
   const thread = object(settings.thread);
   const tier = settings.serviceTier !== undefined ? settings.serviceTier : thread.serviceTier;
-  const serviceTier = tier === undefined ? undefined : tier === null || typeof tier === "string" ? {id:tier === "fast" ? "priority" : tier} : undefined;
+  const serviceTier = tier === undefined ? undefined : tier === null || typeof tier === "string" ? {id:tier === "default" ? null : tier === "fast" ? "priority" : tier} : undefined;
   const model = text(settings.model) ?? text(thread.model);
   const effort = text(settings.reasoningEffort) ?? text(settings.effort) ?? text(thread.reasoningEffort) ?? text(thread.effort);
   const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;
