@@ -2863,6 +2863,11 @@ EOF
     sg_run bash scripts/check-build-gateway-owner-reap.sh
     sg_run bash scripts/check-build-check-queue.sh
     sg_run bash scripts/check-build-script-head.sh
+    if command -v python3 >/dev/null 2>&1; then
+      sg_run python3 scripts/check-lf-working-tree.py
+    else
+      sg_run python scripts/check-lf-working-tree.py
+    fi
     sg_run bash scripts/check-shared-sccache.sh
     for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
       sg_run bash "scripts/$sg"
