@@ -37,7 +37,7 @@ codeterm agent child-history --tab PARENT_TAB --thread CHILD_THREAD --root-threa
 
 These commands always name the target tab. `usage read` returns session/weekly limits, account credits, reset-credit count and expiry from that tab's cached runtime projection. `usage reset` consumes a reset credit through the existing runtime route; `--confirm` is mandatory and each invocation carries a fresh idempotency UUID. Its JSON includes the provider outcome and observed before/after reset-credit counts. `child-history` passes the current parent binding authority to the existing recorded-child route; stale bindings and unrecorded descendants are refused. The cursor is opaque and may be supplied from `nextCursor` to continue.
 
-`GET /api/tabs/{id}/usage` is authority-checked against the tab's current runtime binding and returns that tab's runtime projection. The CLI does not ask a provider directly. Reset consumption returns the provider outcome and counts observed from the same projection used by the usage bubble; a missing post-consume observation remains `null` rather than being inferred.
+`GET /api/tabs/{id}/agent/runtime/usage` is authority-checked against the tab's current runtime binding and returns that tab's runtime projection. The CLI does not ask a provider directly. Reset consumption returns the provider outcome and counts observed from the same projection used by the usage bubble; a missing post-consume observation remains `null` rather than being inferred.
 
 Use `codeterm agent model --tab TAB_ID --speed TIER` to select a runtime service tier, `--speed default` to clear it, or `--list-speeds` to inspect the exact tab's model-scoped choices. Worker kinds work with or without `--plan-task`:
 

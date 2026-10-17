@@ -593,7 +593,10 @@ pub(super) fn create_router_with_preview_admission(
             "/api/tabs/{id}/agent/runtime/goal",
             post(super::runtime_login::goal),
         )
-        .route("/api/tabs/{id}/usage", get(super::runtime_login::tab_usage))
+        .route(
+            "/api/tabs/{id}/agent/runtime/usage",
+            get(super::runtime_login::tab_usage),
+        )
         .route(
             "/api/tabs/{id}/agent/runtime/thread-history",
             post(super::runtime_login::thread_history),
