@@ -68,9 +68,7 @@ pub(crate) fn caller_resolved_spawn_cwd(cwd: &str, caller_cwd: Option<&std::path
     }
 }
 
-/// Resolve the spawn task body from `--task` / `--task-file`. `--task-file`
-/// reads the file verbatim (or stdin when the value is `-`), so the body never
-/// passes through the caller's shell — backticks and $(...) survive byte-exact.
+/// `--task-file` (or stdin for `-`) is read verbatim, bypassing the caller's shell.
 pub fn resolve_spawn_task<R: Read>(
     task: Option<String>,
     task_file: Option<String>,
