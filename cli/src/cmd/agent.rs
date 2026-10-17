@@ -3,7 +3,7 @@ use crate::client::SocketClient;
 use crate::cmd::plan::caller_context::CallerContext;
 use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::print::handle_result;
-use crate::{build_local_api, read_api_config, resolve_tab, AgentAction};
+use crate::{AgentAction, build_local_api, read_api_config, resolve_tab};
 use std::io::Read;
 
 #[path = "agent_cli.rs"]
@@ -18,9 +18,9 @@ mod agent_model_switch;
 mod agent_models;
 use agent_models::select_provider;
 #[cfg(test)]
-use agent_models::{format_agent_models, format_agent_models_json};
+use agent_models::{AVAILABILITY_UNAVAILABLE, AVAILABILITY_UNKNOWN, provider_availability_marker};
 #[cfg(test)]
-use agent_models::{provider_availability_marker, AVAILABILITY_UNAVAILABLE, AVAILABILITY_UNKNOWN};
+use agent_models::{format_agent_models, format_agent_models_json};
 pub(crate) use agent_models::{render_agent_models, render_agent_providers};
 
 fn provider_requires_live_model_discovery(provider: &serde_json::Value) -> bool {
@@ -563,11 +563,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     .unwrap_or_else(|| tab_id.clone());
                 crate::cmd::print::fail(1, missing_report_binding_incident(&tab));
             }
-            let mut body = serde_json::json!({
-                "tab_id": tab_id,
-                "caller_tab_id": tab_id,
-                "message": message,
-            });
+            let mut body = CallerContext::from_env().report_body(&tab_id, message);
             if let Ok(attempt_id) = std::env::var("CODETERM_ATTEMPT_ID") {
                 body["attempt_id"] = serde_json::json!(attempt_id);
             }

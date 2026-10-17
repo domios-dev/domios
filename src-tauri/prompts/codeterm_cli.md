@@ -71,6 +71,8 @@ Each command's `--help` has the flags; the Docs column has the depth.
 
 Plans, tasks, Teams: `codeterm plan --help` / `codeterm task --help` / `codeterm team --help`, with the full rules in `codeterm docs PLAN-EDITING` and `codeterm docs ORCHESTRATION`. Orchestrator, Planner and Worker launches carry their own flag contract.
 
+Workers default to full machine access for either execution intent. For explicit confinement pass `--sandbox read-only` or `--sandbox workspace-write` to `codeterm agent spawn` or local `codeterm plan task dispatch`. Execution intent still limits task and report authority; saved sandbox policies remain immutable.
+
 The owner's explicit `codeterm agent restart --tab <ID> --fresh` starts a new session in the same tab with its recorded model and effort. An existing exact restored session is refused; a live agent requires `--force`. Restore never makes this choice automatically.
 
 ## Mesh (remote peers)

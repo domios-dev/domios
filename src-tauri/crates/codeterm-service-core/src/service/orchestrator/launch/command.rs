@@ -123,14 +123,9 @@ fn build_agent_command_inner(
         Some((service, tab_id)) => {
             crate::service::execution_sandbox::for_launch(service, tab_id, agent_cmd, params, false)
         }
-        None => crate::service::execution_sandbox::resolve(
-            registry,
-            agent_cmd,
-            params.execution_intent.as_ref(),
-            params.cwd.as_deref(),
-            params.args.as_deref().unwrap_or_default(),
-            false,
-        ),
+        None => {
+            crate::service::execution_sandbox::resolve_requested(registry, agent_cmd, params, false)
+        }
     };
     let execution_policy = match execution_policy {
         Ok(policy) => policy,

@@ -394,6 +394,9 @@ pub enum AgentAction {
         /// `read_only` is also the task-less verification-Worker shape.
         #[arg(long = "execution-intent", value_parser = ["read_only", "mutating"])]
         execution_intent: Option<String>,
+        /// Explicit OS confinement for this launch; Workers default to full access.
+        #[arg(long, value_parser = ["read-only", "workspace-write"])]
+        sandbox: Option<String>,
         /// Gate token this Worker may claim as executed; repeatable. Carried
         /// into its brief. For a task-bound Worker declare gates on the
         /// dispatch instead (`plan task dispatch --authorized-gate`).
@@ -1082,4 +1085,69 @@ pub enum ProviderCliAction {
     Install { provider: String },
     /// Run the manifest updater in a visible utility tab and report its result.
     Update { provider: String },
+}
+
+#[cfg(test)]
+mod sandbox_tests {
+    use crate::args::cli::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn worker_spawn_sandbox_is_explicit_and_off_by_default() {
+        for mode in [None, Some("read-only"), Some("workspace-write")] {
+            let mut args = vec![
+                "codeterm",
+                "agent",
+                "spawn",
+                "codex",
+                "--role",
+                "Worker",
+                "--plan",
+                "pl",
+                "--execution-intent",
+                "read_only",
+            ];
+            if let Some(mode) = mode {
+                args.extend(["--sandbox", mode]);
+            }
+            let parsed = Cli::try_parse_from(args).unwrap();
+            let crate::Commands::Agent {
+                action: super::AgentAction::Spawn { sandbox, .. },
+            } = parsed.command
+            else {
+                panic!("spawn");
+            };
+            assert_eq!(sandbox.as_deref(), mode);
+        }
+    }
+
+    #[test]
+    fn dispatch_sandbox_is_explicit_and_off_by_default() {
+        for mode in [None, Some("read-only"), Some("workspace-write")] {
+            let mut args = vec![
+                "codeterm",
+                "plan",
+                "task",
+                "dispatch",
+                "pl",
+                "task",
+                "--execution-intent",
+                "mutating",
+            ];
+            if let Some(mode) = mode {
+                args.extend(["--sandbox", mode]);
+            }
+            let parsed = Cli::try_parse_from(args).unwrap();
+            let crate::Commands::Plan {
+                action:
+                    crate::PlanAction::Task {
+                        action: crate::args::plan::PlanTaskAction::Dispatch { sandbox, .. },
+                    },
+            } = parsed.command
+            else {
+                panic!("dispatch");
+            };
+            assert_eq!(sandbox.as_deref(), mode);
+        }
+    }
 }

@@ -115,9 +115,9 @@ When a Planner is present:
 Before dispatch, judge structure against your role brief's plan-shape contract. Record Planner waivers on the plan.
 ## Dispatch contract
 
-`--execution-intent read_only` requires provider-declared filesystem enforcement; refusal names capability gaps. Scoped launches override global full access and reject custom launch arguments. Intent and allowed paths survive restart/restore and cannot be broadened at runtime. Mutating Workers use lanes plus explicit host-owned pad/Git roots.
+Workers default to full machine access for both execution intents. `--execution-intent` governs task and report authority, independently of OS permissions. Explicitly request confinement with `--sandbox read-only` or `--sandbox workspace-write` on `agent spawn` or local `plan task dispatch`; unsupported mappings are refused. A requested sandbox rejects custom provider arguments and persists its immutable policy across restore. Explicit sandbox selection on mesh task dispatch is refused before dispatch.
 
-Read-only Workers report via UTF-8 stdin: `codeterm agent report --from-pad -` (pads are read-only). Task-less reports omit `--status` and `--task`. Gates grant no writes; sandbox-external writes require an explicit owner-run canonical gate. Report refusals; never request broader access.
+Task-less verification reports omit `--status` and `--task`; execution intent still bounds authorized work even with full machine access. A launch explicitly confined to a read-only filesystem can report through UTF-8 stdin with `codeterm agent report --from-pad -`. Existing saved sandbox policies are not widened by the Worker default.
 
 ## Task-less Worker kinds
 
