@@ -1085,6 +1085,33 @@ fn agent_state_status_reconciliation_capability_contract() {
     );
 }
 
+#[test]
+fn subagent_visibility_capability_contract() {
+    if require_plugins().is_none() {
+        return;
+    }
+    for (id, expected) in [
+        ("claude", true),
+        ("codex", true),
+        ("opencode", false),
+        ("cursor", false),
+    ] {
+        assert_eq!(
+            load_js(id).supports_subagent_visibility(),
+            expected,
+            "{id}: subagent visibility must match the provider's declared activity feed"
+        );
+    }
+
+    let native_default = DiscoverModelsNativeStub;
+    let js_default = load_inline_js("subagent-visibility-default", "module.exports.default = {};");
+    assert!(!native_default.supports_subagent_visibility());
+    assert_eq!(
+        native_default.supports_subagent_visibility(),
+        js_default.supports_subagent_visibility()
+    );
+}
+
 mod launch_controls;
 
 // Hook event roster parity + fail-closed registration (DN-3 stage 1).

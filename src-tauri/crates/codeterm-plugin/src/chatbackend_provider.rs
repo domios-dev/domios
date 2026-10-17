@@ -244,6 +244,7 @@ pub trait ChatBackendProvider: Send + Sync {
             compact_command: None,
             integration_trust_grant: None,
             supports_stop: false,
+            supports_subagent_visibility: false,
             supports_chat_ui: true,
             supports_structured_prompts: false,
             supports_prompt_answers: false,
