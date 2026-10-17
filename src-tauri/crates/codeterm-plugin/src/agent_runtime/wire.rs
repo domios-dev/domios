@@ -170,6 +170,10 @@ pub enum RuntimeOperation {
         instructions: String,
         settings: RuntimeSettings,
     },
+    ForkThread {
+        source_thread_id: String,
+        turn_id: String,
+    },
     ResumeThread {
         thread_id: String,
         instructions: String,
@@ -218,6 +222,7 @@ impl RuntimeOperation {
             Self::BackgroundProcesses { .. } => "backgroundProcesses",
             Self::Initialize => "initialize",
             Self::OpenThread { .. } => "openThread",
+            Self::ForkThread { .. } => "forkThread",
             Self::ResumeThread { .. } => "resumeThread",
             Self::ReadHistory { .. } => "readHistory",
             Self::SubmitTurn { .. } => "submitTurn",

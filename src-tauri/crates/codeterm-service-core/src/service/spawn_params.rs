@@ -1,6 +1,6 @@
+use super::ServiceContext;
 use super::orchestrator::SpawnAgentParams;
 use super::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
-use super::ServiceContext;
 use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
 
 pub fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provider::StarterPrompt {
@@ -121,6 +121,7 @@ impl SpawnTabSpec {
                 agent: agent.clone(),
                 params: params.clone(),
                 owner_linkage: None,
+                runtime_fork: None,
             })
         });
         let agent_command = command.unwrap_or(TabCommand::Agent(agent));
@@ -147,6 +148,10 @@ impl SpawnTabSpec {
     }
 
     pub(crate) fn route_agent_to_chatbackend(&mut self) -> Result<(), String> {
+        let runtime_fork = self
+            .chatbackend_launch
+            .as_ref()
+            .and_then(|metadata| metadata.runtime_fork.clone());
         let mut params = self
             .chatbackend_launch
             .as_ref()
@@ -198,6 +203,7 @@ impl SpawnTabSpec {
             agent,
             params,
             owner_linkage,
+            runtime_fork,
         }));
         Ok(())
     }
@@ -787,12 +793,14 @@ mod tests {
 
     #[test]
     fn a_spawn_without_a_team_never_trips_the_binding_guard() {
-        assert!(reject_team_with_binding(&SpawnAgentParams {
-            role: Some("Worker".into()),
-            plan_task: Some("task_one".into()),
-            ..Default::default()
-        })
-        .is_ok());
+        assert!(
+            reject_team_with_binding(&SpawnAgentParams {
+                role: Some("Worker".into()),
+                plan_task: Some("task_one".into()),
+                ..Default::default()
+            })
+            .is_ok()
+        );
     }
 
     #[test]

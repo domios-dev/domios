@@ -6,7 +6,6 @@
     "hostVersion": "1.14.7",
     "tabId": "tab-fixture",
     "bindingNonce": "nonce-fixture",
-    "threadId": "thread-fixture",
     "settings": {
       "model": "fixture-model",
       "effort": "high",
@@ -20,13 +19,9 @@
   "operations": [
     {
       "operation": {
-        "kind": "control",
-        "threadId": "thread-fixture",
-        "action": "threadHistory",
-        "value": {
-          "action": "fork",
-          "turnId": "turn-two"
-        }
+        "kind": "forkThread",
+        "sourceThreadId": "thread-fixture",
+        "turnId": "turn-two"
       }
     }
   ],

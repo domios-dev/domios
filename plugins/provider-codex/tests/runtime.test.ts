@@ -190,6 +190,12 @@ check("thread history refuses active turns before making a provider request",()=
     error !== null && typeof error === "object" && "code" in error && "message" in error
       && error.code === "provider_refused" && /active turn/i.test(String(error.message)));
 });
+check("fork startup rejects a bound or active child runtime",()=> {
+  const fixture=JSON.parse(fs.readFileSync(new URL("thread-fork.json",root),"utf8")) as Fixture;
+  const operation=fixture.operations[0].operation;
+  assert.throws(()=>hooks.runtimePlan({...fixture.context,threadId:"already-bound"},operation));
+  assert.throws(()=>hooks.runtimePlan({...fixture.context,activeTurns:[{threadId:"active-thread",turnId:"active-turn"}]},operation));
+});
 check("recorded first replies follow binding without an injected developer item",()=> {
   const captured=JSON.parse(fs.readFileSync(new URL("captured/multi-turn.json",root),"utf8")) as Fixture;
   const opening=captured.operations.findIndex(entry=>entry.operation.kind === "openThread");

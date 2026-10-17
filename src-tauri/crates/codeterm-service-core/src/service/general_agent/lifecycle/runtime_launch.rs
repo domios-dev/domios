@@ -1,7 +1,7 @@
 use super::*;
+use crate::service::MuxEmitCause;
 use crate::service::general_agent::session_contract::{LaunchOwnership, TabLaunch};
 use crate::service::spawn::{AgentSpawnSpec, ChatBackendLaunchMetadata};
-use crate::service::MuxEmitCause;
 
 pub(super) fn start_main(
     svc: &crate::ServiceState,
@@ -207,6 +207,7 @@ fn launch(
     };
     let metadata = ChatBackendLaunchMetadata {
         owner_linkage: None,
+        runtime_fork: None,
         agent: AgentSpawnSpec {
             provider: provider.into(),
             existing_tab_id: Some(tab_id.clone()),
