@@ -23,9 +23,9 @@ RUN curl -fsSL -o /tmp/sccache.tar.gz \
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y nodejs && corepack enable
 # Pin the repo toolchain so rust-toolchain.toml never triggers a re-download mid-build.
-RUN rustup toolchain install 1.95.0 --profile minimal && rustup default 1.95.0
+RUN rustup toolchain install 1.99.1 --profile minimal && rustup default 1.99.1
 # AppImage tools need FUSE-less extraction inside containers; jobs/debug tuned for 20GiB Docker.
 ENV APPIMAGE_EXTRACT_AND_RUN=1 \
     CARGO_PROFILE_RELEASE_DEBUG=0 \
     CARGO_BUILD_JOBS=2 \
-    RUSTUP_TOOLCHAIN=1.95.0
+    RUSTUP_TOOLCHAIN=1.99.1

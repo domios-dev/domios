@@ -251,16 +251,12 @@ fn restored_and_slept_user_sends_hold_then_flush_once_in_order() {
         fixture.service.drain_user_owner(&tab_id).unwrap();
         use std::{
             pin::Pin,
-            task::{Context, Poll, Wake, Waker},
+            task::{Context, Poll, Waker},
         };
         use tokio::io::AsyncBufRead;
-        struct Noop;
-        impl Wake for Noop {
-            fn wake(self: Arc<Self>) {}
-        }
-        let waker = Waker::from(Arc::new(Noop));
+        let waker = Waker::noop();
         assert!(matches!(
-            Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(&waker)),
+            Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(waker)),
             Poll::Pending
         ));
     }
@@ -578,15 +574,11 @@ fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc()
     );
     use std::{
         pin::Pin,
-        task::{Context, Poll, Wake, Waker},
+        task::{Context, Poll, Waker},
     };
     use tokio::io::AsyncBufRead;
-    struct Noop;
-    impl Wake for Noop {
-        fn wake(self: Arc<Self>) {}
-    }
-    let waker = Waker::from(Arc::new(Noop));
-    let mut context = Context::from_waker(&waker);
+    let waker = Waker::noop();
+    let mut context = Context::from_waker(waker);
     assert!(matches!(
         Pin::new(&mut peer).poll_fill_buf(&mut context),
         Poll::Pending

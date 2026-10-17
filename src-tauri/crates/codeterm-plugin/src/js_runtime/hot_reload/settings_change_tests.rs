@@ -1,5 +1,6 @@
 use super::tests::{set_mtime, spawnable_chatbackend_manifest, test_caps, tick_until, write};
 use super::*;
+use std::time::Duration;
 
 #[derive(Default)]
 struct SettingsRecorder {

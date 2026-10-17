@@ -49,3 +49,17 @@ test("bundle regeneration clears stale CLI names before Tauri packages resources
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("bundle regeneration retains the current CLI while removing stale architecture names", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-cli-reuse-"));
+  try {
+    fs.writeFileSync(path.join(dir, "codeterm"), "current");
+    fs.writeFileSync(path.join(dir, "codeterm-old.exe"), "stale");
+    fs.utimesSync(path.join(dir, "codeterm"), 100, 100);
+    clearStaleBundledCli(dir, "codeterm");
+    assert.deepEqual(fs.readdirSync(dir), ["codeterm"]);
+    assert.equal(fs.statSync(path.join(dir, "codeterm")).mtimeMs, 100000);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

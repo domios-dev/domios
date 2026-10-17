@@ -66,6 +66,6 @@ test("release frontend preparation retains the default production build", async 
   assert.equal(pkg.scripts.build, "node scripts/frontend-build.mjs");
   const wrapper = await readFile(new URL("../frontend-build.mjs", import.meta.url), "utf8");
   assert.match(wrapper, /'node_modules\/typescript\/bin\/tsc'/);
-  assert.match(wrapper, /'node_modules\/vite\/bin\/vite\.js'\), 'build'\]/);
+  assert.match(wrapper, /'node_modules\/vite\/bin\/vite\.js'\), 'build'/);
   assert.doesNotMatch(wrapper, /NODE_ENV|CODETERM_FRONTEND_DEV|--mode/);
 });

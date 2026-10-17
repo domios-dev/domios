@@ -1109,7 +1109,7 @@ jobs:
           node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
-          toolchain: 1.95.0
+          toolchain: 1.99.1
       - name: Verify exact source and run five native controls
         shell: bash
         run: |
@@ -1199,7 +1199,7 @@ jobs:
           node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
-          toolchain: 1.95.0
+          toolchain: 1.99.1
       - name: Ensure Rust toolchain on PATH
         shell: bash
         run: |
@@ -1615,7 +1615,7 @@ jobs:
           node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
-          toolchain: 1.95.0
+          toolchain: 1.99.1
       - name: Ensure Rust toolchain on PATH
         shell: bash
         run: |
@@ -2151,7 +2151,7 @@ jobs:
           node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
-          toolchain: 1.95.0
+          toolchain: 1.99.1
       - name: Ensure Rust toolchain on PATH
         shell: bash
         run: |

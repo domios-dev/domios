@@ -3,7 +3,6 @@
 
 use std::path::{Path, PathBuf};
 
-use super::super::*;
 use super::*;
 
 fn touch(path: &Path) {

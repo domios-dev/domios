@@ -5,14 +5,8 @@ name: Release Windows platforms
 # bundles and updater fragments to the releases. The caller's final job assembles
 # and verifies the channel manifests after both architecture builds succeed.
 #
-# Runs on the always-on ROG (self-hosted runner, labels include
-# [self-hosted, Windows, X64, windows-build]). The ROG already has node 22 /
-# pnpm 10.32.1 / Rust 1.95.0 (rust-toolchain.toml-pinned, both windows-msvc
-# targets installed) / VS2022 (x64 + ARM64) / LLVM. The setup-node/pnpm actions
-# still run on the self-hosted runner; node/pnpm versions are pinned to what
-# the ROG has so they no-op instead of conflicting, and the Rust
-# toolchain is left to rust-toolchain.toml (NOT dtolnay@stable, which would
-# mismatch the targets installed on 1.95.0).
+# The self-hosted ROG supplies Node 22, pnpm 10.32.1, VS2022 (x64 + ARM64), and LLVM.
+# The job installs pinned Rust and both MSVC targets without changing the runner default.
 #
 # Disable: set repo Variable RELEASE_WINDOWS_ENABLED=false in
 # Settings -> Secrets and variables -> Actions -> Variables.
@@ -80,6 +74,7 @@ jobs:
     timeout-minutes: 120
     env:
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
+      RUSTUP_TOOLCHAIN: 1.99.1
       RUSTC_WRAPPER: sccache
       TARGET: ${{ matrix.target }}
       # Drive every cargo invocation in tauri's beforeBuildCommand at the matrix
@@ -143,12 +138,14 @@ jobs:
           $hit | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           Write-Host "Prepended Rust bin to PATH: $hit"
 
-      # Repo-pinned toolchain (rust-toolchain.toml = 1.95.0) drives rustc; the
-      # ROG already has both windows-msvc targets installed on 1.95.0. We do NOT
-      # install dtolnay@stable — that would float off the pin and miss the targets.
-      - name: Show pinned Rust toolchain
+      # Install both MSVC targets on the repository pin, preserving the runner default.
+      - name: Prepare pinned Rust toolchain
         shell: pwsh
         run: |
+          rustup toolchain install 1.99.1 --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup target add --toolchain 1.99.1 x86_64-pc-windows-msvc aarch64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup show
           rustc -vV
           rustup target list --installed | Select-String 'pc-windows-msvc'
