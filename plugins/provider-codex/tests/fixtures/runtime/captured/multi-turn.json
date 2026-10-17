@@ -1367,6 +1367,10 @@
             },
             {
               "kind": "rateLimits",
+              "accountCredits": {
+                "kind": "balance",
+                "balance": "58419.2088515000"
+              },
               "rateLimits": [
                 {
                   "window": "primary",
@@ -1428,6 +1432,10 @@
       },
       {
         "kind": "rateLimits",
+        "accountCredits": {
+          "kind": "balance",
+          "balance": "58419.2088515000"
+        },
         "rateLimits": [
           {
             "window": "primary",

@@ -743,6 +743,7 @@ pub fn validate_runtime_reduction(
             thread_id,
             rate_limits,
             resets,
+            ..
         } = event
         {
             if thread_id
