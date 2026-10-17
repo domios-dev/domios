@@ -97,3 +97,63 @@ fn uncertain_receipt_ends_a_held_status_without_exposing_retry() {
     assert_eq!(status.error, None);
     assert_eq!(status.pending_reason, None);
 }
+
+#[test]
+fn uncertain_receipt_preserves_live_rpc_handoff_and_acknowledgement() {
+    for accepted in [false, true] {
+        let ledger = ChatSendLedger::default();
+        let send = ledger.try_start("tab", "opaque", None).unwrap();
+        assert!(ledger.bind_rpc_send(
+            &send.send_id,
+            super::super::SendLiveBinding {
+                session_id: Some("thread".into()),
+                binding_nonce: Some("nonce".into()),
+            }
+        ));
+        if accepted {
+            ledger.mark_rpc_accepted(&send.send_id).unwrap();
+        }
+        let mut durable = receipt(&send.send_id, send.sequence);
+        durable.state = ReceiptState::Uncertain;
+        ledger.restore_user_receipt(&durable);
+        assert_eq!(
+            ledger.status(&send.send_id).unwrap().state,
+            if accepted {
+                ChatSendState::Written
+            } else {
+                ChatSendState::Pending
+            }
+        );
+        assert!(!ledger.bind_rpc_send(&send.send_id, Default::default()));
+        assert!(ledger
+            .confirm_rpc_send("tab", "foreign", "nonce", &send.send_id, Some("item"))
+            .is_none());
+        assert_eq!(
+            ledger
+                .confirm_rpc_send("tab", "thread", "nonce", &send.send_id, Some("item"))
+                .unwrap()
+                .state,
+            ChatSendState::Sent
+        );
+        ledger.restore_user_receipt(&durable);
+        assert_eq!(
+            ledger.status(&send.send_id).unwrap().state,
+            ChatSendState::Sent
+        );
+    }
+}
+
+#[test]
+fn durable_exact_delivery_upgrades_an_existing_uncertain_status() {
+    let ledger = ChatSendLedger::default();
+    let send = ledger.try_start("tab", "opaque", None).unwrap();
+    let mut durable = receipt(&send.send_id, send.sequence);
+    durable.state = ReceiptState::Uncertain;
+    ledger.restore_user_receipt(&durable);
+    durable.state = ReceiptState::Delivered;
+    ledger.restore_user_receipt(&durable);
+    assert_eq!(
+        ledger.status(&send.send_id).unwrap().state,
+        ChatSendState::Sent
+    );
+}

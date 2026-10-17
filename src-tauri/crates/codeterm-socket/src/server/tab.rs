@@ -571,6 +571,14 @@ fn gateway_send_response(
                 "send_id": message_id,
             })
         }
+        codeterm_service_core::service::messenger::Delivery::Unconfirmed { delivery_id } => {
+            serde_json::json!({
+                "ok": true,
+                "delivery": "pending",
+                "bytes_written": true,
+                "send_id": delivery_id,
+            })
+        }
         codeterm_service_core::service::messenger::Delivery::Pending { .. } => serde_json::json!({
             "ok": true,
             "delivery": "pending",
@@ -729,6 +737,24 @@ mod tests {
                 "ok": true,
                 "delivery": "pending",
                 "bytes_written": false,
+            }),
+        );
+    }
+
+    #[test]
+    fn uncertain_runtime_delivery_reports_pending_with_possible_write_and_receipt() {
+        assert_eq!(
+            gateway_send_response(
+                Delivery::Unconfirmed {
+                    delivery_id: "send-1".into()
+                },
+                None
+            ),
+            serde_json::json!({
+                "ok": true,
+                "delivery": "pending",
+                "bytes_written": true,
+                "send_id": "send-1",
             }),
         );
     }

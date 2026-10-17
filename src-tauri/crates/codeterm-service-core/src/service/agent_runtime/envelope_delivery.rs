@@ -9,13 +9,12 @@ fn outcome(status: ChatSendStatus) -> Result<Delivery, String> {
         ChatSendState::Pending => Ok(Delivery::Pending {
             delivery_id: status.send_id,
         }),
+        ChatSendState::Unknown => Ok(Delivery::Unconfirmed {
+            delivery_id: status.send_id,
+        }),
         ChatSendState::Written | ChatSendState::Sent => Ok(Delivery::ChatBackend {
             message_id: status.send_id,
         }),
-        ChatSendState::Unknown => Err(
-            "submit_unconfirmed: runtime envelope already has a possible handoff; replay refused"
-                .into(),
-        ),
         ChatSendState::Failed => Err(status
             .error
             .unwrap_or_else(|| "Runtime envelope was not delivered".into())),
@@ -162,7 +161,7 @@ mod tests {
         );
     }
     #[test]
-    fn repeated_uncertain_receipt_is_a_refusal_and_never_a_second_submit() {
+    fn repeated_uncertain_receipt_is_pending_until_exact_evidence() {
         let ledger = crate::service::chat_send_transaction::ChatSendLedger::default();
         let status = ledger.try_start("tab", "opaque", None).unwrap();
         assert!(
@@ -172,8 +171,11 @@ mod tests {
             .finish(&status.send_id, Err("submit_unconfirmed: opaque".into()))
             .unwrap();
         assert_eq!(uncertain.state, ChatSendState::Unknown);
-        assert!(outcome(uncertain.clone()).is_err());
-        assert!(outcome(uncertain).is_err());
+        for receipt in [uncertain.clone(), uncertain] {
+            assert!(
+                matches!(outcome(receipt).unwrap(), Delivery::Unconfirmed { delivery_id } if delivery_id == status.send_id)
+            );
+        }
         let delivered = ledger.confirm_send(&status.send_id).unwrap();
         assert!(
             matches!(outcome(delivered).unwrap(), Delivery::ChatBackend {message_id} if message_id == status.send_id)

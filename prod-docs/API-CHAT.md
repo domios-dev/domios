@@ -19,7 +19,10 @@ Local `codeterm send` uses socket `tab.send_text`: `OK (sent)` after a confirmed
 
 `POST .../chat-send` is the Chat UI user turn. A PTY tab without agent identity is refused before the send transaction so prose never reaches a bare shell. Accepted sends open a ledger entry for later reconciliation; `GET .../chat-send` reads it, `state` one of `accepted`, `unknown`, `confirmed`, `failed`.
 
-Local and mesh `codeterm send` open no Chat send ledger entry, so `GET .../chat-send` never lists them.
+Runtime-tab sends retain a Chat send ledger entry. A possible handoff returns
+`delivery:"pending"`, `bytes_written:true`, and `send_id`; this is uncertainty,
+not permission to replay. `GET .../chat-send` reconciles the receipt against exact
+own-session evidence. Other programmatic transports do not open this ledger entry.
 
 Neither route promises the recipient *answered*. Replies come through the sender's return-address channel (`codeterm send --tab ID [--mesh PEER]`, or `codeterm agent report` for a Worker). The recipient's visible terminal text is never a delivery signal.
 
@@ -69,4 +72,4 @@ The enum is open for future element types. The frontend renders each as a clicka
 
 Backfill accepts `offset_kind` (`bytes` or `items`) alongside `before_offset`; preserve the snapshot's unit across runtime startup. Providers declaring native stored runtime history can serve recorded messages before their runtime starts; live updates reconcile by the same native item ids.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

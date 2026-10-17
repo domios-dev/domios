@@ -845,7 +845,10 @@ impl ServiceContext {
                     &report.inject_body(),
                     crate::service::message_gateway::DeliveryClass::AgentTraffic,
                 ) {
-                    Ok(crate::service::messenger::Delivery::Pending { delivery_id }) => {
+                    Ok(
+                        crate::service::messenger::Delivery::Pending { delivery_id }
+                        | crate::service::messenger::Delivery::Unconfirmed { delivery_id },
+                    ) => {
                         log::warn!(
                             "[report] target={} outcome=pending delivery={}",
                             target_id,
