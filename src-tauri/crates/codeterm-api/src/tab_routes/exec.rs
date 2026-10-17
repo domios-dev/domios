@@ -6,7 +6,6 @@ use axum::{
 use serde::Deserialize;
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::service::ExecWaiter;
 
 use super::await_pty_link;
 
@@ -64,13 +63,12 @@ pub async fn exec_in_tab(
     }
     let reader = state.svc.clone();
     let target = tab_id.clone();
-    let (pty_id, start_offset, waiter) = tokio::task::spawn_blocking(move || {
+    let (pty_id, start_offset) = tokio::task::spawn_blocking(move || {
         let pty_id = reader
             .resolve_pty_id(&target)
             .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
         let start_offset = reader.output_buf.lock().total_written(&pty_id);
-        let waiter = ExecWaiter::register(&pty_id);
-        Ok::<_, (StatusCode, &'static str)>((pty_id, start_offset, waiter))
+        Ok::<_, (StatusCode, &'static str)>((pty_id, start_offset))
     })
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))??;
@@ -78,9 +76,9 @@ pub async fn exec_in_tab(
     let spawn_pty = pty_id.clone();
     let command = body.command.clone();
     let command_tab = tab_id.clone();
-    tokio::task::spawn_blocking(move || {
+    let waiter = tokio::task::spawn_blocking(move || {
         svc.prepare_utility_command(&command_tab, &command);
-        svc.send_shell_spawn(&spawn_pty, &command)
+        svc.send_shell_spawn_observed(&spawn_pty, &command)
     })
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Exec task failed"))?
