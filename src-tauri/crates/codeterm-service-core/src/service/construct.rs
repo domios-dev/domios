@@ -260,9 +260,6 @@ pub fn build_service_context(
     extensions.insert(crate::service::PlanStartupLoaded(Arc::new(
         std::sync::atomic::AtomicBool::new(false),
     )));
-    extensions.insert::<Arc<crate::service::hierarchy::stalled_team::StallEpisodeTracker>>(
-        Arc::new(Default::default()),
-    );
     extensions.insert::<Arc<crate::service::hierarchy::heartbeat_gate::Gate>>(Arc::new(
         Default::default(),
     ));

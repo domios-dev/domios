@@ -176,7 +176,6 @@ fn required() -> Vec<(TypeId, &'static str)> {
         key::<LoadedPlanProjects>(),
         key::<PlanStartupLoaded>(),
         key::<Arc<crate::service::hierarchy::heartbeat_gate::Gate>>(),
-        key::<Arc<crate::service::hierarchy::stalled_team::StallEpisodeTracker>>(),
         key::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>(),
         key::<WorkerIdentityAllocator>(),
     ]
