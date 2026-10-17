@@ -94,7 +94,7 @@ impl ServiceContext {
                 }
             })
         };
-        self.retain_runtime_restart_binding(tab_id, None, "");
+        self.clear_runtime_restart_binding(tab_id);
         let warning = PlanBindingWarning {
             kind: "runtime_plan_binding_warning",
             stage,

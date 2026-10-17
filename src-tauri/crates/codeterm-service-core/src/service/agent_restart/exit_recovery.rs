@@ -341,7 +341,7 @@ impl ServiceContext {
         if direct {
             ready.old_pty_torn_down = self.old_pty_was_torn_down(&snap);
         }
-        self.settle_restored_binding(ready, &snap)
+        self.settle_restored_binding(ready, &snap, false)
     }
 
     fn exited_shell(

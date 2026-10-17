@@ -93,6 +93,16 @@ fn runtime_stored_history_native_quickjs_parity_and_capability_gate() {
     for enabled in [false, true] {
         let js = generic_provider_with_history(&dir, enabled);
         let native = native::NativeRuntime(js.agent_runtime().unwrap());
+        for session in ["own-session", "reference-session"] {
+            assert_eq!(
+                native.runtime_stored_history_available("/work/project", session),
+                js.runtime_stored_history_available("/work/project", session)
+            );
+            assert_eq!(
+                js.runtime_stored_history_available("/work/project", session),
+                enabled && session != "reference-session"
+            );
+        }
         let a = native.runtime_stored_history("own-session", &records);
         let b = js.runtime_stored_history("own-session", &records);
         assert_eq!(a.is_ok(), enabled);
@@ -503,12 +513,14 @@ async fn thread_history_capability_native_quickjs_parity() {
         method: "item".into(),
         params: json!({"usageEvent":event}),
     };
+    let mut revert_ctx = ctx.clone();
+    revert_ctx.thread_id = Some("source-thread".into());
     let native_reduction = native
-        .runtime_reduce(&ctx, &Value::Null, std::slice::from_ref(&frame))
+        .runtime_reduce(&revert_ctx, &Value::Null, std::slice::from_ref(&frame))
         .await
         .unwrap();
     let quickjs_reduction = js
-        .runtime_reduce(&ctx, &Value::Null, &[frame])
+        .runtime_reduce(&revert_ctx, &Value::Null, &[frame])
         .await
         .unwrap();
     assert_eq!(native_reduction, quickjs_reduction);

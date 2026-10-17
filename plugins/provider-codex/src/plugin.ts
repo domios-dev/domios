@@ -1,7 +1,7 @@
 import { sessionRecords, type SessionRecordInput } from "../../provider-shared/sessionRecords";
 import { buildCodexLaunchSpec, codexCommandFromSpec, CODEX_LAUNCH_CONFIG } from "./launchSpec";
 import { runtimePlan, runtimeResponse, runtimeReduce } from "./runtime";
-import { runtimeStoredHistory, runtimeStoredRecords } from "./runtimeStoredHistory";
+import { runtimeStoredHistory, runtimeStoredRecords, storedHistoryAvailable } from "./runtimeStoredHistory";
 import { codexToolOutputText } from "./toolOutput";
 import {parseSessionObservations} from "./signals";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
@@ -188,6 +188,10 @@ const plugin: PluginModule = {
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimeStoredRecords,
+  runtimeStoredHistoryAvailable(cwd: string, sessionId: string): boolean {
+    const path = resolveCodexSessionFilePath(cwd, sessionId);
+    return storedHistoryAvailable(sessionId, path ? host.fs.readFileHead(path, 262144) : null);
+  },
   runtimePlan,
   runtimeResponse,
   runtimeReduce,

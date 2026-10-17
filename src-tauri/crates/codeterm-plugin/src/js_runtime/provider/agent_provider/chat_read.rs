@@ -1,6 +1,18 @@
 use super::*;
 
 impl JsProvider {
+    pub(super) fn js_runtime_stored_history_available(&self, cwd: &str, session_id: &str) -> bool {
+        self.agent_runtime()
+            .is_some_and(|runtime| runtime.stored_history)
+            && (!self.has_js("runtimeStoredHistoryAvailable")
+                || self
+                    .try_call(
+                        "runtimeStoredHistoryAvailable",
+                        &[json!(cwd), json!(session_id)],
+                    )
+                    .unwrap_or(false))
+    }
+
     pub(super) fn js_session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
         // Hook-reported evidence wins over any reconstruction; absence falls through.
         let path = crate::session_evidence::stored_transcript_path(session_id)

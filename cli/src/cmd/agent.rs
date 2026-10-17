@@ -566,12 +566,6 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 "caller_tab_id": tab_id,
                 "message": message,
             });
-            if let Ok(session_id) = std::env::var("CODETERM_SESSION_ID") {
-                body["caller_session_id"] = serde_json::json!(session_id);
-            }
-            if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
-                body["session_binding_nonce"] = serde_json::json!(nonce);
-            }
             if let Ok(attempt_id) = std::env::var("CODETERM_ATTEMPT_ID") {
                 body["attempt_id"] = serde_json::json!(attempt_id);
             }
@@ -726,9 +720,6 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(task_id) = task_id {
                 body["task_id"] = serde_json::json!(task_id);
-            }
-            if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
-                body["session_binding_nonce"] = serde_json::json!(nonce);
             }
             let result = client.call("agent.ack", Some(body));
             match result {

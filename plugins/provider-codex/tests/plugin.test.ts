@@ -238,7 +238,7 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
     "detectActiveSession", "enumerateSessions", "findSession", "folderTrustAnswered", "checkForUpdate", "isDirectoryTrusted", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "parseSessionObservations", "classifyTabState",
     "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts", "classifiedPromptAutoResponse",
-    "updatePromptSafeChoice", "runtimePlan", "runtimeResponse", "runtimeReduce", "runtimeStoredHistory", "runtimeStoredRecords",
+    "updatePromptSafeChoice", "runtimePlan", "runtimeResponse", "runtimeReduce", "runtimeStoredHistory", "runtimeStoredHistoryAvailable", "runtimeStoredRecords",
   ].sort();
   eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
   eq(loadHostPlugin().sessionResume(), { exact: true }, "exact session resume is explicitly declared");

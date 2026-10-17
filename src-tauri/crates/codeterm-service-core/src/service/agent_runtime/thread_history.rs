@@ -348,6 +348,11 @@ mod tests {
         }
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         fixture.set_agent_full_access(false);
+        let _storage = fixture.install_seeded_storage_desk();
+        let mut cleanup = RuntimeCleanup {
+            service: fixture.service.clone(),
+            tabs: vec![source_tab_id.clone()],
+        };
         fixture.service.chatbackend_registry.register(
             PROVIDER,
             Arc::new(
@@ -437,10 +442,6 @@ module.exports = {
         });
         let source_context = source_session.context.lock().clone();
         let source_history = source_session.cache.lock().snapshot();
-        let mut cleanup = RuntimeCleanup {
-            service: fixture.service.clone(),
-            tabs: vec![source_tab_id.clone()],
-        };
         let result = operate(
             &fixture.service,
             &source_tab_id,
@@ -499,6 +500,8 @@ module.exports = {
             for tab in &self.tabs {
                 let _ = engine::stop_blocking(&self.service, tab);
             }
+            crate::service::session_persist::stop_worker(&self.service)
+                .expect("stop fork runtime persistence worker");
         }
     }
 

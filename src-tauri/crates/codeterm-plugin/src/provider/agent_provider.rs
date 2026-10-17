@@ -39,6 +39,11 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn runtime_stored_history_available(&self, _cwd: &str, _session_id: &str) -> bool {
+        self.agent_runtime()
+            .is_some_and(|runtime| runtime.stored_history)
+    }
+
     fn runtime_stored_history(
         &self,
         _session_id: &str,
