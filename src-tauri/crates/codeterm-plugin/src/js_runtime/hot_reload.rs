@@ -1,10 +1,10 @@
-//! Background poller for plugin root changes. It hot-reloads modified plugins
+//! Filesystem watcher for plugin root changes. It hot-reloads modified plugins
 //! and registers or deregisters plugin folders without restarting the daemon.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use parking_lot::Mutex;
 
@@ -13,7 +13,7 @@ use crate::provider::AgentProvider;
 
 use super::{load_one, PluginManifest};
 
-const POLL_INTERVAL: Duration = Duration::from_secs(2);
+mod fs_events;
 
 #[derive(Clone)]
 struct Tracked {
@@ -553,13 +553,28 @@ impl HotReloadRegistry {
     pub fn start(self: &Arc<Self>) {
         let _ = WATCHER.set(self.clone());
         let me = self.clone();
-        std::thread::Builder::new()
+        let started = std::thread::Builder::new()
             .name("codeterm-plugin-watcher".into())
-            .spawn(move || loop {
+            .spawn(move || {
+                let mut events = match fs_events::FileEvents::new(me.roots.clone()) {
+                    Ok(events) => events,
+                    Err(error) => {
+                        log::error!("[plugin-watcher] cannot watch plugin roots: {error}");
+                        me.tick();
+                        return;
+                    }
+                };
                 me.tick();
-                std::thread::sleep(POLL_INTERVAL);
-            })
-            .ok();
+                while events.wait().is_ok() {
+                    if let Err(error) = events.refresh() {
+                        log::error!("[plugin-watcher] cannot refresh plugin roots: {error}");
+                    }
+                    me.tick();
+                }
+            });
+        if let Err(error) = started {
+            log::error!("[plugin-watcher] cannot start watcher: {error}");
+        }
     }
 
     pub fn tick(&self) {

@@ -185,7 +185,7 @@ impl BridgeManager {
                         let merged_msg = threaded::merge(group);
                         log::info!("[bridge] inbound from {} ({}, {} msg, {} attachments): {}",
                             merged_msg.user_name, merged_msg.service, count, merged_msg.attachments.len(),
-                            &merged_msg.text.chars().take(100).collect::<String>());
+                            merged_msg.text.chars().take(100).collect::<String>());
 
                         let ReplyContext::Telegram { chat_id, thread_id, .. } = merged_msg.reply_ctx;
                         *fallback_clone.lock() = Some(chat_id);

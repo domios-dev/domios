@@ -261,7 +261,7 @@ successful install, removal is a separate reviewed uninstall action, not part of
 Two baked images in [`.codeterm/build-machine/docker/`](../../.codeterm/build-machine/docker):
 
 - **`Dockerfile.linux-arm64`** — `rust:1-trixie` + webkit2gtk-4.1 / gtk3 / etc. dev libs + Node 22
-  + pnpm + Rust 1.95. Native aarch64 build → `.deb` (+ AppImage).
+  + pnpm + Rust 1.99.1. Native aarch64 build → `.deb` (+ AppImage).
 - **`Dockerfile.linux-x64`** — retained for ad-hoc cross-builds. Release x86_64 Linux builds
   natively on the ROG's WSL2 Ubuntu runner because the x86_64 AppImage tool cannot run on arm64.
 
@@ -432,7 +432,7 @@ User-writable tools:
 - Official GitHub Actions runner `win-x64`, under `%USERPROFILE%\actions-runner`.
 - Official PowerShell `win-x64` zip, under `%USERPROFILE%\tools\PowerShell\<version>`.
 - Official Node.js active LTS `win-x64` zip, under `%USERPROFILE%\tools\Node\<version>`.
-- Rust via official `https://win.rustup.rs/x86_64`, with stable MSVC and the repository-pinned `1.95.0-x86_64-pc-windows-msvc` toolchain.
+- Rust via official `https://win.rustup.rs/x86_64`, with stable MSVC and the repository-pinned `1.99.1-x86_64-pc-windows-msvc` toolchain.
 - `pnpm` at the repository-pinned version, plus command shims under `%USERPROFILE%\tools\runner-shims`.
 - Visual Studio Build Tools C++ workload and Windows SDK when `-InstallVisualStudioBuildTools` is provided from an elevated shell.
 
@@ -452,7 +452,7 @@ Direct-server maintenance at `ba3f4ffb1` authenticated the startup notification 
 | Runner registration and `.env` are intact, but GitHub reports it offline after a Domios restart. | A per-user Startup launcher owned `run.cmd`; no official runner service or `Runner.Listener` survived the restart. | Preserve `.runner`, remove the Startup fallback, and install/start the bundled official `svc.cmd` service. Verify the service account resolves every `.env` tool and GitHub returns online/idle after a service-only restart. | Service installation requires elevation. Stop and request it rather than adding another scheduler or silently relying on an interactive listener. |
 | Orphaned OpenConsole installer lock appeared during recovery. | Unrelated installer state from Windows/app setup, not a GitHub runner issue. | Bootstrap does not touch OpenConsole; it reports only runner prerequisites. | Clear the installer lock separately if it blocks OS/package maintenance. Do not couple it to runner registration. |
 | `pwsh: command not found` in `Ensure Rust toolchain` and cleanup. | Clean runner PATH had no PowerShell 7. | Install official PowerShell zip and prepend its directory in `actions-runner/.env`. | If PowerShell download is blocked, install PowerShell 7 manually and add its directory to `.env`. |
-| `rustup.exe not found`; no `cargo` or `rustc`. | Clean runner account had no Rust toolchain. | Install rustup stable MSVC, preinstall pinned `1.95.0`, clippy/rustfmt, and Windows MSVC targets; prepend `%USERPROFILE%\.cargo\bin`. | If network blocks rustup, mirror the official rustup installer and toolchain artifacts internally. |
+| `rustup.exe not found`; no `cargo` or `rustc`. | Clean runner account had no Rust toolchain. | Install rustup stable MSVC, preinstall pinned `1.99.1`, clippy/rustfmt, and Windows MSVC targets; prepend `%USERPROFILE%\.cargo\bin`. | If network blocks rustup, mirror the official rustup installer and toolchain artifacts internally. |
 | ARM64 matrix job loses `rustup.exe` after x64 passes. | `Swatinem/rust-cache` post-job cleanup can remove `%USERPROFILE%\.cargo\bin` between sequential matrix jobs. | Bootstrap copies Rust proxies to `%USERPROFILE%\tools\rustup-proxies` and prepends that path before Cargo in the runner `.env`. | Restore proxies with `rustup-init` only if both the Cargo and durable proxy directories are absent. |
 | Focused Windows task gate stops before tests because `sccache` is not on PATH. | Rust proxy resolution does not establish the separate Cargo-bin cache-tool location. | Default dispatch remains no-install: it preserves an existing PATH application or resolves one file only from current `CARGO_HOME/bin` and `USERPROFILE/.cargo/bin`, records its hash and unchanged other-tool paths, and requires the existing prestarted cache server. A separately reviewed opt-in uses the pinned receipt and owns the cache server through the same fixed task loop. | Missing or ambiguous files, an invalid receipt, changed tool resolution, or a foreign endpoint are refusals. Additive installation is admitted only through the exact manual maintenance operation; do not start an ad hoc server, broaden discovery, or count preflight as a test. |
 | `node` missing in `Prepare compile stubs`. | Clean runner PATH had no Node.js. | Install official Node LTS zip, prepend it in `.env`, install `pnpm`, and add shims so PowerShell does not pick blocked `.ps1` launchers. | If Node download is blocked, install supported Node LTS manually and add it to `.env`. |
@@ -510,7 +510,7 @@ Registration tokens, signing keys, package tokens, and Tauri signing passwords s
 
 Reuse can falsely report `installed_executable_differs_from_pinned_archive` when comparing a ZIP entry stream's unsupported `Length` property. Compare the entry descriptor length, then drain and compare both streams. Three in-memory compressed ZIP controls cover equality across buffer boundaries, changed bytes and changed length; never replace installed bytes to bypass refusal.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
 
 Detached server startup passed the single-member maintenance oracle but exposed compiler windows during
 Lookout compilation: pinned sccache creates ordinary compiler children, which lack a console to inherit.

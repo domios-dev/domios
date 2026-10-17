@@ -58,6 +58,8 @@ const inputPathspecs = [
   "scripts/windows-dev-app.ps1",
   "scripts/windows-dev-app.cs",
   "scripts/bundle-cli.js",
+  "scripts/build-artifacts.cjs",
+  "scripts/frontend-build.mjs",
   "scripts/prepare-cli-stub.js",
   "scripts/dev-resource-preflight.mjs",
   "scripts/dev-static-server.mjs",

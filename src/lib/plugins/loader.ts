@@ -40,10 +40,9 @@ export function loadBundledPlugins(): void {
   }
 }
 
-// In dev, HMR re-runs this module when a plugin module changes. We re-register everything; consumers re-render via `useRegistryVersion`.
+// The replacement module owns the fresh glob imports; the old closure retains stale providers.
 if (import.meta.hot) {
-  import.meta.hot.accept(() => {
-    loaded = false;
-    loadBundledPlugins();
+  import.meta.hot.accept((updated) => {
+    updated?.loadBundledPlugins();
   });
 }

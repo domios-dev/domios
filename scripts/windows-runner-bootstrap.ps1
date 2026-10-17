@@ -7,7 +7,7 @@ param(
     [string]$RunnerRoot = "$env:USERPROFILE\actions-runner",
     [string]$ToolsRoot = "$env:USERPROFILE\tools",
     [string]$WorkFolder = "_work",
-    [string]$RustPinnedToolchain = "1.95.0-x86_64-pc-windows-msvc",
+    [string]$RustPinnedToolchain = "1.99.1-x86_64-pc-windows-msvc",
     [string]$PnpmVersion = "10.32.1",
     [string]$RegistrationTokenCommand,
     [switch]$ConfigureRunner,

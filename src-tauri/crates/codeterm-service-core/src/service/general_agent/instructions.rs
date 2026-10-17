@@ -37,7 +37,7 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
             }
             let short: String = trimmed.chars().take(200).collect();
             let file_path = path.to_string_lossy().to_string();
-            let source = format!("file:{}", &file_path);
+            let source = format!("file:{}", file_path);
             let _ = mem.save_replace(crate::mem::store::NewMemItem {
                 kind: crate::mem::store::MemKind::Preference,
                 scope: crate::mem::store::MemScope::Global,
