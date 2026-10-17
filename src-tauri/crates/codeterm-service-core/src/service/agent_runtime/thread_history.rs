@@ -89,6 +89,14 @@ fn truncate_after_evidence(
     Ok(())
 }
 
+fn fork_history_ends_at(items: &[crate::agent::chat_types::ChatMsg], turn_id: &str) -> bool {
+    items
+        .iter()
+        .rev()
+        .find_map(|item| item.tool_flow_id.as_deref())
+        == Some(turn_id)
+}
+
 pub async fn operate(
     svc: &ServiceContext,
     tab_id: &str,
@@ -196,6 +204,17 @@ async fn fork(
         close_fork_tab(svc, &spawned.tab_id).await;
         return Err(error.to_string());
     }
+    let cutoff_verified =
+        fork_history_ends_at(&fork_session.cache.lock().snapshot(), &request.turn_id);
+    if !cutoff_verified {
+        log::debug!(
+            "[thread-history] fork={} rejected cutoff={}",
+            spawned.tab_id,
+            request.turn_id
+        );
+        close_fork_tab(svc, &spawned.tab_id).await;
+        return Err("Fork child history does not end at the selected turn".into());
+    }
     let forked_binding_result = {
         let context = fork_session.context.lock();
         binding(&context)
@@ -223,7 +242,10 @@ async fn fork(
         close_fork_tab(svc, &spawned.tab_id).await;
         return Err("Fork tab did not acquire a distinct runtime binding".into());
     }
-    if let Err(error) = svc.set_active_tab(&workspace_id, &spawned.tab_id) {
+    if let Err(error) = svc
+        .name_fork_tab(&spawned.tab_id, &source_tab.title)
+        .and_then(|()| svc.set_active_tab(&workspace_id, &spawned.tab_id))
+    {
         close_fork_tab(svc, &spawned.tab_id).await;
         return Err(error);
     }
@@ -319,6 +341,24 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
 
+    #[test]
+    fn fork_cut_requires_the_selected_turn_as_the_child_history_tail() {
+        let row = |turn: &str| ChatMsg {
+            tool_flow_id: Some(turn.into()),
+            ..Default::default()
+        };
+        assert!(fork_history_ends_at(
+            &[row("one"), row("two"), ChatMsg::default()],
+            "two"
+        ));
+        assert!(!fork_history_ends_at(
+            &[row("one"), row("two"), row("three")],
+            "two"
+        ));
+        assert!(!fork_history_ends_at(&[row("one")], "two"));
+        assert!(!fork_history_ends_at(&[], "two"));
+    }
+
     fn binding() -> ThreadHistoryBinding {
         ThreadHistoryBinding {
             thread_id: "source-thread".into(),
@@ -401,7 +441,7 @@ module.exports = {
   runtimeResponse(ctx, op, state, reply) {
     if (op.kind === 'initialize') return {kind:'complete',result:{kind:'initialized'}};
     if (op.kind === 'resumeThread') return {kind:'complete',result:{kind:'threadLoaded',threadId:op.threadId,settings:op.settings}};
-    if (op.kind === 'readHistory') return {kind:'complete',result:{kind:'historyPage',threadId:op.threadId,items:[],openItems:[]}};
+    if (op.kind === 'readHistory') return {kind:'complete',result:{kind:'historyPage',threadId:op.threadId,items:op.threadId === 'fork-thread' ? [{id:'fork-row',seq:0,type:'assistant',content:'answer',toolFlowId:'turn-two'}] : [],openItems:[]}};
     if (op.kind === 'forkThread' && state.stage === 'turns') {
       if (!reply.value.data.some(turn=>turn.id === op.turnId && turn.status !== 'inProgress')) return {kind:'refused',reason:{code:'provider_refused',message:'Selected turn unavailable'},beforeAcceptance:true};
       return {kind:'continue',plan:{action:{kind:'request',call:{method:'thread/fork',params:{threadId:op.sourceThreadId,lastTurnId:op.turnId}}},state:{stage:'fork'}},beforeAcceptance:false};
