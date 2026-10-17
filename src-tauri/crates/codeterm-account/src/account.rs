@@ -7,6 +7,7 @@ pub struct Status {
     pub provider: String,
     pub identity: Option<Identity>,
     pub pending: bool,
+    pub session_only: bool,
 }
 #[derive(Default)]
 struct State {
@@ -48,6 +49,7 @@ impl Account {
             provider: self.provider.id().into(),
             identity: state.session.as_ref().map(|s| s.identity.clone()),
             pending: state.busy,
+            session_only: state.session.is_some() && self.store.session_only(self.provider.id()),
         }
     }
     pub async fn complete(&self, callback: Callback) -> Result<()> {
