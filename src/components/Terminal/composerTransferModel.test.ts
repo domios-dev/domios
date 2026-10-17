@@ -16,6 +16,12 @@ test("desktop files and items representations produce one chip input", () => {
   assert.deepEqual(extractTransferFiles({ files: [photo], items: [{ kind: "file", type: photo.type, getAsFile: () => duplicate }] }), [photo]);
 });
 
+test("clipboard paste whose items mint a fresh File per read yields one file", () => {
+  const listed = new File(["pixels"], "image.png", { type: "image/png", lastModified: 1 });
+  const minted = () => new File(["pixels"], "image.png", { type: "image/png", lastModified: Date.now() + 1000 });
+  assert.deepEqual(extractTransferFiles({ files: [listed], items: [{ kind: "file", type: "image/png", getAsFile: minted }] }), [listed]);
+});
+
 test("HEIC and unreadable photo drags are recognized for cancellation and visible refusal", () => {
   for (const type of ["image/heic", "public.heic", "public.jpeg"]) {
     const data = { files: [], items: [{ kind: "file", type, getAsFile: () => null }], types: [type] };
