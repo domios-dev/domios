@@ -42,6 +42,7 @@ pub mod provider;
 pub mod provider_cli;
 pub mod provider_command;
 pub mod provider_compat;
+pub mod provider_self_update;
 pub mod provider_version;
 pub mod rich_to_chat;
 pub mod session_evidence;

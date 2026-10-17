@@ -1073,6 +1073,12 @@ impl AgentProvider for JsProvider {
         self.manifest.updater.get(platform).cloned()
     }
 
+    fn provider_self_update_capability(
+        &self,
+    ) -> Option<crate::provider_self_update::ProviderSelfUpdateCapability> {
+        self.js_self_update_capability()
+    }
+
     fn update_prompt_availability(&self, screen: &str) -> Option<ProviderUpdateAvailability> {
         self.update_prompt_availability_from_js(screen)
     }

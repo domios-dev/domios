@@ -147,6 +147,20 @@ pub fn observe(binary: &str) -> VersionObservation {
     observation
 }
 
+pub fn refresh(path: &Path) -> VersionObservation {
+    let identity = BinaryIdentity::read(path);
+    let observed = probe(path);
+    if let Some(identity) =
+        identity.filter(|identity| BinaryIdentity::read(path).as_ref() == Some(identity))
+    {
+        let mut cache = CACHE.lock();
+        cache.entries.retain(|key, _| key.path != identity.path);
+        cache.entries.insert(identity, observed.clone());
+        REVISION.fetch_add(1, Ordering::Release);
+    }
+    observed
+}
+
 fn probe(path: &Path) -> VersionObservation {
     let command = match crate::provider_command::command(path) {
         Ok(command) => command,

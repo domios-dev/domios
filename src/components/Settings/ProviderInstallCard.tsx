@@ -7,6 +7,7 @@ import { Card } from "../shared/Card";
 import { launchProviderInstaller } from "../../lib/providerInstall";
 import { providerCliView, type ProviderCliState } from "../../lib/providerCli";
 import { useProviderCliStatus } from "../../hooks/useProviderCliStatus";
+import { ProviderUpdateBubble } from "../Terminal/ProviderUpdateBubble";
 
 const STATE_DOT: Record<ProviderCliState, string> = {
   checking: "var(--ct-muted)",
@@ -57,6 +58,7 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
         )}
       </div>
       {view.compatibilityHint && <p role="status" aria-label="CLI compatibility" className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{view.compatibilityHint}</p>}
+      {(status?.latest_version || status?.update_job) && <ProviderUpdateBubble providerId={providerId} />}
       {!compact && view.installCommand && (
         <div aria-label="Install command" role="region">
           <CodeBlock text={view.installCommand} language={view.installLanguage} wrapLines />

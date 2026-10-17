@@ -19,18 +19,18 @@ export function useProviderCliStatus(providerId: string) {
 
   useEffect(() => {
     let active = true;
-    let unlisten: UnlistenFn | undefined;
+    const unlisteners: UnlistenFn[] = [];
     setStatus(null);
     setSummary(null);
-    void listen<{ provider: string; summary: string }>("provider-cli-completed", ({ payload }) => {
-      if (active && payload.provider === providerId) { setSummary(payload.summary); void refresh(); }
-    }).then((stop) => { if (active) unlisten = stop; else stop(); }).catch((error) => {
+    for (const event of ["provider-cli-completed", "provider-cli-started", "provider-cli-update-available"]) void listen<{ provider: string; summary?: string }>(event, ({ payload }) => {
+      if (active && payload.provider === providerId) { if (payload.summary) setSummary(payload.summary); void refresh(); }
+    }).then((stop) => { if (active) unlisteners.push(stop); else stop(); }).catch((error) => {
       if (active) setError(String(error));
     });
     void refresh();
     const onFocus = () => void refresh();
     window.addEventListener("focus", onFocus);
-    return () => { active = false; sequence.current++; unlisten?.(); window.removeEventListener("focus", onFocus); };
+    return () => { active = false; sequence.current++; unlisteners.forEach(stop => stop()); window.removeEventListener("focus", onFocus); };
   }, [providerId, refresh]);
 
   return { status, error, summary, refresh };

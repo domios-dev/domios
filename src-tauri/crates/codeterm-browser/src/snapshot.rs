@@ -354,7 +354,7 @@ mod tests {
 - main
   - heading \"Sign in to Acme\"
   - form
-    - textbox \"Email\": andrey@example.com [@e3]
+    - textbox \"Email\": andrey@example.com [required] [@e3]
     - textbox \"Password\" [@e4]
     - checkbox \"Remember me\" [checked=false] [@e5]
     - slider \"Session length\": 30 [@e6]
