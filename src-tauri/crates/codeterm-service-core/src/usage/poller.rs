@@ -62,6 +62,7 @@ fn failure_kind_for(error: &super::probe::ProbeError) -> UsageFailureKind {
 #[derive(Clone, Default)]
 pub struct TabActivity {
     inner: Arc<Mutex<HashMap<String, Instant>>>,
+    changed: Arc<tokio::sync::Notify>,
 }
 
 impl TabActivity {
@@ -70,7 +71,11 @@ impl TabActivity {
     }
 
     pub fn mark(&self, tab_id: &str) {
-        self.inner.lock().insert(tab_id.to_string(), Instant::now());
+        let now = Instant::now();
+        let previous = self.inner.lock().insert(tab_id.to_string(), now);
+        if previous.is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(300)) {
+            self.changed.notify_one();
+        }
     }
 
     pub fn forget(&self, tab_id: &str) {
@@ -143,11 +148,16 @@ impl UsagePoller {
     pub fn spawn(self) {
         let inner = self.inner.clone();
         crate::async_runtime::spawn(async move {
+            let mut deadline = tokio::time::interval(TICK_INTERVAL);
+            deadline.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
+                tokio::select! {
+                    _ = deadline.tick() => {},
+                    _ = inner.activity.changed.notified() => {},
+                }
                 if let Err(e) = tick(&inner).await {
                     log::warn!("[usage.poller] tick error: {}", e);
                 }
-                tokio::time::sleep(TICK_INTERVAL).await;
             }
         });
     }
@@ -201,7 +211,8 @@ async fn tick(inner: &Arc<UsagePollerInner>) -> Result<(), String> {
 
     for provider in &providers {
         let visible_tabs = visible_tabs_for_provider(&inner.svc, provider);
-        let fetch_based = provider_is_fetch_based(&inner.svc, provider);
+        let fetch_based = provider_is_fetch_based(&inner.svc, provider)
+            || provider_reports_groups(&inner.svc, provider);
         if !provider_pollable(visible_tabs.is_empty(), fetch_based) {
             continue;
         }
@@ -235,14 +246,17 @@ async fn tick(inner: &Arc<UsagePollerInner>) -> Result<(), String> {
     candidates.dedup();
 
     for key in candidates {
-        if let Err(e) = run_probe_for(inner.clone(), key.clone()).await {
-            log::warn!(
-                "[usage.poller] probe {:?}/{:?} failed: {}",
-                key.provider,
-                key.account_id,
-                e
-            );
-        }
+        let inner = inner.clone();
+        crate::async_runtime::spawn(async move {
+            if let Err(e) = run_probe_for(inner, key.clone()).await {
+                log::warn!(
+                    "[usage.poller] probe {:?}/{:?} failed: {}",
+                    key.provider,
+                    key.account_id,
+                    e
+                );
+            }
+        });
     }
     Ok(())
 }
@@ -253,24 +267,44 @@ fn activity_gate(
     now: Instant,
     reset_due: bool,
 ) -> bool {
-    let mut accounts = inner.accounts.lock();
-    let state = accounts.entry(key.clone()).or_default();
-    if state.in_flight {
-        return false;
-    }
-    // fresh cycle shows up promptly; otherwise honour the adaptive backoff.
+    let active = provider_active(inner, &key.provider, now);
+    let accounts = inner.accounts.lock();
+    let state = accounts.get(key);
     let interval = if reset_due {
         RESET_PROBE_MIN_INTERVAL
+    } else if active {
+        Duration::from_secs(300)
     } else {
-        current_backoff(state.backoff_idx)
+        current_backoff(state.map_or(0, |state| state.backoff_idx))
     };
-    if let Some(last) = state.last_probe_at {
-        if now.duration_since(last) < interval {
-            return false;
-        }
-    }
-    // Gate is time-only here; the step adjustment (reset vs climb) happens in on_success/on_failure once the probe completes.
-    true
+    let latest_age = inner
+        .store
+        .get_latest(&key.provider, key.account_id.as_deref())
+        .ok()
+        .flatten()
+        .map(|row| {
+            Duration::from_millis(
+                chrono::Utc::now()
+                    .timestamp_millis()
+                    .saturating_sub(row.captured_at)
+                    .max(0) as u64,
+            )
+        })
+        .or_else(|| {
+            state
+                .and_then(|state| state.last_success_at)
+                .map(|at| now.saturating_duration_since(at))
+        });
+    super::freshness::refresh_due(
+        active,
+        latest_age,
+        state
+            .and_then(|state| state.last_probe_at)
+            .map(|at| now.saturating_duration_since(at)),
+        state.is_some_and(|state| state.in_flight),
+        state.map_or(0, |state| state.consecutive_failures),
+        interval,
+    )
 }
 
 /// True when the latest stored snapshot's reset timer has
@@ -319,6 +353,29 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
         }
         state.in_flight = true;
         state.last_probe_at = Some(Instant::now());
+    }
+
+    if !provider_is_fetch_based(&inner.svc, &key.provider)
+        && provider_reports_groups(&inner.svc, &key.provider)
+    {
+        let svc = inner.svc.clone();
+        let provider = key.provider.clone();
+        let fetched = tokio::task::spawn_blocking(move || {
+            svc.agent_registry
+                .with_provider(&provider, |p| p.model_group_usage())
+        })
+        .await;
+        match fetched {
+            Ok(Some(_)) => {
+                on_success(&inner, &key);
+                emit_event(&inner.svc, &key, 0);
+            }
+            other => on_failure(&inner, &key, &format!("group usage unavailable: {other:?}")),
+        }
+        if let Some(state) = inner.accounts.lock().get_mut(&key) {
+            state.in_flight = false;
+        }
+        return Ok(());
     }
 
     let outcome = UsageProbe::new(inner.svc.clone())
@@ -436,20 +493,8 @@ fn on_success(inner: &Arc<UsagePollerInner>, key: &AccountKey) {
     let state = accounts.entry(key.clone()).or_default();
     state.consecutive_failures = 0;
     state.last_success_at = Some(Instant::now());
-    let last_probe = state.last_probe_at;
     drop(accounts);
-    // Adaptive backoff: reset to densest if terminal was active since the previous probe; otherwise climb one step (capped at the longest).
-    let tabs = visible_tabs_for_provider(&inner.svc, &key.provider);
-    let active_recently = match last_probe {
-        Some(probe_at) => tabs.iter().any(|p| {
-            inner
-                .activity
-                .get(p)
-                .map(|act| act > probe_at)
-                .unwrap_or(false)
-        }),
-        None => true,
-    };
+    let active_recently = provider_active(inner, &key.provider, Instant::now());
     let mut accounts = inner.accounts.lock();
     let state = accounts.entry(key.clone()).or_default();
     if active_recently {
@@ -469,6 +514,7 @@ fn on_failure(inner: &Arc<UsagePollerInner>, key: &AccountKey, reason: &str) {
     }
     let failures = state.consecutive_failures;
     drop(accounts);
+    emit_event(&inner.svc, key, 0);
 
     crate::logs::record(
         crate::logs::LogLevel::Warn,
@@ -539,7 +585,9 @@ fn providers_with_parser(svc: &ServiceContext) -> Vec<String> {
         .into_iter()
         .filter(|id| {
             svc.agent_registry
-                .with_provider(id, |p| p.usage_parser().is_some())
+                .with_provider(id, |p| {
+                    p.usage_parser().is_some() || p.reports_group_usage()
+                })
                 .unwrap_or(false)
         })
         .filter(|id| crate::config::usage_tracking_enabled_from(&svc.configuration(), id))
@@ -559,6 +607,12 @@ fn provider_is_fetch_based(svc: &ServiceContext, provider: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn provider_reports_groups(svc: &ServiceContext, provider: &str) -> bool {
+    svc.agent_registry
+        .with_provider(provider, |p| p.reports_group_usage())
+        .unwrap_or(false)
+}
+
 fn probe_command_for(svc: &ServiceContext, provider: &str) -> Option<String> {
     svc.agent_registry
         .with_provider(provider, |p| p.usage_probe_command().map(str::to_string))
@@ -570,9 +624,22 @@ fn visible_tabs_for_provider(svc: &ServiceContext, provider: &str) -> Vec<String
     let snap = mux.snapshot();
     snap.tabs
         .values()
-        .filter(|p| !p.hidden && p.agent_type.as_deref() == Some(provider) && p.pty_id.is_some())
+        .filter(|p| p.agent_type.as_deref() == Some(provider))
         .map(|p| p.id.clone())
         .collect()
+}
+
+fn provider_active(inner: &UsagePollerInner, provider: &str, now: Instant) -> bool {
+    let tabs = inner.svc.mux.read().snapshot().tabs;
+    tabs.values()
+        .filter(|tab| tab.agent_type.as_deref() == Some(provider))
+        .any(|tab| {
+            inner.svc.resolved_tab_status(tab) == Some(codeterm_types::pty::TabStatus::Working)
+                || inner
+                    .activity
+                    .get(&tab.id)
+                    .is_some_and(|at| now.saturating_duration_since(at) < Duration::from_secs(300))
+        })
 }
 
 fn accounts_for_tabs(_svc: &ServiceContext, _tabs: &[String]) -> Vec<Option<String>> {
