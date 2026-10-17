@@ -11,11 +11,12 @@ export function isFileTransfer(data: FileTransfer): boolean {
     || Array.from(data.types ?? []).some(type => /^(Files|image\/.*|public\.(jpeg|png|heic|heif|image))$/i.test(type));
 }
 
+// files and items describe the same payload; getAsFile() mints a new File per call, so mixing them duplicates pastes.
 export function extractTransferFiles(data: FileTransfer): File[] {
-  const files = [...Array.from(data.files ?? []), ...Array.from(data.items ?? [])
-    .filter(item => item.kind === "file").map(item => item.getAsFile()).filter((file): file is File => file !== null)];
-  return files.filter((file, index) => files.findIndex(other => other === file
-    || (other.name === file.name && other.type === file.type && other.size === file.size && other.lastModified === file.lastModified)) === index);
+  const listed = Array.from(data.files ?? []);
+  if (listed.length) return listed;
+  return Array.from(data.items ?? [])
+    .filter(item => item.kind === "file").map(item => item.getAsFile()).filter((file): file is File => file !== null);
 }
 
 export function planFileDrop(data: FileTransfer) {
