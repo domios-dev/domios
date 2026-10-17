@@ -264,6 +264,7 @@ function AppInner() {
     }
   }, []);
   const routeRestored = useFrontendApp({
+    pageSnapshot: IS_WEB ? { workspaces: state.workspaces, tabs: state.tabs, active_workspace_id: state.active_workspace_id } : undefined,
     generation: state.generation,
     workspaceId: state.active_workspace_id,
     tabId: state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null,

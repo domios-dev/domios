@@ -40,6 +40,7 @@ import type {
 import type { ExtendedState } from "./tree";
 import { reducer, type Action } from "./reducer";
 import { acceptsPageFocus, initialPageSelection } from "./pageSelection";
+import { loadClientPageSelection } from "../../lib/clientPageSelection";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
 import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
@@ -105,7 +106,7 @@ function buildInitialState(): ExtendedState {
     workspaces: cached.workspaces,
     tabs: cached.tabs,
     teams: cached.teams ?? [],
-    ...initialPageSelection(cached),
+    ...initialPageSelection(cached, loadClientPageSelection()),
     recently_closed: cached.recently_closed,
     closed_structures: cached.closed_structures,
     generation: HYDRATED_GENERATION,
@@ -170,7 +171,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const applyBackendState = useCallback((s: MultiplexerState) => {
     // here silently dropped the closed-history on every reload.
     const guarded = applyPendingTabGuard(s, pendingTabSwitchRef.current);
-    dispatch({ type: "SET_STATE", state: guarded, pageOwnedSelection: IS_WEB });
+    dispatch({ type: "SET_STATE", state: guarded, pageOwnedSelection: IS_WEB,
+      initialSelection: IS_WEB && !reconciledRef.current ? initialPageSelection(guarded, loadClientPageSelection()) : undefined });
     const remoteTabs = Object.fromEntries(
       Object.entries(stateRef.current.tabs).filter(([, tab]) => Boolean(tab.remote_peer_id)),
     );
@@ -543,6 +545,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       peerSwitchRef.current = switchId;
       pendingTabSwitchRef.current = {};
       writeGateRef.current.lock();
+      reconciledRef.current = false;
       dispatch({ type: "RESET_PEER_CONTEXT" });
     };
     const rebindPeerContext = (event: Event) => {

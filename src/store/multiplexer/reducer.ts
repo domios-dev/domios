@@ -1,7 +1,7 @@
 import { updateNotificationAnswer, type AnswerUpdate } from "../../lib/notificationAnswer";
 import { admitBellNotification } from "../../lib/notificationAdmission";
 import { applyShellState, type ShellCommandState } from "../../lib/shellCommandState";
-import { reconcilePageSelection } from "./pageSelection";
+import { reconcilePageSelection, type PageSelection } from "./pageSelection";
 import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
@@ -20,7 +20,7 @@ import type { RemoteTransportAvailability, RemoteTransportChannel } from "../../
 
 export type Action =
   | { type: "UPDATE_SHELL_STATE"; tabId: string; ptyId: string; state: ShellCommandState }
-  | { type: "SET_STATE"; state: MultiplexerState; pageOwnedSelection?: boolean }
+  | { type: "SET_STATE"; state: MultiplexerState; pageOwnedSelection?: boolean; initialSelection?: PageSelection }
   | { type: "ADD_WORKSPACE"; workspace: Workspace; tab: Tab }
   | { type: "SET_ACTIVE_WORKSPACE"; id: string }
   | { type: "CLOSE_WORKSPACE"; id: string }
@@ -244,7 +244,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           : state.focused_tab_id && attached.tabs[state.focused_tab_id]
             ? state.focused_tab_id
             : null;
-      const selection = reconcilePageSelection(state, {
+      const selection = action.initialSelection ?? reconcilePageSelection(state, {
         focused_tab_id,
         active_workspace_id: action.state.active_workspace_id,
         activeTabIds,
