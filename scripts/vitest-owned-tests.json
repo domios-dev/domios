@@ -234,5 +234,6 @@
   "src/lib/webEvents.bootChanged.test.ts",
   "src/components/StaleBuildBanner.test.tsx",
   "src/components/Settings/DefaultModelPicker.test.tsx",
-  "src/components/Settings/GeneralAgentProviderChoice.test.tsx"
+  "src/components/Settings/GeneralAgentProviderChoice.test.tsx",
+  "src/components/Terminal/RemoteTaskTab.test.tsx"
 ]
