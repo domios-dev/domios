@@ -1,7 +1,7 @@
 use crate::agent_runtime::*;
 use crate::provider::AgentProvider;
 use codeterm_types::agent::chat_types::ChatMsg;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::path::PathBuf;
 
 pub(super) struct NativeRuntime(pub AgentRuntimeCapability);
@@ -175,9 +175,10 @@ impl AgentProvider for NativeRuntime {
                                     .as_str()
                                     .is_some_and(|id| !id.is_empty() && id.len() <= 4096)
                             })
-                            && turns
-                                .iter()
-                                .any(|turn| turn["id"] == turn_id && turn["status"] != "inProgress")
+                            && turns.iter().any(|turn| {
+                                turn["id"].as_str() == Some(turn_id.as_str())
+                                    && turn["status"] != "inProgress"
+                            })
                     });
                     if !found {
                         return Ok(RuntimeStep::Refused {

@@ -3,7 +3,7 @@ use crate::multiplexer::types::TabBacking;
 use crate::service::{ServiceContext, SpawnAgentParams};
 use codeterm_plugin::agent_runtime::{RuntimeOperation, RuntimeResult, RuntimeThreadHistoryAction};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -138,16 +138,13 @@ pub async fn operate(
         (tab, workspace)
     };
     match request.action {
-        RuntimeThreadHistoryAction::Fork => {
-            fork(svc, tab_id, &session, current, request, source).await
-        }
+        RuntimeThreadHistoryAction::Fork => fork(svc, &session, current, request, source).await,
         RuntimeThreadHistoryAction::Revert => revert(svc, tab_id, &session, current, request).await,
     }
 }
 
 async fn fork(
     svc: &ServiceContext,
-    tab_id: &str,
     source_session: &std::sync::Arc<engine::Session>,
     source_binding: ThreadHistoryBinding,
     request: ThreadHistoryRequest,
@@ -334,7 +331,6 @@ mod tests {
     async fn fork_thread_is_created_and_bound_by_one_child_runtime_writer() {
         const PROVIDER: &str = "thread-fork-writer-fixture";
         let (mut mux, source_tab_id) = crate::multiplexer::state::MultiplexerState::new();
-        let workspace_id = mux.list_workspaces()[0].id.clone();
         let cwd = crate::test_support::fixture_manifest_dir()
             .to_string_lossy()
             .into_owned();
@@ -435,7 +431,7 @@ module.exports = {
         });
         let source_context = source_session.context.lock().clone();
         let source_history = source_session.cache.lock().snapshot();
-        let cleanup = RuntimeCleanup {
+        let mut cleanup = RuntimeCleanup {
             service: fixture.service.clone(),
             tabs: vec![source_tab_id.clone()],
         };
@@ -588,25 +584,21 @@ module.exports = {
         let before = cache.snapshot();
         assert!(truncate_after_evidence(&mut cache, "turn-two", "source-thread", None).is_err());
         assert_eq!(cache.snapshot(), before);
-        assert!(
-            truncate_after_evidence(
-                &mut cache,
-                "turn-two",
-                "source-thread",
-                Some("foreign-thread")
-            )
-            .is_err()
-        );
+        assert!(truncate_after_evidence(
+            &mut cache,
+            "turn-two",
+            "source-thread",
+            Some("foreign-thread")
+        )
+        .is_err());
         assert_eq!(cache.snapshot(), before);
-        assert!(
-            truncate_after_evidence(
-                &mut cache,
-                "turn-two",
-                "source-thread",
-                Some("source-thread")
-            )
-            .is_ok()
-        );
+        assert!(truncate_after_evidence(
+            &mut cache,
+            "turn-two",
+            "source-thread",
+            Some("source-thread")
+        )
+        .is_ok());
         assert_eq!(
             cache
                 .snapshot()

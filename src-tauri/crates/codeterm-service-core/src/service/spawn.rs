@@ -3,8 +3,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::ServiceContext;
 use super::orchestrator::launch_agent_in_background_with_env;
+use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
 #[cfg(test)]
@@ -23,16 +23,16 @@ pub(crate) use super::spawn_params::validate_watcher_spawn_target;
 mod spawn_model;
 #[path = "spawn_model_catalogue.rs"]
 mod spawn_model_catalogue;
-pub use spawn_model::CatalogBackgroundModelPort;
-pub use spawn_model::ModelFallbackNotice;
 pub use spawn_model::attach_planned_model;
 pub use spawn_model::normalize_session_model;
 pub use spawn_model::persist_model_launch_identity;
 pub use spawn_model::resolve_fresh_agent_model;
 pub use spawn_model::resolve_fresh_agent_model_with_notice;
+pub use spawn_model::CatalogBackgroundModelPort;
+pub use spawn_model::ModelFallbackNotice;
 pub use spawn_model_catalogue::{
-    InvalidModelError, catalogue_lookup_model, catalogue_models_match, model_catalogue_capability,
-    resolve_agent_model_selection, validate_agent_model,
+    catalogue_lookup_model, catalogue_models_match, model_catalogue_capability,
+    resolve_agent_model_selection, validate_agent_model, InvalidModelError,
 };
 
 #[path = "spawn_hidden_delivery.rs"]

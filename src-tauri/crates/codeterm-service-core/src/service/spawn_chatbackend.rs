@@ -10,16 +10,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod launch_options;
 use launch_options::runtime_launch_mode;
 
-use super::ServiceContext;
 use super::spawn::{SpawnTabSpec, TabCommand, TabHandle};
+use super::ServiceContext;
 use crate::agent::chat_types::{ChatMsg, StructuredChat};
 use crate::agent::reports::ReportDetails;
 use crate::multiplexer::types::{TabBacking, WatcherPolicy, WatcherSpec};
 use crate::service::general_agent::refuse_parenting_under_general_agent;
 use crate::service::messenger::MessageEnvelope;
 use crate::service::watcher::{
-    ObservationSources, VerdictOutcome, WatcherAction, WatcherVerdictStatus, apply_guardrails,
-    build_observation, collect_watch_group, observation_config_from_json, parse_verdict,
+    apply_guardrails, build_observation, collect_watch_group, observation_config_from_json,
+    parse_verdict, ObservationSources, VerdictOutcome, WatcherAction, WatcherVerdictStatus,
 };
 
 /// Adaptive inbound-poll cadence bounds: fast while streaming, geometric
