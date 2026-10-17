@@ -1,6 +1,6 @@
 # Orchestration control loop
 
-Create Team utilities with `codeterm tab new --team <team-id>`: `--purpose build` for builds, `--purpose dev` for servers, `--purpose qa` for verification; default `shell`. Purpose survives restart/restore. Rows and headers show command marks: running, idle with last exit, or unknown without marks.
+Team utilities: `codeterm tab new --team <team-id> --purpose build|dev|qa|shell` (default `shell`); use dev for servers. Purpose survives restart/restore. Command marks show running, idle with last exit, or unknown without marks.
 
 Use command `--help` for syntax.
 
@@ -16,7 +16,7 @@ codeterm task show <task>
 
 Use `codeterm orchestrator inspect --plan <plan> --json` only when compact status cannot explain drift.
 
-Read playbooks with `codeterm docs <NAME>`; list with `codeterm docs` or `codeterm docs --help`:
+Read `codeterm docs <NAME>`; list with `codeterm docs`:
 
 | Need | Read |
 |---|---|
@@ -59,18 +59,16 @@ Lane safety: two hard stops, otherwise nudges; see `LANES`.
 
 ### Recovering a tab-gone task
 
-The live Plan owner may cancel, pend, reassign, respawn or dispatch a tab-gone task, retiring its stale attempt atomically. Proof, allowlists and refusals: `codeterm docs API-PLAN`.
+The live Plan owner may cancel, pend, reassign, respawn or dispatch a tab-gone task, atomically retiring its stale attempt. Proof, allowlists, refusals: `codeterm docs API-PLAN`.
 
 ## The loop
 
-Run this loop after every report, reminder, task close, tab death, or gate:
+After every report, reminder, task close, tab death or gate:
 
 Worker death during `in_progress` (tab closed/crashed or agent exited) pushes `[worker lost: <task>]` with task, lane, dirt and recovery command. Tell the user about the incident, then run the named `codeterm plan task respawn` command.
 
-1. **Handle pushed reports.** Worker reports arrive automatically as incoming
-   messages. Accept or bounce them without polling an inbox. A Worker
-   `--status blocked` report is a block proposal and leaves task state
-   unchanged; deliberate blocks are in `ORCHESTRATION-TASKS`.
+1. **Judge pushed reports** without polling. Worker `--status blocked` proposes
+   a block without changing task state; see `ORCHESTRATION-TASKS`.
 2. **Reconcile.** Run `codeterm plan reconcile <plan>`; fix only owned drift.
 3. **Re-derive the frontier.** Inspect all open tasks, not only the previous focus.
 4. **Give every actionable task an exit** under the task sequencing contract;
@@ -80,8 +78,7 @@ Worker death during `in_progress` (tab closed/crashed or agent exited) pushes `[
    independent actionable work exists. Clear dispatch, dependency, review, and
    cleanup blockers first, then reuse a matching Worker or dispatch the next
    bounded task without duplicating ownership.
-6. **Keep source writers parallel.** Prefer isolated lanes with disjoint
-   ownership: diffs stay reviewable and canonical stays warm.
+6. **Keep source writers parallel** in isolated lanes with disjoint ownership.
 7. **Own canonical verification.** Real-merge ancestry; never cherry-pick,
    squash, replay or patch-copy. Accept on review, then rerun each merged
    wave's focused selectors in canonical.
@@ -121,24 +118,23 @@ Task-less verification reports omit `--status` and `--task`; execution intent st
 
 ## Worker kinds
 
-`tester` and `release_manager` add role prompts to Workers automatically. Kinds do not change machine access or the ability to perform assigned mutating work, with or without a task. Spawn with `codeterm agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`.
+Worker kinds are prompt-only: they add role guidance, not machine access or execution ability. Both support assigned mutations with or without a task. Use `agent spawn --role Worker --kind tester|release_manager --parent-tab <tab>`; see `--help` for flags.
 
 - `tester`: browser verification; may accept or bounce only an exact in-review task handed off by its parent, with an evidence note.
 - `release_manager`: current-release coordination; publication requires owner authorization.
 
-Bind a task with `--plan-task <task>` and an explicit `--execution-intent` for the normal Worker ACK, lane and status lifecycle, or omit the task to work for the parent and report without `--status`. A task-less kind defaults to mutating intent; it gains no task-transition authority. Tester review delegation remains explicit. Publication and tags require owner GO. Neither kind spawns children.
+Bind `--plan-task <task>` with explicit `--execution-intent` for Worker ACK, lane and status lifecycle. Task-less kinds default to mutating intent, work for their parent and report without `--status`; Kinds grant no plan-state authority. Tester review delegation is explicit. Publication and tags require owner GO. Neither kind spawns children.
 
-Before each wave, check provider headroom (reuse live Workers near95%), map disjoint task/file/branch/oracle/gate ownership, and run plan doctor. Give Workers `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, checkout and exact acceptance/test commands; ACK first, report last. On a Full-access paired peer, `codeterm plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating` creates an origin attempt and peer lane. Judge the persisted origin report; merge its exact accepted SHA to the clean dispatch-time branch.
+Before each wave: check provider headroom (reuse live Workers near95%), map disjoint task/file/branch/oracle/gate ownership, run plan doctor. Give Workers `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, checkout and exact acceptance/test commands; ACK first, report last. On a Full-access paired peer, `codeterm plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating` creates an origin attempt and peer lane. Judge the persisted origin report; merge its exact accepted SHA to the clean dispatch-time branch.
 
 Dispatch failure: send a standalone user alert immediately with impact, affected tasks, cleanup and fallback; verify rollback. After two same-class failures, stop, diagnose and await owner direction. Never bypass blocked dispatch by implementing plan-owned work yourself.
 
 ## Review capacity
 
-Choose review granularity by backlog and diff: review a few large changes
-individually; batch compatible small ones in one wave and canonical QA. After
-real merge, directly fix bounded mechanical integration defects in canonical;
-bounce ownership, correctness, authority, scope, or design defects rather than
-grinding tiny edits.
+Review by backlog and diff: large changes individually, compatible small ones
+as one wave with canonical QA. After real merge, fix bounded mechanical
+integration defects in canonical; bounce ownership, correctness, authority,
+scope or design defects.
 
 At five reviews, prioritize closures and avoid backlog growth. Backlog and credit
 debt are advisory: dispatch, competition and respawn need no capacity grant.
@@ -158,12 +154,12 @@ Pad notes or scalar `--note`; no authored inline.
 
 ### Quiet team heartbeat
 
-The Orchestrator has one automatic plan reminder: the periodic heartbeat, eligible only after its configured interval. Plan events, reports, dispatches, task changes, mode changes and worker loss never send an extra reminder. Completed plans produce no automatic wrap-up reminder. Reports, worker-lost notices, decisions and failure alerts retain their own delivery channels.
+One automatic plan reminder exists: heartbeat, only after its configured interval. Events (reports, dispatches, task/mode changes, worker loss) never add reminders; completed plans get no wrap-up reminder. Reports, worker-lost notices, decisions and failure alerts keep their own channels.
 
-At a scheduled heartbeat, a deterministic rule suppresses unchanged observations and requires a concrete next step. Worker reminders also respect their configured interval. No Supporter connection or model decision is required.
+Heartbeat deterministically suppresses unchanged observations and requires a concrete next step; no Supporter or model is required. Worker reminders also respect their interval.
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
 Confined mutating Workers persist host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR/TEMP/TMP use lane-local `.codeterm-tmp`. Task-bound spawns require explicit read_only or mutating intent. Older task tabs without saved confinement retain their behavior.
 
-<!-- revision: 126 -->
+<!-- revision: 127 -->
