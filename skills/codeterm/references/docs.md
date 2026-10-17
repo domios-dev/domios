@@ -22,6 +22,7 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `codeterm docs API-SERVICES` — Service, activity, cron, and maintenance REST contracts.
 - `codeterm docs API-STATE` — Secrets, sessions, configuration, and update REST contracts.
 - `codeterm docs API-AGENTS` — Agent restart, model switch, spawn, report, keep-awake, and batch REST contracts.
+- `codeterm docs PROVIDER-SWITCH` — Switch a tab's provider in place: handoff, self-switch, General defaults, status and archive.
 - `codeterm docs API-TEAMS` — Team, Team-bound plan, and task attempt REST contracts.
 - `codeterm docs API-TRANSPORT` — Output streaming and socket JSON-RPC protocols.
 - `codeterm docs API-CLI` — CLI, environment, and agent integration contracts.
