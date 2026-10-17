@@ -167,6 +167,10 @@ impl SurfaceCallOutcome {
 /// One live instance per stream surface tab, created lazily and disposed with the tab.
 #[async_trait::async_trait]
 pub trait SurfaceRuntime: Send + Sync {
+    fn view_only_methods(&self) -> &[&str] {
+        &[]
+    }
+
     fn set_owner_name(&self, name: &str);
     #[cfg(test)]
     fn state(&self) -> SurfaceState;

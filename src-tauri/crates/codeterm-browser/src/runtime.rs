@@ -87,9 +87,19 @@ async fn launch_shared(
         .await
         .map_err(|error| format!("browser lookup task failed: {error}"))?
         .map_err(|error| error.to_string())?;
-    tokio::fs::create_dir_all(&profile_dir)
-        .await
-        .map_err(|error| format!("create profile {}: {error}", profile_dir.display()))?;
+    match &profile {
+        ProfileKind::Clean { .. } => tokio::fs::create_dir_all(&profile_dir)
+            .await
+            .map_err(|error| format!("create temporary browser session: {error}"))?,
+        ProfileKind::Named { name } => {
+            let metadata = tokio::fs::symlink_metadata(&profile_dir)
+                .await
+                .map_err(|_| format!("profile {name} does not exist; ask the user to create it"))?;
+            if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                return Err(format!("profile {name} must be a real profile directory"));
+            }
+        }
+    }
     let args = launch_args(&LaunchSpec {
         profile_dir: &profile_dir,
         width: viewport.width,

@@ -39,11 +39,11 @@ fn browser_wait_args_need_a_flag_and_a_value() {
 #[test]
 fn browser_wait_expression_embeds_the_value_as_a_json_literal_and_a_failure_deadline() {
     let expression = wait_expression(&WaitFor::Text("say \"hi\"".into())).unwrap();
-    assert!(expression.contains(r#"innerText.includes("say \"hi\"")"#));
+    assert!(expression.contains(r#""text", "say \"hi\"", "#));
     assert!(expression.contains("MutationObserver"));
-    assert!(expression.contains(&format!("}}, {})", WAIT_DEADLINE.as_millis())));
+    assert!(expression.ends_with(&format!(", {})", WAIT_DEADLINE.as_millis())));
     let selector = wait_expression(&WaitFor::Selector("a[href='x']".into())).unwrap();
-    assert!(selector.contains(r#"querySelector("a[href='x']")"#));
+    assert!(selector.contains(r#""selector", "a[href='x']", "#));
     assert!(wait_expression(&WaitFor::Url("x".into())).is_none());
 }
 

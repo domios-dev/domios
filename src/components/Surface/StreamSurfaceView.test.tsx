@@ -15,6 +15,7 @@ import {
   grabSendArgs,
   needsHumanNotice,
   NEW_PROFILE_OPTION,
+  DELETE_PROFILE_OPTION,
   profileSwitchedNotice,
   SNIP_DIALOG_LABEL,
   surfaceLabel,
@@ -35,9 +36,10 @@ interface MountOptions {
   ownerName?: string;
   surfaceTabId?: string;
   opened?: string[];
+  clipboard?: Pick<Clipboard, "readText" | "writeText">;
 }
 
-async function mount({ ownerName, surfaceTabId, opened = [] }: MountOptions = {}) {
+async function mount({ ownerName, surfaceTabId, opened = [], clipboard }: MountOptions = {}) {
   const fake = createFakeStreamTransport();
   const view = await render(
     <StreamSurfaceView
@@ -49,6 +51,7 @@ async function mount({ ownerName, surfaceTabId, opened = [] }: MountOptions = {}
       surfaceTabId={surfaceTabId}
       decode={decode}
       openExternal={(url) => opened.push(url)}
+      clipboard={clipboard}
     />,
   );
   return { ...view, fake, region: () => getByRole(view.host, "region", label) };
@@ -98,6 +101,26 @@ suite.test("pushed state drives the label; Take control enables navigation", asy
   assert.ok(!back.disabled);
   await act(async () => back.click());
   assert.deepEqual(fake.callsTo("nav").map((call) => call.args), [{ action: "back" }]);
+  await unmount();
+});
+
+suite.test("copy reads remote selection and paste sends local clipboard text once", async () => {
+  const copied: string[] = [];
+  const { fake, region, unmount } = await mount({ clipboard: {
+    readText: async () => "local paste",
+    writeText: async (text) => { copied.push(text); },
+  } });
+  await resizeStages(640, 480);
+  await act(async () => fake.emitState(state));
+  fake.respond("selection.copy", () => ({ text: "remote selection" }));
+  await act(async () => getByRole(region(), "button", "Take control").click());
+  const canvas = getByRole(region(), "application");
+  await act(async () => canvas.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "c", code: "KeyC", ctrlKey: true })));
+  await flushAsync();
+  assert.deepEqual(copied, ["remote selection"]);
+  await act(async () => canvas.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "v", code: "KeyV", ctrlKey: true })));
+  await flushAsync();
+  assert.deepEqual(fake.callsTo("input").map((call) => call.args), [{ kind: "text", text: "local paste" }]);
   await unmount();
 });
 
@@ -289,6 +312,7 @@ suite.test("point and ask works beside the agent: selects, sends the annotation 
 suite.test("+ New profile opens a dialog whose name switches the profile", async () => {
   const { fake, region, unmount } = await mount();
   fake.respond("profiles.use", (args) => ({ current: args.name, profiles: [args.name] }));
+  fake.respond("profiles.create", () => ({ current: "clean", profiles: ["Work"] }));
   await resizeStages(640, 480);
   await act(async () => fake.emitState(state));
   const profile = getByRole(region(), "combobox", "Browser profile") as HTMLSelectElement;
@@ -299,8 +323,27 @@ suite.test("+ New profile opens a dialog whose name switches the profile", async
   await act(async () => getByRole(dialog, "button", "Create").click());
   await flushAsync();
   assert.deepEqual(fake.callsTo("profiles.use").map((call) => call.args), [{ name: "Work" }]);
+  assert.deepEqual(fake.callsTo("profiles.create").map((call) => call.args), [{ name: "Work" }]);
   assert.equal(queryByRole(document.body, "dialog", "New profile"), null, "the dialog closes on submit");
   assert.ok(getByRole(region(), "status", profileSwitchedNotice("Work")));
+  await unmount();
+});
+
+suite.test("profile deletion requires an existing inactive profile and explicit submission", async () => {
+  const { fake, region, unmount } = await mount();
+  fake.respond("profiles.delete", () => ({ current: "clean", profiles: [] }));
+  await resizeStages(640, 480);
+  await act(async () => fake.emitState({ ...state, profiles: ["Work"] }));
+  await changeValue(getByRole(region(), "combobox", "Browser profile") as HTMLSelectElement, DELETE_PROFILE_OPTION, "change");
+  assert.equal(fake.callsTo("profiles.delete").length, 0);
+  const dialog = getByRole(document.body, "dialog", "Delete profile");
+  const input = getByRole(dialog, "textbox", "Profile name") as HTMLInputElement;
+  await changeValue(input, "Missing", "input");
+  assert.equal((getByRole(dialog, "button", "Delete") as HTMLButtonElement).disabled, true);
+  await changeValue(input, "Work", "input");
+  await act(async () => getByRole(dialog, "button", "Delete").click());
+  await flushAsync();
+  assert.deepEqual(fake.callsTo("profiles.delete").map((call) => call.args), [{ name: "Work" }]);
   await unmount();
 });
 

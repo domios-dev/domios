@@ -16,27 +16,32 @@ Do not use it to fetch plain data an HTTP request or an API returns. Use `curl` 
 
 - **Ownership.** `open` gives you your own browser. It is named `<YourName>'s Browser`, the user sees it live as a tab nested under yours, and other agents in your workspace may use it too. It closes when you close it with `close`, when your Tab closes, or when your Team closes.
 - **Profiles.**
-  - Default: a **persistent owner profile**. Logins and cookies survive closing the Browser tab and restarting Domios. Agent browsers use their owning tab's scope; user browsers use their workspace's scope.
+  - Default: a **temporary session**. Opening an agent browser does not create a named persistent profile.
   - An explicit `open --profile clean` uses a throwaway profile.
-  - A **named profile** keeps logins and cookies across restarts. It acts as the user. Use one only when the user chose it (`open --profile NAME`), and never publish, buy, delete or send messages without the user's explicit instruction.
+  - A **named profile** keeps logins and cookies across restarts. Only the user creates or deletes named profiles through the Browser profile menu. Agents may list and select existing profiles with `profiles` and `open --profile NAME`; an unknown name fails instead of creating a profile. Never publish, buy, delete or send messages without the user's explicit instruction.
 - **One profile across tabs.** Tabs using the same named profile share cookies and logins, with independent pages and controls. Closing one browser leaves the others open.
-- **Another agent's browser.** Add `--of <agent>` (its Tab title or tab id) to any verb to act in that agent's browser instead of yours, for example `snapshot --of Snake` then `click @e4 --of Snake`. Its owner sees your name on the activity. It must already be open, you cannot `close` it, and refs come from the latest `snapshot` of that browser.
-- **Pointing an owner at something.** `annotate @eN "comment" --of <agent>` (or `annotate button "Sign in" "comment" --of <agent>`, optional `--intent question|change|bug`) sends that agent the same element card the user's point-and-ask sends, signed with your name. It only targets another agent's browser.
+- **Another agent's browser.** Add `--of <agent>` (its Tab title or tab id) to any verb to act in that agent's browser instead of yours, for example `snapshot --of Snake` then `click button "Continue" --of Snake`. Its owner sees your name on the activity. It must already be open, you cannot `close` it, and refs come from the latest `snapshot` of that browser.
+- **Pointing an owner at something.** `annotate <ref> "comment" --of <agent>` (or `annotate button "Sign in" "comment" --of <agent>`, optional `--intent question|change|bug`) sends that agent the same element card the user's point-and-ask sends, signed with your name. It only targets another agent's browser.
 - **Shared view.** The user may press *Take control* and click or type alongside you. You are not blocked and not told. Always re-read the page before acting.
 
 ## The loop: snapshot, act, re-snapshot
 
-1. `snapshot`: read the page as an accessibility tree (roles, names, states, refs like `@e3`). It is compact and cheap. **This is the default way to understand a page.**
+The user can press **Take control** to drag-select page text, interact with forms and scroll. Ctrl/Cmd+C copies the remote selection and Ctrl/Cmd+V inserts local clipboard text. The toolbar also has Copy selected text and Paste text actions. User input invalidates agent refs, so take a fresh snapshot before continuing after the user interacts.
+
+1. `snapshot`: read the page as an accessibility tree with roles, names, control states and element refs. Copy the exact ref shown, including its capture prefix; never construct one from an element's position. **This is the default way to understand a page.**
 2. Act on what the snapshot shows, by ref or by role and name:
-   - `click @e7` or `click button "Sign in"`
-   - `type @e3 "me@example.com"` or `type textbox "Email" "me@example.com"`
+   - `click button "Sign in"` or `click <exact-ref-from-snapshot>`
+   - `type textbox "Email" "me@example.com"` or `type <exact-ref-from-snapshot> "me@example.com"`
    - `press Enter`, `press a ctrl`
    - `goto <url>`, `back`, `forward`, `reload`, `scroll 800`
 3. Run `snapshot` again after every navigation or visible change. Elements you saw before may be gone or changed.
 
 Rules:
 - Start with `status`. If no browser is open, run `open` before concluding the browser is unavailable.
-- Re-snapshot after navigation, clicks that change the page, and any stale-reference error. Refs from a snapshot are invalidated by navigation.
+- Re-snapshot after navigation, clicks that change the page, and any stale-reference error. Every new snapshot issues new refs; full/SPA navigation and viewer input invalidate the previous capture. Navigation, viewer input or a newer capture during a snapshot make the earlier capture fail rather than publishing its refs.
+- Role/name locators prefer an exact name, then a substring. If multiple elements match, the command refuses to choose and lists candidate refs; use the intended element's exact ref.
+- Control states include `checked`, `selected`, `expanded`, `disabled`, `required`, `readonly`, `focused` and `invalid` when the page exposes them. Use these as evidence when checking a form or toggle.
+- `snapshot [limit]` defaults to 200 lines and is capped at 2000. A truncation notice means more content remains; refs are only issued for included elements.
 - Prefer refs and role + name from the snapshot over coordinates or CSS selectors.
 - After async page changes, wait on evidence (`wait --text T`, `wait --url U`, `wait --selector S`), never on a bare timeout. A wait fails after 15 seconds.
 - `type` focuses the element, clears it, then inserts the text. If a custom input still ignores it, click it first and retry.
