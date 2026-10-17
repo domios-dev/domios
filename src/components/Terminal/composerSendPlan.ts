@@ -1,4 +1,5 @@
 import type { AttachmentUpload } from "./attachmentUploadModel";
+import { attachmentKindForPath } from "@codeterm/chat-core";
 import { capsuleSpans, type CapsuleRegistry } from "./composerCapsules";
 
 export function composerSendPlan(text: string, registry: CapsuleRegistry, uploads: readonly Pick<AttachmentUpload, "id" | "state">[]) {
@@ -25,7 +26,7 @@ export function resolveComposerSend(text: string, registry: CapsuleRegistry, res
       const path = results.get(capsule.uploadId);
       if (path) {
         const { uploadId: _id, ...ready } = capsule;
-        capsules[span.label] = { ...ready, path };
+        capsules[span.label] = { ...ready, path, kind: attachmentKindForPath(path) };
         body += text.slice(span.start, span.end);
       } else delete capsules[span.label];
     } else body += text.slice(span.start, span.end);

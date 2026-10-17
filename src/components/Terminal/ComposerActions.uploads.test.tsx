@@ -50,3 +50,24 @@ it("a failed voice upload retries through the voice send handler once", async ()
     expect(host.querySelector('[aria-label="Retry attachment voice.webm"]')).toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
+
+
+it("phone attachment actions reveal the file picker action in the status slot", async () => {
+  vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true, addEventListener() {}, removeEventListener() {} } as unknown as MediaQueryList);
+  const host = document.createElement("div"); document.body.append(host);
+  const slot = document.createElement("div"); host.append(slot);
+  const mount = document.createElement("div"); host.append(mount);
+  const root = createRoot(mount);
+  try {
+    await act(async () => root.render(<ComposerActions attachSlot={slot} onAttach={() => {}} onError={() => {}} onSend={() => {}} onSendWithAttachments={() => {}} sendDisabled={false} hasText><textarea aria-label="Message" /></ComposerActions>));
+    const toggle = slot.querySelector<HTMLButtonElement>('button[aria-label="Attachment actions"]')!;
+    expect(toggle).not.toBeNull();
+    expect(host.querySelector('button[title="Attach file"]')).toBeNull();
+    await act(async () => toggle.click());
+    const attach = slot.querySelector<HTMLButtonElement>('button[title="Attach file"]')!;
+    const picker = vi.spyOn(host.querySelector<HTMLInputElement>('input[type="file"]')!, "click");
+    await act(async () => attach.click());
+    expect(picker).toHaveBeenCalledTimes(1);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  } finally { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); }
+});

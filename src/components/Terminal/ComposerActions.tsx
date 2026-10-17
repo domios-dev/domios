@@ -1,4 +1,6 @@
-import { useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { usePhoneViewport } from "../../hooks/useSidebarViewport";
+import { useRef, useState, type ReactNode } from "react";
 import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
 import { ComposerInputShell } from "./ComposerInputShell";
@@ -6,12 +8,14 @@ import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import { useAttachmentUploads } from "./useAttachmentUploads";
 import { useComposerVoice } from "./voice/useComposerVoice";
 import { ComposerIssuesProvider, useHasComposerIssuesProvider } from "./ComposerIssuesContext";
+import { Paperclip } from "lucide-react";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 
 export { storeBrowserFiles, useWebFileDrop } from "./composerFiles";
 
 interface Props {
   tabId?: string;
+  attachSlot?: HTMLElement | null;
   onAttach: (paths: string[]) => void;
   onSend: () => void;
   onSchedule?: () => void;
@@ -36,6 +40,7 @@ export function ComposerActions(props: Props) {
 
 function ComposerActionsBody({
   tabId,
+  attachSlot,
   onAttach,
   onSend,
   onSchedule,
@@ -49,6 +54,8 @@ function ComposerActionsBody({
   canAttach = true,
   uploadFiles,
 }: Props) {
+  const phone = usePhoneViewport();
+  const [actionsOpen, setActionsOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const uploads = useAttachmentUploads(onAttach);
   const voiceUploads = useAttachmentUploads(onSendWithAttachments);
@@ -62,8 +69,18 @@ function ComposerActionsBody({
     persistBlob: voiceUploads.store,
   });
 
+  const attachButton = canAttach && !voiceUi.isPreview && (phone ? <div className="relative">
+    <button type="button" aria-label="Attachment actions" aria-expanded={actionsOpen} onClick={() => setActionsOpen(open => !open)} className="ct-composer-control flex items-center justify-center rounded-full border"><Paperclip size={17} aria-hidden /></button>
+    {actionsOpen && <div role="group" aria-label="Attachment actions" className="ct-menu absolute bottom-full left-0 z-30 flex gap-2 p-2">
+      <ComposerAttachButton uploading={uploads.busy} onClick={() => { setActionsOpen(false); fileRef.current?.click(); }} />
+      {onSchedule && <ComposerScheduleButton onSchedule={() => { setActionsOpen(false); onSchedule(); }} />}
+    </div>}
+  </div> : <ComposerAttachButton uploading={uploads.busy} onClick={() => fileRef.current?.click()} />);
+
   return (
     <>
+      {phone && attachSlot && createPortal(attachButton, attachSlot)}
+      {phone && !attachSlot && <div className="mb-1">{attachButton}</div>}
       {canAttach && <input
         ref={fileRef}
         type="file"
@@ -81,9 +98,7 @@ function ComposerActionsBody({
       {uploads.status}
       {voiceUploads.status}
       <div className="relative flex w-full items-end gap-1.5">
-        {canAttach && !voiceUi.isPreview && (
-          <ComposerAttachButton uploading={uploads.busy} onClick={() => fileRef.current?.click()} />
-        )}
+        {!phone && attachButton}
         <ComposerInputShell voiceUi={voiceUi} header={cardHeader} footer={cardFooter}
           actions={voiceUi.mainIsSend && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}>
           {children}
