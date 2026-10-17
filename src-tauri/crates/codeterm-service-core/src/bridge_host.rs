@@ -177,3 +177,6 @@ impl ChatPreprocessorPort for ServiceChatPreprocessorPort {
             .active()
     }
 }
+
+#[cfg(test)]
+mod tests;
