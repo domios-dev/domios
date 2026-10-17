@@ -1036,7 +1036,6 @@ pub(super) fn snapshot(session: &Session) -> model::RuntimeSnapshot {
 }
 
 pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
-    session.control_changes.send_replace(());
     let context = session.context.lock().clone();
     let mut value = serde_json::to_value(snapshot(session)).unwrap_or(Value::Null);
     if let Some(snapshot) = value.as_object_mut() {
@@ -1099,6 +1098,7 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
         target.agent_runtime_state = Some(value.clone());
         target.agent_booting = value["state"] == "loading";
     }
+    session.control_changes.send_replace(());
     svc.notify_event(
         "agent-runtime-state",
         serde_json::json!({"tab_id":tab,"session_binding_nonce":context.binding_nonce,"state":value}),
