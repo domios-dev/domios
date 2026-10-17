@@ -8,7 +8,7 @@
 #   ./build.sh check     — integration-owner cargo check
 #   ./build.sh frontend  — production frontend typecheck + bundle
 #   ./build.sh release-inputs — build target-aware frontend/CLI bundle inputs
-#   ./build.sh release-bundle [tauri args...] — prepare and bundle in one gateway session
+#   ./build.sh release-bundle [--fresh-target] [tauri args...] — prepare and bundle in one gateway session
 #   ./build.sh release-preflight — run local PR checks and verify release inputs
 #   ./build.sh worktree-check — explicit isolated, nonincremental checkout check
 #   ./build.sh build     — production build
@@ -2209,6 +2209,11 @@ ensure_deps() {
 }
 
 prepare_release_bundle_inputs() {
+  local mode="${1:-standalone}"
+  case "$mode" in
+    standalone|bundle) ;;
+    *) echo "Unknown release preparation mode: $mode" >&2; return 2 ;;
+  esac
   local minimum_macos_version
   minimum_macos_version=$(node -p "require('./src-tauri/tauri.conf.json').bundle?.macOS?.minimumSystemVersion || ''")
   if [ -n "$minimum_macos_version" ]; then
@@ -2221,10 +2226,12 @@ prepare_release_bundle_inputs() {
   pnpm build
   cargo build --release --timings --manifest-path cli/Cargo.toml "${cargo_target_args[@]}"
   node scripts/bundle-cli.js
-  cargo build --release --timings --manifest-path src-tauri/Cargo.toml \
-    "${cargo_target_args[@]}" \
-    --features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol" \
-    --bin codeterm
+  if [ "$mode" = "standalone" ]; then
+    cargo build --release --timings --manifest-path src-tauri/Cargo.toml \
+      "${cargo_target_args[@]}" \
+      --features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol" \
+      --bin codeterm
+  fi
 }
 
 enter_cargo_gateway() {
@@ -2253,7 +2260,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  lane-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
+  lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2274,6 +2281,7 @@ CodeTerm build commands
   embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
   lane-check <package> [--tests] [--timings]  Type-check a touched library with four jobs, using Cargo's shared build-dir lock
   lane-wrapper-check          Verify cache forwarding and metadata isolation with tiny fixtures
+  cache-wrapper-check         Verify compiler-cache relocation and tracked environment with real sccache
   dev-link-measure [app|cli-release|cli-dev]  Record Cargo timings without installing or launching DEV
   feature-cycle before|after <selector>  Measure equivalent dev/check/test core units in a temporary worktree
   check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
@@ -2292,7 +2300,7 @@ CodeTerm build commands
   runner-status               List runners with labels and paused machines
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend and CLI bundle inputs
-  release-bundle [tauri args...]  Prepare inputs and forward Tauri packaging flags in one gateway session
+  release-bundle [--fresh-target] [tauri args...]  Package in one session; optionally use the fresh release target policy
   ci-tests full|platform|embeddings  Compile and run ordinary, OS-specific, or embeddings Rust tests
   ci-clippy                   Run the clippy repo gate through the shared compile cache
   frontend-build              Run the release bundle's frontend step from its stable build path, without Rust
@@ -2503,6 +2511,9 @@ EOF
   lane-wrapper-check)
     node --test scripts/tests/lane-check.test.mjs
     ;;
+  cache-wrapper-check)
+    CODETERM_CACHE_WRAPPER_TEST=1 node --test scripts/tests/cache-rustc-wrapper.test.mjs
+    ;;
   dev-link-measure)
     if [ "${CODETERM_LINK_TIMING:-0}" = 1 ]; then
       case "$OSTYPE" in
@@ -2578,11 +2589,17 @@ EOF
   # One session keeps both compiles on the gateway's stable path: a second path is a second
   # set of Cargo fingerprints and sccache keys, so tauri build would recompile the app.
   release-bundle)
+    bundle_args=("${@:2}")
+    if [ "${2:-}" = "--fresh-target" ]; then
+      require_release_source
+      prepare_release_target
+      bundle_args=("${@:3}")
+    fi
     ensure_deps
-    prepare_release_bundle_inputs
+    prepare_release_bundle_inputs bundle
     bundle_target_args=()
     [ -z "${CARGO_BUILD_TARGET:-}" ] || bundle_target_args=(--target "$CARGO_BUILD_TARGET")
-    pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" "${@:2}"
+    pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" "${bundle_args[@]}"
     ;;
   release-preflight)
     prepare_dev_frontend_dist "$(pwd -P)"
@@ -2749,7 +2766,7 @@ EOF
     ct_load_release_signing_key
     prepare_release_target
     ensure_deps
-    prepare_release_bundle_inputs
+    prepare_release_bundle_inputs bundle
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
     ct_snapshot_provenance "full-build-input" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
@@ -2789,7 +2806,7 @@ EOF
     ct_load_release_signing_key
     prepare_local_install_target
     ensure_deps
-    prepare_release_bundle_inputs
+    prepare_release_bundle_inputs bundle
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
     ct_snapshot_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"

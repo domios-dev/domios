@@ -7,7 +7,7 @@ const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" 
 const source = readFileSync(new URL("../../build.sh", import.meta.url), "utf8").replaceAll("\r\n", "\n");
 const preparation = source.match(/^prepare_release_bundle_inputs\(\) \{\n[\s\S]*?^\}/m)?.[0];
 
-function commands(env = {}, captureEnvironment = false) {
+function commands(env = {}, captureEnvironment = false, mode = "") {
   assert.ok(preparation);
   return execFileSync(bash, ["-c", `
 set -e
@@ -15,7 +15,7 @@ pnpm() { printf 'pnpm'; printf ' <%s>' "$@"; printf '\\n'; }
 node() { if [ \"$1\" = -p ]; then command node \"$@\"; return; fi; printf 'node'; printf ' <%s>' "$@"; printf '\\n'; }
 cargo() { ${captureEnvironment ? `bash -c 'printf "cargo-deployment-target=<%s>\\n" "$MACOSX_DEPLOYMENT_TARGET"';` : ''} printf 'cargo'; printf ' <%s>' "$@"; printf '\\n'; }
 ${preparation}
-prepare_release_bundle_inputs
+prepare_release_bundle_inputs ${mode}
 ${captureEnvironment ? `bash -c 'printf "deployment-target=<%s>\\n" "$MACOSX_DEPLOYMENT_TARGET"'` : ''}
 `], { encoding: "utf8", env: { ...process.env, CARGO_BUILD_TARGET: "", CODETERM_RELEASE_FEATURES: "", ...env } })
     .trim().split("\n");
@@ -29,6 +29,24 @@ test("release preparation builds the packaging feature graph without an embeddin
     "node <scripts/bundle-cli.js>",
     "cargo <build> <--release> <--timings> <--manifest-path> <src-tauri/Cargo.toml> <--features> <embeddings,tauri/custom-protocol> <--bin> <codeterm>",
   ]);
+});
+
+test("packaging prepares checked frontend and CLI inputs without compiling the app twice", () => {
+  const calls = commands({}, false, "bundle");
+  assert.deepEqual(calls, [
+    "pnpm <build>",
+    "cargo <build> <--release> <--timings> <--manifest-path> <cli/Cargo.toml>",
+    "node <scripts/bundle-cli.js>",
+  ]);
+});
+
+test("each packaging entrypoint leaves native compilation to Tauri's final config", () => {
+  for (const verb of ["release-bundle", "build", "install-local"]) {
+    const entrypoint = source.match(new RegExp(`^  ${verb}\\)\\n([\\s\\S]*?)^    ;;`, "m"))?.[1];
+    assert.ok(entrypoint, verb);
+    assert.match(entrypoint, /^    prepare_release_bundle_inputs bundle$/m, verb);
+    assert.match(entrypoint, /pnpm tauri build/, verb);
+  }
 });
 
 test("cross compilation and explicit release features reach both preparation builds", () => {
@@ -57,6 +75,35 @@ set -- release-bundle --bundles deb --config '/tmp/local bundle.json' --ci
 ${entrypoint}
 `], { encoding: 'utf8', env: { ...process.env, CARGO_BUILD_TARGET: '', CODETERM_RELEASE_FEATURES: '' } });
   assert.equal(calls, 'pnpm <tauri> <build> <--features> <embeddings> <--bundles> <deb> <--config> </tmp/local bundle.json> <--ci>');
+});
+
+test('fresh packaging checks source and selects the existing release target before preparing inputs', () => {
+  const entrypoint = source.match(/^  release-bundle\)\n([\s\S]*?)^    ;;/m)?.[1];
+  const calls = execFileSync(bash, ['-c', `
+set -e
+require_release_source() { printf 'source-check\\n'; }
+prepare_release_target() { export CARGO_TARGET_DIR=fixture-fresh-target; printf 'fresh-target\\n'; }
+ensure_deps() { :; }
+prepare_release_bundle_inputs() { printf 'prepare <%s> <%s>\\n' "$1" "$CARGO_TARGET_DIR"; }
+pnpm() { printf 'pnpm'; printf ' <%s>' "$@"; }
+set -- release-bundle --fresh-target --bundles deb --config '/tmp/local bundle.json' --ci
+${entrypoint}
+`], { encoding: 'utf8', env: { ...process.env, CARGO_BUILD_TARGET: '', CODETERM_RELEASE_FEATURES: '' } });
+  assert.equal(calls, 'source-check\nfresh-target\nprepare <bundle> <fixture-fresh-target>\npnpm <tauri> <build> <--features> <embeddings> <--bundles> <deb> <--config> </tmp/local bundle.json> <--ci>');
+});
+
+test('fresh packaging refuses dirty source before allocating a target or compiling', () => {
+  const entrypoint = source.match(/^  release-bundle\)\n([\s\S]*?)^    ;;/m)?.[1];
+  assert.throws(() => execFileSync(bash, ['-c', `
+set -e
+require_release_source() { return 23; }
+prepare_release_target() { printf 'unexpected target'; }
+ensure_deps() { printf 'unexpected install'; }
+prepare_release_bundle_inputs() { printf 'unexpected compile'; }
+pnpm() { printf 'unexpected package'; }
+set -- release-bundle --fresh-target
+${entrypoint}
+`], { encoding: 'utf8' }), error => error.status === 23 && error.stdout === '');
 });
 
 test("release preparation exports the packaging deployment target to child processes", () => {
