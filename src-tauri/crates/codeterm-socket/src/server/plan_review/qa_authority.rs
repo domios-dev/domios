@@ -48,7 +48,6 @@ fn qa_review_actor(
     let binding_nonce = tab.session_binding_nonce.as_deref();
     let attested = requested_session.is_none_or(|requested| Some(requested) == session_id)
         && session_id.is_some()
-        && session_id == requested_session
         && nonce.is_some()
         && binding_nonce == nonce
         && tab.reported_session_binding_nonce.as_deref() == nonce;
