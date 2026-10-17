@@ -2,7 +2,8 @@ use super::routes::{check_auth, AppState};
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    Json,
+    routing::{get, post},
+    Json, Router,
 };
 use codeterm_service_core::service::agent_runtime::login::{operate, LoginRequest};
 
@@ -139,4 +140,27 @@ pub(super) async fn thread_history(
     .await
     .map(Json)
     .map_err(|reason| (StatusCode::CONFLICT, reason))
+}
+
+pub(super) fn router() -> Router<AppState> {
+    Router::new()
+        .route("/api/tabs/{id}/agent/runtime/goal", post(goal))
+        .route("/api/tabs/{id}/agent/runtime/usage", get(tab_usage))
+        .route(
+            "/api/tabs/{id}/agent/runtime/thread-history",
+            post(thread_history),
+        )
+        .route(
+            "/api/tabs/{id}/agent/runtime/reset-credits",
+            post(reset_credits),
+        )
+        .route("/api/tabs/{id}/agent/runtime/login", post(login))
+        .route(
+            "/api/tabs/{id}/agent/runtime/children/{thread}/history",
+            get(child_history),
+        )
+        .route(
+            "/api/tabs/{id}/agent/runtime/background-processes",
+            get(background_processes).post(stop_background_process),
+        )
 }
