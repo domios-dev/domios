@@ -17,8 +17,8 @@ use super::super::{call_json, manifest_settings_sections, IntegrationKind};
 use super::wire::{SerdeSessionMetadata, VmUsageParser};
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
-mod chat_read;
 mod capabilities;
+mod chat_read;
 mod delivery;
 mod directory_trust;
 mod model_launch;
