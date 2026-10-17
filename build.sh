@@ -26,6 +26,7 @@ codeterm_build_main() {
 set -e
 
 source scripts/dev-notify.sh
+source scripts/firebase-build-config.sh
 dev_notify_capture_parent
 
 CMD="${1:-dev}"
@@ -2719,7 +2720,7 @@ EOF
     ct_snapshot_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
     rm -rf "$CARGO_TARGET_DIR/release/bundle/nsis"
-    pnpm tauri build
+    ct_with_firebase_build_config pnpm tauri build
     ct_check_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
     VERSION="$(node -p "require('./package.json').version")"
@@ -2775,6 +2776,7 @@ EOF
     for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
       sg_run bash "scripts/$sg"
     done
+    sg_run bash scripts/tests/firebase-build-config.test.sh
     if [ "$(uname -s)" = Linux ]; then
       sg_run bash scripts/check-build-dev-port-overrides.sh
       sg_run bash scripts/check-cache-provenance.sh
