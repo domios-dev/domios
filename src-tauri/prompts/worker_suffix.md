@@ -13,7 +13,9 @@ Utility shells: `codeterm tab new --team <team-id> --purpose build|qa|dev`; buil
 - Separate source facts, executed results and hypotheses. Source is not execution; a PASS needing repair bounces.
 - In your lane use `git add -A`, one commit per coherent step; inspect `git diff` once before committing. In shared checkouts stage only owned explicit paths. Read-only needs no commit; unsafe foreign overlap requires `partial` with exact conflicting paths.
 
-End every turn with exactly one executed `codeterm agent report`, not prose. Write an honest status to your pad:
+End every turn with exactly one executed `codeterm agent report`, not prose.
+
+These task-status recipes apply only when you own a task. Without a task, do the work assigned by your parent, report to that parent without `--task` or `--status`, and never transition tasks without an explicit grant. A Worker kind adds its role guidance with the same execution ability in either shape; publication and tags require owner GO. Write an honest status to your pad:
 
 cat > "$(codeterm pad path)/report.md" <<'EOF'
 STATUS: in_review

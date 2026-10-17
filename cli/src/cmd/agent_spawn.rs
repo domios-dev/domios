@@ -88,7 +88,12 @@ pub(super) fn validate_spawn_context(ctx: &SpawnContext<'_>) -> Result<(), Strin
     }
     // Read-only intent is the exit both refusals below name, so it has to be
     // the exit both of them honour.
-    if ctx.is_worker() && !ctx.task_bound() && !ctx.read_only() && !ctx.unplanned {
+    if ctx.is_worker()
+        && !ctx.task_bound()
+        && !ctx.read_only()
+        && !ctx.unplanned
+        && ctx.kind.is_none()
+    {
         if ctx.execution_intent == Some(MUTATING) {
             return Err(format!(
                 "--execution-intent mutating requires a task binding: {WORKER_SHAPES}"
@@ -155,7 +160,7 @@ pub(super) fn unsupported_team_orchestrator_flags(
 }
 
 fn resolved_execution_intent(kind: Option<&str>, intent: Option<String>) -> Option<String> {
-    intent.or_else(|| kind.is_some().then(|| READ_ONLY.to_string()))
+    intent.or_else(|| kind.is_some().then(|| MUTATING.to_string()))
 }
 
 /// The `agent spawn` verb: validate the flag combination, resolve file-backed
@@ -621,16 +626,31 @@ mod tests {
     }
 
     #[test]
-    fn taskless_kinds_default_to_read_only_and_stay_under_their_parent() {
+    fn worker_kinds_default_to_mutating_and_support_task_bindings() {
         assert_eq!(
             resolved_execution_intent(Some("tester"), None).as_deref(),
-            Some(READ_ONLY)
+            Some(MUTATING)
         );
         assert_eq!(
             resolved_execution_intent(Some("release_manager"), None).as_deref(),
-            Some(READ_ONLY)
+            Some(MUTATING)
         );
         for kind in ["tester", "release_manager"] {
+            for has_plan_task in [false, true] {
+                assert!(
+                    validate_spawn_context(&SpawnContext {
+                        role: Some(&SpawnRole::Worker),
+                        kind: Some(kind),
+                        has_parent: true,
+                        has_plan: true,
+                        has_plan_task,
+                        execution_intent: Some(MUTATING),
+                        ..Default::default()
+                    })
+                    .is_ok(),
+                    "{kind} task={has_plan_task}"
+                );
+            }
             assert!(
                 validate_spawn_context(&SpawnContext {
                     role: Some(&SpawnRole::Worker),
@@ -662,7 +682,7 @@ mod tests {
                     execution_intent: Some(READ_ONLY),
                     ..Default::default()
                 })
-                .is_err(),
+                .is_ok(),
                 "{kind} with task"
             );
         }
