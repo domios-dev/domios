@@ -3,7 +3,7 @@ use crate::client::SocketClient;
 use crate::cmd::plan::caller_context::CallerContext;
 use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::print::handle_result;
-use crate::{AgentAction, build_local_api, read_api_config, resolve_tab};
+use crate::{build_local_api, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
 
 #[path = "agent_cli.rs"]
@@ -18,9 +18,9 @@ mod agent_model_switch;
 mod agent_models;
 use agent_models::select_provider;
 #[cfg(test)]
-use agent_models::{AVAILABILITY_UNAVAILABLE, AVAILABILITY_UNKNOWN, provider_availability_marker};
-#[cfg(test)]
 use agent_models::{format_agent_models, format_agent_models_json};
+#[cfg(test)]
+use agent_models::{provider_availability_marker, AVAILABILITY_UNAVAILABLE, AVAILABILITY_UNKNOWN};
 pub(crate) use agent_models::{render_agent_models, render_agent_providers};
 
 fn provider_requires_live_model_discovery(provider: &serde_json::Value) -> bool {

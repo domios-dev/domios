@@ -1,13 +1,13 @@
 use axum::{
-    Json,
     extract::{Path, State as AxumState},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
+    Json,
 };
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::routes::{AppState, check_auth};
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::service::agent_restart::{
     ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
 };

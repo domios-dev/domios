@@ -480,18 +480,14 @@ mod tests {
                 }
             }
         ));
-        assert!(
-            Cli::try_parse_from([
-                "codeterm", "agent", "turns", "--tab", "worker", "--last", "0"
-            ])
-            .is_err()
-        );
-        assert!(
-            Cli::try_parse_from([
-                "codeterm", "agent", "turns", "--tab", "worker", "--last", "51"
-            ])
-            .is_err()
-        );
+        assert!(Cli::try_parse_from([
+            "codeterm", "agent", "turns", "--tab", "worker", "--last", "0"
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from([
+            "codeterm", "agent", "turns", "--tab", "worker", "--last", "51"
+        ])
+        .is_err());
     }
 
     use super::*;
