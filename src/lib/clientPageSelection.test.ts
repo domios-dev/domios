@@ -7,6 +7,8 @@ Object.defineProperty(globalThis, "window", { value: browser, configurable: true
 Object.defineProperty(globalThis, "localStorage", { value: browser.localStorage, configurable: true });
 const peerKey = `codeterm-web-relay-peer:${browser.location.origin}`;
 assert.equal(loadClientPageSelection(), null);
+browser.localStorage.setItem("codeterm.sidebar.selected-workspace", "already-selected");
+assert.deepEqual(loadClientPageSelection(), { workspaceId: "already-selected", tabId: null });
 saveClientPageSelection({ workspaceId: "own-workspace", tabId: "own-tab" });
 assert.deepEqual(loadClientPageSelection(), { workspaceId: "own-workspace", tabId: "own-tab" });
 browser.localStorage.setItem(peerKey, "remote");
