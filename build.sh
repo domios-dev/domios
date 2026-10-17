@@ -26,6 +26,7 @@ codeterm_build_main() {
 set -e
 
 source scripts/dev-notify.sh
+source scripts/firebase-build-config.sh
 dev_notify_capture_parent
 
 CMD="${1:-dev}"
@@ -1170,23 +1171,31 @@ require_release_source() {
 
 # Copy the freshly-built CLI into a target bin dir. Development commands install
 # only into their active dev data directory; production owns ~/.codeterm/bin.
-cli_release_dir() {
-  local target_root="${CARGO_TARGET_DIR:-cli/target}"
+cli_profile_dir() {
+  local profile="$1" target_root="${CARGO_TARGET_DIR:-cli/target}"
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
-    echo "$target_root/$CARGO_BUILD_TARGET/release"
+    echo "$target_root/$CARGO_BUILD_TARGET/$profile"
   else
-    echo "$target_root/release"
+    echo "$target_root/$profile"
   fi
 }
 
-cli_release_binary() {
+cli_release_dir() {
+  cli_profile_dir release
+}
+
+cli_profile_binary() {
   local release_dir
-  release_dir="$(cli_release_dir)"
+  release_dir="$(cli_profile_dir "$1")"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     printf '%s/codeterm\n' "$release_dir"
   else
     printf '%s/codeterm.exe\n' "$release_dir"
   fi
+}
+
+cli_release_binary() {
+  cli_profile_binary release
 }
 
 cli_file_sha256() {
@@ -1865,7 +1874,7 @@ build_and_launch_dev() {
   export CODETERM_WEB_DIST="$(pwd -P)/dist"
   configure_dev_cargo
   conf="$(dev_conf_path)"
-  node scripts/bundle-cli.js
+  node scripts/bundle-cli.js "$built_cli_artifact"
   local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
@@ -2224,7 +2233,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  feature-cycle|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
+  lane-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2243,7 +2252,9 @@ CodeTerm build commands
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
   embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
-  lane-check <package> [--tests]  Type-check a touched library with four jobs, using Cargo's shared build-dir lock
+  lane-check <package> [--tests] [--timings]  Type-check a touched library with four jobs, using Cargo's shared build-dir lock
+  lane-wrapper-check          Verify cache forwarding and metadata isolation with tiny fixtures
+  dev-link-measure [app|cli-release|cli-dev]  Record Cargo timings without installing or launching DEV
   feature-cycle before|after <selector>  Measure equivalent dev/check/test core units in a temporary worktree
   check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
   check-queue <sha> --peer <name|auto> [--lane] [--os OS]  Same check in a mesh peer's gateway; result returns as one message
@@ -2288,7 +2299,7 @@ inside Domios. --notify-tab <tab> or BUILD_NOTIFY_TAB overrides the recipient.
   build                       Build production artifacts
   cache-status                Show configured/server cache locations and endpoint health
   cache-verify                Verify shared S3 storage; start the S3 server only when none is live
-  cache-stats                 Show counters only from a live sccache server
+  cache-stats                 Show gateway cache deltas by job kind and live server counters
   gateway-status              Show the machine build owner
   build-history [--last N] [--verb V] [--json]  Build durations, cache hits and rebuild reasons
   gc [--dry-run]              Reclaim expired build caches and sweep checkout targets
@@ -2319,7 +2330,13 @@ EOF
     ct_sccache_verify
     ;;
   cache-stats)
-    ct_sccache_stats
+    node scripts/cache-stats.mjs --dir "$(ct_gateway_dir)"
+    if ct_sccache_server_live; then
+      echo "Live sccache process counters (reset when the server process restarts):"
+      ct_sccache_stats || echo "[cache-policy] live sccache counters unavailable"
+    else
+      echo "Live sccache process counters: unavailable (no server is running)"
+    fi
     ;;
   gateway-status)
     ct_gateway_status
@@ -2458,7 +2475,45 @@ EOF
     esac
     ;;
   lane-check)
+    if [ "$CODETERM_BUILD_GATEWAY_MODE" = queue ]; then
+      enter_cargo_gateway "$CMD ${*:2}"
+    fi
     lane_check "${@:2}"
+    ;;
+  lane-wrapper-check)
+    node --test scripts/tests/lane-check.test.mjs
+    ;;
+  dev-link-measure)
+    if [ "${CODETERM_LINK_TIMING:-0}" = 1 ]; then
+      case "$OSTYPE" in
+        msys*|cygwin*|win32)
+          export LINK="${LINK:+$LINK }/TIME"
+          export MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+$MSYS2_ENV_CONV_EXCL;}LINK"
+          export RUSTC_LOG="${RUSTC_LOG:+$RUSTC_LOG,}rustc_codegen_ssa::back::link=info"
+          ;;
+      esac
+    fi
+    case "${2:-app}" in
+      cli-release|cli-dev)
+        measure_cli_args=(--manifest-path cli/Cargo.toml --timings)
+        [ "$2" != cli-release ] || measure_cli_args+=(--release)
+        cargo build "${measure_cli_args[@]}"
+        exit $?
+        ;;
+      app) ;;
+      *) echo 'Usage: ./build.sh dev-link-measure [app|cli-release|cli-dev]' >&2; exit 2 ;;
+    esac
+    export CODETERM_DEV=1
+    export CODETERM_WEB_DIST="$(pwd -P)/dist"
+    configure_dev_cargo
+    prepare_dev_frontend_dist
+    prepare_bundle_stubs
+    measure_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
+      --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --timings)
+    if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
+      measure_args+=(--features "$CT_DEV_CARGO_FEATURES")
+    fi
+    TAURI_CONFIG="$(cat "$(dev_conf_path)")" cargo build "${measure_args[@]}"
     ;;
   embedding-parity)
     CARGO_BUILD_JOBS=4 cargo build --release --manifest-path src-tauri/Cargo.toml \
@@ -2719,7 +2774,7 @@ EOF
     ct_snapshot_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
     rm -rf "$CARGO_TARGET_DIR/release/bundle/nsis"
-    pnpm tauri build
+    ct_with_firebase_build_config pnpm tauri build
     ct_check_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
     VERSION="$(node -p "require('./package.json').version")"
@@ -2775,6 +2830,7 @@ EOF
     for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
       sg_run bash "scripts/$sg"
     done
+    sg_run bash scripts/tests/firebase-build-config.test.sh
     if [ "$(uname -s)" = Linux ]; then
       sg_run bash scripts/check-build-dev-port-overrides.sh
       sg_run bash scripts/check-cache-provenance.sh
@@ -3160,8 +3216,8 @@ LOCK_STORM_PY
     prepare_dev_frontend_dist
     ensure_deps
     echo "Building CLI..."
-    cargo build --release --manifest-path cli/Cargo.toml
-    built_cli_artifact="$(cli_release_binary)"
+    cargo build --manifest-path cli/Cargo.toml
+    built_cli_artifact="$(cli_profile_binary debug)"
     built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
     # Every dev instance gets its own CLI; production updates its bundled CLI.
     install_cli_to "$CT_DATA_DIR/bin" "$built_cli_artifact" "$built_cli_hash"
@@ -3239,4 +3295,10 @@ LOCK_STORM_PY
 esac
 
 }
-codeterm_build_main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  codeterm_build_main "$@"
+  exit "$?"
+else
+  codeterm_build_main "$@"
+  return "$?"
+fi

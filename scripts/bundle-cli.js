@@ -79,8 +79,7 @@ function clearStaleBundledCli(destDir) {
   }
 }
 
-function bundleCli() {
-  const src = resolveCliSource();
+function bundleCli(src = resolveCliSource()) {
   const destDir = path.join(repoRoot, "src-tauri", "bundled-cli");
   const dest = path.join(destDir, bundledCliName());
 
@@ -125,7 +124,7 @@ function bundleCli() {
 }
 
 if (require.main === module) {
-  bundleCli();
+  bundleCli(process.argv[2]);
 } else {
   module.exports = {
     resolveCliReleaseDir,

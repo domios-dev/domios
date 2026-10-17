@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.34",
+  "version": "1.14.35",
   "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Codex",
@@ -8,12 +8,12 @@
   "cliBinary": "codex",
   "capabilities": {
     "agentProvider": true,
+    "subagentVisibility": true,
     "structuredControl": {
       "protocol": "codex-app-server",
       "minVersion": "0.159.0"
     },
     "agentRuntime": {
-      "fastMode": true,
       "storedHistory": true,
       "runtime": "stdio-jsonrpc",
       "command": {
@@ -73,7 +73,9 @@
           "thread/goal/clear",
           "thread/turns/list",
           "thread/fork",
-          "thread/revert"
+          "thread/revert",
+          "model/list",
+          "configRequirements/read"
         ],
         "backgroundProcesses": [
           "thread/backgroundTerminals/list",
@@ -137,7 +139,21 @@
           "fork",
           "revert"
         ]
-      }
+      },
+      "serviceTiers": [
+        {
+          "id": "priority",
+          "name": "Fast",
+          "description": "",
+          "unavailableReason": "Availability not confirmed"
+        },
+        {
+          "id": "ultrafast",
+          "name": "Ultrafast",
+          "description": "",
+          "unavailableReason": "Not available on your plan"
+        }
+      ]
     },
     "chatBackend": {
       "spawnable": true,

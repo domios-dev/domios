@@ -12,11 +12,14 @@ import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
 import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
+import { forkableTurnEnds } from "./messageForkModel";
+import { ChatWindowRow } from "./ChatWindowRow";
+import { chatWindowRows } from "./chatWindowRowsModel";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
-import { Fragment, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
   ChatDaySeparator,
@@ -330,6 +333,11 @@ function TabSessionChatBody({
   }, [tabId, allMessages, isActive]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
+  const forkableMessages = useMemo(() => forkableTurnEnds(
+    allMessages,
+    descriptor?.agent_runtime?.threadHistory?.actions.includes("fork") === true,
+    newerMessageCount > 0,
+  ), [allMessages, descriptor, newerMessageCount]);
   const heldAuthority = readTranscriptWindow(transcriptWindowKey(tabId, agentSessionId)).transcript.authority;
   const hasHeldWindow = heldAuthority != null
     && heldAuthority.sourceSessionId === agentSessionId
@@ -354,7 +362,7 @@ function TabSessionChatBody({
   });
 
   const renderedEnrichedMessages = useMemo(
-    () => setupView.kind !== "none" ? [] : enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
+    () => setupView.kind !== "none" ? [] : chatWindowRows(enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg))),
     [enrichedMessages, setupView.kind],
   );
   const sharedScrollRef = useRef<HTMLDivElement | null>(null);
@@ -924,8 +932,7 @@ function TabSessionChatBody({
           const deliverySend = sendForRow(deliverySends, msg);
           const deliveryView = deliverySend ? deliveryPresentation(deliverySend, agentActivity.kind) : undefined;
           return (
-            <Fragment key={msg.id}>
-            <div data-chat-window-row={msg.id} style={{ display: "flow-root" }}>
+            <ChatWindowRow key={msg.id} message={msg}>
             <ChatDaySeparator label={daySeparators.get(messageIndex)} />
             <ChatHighlightRow id={msg.id}>
             <ChatMessageRow
@@ -936,7 +943,7 @@ function TabSessionChatBody({
               ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
               onDelete={deliverySend && canDeleteChatSend(deliverySend)
                 ? () => { void deleteTrackedChatMessage(tabId, deliverySend.id).catch((error: unknown) => showComposerError(error instanceof Error ? error.message : String(error))); } : undefined}
-              onForkFromHere={msg.toolFlowId && descriptor?.agent_runtime?.threadHistory?.actions.includes("fork")
+              onForkFromHere={msg.toolFlowId && forkableMessages.has(msg.id)
                 ? () => { void runThreadHistory("fork", msg.toolFlowId!); } : undefined}
               onRevertToHere={msg.toolFlowId && descriptor?.agent_runtime?.threadHistory?.actions.includes("revert")
                 ? () => setPendingThreadRevertTurn(msg.toolFlowId!) : undefined}
@@ -978,8 +985,7 @@ function TabSessionChatBody({
             </ChatHighlightRow>
               {following.map(renderOutboundReport)}
               {(askPlacement.afterIndex.get(messageIndex) ?? []).map(renderAsk)}
-            </div>
-            </Fragment>
+            </ChatWindowRow>
           );
         })}
         </div>

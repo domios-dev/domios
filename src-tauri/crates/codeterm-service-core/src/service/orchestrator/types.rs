@@ -104,6 +104,8 @@ pub struct SpawnAgentParams {
     pub title: Option<String>,
     pub title_provenance: Option<SpawnIdentityProvenance>,
     pub description: Option<String>,
+    #[serde(default, skip)]
+    pub task_description_managed: bool,
     pub role: Option<String>,
     pub role_profile: Option<String>,
     pub parent_tab_id: Option<String>,

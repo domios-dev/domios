@@ -38,7 +38,7 @@ pub(crate) fn switch(
     model: &str,
     effort: Option<&str>,
     mode: Option<RuntimeMode>,
-    fast_mode: Option<bool>,
+    service_tier: Option<codeterm_plugin::agent_runtime::RuntimeServiceTierSelection>,
 ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
     if !model.trim().is_empty() {
         let provider = svc
@@ -55,7 +55,7 @@ pub(crate) fn switch(
         .map_err(ModelSwitchError::InvalidModel)?;
     }
     crate::async_runtime::block_on(async {
-        switch_inner(svc, tab, model, effort, mode, fast_mode)
+        switch_inner(svc, tab, model, effort, mode, service_tier)
             .await
             .map_err(|reason| ModelSwitchError::RuntimeControlRefused(reason.to_string()))
     })
@@ -67,7 +67,7 @@ async fn switch_inner(
     model: &str,
     effort: Option<&str>,
     mode: Option<RuntimeMode>,
-    fast_mode: Option<bool>,
+    service_tier: Option<codeterm_plugin::agent_runtime::RuntimeServiceTierSelection>,
 ) -> Result<ModelSwitchOutcome, RuntimeFailure> {
     let session = engine::ensure(svc, tab).await?;
     let _permit = session
@@ -75,6 +75,7 @@ async fn switch_inner(
         .try_acquire()
         .map_err(|_| RuntimeFailure::Refused("Runtime operation already in progress".into()))?;
     engine::validate_binding(svc, &session)?;
+    refresh_service_tiers(svc, &session).await?;
     let before = session.context.lock().clone();
     let thread = before.thread_id.clone().ok_or(RuntimeFailure::Superseded)?;
     let mut settings = before.settings.clone();
@@ -84,19 +85,26 @@ async fn switch_inner(
     if let Some(effort) = effort {
         settings.effort = Some(effort.into());
     }
-    if let Some(fast_mode) = fast_mode {
+    if let Some(service_tier) = service_tier {
         let supported = svc
             .agent_registry
             .with_provider(&session.provider, |provider| {
                 provider
                     .agent_runtime()
-                    .is_some_and(|capability| capability.fast_mode)
+                    .is_some_and(|capability| !capability.service_tiers.is_empty())
             })
             .unwrap_or(false);
         if !supported {
-            return Err(RuntimeFailure::Refused("Fast mode is unsupported".into()));
+            return Err(RuntimeFailure::Refused(
+                "Service tiers are unsupported".into(),
+            ));
         }
-        settings.fast_mode = Some(fast_mode);
+        if !tier_available(&settings, &service_tier) {
+            return Err(RuntimeFailure::Refused(
+                "Service tier is unavailable for this account and model".into(),
+            ));
+        }
+        settings.service_tier = Some(service_tier);
     }
     if let Some(mode) = mode {
         settings.mode = serde_json::to_value(mode)
@@ -126,7 +134,7 @@ async fn switch_inner(
             "Runtime did not apply requested controls".into(),
         ));
     }
-    let confirmed = if settings.fast_mode.is_some() {
+    let confirmed = if settings.service_tier.is_some() {
         tokio::time::timeout(std::time::Duration::from_secs(30), async {
             loop {
                 let confirmed = session.controls_confirmation.lock().take();
@@ -223,8 +231,9 @@ async fn switch_inner(
 
 fn confirms(requested: &RuntimeSettings, confirmed: &RuntimeSettings) -> bool {
     requested
-        .fast_mode
-        .is_none_or(|value| confirmed.fast_mode == Some(value))
+        .service_tier
+        .as_ref()
+        .is_none_or(|value| confirmed.service_tier.as_ref() == Some(value))
         && [
             (&requested.model, &confirmed.model),
             (&requested.effort, &confirmed.effort),
@@ -232,6 +241,73 @@ fn confirms(requested: &RuntimeSettings, confirmed: &RuntimeSettings) -> bool {
         ]
         .into_iter()
         .all(|(requested, confirmed)| requested.is_none() || requested == confirmed)
+}
+
+fn tier_available(
+    settings: &RuntimeSettings,
+    selection: &codeterm_plugin::agent_runtime::RuntimeServiceTierSelection,
+) -> bool {
+    selection.id.as_ref().is_none_or(|id| {
+        settings
+            .service_tier_availability
+            .as_ref()
+            .and_then(|models| settings.model.as_ref().and_then(|model| models.get(model)))
+            .is_some_and(|tiers| {
+                tiers
+                    .iter()
+                    .any(|tier| &tier.id == id && tier.unavailable_reason.is_none())
+            })
+    })
+}
+
+pub(crate) async fn refresh_service_tiers(
+    svc: &ServiceContext,
+    session: &std::sync::Arc<engine::Session>,
+) -> Result<(), RuntimeFailure> {
+    let supported = svc
+        .agent_registry
+        .with_provider(&session.provider, |provider| {
+            provider
+                .agent_runtime()
+                .is_some_and(|capability| !capability.service_tiers.is_empty())
+        })
+        .unwrap_or(false);
+    if !supported {
+        return Ok(());
+    }
+    super::projections::controls(
+        svc,
+        session,
+        RuntimeSettings {
+            service_tier_availability: Some(Default::default()),
+            ..Default::default()
+        },
+    );
+    let context = session.context.lock().clone();
+    let process = session
+        .process
+        .lock()
+        .clone()
+        .ok_or(RuntimeFailure::PipeEof)?;
+    let result = engine::run(
+        svc,
+        &session.provider,
+        session,
+        &process,
+        RuntimeOperation::Control {
+            thread_id: context.thread_id,
+            action: "serviceTiers".into(),
+            value: serde_json::json!({}),
+        },
+    )
+    .await?;
+    engine::validate_binding(svc, session)?;
+    if !matches!(result, RuntimeResult::Done) {
+        return Err(RuntimeFailure::Refused(
+            "Service tier catalogue unavailable".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -92,6 +92,30 @@ pub fn normalize_tab_description(value: &str) -> Result<Option<String>, String> 
     }
 }
 
+const SIDEBAR_DESCRIPTION_CHARS: usize = 60;
+
+pub fn task_tab_description(task_name: &str, override_text: Option<&str>) -> String {
+    if let Some(override_text) = override_text.map(str::trim).filter(|text| !text.is_empty()) {
+        return override_text.to_string();
+    }
+
+    let normalized = task_name.split_whitespace().collect::<Vec<_>>().join(" ");
+    let chars = normalized.chars().collect::<Vec<_>>();
+    if chars.len() <= SIDEBAR_DESCRIPTION_CHARS {
+        return normalized;
+    }
+
+    let prefix = chars[..SIDEBAR_DESCRIPTION_CHARS]
+        .iter()
+        .collect::<String>();
+    prefix
+        .rsplit_once(' ')
+        .map(|(before, _)| before.trim_end())
+        .filter(|before| !before.is_empty())
+        .unwrap_or(&prefix)
+        .to_string()
+}
+
 fn epoch_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -395,6 +419,48 @@ impl ServiceContext {
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
         Ok(())
+    }
+
+    pub fn update_task_tab_description(
+        &self,
+        tab_id: &str,
+        description: &str,
+    ) -> Result<bool, String> {
+        let description = normalize_tab_description(description)?;
+        let mut mux = self.mux.write();
+        if mux.get_tab(tab_id).is_none() {
+            return Ok(false);
+        }
+        let updated = mux.update_task_tab_description(tab_id, description)?;
+        drop(mux);
+        if !updated {
+            return Ok(false);
+        }
+        self.emit_state_changed(MuxEmitCause::TabMetadata);
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
+        Ok(true)
+    }
+
+    pub fn assign_task_tab_description(
+        &self,
+        tab_id: &str,
+        description: &str,
+    ) -> Result<bool, String> {
+        let description = normalize_tab_description(description)?;
+        let mut mux = self.mux.write();
+        if mux.get_tab(tab_id).is_none() {
+            return Ok(false);
+        }
+        let updated = mux.assign_task_tab_description(tab_id, description)?;
+        drop(mux);
+        if !updated {
+            return Ok(false);
+        }
+        self.emit_state_changed(MuxEmitCause::TabMetadata);
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
+        Ok(true)
     }
 
     pub fn focus_tab(&self, tab_id: &str) -> Result<(), String> {

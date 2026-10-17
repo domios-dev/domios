@@ -81,6 +81,7 @@ fn commit_full_launch(journal: &TabLifecycleJournal, key: &LifecycleKey, session
 
 fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapshot {
     AgentIdentitySnapshot {
+        description_origin: Default::default(),
         agent_runtime_state: None,
         agent_runtime_config: None,
         agent_runtime_questions: None,

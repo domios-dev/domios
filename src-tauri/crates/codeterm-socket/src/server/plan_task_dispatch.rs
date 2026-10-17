@@ -19,6 +19,7 @@ mod attempt_rollback;
 mod brief;
 pub(super) mod canonical_writer;
 mod dispatch_failure;
+mod dispatch_helpers;
 mod gates;
 mod lane_commit;
 mod lane_resolution;
@@ -42,6 +43,10 @@ use dispatch_failure::{
     cleanup_succeeded, dispatch_startup_failed_event, dispatch_wait_failed,
     DispatchFailureDisposition, DispatchWaitFailure,
 };
+pub(super) use dispatch_helpers::{
+    dispatch_reasoning_effort, owned_str, respawn_worker_params, set_local_task_name_description,
+    task_tab_description,
+};
 use gates::dispatch_authorized_gates;
 use lane_commit::{
     dispatch_ready_event, dispatch_response_lane, lane_metadata_for_dispatch, DispatchEvidence,
@@ -64,17 +69,6 @@ use tab_reservation::{
 };
 pub(crate) use unplanned::dispatch_unplanned;
 use workspace_admission::preflight_dispatch_workspace;
-
-fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
-    p.and_then(|x| x.get(key))
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
-}
-
-fn dispatch_reasoning_effort(p: Option<&Value>) -> (Option<String>, Option<String>) {
-    let requested = owned_str(p, "reasoning_effort");
-    (requested.clone(), requested)
-}
 
 const DISPATCH_READY_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
 
@@ -434,6 +428,14 @@ where
     let detail = store
         .show_task(&task_id)
         .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+    let description_override =
+        owned_str(p, "description").filter(|description| !description.trim().is_empty());
+    let worker_description =
+        task_tab_description(&detail.task.name, description_override.as_deref());
+    let worker_description =
+        codeterm_service_core::service::normalize_tab_description(&worker_description)
+            .map_err(invalid_dispatch)?
+            .ok_or_else(|| invalid_dispatch("task Worker description cannot be empty"))?;
     preflight_dispatch_task_status(&plan_id, &detail.task)?;
 
     // Group records stay visible without taking the dispatch path away.
@@ -728,6 +730,8 @@ where
         planned_model: detail.task.model.clone(),
         planned_reasoning_effort,
         reasoning_effort,
+        description: Some(worker_description),
+        task_description_managed: description_override.is_none(),
         spawned_by_tab_id: owned_str(p, "caller_tab_id"),
         task: None,
         ..Default::default()

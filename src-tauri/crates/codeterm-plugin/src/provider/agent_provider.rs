@@ -27,6 +27,10 @@ mod catalogue;
 pub trait AgentProvider: Send + Sync {
     agent_provider_runtime_defaults!();
 
+    fn supports_subagent_visibility(&self) -> bool {
+        false
+    }
+
     async fn runtime_plan(
         &self,
         _ctx: &crate::agent_runtime::RuntimeContext,

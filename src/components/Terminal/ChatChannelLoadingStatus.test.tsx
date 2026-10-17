@@ -5,6 +5,8 @@ import { runtimeActivityLabel } from "../../lib/agentRuntimeTiming";
 import { tabActivity } from "../../lib/tabActivity";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { chatChannelLoadingRow } from "./chatBodyVisibility";
+import { runtimeReduce } from "../../../plugins/provider-codex/src/runtimeReduce";
+import type { JsonValue, RuntimeContext, RuntimeFrame } from "@codeterm/plugin-sdk";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -69,5 +71,32 @@ it("renders runtime elapsed and completed duration in the existing indicator onl
   } finally {
     await act(async () => root.unmount());
     clock.mockRestore();
+  }
+});
+
+it("clears the working indicator on provider completion despite later background output", async () => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const ctx: RuntimeContext = {epoch:1,bindingNonce:"binding",tabId:"tab",threadId:"thread",cwd:"/fixture",hostVersion:"1",settings:{},providerSettings:{},claimedSends:[],activeTurns:[],threadParents:[]};
+  let state: JsonValue = null;
+  let live: "working" | "idle" = "idle";
+  const note = (method:string,params:Record<string,JsonValue>):RuntimeFrame => ({kind:"notification",method,params:{threadId:"thread",...params}});
+  const feed = async (frame:RuntimeFrame) => {
+    const result = runtimeReduce(ctx,state,[frame]);
+    state = result.state;
+    for (const event of result.events) if (event.kind === "turnState" && event.state !== "needs_input") live = event.state;
+    const activity = tabActivity({backing:{kind:"chat_backend",plugin_id:"fixture",session_id:"thread"},agent_state:{state:live}},"Working");
+    await act(async()=>root.render(<AgentStateIndicator activity={activity} onStop={()=>{}} activeTool={{toolName:"command",toolInput:{command:"background"}}} />));
+    return activity;
+  };
+  try {
+    expect((await feed(note("turn/started",{turn:{id:"turn"}}))).active).toBe(true);
+    expect(host.querySelector('button[aria-label="Stop the agent"]:not([aria-hidden="true"])')).not.toBeNull();
+    expect((await feed(note("turn/completed",{turn:{id:"turn",status:"completed"}}))).active).toBe(false);
+    expect((await feed(note("item/commandExecution/outputDelta",{itemId:"background",delta:"output"}))).status).toBe("Idle");
+    expect(host.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("Agent idle");
+    expect(host.querySelector('button[aria-label="Stop the agent"]:not([aria-hidden="true"])')).toBeNull();
+  } finally {
+    await act(async()=>root.unmount());
   }
 });

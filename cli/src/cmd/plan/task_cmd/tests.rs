@@ -94,6 +94,7 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
             authorized_gates: Vec::new(),
             canonical_writer: false,
             model: Some("gpt-9-bogus".into()),
+            description: None,
             reasoning_effort: None,
             parent: None,
             workspace: None,
@@ -133,6 +134,7 @@ fn dispatch_action(cwd: &str) -> PlanTaskAction {
         authorized_gates: Vec::new(),
         canonical_writer: false,
         model: None,
+        description: None,
         reasoning_effort: None,
         parent: None,
         workspace: None,
@@ -140,6 +142,25 @@ fn dispatch_action(cwd: &str) -> PlanTaskAction {
         execution_intent: "mutating".into(),
         provider_reserve_pct: 0.0,
     }
+}
+
+#[test]
+fn plan_task_dispatch_sends_explicit_description_override() {
+    let mut client = FakeRpc::scripted([owner_epoch_task(), json!({"tab_id":"worker"})]);
+    let mut action = dispatch_action("lane");
+    let PlanTaskAction::Dispatch { description, .. } = &mut action else {
+        unreachable!()
+    };
+    *description = Some(vec!["Owner".into(), "summary".into()]);
+
+    let _ = run_dispatch(&mut client, true, action, None).expect("dispatch runs");
+    let params = client
+        .calls
+        .iter()
+        .find(|(method, _)| method == "plan.task.dispatch")
+        .and_then(|(_, params)| params.as_ref())
+        .expect("dispatch params");
+    assert_eq!(params["description"], "Owner summary");
 }
 
 fn owner_epoch_task() -> Value {

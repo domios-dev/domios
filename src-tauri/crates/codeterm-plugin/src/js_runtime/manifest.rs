@@ -235,6 +235,7 @@ fn default_capabilities() -> Capabilities {
         record_sources: Default::default(),
         structured_control: None,
         agent_provider: true,
+        subagent_visibility: false,
         reply_relay: false,
         tool_less: false,
         model_provider_config: false,

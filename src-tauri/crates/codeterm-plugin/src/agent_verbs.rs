@@ -4,10 +4,11 @@
 
 use serde::Serialize;
 
-/// `source` of every plugin skill item; the suffix is the plugin id.
+/// Stable source prefix shared by generated plugin index entries.
 pub const PLUGIN_SKILL_SOURCE_PREFIX: &str = "plugin-agent-verbs:";
 /// `contributions_changed` kind fired when the agent-command registry may have changed.
 pub const AGENT_COMMANDS_CONTRIBUTION_KIND: &str = "agent_commands";
+pub const PLUGIN_INDEX_CONTRIBUTION_KIND: &str = "plugin_index";
 pub const PLUGIN_SKILL_TAG: &str = "plugin-agent-verbs";
 const CONFIG_HELP_VERBS_MARKER: &str = "Agent verbs:";
 const AGENT_GUIDE_HEADING: &str = "\n## Agent guide\n\n";

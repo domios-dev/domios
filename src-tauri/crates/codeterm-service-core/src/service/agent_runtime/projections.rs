@@ -45,7 +45,12 @@ pub fn controls(svc: &ServiceContext, session: &Session, settings: RuntimeSettin
 
 fn merge_settings(previous: &RuntimeSettings, confirmed: RuntimeSettings) -> RuntimeSettings {
     RuntimeSettings {
-        fast_mode: confirmed.fast_mode.or(previous.fast_mode),
+        service_tier: confirmed
+            .service_tier
+            .or_else(|| previous.service_tier.clone()),
+        service_tier_availability: confirmed
+            .service_tier_availability
+            .or_else(|| previous.service_tier_availability.clone()),
         model: confirmed.model.or_else(|| previous.model.clone()),
         effort: confirmed.effort.or_else(|| previous.effort.clone()),
         mode: confirmed.mode.or_else(|| previous.mode.clone()),
