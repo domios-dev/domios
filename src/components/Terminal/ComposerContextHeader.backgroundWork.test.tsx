@@ -37,7 +37,7 @@ const adapter: AutomationGraphAdapter = {
 function harness(messages: readonly NormalizedChatMessage[], onInspect: (threadId: string) => void) {
   const state = {
     workspaces: [],
-    tabs: { "tab-a": { agent_type: "codex", agent_session_id: authority.rootThreadId, session_binding_nonce: authority.bindingNonce, agent_runtime_state: { epoch: authority.epoch } } },
+    tabs: { "tab-a": { agent_type: "codex", agent_session_id: authority.rootThreadId, session_binding_nonce: authority.bindingNonce, agent_runtime_state: { state:"loaded", epoch: authority.epoch } } },
     teams: [], active_workspace_id: null, focused_tab_id: null, notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
   } as unknown as ExtendedState;
   const store = createMuxStateStore(() => state);
