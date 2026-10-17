@@ -491,9 +491,17 @@ fn tester_bounce_consumes_the_handoff_before_reopening_a_gone_workers_task() {
         .get(&plan_id)
         .and_then(|plan| plan.owner.tab_id)
         .unwrap();
+    let (owner_session, owner_nonce) = {
+        let mux = fixture.service.mux.read();
+        let owner = mux.get_tab(&owner).unwrap();
+        (
+            owner.agent_session_id.clone().unwrap(),
+            owner.session_binding_nonce.clone().unwrap(),
+        )
+    };
     let tester = tester_child(&fixture, &owner);
     let svc = std::sync::Arc::new(fixture.service.clone());
-    let mut handoff = caller(&owner, LIVE_SESSION, NONCE);
+    let mut handoff = caller(&owner, &owner_session, &owner_nonce);
     handoff["plan_id"] = json!(plan_id);
     handoff["task_id"] = json!(task_id);
     handoff["tester_tab_id"] = json!(tester);

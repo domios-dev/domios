@@ -2112,7 +2112,7 @@ function codexReportedSettings(raw) {
   const settings = root.threadSettings ? object(root.threadSettings) : root;
   const thread = object(settings.thread);
   const tier = settings.serviceTier !== void 0 ? settings.serviceTier : thread.serviceTier;
-  const serviceTier = tier === void 0 ? void 0 : tier === null || typeof tier === "string" ? { id: tier === "fast" ? "priority" : tier } : void 0;
+  const serviceTier = tier === void 0 ? void 0 : tier === null || typeof tier === "string" ? { id: tier === "default" ? null : tier === "fast" ? "priority" : tier } : void 0;
   const model = text(settings.model) ?? text(thread.model);
   const effort = text(settings.reasoningEffort) ?? text(settings.effort) ?? text(thread.reasoningEffort) ?? text(thread.effort);
   const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;

@@ -542,6 +542,15 @@ pub(super) fn dispatch(
         "plan.review.hold" => {
             let (plan_id, task_id) = super::plan_refs::resolve_task(store, params)?;
             let from = actor(p);
+            if from
+                .tab_id
+                .as_deref()
+                .is_some_and(|tab_id| tester_authority::is_tester(svc, tab_id))
+            {
+                return Err(unauthorized(
+                    "Testers may only accept or bounce handed reviews",
+                ));
+            }
             let result = store
                 .hold_review(&plan_id, &task_id, note(p), from, now)
                 .map_err(plan_rpc_err)?;

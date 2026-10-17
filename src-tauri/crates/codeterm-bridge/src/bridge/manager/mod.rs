@@ -797,7 +797,7 @@ async fn apply_hook(
     }
 }
 
-async fn inject_message(
+pub async fn inject_message(
     tab: &Arc<dyn BridgeTabPort>,
     msg: &InboundMessage,
     voice_cfg: &VoiceTranscribeConfig,
