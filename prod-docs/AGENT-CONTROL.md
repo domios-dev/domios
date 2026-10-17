@@ -50,7 +50,7 @@ Backward-compat alias: `Conductor` -> `Orchestrator`.
 
 **Worker discipline.** A task-bound Worker executes its one task, reports with `codeterm agent report`, and stops: no spawning, sleeping or polling, and no "also do X" scope creep. A task too big for one Worker is reported `partial` with the needed decomposition, so the Orchestrator splits it. A Worker `--status blocked` report proposes an owner decision for an external dependency, persists its reason and evidence, and leaves the task unchanged; only the Plan owner or Planner explicitly blocks the task.
 
-**Task-less Worker kinds.** `tester` and `release_manager` are still Workers and always sit under their parent in the Team hierarchy, but they own no Plan task. Spawn with `codeterm agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`. They cannot spawn children or gain filesystem write access from gate grants. They report to their parent without `--status`. A Tester may accept or bounce only an exact in-review task its parent delegates with `codeterm plan review delegate`; its verdict requires an evidence note, and it cannot hold or dispatch tasks.
+**Task-less Worker kinds.** `qa` and `release_manager` are still Workers and always sit under their parent in the Team hierarchy, but they own no Plan task. Spawn with `codeterm agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`. They cannot spawn children or gain filesystem write access from gate grants. They report to their parent without `--status`. A QA may accept or bounce only an exact in-review task its parent delegates with `codeterm plan review delegate`; its verdict requires an evidence note, and it cannot hold or dispatch tasks.
 
 **Push-based reports:** Reports go to the spawning Orchestrator, auto-injected into its PTY as `[Report from Name] message\r`, so Claude sees them as user input -- no polling needed.
 
@@ -168,4 +168,4 @@ Domios tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->

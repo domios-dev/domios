@@ -63,19 +63,71 @@ pub fn warn_stage_conflicts(
     preprocessors: &dyn ChatPreprocessorPort,
 ) {
     let voice = transcribers.ids();
-    let text = preprocessors.preprocessor_ids();
+    let text = preprocessors.active_preprocessors();
     let inventory: Vec<(&str, StageMatch)> = voice
         .iter()
         .map(|id| (id.as_str(), StageMatch::Voice))
-        .chain(text.iter().map(|id| (id.as_str(), StageMatch::Text)))
         .collect();
-    for c in detect_conflicts(inventory) {
+    let mut conflicts = detect_conflicts(inventory);
+    conflicts.extend(detect_text_conflicts(
+        text.iter()
+            .map(|stage| (stage.id(), stage.provider_scope())),
+    ));
+    for c in conflicts {
         log::warn!(
             "[chatpipeline] {:?} slot grabbed by >1 stage ({}); they would run \
              twice — uninstall one",
             c.slot,
             c.ids.join(", ")
         );
+    }
+}
+
+pub fn detect_text_conflicts<'a, I>(stages: I) -> Vec<StageConflict>
+where
+    I: IntoIterator<Item = (&'a str, Option<&'a str>)>,
+{
+    let mut scopes: std::collections::BTreeMap<Option<&str>, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for (id, scope) in stages {
+        scopes.entry(scope).or_default().push(id.to_string());
+    }
+    scopes
+        .into_values()
+        .filter(|ids| ids.len() > 1)
+        .map(|ids| StageConflict {
+            slot: StageMatch::Text,
+            ids,
+        })
+        .collect()
+}
+
+pub fn resolve_text_stages(
+    stages: &[Arc<dyn ChatPreprocessorProvider>],
+    provider: Option<&str>,
+) -> Vec<Arc<dyn ChatPreprocessorProvider>> {
+    let scoped: Vec<_> = stages
+        .iter()
+        .filter(|stage| {
+            stage
+                .provider_scope()
+                .is_some_and(|scope| Some(scope) == provider)
+        })
+        .cloned()
+        .collect();
+    let selected = if scoped.is_empty() {
+        stages
+            .iter()
+            .filter(|stage| stage.provider_scope().is_none())
+            .cloned()
+            .collect()
+    } else {
+        scoped
+    };
+    if selected.len() == 1 {
+        selected
+    } else {
+        Vec::new()
     }
 }
 

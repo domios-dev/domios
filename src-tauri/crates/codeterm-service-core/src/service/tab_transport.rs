@@ -159,13 +159,12 @@ impl ServiceContext {
     /// Run registered `chatPreprocessor` text stages over the outbound text (id order
     /// for determinism; no stages ⇒ identity; a broken stage fails safe to passthrough).
     pub fn run_outbound_stages(&self, tab_id: &str, text: String) -> String {
-        let mut stages = self
+        let registered = self
             .ext::<crate::chatpreprocessor::ChatPreprocessorRegistryHandle>()
             .active();
-        if stages.is_empty() {
+        if registered.is_empty() {
             return text;
         }
-        stages.sort_by(|a, b| a.id().cmp(b.id()));
         let (cwd, provider) = {
             let mux = self.mux.read();
             let resolved = mux.resolve_tab_id(tab_id);
@@ -181,6 +180,9 @@ impl ServiceContext {
             provider,
             ..Default::default()
         };
+        let mut stages =
+            crate::chatpipeline::resolve_text_stages(&registered, ctx.provider.as_deref());
+        stages.sort_by(|a, b| a.id().cmp(b.id()));
         crate::chatpipeline::run_text_stages(&stages, &ctx, text)
     }
 

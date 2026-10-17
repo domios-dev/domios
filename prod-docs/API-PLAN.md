@@ -168,8 +168,8 @@ the recovery command.
 
 ### Review credit repair and evidence reporters
 
-`codeterm plan review delegate <plan> <task> --tester-tab <tab>` hands an
-`in_review` task to a direct child Tester: only that bound session may accept or
+`codeterm plan review delegate <plan> <task> --qa-tab <tab>` hands an
+`in_review` task to a direct child QA: only that bound session may accept or
 bounce it, with a non-empty evidence note; the verdict consumes the grant, which
 never authorizes hold, dispatch or other transitions.
 
@@ -237,4 +237,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->

@@ -1,5 +1,6 @@
 import type { ApiConfig } from "./types";
-import { childHistorySuffix, type ChildTranscriptAuthority } from "./childTranscript";
+import { childHistorySuffix, currentChildAuthority, type ChildTranscriptAuthority } from "./childTranscript";
+import type { MultiplexerState } from "./types";
 import { backgroundProcessesSuffix, type BackgroundProcessAuthority } from "./backgroundProcesses";
 import { daemonAuthToken, daemonHttpBase, isPromptNotOnScreenResponse } from "./webApi";
 
@@ -79,6 +80,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     ...identity, method, suffix, body, select,
   });
   switch (command) {
+    case "agent_runtime_child_authority": return call("GET", "/runtime-authority", null, value => currentChildAuthority((value as MultiplexerState).tabs[identity.remoteTabId]));
     case "agent_runtime_child_history": return call("GET", childHistorySuffix(String(args.threadId), args.request as ChildTranscriptAuthority & {cursor?:string}));
     case "agent_runtime_background_processes": return call("GET", backgroundProcessesSuffix(args.request as BackgroundProcessAuthority));
     case "agent_runtime_stop_background_process": return call("POST", "/agent/runtime/background-processes", args.request);

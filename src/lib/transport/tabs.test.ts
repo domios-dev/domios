@@ -23,6 +23,18 @@ function fixture(responses: unknown[] = [{}]) {
   return { calls, transport: createTabsTransport(client) };
 }
 
+it("reads current child authority from the daemon snapshot", async()=>{
+  const {transport,calls}=fixture([{tabs:{owned:{agent_session_id:"root",session_binding_nonce:"restored",agent_runtime_state:{state:"loaded",epoch:9}}}}]);
+  expect(await transport.agent_runtime_child_authority({tabId:"owned"})).toEqual({rootThreadId:"root",bindingNonce:"restored",epoch:9});
+  expect(calls[0]).toMatchObject({method:"GET",path:"/api/mux/state"});
+});
+
+it("relays a child authority snapshot read to the owning peer", async()=>{
+  const {transport,calls}=fixture([{ok:true,data:{tabs:{}}}]);
+  await transport.mesh_remote_tab_action({ordinaryTabId:"mesh:peer/owned",peerId:"peer",method:"GET",suffix:"/runtime-authority"});
+  expect(calls[0]).toMatchObject({method:"POST",path:"/api/mesh/relay-to",body:{target_peer_id:"peer",method:"GET",path:"/api/mux/state",body:null}});
+});
+
 it("reads child history with root authority and no send payload",async()=>{
   const {transport,calls}=fixture();
   await transport.agent_runtime_child_history({tabId:"owned",threadId:"child/a",request:{rootThreadId:"root",bindingNonce:"nonce",epoch:4}});

@@ -65,8 +65,8 @@ fn manager_kinds_resolve_the_same_way_workers_do() {
 
 #[test]
 fn taskless_worker_kind_prompts_are_delivered_after_the_worker_contract() {
-    let preset = resolve(Some(AgentRole::Worker), Some(builtins::TESTER), None)
-        .expect("taskless Tester preset");
+    let preset =
+        resolve(Some(AgentRole::Worker), Some(builtins::QA), None).expect("taskless QA preset");
 
     assert_eq!(
         preset
@@ -81,7 +81,7 @@ fn taskless_worker_kind_prompts_are_delivered_after_the_worker_contract() {
         format!(
             "{}\n\n{}",
             crate::prompts::worker_suffix(),
-            crate::prompts::TESTER_ROLE_PROMPT
+            crate::prompts::QA_ROLE_PROMPT
         )
     );
     assert_eq!(preset.task_guidance(), "");
