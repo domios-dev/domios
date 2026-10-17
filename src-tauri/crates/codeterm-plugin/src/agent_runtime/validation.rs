@@ -508,7 +508,7 @@ fn validate_runtime_result(
             },
             RuntimeResult::Done,
         ) => true,
-        (RuntimeOperation::Initialize, RuntimeResult::Initialized) => true,
+        (RuntimeOperation::Initialize, RuntimeResult::Initialized { .. }) => true,
         (RuntimeOperation::OpenThread { .. }, RuntimeResult::ThreadLoaded { thread_id, .. }) => {
             ctx.thread_id.is_none() && identifier(thread_id)
         }

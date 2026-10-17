@@ -1,4 +1,5 @@
 import { goalPlan, goalResponse, goalIntent } from "./runtimeGoal";
+import { initializedResult, runtimeBinaryVersion } from "./runtimeVersion";
 import type {
   RuntimeContext, Operation, RuntimePlan, RuntimeStep, RpcReply, RuntimeSettings,
   RuntimeFailure, JsonValue, ChatMsg, OpenItem, RuntimeHistoryQuestion,
@@ -206,7 +207,7 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
       && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))
       return historyItems(op,{...state,historyItemLimit:smaller},text(state.cursor));
     if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return {kind:"complete",result:{kind:"resetCreditConsumed",outcome:"reset"}};
-    if (op.kind === "initialize" && state.stage === "initializeLimits") return {kind:"complete",result:{kind:"initialized"},events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent]};
+    if (op.kind === "initialize" && state.stage === "initializeLimits") return {kind:"complete",result:initializedResult(state),events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent]};
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op,state);
     if (op.kind === "readHistory" && ["turns","items"].includes(String(state.stage)) && reply.error.code === -32601)
@@ -221,14 +222,14 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
   const value = object(reply.value);
   switch (op.kind) {
     case "initialize":
-      if (state.stage === "initialize") return continuation({action:{kind:"notification",notification:{method:"initialized",params:{}}},state:{stage:"initializedNotification"}});
-      if (state.stage === "initializedNotification") return continuation(request("account/read",{refreshToken:false},{stage:"initializeAccount"}));
+      if (state.stage === "initialize") return continuation({action:{kind:"notification",notification:{method:"initialized",params:{}}},state:json({stage:"initializedNotification",binaryVersion:runtimeBinaryVersion(value.userAgent)})});
+      if (state.stage === "initializedNotification") return continuation(request("account/read",{refreshToken:false},{...state,stage:"initializeAccount"}));
       if (state.stage === "initializeAccount") {
         const auth = accountAuth(value);
-        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read",{excludeResetCreditDetails:true}, {stage:"initializeLimits",auth}));
-        return {kind:"complete",result:{kind:"initialized"},events:[auth]};
+        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read",{excludeResetCreditDetails:true}, {...state,stage:"initializeLimits",auth}));
+        return {kind:"complete",result:initializedResult(state),events:[auth]};
       }
-      return {kind:"complete",result:{kind:"initialized"},events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent,...rateLimitEvents(value.rateLimits,value.rateLimitResetCredits)]};
+      return {kind:"complete",result:initializedResult(state),events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent,...rateLimitEvents(value.rateLimits,value.rateLimitResetCredits)]};
     case "openThread": {
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
