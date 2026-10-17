@@ -949,6 +949,8 @@ mod exit_recovery;
 mod failed_launch;
 mod fresh;
 mod options;
+mod provider_switch;
+pub use provider_switch::ProviderSwitchOutcome;
 mod runtime;
 pub use options::RestartOptions;
 mod launch_command;
