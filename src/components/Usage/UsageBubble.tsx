@@ -14,6 +14,7 @@ import { formatSpend } from "./format";
 import { groupSpendSnapshot, hasGroupSpend } from "./groupSpend";
 import { UsageDetail, UsageSpendDetail } from "./UsageDetail";
 import { UsageHistoryModal } from "./UsageHistoryModal";
+import type {UsageSnapshot} from "../../types/usage";
 import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics, type VisibleUsageMetric } from "./metrics";
 import { formatAge } from "../../lib/timeLabels";
 
@@ -81,7 +82,17 @@ export function UsageBubble({
     };
   }, []);
   const tokenSession = runtime?.billing_mode === "api" ? runtime : null;
-  const resetModel = tabId ? resetCreditsForTab(tabId, uid, key => invoke<ResetResponse>("agent_runtime_reset_credits", {tabId,request:{action:"redeem",confirmed:true,idempotencyKey:key}})) : null;
+  const resetModel = tabId ? resetCreditsForTab(tabId, uid, async key => {
+    const result = await invoke<ResetResponse>("agent_runtime_reset_credits", {tabId,request:{action:"redeem",confirmed:true,idempotencyKey:key}});
+    try {
+      await invoke("agent_runtime_reset_credits", {tabId,request:{action:"read"}});
+      const updated = await invoke<UsageSnapshot|null>("usage_latest", {provider,accountId:accountId ?? undefined});
+      await refetch();
+      return {...result,remainingCount:ownRuntimeUsage(updated,tabId,threadId)?.resets?.availableCount ?? null};
+    } catch {
+      return result;
+    }
+  }) : null;
   const [resetReadError, setResetReadError] = useState<string|null>(null);
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
