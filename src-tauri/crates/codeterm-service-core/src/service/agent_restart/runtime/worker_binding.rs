@@ -32,6 +32,12 @@ impl ServiceContext {
         target: &str,
         nonce: &str,
     ) -> Result<Option<RestartBindingAuthority>, String> {
+        let has_task = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            super::super::restart_carries_task_attempt(tab.task_binding.as_ref())
+        });
+        if !has_task {
+            return Ok(None);
+        }
         let mut authority = self.authorize_restart_binding_mode(
             tab_id,
             source,

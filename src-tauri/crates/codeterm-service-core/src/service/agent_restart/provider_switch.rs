@@ -51,7 +51,11 @@ impl ServiceContext {
             .ok_or("provider_switch_no_agent: tab has no provider")?;
         let route = self.provider_switch_route(source, target, &tab)?;
         let _general_claim = self.claim_general_provider_switch(&tab)?;
-        model::require_idle(self.tab_is_idle(&tab.id), force, tab.agent_booting)?;
+        model::require_idle(
+            self.provider_switch_idle(&tab.id, route.source),
+            force,
+            tab.agent_booting,
+        )?;
         self.require_background_work_safe(&tab.id, force)
             .map_err(|error| format!("provider_switch_background_work: {error:?}"))?;
         crate::service::spawn::validate_agent_model(
@@ -168,7 +172,11 @@ impl ServiceContext {
                 return Err("provider_switch_superseded: source binding changed".into());
             }
         }
-        model::require_idle(self.tab_is_idle(&tab.id), force, false)?;
+        model::require_idle(
+            self.provider_switch_idle(&tab.id, route.source),
+            force,
+            false,
+        )?;
         self.retire_provider_switch_input(&tab.id)?;
         crate::service::orchestrator::supersede_tab_launch(&tab.id);
         match route.source {
@@ -256,6 +264,24 @@ impl ServiceContext {
         self.end_held_user_sends_for_fresh_restart(tab)?;
         self.discard_pending_delivery(tab)
             .map_err(|error| error.to_string())
+    }
+
+    fn provider_switch_idle(&self, tab_id: &str, route: TargetRoute) -> bool {
+        if route == TargetRoute::Pty {
+            return self.tab_is_idle(tab_id);
+        }
+        let tab = self.mux.read().get_tab(tab_id).cloned();
+        let Some(tab) = tab else {
+            return false;
+        };
+        let Some(session) = agent_runtime::engine::for_tab(tab_id) else {
+            return false;
+        };
+        let live = agent_runtime::engine::has_live_bound_session(&tab);
+        let context = session.context.lock().clone();
+        let active = context.active_turn_id.is_some() || !context.active_turns.is_empty();
+        let prompts = !session.prompts.lock().is_empty();
+        model::runtime_idle(live, active, prompts)
     }
 
     fn provider_switch_launch(

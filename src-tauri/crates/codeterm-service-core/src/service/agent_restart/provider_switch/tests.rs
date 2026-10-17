@@ -2,6 +2,38 @@ use super::*;
 use crate::service::test_fixture::ServiceFixture;
 
 #[test]
+fn provider_switch_keeps_roleless_spawn_metadata_without_plan_authority() {
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    let binding = crate::multiplexer::types::TaskBinding {
+        spawn_handle: Some("opaque-spawn-task".into()),
+        bound_at: 17,
+        ..Default::default()
+    };
+    mux.get_tab_mut(&id).unwrap().task_binding = Some(binding.clone());
+    let fixture = ServiceFixture::new(mux);
+    assert!(fixture
+        .service
+        .authorize_provider_switch_binding(&id, "source", "target", "nonce")
+        .unwrap()
+        .is_none());
+    fixture
+        .service
+        .finalize_runtime_worker_session(&id, "new-thread", "new-nonce")
+        .unwrap();
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&id)
+            .unwrap()
+            .task_binding
+            .as_ref(),
+        Some(&binding)
+    );
+}
+
+#[test]
 fn unavailable_target_refuses_before_retiring_or_mutating_source() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
