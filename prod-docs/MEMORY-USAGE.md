@@ -10,7 +10,7 @@ Injected into every agent session:
 2. **IF UNSURE** — say "let me check" and search.
 3. **FOR IDENTITY QUESTIONS** — `codeterm mem wake-up` (never guess mem_item ids like `preference_identity`).
 4. **NEVER GUESS IDS** — search first, then `get` a real id.
-5. **ON "remember"** — `codeterm mem save`; extraction workers handle graph automatically.
+5. **DURABLE ONLY** — Save only durable facts. Instructions for the current session or task (model or worker choice for now, temporary priorities, 'this time', 'for this release') stay in the conversation or plan, never in memory. If durability is uncertain, do not save; ask only when the user says remember. Even an explicit remember of a session-scoped instruction requires the user to say it is permanent. On "remember" of a durable fact, save now with `codeterm mem save`; extraction workers handle graph automatically.
 6. **WHEN FACTS CHANGE** — save new fact; old stays in history.
 7. **SESSION END** — save useful facts and decisions explicitly; terminal buffers stay out of memory.
 
@@ -158,4 +158,4 @@ The Memory tab reads this directly.
 
 Memory preserves the body you save; later edits retain history.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->
