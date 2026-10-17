@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
-import {ResetCreditsModel, resetCreditsState, resetCreditsForTab, clearResetCreditsForTab} from "./resetCreditsModel";
+import {ResetCreditsModel, resetCreditsState, resetCreditsForTab, clearResetCreditsForTab, resetBalanceLabel} from "./resetCreditsModel";
 
 async function main() {
   assert.deepEqual(resetCreditsState(undefined), {visible:false,disabled:true});
   const empty = {availableCount:0,nextExpiry:null,credits:null};
   const available = {...empty,availableCount:2};
+  assert.equal(resetBalanceLabel(2,1),"Reset credits: 2 before · 1 after");
+  assert.equal(resetBalanceLabel(2,null),"Reset credits: 2 before · unconfirmed after");
+  const observed = new ResetCreditsModel(() => "observed", async () => ({outcome:"reset",remainingCount:1}));
+  observed.request(available);
+  await observed.confirm();
+  assert.equal(observed.beforeCount,2);
+  assert.equal(observed.afterCount,1);
+  const unconfirmed = new ResetCreditsModel(() => "unconfirmed", async () => ({outcome:"reset"}));
+  unconfirmed.request(available);
+  await unconfirmed.confirm();
+  assert.equal(unconfirmed.afterCount,null);
   assert.deepEqual(resetCreditsState(empty), {visible:true,disabled:true});
   const keys:string[] = [];
   let uuidCalls = 0;
