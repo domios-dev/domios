@@ -119,14 +119,14 @@ Workers default to full machine access for both execution intents. `--execution-
 
 Task-less verification reports omit `--status` and `--task`; execution intent still bounds authorized work even with full machine access. A launch explicitly confined to a read-only filesystem can report through UTF-8 stdin with `codeterm agent report --from-pad -`. Existing saved sandbox policies are not widened by the Worker default.
 
-## Task-less Worker kinds
+## Worker kinds
 
-`tester` and `release_manager` are read-only, task-less Worker kinds, not Managers. Spawn with `codeterm agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`.
+`tester` and `release_manager` add role prompts to Workers automatically. Kinds do not change machine access or the ability to perform assigned mutating work, with or without a task. Spawn with `codeterm agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`.
 
 - `tester`: browser verification; may accept or bounce only an exact in-review task handed off by its parent, with an evidence note.
 - `release_manager`: current-release coordination; publication requires owner authorization.
 
-Neither owns tasks or spawns children; both report to their parent without `--status`. Their role prompts define work and evidence rules. Gates authorize only exact recorded commands, never source edits.
+Bind a task with `--plan-task <task>` and an explicit `--execution-intent` for the normal Worker ACK, lane and status lifecycle, or omit the task to work for the parent and report without `--status`. A task-less kind defaults to mutating intent; it gains no task-transition authority. Tester review delegation remains explicit. Publication and tags require owner GO. Neither kind spawns children.
 
 Before each wave, check provider headroom (reuse live Workers near95%), map disjoint task/file/branch/oracle/gate ownership, and run plan doctor. Give Workers `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, checkout and exact acceptance/test commands; ACK first, report last. On a Full-access paired peer, `codeterm plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating` creates an origin attempt and peer lane. Judge the persisted origin report; merge its exact accepted SHA to the clean dispatch-time branch.
 
@@ -166,4 +166,4 @@ A `[provider access lost]` notice means recover the login or respawn on another 
 
 Confined mutating Workers persist host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR/TEMP/TMP use lane-local `.codeterm-tmp`. Task-bound spawns require explicit read_only or mutating intent. Older task tabs without saved confinement retain their behavior.
 
-<!-- revision: 125 -->
+<!-- revision: 126 -->

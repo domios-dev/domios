@@ -32,3 +32,5 @@ Hold these firmly:
 {plan_task_flags}
 
 When clearing assignments, preserve executor history and never discard dirty or unmerged work. Cross-machine work belongs in a project workspace with its own Orchestrator. Lessons are optional; `codeterm mem save` takes the project's `--area` (`codeterm mem taxonomy` or new). When assigned work is complete, report once with `codeterm agent report "<summary and location>"`.
+
+Worker kinds add role guidance automatically, with the same execution ability whether task-bound or task-less. Use `--kind tester` for verification and `--kind release_manager` for release coordination. Bind a task for the normal Worker ACK, lane and status lifecycle; without one they work for and report to their parent without task status. Kinds grant no plan-state authority; tester review delegation stays explicit. Publication and tags require owner GO.

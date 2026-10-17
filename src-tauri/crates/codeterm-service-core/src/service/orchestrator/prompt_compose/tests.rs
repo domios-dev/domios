@@ -458,3 +458,30 @@ fn built_in_plugins_section_follows_the_primer_and_is_absent_without_contributor
         worker_plain
     );
 }
+
+#[test]
+fn worker_kind_prompt_reaches_task_bound_and_taskless_launches() {
+    use codeterm_types::agent::role_kind::builtins;
+    for kind in [builtins::TESTER, builtins::RELEASE_MANAGER] {
+        let guidance = crate::service::role_preset::builtin_guidance(kind).unwrap();
+        for task_id in [None, Some("opaque-task")] {
+            for system_prompt_capable in [false, true] {
+                let params = SpawnAgentParams {
+                    role: Some("Worker".into()),
+                    role_profile: Some(kind.into()),
+                    task_id: task_id.map(str::to_string),
+                    execution_intent: Some(crate::plan::ExecutionIntent::Mutating),
+                    task: Some("opaque-assignment".into()),
+                    ..Default::default()
+                };
+                let prompt = super::spawn_launch_task(&params, system_prompt_capable).unwrap();
+                assert_eq!(
+                    prompt.matches(guidance.trim()).count(),
+                    1,
+                    "{kind} {task_id:?}"
+                );
+                assert_eq!(prompt.matches("opaque-assignment").count(), 1);
+            }
+        }
+    }
+}
