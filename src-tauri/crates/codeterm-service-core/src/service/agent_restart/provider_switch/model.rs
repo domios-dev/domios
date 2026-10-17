@@ -30,17 +30,17 @@ pub(super) fn route(
             Err("provider_switch_capability_mismatch: provider lacks managed agent lifecycle and binding support".to_owned())
         }
     };
-    let source = classify(source)?;
     let target = classify(target)?;
-    if !matches!(
-        (source, backing),
-        (TargetRoute::Pty, TabBacking::Pty)
-            | (TargetRoute::Runtime, TabBacking::ChatBackend { .. })
-    ) {
-        return Err(
-            "provider_switch_backing_mismatch: source transport does not match its backing".into(),
-        );
-    }
+    let source = match backing {
+        TabBacking::Pty if source.0 == ProviderTransport::Pty => TargetRoute::Pty,
+        TabBacking::ChatBackend { .. } if source.1 => TargetRoute::Runtime,
+        _ => {
+            return Err(
+                "provider_switch_backing_mismatch: source transport does not match its backing"
+                    .into(),
+            )
+        }
+    };
     Ok(HandoffRoute { source, target })
 }
 
