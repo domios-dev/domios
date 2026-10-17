@@ -10,13 +10,13 @@ use crate::cmd::print::{exit_with_cli_error, print_json, write_cli_error, CliErr
 pub(super) const EXEC_TIMEOUT_EXIT: i32 = 124;
 
 #[derive(Debug, PartialEq)]
-pub(super) struct ExecReport {
-    pub(super) stdout: String,
-    pub(super) stderr: Option<String>,
-    pub(super) exit: i32,
+pub(crate) struct ExecReport {
+    pub(crate) stdout: String,
+    pub(crate) stderr: Option<String>,
+    pub(crate) exit: i32,
 }
 
-pub(super) fn exec_report(body: &Value) -> ExecReport {
+pub(crate) fn exec_report(body: &Value) -> ExecReport {
     let stdout = body
         .get("output")
         .and_then(Value::as_str)
@@ -64,6 +64,10 @@ pub(super) fn exec_report(body: &Value) -> ExecReport {
 
 pub(super) fn finish_exec(json: bool, body: Value) -> ! {
     let report = exec_report(&body);
+    finish_exec_report(json, body, report)
+}
+
+pub(crate) fn finish_exec_report(json: bool, body: Value, report: ExecReport) -> ! {
     if json {
         if let Some(message) = report.stderr {
             let error = CliError {
