@@ -1,12 +1,14 @@
 import type {ResetCredits, ResetCreditOutcome} from "@codeterm/plugin-sdk";
 
-export interface ResetResponse {outcome: ResetCreditOutcome}
+export interface ResetResponse {outcome: ResetCreditOutcome; remainingCount?: number|null}
 export class ResetCreditsModel {
   confirming = false;
   busy = false;
   key: string | null = null;
   outcome: ResetCreditOutcome | null = null;
   error: string | null = null;
+  beforeCount: number | null = null;
+  afterCount: number | null = null;
 
   inFlight: Promise<void> | null = null;
   private revision = 0;
@@ -21,6 +23,9 @@ export class ResetCreditsModel {
   request(resets: ResetCredits | null | undefined): void {
     if (!resets || resets.availableCount === 0 || this.busy || this.key) return;
     this.confirming = true;
+    this.beforeCount = resets.availableCount;
+    this.afterCount = null;
+    this.outcome = null;
     this.changed();
   }
 
@@ -34,6 +39,8 @@ export class ResetCreditsModel {
     this.inFlight = null;
     this.outcome = null;
     this.error = null;
+    this.beforeCount = null;
+    this.afterCount = null;
     this.changed();
   }
 
@@ -66,6 +73,7 @@ export class ResetCreditsModel {
       if (generation !== this.generation) return;
       if (!Object.prototype.hasOwnProperty.call(resetOutcomeLabels, response.outcome)) throw new Error("Unknown reset outcome");
       this.outcome = response.outcome;
+      this.afterCount = typeof response.remainingCount === "number" && Number.isSafeInteger(response.remainingCount) && response.remainingCount >= 0 ? response.remainingCount : null;
       this.key = null;
     } catch {
       if (generation === this.generation) this.error = "Reset request could not be confirmed. Retry safely with the same request.";
@@ -77,6 +85,10 @@ export class ResetCreditsModel {
       }
     }
   }
+}
+
+export function resetBalanceLabel(before: number|null, after: number|null): string {
+  return `Reset credits: ${before ?? "unknown"} before · ${after ?? "unconfirmed"} after`;
 }
 
 export function resetCreditsState(resets: ResetCredits | null | undefined) {

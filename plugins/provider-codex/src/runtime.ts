@@ -1,4 +1,5 @@
 import { goalPlan, goalResponse, goalIntent } from "./runtimeGoal";
+import { initializedResult, runtimeBinaryVersion } from "./runtimeVersion";
 import type {
   RuntimeContext, Operation, RuntimePlan, RuntimeStep, RpcReply, RuntimeSettings,
   RuntimeFailure, JsonValue, ChatMsg, OpenItem, RuntimeHistoryQuestion,
@@ -10,7 +11,7 @@ import { pagedHistoryPlan, pagedHistoryResponse } from "./runtimeHistoryPager";
 import { projectHistoryItem } from "./runtimeStoredHistory";
 import { loginPlan, loginResponse } from "./runtimeLogin";
 import { rateLimitEvents } from "./runtimeUsage";
-import {resetOutcome} from "./resetCredits";
+import {resetCredits, resetOutcome} from "./resetCredits";
 import { accountAuth } from "./runtimeAuth";
 import {backgroundOwns, backgroundPlan, backgroundResponse} from "./runtimeBackground";
 import { interruptTargets } from "./runtimeInterrupt";
@@ -137,11 +138,11 @@ function planOperation(ctx: RuntimeContext, op: Operation): RuntimePlan {
       return {action:{kind:"reply",requestId:op.requestId,result:{kind:"success",value:runtimeAnswer(pending.method,pending.params,op.requestId,op.answer)}},state:null};
     }
     case "control": {
-      if (op.action === "readResetCredits") return request("account/rateLimits/read",{exclude_reset_credit_details:object(op.value).details !== true});
+      if (op.action === "readResetCredits") return request("account/rateLimits/read",{excludeResetCreditDetails:object(op.value).details !== true});
       if (op.action === "redeemResetCredit") {
         const key = text(object(op.value).idempotencyKey);
         if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) fail("invalid_schema","A confirmation UUID is required");
-        return request("account/rateLimitResetCredit/consume",{idempotency_key:key});
+        return request("account/rateLimitResetCredit/consume",{idempotencyKey:key});
       }
       if (op.action === "login") return loginPlan(op.value);
       if (op.action === "auth") return request("account/read",{refreshToken:false},{stage:"auth"});
@@ -206,7 +207,7 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
       && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))
       return historyItems(op,{...state,historyItemLimit:smaller},text(state.cursor));
     if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return {kind:"complete",result:{kind:"resetCreditConsumed",outcome:"reset"}};
-    if (op.kind === "initialize" && state.stage === "initializeLimits") return {kind:"complete",result:{kind:"initialized"},events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent]};
+    if (op.kind === "initialize" && state.stage === "initializeLimits") return {kind:"complete",result:initializedResult(state),events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent]};
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op,state);
     if (op.kind === "readHistory" && ["turns","items"].includes(String(state.stage)) && reply.error.code === -32601)
@@ -221,14 +222,14 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
   const value = object(reply.value);
   switch (op.kind) {
     case "initialize":
-      if (state.stage === "initialize") return continuation({action:{kind:"notification",notification:{method:"initialized",params:{}}},state:{stage:"initializedNotification"}});
-      if (state.stage === "initializedNotification") return continuation(request("account/read",{refreshToken:false},{stage:"initializeAccount"}));
+      if (state.stage === "initialize") return continuation({action:{kind:"notification",notification:{method:"initialized",params:{}}},state:json({stage:"initializedNotification",binaryVersion:runtimeBinaryVersion(value.userAgent)})});
+      if (state.stage === "initializedNotification") return continuation(request("account/read",{refreshToken:false},{...state,stage:"initializeAccount"}));
       if (state.stage === "initializeAccount") {
         const auth = accountAuth(value);
-        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read",{exclude_reset_credit_details:true}, {stage:"initializeLimits",auth}));
-        return {kind:"complete",result:{kind:"initialized"},events:[auth]};
+        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read",{excludeResetCreditDetails:true}, {...state,stage:"initializeLimits",auth}));
+        return {kind:"complete",result:initializedResult(state),events:[auth]};
       }
-      return {kind:"complete",result:{kind:"initialized"},events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent,...rateLimitEvents(value.rateLimits,value.rate_limit_reset_credits)]};
+      return {kind:"complete",result:initializedResult(state),events:[state.auth as unknown as import("@codeterm/plugin-sdk").AgentEvent,...rateLimitEvents(value.rateLimits,value.rateLimitResetCredits)]};
     case "openThread": {
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
@@ -269,12 +270,15 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
         }
         return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:{serviceTierAvailability:modelServiceTiers(state.models,value)}}]};
       }
-      if (op.action === "readResetCredits") return {kind:"complete",result:{kind:"done"},events:rateLimitEvents(value.rateLimits,value.rate_limit_reset_credits)};
+      if (op.action === "readResetCredits") {
+        if (!resetCredits(value.rateLimitResetCredits)) return refused("Reset credit allowance was not reported");
+        return {kind:"complete",result:{kind:"done"},events:rateLimitEvents(value.rateLimits,value.rateLimitResetCredits)};
+      }
       if (op.action === "redeemResetCredit") {
-        if (state.stage === "refreshResetCredits") return {kind:"complete",result:{kind:"resetCreditConsumed",outcome:"reset"},events:rateLimitEvents(value.rateLimits,value.rate_limit_reset_credits)};
+        if (state.stage === "refreshResetCredits") return {kind:"complete",result:{kind:"resetCreditConsumed",outcome:"reset"},events:rateLimitEvents(value.rateLimits,value.rateLimitResetCredits)};
         const outcome = resetOutcome(value);
         if (!outcome) return refused("Unknown reset credit outcome");
-        if (outcome === "reset") return continuation(request("account/rateLimits/read",{exclude_reset_credit_details:false},{stage:"refreshResetCredits"}));
+        if (outcome === "reset") return continuation(request("account/rateLimits/read",{excludeResetCreditDetails:false},{stage:"refreshResetCredits"}));
         return {kind:"complete",result:{kind:"resetCreditConsumed",outcome}};
       }
       if (op.action === "login") return loginResponse(state,value);
