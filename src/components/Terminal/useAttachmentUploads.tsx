@@ -1,7 +1,7 @@
 import { signalFrontendUploads } from "../../lib/frontendUpdate/appState";
 import { useEffect, useRef, useState } from "react";
-import { createAttachmentUploads, type AttachmentUpload } from "./attachmentUploadModel";
-import { usePublishComposerIssues } from "./ComposerIssuesContext";
+import { canRetryUpload, createAttachmentUploads, type AttachmentUpload } from "./attachmentUploadModel";
+import { AttachmentUploadNotice } from "./AttachmentUploadNotice";
 import { storeBlob } from "./voice/audio";
 
 export function useAttachmentUploads(onAttach: (paths: string[]) => unknown) {
@@ -14,12 +14,14 @@ export function useAttachmentUploads(onAttach: (paths: string[]) => unknown) {
     store: storeBlob, attach: (paths) => attachRef.current(paths), publish: next => { signalFrontendUploads(uploadOwner, next.filter(item => item.state === "uploading").length); setUploads(next); },
   });
   useEffect(() => () => { controllerRef.current?.dispose(); controllerRef.current = null; signalFrontendUploads(uploadOwner, 0); }, []);
-  usePublishComposerIssues(uploads, { retry: id => controller().retry(id), remove: id => controller().remove(id) });
   return {
     add: (blob: Blob, name: string) => controller().add(blob, name),
     store: async (blob: Blob, name: string) => (await controller().add(blob, name, false)) ?? "",
     addFiles: async (files: Iterable<File>) => { await Promise.all(Array.from(files, (file) => controller().add(file, file.name || "file.bin"))); },
-    status: null,
+    status: uploads.filter(upload => upload.state === "failed").map(upload =>
+      <AttachmentUploadNotice key={upload.id} upload={upload}
+        onRetry={canRetryUpload(upload) ? () => { void controller().retry(upload.id); } : undefined}
+        onRemove={() => controller().remove(upload.id)} />),
     busy: uploads.some((upload) => upload.state === "uploading"),
   };
 }
