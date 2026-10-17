@@ -52,19 +52,26 @@ test('state lifecycle persists scope and compact evidence beside the original jo
     const run = (command, args = []) => {
       const result = spawnSync(process.execPath, [fileURLToPath(script), command, '--dir', directory, '--job-id', 'fixture', ...args], { encoding: 'utf8', env: { ...process.env, SCCACHE_ERROR_LOG: path.join(directory, 'sccache-server.log') } });
       assert.equal(result.status, 0, result.stderr);
+      return result;
     };
     run('create', ['--job', 'check-queue', '--crates', 'codeterm-plan codeterm', '--touched-files-count', '3', '--log-path', log]);
     fs.writeFileSync(log, 'bounded gateway summary\n');
     fs.writeFileSync(path.join(directory, 'jobs', 'fixture.fingerprint.log'), fixture.fingerprint.join('\n'));
     fs.writeFileSync(path.join(directory, 'sccache-server.log'), 'previous job\n');
-    run('evidence-start', ['--scope', 'fixture']);
+    const started = run('evidence-start', ['--scope', 'fixture']);
+    assert.match(started.stdout, /sccache server at job start/);
     fs.appendFileSync(path.join(directory, 'sccache-server.log'), `${fixture.sccache.join('\n')}\n`);
-    run('evidence-end');
+    run('evidence-restart', ['--reason', 'server_unavailable']);
+    const ended = run('evidence-end');
+    assert.match(ended.stdout, /sccache server at job end/);
     run('update', ['--state', 'completed', '--exit-code', '0']);
     const record = JSON.parse(fs.readFileSync(path.join(directory, 'jobs', 'fixture.json')));
     assert.deepEqual(record.crates, ['codeterm-plan', 'codeterm']);
     assert.equal(record.touched_files_count, 3);
     assert.equal(record.state, 'completed');
+    assert.equal(record.sccache.restart_reason, 'server_unavailable');
+    assert.equal(record.sccache.reset_during_job, true);
+    assert.deepEqual(record.sccache.server_process.start, { available: false, reason: 'fixture' });
     assert.equal(record.diagnostics.rebuilt_units.length, 2);
     assert.equal(record.diagnostics.non_cacheable_units.length, 2);
     assert.match(fs.readFileSync(record.fingerprint_log_path, 'utf8'), /getrandom/);

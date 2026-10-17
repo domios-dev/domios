@@ -31,6 +31,7 @@ test('ordinary lanes use only an already live cache and respect explicit wrapper
     [ -z "$RUSTC_WRAPPER" ]
   `], { cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /no live sccache server; this check will compile without cache/);
 });
 
 test('POSIX nested wrappers invoke the cache once immediately before rustc', () => {
@@ -125,7 +126,8 @@ test('lane checks cap Cargo jobs, propagate errors and request tests only when n
     lane_check codeterm-fixture --all && exit 1 || [ "$?" = 2 ]
   `], { cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(result.stdout.trim().split(/\r?\n/), [
+  assert.match(result.stdout, /no live sccache server; this check will compile without cache/);
+  assert.deepEqual(result.stdout.trim().split(/\r?\n/).filter(line => line.startsWith('jobs=')), [
     'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib',
     'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --tests',
     'jobs=4 check --manifest-path cli/Cargo.toml -p codeterm-cli --bin codeterm --tests',

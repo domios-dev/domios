@@ -2226,7 +2226,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  lane-wrapper-check|dev-link-measure|feature-cycle|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
+  lane-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2291,7 +2291,7 @@ accept --notify-tab <tab> or BUILD_NOTIFY_TAB: one OK or early-failure receipt.
   build                       Build production artifacts
   cache-status                Show configured/server cache locations and endpoint health
   cache-verify                Verify shared S3 storage; start the S3 server only when none is live
-  cache-stats                 Show counters only from a live sccache server
+  cache-stats                 Show gateway cache deltas by job kind and live server counters
   gateway-status              Show the machine build owner
   build-history [--last N] [--verb V] [--json]  Build durations, cache hits and rebuild reasons
   gc [--dry-run]              Reclaim expired build caches and sweep checkout targets
@@ -2323,7 +2323,13 @@ EOF
     ct_sccache_verify
     ;;
   cache-stats)
-    ct_sccache_stats
+    node scripts/cache-stats.mjs --dir "$(ct_gateway_dir)"
+    if ct_sccache_server_live; then
+      echo "Live sccache process counters (reset when the server process restarts):"
+      ct_sccache_stats || echo "[cache-policy] live sccache counters unavailable"
+    else
+      echo "Live sccache process counters: unavailable (no server is running)"
+    fi
     ;;
   gateway-status)
     ct_gateway_status

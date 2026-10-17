@@ -318,8 +318,9 @@ CI uses `./build.sh cache-verify` (Windows: `.\build.ps1 cache-verify`). It prin
 configured and actual storage plus endpoint health, exits 0 only when both storage
 checks select the shared S3 bucket, and otherwise exits 2. It never restarts a
 server or checks for an idle machine. When no server is live and both S3 keys
-resolve, it starts the shared server with `SCCACHE_IDLE_TIMEOUT=0`: sccache
-servers exit after ten idle minutes, so runners otherwise have none between jobs. Set
+resolve, it starts the shared server with `SCCACHE_IDLE_TIMEOUT=0`, which disables
+idle shutdown. Cache counters belong to the live server process and reset when that
+process restarts; gateway job deltas remain in the per-job records. Set
 `CODETERM_SCCACHE_VERIFY_ONLY=1` in each CI build process so build setup follows
 that same verification path. Provision local-to-S3 storage separately while idle.
 

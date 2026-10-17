@@ -9,10 +9,19 @@ configure_lane_build_dir() {
 }
 
 configure_lane_cache() {
-  if [ -z "${RUSTC_WRAPPER:-}" ] && [ "${CODETERM_USE_SCCACHE:-1}" != 0 ] &&
-      declare -F ct_sccache_server_live >/dev/null && command -v sccache >/dev/null 2>&1 &&
-      ct_sccache_server_live; then
+  if [ -n "${RUSTC_WRAPPER:-}" ]; then return 0; fi
+  if [ "${CODETERM_USE_SCCACHE:-1}" = 0 ]; then
+    echo "[lane-check] sccache disabled by CODETERM_USE_SCCACHE=0"
+    return 0
+  fi
+  if ! command -v sccache >/dev/null 2>&1; then
+    echo "[lane-check] sccache unavailable; this check will compile without cache"
+    return 0
+  fi
+  if declare -F ct_sccache_server_live >/dev/null && ct_sccache_server_live; then
     ct_require_prestarted_sccache
+  else
+    echo "[lane-check] no live sccache server; this check will compile without cache"
   fi
 }
 
