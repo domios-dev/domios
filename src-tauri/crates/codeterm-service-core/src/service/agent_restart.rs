@@ -425,7 +425,7 @@ impl ServiceContext {
                 })?;
                 (
                     tab.session_binding_nonce.clone(),
-                    tab.task_binding.is_some(),
+                    restart_carries_task_attempt(tab.task_binding.as_ref()),
                 )
             };
             let authority = nonce.as_deref().and_then(|nonce| {
@@ -946,3 +946,8 @@ pub use model_switch::ModelSwitchOutcome;
 mod tests;
 
 pub(crate) mod switch_confirmation;
+
+/// Only a plan task binding carries an attempt across restart; a launch-only spawn handle does not.
+fn restart_carries_task_attempt(binding: Option<&crate::multiplexer::types::TaskBinding>) -> bool {
+    binding.is_some_and(|binding| binding.task_id.is_some())
+}
