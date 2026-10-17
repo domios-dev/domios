@@ -827,7 +827,7 @@
               "value_name": "KIND",
               "possible_values": [],
               "default": null,
-              "help": "Worker prompt kind/profile, with or without a task: tester or release_manager",
+              "help": "Worker prompt kind/profile, with or without a task: qa or release_manager",
               "aliases": []
             },
             {
@@ -10892,7 +10892,7 @@
             },
             {
               "name": "delegate",
-              "about": "Hand one in-review task to a direct child Tester for accept/bounce review",
+              "about": "Hand one in-review task to a direct child QA for accept/bounce review",
               "aliases": [],
               "args": [
                 {
@@ -10906,20 +10906,20 @@
                   "aliases": []
                 },
                 {
-                  "name": "task_id",
-                  "positional": true,
+                  "name": "qa-tab",
+                  "positional": false,
                   "required": true,
-                  "value_name": "TASK_ID",
+                  "value_name": "QA_TAB_ID",
                   "possible_values": [],
                   "default": null,
                   "help": null,
                   "aliases": []
                 },
                 {
-                  "name": "tester-tab",
-                  "positional": false,
+                  "name": "task_id",
+                  "positional": true,
                   "required": true,
-                  "value_name": "TESTER_TAB_ID",
+                  "value_name": "TASK_ID",
                   "possible_values": [],
                   "default": null,
                   "help": null,
