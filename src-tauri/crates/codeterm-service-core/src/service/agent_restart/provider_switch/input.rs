@@ -57,7 +57,7 @@ impl ServiceContext {
         let available = provider_handoff::input::MAX_INPUT_BYTES
             .saturating_sub(INSTRUCTIONS.len() + context.len() + 4);
         let recent = provider_handoff::input::recent_messages(messages);
-        let history = provider_handoff::select_history(&recent, available / 3);
+        let history = provider_handoff::input::select_history_literal(&recent, available);
         provider_handoff::input::assemble(provider_handoff::input::HandoffFragments {
             instructions: INSTRUCTIONS,
             context: &context,

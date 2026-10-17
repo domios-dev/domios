@@ -747,6 +747,9 @@ impl HotReloadRegistry {
                     .push(manifest_path);
             }
         }
+        for (id, paths) in &mut candidates {
+            super::loader::order_system_candidates(id, paths);
+        }
         candidates
     }
 

@@ -99,6 +99,7 @@ async fn restore_missing(
     let mut cursor = None;
     let mut seen = HashSet::new();
     let mut candidates = Vec::new();
+    let mut pages = 0;
     loop {
         verify_root(svc, session, request)?;
         let result = engine::run(
@@ -128,6 +129,7 @@ async fn restore_missing(
         if thread_id != request.root_thread_id {
             return Err(RuntimeFailure::Superseded);
         }
+        pages += 1;
         for item in items {
             let Some(child) = codeterm_plugin::agent_runtime::runtime_child(&thread_id, &item)
             else {
@@ -158,6 +160,7 @@ async fn restore_missing(
             }
         }
         let Some(next) = next_cursor else {
+            log::debug!("[agent-runtime] child relation missing root={thread_id} child={thread} epoch={} pages={pages} candidates={}", request.epoch, candidates.len());
             return Err(RuntimeFailure::Superseded);
         };
         if !seen.insert(next.clone()) {
