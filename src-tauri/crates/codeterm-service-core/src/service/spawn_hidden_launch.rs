@@ -15,10 +15,10 @@ pub(crate) fn first_turn(
     starter: Option<&str>,
 ) -> Option<String> {
     let task = task.filter(|task| !task.trim().is_empty())?;
-    if system_prompt {
-        Some(super::launch_delivery::assigned_task_starter(starter))
-    } else if inline_task {
+    if inline_task {
         None
+    } else if system_prompt {
+        Some(super::launch_delivery::assigned_task_starter(starter))
     } else {
         Some(task.to_owned())
     }
