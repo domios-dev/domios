@@ -43,6 +43,7 @@ pub async fn agent_service_tiers(
     };
     match service_tier_catalogue(
         config,
+        tab.agent_session_model.as_deref(),
         tab.agent_session_id.as_deref(),
         tab.session_binding_nonce.as_deref(),
     ) {
@@ -57,6 +58,7 @@ pub async fn agent_service_tiers(
 
 fn service_tier_catalogue(
     config: &Value,
+    session_model: Option<&str>,
     session_id: Option<&str>,
     binding_nonce: Option<&str>,
 ) -> Result<Value, (StatusCode, Value)> {
@@ -77,6 +79,7 @@ fn service_tier_catalogue(
     let model = config
         .get("model")
         .and_then(Value::as_str)
+        .or(session_model)
         .unwrap_or_default();
     let tiers = config
         .get("serviceTierAvailability")
@@ -338,23 +341,56 @@ mod service_tier_tests {
             "serviceTierAvailabilityBinding":{"sessionId":"session-a","bindingNonce":"nonce-a"},
             "confirmedServiceTier":{"selection":{"id":"fast"},"sessionId":"session-a","bindingNonce":"nonce-a"}
         });
-        let result = service_tier_catalogue(&config, Some("session-a"), Some("nonce-a")).unwrap();
+        let result =
+            service_tier_catalogue(&config, None, Some("session-a"), Some("nonce-a")).unwrap();
         assert_eq!(result["tiers"], serde_json::json!([{"id":"fast"}]));
         assert_eq!(result["requested"]["id"], "fast");
         assert_eq!(result["confirmed"]["id"], "fast");
     }
 
     #[test]
+    fn default_model_uses_bound_session_model() {
+        let config = serde_json::json!({
+            "model":null,
+            "serviceTierAvailability":{"session-model":[{"id":"fast"}]},
+            "serviceTierAvailabilityBinding":{"sessionId":"session-a","bindingNonce":"nonce-a"}
+        });
+        let result = service_tier_catalogue(
+            &config,
+            Some("session-model"),
+            Some("session-a"),
+            Some("nonce-a"),
+        )
+        .unwrap();
+        assert_eq!(result["model"], "session-model");
+        assert_eq!(result["tiers"], serde_json::json!([{"id":"fast"}]));
+        assert!(service_tier_catalogue(
+            &config,
+            Some("session-model"),
+            Some("foreign-session"),
+            Some("nonce-a")
+        )
+        .is_err());
+        assert!(service_tier_catalogue(
+            &config,
+            Some("session-model"),
+            Some("session-a"),
+            Some("foreign-nonce")
+        )
+        .is_err());
+    }
+
+    #[test]
     fn stale_binding_and_empty_availability_are_typed_no_tiers_refusals() {
         let config = serde_json::json!({"model":"model-a","serviceTierAvailabilityBinding":{"sessionId":"session-a","bindingNonce":"nonce-a"},"serviceTierAvailability":{"model-a":[]}});
         assert_eq!(
-            service_tier_catalogue(&config, Some("session-b"), Some("nonce-a"))
+            service_tier_catalogue(&config, None, Some("session-b"), Some("nonce-a"))
                 .unwrap_err()
                 .1["reason"],
             "no_tiers"
         );
         assert_eq!(
-            service_tier_catalogue(&config, Some("session-a"), Some("nonce-a"))
+            service_tier_catalogue(&config, None, Some("session-a"), Some("nonce-a"))
                 .unwrap_err()
                 .1["reason"],
             "no_tiers"
