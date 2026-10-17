@@ -1798,7 +1798,7 @@ function expiry(value) {
 }
 function resetCredits(raw) {
   const summary = object(raw);
-  const count = summary.available_count;
+  const count = summary.availableCount;
   if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return void 0;
   const credits = Array.isArray(summary.credits) ? summary.credits.flatMap((rawCredit) => {
     const credit = object(rawCredit);
@@ -1808,7 +1808,7 @@ function resetCredits(raw) {
     return [{
       id,
       status,
-      expiresAt: expiry(credit.expires_at),
+      expiresAt: expiry(credit.expiresAt),
       ...text(credit.title) ? { title: text(credit.title) } : {},
       ...text(credit.description) ? { description: text(credit.description) } : {}
     }];
@@ -1841,10 +1841,9 @@ function rateLimitEvents(raw, rawResets) {
 }
 function parseAccountCredits(raw) {
   const value = object(raw);
-  const hasCredits = value.hasCredits ?? value.has_credits;
-  if (hasCredits !== true || typeof value.unlimited !== "boolean") return void 0;
+  if (typeof value.hasCredits !== "boolean" || typeof value.unlimited !== "boolean") return void 0;
   if (value.unlimited) return { kind: "unlimited" };
-  return typeof value.balance === "string" && value.balance.trim() ? { kind: "balance", balance: value.balance } : void 0;
+  return typeof value.balance === "string" && /^\d+(?:\.\d+)?$/.test(value.balance) ? { kind: "balance", balance: value.balance } : void 0;
 }
 
 // plugins/provider-codex/src/runtimeAuth.ts
@@ -2579,7 +2578,7 @@ function runtimeReduce(ctx, raw, frames) {
       const limits = object(params.rateLimits);
       if (limits.limitId && limits.limitId !== "codex") continue;
       state.rateLimitSnapshot = { ...state.rateLimitSnapshot, ...limits };
-      events.push(...rateLimitEvents(state.rateLimitSnapshot, params.rate_limit_reset_credits));
+      events.push(...rateLimitEvents(state.rateLimitSnapshot, params.rateLimitResetCredits));
       continue;
     }
     const descendant = typeof params.threadId === "string" && ctx.threadParents.some((parent) => parent.threadId === params.threadId);
@@ -2914,11 +2913,11 @@ function planOperation(ctx, op) {
       return { action: { kind: "reply", requestId: op.requestId, result: { kind: "success", value: runtimeAnswer(pending.method, pending.params, op.requestId, op.answer) } }, state: null };
     }
     case "control": {
-      if (op.action === "readResetCredits") return request("account/rateLimits/read", { exclude_reset_credit_details: object(op.value).details !== true });
+      if (op.action === "readResetCredits") return request("account/rateLimits/read", { excludeResetCreditDetails: object(op.value).details !== true });
       if (op.action === "redeemResetCredit") {
         const key = text(object(op.value).idempotencyKey);
         if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) fail2("invalid_schema", "A confirmation UUID is required");
-        return request("account/rateLimitResetCredit/consume", { idempotency_key: key });
+        return request("account/rateLimitResetCredit/consume", { idempotencyKey: key });
       }
       if (op.action === "login") return loginPlan(op.value);
       if (op.action === "auth") return request("account/read", { refreshToken: false }, { stage: "auth" });
@@ -2995,10 +2994,10 @@ function respondOperation(ctx, op, raw, reply) {
       if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { stage: "initializeAccount" }));
       if (state.stage === "initializeAccount") {
         const auth = accountAuth(value);
-        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read", { exclude_reset_credit_details: true }, { stage: "initializeLimits", auth }));
+        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read", { excludeResetCreditDetails: true }, { stage: "initializeLimits", auth }));
         return { kind: "complete", result: { kind: "initialized" }, events: [auth] };
       }
-      return { kind: "complete", result: { kind: "initialized" }, events: [state.auth, ...rateLimitEvents(value.rateLimits, value.rate_limit_reset_credits)] };
+      return { kind: "complete", result: { kind: "initialized" }, events: [state.auth, ...rateLimitEvents(value.rateLimits, value.rateLimitResetCredits)] };
     case "openThread": {
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
@@ -3039,12 +3038,15 @@ function respondOperation(ctx, op, raw, reply) {
         }
         return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: { serviceTierAvailability: modelServiceTiers(state.models, value) } }] };
       }
-      if (op.action === "readResetCredits") return { kind: "complete", result: { kind: "done" }, events: rateLimitEvents(value.rateLimits, value.rate_limit_reset_credits) };
+      if (op.action === "readResetCredits") {
+        if (!resetCredits(value.rateLimitResetCredits)) return refused("Reset credit allowance was not reported");
+        return { kind: "complete", result: { kind: "done" }, events: rateLimitEvents(value.rateLimits, value.rateLimitResetCredits) };
+      }
       if (op.action === "redeemResetCredit") {
-        if (state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" }, events: rateLimitEvents(value.rateLimits, value.rate_limit_reset_credits) };
+        if (state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" }, events: rateLimitEvents(value.rateLimits, value.rateLimitResetCredits) };
         const outcome2 = resetOutcome(value);
         if (!outcome2) return refused("Unknown reset credit outcome");
-        if (outcome2 === "reset") return continuation(request("account/rateLimits/read", { exclude_reset_credit_details: false }, { stage: "refreshResetCredits" }));
+        if (outcome2 === "reset") return continuation(request("account/rateLimits/read", { excludeResetCreditDetails: false }, { stage: "refreshResetCredits" }));
         return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: outcome2 } };
       }
       if (op.action === "login") return loginResponse(state, value);

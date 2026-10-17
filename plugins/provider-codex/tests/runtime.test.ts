@@ -141,7 +141,7 @@ function replay(fixture:Fixture) {
       else assert.ok(ready.has(record.operation),"Next call follows a continuation");
       allowed(entry.operation,plan.action);
       const expected = record.action.kind === "request" && record.action.call.method === "account/rateLimits/read"
-        ? {...record.action,call:{...record.action.call,params:{exclude_reset_credit_details:true}}} : record.action;
+        ? {...record.action,call:{...record.action.call,params:{excludeResetCreditDetails:true}}} : record.action;
       assert.deepEqual(plain(plan.action),expected);
       if (plan.action.kind === "questionAnswer") plans.delete(record.operation);
       else plans.set(record.operation,plan);
@@ -1018,7 +1018,7 @@ check("subscription initialization reads the recorded current limits",()=> {
   const step = hooks.runtimeResponse(ctx,operation,{stage:"initializeAccount"},{kind:"success",value:{account:{type:"chatgpt"}}});
   assert.equal(step.kind,"continue");
   if(step.kind !== "continue") return;
-  assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"account/rateLimits/read",params:{exclude_reset_credit_details:true}}});
+  assert.deepEqual(plain(step.plan.action),{kind:"request",call:{method:"account/rateLimits/read",params:{excludeResetCreditDetails:true}}});
   const value = JSON.parse(fs.readFileSync(new URL("./fixtures/runtime-rate-limits-read.json",import.meta.url),"utf8"));
   const done = hooks.runtimeResponse(ctx,operation,step.plan.state,{kind:"success",value});
   assert.equal(done.kind,"complete");
@@ -1062,18 +1062,20 @@ check("reset credit reads and consume outcomes stay inside declared runtime meth
   const operation:Operation={kind:"control",action:"readResetCredits",value:{details:true}};
   const plan=hooks.runtimePlan(ctx,operation);
   allowed(operation,plan.action);
-  assert.deepEqual(plain(plan.action),{kind:"request",call:{method:"account/rateLimits/read",params:{exclude_reset_credit_details:false}}});
+  assert.deepEqual(plain(plan.action),{kind:"request",call:{method:"account/rateLimits/read",params:{excludeResetCreditDetails:false}}});
   const background=hooks.runtimePlan(ctx,{...operation,value:{details:false}});
   assert.equal(background.action.kind,"request");
-  if(background.action.kind === "request") assert.equal((background.action.call.params as Record<string,JsonValue>).exclude_reset_credit_details,true);
-  const read=hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{rate_limit_reset_credits:{available_count:5,credits:null}}});
+  if(background.action.kind === "request") assert.equal((background.action.call.params as Record<string,JsonValue>).excludeResetCreditDetails,true);
+  const read=hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{rateLimitResetCredits:{availableCount:5,credits:null}}});
   assert.equal(read.kind,"complete");
   if(read.kind === "complete") assert.deepEqual(plain(read.events),[{kind:"rateLimits",rateLimits:[],resets:{availableCount:5,nextExpiry:null,credits:null}}]);
+  const missing=hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{rateLimits:{primary:{usedPercent:0}}}});
+  assert.equal(missing.kind,"refused");
   const consume:Operation={kind:"control",action:"redeemResetCredit",value:{idempotencyKey:"12345678-1234-4123-8123-123456789abc"}};
   const consumePlan=hooks.runtimePlan(ctx,consume);
   allowed(consume,consumePlan.action);
   assert.deepEqual(plain(hooks.runtimePlan(ctx,consume)),plain(consumePlan));
-  assert.deepEqual(plain(consumePlan.action),{kind:"request",call:{method:"account/rateLimitResetCredit/consume",params:{idempotency_key:"12345678-1234-4123-8123-123456789abc"}}});
+  assert.deepEqual(plain(consumePlan.action),{kind:"request",call:{method:"account/rateLimitResetCredit/consume",params:{idempotencyKey:"12345678-1234-4123-8123-123456789abc"}}});
   for(const outcome of ["nothingToReset","noCredit","alreadyRedeemed"]) {
     const done=hooks.runtimeResponse(ctx,consume,consumePlan.state,{kind:"success",value:{outcome}});
     assert.deepEqual(plain(done),{kind:"complete",result:{kind:"resetCreditConsumed",outcome}});
@@ -1082,7 +1084,7 @@ check("reset credit reads and consume outcomes stay inside declared runtime meth
   assert.equal(reset.kind,"continue");
   if(reset.kind !== "continue") return;
   allowed(consume,reset.plan.action);
-  const refreshed=hooks.runtimeResponse(ctx,consume,reset.plan.state,{kind:"success",value:{rate_limit_reset_credits:{available_count:0}}});
+  const refreshed=hooks.runtimeResponse(ctx,consume,reset.plan.state,{kind:"success",value:{rateLimitResetCredits:{availableCount:0}}});
   assert.equal(refreshed.kind,"complete");
   if(refreshed.kind === "complete") assert.deepEqual(plain(refreshed.result),{kind:"resetCreditConsumed",outcome:"reset"});
   const refreshFailed=hooks.runtimeResponse(ctx,consume,reset.plan.state,{kind:"error",error:{code:-1,message:"offline"}});
