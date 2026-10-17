@@ -150,6 +150,10 @@ pub(crate) async fn hook_provider_event(
                     "provider idle tab has no PTY status".to_string(),
                 ));
             }
+            state
+                .svc
+                .run_watcher
+                .observe_provider_turn_end(&state.svc, &tab_id, nonce, !has_error);
             state.svc.schedule_session_model_refresh_after_stop(&tab_id);
             state
                 .svc
