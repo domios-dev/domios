@@ -69,7 +69,9 @@ Before a wave:
 6. Dispatch failure: immediately send a standalone user alert (impact, affected tasks, cleanup, active fallback); verify rollback. After two same-class failures, stop dispatching; diagnose/escalate the coordination incident via `codeterm notify send ... --level action_needed` and a plan stride on the task. Await owner direction before retrying.
    Never self-implement plan-owned work to bypass failed dispatch; mark the task done only after an acknowledged Worker attempt or owner decision.
 
-Every Worker has a clear Orchestrator title and description,
+Every Worker has a clear Orchestrator title and description. Task dispatch
+derives a short description from the task name; pass `--description` to override
+it. Direct `agent spawn` still requires `--description`.
 `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, its chosen checkout, and a self-contained
 brief with exact acceptance and test commands; it ACKs first and reports last.
 
@@ -101,4 +103,4 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

@@ -78,6 +78,8 @@ pub struct SpawnTabSpec {
     pub title: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default, skip)]
+    pub task_description_managed: bool,
     #[serde(default)]
     pub purpose: crate::multiplexer::types::ShellPurpose,
     #[serde(default)]
@@ -407,7 +409,11 @@ impl ServiceContext {
                 tab.audience = spec.audience;
             }
             if let Some(ref description) = spec.description {
-                let _ = mux.set_tab_description(&result, Some(description.clone()));
+                if spec.task_description_managed {
+                    let _ = mux.set_task_tab_description(&result, Some(description.clone()));
+                } else {
+                    let _ = mux.set_tab_description(&result, Some(description.clone()));
+                }
             }
             if let Some(ref rtid) = agent.report_target_tab_id {
                 if let Some(tab) = mux.get_tab_mut(&result) {

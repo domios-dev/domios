@@ -344,6 +344,7 @@ pub(super) fn run_dispatch(
         authorized_gates,
         canonical_writer,
         model,
+        description,
         reasoning_effort,
         parent,
         workspace,
@@ -372,6 +373,9 @@ pub(super) fn run_dispatch(
     }
     if let Some(model) = model {
         params["model"] = json!(model);
+    }
+    if let Some(description) = crate::cmd::agent::join_cli_words(description) {
+        params["description"] = json!(description);
     }
     if let Some(effort) = reasoning_effort {
         params["reasoning_effort"] = json!(effort);

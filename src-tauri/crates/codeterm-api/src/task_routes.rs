@@ -204,6 +204,16 @@ pub async fn take(
             epoch_ms(),
         )
         .map_err(plan_err)?;
+    let detail = state
+        .svc
+        .plan_store
+        .show_task(&task_id)
+        .ok_or_else(|| plan_err(PlanError::TaskNotFound))?;
+    let description = codeterm_service_core::service::task_tab_description(&detail.task.name, None);
+    state
+        .svc
+        .assign_task_tab_description(&tab_id, &description)
+        .map_err(|message| (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))))?;
     state
         .svc
         .ui
@@ -281,6 +291,7 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
         .as_deref()
         .is_some_and(|s| !s.trim().is_empty());
     let assign_tab = body.assign_tab.clone();
+    let task_name = body.name.clone();
     let (plan_id, task_id) = state
         .svc
         .plan_store
@@ -313,6 +324,11 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
             .plan_store
             .set_task_assignment(&task_id, Some(tab), assign_role, epoch_ms())
             .map_err(plan_err)?;
+        let description = codeterm_service_core::service::task_tab_description(&task_name, None);
+        state
+            .svc
+            .assign_task_tab_description(tab, &description)
+            .map_err(|message| (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))))?;
     }
     state
         .svc

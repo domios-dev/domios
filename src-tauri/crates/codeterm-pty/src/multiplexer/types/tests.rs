@@ -37,6 +37,7 @@ fn tab_with(id: &str, backing: TabBacking) -> Tab {
         pending_delivery: None,
         title: "Terminal".to_string(),
         description: None,
+        description_origin: Default::default(),
         cwd: None,
         provisioned_cwd: None,
         url: None,

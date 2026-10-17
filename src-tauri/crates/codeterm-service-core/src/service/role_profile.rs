@@ -34,6 +34,7 @@ impl SpawnAgentParams {
                 .map(|s| crate::service::normalize_tab_description(&s))
                 .transpose()?
                 .flatten(),
+            task_description_managed: false,
             role: json_str(params, "role"),
             role_profile: json_str(params, "role_profile"),
             parent_tab_id: json_str(params, "parent_tab_id").or_else(|| json_str(params, "parent")),
