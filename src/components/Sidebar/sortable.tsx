@@ -105,6 +105,7 @@ export function SortableRow({
         scale: isTouchDragging ? "1.02" : undefined,
       }}
       {...attributes}
+      aria-disabled={undefined}
       {...listeners}
       onMouseDown={(event) => {
         if (isEditableTarget(event.target)) return;

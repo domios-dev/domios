@@ -47,7 +47,7 @@ it("confirmation sends one target selection and shows its result", async () => {
     expect(button("Previous provider: source")).not.toBeNull();
     __setInvokeForTest(async <T,>(command: string) => {
       expect(command).toBe("read_provider_history");
-      return [{ kind: "user", content: "opaque-prior-🪵" }] as T;
+      return [{ type: "user", content: "opaque-prior-🪵" }] as T;
     });
     await act(async () => button("Previous provider: source").click());
     expect(document.querySelector('[aria-label="Previous provider transcript"]')?.textContent).toContain("opaque-prior-🪵");

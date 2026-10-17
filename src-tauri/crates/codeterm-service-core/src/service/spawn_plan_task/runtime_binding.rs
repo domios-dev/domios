@@ -69,6 +69,9 @@ impl ServiceContext {
         let Some(binding) = binding else {
             return Ok(());
         };
+        if binding.plan_id.is_none() && binding.task_id.is_none() && binding.attempt_id.is_none() {
+            return Ok(());
+        }
         let (Some(plan), Some(task), Some(attempt)) =
             (binding.plan_id, binding.task_id, binding.attempt_id)
         else {
