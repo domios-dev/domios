@@ -224,7 +224,7 @@ fn validate_accepts_a_read_only_worker_that_owns_no_task() {
 
 #[test]
 fn worker_kinds_support_mutating_work_with_or_without_tasks() {
-    for kind in ["tester", "release_manager", "opaque-worker-kind"] {
+    for kind in ["qa", "release_manager", "opaque-worker-kind"] {
         validate_worker_plan_task_spawn(&SpawnAgentParams {
             role: Some("Worker".into()),
             role_profile: Some(kind.into()),
@@ -257,7 +257,7 @@ fn worker_kinds_support_mutating_work_with_or_without_tasks() {
         .expect("a kind Worker may mutate without a task");
     }
 
-    for kind in ["tester", "release_manager", "opaque-worker-kind"] {
+    for kind in ["qa", "release_manager", "opaque-worker-kind"] {
         validate_worker_plan_task_spawn(&SpawnAgentParams {
             role: Some("Worker".into()),
             role_profile: Some(kind.into()),

@@ -304,7 +304,7 @@ fn add_in_review_task(
     task_id
 }
 
-fn tester_child(fixture: &ServiceFixture, owner_tab_id: &str) -> String {
+fn qa_child(fixture: &ServiceFixture, owner_tab_id: &str) -> String {
     let (workspace, team) = {
         let mux = fixture.service.mux.read();
         let workspace = mux.find_workspace_for_tab(owner_tab_id).unwrap();
@@ -313,36 +313,36 @@ fn tester_child(fixture: &ServiceFixture, owner_tab_id: &str) -> String {
     };
     let mut mux = fixture.service.mux.write();
     let tab_id = mux.create_tab(&workspace).unwrap();
-    let tester = mux.get_tab_mut(&tab_id).unwrap();
-    tester.role = Some(AgentRole::Worker);
-    tester.role_profile = Some("tester".into());
-    tester.parent_tab_id = Some(owner_tab_id.into());
-    tester.report_target_tab_id = Some(owner_tab_id.into());
-    tester.team_id = team;
-    tester.agent_session_id = Some("tester-session".into());
-    tester.session_binding_nonce = Some("tester-nonce".into());
-    tester.reported_session_binding_nonce = Some("tester-nonce".into());
+    let qa = mux.get_tab_mut(&tab_id).unwrap();
+    qa.role = Some(AgentRole::Worker);
+    qa.role_profile = Some("qa".into());
+    qa.parent_tab_id = Some(owner_tab_id.into());
+    qa.report_target_tab_id = Some(owner_tab_id.into());
+    qa.team_id = team;
+    qa.agent_session_id = Some("qa-session".into());
+    qa.session_binding_nonce = Some("qa-nonce".into());
+    qa.reported_session_binding_nonce = Some("qa-nonce".into());
     tab_id
 }
 
-fn tester_caller(tab_id: &str) -> serde_json::Value {
+fn qa_caller(tab_id: &str) -> serde_json::Value {
     json!({
         "caller_tab_id": tab_id,
-        "session_id": "tester-session",
-        "session_binding_nonce": "tester-nonce",
-        "from": { "tab_id": tab_id, "session_id": "tester-session" },
+        "session_id": "qa-session",
+        "session_binding_nonce": "qa-nonce",
+        "from": { "tab_id": tab_id, "session_id": "qa-session" },
     })
 }
 
 #[test]
-fn parent_can_hand_one_in_review_task_to_a_direct_tester_child() {
+fn parent_can_hand_one_in_review_task_to_a_direct_qa_child() {
     let (fixture, plan_id, owner) = fixture(None, true);
-    let tester = tester_child(&fixture, &owner);
+    let qa = qa_child(&fixture, &owner);
     let task_id = add_in_review_task(&fixture, &plan_id, "author", "delegated task");
     let mut params = caller(&owner, LIVE_SESSION, NONCE);
     params["plan_id"] = json!(plan_id);
     params["task_id"] = json!(task_id);
-    params["tester_tab_id"] = json!(tester);
+    params["qa_tab_id"] = json!(qa);
 
     let result = super::dispatch(
         "plan.review.delegate",
@@ -353,32 +353,32 @@ fn parent_can_hand_one_in_review_task_to_a_direct_tester_child() {
 
     assert_eq!(result["delegated"], true);
     let mux = fixture.service.mux.read();
-    let tester_tab = mux.get_tab(&tester).unwrap();
+    let qa_tab = mux.get_tab(&qa).unwrap();
     assert_eq!(
-        tester_tab.taskless_authorized_review_tasks,
+        qa_tab.taskless_authorized_review_tasks,
         vec![format!("{plan_id}/{task_id}")]
     );
 }
 
 #[test]
-fn tester_can_accept_only_a_handed_task_with_an_evidence_note() {
+fn qa_can_accept_only_a_handed_task_with_an_evidence_note() {
     let (fixture, plan_id, owner) = fixture(None, true);
-    let tester = tester_child(&fixture, &owner);
+    let qa = qa_child(&fixture, &owner);
     let delegated = add_in_review_task(&fixture, &plan_id, "author-one", "delegated task");
     let other = add_in_review_task(&fixture, &plan_id, "author-two", "other task");
     let svc = std::sync::Arc::new(fixture.service.clone());
     let mut handoff = caller(&owner, LIVE_SESSION, NONCE);
     handoff["plan_id"] = json!(plan_id);
     handoff["task_id"] = json!(delegated);
-    handoff["tester_tab_id"] = json!(tester);
+    handoff["qa_tab_id"] = json!(qa);
     super::dispatch("plan.review.delegate", &Some(handoff), &svc).unwrap();
 
-    let mut unauthorized = tester_caller(&tester);
+    let mut unauthorized = qa_caller(&qa);
     unauthorized["plan_id"] = json!(plan_id);
     unauthorized["task_id"] = json!(other);
     unauthorized["note"] = json!("I have no handoff for this task");
     let error = super::dispatch("plan.review.accept", &Some(unauthorized), &svc)
-        .expect_err("a Tester cannot accept a task it was not handed");
+        .expect_err("a QA cannot accept a task it was not handed");
     assert_eq!(error.code, -32003);
     assert_eq!(
         fixture
@@ -391,11 +391,11 @@ fn tester_can_accept_only_a_handed_task_with_an_evidence_note() {
         codeterm_service_core::plan::TaskStatus::InReview
     );
 
-    let mut missing_note = tester_caller(&tester);
+    let mut missing_note = qa_caller(&qa);
     missing_note["plan_id"] = json!(plan_id);
     missing_note["task_id"] = json!(delegated);
     let error = super::dispatch("plan.review.accept", &Some(missing_note), &svc)
-        .expect_err("a Tester verdict must carry evidence");
+        .expect_err("a QA verdict must carry evidence");
     assert_eq!(
         error
             .data
@@ -405,7 +405,7 @@ fn tester_can_accept_only_a_handed_task_with_an_evidence_note() {
         Some("qa_note_required")
     );
 
-    let mut accept = tester_caller(&tester);
+    let mut accept = qa_caller(&qa);
     accept["plan_id"] = json!(plan_id);
     accept["task_id"] = json!(delegated);
     accept["note"] = json!("PASS: the observable result and recorded row match the criteria");
@@ -430,43 +430,43 @@ fn tester_can_accept_only_a_handed_task_with_an_evidence_note() {
         .service
         .mux
         .read()
-        .get_tab(&tester)
+        .get_tab(&qa)
         .unwrap()
         .taskless_authorized_review_tasks
         .is_empty());
 }
 
 #[test]
-fn tester_cannot_hold_a_handed_review_or_accept_without_its_live_binding() {
+fn qa_cannot_hold_a_handed_review_or_accept_without_its_live_binding() {
     let (fixture, plan_id, owner) = fixture(None, true);
-    let tester = tester_child(&fixture, &owner);
+    let qa = qa_child(&fixture, &owner);
     let task_id = add_in_review_task(&fixture, &plan_id, "author", "delegated task");
     let svc = std::sync::Arc::new(fixture.service.clone());
     let mut handoff = caller(&owner, LIVE_SESSION, NONCE);
     handoff["plan_id"] = json!(plan_id);
     handoff["task_id"] = json!(task_id);
-    handoff["tester_tab_id"] = json!(tester);
+    handoff["qa_tab_id"] = json!(qa);
     super::dispatch("plan.review.delegate", &Some(handoff), &svc).unwrap();
 
-    let mut hold = tester_caller(&tester);
+    let mut hold = qa_caller(&qa);
     hold["plan_id"] = json!(plan_id);
     hold["task_id"] = json!(task_id);
     hold["note"] = json!("hold");
     assert_eq!(
         super::dispatch("plan.review.hold", &Some(hold), &svc)
-            .expect_err("tester has no hold authority")
+            .expect_err("qa has no hold authority")
             .code,
         -32003
     );
 
-    let mut forged = tester_caller(&tester);
+    let mut forged = qa_caller(&qa);
     forged["plan_id"] = json!(plan_id);
     forged["task_id"] = json!(task_id);
     forged["note"] = json!("looks verified");
     forged["session_binding_nonce"] = json!("foreign-nonce");
     assert_eq!(
         super::dispatch("plan.review.accept", &Some(forged), &svc)
-            .expect_err("a stale Tester binding is refused")
+            .expect_err("a stale QA binding is refused")
             .code,
         -32003
     );
@@ -483,7 +483,7 @@ fn tester_cannot_hold_a_handed_review_or_accept_without_its_live_binding() {
 }
 
 #[test]
-fn tester_bounce_consumes_the_handoff_before_reopening_a_gone_workers_task() {
+fn qa_bounce_consumes_the_handoff_before_reopening_a_gone_workers_task() {
     let (fixture, plan_id, task_id, _) = socket_bounce_fixture(false);
     let owner = fixture
         .service
@@ -499,15 +499,15 @@ fn tester_bounce_consumes_the_handoff_before_reopening_a_gone_workers_task() {
             owner.session_binding_nonce.clone().unwrap(),
         )
     };
-    let tester = tester_child(&fixture, &owner);
+    let qa = qa_child(&fixture, &owner);
     let svc = std::sync::Arc::new(fixture.service.clone());
     let mut handoff = caller(&owner, &owner_session, &owner_nonce);
     handoff["plan_id"] = json!(plan_id);
     handoff["task_id"] = json!(task_id);
-    handoff["tester_tab_id"] = json!(tester);
+    handoff["qa_tab_id"] = json!(qa);
     super::dispatch("plan.review.delegate", &Some(handoff), &svc).unwrap();
 
-    let mut bounce = tester_caller(&tester);
+    let mut bounce = qa_caller(&qa);
     bounce["plan_id"] = json!(plan_id);
     bounce["task_id"] = json!(task_id);
     bounce["note"] = json!("FAIL: expected persisted row was absent");
@@ -527,7 +527,7 @@ fn tester_bounce_consumes_the_handoff_before_reopening_a_gone_workers_task() {
         .service
         .mux
         .read()
-        .get_tab(&tester)
+        .get_tab(&qa)
         .unwrap()
         .taskless_authorized_review_tasks
         .is_empty());

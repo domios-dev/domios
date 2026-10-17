@@ -5,7 +5,7 @@ pub const GENERAL_AGENT: &str = "general_agent";
 pub const PLANNER: &str = "planner";
 pub const WATCHER: &str = "watcher";
 pub const WORKER: &str = "worker";
-pub const TESTER: &str = "tester";
+pub const QA: &str = "qa";
 pub const RELEASE_MANAGER: &str = "release_manager";
 /// Manager-kind leaf that authors the essence map. It is non-anchoring and
 /// carries no spawn, plan, release or team-staffing authority.
@@ -19,7 +19,7 @@ static BUILTINS: [RoleKindDescriptor; 8] = [
     RoleKindDescriptor::managing_leaf(PLANNER, "Planner"),
     RoleKindDescriptor::managing_leaf_observer(WATCHER, "Watcher"),
     RoleKindDescriptor::leaf(WORKER, "Worker"),
-    RoleKindDescriptor::taskless_worker(TESTER, "Tester"),
+    RoleKindDescriptor::taskless_worker(QA, "QA"),
     RoleKindDescriptor::taskless_worker(RELEASE_MANAGER, "Release Manager"),
     RoleKindDescriptor::managing_leaf_withheld(CARTOGRAPHER, "Cartographer"),
 ];
