@@ -67,3 +67,14 @@ export function collectPeerErrors(remote: PeerFetchResult[]): string[] {
   }
   return errors;
 }
+
+export function cachedServices(resources: Service[]): Service[] {
+  return resources.map((resource) => ({
+    ...resource,
+    stale: true,
+    provenance: { ...resource.provenance, freshness: "stale", offline: resource.provenance?.offline ?? false },
+    capabilities: Object.fromEntries(Object.entries(resource.capabilities ?? {}).map(([operation, capability]) => [operation,
+      capability.allowed ? { allowed: false, unavailable_reason: "stale" } : capability,
+    ])),
+  }));
+}
