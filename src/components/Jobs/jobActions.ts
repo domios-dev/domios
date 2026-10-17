@@ -1,7 +1,7 @@
 import { orchestrationTransport } from "../../lib/transport/orchestrationRuntime";
 import type { CronJob } from "../../lib/types";
 import type { AutomationGraphAdapter } from "../Automation/types";
-import type { MergedJob } from "./jobsModel";
+import { jobWorkspace, type MergedJob } from "./jobsModel";
 import type { WorkspaceGraph } from "./useWorkspaceGraphs";
 
 export interface JobsActionAdapter {
@@ -19,11 +19,6 @@ export interface JobActionContext {
   jobActions: JobsActionAdapter;
   graphFor: (workspaceId: string) => WorkspaceGraph | undefined;
   refreshCrons: () => Promise<unknown>;
-}
-
-export function jobWorkspace(job: MergedJob): string {
-  if (job.kind === "blueprint") return job.blueprint.identity.workspace_id;
-  return job.kind === "cron" ? job.cron.workspace_id : job.sentinel.scenario.root.workspace_id;
 }
 
 export async function deleteMergedJob(job: MergedJob, context: JobActionContext): Promise<unknown> {
