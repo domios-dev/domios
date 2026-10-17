@@ -19,7 +19,8 @@ pub(crate) fn deliver_exact_role_target(
     }
     let result = deliver(intended_target);
     match &result {
-        Ok(crate::service::messenger::Delivery::Pending { delivery_id }) => log::warn!(
+        Ok(crate::service::messenger::Delivery::Pending { delivery_id }
+            | crate::service::messenger::Delivery::Unconfirmed { delivery_id }) => log::warn!(
             "[plan-role-delivery] plan={} role={} intended_target={} actual_target={} outcome=pending delivery_id={}",
             plan_id,
             role,
