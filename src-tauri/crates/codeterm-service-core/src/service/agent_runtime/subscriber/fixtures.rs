@@ -87,7 +87,7 @@ impl AgentProvider for Adapter {
     }
     fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
         Some(AgentRuntimeCapability {
-            fast_mode: false,
+            service_tiers: Vec::new(),
             background_processes: false,
             goals: None,
             thread_history: None,

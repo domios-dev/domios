@@ -46,9 +46,35 @@ pub enum RuntimeFrame {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeServiceTierSelection {
+    #[serde(deserialize_with = "deserialize_service_tier_id")]
+    pub id: Option<String>,
+}
+
+fn deserialize_service_tier_id<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    Option::<String>::deserialize(deserializer)
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeServiceTier {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fast_mode: Option<bool>,
+    pub service_tier: Option<RuntimeServiceTierSelection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier_availability:
+        Option<std::collections::BTreeMap<String, Vec<RuntimeServiceTier>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

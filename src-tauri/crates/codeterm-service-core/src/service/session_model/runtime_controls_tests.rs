@@ -40,26 +40,30 @@ fn fast_tier_projection_requires_confirmation_and_retains_own_binding() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
     tab.session_binding_nonce = Some("nonce".into());
-    tab.agent_runtime_config = Some(serde_json::json!({"fastMode":true}));
+    tab.agent_runtime_config = Some(serde_json::json!({"serviceTier":{"id":"priority"}}));
     apply_runtime_controls(tab, "thread", &Default::default());
     assert!(tab
         .agent_runtime_config
         .as_ref()
         .unwrap()
-        .get("confirmedFastMode")
+        .get("confirmedServiceTier")
         .is_none());
-    for enabled in [true, false] {
+    for id in [None, Some("priority"), Some("ultrafast")] {
         apply_runtime_controls(
             tab,
             "thread",
             &codeterm_plugin::agent_runtime::RuntimeSettings {
-                fast_mode: Some(enabled),
+                service_tier: Some(
+                    codeterm_plugin::agent_runtime::RuntimeServiceTierSelection {
+                        id: id.map(str::to_owned),
+                    },
+                ),
                 ..Default::default()
             },
         );
         assert_eq!(
-            tab.agent_runtime_config.as_ref().unwrap()["confirmedFastMode"],
-            serde_json::json!({"enabled":enabled,"sessionId":"thread","bindingNonce":"nonce"})
+            tab.agent_runtime_config.as_ref().unwrap()["confirmedServiceTier"],
+            serde_json::json!({"selection":{"id":id},"sessionId":"thread","bindingNonce":"nonce"})
         );
     }
 }
