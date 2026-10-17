@@ -176,8 +176,33 @@ impl ServiceContext {
     /// Variant of `spawn_agent_sync` with a readiness oneshot for echo+submit verification.
     pub fn spawn_agent_sync_with_ready(
         &self,
+        params: SpawnAgentParams,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<SpawnResult, String> {
+        self.spawn_agent_sync_with_runtime_fork(params, ready_tx, None)
+    }
+
+    pub(crate) fn spawn_agent_sync_for_runtime_fork(
+        &self,
+        params: SpawnAgentParams,
+        source_thread_id: String,
+        turn_id: String,
+    ) -> Result<SpawnResult, String> {
+        self.spawn_agent_sync_with_runtime_fork(
+            params,
+            None,
+            Some(crate::service::spawn::RuntimeForkLaunch {
+                source_thread_id,
+                turn_id,
+            }),
+        )
+    }
+
+    fn spawn_agent_sync_with_runtime_fork(
+        &self,
         mut params: SpawnAgentParams,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        runtime_fork: Option<crate::service::spawn::RuntimeForkLaunch>,
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
         spawn_title::validate_agent_tab_title(
@@ -213,15 +238,26 @@ impl ServiceContext {
             .agent
             .clone()
             .unwrap_or_else(|| self.configuration().general_agent.agent_provider);
+        if runtime_fork.is_some() && !crate::service::agent_runtime::engine::requested(self, &agent)
+        {
+            return Err("Runtime fork requires an agent runtime capability".into());
+        }
         self.move_chatbackend_task_to_system_prompt(&agent, &mut params)?;
         self.apply_model_preset(&agent, &mut params)?;
         let reasoning_effort = params.reasoning_effort.clone();
         self.classify_spawn_target_for_params(&agent, &params)?;
         let bind_params = params.clone();
-        let spec = crate::service::spawn::SpawnTabSpec::from_agent_params_with_chatbackends(
+        let mut spec = crate::service::spawn::SpawnTabSpec::from_agent_params_with_chatbackends(
             self.chatbackend_registry.as_ref(),
             params,
         );
+        if let Some(runtime_fork) = runtime_fork {
+            let metadata = spec
+                .chatbackend_launch
+                .as_mut()
+                .ok_or("Runtime fork requires a chat backend spawn")?;
+            metadata.runtime_fork = Some(runtime_fork);
+        }
         let handle = self.spawn_tab_with_ready(spec, ready_tx)?;
         if let Some(tab) = self.mux.write().get_tab_mut(&handle.tab_id) {
             crate::service::reasoning_effort::persist_launch_identity(

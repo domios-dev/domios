@@ -61,6 +61,7 @@ export type Operation =
   | {kind:"backgroundProcesses"; threadId:string; action:RuntimeBackgroundProcessAction}
   | {kind:"initialize"}
   | {kind:"openThread"; instructions:string; settings:RuntimeSettings}
+  | {kind:"forkThread"; sourceThreadId:string; turnId:string}
   | {kind:"resumeThread"; threadId:string; instructions:string; settings:RuntimeSettings}
   | {kind:"readHistory"; threadId:string; cursor?:string; order?:HistoryOrder}
   | {kind:"submitTurn"; threadId:string; activeTurnId?:string;

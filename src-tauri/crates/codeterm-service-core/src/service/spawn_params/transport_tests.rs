@@ -246,6 +246,7 @@ fn direct_runtime_routing_preserves_hidden_worker_env_and_task() {
             ..Default::default()
         },
         owner_linkage: None,
+        runtime_fork: None,
     }));
     spec.route_agent_to_chatbackend().unwrap();
     assert_eq!(
