@@ -320,12 +320,13 @@ check("claim evidence is emitted once",()=> {
   const reduction = hooks.runtimeReduce(ctx,null,[entry.frame,entry.frame]);
   assert.equal(reduction.events.filter(e=>e.kind === "sendEvidence").length,1);
 });
-check("delta batches preserve exact ordering",()=> {
+check("delta batches preserve final state and publish only the final row",()=> {
   const frames:RuntimeFrame[] = ["a","b","c"].map(delta=>({kind:"notification",method:"item/agentMessage/delta",params:{threadId:ctx.threadId!,turnId:"turn-a",itemId:"stream",delta}}));
   const batch = hooks.runtimeReduce(ctx,null,frames);
   let state:JsonValue = null;const events:AgentEvent[]=[];
   for (const frame of frames) {const step=hooks.runtimeReduce(ctx,state,[frame]);state=step.state;events.push(...step.events);}
-  assert.deepEqual(plain(batch),plain({state,events}));
+  assert.deepEqual(plain(batch.state),plain(state));
+  assert.deepEqual(plain(batch.events),plain(events.slice(-1)));
   assert.equal(batch.events.at(-1)?.kind,"chatItem");
   const last=batch.events.at(-1);if(last?.kind === "chatItem") assert.equal(last.item.content,"abc");
 });

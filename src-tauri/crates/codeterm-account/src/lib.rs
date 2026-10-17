@@ -4,6 +4,7 @@ mod build_config;
 mod flow;
 mod installation;
 mod loopback;
+pub mod protected_credentials;
 pub use installation::{FileInstallationStore, InstallationId, InstallationStore};
 
 pub use account::{Account, Status};
@@ -85,6 +86,9 @@ pub trait IdentityProvider: Send + Sync {
 }
 #[async_trait]
 pub trait CredentialStore: Send + Sync {
+    fn session_only(&self, _provider: &str) -> bool {
+        false
+    }
     async fn load(&self, provider: &str) -> Result<Option<Secret>>;
     async fn save(&self, provider: &str, token: &Secret) -> Result<()>;
     async fn delete(&self, provider: &str) -> Result<()>;

@@ -143,7 +143,7 @@ fn logging_dispatch(
                 chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ"),
                 record.level(),
                 record.target(),
-                message,
+                redact_callback(&message.to_string()),
             ))
         })
         .level_for("codeterm::update", log::LevelFilter::Info)
@@ -166,6 +166,26 @@ mod sink_tests;
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn callback_logs_never_include_url_credentials() {
+        for url in [
+            "domios://auth/callback?code=opaque-code&state=opaque-state",
+            "domios://auth/callback",
+            "domios%3A%2F%2Fauth%2Fcallback%3Fcode%3Dopaque-code%26state%3Dopaque-state",
+            "http://127.0.0.1:43210/callback?state=opaque-state&code=opaque-code",
+        ] {
+            let message = format!("dependency received {url:?}");
+            let redacted = redact_callback(&message);
+            assert!(!redacted.contains(url));
+            assert!(!redacted.contains("opaque-code"));
+            assert!(!redacted.contains("opaque-state"));
+        }
+        assert_eq!(
+            redact_callback("ordinary diagnostic"),
+            "ordinary diagnostic"
+        );
+    }
 
     #[test]
     fn the_total_log_budget_stays_within_two_hundred_megabytes() {
@@ -239,5 +259,13 @@ mod tests {
         assert!(THIRD_PARTY_WARN_TARGETS.contains(&"tungstenite"));
         assert!(THIRD_PARTY_WARN_TARGETS.contains(&"tokio"));
         assert!(THIRD_PARTY_WARN_TARGETS.contains(&"mdns_sd"));
+    }
+}
+
+fn redact_callback(message: &str) -> &str {
+    if message.contains("/callback") || message.to_ascii_lowercase().contains("%2fcallback") {
+        "[REDACTED sign-in callback]"
+    } else {
+        message
     }
 }

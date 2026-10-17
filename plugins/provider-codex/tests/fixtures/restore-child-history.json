@@ -1,0 +1,37 @@
+{
+  "captured": {
+    "cliVersion": "0.162.1",
+    "scenario": "Joy restored internal child on DEV c484bc16b"
+  },
+  "sessionId": "01a14adf-9c5b-7660-946e-dfad534908ff",
+  "childId": "01a14ae0-22ff-7942-bcc3-9e82b1d6cb61",
+  "records": [
+    {
+      "type": "session_meta",
+      "payload": {
+        "id": "01a14adf-9c5b-7660-946e-dfad534908ff"
+      }
+    },
+    {
+      "timestamp": "2026-10-17T17:19:25.492Z",
+      "ordinal": 13,
+      "type": "event_msg",
+      "payload": {
+        "type": "item_completed",
+        "thread_id": "01a14adf-9c5b-7660-946e-dfad534908ff",
+        "turn_id": "01a14adf-9f5d-7751-b61c-0c3d4b618b3c",
+        "item": {
+          "type": "SubAgentActivity",
+          "model": "gpt-6.1-sol",
+          "reasoning_effort": "medium",
+          "id": "call_9d324d5cf4454048b4986d0f57f66997",
+          "kind": "started",
+          "agent_thread_id": "01a14ae0-22ff-7942-bcc3-9e82b1d6cb61",
+          "agent_path": "/root/joy_child"
+        },
+        "started_at_ms": 1792257565492,
+        "completed_at_ms": 1792257565492
+      }
+    }
+  ]
+}
