@@ -1,5 +1,6 @@
 import { isUtilityShell } from "../../lib/shellCommandState";
 import type { Tab, Team, Workspace } from "../../lib/types";
+import { jobWorkspace, type MergedJob } from "../Jobs/jobsModel";
 import { buildInventoryModel, DEFAULT_INVENTORY_FILTERS, type InventorySnapshot } from "../MeshPanel/meshInventoryModel";
 
 export interface UtilityShellRow {
@@ -10,10 +11,10 @@ export interface UtilityShellRow {
   target: { workspaceId: string; tabId: string };
 }
 
-export function projectUtilityShells(workspaces: readonly Workspace[], tabs: Record<string, Tab>, teams: readonly Team[]): UtilityShellRow[] {
-  return workspaces.flatMap((workspace) => workspace.tabs.flatMap((id): UtilityShellRow[] => {
+export function projectUtilityShells(workspaces: readonly Workspace[], tabs: Record<string, Tab>, teams: readonly Team[], workspaceId?: string): UtilityShellRow[] {
+  return workspaces.filter((workspace) => workspaceId === undefined || workspace.id === workspaceId).flatMap((workspace) => workspace.tabs.flatMap((id): UtilityShellRow[] => {
     const tab = tabs[id];
-    if (!tab || !isUtilityShell(tab)) return [];
+    if (!tab || tab.remote_peer_id || tab.remote_tab_id || !isUtilityShell(tab)) return [];
     const ownerId = tab.parent_tab_id ?? tab.spawned_by_tab_id;
     const team = teams.find((entry) => entry.id === tab.team_id);
     return [{
@@ -27,10 +28,10 @@ export function projectUtilityShells(workspaces: readonly Workspace[], tabs: Rec
 }
 
 export function generalInventorySections(snapshot: InventorySnapshot, machineName: string) {
-  const schedules = buildInventoryModel(snapshot, { ...DEFAULT_INVENTORY_FILTERS, kind: "cron" }, undefined, machineName);
-  return {
-    services: buildInventoryModel(snapshot, { ...DEFAULT_INVENTORY_FILTERS, kind: "daemon" }, undefined, machineName),
-    schedules,
-    remoteSchedules: schedules.rows.filter((row) => row.resource.source_peer_id || row.resource.source_peer),
-  };
+  const resources = snapshot.resources.filter((resource) => !resource.source_peer_id && !resource.source_peer && resource.kind === "daemon");
+  return { services: buildInventoryModel({ ...snapshot, resources }, DEFAULT_INVENTORY_FILTERS, undefined, machineName) };
+}
+
+export function generalWorkspaceJobs(jobs: readonly MergedJob[], workspaceId: string): MergedJob[] {
+  return jobs.filter((job) => jobWorkspace(job) === workspaceId);
 }

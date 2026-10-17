@@ -1,3 +1,6 @@
+import { PeerInventorySections } from "./PeerInventorySections";
+import { inventoryResourceKey } from "./meshInventoryModel";
+import { peerInventoryModel, type PeerInventory } from "./peerInventoryModel";
 import { invoke } from "../../lib/bridge";
 import { useEffect, useRef, useState } from "react";
 import type { Service } from "./types";
@@ -35,6 +38,8 @@ interface Props {
   peers: PeerStatus[];
   thisMachineName: string;
   thisMachineIp?: string;
+  loading?: boolean;
+  error?: string | null;
   onClose: () => void;
   onActionDone: () => void;
   actionAdapter?: MeshResourceActionAdapter;
@@ -69,11 +74,16 @@ export function ServiceDrawer({
   peers,
   thisMachineName,
   thisMachineIp,
+  loading = false,
+  error,
   onClose,
   onActionDone,
   actionAdapter,
   onAnnouncement,
 }: Props) {
+  const [selectedResourceKey, setSelectedResource] = useState<string | null>(null);
+  const selectedResource = services.find((service) => inventoryResourceKey(service) === selectedResourceKey);
+  useEffect(() => setSelectedResource(null), [state]);
   const originRef = useRef<HTMLElement | null>(null);
   const wasOpenRef = useRef(false);
   if (state && !wasOpenRef.current) {
@@ -98,10 +108,13 @@ export function ServiceDrawer({
       : null);
     if (!peer) return null;
 
+    if (selectedResource) return <SvcDrawer service={selectedResource} machineName={thisMachineName} onClose={() => setSelectedResource(null)} onActionDone={onActionDone} actionAdapter={actionAdapter} onAnnouncement={onAnnouncement} />;
     return (
       <PeerDrawer
         peer={peer}
         isSelf={isSelf}
+        inventory={peerInventoryModel(services, peer, isSelf, loading, error)}
+        onSelect={(service) => setSelectedResource(inventoryResourceKey(service))}
         onClose={onClose}
         onActionDone={onActionDone}
         onAnnouncement={onAnnouncement}
@@ -131,12 +144,16 @@ export function ServiceDrawer({
 }
 
 function PeerDrawer({
+  inventory,
+  onSelect,
   peer,
   isSelf,
   onClose,
   onActionDone,
   onAnnouncement,
 }: {
+  inventory: PeerInventory;
+  onSelect: (service: Service) => void;
   peer: PeerStatus;
   isSelf: boolean;
   onClose: () => void;
@@ -201,7 +218,7 @@ function PeerDrawer({
   return (
     <>
       <DrawerBackdrop onClose={onClose} />
-      <div className={PANEL_BASE} style={{ width: 360 }} role="dialog" aria-modal="true" aria-labelledby="mesh-peer-drawer-heading" data-testid="mesh-peer-drawer">
+      <div className={PANEL_BASE} style={{ width: "min(400px, 100vw)" }} role="dialog" aria-modal="true" aria-labelledby="mesh-peer-drawer-heading" data-testid="mesh-peer-drawer">
         <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="mesh-peer-announcement">{announcement}</div>
         <div className="flex items-center justify-between">
           <strong ref={headingRef} id="mesh-peer-drawer-heading" tabIndex={-1} className="text-[var(--ct-fg)] truncate focus:outline-none">{peer.name}</strong>
@@ -222,7 +239,7 @@ function PeerDrawer({
           ) : (
             <>
               <span className={`${badgeClass} bg-[var(--ct-green)] text-[var(--ct-bg)] font-medium`}>
-                paired
+                {peer.pending ? "pending" : "paired"}
               </span>
               <span
                 className={`${badgeClass} ${peer.online ? "bg-[var(--ct-green)] text-[var(--ct-bg)]" : "bg-[var(--ct-bg)] text-[var(--ct-muted)]"}`}
@@ -264,6 +281,8 @@ function PeerDrawer({
             </select>
           </Section>
         )}
+
+        <PeerInventorySections inventory={inventory} onSelect={onSelect} />
 
         <div className="mt-auto flex flex-col gap-1.5">
           {isSelf && (
