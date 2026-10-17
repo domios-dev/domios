@@ -418,7 +418,7 @@ function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseIns
       url: metadataUrl,
       method: "GET",
       timeoutMs: 6e3,
-      headers: { Accept: "application/vnd.npm.install-v1+json" }
+      headers: { Accept: compatibility ? "application/vnd.npm.install-v1+json" : "application/json" }
     })));
     if (!metadata) return null;
     return host2.awaitJob(metadata, (response) => availableUpdate(currentVersion, response, compatibility));
