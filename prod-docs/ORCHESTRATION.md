@@ -173,10 +173,12 @@ Pad notes or scalar `--note`; no authored inline.
 
 ### Quiet team heartbeat
 
-Automatic plan reminders use a deterministic rule for both Owners and Workers: an unchanged or healthy unchanged snapshot stays quiet; a new snapshot wakes only when it names a concrete next step from actionable tasks, reports, changed tasks, incidents, owner messages or actionable hard events. Repeated soft wakes of the same class respect the reminder interval, while hard events bypass that cooldown; no Supporter connection or model decision is required. Every delivered heartbeat names its next step, and reports, decisions and failure alerts retain their own delivery channels.
+The Orchestrator has one automatic plan reminder: the periodic heartbeat, eligible only after its configured interval. Plan events, reports, dispatches, task changes, mode changes and worker loss never send an extra reminder. Completed plans produce no automatic wrap-up reminder. Reports, worker-lost notices, decisions and failure alerts retain their own delivery channels.
+
+At a scheduled heartbeat, a deterministic rule suppresses unchanged observations and requires a concrete next step. Worker reminders also respect their configured interval. No Supporter connection or model decision is required.
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
 Confined mutating Workers receive persisted host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR, TEMP and TMP select the lane-local `.codeterm-tmp` directory. Task-bound Worker spawns require an explicit read_only or mutating intent. Restoring an older task tab without a saved confinement policy retains its existing behavior.
 
-<!-- revision: 124 -->
+<!-- revision: 125 -->

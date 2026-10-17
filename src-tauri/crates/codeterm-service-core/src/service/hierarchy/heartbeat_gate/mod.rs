@@ -97,13 +97,22 @@ impl Worker {
         let action = match label {
             "waiting_on_prompt" => match &self.safe_choice {
                 Some(choice) => match self.safe_option {
-                    Some(option) => format!("inspect the classified {:?} prompt, answer {choice} with codeterm tab respond {option} --tab {}", self.prompt, self.tab_id),
-                    None => format!("inspect the classified {:?} prompt and select the declared safe choice {choice}", self.prompt),
+                    Some(option) => format!(
+                        "inspect the classified {:?} prompt, answer {choice} with codeterm tab respond {option} --tab {}",
+                        self.prompt, self.tab_id
+                    ),
+                    None => format!(
+                        "inspect the classified {:?} prompt and select the declared safe choice {choice}",
+                        self.prompt
+                    ),
                 },
                 None => "inspect the classified prompt and resolve its required decision".into(),
             },
             "idle_no_report" => format!("request the durable task report for {}", self.task_id),
-            "looping" => format!("review progress on {} and choose a new approach", self.task_id),
+            "looping" => format!(
+                "review progress on {} and choose a new approach",
+                self.task_id
+            ),
             _ => self.open_liveness_check(),
         };
         format!("{label} on tab {}: {action}", self.tab_id)
@@ -158,14 +167,30 @@ pub(crate) enum HardWake {
 impl HardWake {
     fn next_step(&self, plan: &str) -> String {
         match self {
-            Self::TaskState(id) | Self::TaskClosed(id) => format!("inspect the changed task {id} with codeterm plan state {plan} and reconcile its review or dispatch"),
-            Self::NewReport(id) => format!("read the new report {id} in {plan} and review its task"),
-            Self::UndeliveredReport(id) => format!("retrieve persisted report {id} with codeterm orchestrator inspect --plan {plan} --json and review its task; investigate the undelivered report"),
-            Self::FailedGate(id) => format!("inspect failed gate {id} in {plan} and assign its repair before advancing"),
-            Self::OwnerMessage(id) => format!("read owner message {id} and apply its decision to {plan}"),
-            Self::ChoiceAnswer(id) => format!("apply choice answer {id} and unblock its waiting work in {plan}"),
-            Self::Incident(id) => format!("inspect incident {id} in {plan}; restore the exact worker binding or reassign its task"),
-            Self::ModeChange => format!("reconcile task dispatch and review with the new mode of {plan}"),
+            Self::TaskState(id) | Self::TaskClosed(id) => format!(
+                "inspect the changed task {id} with codeterm plan state {plan} and reconcile its review or dispatch"
+            ),
+            Self::NewReport(id) => {
+                format!("read the new report {id} in {plan} and review its task")
+            }
+            Self::UndeliveredReport(id) => format!(
+                "retrieve persisted report {id} with codeterm orchestrator inspect --plan {plan} --json and review its task; investigate the undelivered report"
+            ),
+            Self::FailedGate(id) => {
+                format!("inspect failed gate {id} in {plan} and assign its repair before advancing")
+            }
+            Self::OwnerMessage(id) => {
+                format!("read owner message {id} and apply its decision to {plan}")
+            }
+            Self::ChoiceAnswer(id) => {
+                format!("apply choice answer {id} and unblock its waiting work in {plan}")
+            }
+            Self::Incident(id) => format!(
+                "inspect incident {id} in {plan}; restore the exact worker binding or reassign its task"
+            ),
+            Self::ModeChange => {
+                format!("reconcile task dispatch and review with the new mode of {plan}")
+            }
         }
     }
 }
@@ -178,9 +203,6 @@ impl HardWake {
 pub(crate) enum ReminderKind {
     #[default]
     Owner,
-    ModeChange,
-    StalledTeam,
-    CompleteWrapup,
     Worker,
 }
 
@@ -188,9 +210,6 @@ impl ReminderKind {
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Owner => "owner",
-            Self::ModeChange => "mode_change",
-            Self::StalledTeam => "stalled_team",
-            Self::CompleteWrapup => "complete_wrapup",
             Self::Worker => "worker",
         }
     }
