@@ -439,6 +439,8 @@ export function useChatSession({
     tabId,
     windowKey,
     transcript,
+    attachedAuthority: snapshotBinding === `${windowKey}|${sessionBindingNonce ?? ""}`
+      ? { sourceSessionId: agentSessionId, sessionBindingNonce: sessionBindingNonce ?? null } : null,
     anchorKey,
     followTailRef,
     loadOlderPage,
