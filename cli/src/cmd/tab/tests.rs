@@ -280,6 +280,28 @@ fn render_tree_places_team_terminals_after_workers_with_creator_provenance() {
     );
 }
 
+#[test]
+fn render_tree_nests_worker_owned_utility_shell_under_its_worker() {
+    let tabs = vec![
+        json!({"id":"orch","tab_title":"Ada","role":"Orchestrator","team_id":"team","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"worker","tab_title":"Worker","role":"Worker","team_id":"team","parent_tab_id":"orch","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"shell","tab_title":"qa shell","team_id":"team","spawned_by_tab_id":"worker","parent_tab_id":"worker","workspace_name":"W","workspace_id":"w"}),
+    ];
+
+    let lines: Vec<_> = render_tab_tree(&tabs).lines().map(str::to_string).collect();
+    let worker = lines
+        .iter()
+        .position(|line| line.contains("worker Worker"))
+        .unwrap();
+    let shell = lines
+        .iter()
+        .position(|line| line.contains("shell qa shell"))
+        .unwrap();
+    assert_eq!(shell, worker + 1);
+    assert!(lines[shell].starts_with("      "));
+    assert!(lines[shell].contains("terminal by Worker"));
+}
+
 /// One bracket rule across every row the tree renders: the bracket is the
 /// agent identity, role rides its own suffix, and liveness never reads as live
 /// unless it was observed.

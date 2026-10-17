@@ -70,6 +70,14 @@ pub(crate) enum AttachmentParent<'a> {
     Owner(&'a str),
 }
 
+pub(crate) fn utility_shell_parent(caller_tab_id: Option<&str>) -> AttachmentParent<'_> {
+    caller_tab_id
+        .map(str::trim)
+        .filter(|tab_id| !tab_id.is_empty())
+        .map(AttachmentParent::Owner)
+        .unwrap_or(AttachmentParent::TeamAnchor)
+}
+
 /// Write the resolved placement onto an already-created tab.
 pub(crate) fn apply_team_attachment(
     mux: &mut MultiplexerState,
