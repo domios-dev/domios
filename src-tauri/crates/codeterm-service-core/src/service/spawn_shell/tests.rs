@@ -1,7 +1,12 @@
+use crate::agent::reports::ReportDetails;
 use crate::multiplexer::state::MultiplexerState;
+use crate::multiplexer::types::{AgentRole, ShellPurpose};
+use crate::plan::{OrchestratorRef, Plan};
+use crate::service::plan::NewTask;
 use crate::service::pty_ownership::OwnershipEvent;
+use crate::service::spawn::SpawnTabSpec;
 use crate::service::test_fixture::ServiceFixture;
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 const DEADLINE: Duration = Duration::from_secs(5);
@@ -111,12 +116,146 @@ fn failed_shell_build_leaves_no_pty_link() {
         .link_hidden_shell_pty_with_builder(&tab_id, |_| Err("spawn failed".into()))
         .unwrap_err();
     assert_eq!(error, "spawn failed");
-    assert!(fixture
+    assert!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .pty_id
+            .is_none()
+    );
+}
+
+#[test]
+fn worker_owned_utility_shell_inherits_task_context_and_reports_to_worker() {
+    let (mut mux, orchestrator_id) = MultiplexerState::new();
+    mux.set_orchestrator_role(&orchestrator_id).unwrap();
+    let team_id = mux
+        .resolve_or_mint_team_for_parent(&orchestrator_id)
+        .unwrap()
+        .team_id;
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator_id).unwrap();
+    let worker_id = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(&worker_id, AgentRole::Worker, Some(&orchestrator_id))
+        .unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let mut plan = Plan::new(
+        "utility shell owner".into(),
+        fixture.temp.path().display().to_string(),
+        OrchestratorRef::from_tab(&orchestrator_id),
+    );
+    fixture.service.plan_store.save(&mut plan, 1).unwrap();
+    let task_id = fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "worker shell report".into(),
+                kind: "implement".into(),
+                acceptance_criteria: vec!["the report reaches the Worker".into()],
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    fixture
+        .service
+        .plan_store
+        .assign_task(&plan.id, &task_id, &worker_id, None, 3)
+        .unwrap();
+    let assigned_task = fixture
+        .service
+        .plan_store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    let attempt_id = assigned_task
+        .execution_attempts
+        .iter()
+        .rev()
+        .find(|attempt| attempt.executor_tab_id == worker_id && attempt.closed_at.is_none())
+        .unwrap()
+        .id
+        .clone();
+    let delivered =
+        fixture
+            .service
+            .bind_recorded_agent_recipient(&worker_id, "worker-session", "worker-nonce");
+
+    let shell = fixture
+        .service
+        .spawn_visible_shell_impl(SpawnTabSpec {
+            workspace_id: Some(workspace_id),
+            team_id: Some(team_id.clone()),
+            creator_tab_id: Some(worker_id.clone()),
+            purpose: ShellPurpose::Build,
+            ..Default::default()
+        })
+        .unwrap();
+    let tab = fixture
         .service
         .mux
         .read()
-        .get_tab(&tab_id)
+        .get_tab(&shell.tab_id)
         .unwrap()
-        .pty_id
-        .is_none());
+        .clone();
+    assert_eq!(tab.parent_tab_id.as_deref(), Some(worker_id.as_str()));
+    assert_eq!(tab.spawned_by_tab_id.as_deref(), Some(worker_id.as_str()));
+    assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
+    assert_eq!(tab.role, None);
+
+    let env = fixture.service.tab_env(&shell.tab_id);
+    assert_eq!(
+        env.get("CODETERM_PARENT_TAB_ID").map(String::as_str),
+        Some(worker_id.as_str())
+    );
+    assert_eq!(env.get("CODETERM_ROLE").map(String::as_str), Some("Worker"));
+    assert_eq!(
+        env.get("CODETERM_PLAN_ID").map(String::as_str),
+        Some(plan.id.as_str())
+    );
+    assert_eq!(
+        env.get("CODETERM_TASK_ID").map(String::as_str),
+        Some(task_id.as_str())
+    );
+    assert_eq!(
+        env.get("CODETERM_ATTEMPT_ID").map(String::as_str),
+        Some(attempt_id.as_str())
+    );
+
+    let report = fixture
+        .service
+        .submit_report(
+            &shell.tab_id,
+            "UTILITY_SHELL_REPORT_PAYLOAD",
+            ReportDetails::default(),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(report.orchestrator_tab_id, worker_id);
+    assert!(
+        delivered
+            .texts
+            .lock()
+            .iter()
+            .any(|text| text.contains("UTILITY_SHELL_REPORT_PAYLOAD"))
+    );
+    assert!(
+        fixture
+            .service
+            .report_store
+            .lock()
+            .get(&worker_id, false)
+            .iter()
+            .any(|entry| entry.message.contains("UTILITY_SHELL_REPORT_PAYLOAD"))
+    );
 }

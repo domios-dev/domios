@@ -1,5 +1,5 @@
-use codeterm_types::team::general_agent_membership::MembershipAttempt;
 use codeterm_types::team::Team;
+use codeterm_types::team::general_agent_membership::MembershipAttempt;
 
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::general_agent::{refuse_general_agent_team_membership, shape_for_tab};
@@ -68,6 +68,14 @@ pub(crate) enum AttachmentParent<'a> {
     TeamAnchor,
     /// Nested under a Team member that owns the tab, such as a plugin surface.
     Owner(&'a str),
+}
+
+pub(crate) fn utility_shell_parent(caller_tab_id: Option<&str>) -> AttachmentParent<'_> {
+    caller_tab_id
+        .map(str::trim)
+        .filter(|tab_id| !tab_id.is_empty())
+        .map(AttachmentParent::Owner)
+        .unwrap_or(AttachmentParent::TeamAnchor)
 }
 
 /// Write the resolved placement onto an already-created tab.
