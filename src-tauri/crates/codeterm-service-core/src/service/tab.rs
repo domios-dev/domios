@@ -308,10 +308,15 @@ impl ServiceContext {
                 "tab_close",
             );
         }
-        let pty_ids = self
-            .mux
-            .write()
-            .close_reserved_tab_with_reason(reservation, reason)?;
+        let (close_result, history_batch) = {
+            let mut mux = self.mux.write();
+            let result = mux.close_reserved_tab_with_reason(reservation, reason);
+            (result, mux.take_closed_history_batch())
+        };
+        if let Some(batch) = history_batch {
+            batch.persist_on_blocking_thread();
+        }
+        let pty_ids = close_result?;
         if let Err(error) = self.cancel_utility_timeout(&canonical_tab_id) {
             log::error!("[utility-timeout] closed shell deadline cleanup failed: {error}");
         }
