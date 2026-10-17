@@ -525,7 +525,7 @@ pub fn run(
                 }
                 plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
                 codeterm_service_core::service::plugin_prompt::refresh(service_state.ext::<codeterm_service_core::agent_commands::AgentCommandRegistryHandle>());
-                codeterm_service_core::service::plugin_skills::spawn_sync(service_state.mem.clone(), service_state.ext::<codeterm_service_core::agent_commands::AgentCommandRegistryHandle>().clone());
+                codeterm_service_core::service::plugin_skills::spawn_sync(service_state.mem.clone());
                 for provider in chatbackend_registry.active() {
                     codeterm_service_core::agent::model_binary_watch::install_chatbackend(
                         provider,
