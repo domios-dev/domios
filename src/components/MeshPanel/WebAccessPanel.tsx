@@ -87,7 +87,7 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
         aria-labelledby={embedded ? undefined : "web-access-heading"}
         data-testid="web-access-panel"
         data-web-ui-state={view.state}
-        className={`relative flex w-full flex-col gap-3 rounded-2xl border border-[var(--ct-accent)] bg-[var(--ct-bg)] p-4 shadow-2xl ${embedded ? "text-base" : "z-50 max-h-full max-w-[360px] overflow-y-auto"}`}
+        className={`relative flex w-full flex-col ${embedded ? "gap-2" : "gap-3"} rounded-2xl border border-[var(--ct-accent)] bg-[var(--ct-bg)] ${embedded ? "p-3" : "p-4"} shadow-2xl ${embedded ? "text-base" : "z-50 max-h-full max-w-[360px] overflow-y-auto"}`}
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           if (embedded) return;
@@ -97,7 +97,7 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
-          <h2 id={embedded ? undefined : "web-access-heading"} ref={headingRef} tabIndex={embedded ? undefined : -1} className={embedded ? "text-3xl font-semibold" : "text-xl font-semibold"}>Mesh UI</h2>
+          <h2 id={embedded ? undefined : "web-access-heading"} ref={headingRef} tabIndex={embedded ? undefined : -1} className="text-xl font-semibold">Mesh UI</h2>
           {(loading || busy) && <BusySpinner size={14} />}
           </div>
           {embedded && onExpand && <button type="button" aria-label="Expand Mesh UI" title="Expand Mesh UI" className={`${UI_BUTTON.ghost} ${UI_BUTTON.icon} rounded-full`} onClick={onExpand}><Maximize2 size={16} /></button>}
@@ -120,17 +120,17 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
         </div>
         {!embedded && <input readOnly aria-label="Web address" value={displayUrl} onFocus={(event) => event.currentTarget.select()} className="w-full min-w-0 rounded border border-[var(--ct-border)] bg-transparent p-2 text-xs" />}
         <p className="flex items-start gap-1.5 text-sm text-[var(--ct-muted-fg)]" data-testid="web-access-route"><ShieldCheck size={14} className="shrink-0" />{webRouteLabel(route.kind)}</p>
-        <div className="my-3 grid grid-cols-2 gap-2">
-          <button type="button" style={{ minHeight: 48, fontSize: 16 }} className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} min-h-12 text-base`} onClick={() => actions.open(target.link)}><ExternalLink size={15} aria-hidden="true" />Open</button>
-          <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} min-h-12 text-base`} onClick={() => void run(async () => { await actions.copy(target.link); return "Link copied."; })}><Copy size={15} aria-hidden="true" />Copy link</button>
+        <div className={`${embedded ? "my-1" : "my-3"} grid grid-cols-2 gap-2`}>
+          <button type="button" style={{ minHeight: 48, fontSize: 16 }} className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => actions.open(target.link)}><ExternalLink size={15} aria-hidden="true" />Open</button>
+          <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(async () => { await actions.copy(target.link); return "Link copied."; })}><Copy size={15} aria-hidden="true" />Copy link</button>
         </div>
         <div className="flex flex-col gap-2">
-          {view.canSetup && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} min-h-12 text-base`} onClick={() => void run(() => onAction("setup"))}>{view.operatorBootstrap ? "Set up Tailscale operator" : "Enable HTTPS (Tailscale Serve)"}</button>}
-          {view.canRepair && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} min-h-12 text-base`} onClick={() => void run(() => onAction("repair"))}>Repair route</button>}
-          {shouldShowWebSetupHelper(route.kind, view.state === "ready") && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} min-h-12 text-base`} onClick={() => void run(onSetup)}>Set up Tailscale with AI</button>}
+          {view.canSetup && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(() => onAction("setup"))}>{view.operatorBootstrap ? "Set up Tailscale operator" : "Enable HTTPS (Tailscale Serve)"}</button>}
+          {view.canRepair && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(() => onAction("repair"))}>Repair route</button>}
+          {shouldShowWebSetupHelper(route.kind, view.state === "ready") && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(onSetup)}>Set up Tailscale with AI</button>}
         </div>
         {message && <p role="status">{message}</p>}
-        {error != null && <InlineErrorNotice error={error} operation="setting up web access" blocking />}
+        {error != null && !embedded && <InlineErrorNotice error={error} operation="setting up web access" blocking />}
       </div>
     </div>
   );

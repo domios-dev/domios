@@ -13,7 +13,7 @@ const inventory: MeshDataResult = {
   thisMachine: { name: "Local", ip: "127.0.0.1" },
   services: [daemon, schedule],
   peers: [{ instance_id: "remote", name: "Remote machine", ip: "100.64.0.1", api_port: 7686, online: false, access_level: "full", last_seen: null, relay_protocol_version: 1 }],
-  loading: false, error: null, refresh: () => {},
+  loading: false, error: "inventory request failed", refresh: () => {},
 };
 
 vi.mock("./useMeshData", () => ({ useMeshData: () => inventory }));
@@ -42,6 +42,8 @@ it("shows the access card directly in the graph without a duplicate details dial
     const web = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Web details');
     expect(host.querySelector('[role="region"][aria-label="Mesh UI"] img')).not.toBeNull();
     expect(web).toBeUndefined();
+    expect(host.querySelector('section[role="status"][aria-label]')).toBeNull();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(host.querySelector('[role="dialog"]')).toBeNull();
     expect(host.querySelector('[data-testid="web-access-status"]')).toBeNull();
     expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')?.textContent).toContain('host.tail.ts.net');
