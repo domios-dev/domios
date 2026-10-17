@@ -72,8 +72,13 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
   paintRef.current = paint;
 
   useEffect(() => {
+    let active = true;
     const queue = createLatestWins<StreamFrame>(async (next) => {
       const decoded = await decode(next);
+      if (!active) {
+        decoded.close();
+        return;
+      }
       frame.current?.close();
       frame.current = decoded;
       meta.current = next.metadata;
@@ -81,6 +86,7 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
     }, (error) => callbacks.current.onError(error));
     const unsubscribe = frames.subscribe((next) => queue.push(next));
     return () => {
+      active = false;
       unsubscribe();
       queue.dispose();
     };

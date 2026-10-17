@@ -17,6 +17,7 @@ import {
   NEEDS_HUMAN_KINDS,
   needsHumanNotice,
   NEW_PROFILE_OPTION,
+  DELETE_PROFILE_OPTION,
   PROFILE_NAME_MAX,
   profileOptions,
   profileSwitchedNotice,
@@ -75,6 +76,7 @@ const ids = (state: SurfaceState, interactive: boolean, picking = false) =>
   resolveToolbar(BROWSER_SURFACE_CHROME, { interactive, picking, state }).map((item) => [item.id, item.disabled] as const);
 assert.deepEqual(ids(page, false), [
   ["back", true], ["forward", true], ["reload", true], ["address", true], [CHROME_ITEM.openExternal, false],
+  [CHROME_ITEM.copy, true], [CHROME_ITEM.paste, true],
   [CHROME_ITEM.pick, false], [CHROME_ITEM.snip, false], ["profile", false], [CHROME_ITEM.takeControl, false],
 ], "watch-only disables page input only: open, pick and snip stay usable beside the agent, in the owner's order");
 assert.deepEqual(ids(page, true).filter(([, disabled]) => disabled), [], "interaction enables every item");
@@ -119,6 +121,7 @@ assert.deepEqual(profileOptions({ ...base, profile: "Andrey", profiles: ["Andrey
     { value: "Andrey", label: "Profile: Andrey" },
     { value: "Work", label: "Profile: Work" },
     { value: NEW_PROFILE_OPTION, label: "+ New profile…" },
+    { value: DELETE_PROFILE_OPTION, label: "Delete profile…" },
   ],
   value: "Andrey",
   locked: false,

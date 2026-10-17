@@ -90,6 +90,7 @@ impl BrowserRuntime {
             "input" => {
                 let input: InputArgs = parse(method, args)?;
                 let page = self.ensure_page().await?;
+                self.shared.invalidate_snapshot();
                 self.dispatch_input(&page, &input).await?;
                 Value::Null
             }
@@ -113,9 +114,32 @@ impl BrowserRuntime {
                 self.refresh_profiles().await;
                 self.profile_view()
             }
+            "selection.copy" => {
+                let page = self.ensure_page().await?;
+                let text = self
+                    .evaluate(&page, include_str!("selection.js"), false)
+                    .await?;
+                json!({ "text": text.as_str().unwrap_or("") })
+            }
             "profiles.use" => {
                 let profile: ProfileArgs = parse(method, args)?;
                 self.use_profile(&profile.name).await?;
+                self.profile_view()
+            }
+            "profiles.create" => {
+                let profile: ProfileArgs = parse(method, args)?;
+                let layout = self.layout.clone();
+                tokio::task::spawn_blocking(move || layout.create_named(&profile.name))
+                    .await
+                    .map_err(|error| error.to_string())??;
+                self.refresh_profiles().await;
+                self.profile_view()
+            }
+            "profiles.delete" => {
+                let profile: ProfileArgs = parse(method, args)?;
+                codeterm_browser::profile::delete_named_profile(&self.layout, &profile.name)
+                    .await?;
+                self.refresh_profiles().await;
                 self.profile_view()
             }
             "grab.hover" => {
