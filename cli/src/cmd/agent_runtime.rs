@@ -6,20 +6,7 @@ pub fn handle_usage(http: &LocalApiClient, base: &str, json: bool, action: Agent
         AgentUsageAction::Read { tab } => {
             let url = format!("{}/api/tabs/{}/usage", base, urlencoding::encode(&tab));
             let usage = request_value(http.get(url).send());
-            let credits_url = format!(
-                "{}/api/tabs/{}/agent/runtime/reset-credits",
-                base,
-                urlencoding::encode(&tab)
-            );
-            let reset_credits = request_value(
-                http.post(credits_url)
-                    .json(&serde_json::json!({"action":"read"}))
-                    .send(),
-            );
-            print_value(
-                serde_json::json!({"tab_id":tab,"usage":usage,"reset_credits":reset_credits}),
-                json,
-            );
+            print_value(serde_json::json!({"tab_id":tab,"usage":usage}), json);
         }
         AgentUsageAction::Reset { tab, confirm: true } => {
             let url = format!(

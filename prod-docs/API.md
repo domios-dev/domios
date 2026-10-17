@@ -98,8 +98,8 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | POST | `/api/tabs/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Run a shell command until the shell reports it finished or exits: `{output, offset, exit_code, completion}` (`command_finished` \| `shell_exited` \| `timeout`). `timeout_ms` (default 10000) is a failure deadline that adds `timeout:true`. `409` for an agent tab or an exited shell. `codeterm tab exec` exits with the command's code, `124` on timeout |
 | GET | `/api/tabs/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
 | GET | `/api/tabs/{id}/text` | `?formatted=false` | Visible terminal text (VT100-parsed, incl. alternate buffer), backend-served so hidden tabs work. Response: `{"text", "formatted", "tab_id"}`; `?formatted=true` keeps raw ANSI including cursor position and visibility. |
-| GET | `/api/tabs/{id}/usage` | — | Latest usage/cost counters recorded for this tab |
-| POST | `/api/tabs/{id}/agent/runtime/reset-credits` | `{action:"read"}` or `{action:"redeem", idempotencyKey, confirmed:true}` | Read capability support or consume a reset credit for the exact tab's bound runtime. Redeem requires a UUID v4 idempotency key and explicit confirmation; returns the provider consumption outcome. Read does not return account count/expiry. |
+| GET | `/api/tabs/{id}/usage` | — | Authority-checked exact-tab view of session/weekly usage and the tab's cached runtime projection, including account credits and reset-credit count/expiry. |
+| POST | `/api/tabs/{id}/agent/runtime/reset-credits` | `{action:"read"}` or `{action:"redeem", idempotencyKey, confirmed:true}` | Read capability support or consume a reset credit for the exact tab's bound runtime. Redeem requires a UUID v4 idempotency key and explicit confirmation; returns provider outcome and observed before/after reset-credit counts. |
 | GET | `/api/tabs/{id}/output/stream` | — | SSE real-time output stream |
 | GET | `/api/agent-runs/{tab_id}/log` | — | Agent run log for a tab |
 | POST | `/api/tabs/{id}/focus` | — | Focus tab |
@@ -177,4 +177,4 @@ Local analytics: `/api/analytics/{status,consent,event}` (see ACCOUNT).
 
 Account and plan routes: see `ACCOUNT`.
 
-<!-- revision: 202 -->
+<!-- revision: 203 -->
