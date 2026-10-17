@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT } from "./runtime";
 import { createFrontendSignals } from "./signals";
 import { TransportError } from "../transportClient";
@@ -155,6 +155,31 @@ it("registers the browser draft restorer before daemon hydration and collects lo
   } finally {
     browser.dispose();
     localStorage.clear();
+  }
+});
+
+it("restores a detached scroll after a fresh module boot ahead of an older daemon checkpoint", async () => {
+  const key = "own-tab:reload-session";
+  const reading = { mode: "detached" as const, scrollTop: 2034,
+    anchor: { key: "own-message", ordinal: 0, offset: -43 } };
+  sessionStorage.clear();
+  const previous = await import("../../components/Terminal/chatViewport");
+  previous.setPersistedChatScrollState(key, reading);
+  vi.resetModules();
+  const fresh = await import("../../components/Terminal/chatViewport");
+  expect(fresh.getPersistedChatScrollState(key)).toEqual(reading);
+  const { initializeBrowserFrontendUpdates } = await import("./browser");
+  const { frontendSignals } = await import("./appState");
+  const f = fixture({}, { ...checkpoint, scroll: { [key]: {
+    chat: JSON.stringify({ mode: "pinned", scrollTop: 2933 }), terminal: null,
+  } } });
+  const browser = await initializeBrowserFrontendUpdates(f.client, f.options);
+  try {
+    expect(fresh.getPersistedChatScrollState(key)).toEqual(reading);
+    expect(JSON.parse(frontendSignals.checkpoint().scroll[key].chat!)).toEqual(reading);
+  } finally {
+    browser.dispose();
+    fresh.clearPersistedChatScrollState(key);
   }
 });
 

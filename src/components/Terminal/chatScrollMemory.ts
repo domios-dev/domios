@@ -33,13 +33,28 @@ export function chatScrollRestoreTarget(bookmark: ChatScrollBookmark, anchorTop:
 export class ChatScrollMemory {
   private readonly states = new Map<string, ChatScrollState>();
 
-  constructor(private readonly capacity = 32) {}
+  constructor(private readonly capacity = 32, private readonly persistence?: {
+    storage: Pick<Storage, "getItem" | "setItem">; key: string;
+  }) {
+    if (!persistence) return;
+    try {
+      for (const [key, state] of decodeChatScrollMemory(persistence.storage.getItem(persistence.key))) {
+        this.states.set(key, state);
+      }
+      this.trim();
+    } catch {}
+  }
 
   read(key: string): ChatScrollState | null { return this.states.get(key) ?? null; }
 
   save(key: string, state: ChatScrollState): void {
     this.states.delete(key);
     this.states.set(key, { ...state, anchor: state.anchor ? { ...state.anchor } : null });
+    this.trim();
+    this.persist();
+  }
+
+  private trim(): void {
     while (this.states.size > this.capacity) {
       const oldest = this.states.keys().next().value;
       if (oldest == null) break;
@@ -47,5 +62,25 @@ export class ChatScrollMemory {
     }
   }
 
-  clear(key: string): void { this.states.delete(key); }
+  private persist(): void {
+    try { this.persistence?.storage.setItem(this.persistence.key, JSON.stringify([...this.states])); } catch {}
+  }
+
+  clear(key: string): void { this.states.delete(key); this.persist(); }
+}
+
+export function decodeChatScrollMemory(raw: string | null): Array<[string, ChatScrollState]> {
+  if (!raw) return [];
+  let entries: unknown;
+  try { entries = JSON.parse(raw); } catch { return []; }
+  if (!Array.isArray(entries)) return [];
+  return entries.filter((entry): entry is [string, ChatScrollState] => {
+    if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== "string") return false;
+    const state = entry[1];
+    if (!state || (state.mode !== "pinned" && state.mode !== "detached")
+      || !Number.isFinite(state.scrollTop) || state.scrollTop < 0) return false;
+    const anchor = state.anchor;
+    return anchor == null || (typeof anchor.key === "string" && Number.isInteger(anchor.ordinal) && anchor.ordinal >= 0
+      && Number.isFinite(anchor.offset) && (anchor.id == null || typeof anchor.id === "string"));
+  });
 }
