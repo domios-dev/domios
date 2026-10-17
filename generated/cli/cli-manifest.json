@@ -807,7 +807,7 @@
                 "mutating"
               ],
               "default": null,
-              "help": "Declared execution intent. `mutating` requires a task binding; `read_only` is also the task-less verification-Worker shape",
+              "help": "Declared execution intent. Plain mutating Workers require a task binding; Worker kinds may mutate task-less and default to `mutating`",
               "aliases": []
             },
             {
@@ -827,7 +827,7 @@
               "value_name": "KIND",
               "possible_values": [],
               "default": null,
-              "help": "Worker kind/profile. Task-less builtins are tester and release_manager",
+              "help": "Worker prompt kind/profile, with or without a task: tester or release_manager",
               "aliases": []
             },
             {
