@@ -15185,11 +15185,6 @@
       {
         "kind": "turnState",
         "threadId": "01a143fd-97d3-7173-99c7-d8aadda32e8a",
-        "state": "working"
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a143fd-97d3-7173-99c7-d8aadda32e8a",
         "turnId": "01a143fd-9880-77b3-af84-050ca94d1a5b",
         "state": "working",
         "startedAt": 1792142055000
@@ -20804,11 +20799,6 @@
           "used_tokens": 17126,
           "window_tokens": 258400
         }
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a143fd-97d3-7173-99c7-d8aadda32e8a",
-        "state": "idle"
       },
       {
         "kind": "turnState",

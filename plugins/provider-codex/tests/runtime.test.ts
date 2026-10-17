@@ -1022,7 +1022,7 @@ console.log(`runtime subagent regressions: ${count} checks passed`);
 check("thread and turn statuses map to shared turn details",()=> {
   const status=(value:unknown)=>plain(hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"thread/status/changed",params:{threadId:ctx.threadId!,status:value as JsonValue}}]).events);
   assert.deepEqual(status({type:"idle"}),[{kind:"turnState",threadId:ctx.threadId,state:"idle"}]);
-  assert.deepEqual(status({type:"active",activeFlags:[]}),[{kind:"turnState",threadId:ctx.threadId,state:"working"}]);
+  assert.deepEqual(status({type:"active",activeFlags:[]}),[]);
   assert.deepEqual(status({type:"active",activeFlags:["waitingOnApproval"]}),[{kind:"turnState",threadId:ctx.threadId,state:"needs_input",detail:"awaitingApproval"}]);
   assert.deepEqual(status({type:"active",activeFlags:["waitingOnUserInput"]}),[{kind:"turnState",threadId:ctx.threadId,state:"needs_input",detail:"awaitingInput"}]);
   assert.deepEqual(status({type:"systemError"}),[{kind:"turnState",threadId:ctx.threadId,state:"needs_input",detail:"systemError"}]);
