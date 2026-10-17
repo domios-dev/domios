@@ -10,6 +10,8 @@ fn session() -> (Session, u64) {
     let mut state = RuntimeState::unloaded(Some(THREAD.into()));
     let epoch = state.begin();
     let session = Session {
+        update_generation: std::sync::atomic::AtomicU64::new(0),
+        update_recovery_available: std::sync::atomic::AtomicBool::new(false),
         provider: "fixture".into(),
         adapter: Mutex::new(None),
         context: Mutex::new(RuntimeContext {

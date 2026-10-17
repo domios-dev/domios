@@ -104,6 +104,7 @@ pub mod provider_cli_actions;
 pub mod provider_hooks;
 pub(crate) mod provider_signals;
 pub use provider_signals::apply_structured as provider_signals_apply_structured;
+pub(crate) mod provider_runtime_update;
 mod provider_signals_probe;
 pub(crate) mod provider_update;
 pub(crate) mod pty_resize;

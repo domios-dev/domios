@@ -102,7 +102,7 @@ Providers may declare live model and effort commands. These run only at an idle 
 
 #### Provider lifecycle
 
-Provider CLI updates are silent host operations using the provider's declared updater and compatibility verdict. Production participates by default; other instances opt in. A default-on setting allows opting out. An active provider turn defers the update to an idle event. Running agents are never restarted to apply an update; subsequent launches use the updated CLI.
+Provider CLI updates are silent host operations using the provider's declared updater and compatibility verdict. Production participates by default; other instances opt in. A default-on setting allows opting out. An active provider turn defers the update to an idle event. Background updates apply on subsequent launches. After a verified explicit CLI update, runtime-backed tabs resume the same session on the new binary: idle tabs restart immediately, while active turns finish before restart. Claimed or uncertain input never replays. The provider may report its running binary version during initialization; a mismatch, spawn failure or handshake failure receives one automatic recovery attempt before a clear failure is shown.
 
 A classified update prompt receives only the provider-declared safe option. A declared-incompatible target is refused. Results and captured failures go to logs and the provider's Settings status, without a bell entry or an owner action prompt. The host retains durable update claims and process ownership evidence to prevent concurrent or replayed operations.
 

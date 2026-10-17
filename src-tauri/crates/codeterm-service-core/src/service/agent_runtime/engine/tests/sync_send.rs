@@ -77,6 +77,8 @@ module.exports = {
     let epoch = state.begin();
     assert!(state.load(epoch, "own-thread"));
     let session = Arc::new(Session {
+        update_generation: std::sync::atomic::AtomicU64::new(0),
+        update_recovery_available: std::sync::atomic::AtomicBool::new(false),
         provider: PROVIDER.into(),
         adapter: Mutex::new(Some(adapter)),
         context: Mutex::new(RuntimeContext {

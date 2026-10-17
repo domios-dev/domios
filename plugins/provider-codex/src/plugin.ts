@@ -26,7 +26,7 @@ import {
   responseKeysForIndex,
 } from "./prompt";
 import { fetchCodexUsage, parseCodexUsage } from "./usage";
-import { checkCodexUpdate } from "./update";
+import { checkCodexUpdate, codexSelfUpdateCapability } from "./update";
 import { execScriptCommands, summarizeExecScript, unwrapCommandExecution, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
@@ -298,6 +298,10 @@ const plugin: PluginModule = {
 
   checkForUpdate() {
     return checkCodexUpdate(host);
+  },
+
+  providerSelfUpdateCapability() {
+    return codexSelfUpdateCapability;
   },
 
   releaseTabLaunchArtifacts(tabId: string, instanceId: string): boolean {

@@ -327,7 +327,10 @@ pub enum RuntimeResult {
         process_id: String,
         acknowledged: bool,
     },
-    Initialized,
+    Initialized {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        binary_version: Option<String>,
+    },
     ThreadLoaded {
         thread_id: String,
         settings: RuntimeSettings,
