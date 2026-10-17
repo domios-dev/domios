@@ -1,6 +1,6 @@
 use crate::args::plan::PlanReviewAction;
 use crate::client::RpcClient;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use super::{call_plan_rpc, inject_trusted_session, maybe_inject_caller_tab, owner_from_env};
 
@@ -260,12 +260,10 @@ mod tests {
                 assert!(crate::args::cli::Cli::try_parse_from(argv).is_err());
             }
             for source in ["--note", "--note-from-pad"] {
-                assert!(
-                    crate::args::cli::Cli::try_parse_from([
-                        "codeterm", "plan", "review", verdict, "pl_1", "task_1", source, "note.md",
-                    ])
-                    .is_ok()
-                );
+                assert!(crate::args::cli::Cli::try_parse_from([
+                    "codeterm", "plan", "review", verdict, "pl_1", "task_1", source, "note.md",
+                ])
+                .is_ok());
             }
         }
     }
@@ -314,11 +312,9 @@ mod tests {
             else {
                 panic!("expected review action");
             };
-            assert!(
-                handle(&mut NoCalls, true, action)
-                    .unwrap_err()
-                    .contains(crate::cmd::quoted_handoff::REFUSAL_CODE)
-            );
+            assert!(handle(&mut NoCalls, true, action)
+                .unwrap_err()
+                .contains(crate::cmd::quoted_handoff::REFUSAL_CODE));
         }
     }
 

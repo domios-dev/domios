@@ -2,8 +2,8 @@ use super::super::lane_metadata::normalize_lane_metadata;
 use super::super::readback::pending_after_verified;
 use super::super::{PlanError, PlanStore};
 use super::{
-    LiveTabAttempt, ambiguous_subject_cause, progression_authority, startup_attempt,
-    startup_status_allows, superseded_subject_cause, unresolved_subject_cause,
+    ambiguous_subject_cause, progression_authority, startup_attempt, startup_status_allows,
+    superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
 };
 
 impl PlanStore {

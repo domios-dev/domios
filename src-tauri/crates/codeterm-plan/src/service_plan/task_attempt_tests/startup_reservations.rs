@@ -114,11 +114,9 @@ fn a_closed_attempt_without_a_newer_live_dispatch_is_not_reported_as_superseded(
             3,
         )
         .unwrap();
-    assert!(
-        store
-            .mark_worker_startup_deadline(&plan_id, &task_id, "worker-tab", &attempt_id, true, 4)
-            .unwrap()
-    );
+    assert!(store
+        .mark_worker_startup_deadline(&plan_id, &task_id, "worker-tab", &attempt_id, true, 4)
+        .unwrap());
 
     let refusal = store
         .acknowledge_live_task_attempt_for_tab("worker-tab", Some(&plan_id), Some(&task_id), 5)
