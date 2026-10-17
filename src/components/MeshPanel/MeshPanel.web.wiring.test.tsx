@@ -71,7 +71,7 @@ it("renders authoritative daemon and schedule data in the map and peer sections"
         <MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />
         <ServiceDrawer state={{ kind: "peer", id: "Remote machine" }} services={inventory.services} peers={inventory.peers} thisMachineName="Local" onClose={() => {}} onActionDone={() => {}} />
       </section>
-      <GeneralInventorySections workspaces={workspaces} teams={teams} tabs={tabs} inventory={inventory} jobs={[]} onCloseTab={() => {}} onRenameTab={() => {}} onNavigate={(workspaceId, tabId) => navigated.push([workspaceId, tabId])} />
+      <GeneralInventorySections generalWorkspaceId={workspaces[0].id} workspaces={workspaces} teams={teams} tabs={tabs} inventory={inventory} jobs={[]} onCloseTab={() => {}} onRenameTab={() => {}} onNavigate={(workspaceId, tabId) => navigated.push([workspaceId, tabId])} />
     </>));
     const mesh = host.querySelector('section[aria-label="Mesh resource source"]')!;
     expect(mesh.textContent).toContain(daemon.name);
@@ -81,7 +81,7 @@ it("renders authoritative daemon and schedule data in the map and peer sections"
       if (toggle.getAttribute("aria-expanded") !== "true") await act(async () => toggle.click());
     }
     for (const resource of [daemon, schedule]) {
-      expect(host.querySelector(`button[aria-label="Open ${resource.name}, machine ${resource.machine_name}"]`)).not.toBeNull();
+      expect(host.querySelector(`button[aria-label="Open ${resource.name}, machine ${resource.machine_name}"]`)).toBeNull();
     }
     const utility = host.querySelector<HTMLButtonElement>(`button[aria-label="Open tab qa shell, ${shell.title}"]`);
     expect(utility).not.toBeNull();

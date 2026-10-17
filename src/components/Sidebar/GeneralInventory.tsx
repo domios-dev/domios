@@ -8,10 +8,11 @@ import { RowMenuButton } from "../shared/RowMenuButton";
 import { SidebarShellRow, type SidebarOwnerTabRowProps } from "./SidebarShellRow";
 import { persistTabRename } from "./SidebarPlanPeerPair";
 import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
-import { generalInventorySections, projectUtilityShells } from "../General/generalOverviewModel";
+import { generalInventorySections, generalWorkspaceJobs, projectUtilityShells } from "../General/generalOverviewModel";
 import { ServiceDrawer, type DrawerState } from "../MeshPanel/ServiceDrawer";
 import { useMeshData, type MeshDataResult } from "../MeshPanel/useMeshData";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { Button } from "../shared/Button";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { useGeneralJobs } from "./useGeneralJobs";
 import { jobStateLabel, mergedJobId, type MergedJob } from "../Jobs/jobsModel";
@@ -25,12 +26,12 @@ function readExpanded(name: GroupName): boolean {
   catch { return false; }
 }
 
-function InventoryGroup({ name, count, children, touchMode }: { name: GroupName; count: number; children: ReactNode; touchMode: boolean }) {
+function InventoryGroup({ name, count, children, touchMode, onShowAll }: { onShowAll?: () => void; name: GroupName; count: number; children: ReactNode; touchMode: boolean }) {
   const [expanded, setExpanded] = useState(() => readExpanded(name));
   const id = useId();
-  const open = count > 0 && expanded;
+  const open = (count > 0 || !!onShowAll) && expanded;
   return <section aria-label={name} className="sidebar-team-section min-w-0">
-    <SidebarDisclosure expanded={open} aria-label={`${name}, ${count}`} aria-controls={id} disabled={count === 0} touchMode={touchMode}
+    <SidebarDisclosure expanded={open} aria-label={`${name}, ${count}`} aria-controls={id} disabled={count === 0 && !onShowAll} touchMode={touchMode}
       className="sidebar-team-workers-toggle"
       onClick={() => {
         const next = !expanded;
@@ -42,11 +43,14 @@ function InventoryGroup({ name, count, children, touchMode }: { name: GroupName;
       }}>
       {open ? name.toUpperCase() : `${count} ${count === 1 ? name.toLowerCase().replace(/s$/, "") : name.toLowerCase()}`}
     </SidebarDisclosure>
+    {onShowAll && <Button variant="ghost" aria-label="Show all jobs" onClick={onShowAll}>Show all</Button>}
     <ul id={id} aria-label={name} hidden={!open} className="sidebar-team-member-list min-w-0">{children}</ul>
   </section>;
 }
 
 export interface GeneralInventoryProps {
+  generalWorkspaceId: string;
+  onShowAllJobs?: () => void;
   workspaces: readonly Workspace[];
   teams: readonly Team[];
   tabs: Record<string, Tab>;
@@ -57,7 +61,7 @@ export interface GeneralInventoryProps {
   rowState?: Pick<SidebarOwnerTabRowProps, "tabStatuses" | "tabAttentionByTab" | "planIndex" | "activeWork" | "closingTabIds" | "appearingTabIds" | "orchestrators" | "uiFontScale">;
 }
 
-export function GeneralInventorySections({ workspaces, teams, tabs, onNavigate, touchMode = false, onCloseTab, onRenameTab, rowState, inventory, jobs, jobsFailed = false, onOpenJob = openTabJob, onJobsChanged = () => {} }: GeneralInventoryProps & {
+export function GeneralInventorySections({ generalWorkspaceId, onShowAllJobs, workspaces, teams, tabs, onNavigate, touchMode = false, onCloseTab, onRenameTab, rowState, inventory, jobs, jobsFailed = false, onOpenJob = openTabJob, onJobsChanged = () => {} }: GeneralInventoryProps & {
   inventory: MeshDataResult;
   jobs: readonly MergedJob[];
   jobsFailed?: boolean;
@@ -66,8 +70,8 @@ export function GeneralInventorySections({ workspaces, teams, tabs, onNavigate, 
 }) {
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const sections = generalInventorySections({ resources: inventory.services, loading: inventory.loading, error: inventory.error }, inventory.thisMachine.name);
-  const shells = projectUtilityShells(workspaces, tabs, teams);
-  const remoteSchedules = sections.remoteSchedules;
+  const shells = projectUtilityShells(workspaces, tabs, teams, generalWorkspaceId);
+  const localJobs = generalWorkspaceJobs(jobs, generalWorkspaceId);
   const attachmentsByOwner = surfaceAttachmentsByOwner(Object.values(tabs));
   const resourceRows = (rows: typeof sections.services.rows) => rows.map((row) => <li key={row.resourceKey}>
     <SidebarResourceRow name={row.resource.name} state={row.stateLabel}
@@ -77,8 +81,8 @@ export function GeneralInventorySections({ workspaces, teams, tabs, onNavigate, 
       onOpen={() => setDrawer({ kind: "service", id: row.resource.id, sourcePeerId: row.resource.source_peer_id ?? row.resource.source_peer })} />
   </li>);
   return <div className="min-w-0">
-    <InventoryGroup name="Jobs" count={jobs.length + remoteSchedules.length} touchMode={touchMode}>
-      {jobs.map((job) => <li key={`${job.kind}:${mergedJobId(job)}`}>
+    <InventoryGroup name="Jobs" count={localJobs.length} touchMode={touchMode} onShowAll={onShowAllJobs}>
+      {localJobs.map((job) => <li key={`${job.kind}:${mergedJobId(job)}`}>
         {job.kind === "cron" ? <SidebarCronRow job={job.cron} tabs={tabs} onDeleted={onJobsChanged} />
           : <SidebarResourceRow name={job.title} state={jobStateLabel(job.state)} icon={<Clock3 size={11} aria-hidden="true" />}
             accessibleName={`Open job ${job.title}`} onOpen={() => onOpenJob(job)}
@@ -86,7 +90,6 @@ export function GeneralInventorySections({ workspaces, teams, tabs, onNavigate, 
               items={[{ label: "System job cannot be changed", disabled: true, title: "System job cannot be changed" }]}
               trigger={<RowMenuButton label={`Job actions for ${job.title}`} title="Job actions" />} />} />}
       </li>)}
-      {resourceRows(remoteSchedules)}
     </InventoryGroup>
     <InventoryGroup name="Services" count={sections.services.rows.length} touchMode={touchMode}>{resourceRows(sections.services.rows)}</InventoryGroup>
     <InventoryGroup name="Utility shells" count={shells.length} touchMode={touchMode}>
@@ -118,6 +121,6 @@ export function GeneralInventorySections({ workspaces, teams, tabs, onNavigate, 
 
 export function GeneralInventory(props: GeneralInventoryProps) {
   const inventory = useMeshData(0);
-  const { jobs, failed, refresh } = useGeneralJobs(props.workspaces);
+  const { jobs, failed, refresh } = useGeneralJobs(props.workspaces, props.generalWorkspaceId);
   return <GeneralInventorySections {...props} inventory={inventory} jobs={jobs} jobsFailed={failed} onJobsChanged={refresh} />;
 }
