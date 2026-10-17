@@ -19,8 +19,7 @@ export function rateLimitEvents(raw:unknown, rawResets?:unknown): AgentEvent[] {
 
 function parseAccountCredits(raw:unknown): RuntimeAccountCredits | undefined {
   const value = object(raw);
-  const hasCredits = value.hasCredits ?? value.has_credits;
-  if (hasCredits !== true || typeof value.unlimited !== "boolean") return undefined;
+  if (typeof value.hasCredits !== "boolean" || typeof value.unlimited !== "boolean") return undefined;
   if (value.unlimited) return {kind:"unlimited"};
-  return typeof value.balance === "string" && value.balance.trim() ? {kind:"balance",balance:value.balance} : undefined;
+  return typeof value.balance === "string" && /^\d+(?:\.\d+)?$/.test(value.balance) ? {kind:"balance",balance:value.balance} : undefined;
 }

@@ -250,7 +250,7 @@ async fn replay(
                 let mut expected = action.clone();
                 if let RuntimeAction::Request { call } = &mut expected {
                     if call.method == "account/rateLimits/read" {
-                        call.params = json!({"exclude_reset_credit_details":true});
+                        call.params = json!({"excludeResetCreditDetails":true});
                     }
                 }
                 assert_eq!(plans[operation].action, expected);
