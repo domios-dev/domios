@@ -1143,10 +1143,11 @@ check("descending bounded history never falls back to a full-thread read",()=> {
 });
 
 check("Fast mode maps both values through thread settings and the next turn with runtime readback",()=> {
-  for (const fastMode of [true,false]) {
-    const serviceTier = fastMode ? "priority" : null;
-    const context = {...ctx,settings:{...ctx.settings,fastMode:!fastMode}};
-    const op:Operation = {kind:"control",threadId:ctx.threadId!,action:"settings",value:{model:"selected",effort:"high",fastMode}};
+  for (const tierId of [null,"priority","ultrafast"]) {
+    const serviceTier = tierId;
+    const selection = {id:tierId};
+    const context = {...ctx,settings:{...ctx.settings,serviceTier:{id:null},serviceTierAvailability:{selected:[{id:"priority",name:"Fast",description:""},{id:"ultrafast",name:"Ultrafast",description:""}]}}};
+    const op:Operation = {kind:"control",threadId:ctx.threadId!,action:"settings",value:{model:"selected",effort:"high",serviceTier:selection}};
     const plan = hooks.runtimePlan(context,op);
     assert.equal(plan.action.kind,"request");
     if (plan.action.kind !== "request") throw new Error("Expected settings request");
@@ -1154,9 +1155,10 @@ check("Fast mode maps both values through thread settings and the next turn with
     assert.equal((plan.action.call.params as Record<string,JsonValue>).serviceTier,serviceTier);
     const step = plain(hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:{threadSettings:{model:"selected",effort:"high",serviceTier}}}));
     if (step.kind !== "complete") throw new Error("Expected confirmation");
-    const event = step.events?.find(event=>event.kind === "controlsConfirmed");
+    assert.equal(step.events?.find(event=>event.kind === "controlsConfirmed"),undefined);
+    const event = hooks.runtimeReduce(context,null,[{kind:"notification",method:"thread/settings/updated",params:{threadId:ctx.threadId!,threadSettings:{model:"selected",effort:"high",serviceTier}}}]).events.find(event=>event.kind === "controlsConfirmed");
     assert.ok(event?.kind === "controlsConfirmed");
-    assert.equal(event.settings.fastMode,fastMode);
+    assert.deepEqual(event.settings.serviceTier,selection);
     const turn = hooks.runtimePlan(context,{...submit,kind:"submitTurn",settings:event.settings} as Operation);
     assert.equal(turn.action.kind,"request");
     if (turn.action.kind !== "request") throw new Error("Expected turn request");
@@ -1165,7 +1167,7 @@ check("Fast mode maps both values through thread settings and the next turn with
     if (missing.kind !== "complete") throw new Error("Expected completion");
     assert.equal(missing.events?.find(event=>event.kind === "controlsConfirmed"),undefined);
     for (const kind of ["openThread","resumeThread"] as const) {
-      const launch = hooks.runtimePlan(context,{kind,instructions:"",...(kind === "resumeThread" ? {threadId:ctx.threadId!} : {}),settings:{...ctx.settings,fastMode}} as Operation);
+      const launch = hooks.runtimePlan(context,{kind,instructions:"",...(kind === "resumeThread" ? {threadId:ctx.threadId!} : {}),settings:{...ctx.settings,serviceTier:selection}} as Operation);
       assert.equal(launch.action.kind,"request");
       if (launch.action.kind !== "request") throw new Error("Expected thread request");
       assert.equal((launch.action.call.params as Record<string,JsonValue>).serviceTier,serviceTier);
@@ -1173,7 +1175,7 @@ check("Fast mode maps both values through thread settings and the next turn with
     const notification = hooks.runtimeReduce(context,null,[{kind:"notification",method:"thread/settings/updated",params:{threadId:ctx.threadId!,threadSettings:{serviceTier}}}]);
     const reported = notification.events.find(event=>event.kind === "controlsConfirmed");
     assert.ok(reported?.kind === "controlsConfirmed");
-    assert.equal(reported.settings.fastMode,fastMode);
+    assert.deepEqual(reported.settings.serviceTier,selection);
   }
 });
 

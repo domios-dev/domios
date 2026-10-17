@@ -129,6 +129,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       events.push(loginCompleted(params)); continue;
     }
     if (frame.kind === "notification" && frame.method === "account/updated") {
+      if (ctx.threadId) events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{serviceTierAvailability:{}}});
       events.push(notificationAuth(params)); continue;
     }
     if (frame.kind === "notification" && frame.method === "thread/reverted") {

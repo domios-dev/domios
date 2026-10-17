@@ -10,7 +10,9 @@ export type RuntimeFrame =
   | {kind:"notification"; method:string; params:JsonValue}
   | {kind:"request"; requestId:RpcId; method:string; params:JsonValue};
 
-export interface RuntimeSettings { fastMode?:boolean; model?:string; effort?:string; mode?:string; additionalDirectories?:readonly string[]; networkAccess?:boolean }
+export interface RuntimeServiceTier { id:string; name:string; description:string; unavailableReason?:string }
+export interface RuntimeServiceTierSelection { id:string|null }
+export interface RuntimeSettings { serviceTier?:RuntimeServiceTierSelection; serviceTierAvailability?:Record<string,readonly RuntimeServiceTier[]>; model?:string; effort?:string; mode?:string; additionalDirectories?:readonly string[]; networkAccess?:boolean }
 export interface TurnInput { text:string; attachments:readonly ChatAttachment[] }
 export type PromptAnswer =
   | {kind:"choice"; values:readonly string[]}
@@ -119,7 +121,7 @@ export type ResetCreditOutcome = "reset"|"nothingToReset"|"noCredit"|"alreadyRed
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
 export interface StdioAgentRuntimeCapability {
-  fastMode?:boolean;
+  serviceTiers?:readonly RuntimeServiceTier[];
   backgroundProcesses?:boolean;
   goals?:{actions:readonly RuntimeGoalAction[]};
   threadHistory?:{actions:readonly ("fork"|"revert")[]};
