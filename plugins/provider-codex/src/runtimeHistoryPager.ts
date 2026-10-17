@@ -82,7 +82,7 @@ export function pagedHistoryResponse(op:Read, raw:Record<string,unknown>, reply:
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > value.data.length) failure("History item offset is invalid");
   for (let index=offset; index<value.data.length; index++) {
     const record = object(value.data[index]), item = record.item ?? record;
-    const rows = projectHistoryItem(item,0,state.turn!.id,record.startedAtMs ?? record.completedAtMs);
+    const rows = projectHistoryItem(item,0,state.turn!.id,record.startedAtMs ?? record.completedAtMs,op.threadId);
     const nextQuestions = reconcileHistoryQuestions(op.threadId,item,questions);
     const active = state.turn!.status === "inProgress" && state.turn!.startedAt != null && record.completedAtMs == null
       && !["completed","failed","interrupted","declined"].includes(String(object(item).status));

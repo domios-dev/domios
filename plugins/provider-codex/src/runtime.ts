@@ -333,7 +333,7 @@ function collectHistoryItems(op: Extract<Operation,{kind:"readHistory"}>, state:
     const record = object(entries[index]); const rawItem = historyItem(record.item ?? record);
     const nextQuestions = reconcileHistoryQuestions(op.threadId,rawItem,questions);
     const timestamp = record.startedAtMs ?? record.completedAtMs;
-    const rows = projectHistoryItem(rawItem,seq+1,String(turn.id),timestamp);
+    const rows = projectHistoryItem(rawItem,seq+1,String(turn.id),timestamp,op.threadId);
     const active = turn.status === "inProgress" && turn.startedAt != null && record.completedAtMs == null
       && !["completed","failed","interrupted","declined"].includes(String(object(rawItem).status));
     const opened = active ? rows.map(item=>({turnId:String(turn.id),item})) : [];
