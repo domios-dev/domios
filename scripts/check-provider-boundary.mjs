@@ -15,6 +15,10 @@ export function isCoreSource(file) {
   return scopes.some(scope => file.startsWith(`${scope}/`)) && sourceExtension.test(file);
 }
 
+function isExactCorePath(file) {
+  return typeof file === 'string' && isCoreSource(file) && !/[\\*?\[\]{}]/.test(file) && !file.split('/').some(part => !part || part === '.' || part === '..');
+}
+
 export function detectOccurrences(file, source) {
   const lines = source.replaceAll('\r\n', '\n').split('\n');
   const occurrences = [];
@@ -33,15 +37,31 @@ function key(entry) {
 }
 
 export function validateAllowlist(document) {
-  if (!document || Object.keys(document).sort().join(',') !== 'entries,version' || document.version !== 1 || !Array.isArray(document.entries)) {
-    throw new Error('allowlist must contain only version: 1 and entries');
+  const fields = document ? Object.keys(document).sort().join(',') : '';
+  if (!document || !['entries,version', 'entries,splits,version'].includes(fields) || document.version !== 1 || !Array.isArray(document.entries)) {
+    throw new Error('allowlist must contain only version: 1, optional splits and entries');
+  }
+  if (document.splits !== undefined && !Array.isArray(document.splits)) throw new Error('splits must be an array');
+  const splitSources = new Set();
+  for (const split of document.splits ?? []) {
+    if (!split || Object.keys(split).sort().join(',') !== 'from,to' || !isExactCorePath(split.from) || !Array.isArray(split.to) || !split.to.length) {
+      throw new Error('split requires an exact source and one or more exact destinations');
+    }
+    if (splitSources.has(split.from)) throw new Error(`duplicate split source: ${split.from}`);
+    splitSources.add(split.from);
+    const destinations = new Set();
+    for (const file of split.to) {
+      if (!isExactCorePath(file) || file === split.from) throw new Error(`non-exact split destination: ${file}`);
+      if (destinations.has(file)) throw new Error(`duplicate split destination: ${file}`);
+      destinations.add(file);
+    }
   }
   const seen = new Set();
   for (const entry of document.entries) {
     if (!entry || Object.keys(entry).sort().join(',') !== 'count,file,justification,removalSlice,token') {
       throw new Error('entry requires exact file, token, count, justification and removalSlice');
     }
-    if (typeof entry.file !== 'string' || !isCoreSource(entry.file) || /[\\*?\[\]{}]/.test(entry.file) || entry.file.split('/').some(part => !part || part === '.' || part === '..')) {
+    if (!isExactCorePath(entry.file)) {
       throw new Error(`non-exact core source path: ${entry.file}`);
     }
     if (typeof entry.token !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$-]*$/.test(entry.token) || !providerName.test(entry.token.replaceAll(/[_$-]/g, ''))) {
@@ -145,7 +165,7 @@ export function baselineRevision(root, forkPoint, anchor = migratedBaseline) {
   }
 }
 
-export function followRenames(root, revision, baseline, occurrences) {
+export function followRenames(root, revision, baseline, occurrences, splits = []) {
   const fields = git(root, ['diff', '--name-status', '-z', '--break-rewrites', '--find-renames', '--find-copies-harder', revision, '--', ...scopes]).split('\0');
   const renamed = new Map();
   for (let index = 0; index < fields.length;) {
@@ -156,6 +176,11 @@ export function followRenames(root, revision, baseline, occurrences) {
       if (!renamed.has(from)) renamed.set(from, []);
       renamed.get(from).push(fields[index++]);
     }
+  }
+  for (const split of splits) {
+    if (!renamed.has(split.from)) renamed.set(split.from, []);
+    const destinations = renamed.get(split.from);
+    for (const file of split.to) if (!destinations.includes(file)) destinations.push(file);
   }
   const actual = new Map(countOccurrences(occurrences).map(entry => [key(entry), entry.count]));
   return baseline.flatMap(entry => {
@@ -176,6 +201,7 @@ export function followRenames(root, revision, baseline, occurrences) {
 export function seedAllowlist(occurrences) {
   return {
     version: 1,
+    splits: [],
     entries: countOccurrences(occurrences).map(entry => ({
       ...entry,
       justification: 'Existing develop provider coupling; temporary exact file/token count pending plugin extraction.',
@@ -196,7 +222,9 @@ function main() {
   const occurrences = scanWorkingTree(root);
   const forkPoint = forkPointOf(root, base);
   const revision = baselineRevision(root, forkPoint);
-  const errors = checkBoundary(occurrences, document, followRenames(root, revision, readBaseline(root, revision), occurrences));
+  validateAllowlist(document);
+  const baseline = followRenames(root, revision, readBaseline(root, revision), occurrences, document.splits ?? []);
+  const errors = checkBoundary(occurrences, document, baseline);
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(`Provider boundary PASS: ${occurrences.length} occurrences in ${document.entries.length} exact file/token pairs; baseline ${base} at ${revision}; fork point ${forkPoint}.`);
 }
