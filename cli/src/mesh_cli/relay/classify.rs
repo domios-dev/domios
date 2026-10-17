@@ -150,22 +150,7 @@ fn peer_delivery_verdict(data: &serde_json::Value) -> PeerVerdict {
 /// What a caller may safely do next, given what the payload is known to have
 /// done and whether the refusal can ever clear. An unknown outcome is never
 /// advertised as a free retry.
-fn delivery_retry_hint(
-    data: &serde_json::Value,
-    code: Option<&str>,
-    bytes_written: Option<bool>,
-    status: u16,
-) -> String {
-    if code == Some(PEER_LACKS_DELAYED_RECURRENCE) {
-        return "update the peer or send a one-shot explicitly".to_string();
-    }
-    if let Some(hint) = data
-        .get("error")
-        .and_then(|e| e.get("retry_hint"))
-        .and_then(|v| v.as_str())
-    {
-        return hint.to_string();
-    }
+fn delivery_retry_hint(code: Option<&str>, bytes_written: Option<bool>, status: u16) -> String {
     match (code, bytes_written) {
         (Some(_), Some(true)) => "the payload already reached the target PTY — check the target \
              before resending; a retry may deliver it twice"
@@ -204,12 +189,22 @@ fn route_retry_hint(
     bytes_written: Option<bool>,
     status: u16,
 ) -> String {
+    if let Some(hint) = data
+        .get("error")
+        .and_then(|error| error.get("retry_hint").or_else(|| error.get("hint")))
+        .and_then(serde_json::Value::as_str)
+    {
+        return hint.to_string();
+    }
+    if code == Some(PEER_LACKS_DELAYED_RECURRENCE) {
+        return "update the peer or send a one-shot explicitly".to_string();
+    }
     if !super::is_send_relay(relayed.0, relayed.1)
         || (code.is_none() && data.get("error").is_none())
     {
         relay_retry_hint(relayed, status)
     } else {
-        delivery_retry_hint(data, code, bytes_written, status)
+        delivery_retry_hint(code, bytes_written, status)
     }
 }
 

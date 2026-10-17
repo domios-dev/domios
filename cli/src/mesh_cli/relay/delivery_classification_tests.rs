@@ -180,6 +180,33 @@ fn remote_rpc_error_is_not_success_data() {
 }
 
 #[test]
+fn server_hint_wins_over_route_and_capability_fallbacks() {
+    for path in [
+        "/api/tabs",
+        "/api/tabs/tab-1/send",
+        "/api/tabs/tab-1/delayed-messages",
+    ] {
+        for key in ["retry_hint", "hint"] {
+            let reason = "server-reason-token";
+            let hint = "server-hint-token";
+            let mut error = serde_json::json!({
+                "code": "peer_lacks_delayed_recurrence", "message": reason
+            });
+            error[key] = serde_json::json!(hint);
+            let failure = classify(
+                ("POST", path),
+                serde_json::json!({
+                    "ok": true, "status": 200, "data": {"ok": false, "error": error}
+                }),
+            )
+            .expect_err("refusal remains a failure");
+            assert!(failure.reason.contains(reason));
+            assert_eq!(failure.retry_hint, hint);
+        }
+    }
+}
+
+#[test]
 fn refused_remote_result_exits_nonzero_with_reason() {
     const CHILD: &str = "CODETERM_TEST_MESH_REFUSAL_CHILD";
     const REASON: &str = "remote-refusal-token-8274";
