@@ -173,14 +173,10 @@ the recovery command.
 bounce it, with a non-empty evidence note; the verdict consumes the grant, which
 never authorizes hold, dispatch or other transitions.
 
-Historical review credit leaked by older builds is repaired auditably with:
-
-```bash
-codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
-```
-
-Credit repair and capacity classification require the live bound Orchestrator
-session and record an immutable plan stride. For task-less review or canonical-QA
+`codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"`
+auditably repairs review credit leaked by older builds. Credit repair and capacity
+classification require the live bound Orchestrator session and record an immutable
+plan stride. For task-less review or canonical-QA
 evidence, the live Plan owner runs `codeterm plan review authorize-reporter <plan>
 <tab> --class review|canonical_qa`; that exact session gains evidence-only
 authority and reports with `codeterm agent report --plan <plan>` and no
@@ -190,9 +186,8 @@ before persistence or delivery. A fresh shell may omit `CODETERM_SESSION_ID`:
 evidence reporting resolves the registered tab session only with a matching
 stored and hook-reported nonce; never inject another tab's session.
 
-Planner spawns through CLI, REST, and synchronous service callers resolve an
-omitted `--parent-tab` from the Plan owner before provisioning; a missing owner
-refuses with the Plan identity and creates no tab, and an explicit parent wins.
+Planner spawns (CLI, REST, service) resolve an omitted `--parent-tab` from the
+Plan owner before provisioning; a missing owner refuses with no tab created.
 
 ### Task-bound plan skill reads
 
