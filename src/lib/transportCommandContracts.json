@@ -61,6 +61,7 @@
     "answers": []
   },
   "commands": {
+    "agent_runtime_child_authority": [["GET", "/api/mux/state"]],
     "mux_get_state": [
       [
         "GET",

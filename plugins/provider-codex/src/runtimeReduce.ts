@@ -90,6 +90,9 @@ function stamp(state: ReduceState, row: RuntimeItem, params: Record<string,unkno
   else if (typeof ms === "number" && Number.isFinite(ms)) row.timestamp = new Date(ms).toISOString();
   const turnId = text(params.turnId) ?? text(object(params.turn).id);
   if (turnId && !row.toolFlowId) row.toolFlowId = turnId;
+  if (row.toolKind === "agent" && row.toolName === "agent_activity") {
+    row.toolInput = json({...object(row.toolInput), agent_binding_nonce: state.bindingNonce, agent_runtime_epoch: state.epoch});
+  }
   state.items[row.id] = row;
   return row;
 }
