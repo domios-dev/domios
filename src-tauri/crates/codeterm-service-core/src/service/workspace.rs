@@ -542,7 +542,15 @@ impl ServiceContext {
                 cleanup_errors.push(format!("{tab_id}: {error}"));
             }
         }
-        let pty_ids = self.mux.write().close_prepared_workspace(prepared)?;
+        let (close_result, history_batch) = {
+            let mut mux = self.mux.write();
+            let result = mux.close_prepared_workspace(prepared);
+            (result, mux.take_closed_history_batch())
+        };
+        if let Some(batch) = history_batch {
+            batch.persist_on_blocking_thread();
+        }
+        let pty_ids = close_result?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         for (tab_id, provider_id) in provider_ids {
             self.release_tab_launch_artifacts(&tab_id, &provider_id);

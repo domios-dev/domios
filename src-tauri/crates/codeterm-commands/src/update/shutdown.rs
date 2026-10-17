@@ -315,10 +315,19 @@ mod tests {
         .expect("install Storage desk adapter");
         let teardown = async {
             let reservation = svc.mux.write().reserve_tab_close(&worker)?;
-            svc.mux
-                .write()
-                .close_reserved_tab_with_reason(reservation, TabCloseReason::User)
-                .map(|_| ())
+            let (result, batch) = {
+                let mut mux = svc.mux.write();
+                let result = mux
+                    .close_reserved_tab_with_reason(reservation, TabCloseReason::User)
+                    .map(|_| ());
+                (result, mux.take_closed_history_batch())
+            };
+            if let Some(batch) = batch {
+                tokio::task::spawn_blocking(move || batch.persist())
+                    .await
+                    .map_err(|error| format!("closed history persistence task failed: {error}"))?;
+            }
+            result
         };
         let rt = tokio::runtime::Builder::new_current_thread()
             .build()
