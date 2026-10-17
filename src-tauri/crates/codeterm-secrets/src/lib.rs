@@ -270,6 +270,10 @@ pub trait SecretStore: Send + Sync {
     /// identifier for display and storage only; never branch behaviour on it.
     fn id(&self) -> &'static str;
 
+    fn allows_account_credentials(&self) -> bool {
+        true
+    }
+
     /// What this backend declares it can do. Core asks this instead of asking
     /// which backend is active.
     fn capabilities(&self) -> StoreCapabilities {
