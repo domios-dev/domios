@@ -8,7 +8,7 @@ use super::heuristics::{needs_human, IDLE, NEEDS_NONE};
 use super::resume::{resumable_profile, resumable_url};
 use crate::surface::runtime::{SurfaceNotice, SurfaceResume, SurfaceState};
 use codeterm_browser::cdp_wire::CdpEvent;
-use codeterm_browser::snapshot::Snapshot;
+use codeterm_browser::snapshot::{resolve_target, ResolvedTarget, Snapshot};
 use codeterm_browser::{EventStream, PageChannel};
 
 const ATTACHED_PROFILE: &str = "attached";
@@ -72,6 +72,7 @@ pub(super) fn page_update(method: &str, params: &Value, target_id: &str) -> Opti
 struct PageSession {
     bound_session: Option<String>,
     snapshot: Option<Snapshot>,
+    capture: Option<String>,
     dialog: bool,
     grab_ready: bool,
     listener: Option<tokio::task::AbortHandle>,
@@ -220,9 +221,12 @@ impl PageShared {
                 return;
             }
             match &update {
-                PageUpdate::Navigated { .. } => session.snapshot = None,
+                PageUpdate::Navigated { .. } | PageUpdate::SameDocument { .. } => {
+                    session.snapshot = None;
+                    session.capture = None;
+                }
                 PageUpdate::Dialog(open) => session.dialog = *open,
-                PageUpdate::TargetInfo { .. } | PageUpdate::SameDocument { .. } => {}
+                PageUpdate::TargetInfo { .. } => {}
             }
             session.dialog
         };
@@ -242,12 +246,41 @@ impl PageShared {
         });
     }
 
+    #[cfg(test)]
     pub(super) fn snapshot(&self) -> Option<Snapshot> {
         self.session.lock().snapshot.clone()
     }
 
-    pub(super) fn set_snapshot(&self, snapshot: Snapshot) {
-        self.session.lock().snapshot = Some(snapshot);
+    pub(super) fn resolve(&self, locator: &[&str]) -> Result<ResolvedTarget, String> {
+        let session = self.session.lock();
+        resolve_target(session.snapshot.as_ref(), locator).map_err(|error| error.to_string())
+    }
+
+    pub(super) fn invalidate_snapshot(&self) {
+        let mut session = self.session.lock();
+        session.snapshot = None;
+        session.capture = None;
+    }
+
+    pub(super) fn begin_snapshot(&self, session_id: &str) -> Result<String, String> {
+        let mut session = self.session.lock();
+        if session.bound_session.as_deref() != Some(session_id) {
+            return Err("the browser session changed — take a new snapshot".into());
+        }
+        let capture = uuid::Uuid::new_v4().simple().to_string();
+        session.capture = Some(capture.clone());
+        session.snapshot = None;
+        Ok(capture)
+    }
+
+    pub(super) fn finish_snapshot(&self, capture: &str, snapshot: Snapshot) -> Result<(), String> {
+        let mut session = self.session.lock();
+        if session.capture.as_deref() != Some(capture) {
+            return Err("the page changed during capture — take a new snapshot".into());
+        }
+        session.snapshot = Some(snapshot);
+        session.capture = None;
+        Ok(())
     }
 
     /// True the first time per page session, so DOM/Overlay domains are enabled once.
@@ -391,7 +424,10 @@ mod tests {
     fn browser_page_navigation_drops_refs_and_dialogs_flag_needs_human() {
         let shared = PageShared::new("Jev");
         shared.session.lock().bound_session = Some("s".into());
-        shared.set_snapshot(Snapshot::default());
+        let capture = shared.begin_snapshot("s").unwrap();
+        shared
+            .finish_snapshot(&capture, Snapshot::default())
+            .unwrap();
         shared.apply("s", PageUpdate::Dialog(true));
         assert_eq!(shared.state().needs_human, "dialog");
         assert!(shared.snapshot().is_some());
@@ -512,5 +548,58 @@ mod tests {
         assert!(shared.grab_ready());
         shared.reset_grab_setup();
         assert!(shared.claim_grab_setup());
+    }
+
+    #[test]
+    fn browser_snapshot_rejects_old_capture_and_session() {
+        let shared = PageShared::new("Agent");
+        shared.session.lock().bound_session = Some("s".into());
+        assert!(shared.begin_snapshot("old-session").is_err());
+        let old = shared.begin_snapshot("s").unwrap();
+        let new = shared.begin_snapshot("s").unwrap();
+        assert!(shared.finish_snapshot(&old, Snapshot::default()).is_err());
+        assert!(shared.snapshot().is_none());
+        shared.finish_snapshot(&new, Snapshot::default()).unwrap();
+        assert!(shared.snapshot().is_some());
+    }
+
+    #[test]
+    fn browser_same_document_navigation_revokes_refs_and_pending_capture() {
+        let shared = PageShared::new("Agent");
+        shared.session.lock().bound_session = Some("s".into());
+        let first = shared.begin_snapshot("s").unwrap();
+        shared.finish_snapshot(&first, Snapshot::default()).unwrap();
+        shared.apply(
+            "s",
+            PageUpdate::SameDocument {
+                url: "https://app.dev/#new".into(),
+            },
+        );
+        assert!(shared.snapshot().is_none());
+        let pending = shared.begin_snapshot("s").unwrap();
+        shared.apply(
+            "s",
+            PageUpdate::Navigated {
+                url: "https://app.dev/other".into(),
+            },
+        );
+        assert!(shared
+            .finish_snapshot(&pending, Snapshot::default())
+            .is_err());
+    }
+
+    #[test]
+    fn browser_viewer_input_revokes_refs_and_an_inflight_capture() {
+        let shared = PageShared::new("Agent");
+        shared.session.lock().bound_session = Some("s".into());
+        let first = shared.begin_snapshot("s").unwrap();
+        shared.finish_snapshot(&first, Snapshot::default()).unwrap();
+        shared.invalidate_snapshot();
+        assert!(shared.snapshot().is_none());
+        let pending = shared.begin_snapshot("s").unwrap();
+        shared.invalidate_snapshot();
+        assert!(shared
+            .finish_snapshot(&pending, Snapshot::default())
+            .is_err());
     }
 }

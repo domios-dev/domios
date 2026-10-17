@@ -4,9 +4,7 @@ use super::heuristics::{activity_label, is_quiet_verb, IDLE};
 use super::input::{self, InputArgs, NavAction};
 use super::{cdp_error, BrowserRuntime, WAIT_DEADLINE};
 use crate::surface::runtime::SurfaceCallCtx;
-use codeterm_browser::snapshot::{
-    build_snapshot, parse_full_ax_tree, resolve_target, DEFAULT_MAX_LINES,
-};
+use codeterm_browser::snapshot::{build_snapshot_scoped, parse_full_ax_tree, DEFAULT_MAX_LINES};
 use codeterm_browser::PageChannel;
 
 pub const VERBS: &[&str] = &[
@@ -74,24 +72,17 @@ pub fn parse_wait(args: &[String]) -> Result<WaitFor, String> {
 
 /// An in-page MutationObserver resolves the moment the condition holds; its timer only means failure.
 pub fn wait_expression(wait: &WaitFor) -> Option<String> {
-    let check = match wait {
-        WaitFor::Text(text) => format!(
-            "document.body && document.body.innerText.includes({})",
-            Value::String(text.clone())
-        ),
-        WaitFor::Selector(selector) => format!(
-            "!!document.querySelector({})",
-            Value::String(selector.clone())
-        ),
+    let (kind, value) = match wait {
+        WaitFor::Text(text) => ("text", text),
+        WaitFor::Selector(selector) => ("selector", selector),
         WaitFor::Url(_) => return None,
     };
-    let deadline = WAIT_DEADLINE.as_millis();
-    let seconds = WAIT_DEADLINE.as_secs();
     Some(format!(
-        "new Promise((resolve, reject) => {{ const ok = () => {check}; if (ok()) return resolve(true); \
-         const obs = new MutationObserver(() => {{ if (ok()) {{ obs.disconnect(); resolve(true); }} }}); \
-         obs.observe(document, {{ subtree: true, childList: true, characterData: true, attributes: true }}); \
-         setTimeout(() => {{ obs.disconnect(); reject(new Error(\"not found within {seconds}s\")); }}, {deadline}); }})"
+        "{}({}, {}, {})",
+        include_str!("wait.js"),
+        Value::String(kind.into()),
+        Value::String(value.clone()),
+        WAIT_DEADLINE.as_millis(),
     ))
 }
 
@@ -317,19 +308,19 @@ impl BrowserRuntime {
         &self,
         locator: &[String],
     ) -> Result<codeterm_browser::snapshot::ResolvedTarget, String> {
-        let snapshot = self.shared.snapshot();
         let parts: Vec<&str> = locator.iter().map(String::as_str).collect();
-        resolve_target(snapshot.as_ref(), &parts).map_err(|error| error.to_string())
+        self.shared.resolve(&parts)
     }
 
     async fn snapshot(&self, page: &PageChannel, limit: usize) -> Result<String, String> {
+        let capture = self.shared.begin_snapshot(page.session_id())?;
         let _ = self.send(page, "Accessibility.enable", json!({})).await;
         let tree = self
             .send(page, "Accessibility.getFullAXTree", json!({}))
             .await?;
-        let snapshot = build_snapshot(&parse_full_ax_tree(&tree)?, limit);
+        let snapshot = build_snapshot_scoped(&parse_full_ax_tree(&tree)?, limit, &capture);
         let text = snapshot.text.clone();
-        self.shared.set_snapshot(snapshot);
+        self.shared.finish_snapshot(&capture, snapshot)?;
         let state = self.shared.state();
         Ok(format!("page: {} — {}\n{text}", state.title, state.url))
     }
@@ -376,7 +367,7 @@ impl BrowserRuntime {
             .map(|_| ())
     }
 
-    async fn evaluate(
+    pub(super) async fn evaluate(
         &self,
         page: &PageChannel,
         expression: &str,
@@ -406,22 +397,26 @@ impl BrowserRuntime {
     async fn wait(&self, page: &PageChannel, wait: WaitFor) -> Result<String, String> {
         match &wait {
             WaitFor::Url(fragment) => {
-                let mut navigated = page.subscribe_session(&["Page.frameNavigated"]);
+                let mut navigated = page
+                    .subscribe_session(&["Page.frameNavigated", "Page.navigatedWithinDocument"]);
                 if self.shared.state().url.contains(fragment.as_str()) {
                     return Ok(format!("url already contains {fragment}"));
                 }
                 let matched = tokio::time::timeout(WAIT_DEADLINE, async {
                     while let Some(event) = navigated.recv().await {
-                        let frame = event.params.get("frame");
-                        let main = frame
-                            .and_then(|f| f.get("parentId"))
-                            .is_none_or(Value::is_null);
-                        let url = frame
-                            .and_then(|f| f.get("url"))
-                            .and_then(Value::as_str)
-                            .unwrap_or("");
-                        if main && url.contains(fragment.as_str()) {
-                            return Some(url.to_string());
+                        let update = super::page::page_update(
+                            &event.method,
+                            &event.params,
+                            page.target_id(),
+                        );
+                        if let Some(
+                            super::page::PageUpdate::Navigated { url }
+                            | super::page::PageUpdate::SameDocument { url },
+                        ) = update
+                        {
+                            if url.contains(fragment.as_str()) {
+                                return Some(url);
+                            }
                         }
                     }
                     None

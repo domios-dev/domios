@@ -78,6 +78,10 @@ pub enum CallOrigin {
     Agent,
 }
 
+fn view_operation_allowed(origin: CallOrigin, method: &str, view_only: &[&str]) -> bool {
+    origin == CallOrigin::View || !view_only.contains(&method)
+}
+
 /// A refusal is the request's fault (4xx); a failure is the runtime's answer (`{ error }`).
 #[derive(Debug)]
 pub enum SurfaceCallFailure {
@@ -177,6 +181,11 @@ pub async fn call_surface(
     let (runtime, binding) = svc
         .surface_runtime(tab_id)
         .map_err(SurfaceCallFailure::Refused)?;
+    if !view_operation_allowed(origin, method, runtime.view_only_methods()) {
+        return Err(SurfaceCallFailure::Failed(
+            "user_only: this operation is available only from the user interface".into(),
+        ));
+    }
     if origin == CallOrigin::Agent && super::is_agent_method(method) {
         svc.note_surface_activity(&binding.tab_id, method, None);
     }
@@ -223,6 +232,26 @@ mod tests {
 
     use super::*;
     use crate::multiplexer::types::{SurfaceBacking, TabBacking};
+
+    #[test]
+    fn agents_can_select_profiles_but_only_the_view_can_manage_them() {
+        let protected = ["profiles.create", "profiles.delete"];
+        for method in protected {
+            assert!(!view_operation_allowed(
+                CallOrigin::Agent,
+                method,
+                &protected
+            ));
+            assert!(view_operation_allowed(CallOrigin::View, method, &protected));
+        }
+        for method in ["profiles.use", "profiles.list"] {
+            assert!(view_operation_allowed(
+                CallOrigin::Agent,
+                method,
+                &protected
+            ));
+        }
+    }
 
     fn decl(id: &str, runtime: Option<&str>) -> SurfaceDecl {
         decl_restoring(id, runtime, SurfaceRestore::Placeholder)

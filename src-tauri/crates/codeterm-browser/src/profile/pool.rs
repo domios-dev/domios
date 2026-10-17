@@ -77,6 +77,27 @@ pub struct ProfileLease {
     pub(crate) target_id: Option<String>,
 }
 
+pub async fn delete_named_profile(layout: &super::ProfileLayout, name: &str) -> Result<(), String> {
+    let name = super::validate_named_profile(name)?;
+    let dir = layout.dir_for(&ProfileKind::Named { name: name.into() });
+    let slot = slot_for(&dir);
+    let model = slot.lock().await;
+    if model.handle().is_some() {
+        return Err(format!(
+            "profile {name} is in use; switch or close every browser using it first"
+        ));
+    }
+    let metadata = tokio::fs::symlink_metadata(&dir)
+        .await
+        .map_err(|_| format!("profile {name} does not exist"))?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(format!("profile {name} must be a real profile directory"));
+    }
+    tokio::fs::remove_dir_all(&dir)
+        .await
+        .map_err(|error| format!("could not delete profile {name}: {error}"))
+}
+
 impl ProfileLease {
     pub(crate) async fn acquire_with<F, Fut>(dir: PathBuf, launch: F) -> Result<Self, String>
     where
