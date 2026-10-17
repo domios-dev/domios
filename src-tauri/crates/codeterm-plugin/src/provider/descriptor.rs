@@ -61,6 +61,7 @@ pub(super) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
                 .get("interrupt")
                 .is_some_and(|methods| !methods.is_empty())
         }) || provider.stop_keys().is_some(),
+        supports_subagent_visibility: provider.supports_subagent_visibility(),
         supports_chat_ui: runtime.is_some() || provider.supports_chat_ui(),
         supports_structured_prompts: provider.supports_structured_prompts(),
         supports_prompt_answers: provider.supports_prompt_answers(),

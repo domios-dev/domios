@@ -6,7 +6,7 @@ import type { ChatSessionIntent } from "@codeterm/chat-core";
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { ChevronUp, CircleCheck, Clock3, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Target, Workflow, X } from "lucide-react";
+import { Activity, ChevronUp, CircleCheck, Clock3, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Target, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
 import { deleteJobConfirmation, deleteMergedJob, stopMergedJob, type JobsActionAdapter } from "../Jobs/jobActions";
@@ -20,10 +20,11 @@ import { usePhoneViewport } from "../../hooks/useSidebarViewport";
 import { useMuxSelector } from "../../store/multiplexer";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { goalVisible } from "./goalModel";
-import { ComposerBackgroundWorkBadges } from "./ComposerBackgroundWorkBadges";
+import { ComposerBackgroundWorkPanel } from "./ComposerBackgroundWorkPanel";
 import { useComposerBackgroundWork } from "./useComposerBackgroundWork";
+import { composerBackgroundWorkBubble } from "./composerBackgroundWorkModel";
 
-export type ContextKind = "blueprints" | "crons" | "delayed" | "goal";
+export type ContextKind = "blueprints" | "crons" | "delayed" | "goal" | "background";
 
 interface ComposerContextHeaderProps {
   pluginError?: string | null;
@@ -42,9 +43,9 @@ interface ComposerContextHeaderProps {
 
 type OwnedBlueprint = ReturnType<typeof useTabJobs>["blueprints"][number];
 
-const KIND_ICON = { blueprints: Workflow, crons: Clock3, delayed: Timer, goal: Target } as const;
-const KIND_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed messages", goal: "Session goal" } as const;
-const KIND_SHORT_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed", goal: "Goal" } as const;
+const KIND_ICON = { blueprints: Workflow, crons: Clock3, delayed: Timer, goal: Target, background: Activity } as const;
+const KIND_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed messages", goal: "Session goal", background: "Background work" } as const;
+const KIND_SHORT_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed", goal: "Goal", background: "Background" } as const;
 
 const keepComposerFocus = (event: MouseEvent) => event.preventDefault();
 
@@ -138,7 +139,12 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     return tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null);
   });
   const descriptor = useAgentDescriptor(providerId);
-  const backgroundWork = useComposerBackgroundWork(tabId, descriptor?.agent_runtime?.backgroundProcesses === true);
+  const backgroundWork = useComposerBackgroundWork(
+    tabId,
+    descriptor?.agent_runtime?.backgroundProcesses === true,
+    descriptor?.supports_subagent_visibility === true,
+  );
+  const backgroundBubble = composerBackgroundWorkBubble(backgroundWork.items);
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
   const [requested, setRequested] = useState<ContextKind | null>(null);
   const goalTriggerRef = useRef<HTMLButtonElement>(null);
@@ -176,12 +182,14 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     crons: cronChips.length,
     delayed: delayed.length,
     goal: Number(hasGoal),
+    background: backgroundBubble?.count ?? 0,
   };
   const alerts: Record<ContextKind, boolean> = {
     blueprints: blueprintChips.some((chip) => chip.state === "waiting on you"),
     crons: cronChips.some((chip) => chip.state === "waiting on you"),
     delayed: delayed.some((message) => message.state === "failed"),
     goal: false,
+    background: false,
   };
   const kinds = (Object.keys(counts) as ContextKind[]).filter((kind) => counts[kind] > 0);
   const open = requested && counts[requested] > 0 ? requested : null;
@@ -272,6 +280,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
         </button>
       </>
     ),
+    background: () => <ComposerBackgroundWorkPanel items={backgroundBubble?.items ?? []} onStop={backgroundWork.stop} />,
   };
 
   const fallbackTitle = () => {
@@ -352,7 +361,6 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       <div className="ct-ctx__head ct-ctx__compact">
         {phone ? pill : plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
         {!phone && linkedChips}
-        <ComposerBackgroundWorkBadges items={backgroundWork.items} error={backgroundWork.error} onStop={backgroundWork.stop} />
       </div>
       {phone && linkedChips}
       {open && (phone ? (
@@ -360,6 +368,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
           <div className="ct-ctx__reveal-inner">{body}</div>
         </div>
       ) : body)}
+      {backgroundWork.error && <InlineErrorNotice error={backgroundWork.error} operation="loading background work" />}
       {error && !confirming && <InlineErrorNotice error={error} operation="updating the composer context" blocking />}
       {confirming && (() => {
         const copy = deleteJobConfirmation(confirming);

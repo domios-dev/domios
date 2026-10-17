@@ -8,6 +8,7 @@
   "cliBinary": "codex",
   "capabilities": {
     "agentProvider": true,
+    "subagentVisibility": true,
     "structuredControl": {
       "protocol": "codex-app-server",
       "minVersion": "0.159.0"

@@ -291,6 +291,7 @@
   ],
   "capabilities": {
     "agentProvider": true,
+    "subagentVisibility": true,
     "recordSources": {
       "sessionTranscript": {
         "format": "jsonl",

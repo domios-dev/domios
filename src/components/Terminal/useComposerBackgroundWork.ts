@@ -55,7 +55,7 @@ function validSnapshot(snapshot: BackgroundProcessSnapshot, identity: Background
     && snapshot.epoch === identity.epoch;
 }
 
-export function useComposerBackgroundWork(tabId: string, supported: boolean) {
+export function useComposerBackgroundWork(tabId: string, supported: boolean, subagentsVisible: boolean) {
   const messages = useComposerBackgroundWorkMessages();
   const { identity, refreshKey } = useBackgroundProcessState(tabId);
   const revision = workRevision(messages);
@@ -102,6 +102,6 @@ export function useComposerBackgroundWork(tabId: string, supported: boolean) {
   }, [acceptSnapshot, identity, tabId]);
 
   const terminals = sameAuthority(loaded.identity, identity) ? loaded.processes : [];
-  const items = composerBackgroundWorkItems(messages, terminals, Date.now());
+  const items = composerBackgroundWorkItems(messages, terminals, Date.now(), { subagentsVisible, rootThreadId: identity?.rootThreadId });
   return { items, error, stop };
 }
