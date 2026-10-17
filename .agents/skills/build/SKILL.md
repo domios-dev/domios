@@ -961,6 +961,26 @@ with the same names. Empty or missing secrets do not fail compilation.
 - DOMIOS_AMPLITUDE_API_KEY_TEST
 - DOMIOS_AMPLITUDE_API_KEY_PROD
 
+`install-local` resolves all four Firebase account entries together, preferring
+the CodeTerm secret store and falling back to a complete existing build
+environment. It scopes them to the packaged app build. Complete values print
+`Firebase config: cloud-auth enabled`; missing or partial values print
+`Firebase config: local-only`. That line reports compiled config availability,
+not whether a Firebase provider is enabled. Separately confirm Google and
+email-link sign-in are enabled for the selected Firebase project. Save the
+values once with stdin:
+
+```text
+codeterm mem secret save --name DOMIOS_FIREBASE_API_KEY
+codeterm mem secret save --name DOMIOS_FIREBASE_PROJECT_ID
+codeterm mem secret save --name DOMIOS_FIREBASE_APP_ID
+codeterm mem secret save --name DOMIOS_ACCOUNT_REDEEM_URL
+```
+
+Run each command and provide that value through stdin; omit `--value` so it
+stays out of shell history. The `codeterm mem secret` command uses `save` for
+this operation. Do not put these values in repository files.
+
 Account, billing and analytics own one build_config module each, using option_env!.
 Only vendor adapters consume it. Runtime account and billing config overrides
 the compiled defaults; Amplitude prefers the compiled key over the secret store.
