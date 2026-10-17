@@ -870,7 +870,7 @@ export interface ChatSessionInfo {
 }
 
 // `spawnable` makes the backend user-openable; `watcher` opts into host-driven watcher ticks.
-export type ChatBackendCapability = boolean | { spawnable?: boolean; watcher?: boolean; sessionConfig?: boolean; agentTasks?: boolean };
+export type ChatBackendCapability = boolean | { spawnable?: boolean; watcher?: boolean; sessionConfig?: boolean; agentTasks?: boolean; remoteTask?: import("./remoteTasks").RemoteTaskCapability };
 
 export interface AgentTaskInput {
   runId: string;
