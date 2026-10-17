@@ -52,16 +52,16 @@ import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { ComposerTextInput } from "./ComposerTextInput";
-import { capsuleSpans, hasCapsuleTokens } from "./composerCapsules";
+import { hasCapsuleTokens } from "./composerCapsules";
 import { replaceTextareaRange, useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
-import { draftHasPendingUploads } from "./composerUploadModel";
+import { composerSendPlan, resolveComposerSend } from "./composerSendPlan";
+import { recordDroppedUploads } from "./DroppedUploadNotice";
 import { classifyAttachmentPaths } from "./composerFiles";
 import { ComposerMentionPicker, useComposerMentions } from "./ComposerMentionPicker";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { ReplyQuote } from "@codeterm/chat-ui";
 import type { ComposerReply } from "./composerReply";
 import { useComposerReply } from "./useComposerReply";
-import { usePublishComposerIssues } from "./ComposerIssuesContext";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
@@ -261,18 +261,8 @@ function ChatComposerImpl({
     [showComposerError],
   );
   const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError });
-  usePublishComposerIssues(capsules.uploads.uploads, {
-    retry: capsules.uploads.retry,
-    remove: id => {
-      const upload = capsules.uploads.uploads.find(item => item.id === id);
-      const span = capsuleSpans(textareaRef.current?.value ?? input).find(item => item.label === upload?.label);
-      if (span) capsules.remove(span);
-      capsules.uploads.remove(id);
-    },
-  });
   const [composing, setComposing] = useState(false);
   const capsulesActive = !composing && hasCapsuleTokens(input);
-  const pendingUploads = draftHasPendingUploads(input, capsules.registry);
   const attachInline = async (paths: string[]) => capsules.insert(await classifyAttachmentPaths(paths));
   const capabilities = useMuxSelector(useLatestCallback(state => state.tabs[tabId]?.provider_signals?.capabilities, [tabId]));
   const firstLine = input.split("\n")[0] || "";
@@ -363,7 +353,6 @@ function ChatComposerImpl({
   }
 
   function buildDraft(extraAttachments: string[] = []) {
-    if (draftHasPendingUploads(textareaRef.current?.value ?? input, capsules.registryRef.current)) return;
     const text = input.trim();
     const cleanExtraAttachments = extraAttachments
       .map((p) => p.trim())
@@ -406,7 +395,9 @@ function ChatComposerImpl({
     setInput("");
     if (textareaRef.current) textareaRef.current.value = "";
     clearAttachments();
-    capsules.clear();
+    const plan = composerSendPlan(text, registry, capsules.uploads.uploads);
+    const capturedUploads = duplicate ? [] : capsules.uploads.take(plan.uploadIds);
+    capsules.detach();
     reply.clearIfSent(quoted);
     if (duplicate) return;
     lastSendRef.current = { text: dupKey, at: Date.now() };
@@ -422,7 +413,17 @@ function ChatComposerImpl({
     try {
       const send = readChatSends(tabId).find((item) => item.id === optimisticId)
         ?? { id: optimisticId, content: portable, sentAtMs: Date.now(), draft: deliveryDraft };
-      composed = await prepareChatDelivery(tabId, send, expandDsTasks);
+      const results = await Promise.all(capturedUploads.map(async item => ({ ...item, path: await item.result })));
+      const resolved = resolveComposerSend(text, registry, new Map(results.map(item => [item.upload.id, item.path])));
+      recordDroppedUploads(tabId, optimisticId, results.filter(item => !item.path).map(item => item.upload));
+      const readyDraft = { ...deliveryDraft, ...resolved };
+      setChatSendDraft(tabId, optimisticId, readyDraft);
+      composed = await prepareChatDelivery(tabId, { ...send, draft: readyDraft }, expandDsTasks);
+      if (!composed.trim()) {
+        failChatSendRequest(tabId, optimisticId);
+        pendingDraftsRef.current.delete(dupKey);
+        return;
+      }
       updateOptimistic(optimisticId, composed);
     } catch {
       failChatSendRequest(tabId, optimisticId);
@@ -567,7 +568,7 @@ function ChatComposerImpl({
           onSchedule={openScheduleModal}
           onSendWithAttachments={(paths) => void send(paths)}
           onError={flagComposerError}
-          sendDisabled={pendingUploads || (!input.trim() && attachments.length === 0 && !reply.reply)}
+          sendDisabled={(!input.trim() && attachments.length === 0 && !reply.reply)}
           hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
           cardHeader={(reply.reply || attachments.length > 0) && <>
             {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}

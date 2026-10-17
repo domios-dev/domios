@@ -221,3 +221,7 @@ export function beginChatSendDeletion(tabId: string, id: string): DeliverySend |
 export function endChatSendDeletion(tabId: string, id: string): void {
   deleting.delete(deletionKey(tabId, id));
 }
+
+export function setDroppedUploads(tabId: string, id: string, names: string[]): void {
+  publish(tabId, readChatSends(tabId).map(send => send.id === id ? { ...send, droppedUploads: names } : send));
+}
