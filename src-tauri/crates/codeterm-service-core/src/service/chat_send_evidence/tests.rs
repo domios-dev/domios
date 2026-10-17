@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 mod bounded_window_tests;
+mod first_materialization_tests;
 mod source_claim_tests;
 mod status_tests;
 mod structured_sequential_tests;
