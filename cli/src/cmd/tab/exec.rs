@@ -49,8 +49,8 @@ pub(crate) fn exec_report(body: &Value) -> ExecReport {
         },
         (None, _) => ExecReport {
             stdout,
-            stderr: None,
-            exit: 0,
+            stderr: Some("the command's exit status is unknown".into()),
+            exit: 1,
         },
     };
     if body.get("output_truncated").and_then(Value::as_bool) == Some(true)
@@ -144,5 +144,13 @@ mod tests {
             "completion": "shell_exited",
         }));
         assert_eq!(report.exit, 1);
+    }
+    #[test]
+    fn exec_report_never_succeeds_without_an_exit_status() {
+        for completion in ["command_finished", "unknown"] {
+            let report = exec_report(&json!({"exit_code": null, "completion": completion}));
+            assert_eq!(report.exit, 1);
+            assert!(report.stderr.is_some());
+        }
     }
 }

@@ -1,7 +1,3 @@
-//! Completion evidence for `tab exec`: the shell-integration command-finished
-//! marker, or the shell process itself exiting. A waiter registers before the
-//! command is written, so no completion can land between the write and the wait.
-
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -30,7 +26,47 @@ impl ExecCompletion {
     }
 }
 
-type Waiters = HashMap<String, Vec<(u64, oneshot::Sender<ExecCompletion>)>>;
+#[derive(Default)]
+struct CommandCorrelation {
+    expected: Option<String>,
+    started: bool,
+}
+
+impl CommandCorrelation {
+    fn observe(
+        &mut self,
+        event: &crate::agent::command_detection::CommandLifecycle,
+    ) -> Option<ExecCompletion> {
+        use crate::agent::command_detection::CommandLifecycle;
+        match event {
+            CommandLifecycle::Started { command_line, .. } => {
+                self.started = self.expected.as_deref().map_or_else(
+                    || command_line.as_deref().is_some_and(|line| !line.is_empty()),
+                    |expected| {
+                        command_line
+                            .as_deref()
+                            .is_some_and(|line| line.trim() == expected.trim())
+                    },
+                );
+                None
+            }
+            CommandLifecycle::Finished { exit_code, .. } if std::mem::take(&mut self.started) => {
+                Some(ExecCompletion::CommandFinished {
+                    exit_code: *exit_code,
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
+struct PendingExec {
+    id: u64,
+    correlation: CommandCorrelation,
+    tx: oneshot::Sender<ExecCompletion>,
+}
+
+type Waiters = HashMap<String, Vec<PendingExec>>;
 
 static WAITERS: LazyLock<Mutex<Waiters>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 static NEXT_WAITER: AtomicU64 = AtomicU64::new(1);
@@ -43,6 +79,14 @@ pub struct ExecWaiter {
 
 impl ExecWaiter {
     pub fn register(pty_id: &str) -> Self {
+        Self::register_expected(pty_id, None)
+    }
+
+    pub fn for_command(pty_id: &str, command: &str) -> Self {
+        Self::register_expected(pty_id, Some(command.to_string()))
+    }
+
+    fn register_expected(pty_id: &str, expected: Option<String>) -> Self {
         let id = NEXT_WAITER.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         WAITERS
@@ -50,7 +94,14 @@ impl ExecWaiter {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .entry(pty_id.to_string())
             .or_default()
-            .push((id, tx));
+            .push(PendingExec {
+                id,
+                correlation: CommandCorrelation {
+                    expected,
+                    started: false,
+                },
+                tx,
+            });
         Self {
             pty_id: pty_id.to_string(),
             id,
@@ -73,7 +124,7 @@ impl Drop for ExecWaiter {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(list) = waiters.get_mut(&self.pty_id) {
-            list.retain(|(id, _)| *id != self.id);
+            list.retain(|pending| pending.id != self.id);
             if list.is_empty() {
                 waiters.remove(&self.pty_id);
             }
@@ -82,53 +133,46 @@ impl Drop for ExecWaiter {
 }
 
 pub fn publish(pty_id: &str, completion: ExecCompletion) {
+    if !matches!(completion, ExecCompletion::ShellExited { .. }) {
+        return;
+    }
     let waiting = WAITERS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .remove(pty_id)
         .unwrap_or_default();
-    for (_, tx) in waiting {
-        let _ = tx.send(completion);
+    for pending in waiting {
+        let completion = if pending.correlation.expected.is_some() && !pending.correlation.started {
+            ExecCompletion::ShellExited { exit_code: None }
+        } else {
+            completion
+        };
+        let _ = pending.tx.send(completion);
+    }
+}
+
+pub(crate) fn observe_command(
+    pty_id: &str,
+    event: &crate::agent::command_detection::CommandLifecycle,
+) {
+    let mut waiters = WAITERS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(list) = waiters.get_mut(pty_id) {
+        let mut retained = Vec::new();
+        for mut pending in list.drain(..) {
+            if let Some(completion) = pending.correlation.observe(event) {
+                let _ = pending.tx.send(completion);
+            } else {
+                retained.push(pending);
+            }
+        }
+        *list = retained;
+        if list.is_empty() {
+            waiters.remove(pty_id);
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn exec_returns_exit_code_and_timeout() {
-        let finished = ExecWaiter::register("pty-exec-finished");
-        publish(
-            "pty-exec-finished",
-            ExecCompletion::CommandFinished { exit_code: Some(3) },
-        );
-        let completion = finished.wait(Duration::from_secs(30)).await;
-        assert_eq!(completion.and_then(ExecCompletion::exit_code), Some(3));
-
-        let exited = ExecWaiter::register("pty-exec-exited");
-        publish(
-            "pty-exec-exited",
-            ExecCompletion::ShellExited { exit_code: Some(7) },
-        );
-        assert_eq!(
-            exited.wait(Duration::from_secs(30)).await,
-            Some(ExecCompletion::ShellExited { exit_code: Some(7) })
-        );
-
-        let silent = ExecWaiter::register("pty-exec-silent");
-        assert_eq!(silent.wait(Duration::ZERO).await, None);
-        assert!(!WAITERS.lock().unwrap().contains_key("pty-exec-silent"));
-
-        publish(
-            "pty-exec-late",
-            ExecCompletion::CommandFinished { exit_code: Some(0) },
-        );
-        let late = ExecWaiter::register("pty-exec-late");
-        assert_eq!(
-            late.wait(Duration::ZERO).await,
-            None,
-            "a completion published before registration belongs to an earlier command"
-        );
-    }
-}
+mod tests;
