@@ -101,3 +101,18 @@ test("provider file storage preserves binding across controller instances and re
   assert.equal(locks.size, 0);
   await assert.rejects(async () => new RemoteTaskFileStorage(fs, "/provider-data").read("../foreign"));
 });
+
+test("an acknowledged create whose binding write fails is never recreated after restart", () => {
+  const f = fixture();
+  let failAcknowledgement = true;
+  const storage: RemoteTaskStorage = {...f.storage, compareExchange(id, revision, next) {
+    if (failAcknowledgement && next.phase === "bound") return false;
+    return f.storage.compareExchange(id, revision, next);
+  }};
+  assert.throws(() => new RemoteTaskController(storage, f.backend).create("tab", "provider-fixture", f.environment, "master", "Read README"));
+  failAcknowledgement = false;
+  const restarted = new RemoteTaskController(storage, f.backend);
+  assert.equal(restarted.restore("tab")?.phase, "create_uncertain");
+  assert.throws(() => restarted.create("tab", "provider-fixture", f.environment, "master", "Read README"));
+  assert.equal(f.creates(), 1);
+});
