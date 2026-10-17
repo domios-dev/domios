@@ -2,8 +2,8 @@ use super::super::lane_metadata::normalize_lane_metadata;
 use super::super::readback::pending_after_verified;
 use super::super::{PlanError, PlanStore};
 use super::{
-    ambiguous_subject_cause, progression_authority, startup_attempt, startup_status_allows,
-    superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
+    LiveTabAttempt, ambiguous_subject_cause, progression_authority, startup_attempt,
+    startup_status_allows, superseded_subject_cause, unresolved_subject_cause,
 };
 
 impl PlanStore {
@@ -169,9 +169,11 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<super::super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
         let _writer_turn = self.mutation_writer.enter();
-        let current_task = self.read_task_for_verification(plan_id, task_id)?;
+        let current_plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let current_task = crate::plan::task_key::find_task(&current_plan.tasks, task_id)
+            .ok_or(PlanError::TaskNotFound)?;
         let Some((current_attempt, competitive)) =
-            startup_attempt(&current_task, tab_id, attempt_id)
+            startup_attempt(current_task, tab_id, attempt_id)
         else {
             return Err(Self::task_readback_error(
                 "task_dispatch_ack",
@@ -192,12 +194,12 @@ impl PlanStore {
             let attempt = current_attempt.clone();
             return Ok(super::super::task_attempts::TaskAttemptAcknowledgement {
                 plan_id: plan_id.to_string(),
-                task_id: current_task.id,
+                task_id: current_task.id.clone(),
                 attempt,
                 already_acknowledged: true,
             });
         }
-        if !startup_status_allows(&current_task) {
+        if !startup_status_allows(current_task) {
             return Err(Self::task_readback_error(
                 "task_dispatch_ack",
                 "only a live startup assignment can be acknowledged",

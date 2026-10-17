@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Caller identity resolved once from the environment, applied per call site.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -57,4 +57,22 @@ impl CallerContext {
             obj.insert("session_binding_nonce".into(), json!(nonce));
         }
     }
+
+    pub(crate) fn report_body(&self, tab_id: &str, message: String) -> Value {
+        let mut body = json!({
+            "tab_id": tab_id,
+            "caller_tab_id": tab_id,
+            "message": message,
+        });
+        if let Some(session) = &self.session_id {
+            body["caller_session_id"] = json!(session);
+        }
+        if let Some(nonce) = &self.session_binding_nonce {
+            body["session_binding_nonce"] = json!(nonce);
+        }
+        body
+    }
 }
+
+#[cfg(test)]
+mod tests;
