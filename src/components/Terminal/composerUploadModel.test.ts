@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseAttachmentMarkers } from "@codeterm/chat-core";
+import { imageMimeType, parseAttachmentMarkers } from "@codeterm/chat-core";
+import { runtimePlan } from "../../../plugins/provider-codex/src/runtime";
+import type { RuntimeContext } from "@codeterm/plugin-sdk";
 import { capsuleSpans, capsuleToken, EMPTY_CAPSULES, serializeCapsuleDraft, type CapsuleRegistry } from "./composerCapsules";
 import { createComposerUploads, draftHasPendingUploads, type ComposerUpload } from "./composerUploadModel";
 
@@ -88,4 +90,34 @@ test("a video upload is labelled video1 and stored; an unknown container fails o
   assert.equal(bad.uploads()[0].state, "failed");
   assert.equal(bad.uploads()[0].failure?.retryable, false);
   assert.deepEqual(stored, ["ScreenRecording_10-14_1.mp4"]);
+});
+
+test("extensionless iOS JPEG retains mixed text and reaches the image attachment contract once", async () => {
+  const h = fixture(async (_blob, name) => `/uploads/${name}`);
+  await h.controller.add(new Blob(["pixels"], { type: "image/jpeg" }), "photo");
+  const markers = parseAttachmentMarkers(serializeCapsuleDraft(h.draft(), h.registry()));
+  assert.deepEqual(markers.attachments.map(({ kind, path }) => ({ kind, path })), [{ kind: "image", path: "/uploads/photo.jpg" }]);
+  assert(markers.text.includes("left"));
+  assert(markers.text.includes("right"));
+  assert.equal(capsuleSpans(h.draft()).length, 1);
+  const context: RuntimeContext = { epoch: 1, tabId: "opaque-tab", bindingNonce: "opaque-nonce", threadId: "opaque-thread", cwd: "/lane", hostVersion: "1.14.9", settings: {}, activeTurns: [], threadParents: [], claimedSends: [], providerSettings: {} };
+  const plan = runtimePlan(context, { kind: "submitTurn", threadId: "opaque-thread", sendId: "opaque-send", settings: {}, input: {
+    text: markers.text, attachments: markers.attachments.map(({ path }) => ({ id: `attachment:${path}`, path, mimeType: imageMimeType(path) })),
+  } });
+  assert.equal(plan.action.kind, "request");
+  if (plan.action.kind !== "request") throw new Error("Expected image turn request");
+  assert.equal(plan.action.call.method, "turn/start");
+  assert.deepEqual((plan.action.call.params as { input: unknown[] }).input, [{ type: "text", text: markers.text }, { type: "localImage", path: "/uploads/photo.jpg" }]);
+});
+
+test("unsupported HEIC retains the draft and a failed chip without storing or permitting send", async () => {
+  let stores = 0;
+  const h = fixture(async () => { stores++; return "/uploads/photo.heic"; });
+  await h.controller.add(new Blob(["pixels"], { type: "image/heic" }), "photo.heic");
+  assert.equal(stores, 0);
+  assert.equal(h.uploads()[0].state, "failed");
+  assert.match(h.uploads()[0].failure!.message, /Unsupported image format/);
+  assert.equal(draftHasPendingUploads(h.draft(), h.registry()), true);
+  assert.equal(capsuleSpans(h.draft()).length, 1);
+  assert(h.draft().includes("left"));
 });
