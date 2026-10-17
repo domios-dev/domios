@@ -87,21 +87,17 @@ mod tests {
     #[test]
     fn provider_cli_actions_parse_and_require_provider() {
         for verb in ["status", "install", "update"] {
-            assert!(
-                crate::args::cli::Cli::try_parse_from([
-                    "codeterm", "agent", "cli", verb, "fixture"
-                ])
-                .is_ok()
-            );
+            assert!(crate::args::cli::Cli::try_parse_from([
+                "codeterm", "agent", "cli", verb, "fixture"
+            ])
+            .is_ok());
             assert!(
                 crate::args::cli::Cli::try_parse_from(["codeterm", "agent", "cli", verb]).is_err()
             );
         }
-        assert!(
-            crate::args::cli::Cli::try_parse_from([
-                "codeterm", "agent", "cli", "unknown", "fixture"
-            ])
-            .is_err()
-        );
+        assert!(crate::args::cli::Cli::try_parse_from([
+            "codeterm", "agent", "cli", "unknown", "fixture"
+        ])
+        .is_err());
     }
 }
