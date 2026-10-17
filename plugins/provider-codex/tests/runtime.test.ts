@@ -167,7 +167,9 @@ function replay(fixture:Fixture) {
   }
   assert.equal(plans.size,0,"Every operation finishes");
   assert.deepEqual(results,fixture.expected.results);
-  assert.deepEqual(plain(events),fixture.expected.events);
+  const expected = fixture.expected.events.map(event => event.kind === "chatItem" && event.item.toolKind === "agent" && event.item.toolName === "agent_activity"
+    ? {...event,item:{...event.item,toolInput:{...event.item.toolInput as Record<string,JsonValue>,agent_binding_nonce:fixture.context.bindingNonce,agent_runtime_epoch:fixture.context.epoch}}} : event);
+  assert.deepEqual(plain(events),expected);
   return {events,state};
 }
 const names = fs.readdirSync(fileURLToPath(root)).filter(n => n.endsWith(".json")).sort();
@@ -959,7 +961,7 @@ check("activity updates a spawn receiver without losing its identity or metadata
   const event=finished.events[0];assert.equal(event.kind,"chatItem");if(event.kind !== "chatItem")return;
   assert.equal(event.item.id,"spawn:child-b");assert.equal(event.item.seq,2);
   assert.equal(event.item.toolFlowId,"parent-turn");
-  assert.deepEqual(plain(event.item.toolInput),{agent_id:"child-b",agent_parent_thread_id:ctx.threadId!,agent_call_id:"spawn:child-b",agent_description:"Inspect inputs",agent_model:"fixture-model",agent_reasoning_effort:"high",agent_ordinal:2,agent_state:"completed",agent_path:"/root/inspect"});
+  assert.deepEqual(plain(event.item.toolInput),{agent_id:"child-b",agent_parent_thread_id:ctx.threadId!,agent_call_id:"spawn:child-b",agent_description:"Inspect inputs",agent_model:"fixture-model",agent_reasoning_effort:"high",agent_ordinal:2,agent_state:"completed",agent_path:"/root/inspect",agent_binding_nonce:ctx.bindingNonce,agent_runtime_epoch:ctx.epoch});
   const late={...activity,params:{...activity.params as Record<string,JsonValue>,item:{id:"late-start",type:"subAgentActivity",agentThreadId:"child-b",kind:"started"}}} satisfies RuntimeFrame;
   const lateEvent=hooks.runtimeReduce(ctx,finished.state,[late]).events[0];
   if(lateEvent.kind !== "chatItem")throw new Error("Expected receiver update");

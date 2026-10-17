@@ -1,6 +1,14 @@
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 export interface ChildTranscriptAuthority { rootThreadId: string; bindingNonce: string; epoch: number }
+
+export function currentChildAuthority(tab: { agent_session_id?: string | null; session_binding_nonce?: string | null; agent_runtime_state?: { state: string; epoch: number } | null } | undefined): ChildTranscriptAuthority {
+  const runtime = tab?.agent_runtime_state;
+  if (!tab?.agent_session_id || !tab.session_binding_nonce || runtime?.state !== "loaded") {
+    throw new Error("Parent runtime is unavailable");
+  }
+  return { rootThreadId: tab.agent_session_id, bindingNonce: tab.session_binding_nonce, epoch: runtime.epoch };
+}
 export interface ChildMetadata {
   threadId: string;
   parentThreadId: string;

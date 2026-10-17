@@ -2,6 +2,11 @@ import { describe, expect, finish, it } from "../test/standaloneTest";
 import { classifyTabTarget, hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
 
 describe("remote tab transport adapter", () => {
+  it("resolves child authority from the owning peer's current tab",()=>{
+    const call=remoteTransportCall("agent_runtime_child_authority",{tabId:"mesh:peer/owned"});
+    expect(call).toMatchObject({peerId:"peer",method:"GET",suffix:"/runtime-authority"});
+    expect(call?.select?.({tabs:{owned:{agent_session_id:"root",session_binding_nonce:"fresh",agent_runtime_state:{state:"loaded",epoch:8}}}})).toEqual({rootThreadId:"root",bindingNonce:"fresh",epoch:8});
+  });
   it("reads a child through the owning peer without changing its tab binding",()=>{
     expect(remoteTransportCall("agent_runtime_child_history",{tabId:"mesh:peer/owned",threadId:"child",request:{rootThreadId:"root",bindingNonce:"nonce",epoch:4}})).toMatchObject({
       peerId:"peer",remoteTabId:"owned",method:"GET",suffix:"/agent/runtime/children/child/history?rootThreadId=root&bindingNonce=nonce&epoch=4",body:null,
