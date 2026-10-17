@@ -167,7 +167,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
     assert_eq!(failed_ack.code, -32603);
     assert!(failed_ack
         .message
-        .contains("does not identify exactly one current attempt"));
+        .contains("attempt session binding differs from the acknowledging tab"));
     let before_role_and_team_refusals = store.show_task(&task_id).unwrap().task;
     assert_eq!(before_role_and_team_refusals.interruption.owner_epoch, 1);
     assert_eq!(
