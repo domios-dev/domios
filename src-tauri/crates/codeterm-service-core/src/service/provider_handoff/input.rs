@@ -3,6 +3,21 @@ use crate::agent::chat_types::ChatMsg;
 pub const MAX_INPUT_BYTES: usize = 48_000;
 pub const MAX_RECENT_MESSAGES: usize = 12;
 
+pub fn select_history_literal(messages: &[ChatMsg], budget_bytes: usize) -> String {
+    if budget_bytes < 2 {
+        return String::new();
+    }
+    let tokens = budget_bytes.saturating_sub(2) / 6 / super::BYTES_PER_TOKEN;
+    history_literal(&super::select_history(messages, tokens))
+}
+
+fn history_literal(history: &str) -> String {
+    serde_json::to_string(history)
+        .expect("string serialization cannot fail")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+}
+
 pub struct HandoffFragments<'a> {
     pub instructions: &'a str,
     pub context: &'a str,

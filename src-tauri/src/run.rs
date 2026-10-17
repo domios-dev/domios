@@ -280,9 +280,7 @@ pub fn run(
                 });
             }
 
-            // Extract embedded providers on first run for offline/dev-limited setups.
-            // Skip in CODETERM_DEV=1 so workspace sources stay authoritative.
-            if std::env::var("CODETERM_DEV").as_deref() != Ok("1") {
+            {
                 let user_plugins = codeterm_service_core::paths::data_dir().join("plugins");
                 match plugin::embedded::bootstrap_into(&user_plugins) {
                     Ok(written) if !written.is_empty() => {
@@ -304,8 +302,6 @@ pub fn run(
                         );
                     }
                 }
-            } else {
-                log::info!("[plugin/bootstrap] CODETERM_DEV=1 — skipping embedded extract, workspace plugins are authoritative");
             }
 
             // Register JS plugins from workspace and user drop-in dirs.
@@ -357,7 +353,7 @@ pub fn run(
                     // Hold a VM handle so the ServiceContext can be late-bound into its sandbox after service init.
                     plugin_vms.push(p.vm().clone());
                     log::info!(
-                        "[js-plugin] {id} trust={:?} caps(agent={} secret={} transcribe={})",
+                        "[js-plugin] {id} version={version} trust={:?} caps(agent={} secret={} transcribe={})",
                         trust,
                         caps.agent_provider,
                         caps.secret_backend.enabled(),
