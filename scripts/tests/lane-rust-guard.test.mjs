@@ -58,7 +58,7 @@ test('offline proof uses host pad instance and persisted task attempts',()=> {
 test('task-less verification Workers receive only daemon-recorded spawn gates in canonical',()=> {
  const args=['test-one','app','worker_role_contract'];
  const grant=gateCommand(args);
- for(const profile of [null,'tester','release_manager']) {
+ for(const profile of [null,'qa','release_manager']) {
   const env={CODETERM_ROLE:'Worker',CODETERM_TAB_ID:'worker-tab',CODETERM_AUTHORIZED_GATES:gateCommand(['verify'])};
   const record={id:'worker-tab',role:'Worker',role_profile:profile,parent_tab_id:'parent-tab',task_binding:null,taskless_authorized_gates:[grant]};
   const proof=readGateProof(env,undefined,undefined,(binary,argv,options)=> {
@@ -74,7 +74,7 @@ test('task-less verification Workers receive only daemon-recorded spawn gates in
 test('task-less gate grants refuse off-canonical, unrecorded, task-bound, and unrelated Workers',()=> {
  const args=['test-one','app','worker_role_contract'];
  const env={CODETERM_ROLE:'Worker',CODETERM_TAB_ID:'worker-tab',CODETERM_AUTHORIZED_GATES:gateCommand(args)};
- const accepted={id:'worker-tab',role:'Worker',role_profile:'tester',parent_tab_id:'parent-tab',taskless_authorized_gates:[gateCommand(args)]};
+ const accepted={id:'worker-tab',role:'Worker',role_profile:'qa',parent_tab_id:'parent-tab',taskless_authorized_gates:[gateCommand(args)]};
  const proofFor=record=>readGateProof(env,undefined,undefined,()=>JSON.stringify({data:[record]}));
  const proof=proofFor(accepted);
  assert.equal(authorizedRustGate({env,current:'/lane',canonical:'/canonical',args,...proof}),false);
