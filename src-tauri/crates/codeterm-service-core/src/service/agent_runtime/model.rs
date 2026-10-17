@@ -103,6 +103,12 @@ pub enum RuntimePhase {
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeState {
     pub epoch: u64,
+    #[serde(
+        default,
+        rename = "binaryVersion",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub binary_version: Option<String>,
     pub thread_id: Option<String>,
     pub phase: RuntimePhase,
     pub active_turn_started_at_ms: Option<u64>,
@@ -113,6 +119,12 @@ pub struct RuntimeState {
 pub struct RuntimeSnapshot {
     pub state: String,
     pub epoch: u64,
+    #[serde(
+        default,
+        rename = "binaryVersion",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub binary_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -136,6 +148,7 @@ impl RuntimeState {
             RuntimePhase::Degraded { reason } => ("degraded", Some(reason.clone())),
         };
         RuntimeSnapshot {
+            binary_version: self.binary_version.clone(),
             history: None,
             history_pages: None,
             history_error: None,
@@ -150,6 +163,7 @@ impl RuntimeState {
     pub fn unloaded(thread_id: Option<String>) -> Self {
         Self {
             epoch: 0,
+            binary_version: None,
             thread_id,
             phase: RuntimePhase::Unloaded { reason: None },
             active_turn_started_at_ms: None,

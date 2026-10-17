@@ -268,6 +268,11 @@ pub fn launch_with_dispatch(
                 .write()
                 .set_tab_description(&monitor_tab, Some(fit_tab_description(&summary)));
             service.emit_state_changed(MuxEmitCause::TabLifecycle);
+            if success {
+                if let (Some(old), Some(new)) = (old_version.as_deref(), new_version.as_deref()) {
+                    super::provider_runtime_update::completed(&service, &provider, old, new);
+                }
+            }
             service.ui.emit("provider-cli-completed", serde_json::to_value(serde_json::json!({
                 "provider": provider, "operation": operation, "tab_id": monitor_tab,
                 "success": success, "old_version": old_version, "new_version": new_version,
