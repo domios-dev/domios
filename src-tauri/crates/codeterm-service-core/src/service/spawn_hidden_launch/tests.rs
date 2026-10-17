@@ -6,9 +6,21 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[test]
-fn hidden_system_instructions_require_one_starter_turn() {
+fn hidden_inline_launch_owns_the_first_turn_even_with_system_instructions() {
+    for system_prompt in [false, true] {
+        for starter in [None, Some("opaque-starter")] {
+            assert_eq!(
+                super::first_turn(system_prompt, true, Some("opaque-task"), starter),
+                None
+            );
+        }
+    }
+}
+
+#[test]
+fn hidden_pty_launch_selects_one_starter_or_task_turn() {
     assert_eq!(
-        super::first_turn(true, true, Some("opaque-task"), Some("opaque-starter")),
+        super::first_turn(true, false, Some("opaque-task"), Some("opaque-starter")),
         Some("opaque-starter".into())
     );
     assert_eq!(
@@ -20,6 +32,7 @@ fn hidden_system_instructions_require_one_starter_turn() {
         Some("opaque-task".into())
     );
     assert_eq!(super::first_turn(true, true, None, None), None);
+    assert_eq!(super::first_turn(true, false, Some(" \n"), None), None);
 }
 
 fn screen_state() -> crate::ScreenStateHandle {
