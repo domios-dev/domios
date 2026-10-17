@@ -575,6 +575,9 @@ async fn ensure_locked(
     bind(svc, session, &thread_id)?;
     let settings = session.context.lock().settings.clone();
     super::projections::controls(svc, session, settings);
+    if let Err(reason) = super::controls::refresh_service_tiers(svc, session).await {
+        log::debug!("Runtime service tier catalogue unavailable: {reason}");
+    }
     let owner = svc.clone();
     let target = tab.to_string();
     let thread = thread_id.clone();

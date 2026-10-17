@@ -776,7 +776,7 @@
               "model": "gpt-6-luna",
               "effort": "low",
               "mode": "approval-required",
-              "fastMode": true
+              "serviceTier": {"id": "priority"}
             }
           }
         }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { serviceTierOptions, tierAfterModelChange } from "./serviceTierPickerModel";
 import type { ProviderDescriptor } from "../../lib/types";
 import {
   currentModelId,
@@ -192,13 +193,21 @@ test("anchor opens upward and stays inside the viewport", () => {
 
 
 test("Fast mode is capability gated and a tier-only change applies for the next turn", () => {
-  const capable = provider({ id: "arbitrary", agent_runtime: { fastMode: true } });
-  const base = pickerSelection(capable, "deep", "high", true);
-  assert.deepEqual(base, { model: "deep", effort: "high", fastMode: true });
-  assert.deepEqual(pickerSelection(provider({ id: "codex" }), "deep", "high", true), { model: "deep", effort: "high" });
+  const capable = provider({ id: "arbitrary", agent_runtime: { serviceTiers: [{id:"priority",name:"Fast",description:""},{id:"ultrafast",name:"Ultrafast",description:"",unavailableReason:"Not available on your plan"}] } });
+  const base = pickerSelection(capable, "deep", "high", {id:"priority"});
+  assert.deepEqual(base, { model: "deep", effort: "high", serviceTier: {id:"priority"} });
+  assert.deepEqual(pickerSelection(provider({ id: "codex" }), "deep", "high", {id:"priority"}), { model: "deep", effort: "high" });
   const gate = statusLineSwitchGate(capable, live);
-  assert.deepEqual(planSelection(gate, base, { ...base, fastMode: false }), {
-    action: "apply", selection: { model: "deep", effort: "high", fastMode: false },
+  assert.deepEqual(planSelection(gate, base, { ...base, serviceTier: {id:null} }), {
+    action: "apply", selection: { model: "deep", effort: "high", serviceTier: {id:null} },
   });
   assert.deepEqual(planSelection(gate, base, base), { action: "none" });
+});
+
+test("tier choices retain provider availability and model changes clear unavailable selections", () => {
+  const declared = [{id:"ultrafast",name:"Ultrafast",description:"",unavailableReason:"unknown"}];
+  assert.equal(serviceTierOptions(declared,undefined)[1].disabled,true);
+  assert.equal(serviceTierOptions(declared,[{id:"ultrafast",name:"Ultrafast",description:""}])[1].disabled,false);
+  assert.deepEqual(tierAfterModelChange({id:"ultrafast"},undefined),{id:null});
+  assert.deepEqual(tierAfterModelChange({id:"ultrafast"},[{id:"ultrafast",name:"Ultrafast",description:""}]),{id:"ultrafast"});
 });

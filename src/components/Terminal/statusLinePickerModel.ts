@@ -1,3 +1,4 @@
+import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import { modelSwitchModeSupported } from "../../lib/modelSwitch";
 import { agentModelForBadge } from "../../lib/agentLabel";
 import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
@@ -30,11 +31,11 @@ export interface PickerModelGroup {
 export interface PickerSelection {
   model: string;
   effort?: string;
-  fastMode?: boolean;
+  serviceTier?: ServiceTierSelection;
 }
 
-export function pickerSelection(descriptor: ProviderDescriptor, model: string, effort?: string, fastMode?: boolean): PickerSelection {
-  return { model, effort, ...(descriptor.agent_runtime?.fastMode && fastMode !== undefined ? { fastMode } : {}) };
+export function pickerSelection(descriptor: ProviderDescriptor, model: string, effort?: string, serviceTier?: ServiceTierSelection): PickerSelection {
+  return { model, effort, ...(descriptor.agent_runtime?.serviceTiers && serviceTier !== undefined ? { serviceTier } : {}) };
 }
 
 export type PickerPlan =
@@ -157,12 +158,12 @@ export function effortAfterModelChange(
 
 export function planSelection(
   gate: StatusLineSwitchGate,
-  current: { model?: string; effort?: string; fastMode?: boolean },
+  current: { model?: string; effort?: string; serviceTier?: ServiceTierSelection },
   next: PickerSelection,
 ): PickerPlan {
   if (!gate.interactive) return { action: "none" };
   const sameModel = current.model?.toLowerCase() === next.model.toLowerCase();
-  if (sameModel && current.fastMode === next.fastMode && (current.effort ?? undefined) === (next.effort ?? undefined)) return { action: "none" };
+  if (sameModel && current.serviceTier?.id === next.serviceTier?.id && (current.effort ?? undefined) === (next.effort ?? undefined)) return { action: "none" };
   return { action: gate.confirmRestart ? "confirm" : "apply", selection: next };
 }
 

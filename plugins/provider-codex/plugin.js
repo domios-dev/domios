@@ -2071,7 +2071,7 @@ function restoreContextItems(raw) {
 
 // plugins/provider-codex/src/runtimeSettings.ts
 function codexServiceTier(settings) {
-  return settings.fastMode === void 0 ? {} : { serviceTier: settings.fastMode ? "priority" : null };
+  return settings.serviceTier === void 0 ? {} : { serviceTier: settings.serviceTier.id };
 }
 function codexRuntimePolicy(settings) {
   const selected = settings.mode ?? "auto-accept-edits";
@@ -2112,18 +2112,56 @@ function codexReportedSettings(raw) {
   const settings = root.threadSettings ? object(root.threadSettings) : root;
   const thread = object(settings.thread);
   const tier = settings.serviceTier !== void 0 ? settings.serviceTier : thread.serviceTier;
-  const fastMode = tier === void 0 ? void 0 : tier === "priority" || tier === "fast";
+  const serviceTier = tier === void 0 ? void 0 : tier === null || typeof tier === "string" ? { id: tier === "fast" ? "priority" : tier } : void 0;
   const model = text(settings.model) ?? text(thread.model);
   const effort = text(settings.reasoningEffort) ?? text(settings.effort) ?? text(thread.reasoningEffort) ?? text(thread.effort);
   const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;
   const approval = settings.approvalPolicy ?? thread.approvalPolicy;
   const reviewer = settings.approvalsReviewer ?? thread.approvalsReviewer;
   const mode = text(settings.mode) ?? text(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "never" && sandbox === "readOnly" ? "read-only" : approval === "never" && sandbox === "workspaceWrite" ? "workspace-write" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
-  return { ...fastMode !== void 0 ? { fastMode } : {}, ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} };
+  return { ...serviceTier !== void 0 ? { serviceTier } : {}, ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} };
 }
 function codexEffectiveSettings(requested, reply) {
-  const { fastMode: _requestedFastMode, ...other } = requested;
+  const { serviceTier: _requestedTier, ...other } = requested;
   return { ...other, ...codexReportedSettings(reply) };
+}
+
+// plugins/provider-codex/src/runtimeServiceTiers.ts
+var codexServiceTiers = [
+  { id: "priority", name: "Fast", description: "", unavailableReason: "Availability not confirmed" },
+  { id: "ultrafast", name: "Ultrafast", description: "", unavailableReason: "Not available on your plan" }
+];
+function serviceTierSelection(value) {
+  const selection = object(value);
+  return value !== null && (selection.id === null || typeof selection.id === "string" && selection.id.length > 0 && selection.id.length <= 128);
+}
+function modelServiceTiers(models, requirements) {
+  const response = object(requirements);
+  const features = object(object(response.requirements).featureRequirements);
+  const fast = features.fast_mode !== false;
+  const ultra = features.ultrafast_mode !== false && (response.supportsIndependentSpeedModes === true || fast);
+  const knownRequirements = requirements !== void 0;
+  const result = /* @__PURE__ */ Object.create(null);
+  for (const raw of list(models)) {
+    const model = object(raw);
+    const id = text(model.model) ?? text(model.id);
+    if (!id) continue;
+    const advertised = list(model.serviceTiers).map(object).flatMap((tier) => {
+      const tierId = text(tier.id), name = text(tier.name), description = text(tier.description);
+      if (!tierId || !name || typeof tier.description !== "string") return [];
+      const allowed = knownRequirements && (tierId === "flex" || (tierId === "ultrafast" ? ultra : fast));
+      return [{ id: tierId, name, description: description ?? "", ...!allowed ? { unavailableReason: knownRequirements ? "Disabled by your administrator" : "Availability not confirmed" } : {} }];
+    });
+    const missing = codexServiceTiers.filter((tier) => !advertised.some((item) => item.id === tier.id)).map((tier) => ({
+      ...tier,
+      ...knownRequirements && !(tier.id === "ultrafast" ? ultra : fast) ? { unavailableReason: "Disabled by your administrator" } : {}
+    }));
+    result[id] = [...advertised, ...missing];
+  }
+  return result;
+}
+function tierAvailable(settings, tier) {
+  return tier.id === null || !!settings.serviceTierAvailability?.[settings.model ?? ""]?.some((option) => option.id === tier.id && !option.unavailableReason);
 }
 
 // plugins/provider-codex/src/runtimeErrors.ts
@@ -2499,6 +2537,7 @@ function runtimeReduce(ctx, raw, frames) {
       continue;
     }
     if (frame.kind === "notification" && frame.method === "account/updated") {
+      if (ctx.threadId) events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { serviceTierAvailability: {} } });
       events.push(notificationAuth(params));
       continue;
     }
@@ -2888,12 +2927,14 @@ function planOperation(ctx, op) {
       if (op.action === "goal") return goalPlan(thread, op.value);
       if (op.action === "threadHistory") return threadHistoryPlan(ctx, thread, op.value);
       if (op.action === "compact") return request("thread/compact/start", { threadId: thread });
+      if (op.action === "serviceTiers") return request("model/list", { includeHidden: true, limit: 100 }, { stage: "serviceTiers", models: [], cursors: [] });
       if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: restoreContextItems(op.value) });
       if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
       const settings = op.action === "settings" ? { ...ctx.settings, ...object(op.value) } : { ...ctx.settings, [op.action]: op.value };
       for (const key of ["model", "effort", "mode"]) if (settings[key] !== void 0 && typeof settings[key] !== "string") fail2("invalid_schema", `Invalid ${key}`);
-      if (settings.fastMode !== void 0 && typeof settings.fastMode !== "boolean") fail2("invalid_schema", "Invalid fastMode");
+      if (settings.serviceTier !== void 0 && !serviceTierSelection(settings.serviceTier)) fail2("invalid_schema", "Invalid service tier");
       const parsed = settings;
+      if (parsed.serviceTier && !tierAvailable({ ...parsed, serviceTierAvailability: ctx.settings.serviceTierAvailability }, parsed.serviceTier)) fail2("provider_refused", "Service tier is not available for this account and model");
       return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), ...codexServiceTier(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
     }
   }
@@ -2931,6 +2972,7 @@ function respondOperation(ctx, op, raw, reply) {
     return pagedHistoryResponse(op, state, reply);
   }
   if (reply.kind === "error") {
+    if (op.kind === "control" && op.action === "serviceTiers") return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: { serviceTierAvailability: {} } }] };
     const smaller = object(reply.error.data).historyPageLimit;
     if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))
       return historyItems(op, { ...state, historyItemLimit: smaller }, text(state.cursor));
@@ -2986,6 +3028,17 @@ function respondOperation(ctx, op, raw, reply) {
       return { kind: "complete", result: { kind: "threadForked", sourceThreadId: op.sourceThreadId, threadId, turnId: op.turnId } };
     }
     case "control": {
+      if (op.action === "serviceTiers") {
+        if (state.stage === "serviceTiers") {
+          const models = [...list(state.models), ...list(value.data)];
+          const cursors = list(state.cursors);
+          const cursor = text(value.nextCursor);
+          if (models.length > 1e3 || cursor && (cursors.includes(cursor) || cursors.length >= 10)) return refused("Invalid model catalogue pagination");
+          if (cursor) return continuation(request("model/list", { includeHidden: true, limit: 100, cursor }, { stage: "serviceTiers", models, cursors: [...cursors, cursor] }));
+          return continuation(request("configRequirements/read", {}, { stage: "tierRequirements", models }));
+        }
+        return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: { serviceTierAvailability: modelServiceTiers(state.models, value) } }] };
+      }
       if (op.action === "readResetCredits") return { kind: "complete", result: { kind: "done" }, events: rateLimitEvents(value.rateLimits, value.rate_limit_reset_credits) };
       if (op.action === "redeemResetCredit") {
         if (state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" }, events: rateLimitEvents(value.rateLimits, value.rate_limit_reset_credits) };
@@ -2997,7 +3050,7 @@ function respondOperation(ctx, op, raw, reply) {
       if (op.action === "login") return loginResponse(state, value);
       if (op.action === "threadHistory" && state.stage === "thread/revert") return { kind: "complete", result: { kind: "done" } };
       if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
-      const awaitingTier = state.stage === "thread/settings/update" && object(state.settings).fastMode !== void 0 && codexReportedSettings(value).fastMode === void 0;
+      const awaitingTier = state.stage === "thread/settings/update" && object(state.settings).serviceTier !== void 0;
       return { kind: "complete", result: { kind: "done" }, ...state.stage === "thread/settings/update" && !awaitingTier ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
     }
     case "answer":

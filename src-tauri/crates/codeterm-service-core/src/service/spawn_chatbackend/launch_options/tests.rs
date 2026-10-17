@@ -72,19 +72,31 @@ fn prepared_options_refuse_foreign_provider_or_nonce_before_launch() {
 }
 
 #[test]
-fn fast_mode_defaults_follow_capability_and_preserve_explicit_tab_choices() {
+fn service_tier_defaults_follow_capability_and_preserve_explicit_tab_choices() {
     for value in [true, false] {
         let mut config = serde_json::json!({"model":"opaque"});
-        apply_fast_mode_default(&mut config, true, Some(value));
-        assert_eq!(config["fastMode"], value);
+        apply_service_tier_default(&mut config, true, Some(tier_selection(value)));
         assert_eq!(
-            crate::service::agent_runtime::model::settings_from_config(&config).fast_mode,
-            Some(value)
+            config["serviceTier"],
+            serde_json::json!(tier_selection(value))
         );
-        apply_fast_mode_default(&mut config, true, Some(!value));
-        assert_eq!(config["fastMode"], value);
+        assert_eq!(
+            crate::service::agent_runtime::model::settings_from_config(&config).service_tier,
+            Some(tier_selection(value))
+        );
+        apply_service_tier_default(&mut config, true, Some(tier_selection(!value)));
+        assert_eq!(
+            config["serviceTier"],
+            serde_json::json!(tier_selection(value))
+        );
         let mut unsupported = serde_json::json!({});
-        apply_fast_mode_default(&mut unsupported, false, Some(value));
+        apply_service_tier_default(&mut unsupported, false, Some(tier_selection(value)));
         assert_eq!(unsupported, serde_json::json!({}));
+    }
+}
+
+fn tier_selection(fast: bool) -> codeterm_plugin::agent_runtime::RuntimeServiceTierSelection {
+    codeterm_plugin::agent_runtime::RuntimeServiceTierSelection {
+        id: fast.then(|| "priority".into()),
     }
 }

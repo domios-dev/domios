@@ -18,7 +18,8 @@ import { descendantThread, historyThread } from "./runtimeBinding";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
 import { restoreContextItems } from "./runtimeContext";
-import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexReportedSettings } from "./runtimeSettings";
+import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings } from "./runtimeSettings";
+import { modelServiceTiers, serviceTierSelection, tierAvailable } from "./runtimeServiceTiers";
 export { runtimeReduce } from "./runtimeReduce";
 
 function fail(code: RuntimeFailure["code"], message: string): never {
@@ -149,12 +150,14 @@ function planOperation(ctx: RuntimeContext, op: Operation): RuntimePlan {
       if (op.action === "goal") return goalPlan(thread,op.value);
       if (op.action === "threadHistory") return threadHistoryPlan(ctx,thread,op.value);
       if (op.action === "compact") return request("thread/compact/start",{threadId:thread});
+      if (op.action === "serviceTiers") return request("model/list",{includeHidden:true,limit:100},{stage:"serviceTiers",models:[],cursors:[]});
       if (op.action === "restoreContext") return request("thread/inject_items",{threadId:thread,items:restoreContextItems(op.value)});
       if (!["model","effort","mode","settings"].includes(op.action)) fail("unsupported",`Unsupported control: ${op.action}`);
       const settings = op.action === "settings" ? {...ctx.settings,...object(op.value)} : {...ctx.settings,[op.action]:op.value};
       for (const key of ["model","effort","mode"] as const) if (settings[key] !== undefined && typeof settings[key] !== "string") fail("invalid_schema",`Invalid ${key}`);
-      if (settings.fastMode !== undefined && typeof settings.fastMode !== "boolean") fail("invalid_schema","Invalid fastMode");
+      if (settings.serviceTier !== undefined && !serviceTierSelection(settings.serviceTier)) fail("invalid_schema","Invalid service tier");
       const parsed = settings as RuntimeSettings;
+      if (parsed.serviceTier && !tierAvailable({...parsed,serviceTierAvailability:ctx.settings.serviceTierAvailability},parsed.serviceTier)) fail("provider_refused","Service tier is not available for this account and model");
       return request("thread/settings/update",{threadId:thread,...codexRuntimePolicy(parsed),...codexServiceTier(parsed),model:parsed.model,effort:parsed.effort},{stage:"thread/settings/update",settings:parsed});
     }
   }
@@ -197,6 +200,7 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
     return pagedHistoryResponse(op,state,reply);
   }
   if (reply.kind === "error") {
+    if (op.kind === "control" && op.action === "serviceTiers") return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:{serviceTierAvailability:{}}}]};
     const smaller = object(reply.error.data).historyPageLimit;
     if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32097
       && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))
@@ -254,6 +258,17 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
       return {kind:"complete",result:{kind:"threadForked",sourceThreadId:op.sourceThreadId,threadId,turnId:op.turnId}};
     }
     case "control": {
+      if (op.action === "serviceTiers") {
+        if (state.stage === "serviceTiers") {
+          const models = [...list(state.models),...list(value.data)];
+          const cursors = list(state.cursors);
+          const cursor = text(value.nextCursor);
+          if (models.length > 1000 || cursor && (cursors.includes(cursor) || cursors.length >= 10)) return refused("Invalid model catalogue pagination");
+          if (cursor) return continuation(request("model/list",{includeHidden:true,limit:100,cursor},{stage:"serviceTiers",models,cursors:[...cursors,cursor]}));
+          return continuation(request("configRequirements/read",{}, {stage:"tierRequirements",models}));
+        }
+        return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:{serviceTierAvailability:modelServiceTiers(state.models,value)}}]};
+      }
       if (op.action === "readResetCredits") return {kind:"complete",result:{kind:"done"},events:rateLimitEvents(value.rateLimits,value.rate_limit_reset_credits)};
       if (op.action === "redeemResetCredit") {
         if (state.stage === "refreshResetCredits") return {kind:"complete",result:{kind:"resetCreditConsumed",outcome:"reset"},events:rateLimitEvents(value.rateLimits,value.rate_limit_reset_credits)};
@@ -265,8 +280,7 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
       if (op.action === "login") return loginResponse(state,value);
       if (op.action === "threadHistory" && state.stage === "thread/revert") return {kind:"complete",result:{kind:"done"}};
       if (state.stage === "auth") return {kind:"complete",result:{kind:"done"},events:[accountAuth(value)]};
-      const awaitingTier = state.stage === "thread/settings/update" && object(state.settings).fastMode !== undefined
-        && codexReportedSettings(value).fastMode === undefined;
+      const awaitingTier = state.stage === "thread/settings/update" && object(state.settings).serviceTier !== undefined;
       return {kind:"complete",result:{kind:"done"},...(state.stage === "thread/settings/update" && !awaitingTier ? {events:[{kind:"controlsConfirmed",threadId:op.threadId ?? ctx.threadId!,settings:codexEffectiveSettings(state.settings as RuntimeSettings,value)}]} : {})};
     }
     case "answer": case "answerQuestion": return {kind:"complete",result:{kind:"done"}};
