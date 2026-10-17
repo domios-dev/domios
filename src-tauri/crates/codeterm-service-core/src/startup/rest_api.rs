@@ -549,6 +549,8 @@ async fn bind_listener(bind_addr: &str) -> std::io::Result<std::net::TcpListener
     let address = bind_addr
         .parse::<SocketAddr>()
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+    codeterm_paths::validate_listener_port(address.port(), cfg!(debug_assertions))
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::PermissionDenied, error))?;
     let socket = if address.is_ipv4() {
         tokio::net::TcpSocket::new_v4()?
     } else {
