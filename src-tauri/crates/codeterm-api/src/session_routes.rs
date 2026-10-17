@@ -526,6 +526,7 @@ pub async fn resume_session_api(
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: Some(permission_bypass),
+        sandbox: None,
         permission_bypass_authorization,
         spawned_by_tab_id: None,
         team_id: None,
