@@ -34,7 +34,8 @@ pub struct Session {
     pub thread_loaded: std::sync::atomic::AtomicBool,
     pub hook_state: Mutex<Value>,
     pub maps: Mutex<super::events::RuntimeMaps>,
-    pub(super) bookkeeping_failures: std::sync::atomic::AtomicU32,
+    pub(super) provider_operation_failures: std::sync::atomic::AtomicU32,
+    pub(super) bookkeeping_warning_emitted: std::sync::atomic::AtomicBool,
     pub prompts: Mutex<HashMap<RpcId, OutstandingRequest>>,
     pub process: ProcessSlot<Arc<Process>>,
     pub gate: tokio::sync::Semaphore,
@@ -251,7 +252,8 @@ async fn ensure_with_fork(
                     thread_loaded: std::sync::atomic::AtomicBool::new(false),
                     hook_state: Mutex::new(Value::Null),
                     maps: Mutex::new(super::events::RuntimeMaps::default()),
-                    bookkeeping_failures: std::sync::atomic::AtomicU32::new(0),
+                    provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
+                    bookkeeping_warning_emitted: std::sync::atomic::AtomicBool::new(false),
                     prompts: Mutex::new(HashMap::new()),
                     process: ProcessSlot::new(None),
                     gate: tokio::sync::Semaphore::new(1),
@@ -358,8 +360,11 @@ async fn ensure_locked(
         }
         let epoch = session.state.lock().begin();
         session
-            .bookkeeping_failures
+            .provider_operation_failures
             .store(0, std::sync::atomic::Ordering::Relaxed);
+        session
+            .bookkeeping_warning_emitted
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         {
             let mut context = session.context.lock();
             context.epoch = epoch;
