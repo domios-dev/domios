@@ -6,7 +6,7 @@ use codeterm_service_core::multiplexer::types::AgentRole;
 use codeterm_service_core::plan::{OrchestratorRef, Plan};
 use codeterm_service_core::service::test_fixture::ServiceFixture;
 
-use super::authorized_orchestrator_actor;
+use super::{authorized_orchestrator_actor, tests::socket_bounce_fixture};
 
 const NONCE: &str = "owner-nonce";
 const LIVE_SESSION: &str = "live-session";
