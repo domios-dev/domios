@@ -842,4 +842,39 @@ mod tests {
         assert_eq!(parse(&short), (None, "t_1".to_string()));
         assert_eq!(parse(&full), (Some("pl_1".to_string()), "t_1".to_string()));
     }
+
+    #[test]
+    fn review_delegate_requires_a_tester_tab_and_accepts_optional_plan_id() {
+        use crate::args::cli::Commands;
+        use crate::args::plan::{PlanAction, PlanReviewAction};
+        use clap::Parser;
+
+        let parsed = Cli::try_parse_from([
+            "codeterm",
+            "plan",
+            "review",
+            "delegate",
+            "task_1",
+            "--tester-tab",
+            "tester_1",
+        ])
+        .expect("review delegation contract should parse");
+        let Commands::Plan {
+            action:
+                PlanAction::Review {
+                    action:
+                        PlanReviewAction::Delegate {
+                            plan_id,
+                            task_id,
+                            tester_tab_id,
+                        },
+                },
+        } = parsed.command
+        else {
+            panic!("expected plan review delegate");
+        };
+        assert_eq!(plan_id, None);
+        assert_eq!(task_id, "task_1");
+        assert_eq!(tester_tab_id, "tester_1");
+    }
 }

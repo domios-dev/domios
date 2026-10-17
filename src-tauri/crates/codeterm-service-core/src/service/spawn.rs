@@ -286,6 +286,11 @@ impl ServiceContext {
         spec: SpawnTabSpec,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<TabHandle, String> {
+        let taskless_authorized_gates = spec
+            .chatbackend_launch
+            .as_ref()
+            .map(|launch| launch.params.authorized_gates.clone())
+            .unwrap_or_default();
         let agent = match &spec.command {
             TabCommand::Agent(a) => a.clone(),
             _ => return Err("spawn_visible_agent_impl called without Agent command".into()),
@@ -406,6 +411,7 @@ impl ServiceContext {
             }
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.role_profile = agent.role_profile.clone();
+                tab.taskless_authorized_gates = taskless_authorized_gates.clone();
                 tab.audience = spec.audience;
             }
             if let Some(ref description) = spec.description {
@@ -742,6 +748,11 @@ impl ServiceContext {
     }
 
     pub(crate) fn spawn_hidden_agent_impl(&self, spec: SpawnTabSpec) -> Result<TabHandle, String> {
+        let taskless_authorized_gates = spec
+            .chatbackend_launch
+            .as_ref()
+            .map(|launch| launch.params.authorized_gates.clone())
+            .unwrap_or_default();
         let agent = match &spec.command {
             TabCommand::Agent(a) => a.clone(),
             _ => return Err("spawn_hidden_agent_impl called without Agent command".into()),
@@ -827,6 +838,7 @@ impl ServiceContext {
                 tab.show_in_tabbar = false;
                 tab.audience = spec.audience;
                 tab.role_profile = agent.role_profile.clone();
+                tab.taskless_authorized_gates = taskless_authorized_gates.clone();
                 if let Some(ref wid) = agent.worker_id {
                     tab.worker_id = Some(wid.clone());
                 }

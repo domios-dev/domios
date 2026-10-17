@@ -30,11 +30,13 @@ any open state → cancelled
 - `blocked` means only an outside prerequisite can advance the task (an owner
   decision, approval, access). Work sequenced after a release or milestone is
   not blocked: keep it `pending` in a later group (`plan task update --group`).
-- The Orchestrator alone accepts, bounces, or holds an `in_review` task. `hold`
-  records a reason while preserving its assignment and lane; `bounce` returns it
-  to the assigned Worker when its continuation is available. If the Worker is
-  gone, bounce reopens the task as pending and preserves the note, attempt history,
-  and lane for redispatch.
+- The Orchestrator alone dispatches and holds `in_review` tasks. It may hand one
+  in-review task to a direct child Tester with `codeterm plan review delegate`;
+  that Tester may accept or bounce only the handed task and must attach its
+  evidence note. A Tester cannot hold, dispatch, or transition any other task.
+  `hold` preserves assignment and lane; `bounce` resumes the Worker when its
+  continuation is available, or reopens a gone Worker task as pending while
+  preserving the note, attempt history, and lane for redispatch.
 - `paused` is a system hold, never an agent verb: a decision gate (`gate:<id>:`
   reason) or provider exhaustion with a resumable checkpoint. It is excluded
   from open work and resumes when the gate is answered or the provider recovers.

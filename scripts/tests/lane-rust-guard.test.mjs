@@ -51,9 +51,45 @@ for (const role of ['Orchestrator','', 'Worker','Planner']) {
 test('offline proof uses host pad instance and persisted task attempts',()=> {
  const pad=process.platform==='win32'?'C:/instance/runtime/agent-pads/tab':'/instance/runtime/agent-pads/tab';
  const seen=[];
- const proof=readGateProof({CODETERM_PAD_DIR:pad,CODETERM_PLAN_ID:'pl_test',CODETERM_TASK_ID:'task_test'},p=>{seen.push(p);return p.endsWith('plan.yaml')?'id: pl_test\nowner: {tab_id: owner}':'id: task_test\nexecution_attempts: []';},()=>['task.yaml','task.jsonl']);
+ const proof=readGateProof({CODETERM_PAD_DIR:pad,CODETERM_PLAN_ID:'pl_test',CODETERM_TASK_ID:'task_test'},p=>{seen.push(p);return p.endsWith('plan.yaml')?'id: pl_test\nowner: {tab_id: owner}':'id: task_test\nexecution_attempts: []';},()=>['task.yaml','task.jsonl'],undefined,text=>text.startsWith('id: pl_test')?{id:'pl_test',owner:{tab_id:'owner'}}:{id:'task_test',execution_attempts:[]});
  assert.equal(proof.plan.id,'pl_test');assert.equal(proof.tasks[0].id,'task_test');assert.equal(seen.length,2);
  assert.ok(seen.every(p=>p.replaceAll('\\','/').includes('/instance/plans/active/pl_test/')));
+});
+test('task-less verification Workers receive only daemon-recorded spawn gates in canonical',()=> {
+ const args=['test-one','app','worker_role_contract'];
+ const grant=gateCommand(args);
+ for(const profile of [null,'tester','release_manager']) {
+  const env={CODETERM_ROLE:'Worker',CODETERM_TAB_ID:'worker-tab',CODETERM_AUTHORIZED_GATES:gateCommand(['verify'])};
+  const record={id:'worker-tab',role:'Worker',role_profile:profile,parent_tab_id:'parent-tab',task_binding:null,taskless_authorized_gates:[grant]};
+  const proof=readGateProof(env,undefined,undefined,(binary,argv,options)=> {
+   assert.equal(binary,'codeterm');
+   assert.deepEqual(argv,['--json','tab','inspect','--tab','worker-tab']);
+   assert.equal(options.env.CODETERM_AUTHORIZED_GATES,env.CODETERM_AUTHORIZED_GATES);
+   return JSON.stringify({data:[record]});
+  });
+  assert.deepEqual(proof.taskless_worker,record);
+  assert.equal(authorizedRustGate({env,current:'/canonical',canonical:'/canonical',args,...proof}),true);
+ }
+});
+test('task-less gate grants refuse off-canonical, unrecorded, task-bound, and unrelated Workers',()=> {
+ const args=['test-one','app','worker_role_contract'];
+ const env={CODETERM_ROLE:'Worker',CODETERM_TAB_ID:'worker-tab',CODETERM_AUTHORIZED_GATES:gateCommand(args)};
+ const accepted={id:'worker-tab',role:'Worker',role_profile:'tester',parent_tab_id:'parent-tab',taskless_authorized_gates:[gateCommand(args)]};
+ const proofFor=record=>readGateProof(env,undefined,undefined,()=>JSON.stringify({data:[record]}));
+ const proof=proofFor(accepted);
+ assert.equal(authorizedRustGate({env,current:'/lane',canonical:'/canonical',args,...proof}),false);
+ assert.equal(authorizedRustGate({env,current:'/canonical',canonical:'/canonical',args,...proofFor({...accepted,taskless_authorized_gates:[gateCommand(['verify'])]})}),false);
+ assert.equal(authorizedRustGate({env:{...env,CODETERM_TASK_ID:'task-bound'},current:'/canonical',canonical:'/canonical',args,...proof}),false);
+ for(const changes of [
+  {role:'Manager'},
+  {parent_tab_id:null},
+  {task_binding:{task_id:'task-bound'}},
+  {taskless_authorized_gates:[]},
+ ]) {
+  const invalid=proofFor({...accepted,...changes});
+  assert.ok(invalid===null || invalid.taskless_worker==null);
+  assert.equal(authorizedRustGate({env,current:'/canonical',canonical:'/canonical',args,...invalid}),false);
+ }
 });
 test('absent offline identity refuses',()=> {
  assert.equal(readGateProof({}),null);

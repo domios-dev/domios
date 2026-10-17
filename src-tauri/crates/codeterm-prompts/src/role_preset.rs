@@ -116,6 +116,8 @@ pub fn builtin_guidance(kind_id: &str) -> Option<String> {
         builtins::ORCHESTRATOR => Some(crate::prompts::orchestrator_suffix()),
         builtins::PLANNER | builtins::WATCHER => Some(crate::prompts::planner_suffix()),
         builtins::WORKER => Some(crate::prompts::worker_suffix()),
+        builtins::TESTER => Some(crate::prompts::TESTER_ROLE_PROMPT.to_string()),
+        builtins::RELEASE_MANAGER => Some(crate::prompts::RELEASE_MANAGER_ROLE_PROMPT.to_string()),
         builtins::CARTOGRAPHER => Some(crate::prompts::CARTOGRAPHER_SUFFIX.to_string()),
         _ => None,
     }
@@ -154,6 +156,14 @@ pub fn resolve_in(
         .unwrap_or_else(|| kind_id.clone());
     let kind_manages = builtins::lookup(&kind_id).is_some_and(|descriptor| descriptor.manages());
     let mut fragments = Vec::new();
+    if role == Some(AgentRole::Worker)
+        && builtins::lookup(&kind_id).is_some_and(|descriptor| descriptor.is_taskless_worker())
+    {
+        fragments.push(PresetFragment {
+            source: FragmentSource::InheritedBase,
+            text: crate::prompts::worker_suffix(),
+        });
+    }
     match builtin_guidance(&kind_id) {
         Some(guidance) => fragments.push(PresetFragment {
             source: FragmentSource::Builtin,

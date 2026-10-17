@@ -216,10 +216,31 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
         cron.lock().get_history(&job.id)[0].status,
         CronRunStatus::Running
     );
-    fixture
-        .service
-        .run_watcher
-        .complete_via_stop_report(&fixture.service, &tab_id, "own-nonce");
+    for (nonce, success) in [("own-nonce", false), ("foreign-nonce", true)] {
+        fixture.service.run_watcher.observe_provider_turn_end(
+            &fixture.service,
+            &tab_id,
+            nonce,
+            success,
+        );
+        assert!(
+            !diagnostic_state
+                .upgrade()
+                .unwrap()
+                .cron_completion
+                .lock()
+                .as_ref()
+                .unwrap()
+                .barrier
+                .stopped
+        );
+    }
+    fixture.service.run_watcher.observe_provider_turn_end(
+        &fixture.service,
+        &tab_id,
+        "own-nonce",
+        true,
+    );
     assert!(fixture.service.mux.read().get_tab(&tab_id).is_some());
     assert_eq!(
         cron.lock().get_history(&job.id)[0].status,

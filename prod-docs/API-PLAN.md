@@ -168,6 +168,18 @@ the recovery command.
 
 ### Review credit repair and evidence reporters
 
+The live Plan owner can hand an `in_review` task to a direct child Tester:
+
+```bash
+codeterm plan review delegate <plan> <task> --tester-tab <tab>
+```
+
+The daemon checks the owner session, direct Worker hierarchy, Tester kind, and
+current task status, then records that exact plan/task grant on the live Tester
+tab. Only that bound Tester session may accept or bounce the handed task, and
+each verdict requires a non-empty evidence note. The grant is consumed by the
+verdict and does not authorize hold, dispatch, or any other task transition.
+
 Historical review credit leaked by older builds is repaired auditably with:
 
 ```bash
@@ -237,4 +249,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->
