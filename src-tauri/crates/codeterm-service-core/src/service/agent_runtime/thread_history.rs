@@ -416,12 +416,18 @@ module.exports = {
                 ),
             ),
         ));
-        crate::service::agent_runtime::transport::launch(
-            &fixture.service,
-            PROVIDER,
-            &source_tab_id,
-            json!({}),
-        )
+        let launch_service = fixture.service.clone();
+        let launch_tab = source_tab_id.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::service::agent_runtime::transport::launch(
+                &launch_service,
+                PROVIDER,
+                &launch_tab,
+                json!({}),
+            )
+        })
+        .await
+        .unwrap()
         .unwrap();
         let source_session = engine::for_tab(&source_tab_id).unwrap();
         source_session.cache.lock().reconcile(ChatMsg {

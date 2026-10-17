@@ -11,7 +11,7 @@ module.exports = {
     if (op.kind === 'interrupt') return {action:{kind:'request',call:{method:op.kind,params:op,target:{threadId:op.threadId,...(op.activeTurnId ? {turnId:op.activeTurnId} : {})}}},state:null};
     if (op.kind === 'forkThread') {
       if (ctx.threadId || ctx.activeTurnId || ctx.activeTurns.length) throw Object.assign(new Error('Fork requires an unbound child runtime'),{code:'binding_mismatch'});
-      return {action:{kind:'request',call:{method:'thread/turns/list',params:{threadId:op.sourceThreadId,itemsView:'notLoaded',sortDirection:'asc',limit:8}}},state:{stage:'threadHistoryTurns',sourceThreadId:op.sourceThreadId,turnId:op.turnId}};
+      return {action:{kind:'request',call:{method:'thread/turns/list',params:{threadId:op.sourceThreadId,itemsView:'notLoaded',sortDirection:'asc',limit:8}}},state:{stage:'threadHistoryTurns',action:'fork',sourceThreadId:op.sourceThreadId,turnId:op.turnId,cursor:null,targetFound:false}};
     }
     return {action:{kind:'request',call:{method:op.kind,params:op}},state:null};
   },
