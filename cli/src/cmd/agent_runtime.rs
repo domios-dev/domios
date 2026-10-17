@@ -4,7 +4,11 @@ use crate::local_api::{LocalApiClient, LocalApiError, LocalApiResponse};
 pub fn handle_usage(http: &LocalApiClient, base: &str, json: bool, action: AgentUsageAction) {
     match action {
         AgentUsageAction::Read { tab } => {
-            let url = format!("{}/api/tabs/{}/usage", base, urlencoding::encode(&tab));
+            let url = format!(
+                "{}/api/tabs/{}/agent/runtime/usage",
+                base,
+                urlencoding::encode(&tab)
+            );
             let usage = request_value(http.get(url).send());
             print_value(serde_json::json!({"tab_id":tab,"usage":usage}), json);
         }
