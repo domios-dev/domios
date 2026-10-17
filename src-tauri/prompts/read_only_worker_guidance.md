@@ -13,3 +13,6 @@ use UTF-8 stdin with --from-pad - instead. Use a literal shell here-document or
 PowerShell single-quoted here-string; never interpolate authored payload text.
 A task-less verification Worker reports without --status or --task;
 a task-bound Worker keeps its assigned task and normal report status.
+Deliver each result once through codeterm agent report, not also codeterm send.
+Collect verification notes into that report. Short progress updates or questions
+are welcome whenever useful; corrections carry what changed.
