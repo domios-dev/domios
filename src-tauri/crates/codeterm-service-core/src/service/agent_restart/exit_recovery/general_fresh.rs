@@ -44,6 +44,6 @@ impl ServiceContext {
             Duration::from_secs(RESTART_READY_TIMEOUT_SECS),
         )?;
         ready.old_pty_torn_down = self.old_pty_was_torn_down(snap);
-        self.settle_restored_binding(ready, snap)
+        self.settle_restored_binding(ready, snap, false)
     }
 }

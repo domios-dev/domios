@@ -15,6 +15,7 @@ type Mux = crate::lock_hold::TimedRwLock<crate::multiplexer::state::MultiplexerS
 pub(crate) struct RestartBindingAuthority {
     owner: Weak<Mux>,
     request: RuntimeRestartBinding,
+    carried: bool,
 }
 static BINDINGS: LazyLock<Mutex<HashMap<(usize, String), RestartBindingAuthority>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -31,7 +32,40 @@ impl ServiceContext {
         nonce: &str,
         fresh: bool,
     ) -> Result<Option<RestartBindingAuthority>, String> {
-        match self.try_authorize_runtime_restart_binding(tab_id, provider, nonce, fresh) {
+        self.authorize_restart_binding_mode(
+            tab_id,
+            provider,
+            nonce,
+            if fresh {
+                RuntimeRestartMode::AuthorizedFresh
+            } else {
+                RuntimeRestartMode::Resume
+            },
+        )
+    }
+
+    pub(crate) fn authorize_model_switch_restart_binding(
+        &self,
+        tab_id: &str,
+        provider: &str,
+        nonce: &str,
+    ) -> Result<Option<RestartBindingAuthority>, String> {
+        self.authorize_restart_binding_mode(
+            tab_id,
+            provider,
+            nonce,
+            RuntimeRestartMode::ModelSwitch,
+        )
+    }
+
+    fn authorize_restart_binding_mode(
+        &self,
+        tab_id: &str,
+        provider: &str,
+        nonce: &str,
+        mode: RuntimeRestartMode,
+    ) -> Result<Option<RestartBindingAuthority>, String> {
+        match self.try_authorize_runtime_restart_binding(tab_id, provider, nonce, mode) {
             Ok(authority) => Ok(authority),
             Err(reason) => {
                 self.warn_runtime_plan_binding(
@@ -49,7 +83,7 @@ impl ServiceContext {
         tab_id: &str,
         provider: &str,
         nonce: &str,
-        fresh: bool,
+        mode: RuntimeRestartMode,
     ) -> Result<Option<RestartBindingAuthority>, PlanBindingFailure> {
         let mut tab = self
             .mux
@@ -97,7 +131,7 @@ impl ServiceContext {
             .ok_or("Runtime restart attempt changed")?;
         if detail.plan_id != plan
             || old.retired_at.is_some()
-            || (fresh && old.closed_at.is_some())
+            || (mode == RuntimeRestartMode::AuthorizedFresh && old.closed_at.is_some())
             || old.session_id.as_deref() != Some(thread.as_str())
             || old.session_binding_nonce.as_deref() != Some(nonce)
             || old.provider.as_deref() != Some(provider)
@@ -117,49 +151,48 @@ impl ServiceContext {
                 new_thread: String::new(),
                 new_nonce: String::new(),
                 owner_epoch: detail.task.interruption.owner_epoch,
-                mode: if fresh {
-                    RuntimeRestartMode::AuthorizedFresh
-                } else {
-                    RuntimeRestartMode::Resume
-                },
+                mode,
             },
+            carried: false,
         }))
     }
 
-    pub(crate) fn retain_runtime_restart_binding(
+    pub(crate) fn stage_runtime_restart_binding(
         &self,
         tab_id: &str,
         authority: Option<RestartBindingAuthority>,
-        nonce: &str,
     ) {
         let mut bindings = BINDINGS.lock();
         bindings.retain(|_, entry| entry.owner.strong_count() > 0);
-        if let Some(mut authority) = authority {
-            authority.request.new_nonce = nonce.into();
+        if let Some(authority) = authority {
             bindings.insert(key(self, tab_id), authority);
         } else {
             bindings.remove(&key(self, tab_id));
         }
     }
 
-    pub(crate) fn finalize_authorized_runtime_restart_binding(
+    pub(crate) fn clear_runtime_restart_binding(&self, tab_id: &str) {
+        BINDINGS.lock().remove(&key(self, tab_id));
+    }
+
+    pub(crate) fn carry_authorized_runtime_restart_binding(
         &self,
         tab_id: &str,
         thread: &str,
         nonce: &str,
     ) -> Result<bool, PlanBindingFailure> {
-        let Some(authority) = BINDINGS.lock().get(&key(self, tab_id)).cloned() else {
+        let mut bindings = BINDINGS.lock();
+        let Some(authority) = bindings.get(&key(self, tab_id)).cloned() else {
             return Ok(false);
         };
         if !authority
             .owner
             .upgrade()
             .is_some_and(|owner| Arc::ptr_eq(&owner, &self.mux))
-            || authority.request.new_nonce != nonce
         {
             return Err("Runtime restart authorization changed".into());
         }
-        let request = authority.request;
+        let request = &authority.request;
         let exact = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
             tab.agent_type.as_deref() == Some(request.provider.as_str())
                 && tab.agent_session_id.as_deref() == Some(thread)
@@ -174,19 +207,203 @@ impl ServiceContext {
         if !exact {
             return Err("Runtime restart loaded task binding changed".into());
         }
+        if authority.carried {
+            if request.new_thread == thread
+                && request.new_nonce == nonce
+                && self.runtime_restart_attempt_matches(request)
+            {
+                return Ok(true);
+            }
+            return Err("Runtime restart authorization changed".into());
+        }
+        let mut request = request.clone();
+        request.new_thread = thread.into();
+        request.new_nonce = nonce.into();
         self.plan_store
             .rebind_runtime_restart(
-                RuntimeRestartBinding {
-                    new_thread: thread.into(),
-                    ..request
-                },
+                request.clone(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|elapsed| elapsed.as_millis() as u64)
                     .unwrap_or_default(),
             )
             .map_err(PlanBindingFailure::from_plan_error)?;
-        BINDINGS.lock().remove(&key(self, tab_id));
+        let Some(stored) = bindings.get_mut(&key(self, tab_id)) else {
+            return Err("Runtime restart authorization changed".into());
+        };
+        stored.request = request;
+        stored.carried = true;
         Ok(true)
+    }
+
+    pub(crate) fn finalize_authorized_runtime_restart_binding(
+        &self,
+        tab_id: &str,
+        thread: &str,
+        nonce: &str,
+    ) -> Result<bool, PlanBindingFailure> {
+        if !self.carry_authorized_runtime_restart_binding(tab_id, thread, nonce)? {
+            return Ok(false);
+        }
+        let binding_key = key(self, tab_id);
+        let mut bindings = BINDINGS.lock();
+        let Some(authority) = bindings.get(&binding_key) else {
+            return Ok(false);
+        };
+        if !authority.carried
+            || authority.request.new_thread != thread
+            || authority.request.new_nonce != nonce
+        {
+            return Err("Runtime restart authorization changed".into());
+        }
+        bindings.remove(&binding_key);
+        Ok(true)
+    }
+
+    fn runtime_restart_attempt_matches(&self, request: &RuntimeRestartBinding) -> bool {
+        self.plan_store
+            .show_task(&request.task_id)
+            .is_some_and(|detail| {
+                detail.plan_id == request.plan_id
+                    && detail.task.assigned_tab_id.as_deref()
+                        == Some(request.executor_tab_id.as_str())
+                    && detail.task.interruption.owner_epoch == request.owner_epoch
+                    && detail.task.interruption.owner_tab_id.as_deref()
+                        == Some(request.executor_tab_id.as_str())
+                    && detail.task.interruption.owner_session_id.as_deref()
+                        == Some(request.new_thread.as_str())
+                    && detail.task.execution_attempts.iter().any(|attempt| {
+                        attempt.id == request.attempt_id
+                            && attempt.executor_tab_id == request.executor_tab_id
+                            && attempt.provider.as_deref() == Some(request.provider.as_str())
+                            && attempt.session_id.as_deref() == Some(request.new_thread.as_str())
+                            && attempt.session_binding_nonce.as_deref()
+                                == Some(request.new_nonce.as_str())
+                            && attempt.retired_at.is_none()
+                    })
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::multiplexer::{state::MultiplexerState, types::TaskBinding};
+    use crate::plan::{OrchestratorRef, Plan, PlanMode};
+    use crate::service::{
+        plan::{task_assignment::AssignmentRuntimeBinding, NewTask},
+        test_fixture::ServiceFixture,
+    };
+
+    #[test]
+    fn restarted_worker_attempt_is_carried_before_ack() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("provider".into());
+        tab.agent_session_id = Some("thread".into());
+        tab.session_binding_nonce = Some("old-nonce".into());
+        tab.reported_session_binding_nonce = Some("old-nonce".into());
+        let fixture = ServiceFixture::new(mux);
+        let store = &fixture.service.plan_store;
+        let mut plan = Plan::new(
+            "restart carry".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab("orchestrator"),
+        );
+        plan.mode = PlanMode::Execution;
+        store.save(&mut plan, 1).unwrap();
+        let task_id = store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "worker task".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        store
+            .assign_task_with_runtime_binding(
+                &plan.id,
+                &task_id,
+                &tab_id,
+                None,
+                Some("worker"),
+                Some(&AssignmentRuntimeBinding {
+                    session_id: "thread".into(),
+                    session_binding_nonce: "old-nonce".into(),
+                    provider: Some("provider".into()),
+                    model: None,
+                    session_model: None,
+                    reasoning_effort: None,
+                }),
+                None,
+                3,
+            )
+            .unwrap();
+        let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+            .id
+            .clone();
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .task_binding = Some(TaskBinding {
+            plan_id: Some(plan.id.clone()),
+            task_id: Some(task_id.clone()),
+            attempt_id: Some(attempt_id.clone()),
+            spawn_handle: None,
+            bound_at: 3,
+        });
+
+        let authority = fixture
+            .service
+            .authorize_runtime_restart_binding(&tab_id, "provider", "old-nonce", false)
+            .unwrap()
+            .expect("the current task attempt is authorized for restart");
+        fixture
+            .service
+            .stage_runtime_restart_binding(&tab_id, Some(authority));
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.session_binding_nonce = Some("new-nonce".into());
+            tab.reported_session_binding_nonce = Some("new-nonce".into());
+        }
+        assert!(fixture
+            .service
+            .carry_authorized_runtime_restart_binding(&tab_id, "thread", "new-nonce")
+            .unwrap());
+        fixture
+            .service
+            .plan_store
+            .mark_live_task_attempt_runtime_ready_for_tab(&tab_id, "thread", 4)
+            .unwrap();
+        assert!(fixture
+            .service
+            .finalize_authorized_runtime_restart_binding(&tab_id, "thread", "new-nonce")
+            .unwrap());
+
+        let rebound = store.show_task(&task_id).unwrap().task;
+        assert_eq!(rebound.execution_attempts.len(), 1);
+        assert_eq!(rebound.execution_attempts[0].id, attempt_id);
+        assert_eq!(
+            rebound.execution_attempts[0]
+                .session_binding_nonce
+                .as_deref(),
+            Some("new-nonce")
+        );
+        let acknowledged = store
+            .acknowledge_live_task_attempt_for_tab_with_runtime_binding(
+                &tab_id,
+                Some(&plan.id),
+                Some(&task_id),
+                Some(("thread", "new-nonce")),
+                5,
+            )
+            .unwrap();
+        assert_eq!(acknowledged.attempt.id, attempt_id);
+        assert_eq!(acknowledged.attempt.acknowledged_at, Some(5));
     }
 }

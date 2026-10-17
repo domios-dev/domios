@@ -91,6 +91,20 @@ pub async fn finish_session_binding(
     binding_source: crate::session::lifecycle::BindingSource,
     session_binding_hook_succeeded: bool,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if claim.nonce_verified {
+        if let Some(nonce) = report_nonce {
+            let service = svc.clone();
+            let tab = tab_id.to_string();
+            let session = sid.to_string();
+            let nonce = nonce.to_string();
+            tokio::task::spawn_blocking(move || {
+                service.carry_authorized_runtime_restart_binding(&tab, &session, &nonce)
+            })
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .map_err(|error| (StatusCode::CONFLICT, error.reason))?;
+        }
+    }
     bind_planner_session_after_claim(svc, tab_id).await?;
     if claim.changed {
         crate::service::provider_signals::refresh_auth(svc, tab_id);
