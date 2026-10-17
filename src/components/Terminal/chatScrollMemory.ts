@@ -14,6 +14,15 @@ export function chatScrollBookmark(state: ChatScrollState | null): ChatScrollBoo
     : { mode: "pinned" };
 }
 
+export function initialChatScrollAnchor(state: ChatScrollState | null): {
+  pinned: boolean; top: number; anchor: ChatContentAnchor | null;
+} {
+  const bookmark = chatScrollBookmark(state);
+  return bookmark.mode === "detached"
+    ? { pinned: false, top: state!.scrollTop, anchor: bookmark.anchor }
+    : { pinned: true, top: 0, anchor: null };
+}
+
 export function chatScrollRestoreTarget(bookmark: ChatScrollBookmark, anchorTop: number | null, maximumTop: number): { mode: "pinned" | "detached"; top: number } {
   return bookmark.mode === "detached" && anchorTop != null && Number.isFinite(anchorTop)
     && anchorTop >= 0 && anchorTop <= maximumTop

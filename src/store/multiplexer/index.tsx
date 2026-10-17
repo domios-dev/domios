@@ -38,7 +38,7 @@ import type {
 } from "../../lib/types";
 import type { ExtendedState } from "./tree";
 import { reducer, type Action } from "./reducer";
-import { acceptsPageFocus } from "./pageSelection";
+import { acceptsPageFocus, initialPageSelection } from "./pageSelection";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
 import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
@@ -104,8 +104,7 @@ function buildInitialState(): ExtendedState {
     workspaces: cached.workspaces,
     tabs: cached.tabs,
     teams: cached.teams ?? [],
-    active_workspace_id: cached.active_workspace_id,
-    focused_tab_id: cached.focused_tab_id,
+    ...initialPageSelection(cached),
     recently_closed: cached.recently_closed,
     closed_structures: cached.closed_structures,
     generation: HYDRATED_GENERATION,
@@ -177,8 +176,18 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     if (Object.keys(remoteTabs).length > 0) {
       applyRemoteProjection(remoteTabs);
     }
-    if (IS_WEB) saveStateSnapshot(s);
   }, [applyRemoteProjection]);
+
+  const { generation, workspaces, tabs, teams, activeTabIds, active_workspace_id,
+    focused_tab_id, recently_closed, closed_structures } = state;
+  useEffect(() => {
+    if (!IS_WEB || generation <= 0) return;
+    saveStateSnapshot({ generation, tabs, teams, active_workspace_id, focused_tab_id,
+      recently_closed, closed_structures, workspaces: workspaces.map((workspace) => ({
+        ...workspace, active_tab_id: activeTabIds[workspace.id] ?? null,
+      })) });
+  }, [generation, workspaces, tabs, teams, activeTabIds, active_workspace_id,
+    focused_tab_id, recently_closed, closed_structures]);
 
   const cachedBackendGenerationRef = useRef<number | undefined>(undefined);
   const acceptBackendState = useCallback((s: MultiplexerState) => {

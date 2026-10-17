@@ -1,4 +1,6 @@
 import { WorkspacePaneState } from "./components/shared/FolderPaneState";
+import { DeferredLoader } from "./components/shared/DeferredLoader";
+import { initialRouteReady } from "./store/multiplexer/pageSelection";
 import { emitFeatureUsed } from "./lib/productAnalytics";
 import { localJson } from "./lib/webApi";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
@@ -261,7 +263,7 @@ function AppInner() {
       });
     }
   }, []);
-  useFrontendApp({
+  const routeRestored = useFrontendApp({
     generation: state.generation,
     workspaceId: state.active_workspace_id,
     tabId: state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null,
@@ -427,7 +429,7 @@ function AppInner() {
     prewarmTab: prewarmBackendTab,
   });
   const showWorkspaceCanvas =
-    mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;
+    initialRouteReady(state.generation) && mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;
   const workspaceCanvasOpen = useCanvasWorkspaceOpen();
   const workspaceCanvasDismissed = useCanvasWorkspaceDismissed();
   const showInlineWorkspaceCanvas = showWorkspaceCanvas && !workspaceCanvasDismissed;
@@ -708,6 +710,9 @@ function AppInner() {
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
+          {!routeRestored && !state.storageUnavailable ? (
+            <DeferredLoader state="present" role="status" aria-label="Restoring workspace" />
+          ) : <>
           {/* All panels stay mounted — switching mainView only changes visibility.
               Unmounting the workspace would tear down xterm + re-run get_tab_text
               on return, blocking the main thread with MB of escape codes. */}
@@ -907,6 +912,7 @@ function AppInner() {
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
           <PlanSidePanelHost api={stableApiConfig} />
+          </>}
         </main>
         </div>
       </div>
