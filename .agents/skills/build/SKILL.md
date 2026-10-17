@@ -726,6 +726,38 @@ Sign out and back in for a repaired PATH to reach new processes.
 
 ### Local production troubleshooting
 
+#### Dependencies disappear during lane installs
+
+An empty package directory or missing `.modules.yaml` indicates directory
+deletion, not merely a removed shared-store hardlink. On Windows, inspect lane
+`node_modules` with `Get-Item -Force` and its `Target`, and compare UTC directory
+timestamps with the failed build. `fsutil hardlink list <package-file>` identifies
+shared store inodes; unlinking one name does not remove the others.
+
+pnpm can purge the target of a `node_modules` junction when recreating an
+incompatible install, including during an offline install. Never junction or
+symlink canonical dependencies into a lane. The repository `.pnpmfile.cjs`
+refuses linked dependency directories during configuration, before pnpm's purge.
+It preserves pnpm's package import method and shared-store reuse.
+Do not bypass it with `--ignore-pnpmfile`. Normal package links inside
+`node_modules` remain supported.
+
+Stop the operation using the junction. Unlink only the junction, without
+recursion (`[IO.Directory]::Delete(<junction>, $false)` on Windows), then install
+inside that checkout with `pnpm install --frozen-lockfile`. Preserve evidence
+before repairing a damaged dependency directory, and prove it is not a link.
+Canonical repair belongs to its integrator. A failed network install in an isolated real
+directory does not explain missing pathnames in canonical.
+
+Frontend staging creates and removes only its unique
+`node_modules/.cache/codeterm-frontend-*` directory; that cleanup is not a
+package-store prune. Verify isolation and the destructive unguarded mechanism in
+throwaway directories with
+`node --test scripts/tests/pnpm-isolation.test.mjs scripts/tests/lane-cleanup.test.mjs`.
+The cleanup test exercises Windows PowerShell; run the pnpm tests on each OS.
+After editing `.pnpmfile.cjs`, regenerate its lockfile checksum with
+`pnpm install --lockfile-only --ignore-scripts`, then verify frozen installation.
+
 The app's non-daemon CLI shim delegates to an installed CLI before daemon
 initialization. Smoke the produced bundled CLI directly as well.
 
