@@ -59,8 +59,8 @@ async function main() {
   try {
     for (const fast of [true, false, undefined]) {
       const label = await render(fast);
-      if (!label.includes("fixture-model") || label.includes(" · fast") !== (fast === true)) {
-        throw new Error(`Row did not reflect confirmed runtime tier ${fast}: ${label}`);
+      if (label.includes("fixture-model") || label.includes("fast")) {
+        throw new Error(`Row shows model or tier for confirmed tier ${fast}: ${label}`);
       }
     }
   } finally {
