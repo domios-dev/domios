@@ -1,6 +1,6 @@
 use codeterm_types::team::staffing as team_codes;
 
-use crate::args::agent::{AgentAction, SpawnRole};
+use crate::args::agent::{AgentAction, SpawnLocation, SpawnRole};
 use crate::client::SocketClient;
 
 /// The flag combination an `agent spawn` was invoked with, as the validator
@@ -165,7 +165,13 @@ fn resolved_execution_intent(kind: Option<&str>, intent: Option<String>) -> Opti
 
 /// The `agent spawn` verb: validate the flag combination, resolve file-backed
 /// inputs, and build the `agent.spawn` request.
-pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction) {
+pub(super) fn handle(
+    client: &mut SocketClient,
+    local_http: &crate::local_api::LocalApiClient,
+    base: &str,
+    json: bool,
+    action: AgentAction,
+) {
     let AgentAction::Spawn {
         agent,
         title,
@@ -185,6 +191,8 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         reasoning_effort,
         system_prompt,
         preset,
+        location,
+        environment,
         charter,
         charter_file,
         interval,
@@ -203,6 +211,44 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
     } = action
     else {
         unreachable!("agent_spawn::handle received a non-spawn action")
+    };
+    if environment.is_some() && location != Some(SpawnLocation::Remote) {
+        crate::cmd::print::fail(1, "--environment requires --location remote");
+    }
+    let (agent, preset) = if location == Some(SpawnLocation::Remote) {
+        if role.is_some()
+            || unplanned
+            || bound_task.is_some()
+            || plan_task.is_some()
+            || model.is_some()
+            || reasoning_effort.is_some()
+            || system_prompt.is_some()
+        {
+            crate::cmd::print::fail(
+                1,
+                "Remote task tabs do not support roles, worker bindings, or local model/system controls",
+            );
+        }
+        let requested = agent.as_deref().unwrap_or_else(|| {
+            crate::cmd::print::fail(1, "Remote execution requires an explicit provider")
+        });
+        let descriptors: serde_json::Value = local_http
+            .get(format!("{base}/api/agents/providers"))
+            .send()
+            .and_then(|response| response.error_for_status())
+            .and_then(|response| response.json())
+            .unwrap_or_else(|error| {
+                crate::cmd::print::fail(1, format!("Could not read provider capabilities: {error}"))
+            });
+        let (provider, preset) = super::agent::agent_remote::resolve_remote_spawn(
+            &descriptors,
+            requested,
+            environment.as_deref().unwrap_or_default(),
+        )
+        .unwrap_or_else(|error| crate::cmd::print::fail(1, error));
+        (Some(provider), Some(preset))
+    } else {
+        (agent, preset)
     };
     let execution_intent = resolved_execution_intent(kind.as_deref(), execution_intent);
     let context = SpawnContext {

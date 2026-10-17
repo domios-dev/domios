@@ -22,7 +22,8 @@ import {
 import { mountWebLifecycle } from "../../lib/lifecycle";
 import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
-import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
+import { defaultSpawnProviderId, getAgentDescriptor } from "../../lib/agentDescriptorCache";
+import {atomicSpawnPreset} from "../../lib/remoteExecution";
 import { TitleLevel } from "../../lib/types";
 import { adoptStoredActions } from "../../lib/notificationActions";
 import type {
@@ -830,7 +831,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       // activate + focus, picking the transport (PTY vs chat) on the backend.
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_tab", {
-        params: { agentId, workspaceId, cwd, model, reasoningEffort, preset },
+        params: { agentId, workspaceId, cwd, model, reasoningEffort, ...atomicSpawnPreset(getAgentDescriptor(agentId), preset) },
       });
       applyBackendState(res.snapshot);
       if (res.launch_command) {

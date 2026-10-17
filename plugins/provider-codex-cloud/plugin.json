@@ -11,6 +11,7 @@
     "view": true,
     "chatBackend": {
       "spawnable": true,
+      "sessionConfig": true,
       "remoteTask": {
         "backend": "chatgpt-cloud-tasks",
         "localProviderId": "codex",

@@ -61,7 +61,7 @@ export function TabContent({
 }: TabContentProps) {
   if (tab?.remote_peer_id) configureRemoteTabTransport(api);
   const wake = useWakeOnOpen(tab, isVisible && Boolean(tab && isTabVisible(tab)));
-  const descriptor = useAgentDescriptor(tab?.agent_type);
+  const descriptor = useAgentDescriptor(tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null));
   const { providers, loading, error } = useAgentProviders();
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
   useLayoutEffect(() => {

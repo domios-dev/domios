@@ -26,6 +26,15 @@ export function remoteChatBackend(storage: RemoteTaskStorage, backend: RemoteTas
         throw new Error("Choose a Cloud environment before opening a remote task");
       }
       sessions.set(ctx.tabId, ctx);
+      if (!existing && ctx.systemPrompt?.trim()) {
+        const environment = backend.capability.environments.find(environment => environment.id === ctx.preset);
+        if (!environment) throw new Error("The selected environment is unavailable");
+        try {
+          controller.create(ctx.tabId, providerId, environment, "master", ctx.systemPrompt);
+        } catch (error) {
+          if (!storage.read(ctx.tabId)) throw error;
+        }
+      }
       return {sessionId: ctx.tabId};
     },
     sendMessage(sessionId, prompt) {

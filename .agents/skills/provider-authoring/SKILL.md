@@ -5,6 +5,10 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
+`capabilities.chatBackend.remoteTask` declares a remote one-task backend. It carries `backend`, `localProviderId`, `availability`, `environments` (`id`, `label`, opaque non-secret `accountRef`), and `followUp`, `cancel`, `applyDiff` flags. The cached descriptor exposes it as `remote_task`. Local/Remote selection follows this relationship, never provider IDs. Native/JS descriptor parity covers this data-only declaration; it adds no host API or confinement grant.
+
+Use the SDK `RemoteTaskController` and `RemoteTaskFileStorage` for durable create claims and exact-task restoration. Storage belongs in the provider's conventional instance data directory, outside the replaceable plugin bundle. The host file lock and atomic write precede creation; an unconfirmed create never replays. A task provider exposes `viewCall` methods `read`, `submit`, `refresh` for its tab and an ordinary `chatBackend` transcript projection. Refresh is an explicit request; transcript reads do not poll a remote server. Unavailable adapters must refuse open and create. Test with an injected deterministic transport and source-attributed fixtures; no real credentials or billable requests belong in tests.
+
 `agentRuntime.serviceTiers` declares tier descriptors (`id`, `name`, `description`,
 optional `unavailableReason`) in the shared model picker. `RuntimeSettings.serviceTier`
 is `{id: string | null}`: omission preserves the tier, `{id:null}` explicitly selects

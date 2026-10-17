@@ -19,6 +19,7 @@ export interface OrchestrationPairValues {
 }
 
 interface RoleRowProps {
+  modelControls?: boolean;
   label: string;
   providers: ProviderDescriptor[];
   providerId: string;
@@ -41,6 +42,7 @@ interface RoleRowProps {
 }
 
 export function OrchestrationRoleRow({
+  modelControls = true,
   label,
   providers,
   providerId,
@@ -95,7 +97,7 @@ export function OrchestrationRoleRow({
             leading={<AgentIcon providerId={providerId} className="text-[12px] shrink-0" />}
           />
         </div>
-        <div className="flex-1 min-w-0">
+        {modelControls && <div className="flex-1 min-w-0">
           <DropdownSelect
             data-testid={modelTestId}
             options={modelOptions}
@@ -105,9 +107,9 @@ export function OrchestrationRoleRow({
             disabled={models.length === 0 || providerDisabled}
             menuMaxHeight={MODEL_MENU_MAX_HEIGHT}
           />
-        </div>
+        </div>}
       </div>
-      {efforts.length > 0 && onEffortChange && (
+      {modelControls && efforts.length > 0 && onEffortChange && (
         <div className="min-w-0">
           <DropdownSelect
             data-testid={effortTestId}

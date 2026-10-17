@@ -91,3 +91,14 @@ test("built production plugin refuses live access and never touches authenticati
   assert.throws(() => plugin.openSession({tabId: "tab-fixture", config: {}}));
   assert.equal(manifest.capabilities.chatBackend.remoteTask.availability.status, "unavailable");
 });
+
+test("CLI starter task in session config is submitted once and never replayed on reopen", () => {
+  const f = setup();
+  const ctx = {tabId: "tab-fixture", config: {}, preset: "env-fixture", systemPrompt: "Read README title"};
+  f.open().openSession(ctx);
+  f.open().openSession(ctx);
+  const creates = f.calls.filter(call => call.method === "POST");
+  assert.equal(creates.length, 1);
+  assert.equal((creates[0].body as {input_items: {content: {text: string}[]}[]}).input_items[0].content[0].text, ctx.systemPrompt);
+  assert.equal(f.storage.read(ctx.tabId)?.snapshot?.taskId, "task_123");
+});

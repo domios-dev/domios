@@ -3,7 +3,8 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import type { AgentRuntimeStateEvent } from "../../lib/agentRuntimeState";
-import type { Tab, ThemeConfig } from "../../lib/types";
+import type { ProviderDescriptor, Tab, ThemeConfig } from "../../lib/types";
+import {setAgentDescriptors} from "../../lib/agentDescriptorCache";
 import { MuxStateStoreContext, MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
@@ -14,6 +15,46 @@ import { TabContent } from "./TabContent";
 
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+it("routes a non-PTY task tab through its backing provider even without a local agent identity", async () => {
+  const tab: Tab = {id: "remote-layout", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null,
+    backing: {kind: "chat_backend", plugin_id: "remote-fixture", session_id: "remote-session"}};
+  const descriptor: ProviderDescriptor = {
+    schema_version: 1, id: "remote-fixture", display_name: "Remote fixture", transport: "chat_backend", system_prompt_delivery: "external",
+    available_models: [], settings_schema: [], notifications_schema: [], supports_lazy_skills: false, has_hooks: false,
+    remote_task: {backend: "fixture", localProviderId: "local-fixture", availability: {status: "available"}, environments: [], followUp: false, cancel: false, applyDiff: false},
+  };
+  const state: ExtendedState = {workspaces: [], tabs: {[tab.id]: tab}, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: []};
+  const calls: string[] = [];
+  const onPtySpawned = vi.fn();
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command: string) => {
+    calls.push(command);
+    const value = command === "plugin_view_call" ? {phase: "bound", snapshot: {status: "ready", result: "Fixture remote result", diff: null}}
+      : command === "plugin_manager_snapshot" ? {plugins: [], channels: [], diff: [], marketplace: []} : {};
+    return value as T;
+  });
+  setAgentDescriptors([descriptor], false);
+  const host = document.createElement("div"); const root = createRoot(host);
+  const actions = new Proxy({}, {get: () => () => {}}) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={tab} isFocused isVisible onFocusTab={() => {}} onPtySpawned={onPtySpawned}
+          theme={{name: "fixture", background: "#000", foreground: "#fff"} as ThemeConfig} />
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>));
+    expect(host.querySelector('section[aria-label="Remote task"]')).not.toBeNull();
+    expect(host.querySelector("pre")?.textContent).toBe("Fixture remote result");
+    expect(calls).toContain("plugin_view_call");
+    expect(calls).not.toContain("chat_start");
+    expect(onPtySpawned).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount()); setAgentDescriptors([], false);
+    __setInvokeForTest(null); __setListenForTest(null);
+  }
+});
 
 it("keeps the composer draft and attachment through runtime status changes", async () => {
   const tab: Tab = {
