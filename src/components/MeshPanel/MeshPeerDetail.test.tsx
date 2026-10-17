@@ -73,6 +73,11 @@ async function main() {
   await render("peer");
   assert(host.querySelector("[data-testid='mesh-peer-drawer']")?.getAttribute("aria-labelledby") === "mesh-peer-drawer-heading", "peer drawer has a labelled dialog heading");
   assert(document.activeElement?.id === "mesh-peer-drawer-heading", "opening focuses the labelled drawer heading");
+  const servicesSection = host.querySelector('section[aria-label="Services"]');
+  assert(servicesSection?.querySelector('button')?.textContent?.includes("API"), "Services section wires the peer daemon");
+  const cronsSection = host.querySelector('section[aria-label="Crons"]');
+  assert(cronsSection?.querySelector('button')?.textContent?.includes("Backup"), "Crons section wires the peer schedule");
+  assert(servicesSection?.querySelector('[role="status"]'), "unavailable inventory is announced in each section");
   await render(null);
   assert(document.activeElement === origin, "closing restores focus to the originating control");
   await act(async () => root.unmount());

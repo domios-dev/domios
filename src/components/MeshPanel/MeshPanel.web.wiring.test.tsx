@@ -58,7 +58,7 @@ it("shows the access card directly in the graph without a duplicate details dial
   }
 });
 
-it("renders the same daemon and schedule source in General after removing Mesh resource surfaces", async () => {
+it("renders authoritative daemon and schedule data in the map and peer sections", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const host = document.createElement("div");
   document.body.append(host);
@@ -74,8 +74,8 @@ it("renders the same daemon and schedule source in General after removing Mesh r
       <GeneralInventorySections workspaces={workspaces} teams={teams} tabs={tabs} inventory={inventory} jobs={[]} onCloseTab={() => {}} onRenameTab={() => {}} onNavigate={(workspaceId, tabId) => navigated.push([workspaceId, tabId])} />
     </>));
     const mesh = host.querySelector('section[aria-label="Mesh resource source"]')!;
-    expect(mesh.textContent).not.toContain(daemon.name);
-    expect(mesh.textContent).not.toContain(schedule.name);
+    expect(mesh.textContent).toContain(daemon.name);
+    expect(mesh.textContent).toContain(schedule.name);
     for (const name of ["Jobs", "Services", "Utility shells"]) {
       const toggle = host.querySelector<HTMLButtonElement>(`section[aria-label="${name}"] button[aria-expanded]`)!;
       if (toggle.getAttribute("aria-expanded") !== "true") await act(async () => toggle.click());
