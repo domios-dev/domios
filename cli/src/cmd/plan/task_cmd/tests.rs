@@ -680,5 +680,5 @@ fn plan_task_dispatch_forwards_explicit_sandbox_choice() {
     };
     *sandbox = Some("read-only".into());
     run_dispatch(&mut client, true, action, None).unwrap();
-    assert_eq!(client.calls[1].1["sandbox"], "read-only");
+    assert_eq!(client.calls[1].1.as_ref().unwrap()["sandbox"], "read-only");
 }
