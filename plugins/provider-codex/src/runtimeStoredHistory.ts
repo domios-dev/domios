@@ -5,6 +5,17 @@ import { object, text } from "./runtimeProtocol";
 import { durationMilliseconds } from "./activity";
 import { commandText } from "./execWrapper";
 
+export function storedHistoryAvailable(sessionId: string, head: string | null): boolean {
+  if (!sessionId || !head) return false;
+  try {
+    const record = object(JSON.parse(head.split("\n", 1)[0]));
+    const payload = object(record.payload);
+    return record.type === "session_meta" && payload.id === sessionId && payload.history_base == null;
+  } catch {
+    return false;
+  }
+}
+
 export function projectHistoryItem(raw: unknown, seq: number, turn: string, timestamp: unknown): ChatMsg[] {
   const source = object(raw);
   const rows:ChatMsg[] = source.historyTruncated === true

@@ -58,6 +58,10 @@ impl AgentProvider for JsProvider {
         self.manifest.capabilities.agent_runtime.clone()
     }
 
+    fn runtime_stored_history_available(&self, cwd: &str, session_id: &str) -> bool {
+        self.js_runtime_stored_history_available(cwd, session_id)
+    }
+
     fn runtime_stored_history(
         &self,
         session_id: &str,

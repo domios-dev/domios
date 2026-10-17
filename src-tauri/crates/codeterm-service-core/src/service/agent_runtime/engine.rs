@@ -606,13 +606,18 @@ async fn ensure_locked(
     };
     let mut port = backfill::RpcPort::new(svc, session, &process, tab, &thread_id);
     let mut replay = backfill::Replay::new(context.epoch, generation, &thread_id);
-    if session
-        .adapter
-        .lock()
-        .as_ref()
-        .and_then(|adapter| adapter.agent_runtime())
-        .is_some_and(|runtime| runtime.stored_history)
-    {
+    let history_adapter = session.adapter.lock().clone();
+    let history_cwd = context.cwd.clone();
+    let history_thread = thread_id.clone();
+    let stored_history = tokio::task::spawn_blocking(move || {
+        history_adapter.is_some_and(|adapter| {
+            adapter.runtime_stored_history_available(&history_cwd, &history_thread)
+        })
+    })
+    .await
+    .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?;
+    log::debug!("[chat_backfill] tab={tab} thread={thread_id} stored_history={stored_history}");
+    if stored_history {
         session.cache.lock().bound_rereadable();
         replay.bound_startup();
     }

@@ -93,6 +93,16 @@ fn runtime_stored_history_native_quickjs_parity_and_capability_gate() {
     for enabled in [false, true] {
         let js = generic_provider_with_history(&dir, enabled);
         let native = native::NativeRuntime(js.agent_runtime().unwrap());
+        for session in ["own-session", "reference-session"] {
+            assert_eq!(
+                native.runtime_stored_history_available("/work/project", session),
+                js.runtime_stored_history_available("/work/project", session)
+            );
+            assert_eq!(
+                js.runtime_stored_history_available("/work/project", session),
+                enabled && session != "reference-session"
+            );
+        }
         let a = native.runtime_stored_history("own-session", &records);
         let b = js.runtime_stored_history("own-session", &records);
         assert_eq!(a.is_ok(), enabled);

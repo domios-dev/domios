@@ -1578,6 +1578,16 @@ function completedActivity(value, ts, timestamp, turnId) {
 }
 
 // plugins/provider-codex/src/runtimeStoredHistory.ts
+function storedHistoryAvailable(sessionId, head) {
+  if (!sessionId || !head) return false;
+  try {
+    const record6 = object(JSON.parse(head.split("\n", 1)[0]));
+    const payload = object(record6.payload);
+    return record6.type === "session_meta" && payload.id === sessionId && payload.history_base == null;
+  } catch {
+    return false;
+  }
+}
 function projectHistoryItem(raw, seq, turn, timestamp) {
   const source = object(raw);
   const rows = source.historyTruncated === true ? [{ id: String(source.id), seq, type: "system", content: "[content truncated: history item exceeds display budget]" }] : boundHistoryRows(runtimeItems(historyItem(raw), seq));
@@ -5922,6 +5932,10 @@ var plugin = {
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimeStoredRecords,
+  runtimeStoredHistoryAvailable(cwd, sessionId) {
+    const path = sessionFilePath(cwd, sessionId);
+    return storedHistoryAvailable(sessionId, path ? host.fs.readFileHead(path, 262144) : null);
+  },
   runtimePlan,
   runtimeResponse,
   runtimeReduce,
