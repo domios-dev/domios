@@ -4,6 +4,7 @@
 *.ps1 text eol=lf
 *.mjs text eol=lf
 *.js text eol=lf
+.pnpmfile.cjs text eol=lf
 *.py text eol=lf
 *.yaml text eol=lf
 *.yml text eol=lf
