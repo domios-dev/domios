@@ -2,8 +2,10 @@
 //! snapshot, which is rewritten whole on every state change. One `closed_group`
 //! row per close action, one `closed_tab` row per tab, keyed by `workspace_id`.
 
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex, RwLock};
 use rusqlite::{params, Connection};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use crate::multiplexer::types::{ClosedTab, TabBacking};
 mod structures;
@@ -64,11 +66,28 @@ pub struct ClosedRow {
     pub tab: ClosedTab,
 }
 
-/// sqlite-backed closed-history store. Leaf lock, only taken under the mux lock, never across an await.
+/// Sqlite-backed history with plain-data views for mux snapshots.
+#[derive(Clone)]
 pub struct ClosedTabsStore {
-    pub(super) conn: Mutex<Connection>,
+    pub(super) conn: Arc<Mutex<Connection>>,
+    snapshot_recent: Arc<RwLock<Vec<ClosedRow>>>,
+    snapshot_structures: Arc<RwLock<Vec<super::ClosedStructureView>>>,
+    next_write_sequence: Arc<AtomicU64>,
+    write_order: Arc<(Mutex<u64>, Condvar)>,
     per_workspace_cap: usize,
     group_cap: usize,
+}
+
+pub(super) struct ClosedHistoryWritePermit {
+    order: Arc<(Mutex<u64>, Condvar)>,
+}
+
+impl Drop for ClosedHistoryWritePermit {
+    fn drop(&mut self) {
+        let (next, changed) = &*self.order;
+        *next.lock() += 1;
+        changed.notify_all();
+    }
 }
 
 impl ClosedTabsStore {
@@ -88,11 +107,17 @@ impl ClosedTabsStore {
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| format!("set busy_timeout: {}", e))?;
         Self::init_schema(&conn).map_err(|e| format!("init closed schema: {}", e))?;
-        Ok(Self {
-            conn: Mutex::new(conn),
+        let store = Self {
+            conn: Arc::new(Mutex::new(conn)),
+            snapshot_recent: Arc::new(RwLock::new(Vec::new())),
+            snapshot_structures: Arc::new(RwLock::new(Vec::new())),
+            next_write_sequence: Arc::new(AtomicU64::new(0)),
+            write_order: Arc::new((Mutex::new(0), Condvar::new())),
             per_workspace_cap: RECENTLY_CLOSED_CAP,
             group_cap: CLOSED_GROUP_CAP,
-        })
+        };
+        store.refresh_snapshot_views();
+        Ok(store)
     }
 
     /// In-memory store — the default for constructors and tests; prod swaps in a file-backed store at startup.
@@ -103,10 +128,62 @@ impl ClosedTabsStore {
     pub(super) fn in_memory_with_caps(per_workspace_cap: usize, group_cap: usize) -> Self {
         let conn = Connection::open_in_memory().expect("open in-memory closed_history db");
         Self::init_schema(&conn).expect("init in-memory closed schema");
-        Self {
-            conn: Mutex::new(conn),
+        let store = Self {
+            conn: Arc::new(Mutex::new(conn)),
+            snapshot_recent: Arc::new(RwLock::new(Vec::new())),
+            snapshot_structures: Arc::new(RwLock::new(Vec::new())),
+            next_write_sequence: Arc::new(AtomicU64::new(0)),
+            write_order: Arc::new((Mutex::new(0), Condvar::new())),
             per_workspace_cap,
             group_cap,
+        };
+        store.refresh_snapshot_views();
+        store
+    }
+
+    fn refresh_snapshot_views(&self) {
+        let conn = self.conn.lock();
+        self.refresh_snapshot_views_from(&conn);
+    }
+
+    pub(super) fn refresh_snapshot_views_from(&self, conn: &Connection) {
+        *self.snapshot_recent.write() =
+            Self::list_recent_from(&conn, super::RECENTLY_CLOSED_VIEW_LIMIT);
+        match Self::structure_views_from(&conn) {
+            Ok(views) => *self.snapshot_structures.write() = views,
+            Err(error) => {
+                *self.snapshot_structures.write() = Vec::new();
+                log::error!("[closed-history] inventory read failed: {error}");
+            }
+        }
+    }
+
+    pub fn snapshot_recent(&self, limit: usize) -> Vec<ClosedRow> {
+        self.snapshot_recent
+            .read()
+            .iter()
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
+    pub fn snapshot_structures(&self) -> Vec<super::ClosedStructureView> {
+        self.snapshot_structures.read().clone()
+    }
+
+    pub(super) fn reserve_write_sequence(&self) -> u64 {
+        self.next_write_sequence.fetch_add(1, Ordering::Relaxed)
+    }
+
+    pub(super) fn wait_for_write(&self, sequence: u64) -> ClosedHistoryWritePermit {
+        let (next, changed) = &*self.write_order;
+        let mut next = next.lock();
+        while *next != sequence {
+            changed.wait(&mut next);
+        }
+        drop(next);
+        ClosedHistoryWritePermit {
+            order: Arc::clone(&self.write_order),
         }
     }
 
@@ -333,6 +410,7 @@ impl ClosedTabsStore {
         Self::prune_empty_groups(&tx)?;
 
         tx.commit().map_err(|e| format!("closed commit: {}", e))?;
+        self.refresh_snapshot_views_from(&conn);
         Ok(())
     }
 
@@ -428,6 +506,10 @@ impl ClosedTabsStore {
     /// Newest-first rows across all workspaces (with group id + kind), capped at `limit`.
     pub fn list_recent(&self, limit: usize) -> Vec<ClosedRow> {
         let conn = self.conn.lock();
+        Self::list_recent_from(&conn, limit)
+    }
+
+    fn list_recent_from(conn: &Connection, limit: usize) -> Vec<ClosedRow> {
         let mut stmt = match conn.prepare(
             r#"
             SELECT p.group_id, g.kind, p.tab_id, p.parent_tab_id, p.title, p.description,
@@ -489,6 +571,7 @@ impl ClosedTabsStore {
         let affected =
             Self::delete_tab(&conn, row_id).map_err(|e| format!("delete closed Tab row: {e}"))?;
         Self::prune_empty_groups(&conn).ok();
+        self.refresh_snapshot_views_from(&conn);
         if affected == 0 {
             return Err(format!(
                 "closed Tab row {row_id} was already gone (no row deleted)"
@@ -604,6 +687,7 @@ impl ClosedTabsStore {
         .map_err(|e| format!("delete group meta: {e}"))?;
         tx.commit()
             .map_err(|e| format!("delete group commit: {e}"))?;
+        self.refresh_snapshot_views_from(&conn);
         Ok(())
     }
 

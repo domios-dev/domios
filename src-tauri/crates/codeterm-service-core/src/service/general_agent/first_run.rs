@@ -3,7 +3,7 @@
 use crate::multiplexer::types::TabType;
 use crate::service::MuxEmitCause;
 
-use super::workspace::{default_chat_view_for_provider, ensure_general_workspace};
+use super::workspace::{default_chat_view_for_provider, ensure_general_workspace_without_persist};
 use super::{generate_instructions, start_general_agent, GENERAL_ALIAS};
 
 pub const FIRST_RUN_TAB_MARKER: &str = "codeterm:first-run-general-agent";
@@ -104,6 +104,9 @@ pub fn purge_snapshot_ghosts(mux: &mut crate::multiplexer::state::MultiplexerSta
         }
         let _ = mux.close_tab(&tab_id);
     }
+    if let Some(batch) = mux.take_closed_history_batch() {
+        batch.persist_on_blocking_thread();
+    }
     count
 }
 
@@ -164,11 +167,16 @@ pub fn complete_first_run_core(
         )
     };
 
-    let duplicate_generals_closed = {
+    let (close_result, history_batch) = {
         let mut mux_guard = mux.write();
-        close_first_run_tabs(&mut mux_guard)?;
-        ensure_general_workspace(&mut mux_guard, default_chat_view)
+        let result = close_first_run_tabs(&mut mux_guard)
+            .map(|()| ensure_general_workspace_without_persist(&mut mux_guard, default_chat_view));
+        (result, mux_guard.take_closed_history_batch())
     };
+    if let Some(batch) = history_batch {
+        batch.persist_on_blocking_thread();
+    }
+    let duplicate_generals_closed = close_result?;
     if duplicate_generals_closed > 0 {
         // Duplicate-General cleanup is a deliberate reduction of persisted
         // workspaces; persist it with intent so the guard has nothing to refuse.
