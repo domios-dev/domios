@@ -5,6 +5,9 @@ import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
 import { Blob as BrowserBlob, File as BrowserFile, FormData as BrowserFormData } from "happy-dom";
 import { act, useState } from "react";
+import { addChatSend, useChatSends, removeChatSend } from "./chatSendStore";
+import { DroppedUploadNotice } from "./DroppedUploadNotice";
+import { ChatDeliveryState } from "./ChatDeliveryState";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { LocalArtifactScope, MessageBubble } from "@codeterm/chat-ui";
@@ -21,7 +24,7 @@ import { ChatComposer } from "./ChatComposer";
 const path = "/home/owner/.codeterm-dev/uploads/id-photo.png";
 const pixels = "data:image/png;base64,iVBORw0KGgo=";
 
-it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sends its image after editing text: %s", async (failure) => {
+it.each(["success", "pending", "HTTP 503", "NotReadableError"])("web picker sends immediately and omits failed images without a popup: %s", async (failure) => {
   vi.stubGlobal("Blob", BrowserBlob);
   vi.stubGlobal("File", BrowserFile);
   vi.stubGlobal("FormData", BrowserFormData);
@@ -29,6 +32,7 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
   const previews: string[] = [];
   let requests = 0;
   let reads = 0;
+  let completeUpload!: () => void;
   const fetch = vi.fn(async (_url: unknown, options?: RequestInit) => {
     expect(String(_url)).toContain("/api/attachments/upload");
     const body = options?.body as FormData;
@@ -39,6 +43,7 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
     expect(file.size).toBe(5);
     if (failure === "NotReadableError" && ++reads === 1) throw new DOMException("unreadable", "NotReadableError");
     if (++requests === 1 && failure === "HTTP 503") return new Response("busy", { status: 503 });
+    if (failure === "pending") await new Promise<void>(resolve => { completeUpload = resolve; });
     return Response.json({ path, size: 5 });
   });
   vi.stubGlobal("fetch", fetch);
@@ -66,13 +71,14 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
   function Harness() {
     const [attachments, setAttachments] = useState<string[]>([]);
     const [bubble, setBubble] = useState("");
+    const sends = useChatSends("picker");
     return <MuxStateStoreContext.Provider value={store}><LocalArtifactScope tabId="picker">
-      {bubble && <div role="region" aria-label="Sent message"><MessageBubble message={{ id: "sent", type: "user", content: bubble }} /></div>}
+      {bubble && <div role="region" aria-label="Sent message"><MessageBubble message={{ id: "sent", type: "user", content: bubble }} userFooter={<><ChatDeliveryState state="sending" /><DroppedUploadNotice tabId="picker" id="sent" names={sends.find(send => send.id === "sent")?.droppedUploads} /></>} /></div>}
       <ComposerIssuesProvider><AgentRuntimeBanner state={null} onRetry={() => {}} /><ChatComposer tabId="picker" tabProvider={null} currentPtyId={null} pendingPrompt={null}
         attachments={attachments} addAttachments={(paths) => setAttachments((current) => [...current, ...paths])}
         removeAttachment={(path) => setAttachments((current) => current.filter((item) => item !== path))}
         clearAttachments={() => setAttachments([])} handlePasteEvent={() => {}} onWillSendMessage={() => {}}
-        addOptimistic={(content) => { setBubble(content); return "sent"; }} updateOptimistic={(_id, content) => setBubble(content)}
+        addOptimistic={(content) => { addChatSend("picker", { id: "sent", content, sentAtMs: Date.now() }); setBubble(content); return "sent"; }} updateOptimistic={(_id, content) => setBubble(content)}
         observeChatSendStatus={() => {}} showComposerError={(error) => { throw new Error(error); }} /></ComposerIssuesProvider>
     </LocalArtifactScope></MuxStateStoreContext.Provider>;
   }
@@ -89,19 +95,38 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
     Object.defineProperty(input, "files", { value: [file] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
     expect(fetch.mock.calls.length, host.textContent ?? "").toBe(1);
-    if (failure !== "success") {
-      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="1 attachment failed"]')!.click());
-      const retry = host.querySelector<HTMLButtonElement>('[aria-label="Retry attachment photo.png"]');
-      expect(retry, host.textContent ?? "").not.toBeNull();
-      await act(async () => retry!.click());
-    }
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, `${editor.value} after upload`);
       editor.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(capsuleSpans(editor.value)).toHaveLength(1);
     await act(async () => editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
+    expect(editor.value).toBe("");
+    if (failure === "pending") {
+      expect(sent).toHaveLength(0);
+      expect(host.querySelector('[role="status"]')).not.toBeNull();
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, "next message");
+        editor.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => completeUpload());
+      expect(editor.value).toBe("next message");
+    }
     expect(sent).toHaveLength(1);
+    const row = host.querySelector('[data-testid="user-bubble-row"]')!;
+    expect(row.querySelector('[aria-label="User message"]')?.parentElement).toBe(row);
+    expect(row.querySelector('[role="status"]')?.parentElement).toBe(row);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    if (failure !== "success" && failure !== "pending") {
+      expect(parseAttachmentMarkers(sent[0]).attachments).toEqual([]);
+      expect(host.querySelector('button[aria-label="Retry omitted attachments"]')).not.toBeNull();
+      expect(row.querySelector('[role="note"]')).not.toBeNull();
+      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Retry omitted attachments"]')!.click());
+      expect(sent).toHaveLength(2);
+      expect(parseAttachmentMarkers(sent[1]).attachments.map(item => item.path)).toEqual([path]);
+      expect(sent[1]).not.toContain("Please inspect");
+      return;
+    }
     expect(parseAttachmentMarkers(sent[0]).attachments.map((item) => item.path)).toEqual([path]);
     expect(sent[0].indexOf(path)).toBeGreaterThan(sent[0].indexOf("inspect"));
     expect(sent[0].indexOf(path)).toBeLessThan(sent[0].indexOf("here"));
@@ -111,7 +136,7 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
     expect(document.querySelector<HTMLImageElement>('[role="region"] img')?.src).toBe(pixels);
     expect(previews).toContain(path);
   } finally {
-    await act(async () => root.unmount()); host.remove();
+    await act(async () => root.unmount()); host.remove(); removeChatSend("picker", "sent");
     __setInvokeForTest(null); __setListenForTest(null); vi.unstubAllGlobals();
   }
 });
