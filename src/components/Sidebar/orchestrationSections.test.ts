@@ -1,6 +1,7 @@
 // Run: npx tsx src/components/Sidebar/orchestrationSections.test.ts
 
 import type { Tab } from "../../lib/types";
+import { RELEASE_MANAGER_KIND, TESTER_KIND } from "../../lib/roleKind";
 import {
   countBySection,
   partitionBySection,
@@ -60,6 +61,15 @@ assert(
 );
 assert(roleBadgeLabel(tab({ role: "Worker" })) === null, "plain worker has no leadership badge label");
 assert(roleShieldLabel(tab({ role: "Worker" })) === null, "workers have no role shield");
+assert(sectionForRole("Worker", TESTER_KIND) === "worker", "tester stays a Worker");
+assert(sectionForRole("Worker", RELEASE_MANAGER_KIND) === "worker", "release manager stays a Worker");
+assert(roleBadgeLabel(tab({ role: "Worker", role_profile: TESTER_KIND })) === null, "tester has no manager badge");
+assert(roleBadgeLabel(tab({ role: "Worker", role_profile: RELEASE_MANAGER_KIND })) === null, "release manager has no manager badge");
+assert(roleShieldLabel(tab({ role: "Worker", role_profile: TESTER_KIND })) === "TESTER", "tester badge");
+assert(
+  roleShieldLabel(tab({ role: "Worker", role_profile: RELEASE_MANAGER_KIND })) === "RELEASE MANAGER",
+  "release manager badge",
+);
 assert(roleShieldLabel(tab({ role: "Manager", role_profile: "orchestrator" })) === "ORCHESTRATOR", "orchestrator shield");
 assert(roleShieldLabel(tab({ role: "Manager", role_profile: "planner" })) === "PLANNER", "planner shield");
 assert(roleShieldLabel(tab({ role: "Manager", role_profile: null })) === null, "unnamed manager has no UI role");

@@ -154,6 +154,14 @@ pub fn resolve_in(
         .unwrap_or_else(|| kind_id.clone());
     let kind_manages = builtins::lookup(&kind_id).is_some_and(|descriptor| descriptor.manages());
     let mut fragments = Vec::new();
+    if role == Some(AgentRole::Worker)
+        && builtins::lookup(&kind_id).is_some_and(|descriptor| descriptor.is_taskless_worker())
+    {
+        fragments.push(PresetFragment {
+            source: FragmentSource::InheritedBase,
+            text: crate::prompts::worker_suffix(),
+        });
+    }
     match builtin_guidance(&kind_id) {
         Some(guidance) => fragments.push(PresetFragment {
             source: FragmentSource::Builtin,

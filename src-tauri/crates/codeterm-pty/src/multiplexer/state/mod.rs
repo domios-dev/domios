@@ -369,6 +369,7 @@ impl MultiplexerState {
             lifecycle_epoch: None,
             lifecycle_operation_id: None,
             task_binding: None,
+            taskless_authorized_gates: Vec::new(),
             roleless_tracked: false,
             managed: None,
             role: Some(AgentRole::Manager),
