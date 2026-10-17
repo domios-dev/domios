@@ -223,6 +223,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--description` — Short tab description (max 200 chars)
 - `--execution-intent` — Declared execution intent. `mutating` requires a task binding; `read_only` is also the task-less verification-Worker shape
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
+- `--kind` — Worker kind/profile. Task-less builtins are tester and release_manager
 - `--max-actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--non-user-facing` — Declare the tab non-user-facing (bench/probe): its prompts and exits never notify the user; they are reported to its parent instead
@@ -2421,6 +2422,14 @@ BOUNCE: atomically exits in_review back to in_progress
 - `--note-from-pad` — Read the review note from a file in this tab's pad
 - `<plan_id>`
 - `<task_id>`
+
+#### `codeterm plan review delegate`
+
+Hand one in-review task to a direct child Tester for accept/bounce review
+
+- `<plan_id>`
+- `<task_id>`
+- `--tester-tab`
 
 #### `codeterm plan review hold`
 

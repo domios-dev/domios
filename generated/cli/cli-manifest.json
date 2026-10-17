@@ -801,6 +801,16 @@
               "aliases": []
             },
             {
+              "name": "kind",
+              "positional": false,
+              "required": false,
+              "value_name": "KIND",
+              "possible_values": [],
+              "default": null,
+              "help": "Worker kind/profile. Task-less builtins are tester and release_manager",
+              "aliases": []
+            },
+            {
               "name": "max-actions",
               "positional": false,
               "required": false,
@@ -10839,6 +10849,44 @@
                   "positional": true,
                   "required": true,
                   "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "delegate",
+              "about": "Hand one in-review task to a direct child Tester for accept/bounce review",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": false,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tester-tab",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "TESTER_TAB_ID",
                   "possible_values": [],
                   "default": null,
                   "help": null,

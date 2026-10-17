@@ -70,6 +70,26 @@ generic expansion; changing optimization or codegen units trades runtime behavio
 for compile time and needs separate measurements. Preserve tuned profiles,
 embeddings, warning checks, package resources and signing policy.
 
+An opt-in native compiler wrapper enables reuse across fresh release targets:
+`CODETERM_PORTABLE_COMPILER_CACHE=1 ./build.sh release-bundle --fresh-target ...`.
+Sccache 0.17 otherwise hashes `CARGO_TARGET_DIR` and `CARGO_INCREMENTAL` for every
+crate, even when only Cargo uses them. The wrapper moves these two driver
+settings out of the blanket `CARGO_*` hash and restores them before rustc runs.
+Values read by `env!`/`option_env!` still appear in rustc dep-info and remain
+cache inputs. Compiler arguments, generated inputs, source paths, working
+directories and per-worktree isolation stay intact; basedir rewriting remains
+disabled. Compiler identity and wrapper source select an immutable native
+launcher, including on Windows, without cmd.exe argument-length limits.
+
+Run `./build.sh cache-wrapper-check` for a real-cache fixture proving relocation
+hits, tracked-variable misses, unset values, compiler probes and error exits.
+The feature remains opt-in until measured on the other build machines. Keep
+compiler-cache capacity large enough for the release graph; once populated,
+new empty Cargo targets can reuse cacheable crates. Initial population still
+requires compilation. Binaries, proc macros and crates using generated absolute
+paths can remain non-cacheable or miss; do not promise a fully cold time from a
+populated-cache measurement.
+
 ## Rebuild cost
 
 `release-inputs` keeps the normal release checks and profiles. TypeScript stores
@@ -1138,7 +1158,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 45 -->
+<!-- revision: 46 -->
 
 ### Lane and batch scopes
 
