@@ -64,6 +64,30 @@ fn manager_kinds_resolve_the_same_way_workers_do() {
 }
 
 #[test]
+fn taskless_worker_kind_prompts_are_delivered_after_the_worker_contract() {
+    let preset = resolve(Some(AgentRole::Worker), Some(builtins::TESTER), None)
+        .expect("taskless Tester preset");
+
+    assert_eq!(
+        preset
+            .fragments
+            .iter()
+            .map(|fragment| fragment.source.label())
+            .collect::<Vec<_>>(),
+        vec!["inherited_base", "builtin"]
+    );
+    assert_eq!(
+        preset.contract_guidance(),
+        format!(
+            "{}\n\n{}",
+            crate::prompts::worker_suffix(),
+            crate::prompts::TESTER_ROLE_PROMPT
+        )
+    );
+    assert_eq!(preset.task_guidance(), "");
+}
+
+#[test]
 fn a_roleless_tab_resolves_no_preset() {
     assert!(resolve(None, Some(builtins::PLANNER), Some("persona")).is_none());
 }

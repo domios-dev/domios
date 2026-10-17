@@ -699,6 +699,7 @@ fn install_leaf(
                 .and_then(|identity| identity.lifecycle_operation_id.clone()),
             task_binding: restored_identity.and_then(|identity| identity.task_binding.clone()),
             taskless_authorized_gates: Vec::new(),
+            taskless_authorized_review_tasks: Vec::new(),
             managed: agent_identity
                 .as_ref()
                 .and_then(|identity| identity.managed.clone()),
