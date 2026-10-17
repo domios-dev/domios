@@ -17,6 +17,7 @@ async function main() {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
+  const choices: string[] = [];
 
   await act(async () => {
     root.render(
@@ -25,8 +26,9 @@ async function main() {
         options={[
           { value: "chat", label: "Chat" },
           { value: "terminal", label: "Terminal" },
+          { value: "blocked", label: "Unavailable", disabled: true },
         ]}
-        onChange={() => {}}
+        onChange={value => choices.push(value)}
         data-testid="tab-mode-switch"
         data-tab-id="tab-a"
         aria-label="Tab view"
@@ -46,6 +48,10 @@ async function main() {
   await act(async () => {
     (terminal as HTMLButtonElement).click();
   });
+  const unavailable = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(tab => tab.textContent === "Unavailable")!;
+  if (!unavailable.disabled) throw new Error("unavailable segment must be disabled");
+  await act(async () => unavailable.click());
+  if (choices.length !== 1 || choices[0] !== "terminal") throw new Error("a choice fires once and disabled segments never select");
 
   await act(async () => root.unmount());
   console.log("ok - liquid segmented accessibility and motion contract");

@@ -247,10 +247,10 @@ describe("provider restart transport", () => {
 
 
 it("carries explicit Fast mode on and off through the model Apply request", async () => {
-  for (const fastMode of [true, false]) {
+  for (const serviceTier of [{id:null},{id:"priority"},{id:"ultrafast"}]) {
     const { transport, calls } = fixture();
-    await transport.switch_agent_model({ tabId: "owned", model: "selected", reasoningEffort: "high", fastMode });
+    await transport.switch_agent_model({ tabId: "owned", model: "selected", reasoningEffort: "high", serviceTier });
     expect(calls[0]).toMatchObject({ method: "POST", path: "/api/tabs/owned/agent/model",
-      body: { model: "selected", reasoning_effort: "high", fast_mode: fastMode } });
+      body: { model: "selected", reasoning_effort: "high", service_tier: serviceTier } });
   }
 });

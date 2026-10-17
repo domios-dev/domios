@@ -138,9 +138,9 @@ describe("remote tab transport adapter", () => {
       expect(call?.ordinaryTabId.slice(`mesh:${peerId}/`.length)).toBe(call?.remoteTabId);
     }
 
-    const modelSwitch = remoteTransportCall("switch_agent_model", { tabId: composite, model: "opaque-model-5d", reasoningEffort: "high", runtimeMode: "auto", fastMode: false });
+    const modelSwitch = remoteTransportCall("switch_agent_model", { tabId: composite, model: "opaque-model-5d", reasoningEffort: "high", runtimeMode: "auto", serviceTier: {id:null} });
     expect(modelSwitch?.suffix).toBe("/agent/model");
-    expect(modelSwitch?.body).toEqual({ model: "opaque-model-5d", reasoning_effort: "high", runtime_mode: "auto", fast_mode: false });
+    expect(modelSwitch?.body).toEqual({ model: "opaque-model-5d", reasoning_effort: "high", runtime_mode: "auto", service_tier: {id:null} });
     const fallbackSwitch = remoteTransportCall("switch_agent_model", { tabId: composite, model: "opaque-model-5d", restartResume: true });
     expect(fallbackSwitch?.body).toEqual({ model: "opaque-model-5d", reasoning_effort: undefined, runtime_mode: undefined, restart_resume: true });
 
