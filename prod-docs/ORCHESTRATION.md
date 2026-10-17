@@ -1,8 +1,8 @@
 # Orchestration control loop
 
-Create Team utility shells with `codeterm tab new --team <team-id> --purpose build` for builds, `--purpose dev` for servers, and `--purpose qa` for verification. The default purpose is `shell`; restart and desk restore keep it. Shell rows and headers show command-mark evidence: running, idle with the last exit, or unknown without marks.
+Create Team utilities with `codeterm tab new --team <team-id>`: `--purpose build` for builds, `--purpose dev` for servers, `--purpose qa` for verification; default `shell`. Purpose survives restart/restore. Rows and headers show command marks: running, idle with last exit, or unknown without marks.
 
-Use command `--help` for syntax; this is the Domios Orchestrator contract.
+Use command `--help` for syntax.
 
 ## Related documents
 
@@ -14,10 +14,9 @@ codeterm plan reconcile <plan>
 codeterm task show <task>
 ```
 
-Use `codeterm orchestrator inspect --plan <plan> --json` only for discrepancies compact status cannot explain.
+Use `codeterm orchestrator inspect --plan <plan> --json` only when compact status cannot explain drift.
 
-`codeterm docs <NAME>` reads a full playbook; bare `codeterm docs` or
-`codeterm docs --help` lists names:
+Read playbooks with `codeterm docs <NAME>`; list with `codeterm docs` or `codeterm docs --help`:
 
 | Need | Read |
 |---|---|
@@ -44,9 +43,7 @@ GOAL → Spec (WHAT/WHY) ⊥ Plan (HOW) → Tasks → Strides
 - Strides record evidence, decisions, reports, and working points.
 - Do not replace planner state with a standalone markdown implementation plan.
 
-The Orchestrator sets the GOAL, judges the Planner's structure, dispatches,
-reviews, integrates and cleans up. A bound Planner keeps section/task authority
-after approval; approval and dispatch remain the Orchestrator's.
+The Orchestrator sets GOAL, judges structure, dispatches, reviews, integrates and cleans up. A bound Planner retains section/task authority after approval; approval and dispatch remain the Orchestrator's.
 Split oversized work with `codeterm plan task split <plan> <task> --child <name>`;
 dispatch each approved child in its own lane. The parent stays open until every child is
 done or cancelled. Workers propose splits but never spawn sub-Workers.
@@ -56,25 +53,19 @@ Canonical write access never justifies self-assigning normal implementation.
 Team utilities inherit cleanup; use `--no-team` only to outlive it deliberately.
 Plan adoption binds the Team's unique live Planner.
 
-Transfer an acknowledged Worker between Teams only through its current parent;
-The LANES document linked above covers preserved identity and transfer refusals.
+Transfer acknowledged Workers between Teams only through their current parent; see `LANES` for identity preservation and refusals.
 
 Lane safety: two hard stops, otherwise nudges; see `LANES`.
 
 ### Recovering a tab-gone task
 
-The live Plan owner may cancel, pend, reassign, respawn, or dispatch a task whose
-Worker tab is gone; the recovery retires the stale attempt in the same transition.
-Ownership proof, verb allowlists, and refusals: `codeterm docs API-PLAN`.
+The live Plan owner may cancel, pend, reassign, respawn or dispatch a tab-gone task, retiring its stale attempt atomically. Proof, allowlists and refusals: `codeterm docs API-PLAN`.
 
 ## The loop
 
 Run this loop after every report, reminder, task close, tab death, or gate:
 
-A Worker that dies while its task is `in_progress` (tab closed, crashed, or its
-agent exited) is pushed to you at once as a `[worker lost: <task>]` notice naming
-the task, lane, dirty state, and recovery command. Treat it as an incident: tell
-the user, then recover with the named `codeterm plan task respawn` command.
+Worker death during `in_progress` (tab closed/crashed or agent exited) pushes `[worker lost: <task>]` with task, lane, dirt and recovery command. Tell the user about the incident, then run the named `codeterm plan task respawn` command.
 
 1. **Handle pushed reports.** Worker reports arrive automatically as incoming
    messages. Accept or bounce them without polling an inbox. A Worker
@@ -99,12 +90,9 @@ the user, then recover with the named `codeterm plan task respawn` command.
 9. **Clean up as you go:** when a task is accepted or cancelled, close its Worker tab, crons and idle utility shells (stop dev processes first),
    prune lanes with `codeterm plan lanes <plan> --clean --confirm`, and record cleanup.
 
-Tab-state hints marked `actionable: false` are observations, never instructions
-to answer, notify or mutate state. An actionable event needs two agreeing strong
-observations of the same launch.
+`actionable: false` tab hints are observations, never instructions to answer, notify or mutate. Actionable events require two agreeing strong observations of one launch.
 
-Discovery must lead to decisions and implementation, review or verification;
-research alone does not complete the goal.
+Discovery must lead to decisions and implementation, review or verification; research alone is incomplete.
 
 ## Planning ownership
 
@@ -124,28 +112,25 @@ When a Planner is present:
 - draft tasks remain non-dispatchable;
 - the Orchestrator remains the sole dispatch and acceptance authority.
 
-Judge structure against your role brief's plan-shape contract before dispatch.
-If the Planner is waived, record that on the plan.
+Before dispatch, judge structure against your role brief's plan-shape contract. Record Planner waivers on the plan.
 ## Dispatch contract
 
-`--execution-intent read_only` requires provider-declared filesystem enforcement; an unsupported provider is refused with its capability gap. Scoped launches override the global full-access preference and reject custom launch arguments. The intent and allowed paths survive restart and restore; runtime controls cannot broaden them. Mutating workers use their lane plus explicit host-owned pad and Git metadata roots.
+`--execution-intent read_only` requires provider-declared filesystem enforcement; refusal names capability gaps. Scoped launches override global full access and reject custom launch arguments. Intent and allowed paths survive restart/restore and cannot be broadened at runtime. Mutating Workers use lanes plus explicit host-owned pad/Git roots.
 
-A read-only Worker reports through UTF-8 stdin with `codeterm agent report --from-pad -`, since its pad is read-only too; task-less verification reports omit `--status` and `--task`. Authorized gate commands do not grant filesystem writes. A gate that needs writes outside the provider sandbox is an explicit owner-run canonical gate; the Worker reports the refusal instead of requesting broader access.
+Read-only Workers report via UTF-8 stdin: `codeterm agent report --from-pad -` (pads are read-only). Task-less reports omit `--status` and `--task`. Gates grant no writes; sandbox-external writes require an explicit owner-run canonical gate. Report refusals; never request broader access.
 
 ## Task-less Worker kinds
 
-`tester` and `release_manager` are task-less Worker kinds, not Managers. Choose by the work:
+`tester` and `release_manager` are read-only, task-less Worker kinds, not Managers. Spawn with `codeterm agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`.
 
-| Kind | Use | Spawn |
-|---|---|---|
-| `tester` | Task-less, read-only browser verification; may accept or bounce only an exact in-review task handed off by its parent, with an evidence note. | `codeterm agent spawn <provider> --role Worker --kind tester --parent-tab <tab> [--authorized-gate <command>]` |
-| `release_manager` | Task-less, read-only coordination for the current release; publication remains owner-authorized. | `codeterm agent spawn <provider> --role Worker --kind release_manager --parent-tab <tab> [--authorized-gate <command>]` |
+- `tester`: browser verification; may accept or bounce only an exact in-review task handed off by its parent, with an evidence note.
+- `release_manager`: current-release coordination; publication requires owner authorization.
 
-Both kinds own no task, spawn no children, and report to the parent without `--status`. Their role prompts define their work and evidence rules. A gate grant authorizes only the exact recorded commands and does not grant source-edit access.
+Neither owns tasks or spawns children; both report to their parent without `--status`. Their role prompts define work and evidence rules. Gates authorize only exact recorded commands, never source edits.
 
-Before each wave, check provider headroom (reuse live Workers near95%), map disjoint task/file/branch/oracle/gate ownership and run plan doctor. Give each Worker `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, its checkout and exact acceptance/test commands; it ACKs first and reports last. On a Full-access paired peer, `codeterm plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating` creates an origin attempt and peer lane. Judge the persisted origin report, then merge its exact accepted SHA to the clean dispatch-time branch.
+Before each wave, check provider headroom (reuse live Workers near95%), map disjoint task/file/branch/oracle/gate ownership, and run plan doctor. Give Workers `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, checkout and exact acceptance/test commands; ACK first, report last. On a Full-access paired peer, `codeterm plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating` creates an origin attempt and peer lane. Judge the persisted origin report; merge its exact accepted SHA to the clean dispatch-time branch.
 
-If dispatch fails, send a standalone user alert immediately with impact, affected tasks, cleanup, and fallback; verify rollback. After two failures of the same class, stop, diagnose, and await owner direction. Never self-implement plan-owned work to bypass a blocked dispatch.
+Dispatch failure: send a standalone user alert immediately with impact, affected tasks, cleanup and fallback; verify rollback. After two same-class failures, stop, diagnose and await owner direction. Never bypass blocked dispatch by implementing plan-owned work yourself.
 
 ## Review capacity
 
@@ -173,10 +158,10 @@ Pad notes or scalar `--note`; no authored inline.
 
 ### Quiet team heartbeat
 
-Automatic plan reminders use a deterministic rule for both Owners and Workers: an unchanged or healthy unchanged snapshot stays quiet; a new snapshot wakes only when it names a concrete next step from actionable tasks, reports, changed tasks, incidents, owner messages or actionable hard events. Repeated soft wakes of the same class respect the reminder interval, while hard events bypass that cooldown; no Supporter connection or model decision is required. Every delivered heartbeat names its next step, and reports, decisions and failure alerts retain their own delivery channels.
+Automatic reminders are deterministic for Owners and Workers: unchanged or healthy unchanged snapshots stay quiet. A changed snapshot wakes only for a concrete next step from actionable tasks, reports, changed tasks, incidents, owner messages or actionable hard events. Same-class soft wakes respect the reminder interval; hard events bypass it. No Supporter or model decision is needed. Each heartbeat names its next step; reports, decisions and failure alerts keep separate channels.
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-Confined mutating Workers receive persisted host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR, TEMP and TMP select the lane-local `.codeterm-tmp` directory. Task-bound Worker spawns require an explicit read_only or mutating intent. Restoring an older task tab without a saved confinement policy retains its existing behavior.
+Confined mutating Workers persist host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR/TEMP/TMP use lane-local `.codeterm-tmp`. Task-bound spawns require explicit read_only or mutating intent. Older task tabs without saved confinement retain their behavior.
 
-<!-- revision: 124 -->
+<!-- revision: 125 -->
