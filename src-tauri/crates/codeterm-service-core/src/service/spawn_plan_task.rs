@@ -42,6 +42,13 @@ fn worker_spawn_is_task_bound(params: &SpawnAgentParams) -> bool {
             .is_some_and(|task_id| !task_id.is_empty())
 }
 
+fn worker_spawn_is_taskless_kind(params: &SpawnAgentParams) -> bool {
+    codeterm_types::agent::role_kind::taskless_worker(
+        Some(crate::multiplexer::types::AgentRole::Worker),
+        params.role_profile.as_deref(),
+    )
+}
+
 /// The safeguard that survives the task-less shape: work that changes source
 /// still owns the task it changes it under. Read-only verification does not.
 pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Result<(), String> {
@@ -52,12 +59,40 @@ pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Resu
         if !is_worker_spawn(params) {
             return Err("authorized gates are only valid with --role Worker".into());
         }
-        if worker_spawn_plan_task_ref(params).is_some() {
+        if worker_spawn_is_task_bound(params) {
             return Err(concat!(
                 "authorized gates are not carried by a task-bound spawn; declare them ",
                 "on the dispatch, where they are also enforced"
             )
             .into());
+        }
+        if params.execution_intent != Some(crate::plan::ExecutionIntent::ReadOnly) {
+            return Err("authorized gates require read-only execution intent".into());
+        }
+    }
+    if worker_spawn_is_taskless_kind(params) {
+        if !is_worker_spawn(params) {
+            return Err("task-less Worker kinds require --role Worker".into());
+        }
+        if worker_spawn_is_task_bound(params) {
+            return Err("task-less Worker kinds cannot bind a plan task".into());
+        }
+        if params
+            .existing_tab_id
+            .as_deref()
+            .is_some_and(|tab_id| !tab_id.trim().is_empty())
+        {
+            return Err("task-less Worker kinds require a fresh tab".into());
+        }
+        if params
+            .parent_tab_id
+            .as_deref()
+            .is_none_or(|parent| parent.trim().is_empty())
+        {
+            return Err("task-less Worker kinds require a parent tab".into());
+        }
+        if params.execution_intent != Some(crate::plan::ExecutionIntent::ReadOnly) {
+            return Err("task-less Worker kinds require read-only execution intent".into());
         }
     }
     if is_worker_spawn(params) && worker_spawn_is_task_bound(params) {
@@ -822,6 +857,67 @@ mod tests {
             ..verifier(&["./build.sh verify"])
         })
         .expect("a read-only Worker binds no task");
+    }
+
+    #[test]
+    fn taskless_worker_kinds_require_parent_read_only_and_no_task() {
+        for kind in ["tester", "release_manager"] {
+            validate_worker_plan_task_spawn(&SpawnAgentParams {
+                role: Some("Worker".into()),
+                role_profile: Some(kind.into()),
+                parent_tab_id: Some("parent_tab".into()),
+                execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+                authorized_gates: vec!["./build.sh verify".into()],
+                ..Default::default()
+            })
+            .unwrap_or_else(|error| panic!("{kind}: {error}"));
+
+            let missing_parent = validate_worker_plan_task_spawn(&SpawnAgentParams {
+                role: Some("Worker".into()),
+                role_profile: Some(kind.into()),
+                execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+                ..Default::default()
+            })
+            .expect_err("taskless kinds stay under a parent");
+            assert!(
+                missing_parent.contains("parent"),
+                "{kind}: {missing_parent}"
+            );
+
+            let mutating = validate_worker_plan_task_spawn(&SpawnAgentParams {
+                role: Some("Worker".into()),
+                role_profile: Some(kind.into()),
+                parent_tab_id: Some("parent_tab".into()),
+                execution_intent: Some(crate::plan::ExecutionIntent::Mutating),
+                ..Default::default()
+            })
+            .expect_err("taskless kinds cannot request mutating authority");
+            assert!(mutating.contains("read-only"), "{kind}: {mutating}");
+        }
+
+        for kind in ["tester", "release_manager"] {
+            let task_bound = validate_worker_plan_task_spawn(&SpawnAgentParams {
+                role: Some("Worker".into()),
+                role_profile: Some(kind.into()),
+                parent_tab_id: Some("parent_tab".into()),
+                plan_task: Some("task_name".into()),
+                execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+                ..Default::default()
+            })
+            .expect_err("taskless kinds cannot bind tasks");
+            assert!(task_bound.contains("cannot bind"), "{kind}: {task_bound}");
+
+            let existing_tab = validate_worker_plan_task_spawn(&SpawnAgentParams {
+                role: Some("Worker".into()),
+                role_profile: Some(kind.into()),
+                parent_tab_id: Some("parent_tab".into()),
+                existing_tab_id: Some("existing-tab".into()),
+                execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+                ..Default::default()
+            })
+            .expect_err("taskless kinds cannot inherit a previous task binding");
+            assert!(existing_tab.contains("fresh tab"), "{kind}: {existing_tab}");
+        }
     }
 
     /// The safeguard that stays: source-changing work owns the task it changes

@@ -1,5 +1,12 @@
 import type { Tab } from "../../lib/types";
-import { ORCHESTRATOR_KIND, roleKind } from "../../lib/roleKind";
+import {
+  ORCHESTRATOR_KIND,
+  RELEASE_MANAGER_KIND,
+  TESTER_KIND,
+  WORKER_KIND,
+  roleKind,
+  roleKindLabel,
+} from "../../lib/roleKind";
 
 /** The two sibling sections inside an orchestration group. Managers are the
  *  Orchestrator's delegated leadership (Planner, Watcher);
@@ -19,7 +26,13 @@ export function sectionForRole(
 ): OrchestrationSection {
   if (role === "Manager") return "manager";
   const key = roleProfile?.trim().toLowerCase() ?? "";
-  if (key !== "" && key !== "worker" && role === "Worker") {
+  if (
+    key !== "" &&
+    key !== WORKER_KIND &&
+    key !== TESTER_KIND &&
+    key !== RELEASE_MANAGER_KIND &&
+    role === "Worker"
+  ) {
     console.debug(`[orchestrationSections] worker role_profile "${roleProfile}" ignored`);
   }
   return "worker";
@@ -34,13 +47,16 @@ export function roleBadgeLabel(
   return tab.role === "Manager" && kind ? kind.toUpperCase() : null;
 }
 
-/** Role shield on tab line 2 — leadership only: ORCHESTRATOR / PLANNER / WATCHER. */
+/** Role shield on tab line 2: leadership kinds and named Worker kinds. */
 export function roleShieldLabel(
   tab: Pick<Tab, "role" | "role_profile"> | null | undefined,
 ): string | null {
   if (!tab?.role) return null;
   const kind = roleKind(tab);
-  return tab.role === "Manager" && kind ? kind.toUpperCase() : null;
+  if (tab.role === "Manager") return kind?.toUpperCase() ?? null;
+  return kind === TESTER_KIND || kind === RELEASE_MANAGER_KIND
+    ? roleKindLabel(tab)?.toUpperCase() ?? null
+    : null;
 }
 
 /** testid suffix for a role badge — role-badge-orchestrator, role-badge-planner. */
