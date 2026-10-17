@@ -12,10 +12,11 @@ pub fn select_history_literal(messages: &[ChatMsg], budget_bytes: usize) -> Stri
 }
 
 fn history_literal(history: &str) -> String {
-    serde_json::to_string(history)
-        .expect("string serialization cannot fail")
-        .replace('<', "\\u003c")
-        .replace('>', "\\u003e")
+    inert_json(&serde_json::to_string(history).expect("string serialization cannot fail"))
+}
+
+pub fn inert_json(serialized: &str) -> String {
+    serialized.replace('<', "\\u003c").replace('>', "\\u003e")
 }
 
 pub struct HandoffFragments<'a> {
