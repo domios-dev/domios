@@ -48,11 +48,13 @@ impl ClosedTabsStore {
         let json = serde_json::to_string(record).map_err(|error| error.to_string())?;
         let summary = serde_json::to_string(&record.view()).map_err(|error| error.to_string())?;
         let state = serde_json::to_value(record.state).map_err(|error| error.to_string())?;
-        self.conn.lock().execute(
+        let conn = self.conn.lock();
+        conn.execute(
             "INSERT INTO closed_structure (id, closed_at, state, payload, summary) VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(id) DO UPDATE SET state = excluded.state, payload = excluded.payload, summary = excluded.summary",
             params![record.id, record.closed_at as i64, state.as_str(), json, summary]
         ).map_err(|error| error.to_string())?;
+        self.refresh_snapshot_views_from(&conn);
         Ok(())
     }
 
@@ -79,19 +81,26 @@ impl ClosedTabsStore {
             .map_err(|error| error.to_string())?;
         transaction.execute("DELETE FROM closed_group WHERE NOT EXISTS (SELECT 1 FROM closed_tab WHERE closed_tab.group_id = closed_group.group_id)", [])
             .map_err(|error| error.to_string())?;
-        transaction.commit().map_err(|error| error.to_string())
+        transaction.commit().map_err(|error| error.to_string())?;
+        self.refresh_snapshot_views_from(&conn);
+        Ok(())
     }
 
     pub fn discard_structure(&self, id: &str) -> Result<(), String> {
-        self.conn
-            .lock()
-            .execute("DELETE FROM closed_structure WHERE id = ?1", params![id])
+        let conn = self.conn.lock();
+        conn.execute("DELETE FROM closed_structure WHERE id = ?1", params![id])
             .map_err(|error| error.to_string())?;
+        self.refresh_snapshot_views_from(&conn);
         Ok(())
     }
 
     pub fn structure_views(&self) -> Result<Vec<ClosedStructureView>, String> {
-        let conn = self.conn.lock();
+        Ok(self.snapshot_structures())
+    }
+
+    pub(super) fn structure_views_from(
+        conn: &Connection,
+    ) -> Result<Vec<ClosedStructureView>, String> {
         let mut statement = conn.prepare("SELECT summary FROM closed_structure WHERE state <> 'captured' ORDER BY closed_at DESC, rowid DESC LIMIT 100")
             .map_err(|error| error.to_string())?;
         let rows = statement

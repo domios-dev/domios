@@ -3,6 +3,8 @@
 //! workspace restore).
 
 use std::collections::HashSet;
+use std::sync::{mpsc, Arc};
+use std::time::Duration;
 
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
@@ -10,6 +12,106 @@ use crate::multiplexer::types::{AgentRole, TabBacking, TabCloseReason};
 
 fn ws_id(state: &MultiplexerState) -> String {
     state.list_workspaces()[0].id.clone()
+}
+
+#[test]
+fn close_history_write_does_not_hold_mux_and_flushes_before_restore() {
+    let (mut state, _) = MultiplexerState::new();
+    let workspace_id = ws_id(&state);
+    let tab_id = state.create_tab(&workspace_id).unwrap();
+    let second_tab_id = state.create_tab(&workspace_id).unwrap();
+    let store = ClosedTabsStore::in_memory();
+    state.attach_closed_store(store.clone());
+    let mux = Arc::new(parking_lot::RwLock::new(state));
+    let close_mux = Arc::clone(&mux);
+    let closing_tab_id = tab_id.clone();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (second_committed_tx, second_committed_rx) = mpsc::channel();
+
+    let close = std::thread::spawn(move || {
+        let (result, batch) = {
+            let mut mux = close_mux.write();
+            let result = mux.close_tab_with_reason(&closing_tab_id, TabCloseReason::User);
+            (result, mux.take_closed_history_batch())
+        };
+        result?;
+        batch
+            .expect("durable close queues a write batch")
+            .persist_on_blocking_thread_with(move |store, write| {
+                let connection = store.conn.lock();
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                drop(connection);
+                store.insert_group(&write.group, &write.tabs)
+            });
+        Ok::<_, String>(())
+    });
+
+    entered_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("store write reached its gated boundary");
+
+    let (snapshot_tx, snapshot_rx) = mpsc::channel();
+    let snapshot_mux = Arc::clone(&mux);
+    std::thread::spawn(move || {
+        snapshot_tx
+            .send(snapshot_mux.read().snapshot().recently_closed.len())
+            .unwrap();
+    });
+    assert_eq!(
+        snapshot_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("snapshot completes while store connection is held"),
+        0
+    );
+
+    let second_mux = Arc::clone(&mux);
+    let second_closing_tab_id = second_tab_id.clone();
+    let second_close = std::thread::spawn(move || {
+        let (result, batch) = {
+            let mut mux = second_mux.write();
+            let result = mux.close_tab_with_reason(&second_closing_tab_id, TabCloseReason::User);
+            (result, mux.take_closed_history_batch())
+        };
+        result?;
+        second_committed_tx.send(()).unwrap();
+        batch.expect("second close queues a write batch").persist();
+        Ok::<_, String>(())
+    });
+    second_committed_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("second close commits while the first store write is blocked");
+
+    let (mutation_tx, mutation_rx) = mpsc::channel();
+    let mutation_mux = Arc::clone(&mux);
+    std::thread::spawn(move || {
+        mutation_mux
+            .write()
+            .create_workspace("Concurrent close".into(), None);
+        mutation_tx.send(()).unwrap();
+    });
+    mutation_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("unrelated mux write completes while store connection is held");
+
+    release_tx.send(()).unwrap();
+    close.join().unwrap().unwrap();
+    second_close.join().unwrap().unwrap();
+    let persisted = store.list_recent(10);
+    assert_eq!(persisted.len(), 2);
+    assert_eq!(persisted[0].tab.tab_id, second_tab_id);
+    assert_eq!(persisted[1].tab.tab_id, tab_id);
+    assert_eq!(mux.read().snapshot().recently_closed.len(), 2);
+
+    let restored = mux
+        .write()
+        .reopen_closed_tab(&workspace_id, Some(0))
+        .expect("completed close can be restored");
+    assert!(mux.read().get_tab(&restored).is_some());
+    assert_eq!(store.list_recent(10).len(), 1);
+    assert_eq!(store.list_recent(10)[0].tab.tab_id, tab_id);
+    assert_eq!(mux.read().snapshot().recently_closed.len(), 1);
 }
 
 #[test]
@@ -336,6 +438,7 @@ fn history_is_bounded_at_cap() {
     for _ in 0..(cap + 2) {
         let tab_id = state.create_tab(&wsid).unwrap();
         state.close_tab(&tab_id).unwrap();
+        state.take_closed_history_batch().unwrap().persist();
         closed.push(tab_id);
     }
     assert_eq!(state.closed_store.count_for_workspace(&wsid), cap);

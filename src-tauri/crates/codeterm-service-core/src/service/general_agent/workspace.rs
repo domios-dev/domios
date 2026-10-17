@@ -52,6 +52,24 @@ pub fn ensure_general_workspace(
     mux: &mut crate::multiplexer::state::MultiplexerState,
     default_chat_view: bool,
 ) -> usize {
+    let closed = ensure_general_workspace_inner(mux, default_chat_view);
+    if let Some(batch) = mux.take_closed_history_batch() {
+        batch.persist_on_blocking_thread();
+    }
+    closed
+}
+
+pub(super) fn ensure_general_workspace_without_persist(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    default_chat_view: bool,
+) -> usize {
+    ensure_general_workspace_inner(mux, default_chat_view)
+}
+
+fn ensure_general_workspace_inner(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    default_chat_view: bool,
+) -> usize {
     let general_cwd = general_dir().to_string_lossy().to_string();
 
     let protected_ws: Vec<_> = mux
