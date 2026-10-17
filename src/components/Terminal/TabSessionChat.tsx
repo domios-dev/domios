@@ -12,6 +12,7 @@ import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
 import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
+import { forkableTurnEnds } from "./messageForkModel";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
@@ -330,6 +331,11 @@ function TabSessionChatBody({
   }, [tabId, allMessages, isActive]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
+  const forkableMessages = useMemo(() => forkableTurnEnds(
+    allMessages,
+    descriptor?.agent_runtime?.threadHistory?.actions.includes("fork") === true,
+    newerMessageCount > 0,
+  ), [allMessages, descriptor, newerMessageCount]);
   const heldAuthority = readTranscriptWindow(transcriptWindowKey(tabId, agentSessionId)).transcript.authority;
   const hasHeldWindow = heldAuthority != null
     && heldAuthority.sourceSessionId === agentSessionId
@@ -936,7 +942,7 @@ function TabSessionChatBody({
               ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
               onDelete={deliverySend && canDeleteChatSend(deliverySend)
                 ? () => { void deleteTrackedChatMessage(tabId, deliverySend.id).catch((error: unknown) => showComposerError(error instanceof Error ? error.message : String(error))); } : undefined}
-              onForkFromHere={msg.toolFlowId && descriptor?.agent_runtime?.threadHistory?.actions.includes("fork")
+              onForkFromHere={msg.toolFlowId && forkableMessages.has(msg.id)
                 ? () => { void runThreadHistory("fork", msg.toolFlowId!); } : undefined}
               onRevertToHere={msg.toolFlowId && descriptor?.agent_runtime?.threadHistory?.actions.includes("revert")
                 ? () => setPendingThreadRevertTurn(msg.toolFlowId!) : undefined}
