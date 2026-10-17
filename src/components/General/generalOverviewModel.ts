@@ -1,7 +1,6 @@
 import { isUtilityShell } from "../../lib/shellCommandState";
 import type { Tab, Team, Workspace } from "../../lib/types";
-import { jobWorkspace } from "../Jobs/jobActions";
-import type { MergedJob } from "../Jobs/jobsModel";
+import { jobWorkspace, type MergedJob } from "../Jobs/jobsModel";
 import { buildInventoryModel, DEFAULT_INVENTORY_FILTERS, type InventorySnapshot } from "../MeshPanel/meshInventoryModel";
 
 export interface UtilityShellRow {
