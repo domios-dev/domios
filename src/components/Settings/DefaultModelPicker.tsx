@@ -1,14 +1,15 @@
+import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import { useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { ModelPickerPopover } from "../Terminal/StatusLineModelPicker";
 import { currentModelId } from "../Terminal/statusLinePickerModel";
 
-export function DefaultModelPicker({ providerId, value, fastMode, onChange }: {
+export function DefaultModelPicker({ providerId, value, serviceTier, onChange }: {
   providerId: string;
   value: string;
-  fastMode?: boolean;
-  onChange: (model: string, fastMode?: boolean) => void;
+  serviceTier?: ServiceTierSelection;
+  onChange: (model: string, serviceTier?: ServiceTierSelection) => void;
 }) {
   const descriptor = useAgentDescriptor(providerId);
   const [open, setOpen] = useState(false);
@@ -27,7 +28,7 @@ export function DefaultModelPicker({ providerId, value, fastMode, onChange }: {
     </button>
     {open && descriptor && <ModelPickerPopover descriptor={descriptor}
       gate={{ interactive: true, timing: "live", confirmRestart: false, note: "Used for new sessions" }}
-      triggerRef={trigger} currentModel={current} currentEffort={undefined} currentFastMode={fastMode} showReasoning={false} busy={false} failure={null}
-      onCommit={(selection) => { onChange(selection.model, selection.fastMode); close(); }} onClose={close} />}
+      triggerRef={trigger} currentModel={current} currentEffort={undefined} currentServiceTier={serviceTier} showReasoning={false} busy={false} failure={null}
+      onCommit={(selection) => { onChange(selection.model, selection.serviceTier); close(); }} onClose={close} />}
   </div>;
 }

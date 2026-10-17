@@ -43,24 +43,24 @@ it("settings use the live chat catalogue and save the selected default only on A
 
 it("Settings reads the stored Fast mode default and Apply saves it with the model", async () => {
   const provider = { id: "arbitrary", display_name: "Fixture", available_models: [{ id: "model", display_name: "Model" }],
-    agent_runtime: { fastMode: true } } as ProviderDescriptor;
+    agent_runtime: { serviceTiers: [{id:"priority",name:"Fast",description:""},{id:"ultrafast",name:"Ultrafast",description:"",unavailableReason:"Not available on your plan"}] } } as unknown as ProviderDescriptor;
   setAgentDescriptors([provider]);
-  for (const current of [true, false]) {
+  for (const current of [{id:null},{id:"priority"}]) {
     const host = document.createElement("div"); document.body.append(host);
     const root = createRoot(host);
     const saved: unknown[][] = [];
     try {
-      await act(async () => root.render(<DefaultModelPicker providerId="arbitrary" value="model" fastMode={current}
+      await act(async () => root.render(<DefaultModelPicker providerId="arbitrary" value="model" serviceTier={current}
         onChange={(...args) => saved.push(args)} />));
       await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Choose default model"]')!.click());
-      const toggle = document.body.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Fast mode"]')!;
+      const toggle = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(item => item.textContent === (current.id ? "Default" : "Fast"))!;
       expect(toggle).toBeTruthy();
-      expect(toggle.getAttribute("aria-checked")).toBe(String(current));
+      expect(toggle.disabled).toBe(false);
       await act(async () => toggle.click());
       expect(saved).toEqual([]);
       const apply = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === "Apply")!;
       await act(async () => apply.click());
-      expect(saved).toEqual([["model", !current]]);
+      expect(saved).toEqual([["model", {id:current.id ? null : "priority"}]]);
     } finally { await act(async () => root.unmount()); host.remove(); }
   }
   setAgentDescriptors([]);

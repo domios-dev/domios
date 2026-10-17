@@ -1,3 +1,4 @@
+import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import "./ChatComposer.composition.harness";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -32,7 +33,7 @@ function descriptor(model_switch: ProviderDescriptor["model_switch"]): ProviderD
   } as ProviderDescriptor;
 }
 
-async function mount(provider: ProviderDescriptor | undefined, currentFastMode?: boolean) {
+async function mount(provider: ProviderDescriptor | undefined, currentServiceTier?: ServiceTierSelection, serviceTierAvailability?: Record<string, readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -46,7 +47,8 @@ async function mount(provider: ProviderDescriptor | undefined, currentFastMode?:
       label="Vendor · deep · high"
       modelCandidates={["deep"]}
       currentEffort="high"
-      currentFastMode={currentFastMode}
+      currentServiceTier={currentServiceTier}
+      serviceTierAvailability={serviceTierAvailability}
       pendingSelection={pendingSelection}
     />
     </MultiplexerActionsContext.Provider>,
@@ -503,40 +505,52 @@ test("the protected General Agent exposes the shared model picker and switch han
 });
 
 
-test("Fast mode reads the current tier and Apply carries both toggle directions with model and effort", async () => {
-  for (const current of [true, false]) {
-    const calls = recordSwitches();
-    const provider = { ...descriptor("next_turn"), agent_runtime: { fastMode: true } };
-    const view = await mount(provider, current);
-    try {
-      await act(async () => view.trigger()!.click());
-      const toggle = document.body.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Fast mode"]')!;
-      assert.ok(toggle);
-      assert.equal(toggle.getAttribute("aria-checked"), String(current));
-      await act(async () => toggle.click());
-      assert.equal(calls.length, 0);
-      await act(async () => button("Apply").click());
-      assert.deepEqual(calls, [["tab", "deep", "high", undefined, !current]]);
-    } finally { await view.unmount(); __setTabModelApiForTest(null); }
-  }
-});
-
-test("providers without the Fast mode capability have no control", async () => {
-  const view = await mount(descriptor("next_turn"), true);
+test("speed segments apply once and a disabled tier cannot be selected", async () => {
+  const calls = recordSwitches();
+  const provider = {...descriptor("next_turn"),agent_runtime:{serviceTiers:[{id:"priority",name:"Fast",description:""},{id:"ultrafast",name:"Ultrafast",description:"",unavailableReason:"Not available on your plan"}]}};
+  const view = await mount(provider,{id:null});
   try {
     await act(async () => view.trigger()!.click());
-    assert.equal(document.body.querySelector('[role="switch"][aria-label="Fast mode"]'), null);
+    const segment = (name:string) => Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(item => item.textContent === name)!;
+    assert.ok(segment("Default"));
+    assert.equal(segment("Ultrafast").disabled,true);
+    await act(async () => segment("Fast").click());
+    await act(async () => segment("Ultrafast").click());
+    assert.equal(calls.length,0);
+    await act(async () => button("Apply").click());
+    assert.deepEqual(calls,[["tab","deep","high",undefined,{id:"priority"}]]);
+  } finally { await view.unmount(); __setTabModelApiForTest(null); }
+});
+
+test("providers without service tiers have no speed control", async () => {
+  const view = await mount(descriptor("next_turn"));
+  try {
+    await act(async () => view.trigger()!.click());
+    assert.equal(document.body.querySelector('[role="tablist"][aria-label="Speed"]'),null);
   } finally { await view.unmount(); }
 });
 
-test("model chip displays only the confirmed fast tier", async () => {
-  const provider = { ...descriptor("next_turn"), agent_runtime: { fastMode: true } };
-  for (const fast of [true, false, undefined]) {
-    const view = await mount(provider, fast);
+test("an account catalogue can enable Ultrafast for its selected model", async () => {
+  const calls = recordSwitches();
+  const provider = {...descriptor("next_turn"),agent_runtime:{serviceTiers:[{id:"ultrafast",name:"Ultrafast",description:"",unavailableReason:"unknown"}]}};
+  const view = await mount(provider,{id:null},{deep:[{id:"ultrafast",name:"Ultrafast",description:""}]});
+  try {
+    await act(async () => view.trigger()!.click());
+    const ultra = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(item => item.textContent === "Ultrafast")!;
+    assert.equal(ultra.disabled,false);
+    await act(async () => ultra.click());
+    await act(async () => button("Apply").click());
+    assert.deepEqual(calls,[["tab","deep","high",undefined,{id:"ultrafast"}]]);
+  } finally { await view.unmount(); __setTabModelApiForTest(null); }
+});
+
+test("model chip displays provider-confirmed tier names", async () => {
+  const provider = {...descriptor("next_turn"),agent_runtime:{serviceTiers:[{id:"priority",name:"Fast",description:""},{id:"ultrafast",name:"Ultrafast",description:""}]}};
+  for (const id of [null,"priority","ultrafast"]) {
+    const view = await mount(provider,{id});
     try {
-      assert.equal(view.trigger()!.textContent?.includes(" · fast"), fast === true);
-    } finally {
-      await view.unmount();
-    }
+      assert.equal(view.trigger()!.textContent?.includes(" · fast"),id === "priority");
+      assert.equal(view.trigger()!.textContent?.includes(" · ultrafast"),id === "ultrafast");
+    } finally { await view.unmount(); }
   }
 });

@@ -1,4 +1,7 @@
-import { confirmedTabFastMode, tabMetaParts } from "../../lib/tabMetaLabel";
+import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
+import { confirmedTabServiceTier, serviceTierLabel, tabServiceTierAvailability, tabMetaParts } from "../../lib/tabMetaLabel";
+import { tierAfterModelChange } from "./serviceTierPickerModel";
+import { ServiceTierPicker } from "./ServiceTierPicker";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
@@ -10,7 +13,6 @@ import { getModelCatalogueRefreshApi } from "../../lib/modelCatalogueRefresh";
 import { getTabModelApi } from "../Sidebar/tabModelApi";
 import { modelSwitchFailure } from "../../lib/modelSwitchFailure";
 import { BusySpinner } from "../shared/BusyState";
-import { LiquidToggle } from "../shared/LiquidToggle";
 import { Segmented } from "../shared/Segmented";
 import { UI_BUTTON } from "../shared/design";
 import { ProviderGlyph } from "../ProviderGlyph";
@@ -47,7 +49,8 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
       facts={{ hasSession: Boolean(tab.pty_id) || tab.backing?.kind === "chat_backend" }}
       label={label}
       modelCandidates={[statusLineModelName(tab)]}
-      currentFastMode={confirmedTabFastMode(tab, descriptor)}
+      currentServiceTier={confirmedTabServiceTier(tab, descriptor)}
+      serviceTierAvailability={tabServiceTierAvailability(tab)}
       currentEffort={effort?.actual ?? effort?.resolved ?? effort?.requested ?? undefined}
       pendingSelection={tab.pending_model_selection ?? (tab.pending_model_switch_observation ? {
         model: tab.pending_model_switch_observation.launched_model,
@@ -64,7 +67,8 @@ export function StatusLineModelPicker({
   label,
   modelCandidates,
   currentEffort,
-  currentFastMode,
+  currentServiceTier,
+  serviceTierAvailability,
   pendingSelection,
 }: {
   tabId: string;
@@ -73,7 +77,8 @@ export function StatusLineModelPicker({
   label: string;
   modelCandidates: Array<string | null | undefined>;
   currentEffort: string | undefined;
-  currentFastMode?: boolean;
+  currentServiceTier?: ServiceTierSelection;
+  serviceTierAvailability?: Record<string,readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>;
   pendingSelection?: { model: string; effort: string | null };
 }) {
   const gate = statusLineSwitchGate(descriptor, facts);
@@ -88,10 +93,10 @@ export function StatusLineModelPicker({
   const actions = useContext(MultiplexerActionsContext);
   const commitRef = useRef<(selection: PickerSelection, restart: boolean) => Promise<void>>(async () => undefined);
   useEffect(() => {
-    if (descriptor && applied && selectionReached(descriptor, applied, currentModel, currentEffort, currentFastMode)) {
+    if (descriptor && applied && selectionReached(descriptor, applied, currentModel, currentEffort, currentServiceTier)) {
       setApplied(null);
     }
-  }, [descriptor, applied, currentModel, currentEffort, currentFastMode]);
+  }, [descriptor, applied, currentModel, currentEffort, currentServiceTier]);
   const close = useCallback(() => {
     setOpen(false);
     triggerRef.current?.focus({ preventScroll: true });
@@ -109,9 +114,9 @@ export function StatusLineModelPicker({
         const result = await api.restartAndSwitchModel(tabId, selection.model, selection.effort);
         if (result?.staged) setApplied(null);
       } else {
-        const result = selection.fastMode === undefined
+        const result = selection.serviceTier === undefined
           ? await api.switchModel(tabId, selection.model, selection.effort)
-          : await api.switchModel(tabId, selection.model, selection.effort, undefined, selection.fastMode);
+          : await api.switchModel(tabId, selection.model, selection.effort, undefined, selection.serviceTier);
         if (result?.staged) setApplied(null);
       }
     } catch (error) {
@@ -131,11 +136,11 @@ export function StatusLineModelPicker({
   commitRef.current = commit;
 
   const selection = pendingSelection ? { model: pendingSelection.model, effort: pendingSelection.effort ?? undefined }
-    : applied ?? { model: currentModel ?? "Unknown model", effort: currentEffort, ...(descriptor?.agent_runtime?.fastMode ? { fastMode: currentFastMode } : {}) };
+    : applied ?? { model: currentModel ?? "Unknown model", effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}) };
   const modelName = descriptor?.available_models.find((model) => matchesModel(model, selection.model))?.display_name
     || selection.model;
   const afterTurn = Boolean(pendingSelection);
-  const displayedLabel = tabMetaParts(modelName, descriptor?.agent_runtime?.fastMode ? currentFastMode : undefined, selection.effort, afterTurn ? "after this turn" : undefined).join(" · ");
+  const displayedLabel = tabMetaParts(modelName, serviceTierLabel(descriptor, currentServiceTier), selection.effort, afterTurn ? "after this turn" : undefined).join(" · ");
   const harnessName = descriptor?.display_name ?? label.split(" · ")[0];
   const glyph = descriptor ? (
     <span aria-hidden="true" className="ct-status-identity__glyph" data-testid="status-harness-glyph" title={harnessName}>
@@ -179,7 +184,8 @@ export function StatusLineModelPicker({
           gate={gate}
           triggerRef={triggerRef}
           currentModel={selection.model}
-          currentFastMode={selection.fastMode}
+          currentServiceTier={selection.serviceTier}
+          serviceTierAvailability={serviceTierAvailability}
           currentEffort={selection.effort}
           busy={applying}
           failure={failure}
@@ -201,11 +207,11 @@ function selectionReached(
   selection: PickerSelection,
   currentModel: string | undefined,
   currentEffort: string | undefined,
-  currentFastMode: boolean | undefined,
+  currentServiceTier: ServiceTierSelection | undefined,
 ): boolean {
   const model = descriptor.available_models.find((entry) => entry.id === selection.model);
   const modelReached = model ? matchesModel(model, currentModel) : selection.model === currentModel;
-  return modelReached && selection.effort === currentEffort && selection.fastMode === currentFastMode;
+  return modelReached && selection.effort === currentEffort && selection.serviceTier?.id === currentServiceTier?.id;
 }
 
 export function ModelPickerPopover({
@@ -214,7 +220,8 @@ export function ModelPickerPopover({
   triggerRef,
   currentModel,
   currentEffort,
-  currentFastMode,
+  currentServiceTier,
+  serviceTierAvailability,
   showReasoning = true,
   busy,
   failure,
@@ -226,7 +233,8 @@ export function ModelPickerPopover({
   triggerRef: RefObject<HTMLButtonElement | null>;
   currentModel: string | undefined;
   currentEffort: string | undefined;
-  currentFastMode?: boolean;
+  currentServiceTier?: ServiceTierSelection;
+  serviceTierAvailability?: Record<string,readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>;
   showReasoning?: boolean;
   busy: boolean;
   failure: { message: string; selection: PickerSelection } | null;
@@ -239,7 +247,7 @@ export function ModelPickerPopover({
   const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(() => readPickerShowAll(descriptor.id));
   const [staged, setStaged] = useState<PickerSelection | null>(
-    failure?.selection ?? (currentModel ? pickerSelection(descriptor, currentModel, currentEffort, currentFastMode) : null),
+    failure?.selection ?? (currentModel ? pickerSelection(descriptor, currentModel, currentEffort, currentServiceTier) : null),
   );
   const [confirming, setConfirming] = useState<PickerSelection | null>(null);
   const [restartFallback, setRestartFallback] = useState(false);
@@ -250,7 +258,7 @@ export function ModelPickerPopover({
   const groups = pickerModelGroups(descriptor, staged?.model, query, showAll);
   const efforts = showReasoning ? effortChoices(descriptor, staged?.model) : [];
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
-  const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.fastMode ? { fastMode: currentFastMode } : {}) }, staged) : { action: "none" };
+  const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}) }, staged) : { action: "none" };
 
   useLayoutEffect(() => {
     const place = () => {
@@ -302,13 +310,13 @@ export function ModelPickerPopover({
 
   function commit() {
     if (busy || !staged) return;
-    const plan = planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.fastMode ? { fastMode: currentFastMode } : {}) }, staged);
+    const plan = planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}) }, staged);
     if (plan.action === "confirm") setConfirming(plan.selection);
     if (plan.action === "apply") apply(plan.selection);
   }
 
   function chooseModel(model: string) {
-    choose({ ...staged, model, effort: effortAfterModelChange(descriptor, model, staged?.effort ?? currentEffort) });
+    choose({ ...staged, model, serviceTier:tierAfterModelChange(staged?.serviceTier,serviceTierAvailability?.[model]), effort: effortAfterModelChange(descriptor, model, staged?.effort ?? currentEffort) });
   }
 
   async function refresh() {
@@ -447,18 +455,15 @@ export function ModelPickerPopover({
           />
         </div>
       )}
-      {descriptor.agent_runtime?.fastMode && staged && (
-        <div className="ct-model-picker__effort">
-          <span className="ct-model-picker__label">Fast mode</span>
-          <LiquidToggle aria-label="Fast mode" checked={staged.fastMode === true} disabled={busy}
-            onCheckedChange={(fastMode) => choose({ ...staged, fastMode })} />
-        </div>
+      {!!descriptor.agent_runtime?.serviceTiers?.length && staged && (
+        <ServiceTierPicker declared={descriptor.agent_runtime.serviceTiers} available={serviceTierAvailability?.[staged.model]}
+          selection={staged.serviceTier} busy={busy} onChange={serviceTier => choose({...staged,serviceTier})} />
       )}
       {confirming ? (
         <div className="ct-model-picker__confirm" role="group" aria-label="Confirm restart">
           <p>Switching restarts this session on {stagedLabel} and resumes it.</p>
           <div className="ct-model-picker__actions">
-            <button type="button" className={UI_BUTTON.ghost} onClick={() => { setConfirming(null); setStaged(currentModel ? pickerSelection(descriptor, currentModel, currentEffort, currentFastMode) : null); }}>
+            <button type="button" className={UI_BUTTON.ghost} onClick={() => { setConfirming(null); setStaged(currentModel ? pickerSelection(descriptor, currentModel, currentEffort, currentServiceTier) : null); }}>
               Keep current
             </button>
             <button type="button" className={UI_BUTTON.primary} disabled={busy} onClick={() => apply(confirming, restartFallback)}>

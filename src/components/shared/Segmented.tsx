@@ -12,6 +12,7 @@ export interface SegmentedOption<T extends string> {
   icon?: ReactNode;
   title?: string;
   count?: ReactNode;
+  disabled?: boolean;
 }
 
 interface SegmentedProps<T extends string> {
@@ -44,6 +45,7 @@ export function Segmented<T extends string>({
   const activeIndex = Math.max(0, options.findIndex((option) => option.value === value));
   const select = useCallback(
     (index: number) => {
+      if (options[index].disabled) return;
       if (index !== activeIndex) {
         nextKey.current += 1;
         setTravel({ key: nextKey.current, from: activeIndex, to: index });
@@ -88,6 +90,8 @@ export function Segmented<T extends string>({
           className="ct-liquid-segmented__option"
           data-value={option.value}
           aria-selected={index === activeIndex}
+          disabled={option.disabled}
+          aria-disabled={option.disabled || undefined}
           title={option.title ?? option.label}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => select(index)}

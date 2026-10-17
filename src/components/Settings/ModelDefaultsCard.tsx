@@ -45,9 +45,9 @@ export function ModelDefaultsCard({ config, onUpdate, onSwitchGeneralProvider, o
               </span>
               <span className="flex min-w-0 flex-col items-end gap-0.5 text-right">
                 {onUpdate ? <DefaultModelPicker providerId={row.provider} value={row.model}
-                  fastMode={typeof config.agents?.[row.provider]?.default_fast_mode === "boolean" ? config.agents[row.provider].default_fast_mode as boolean : undefined}
-                  onChange={(model, fastMode) => {
-                  const patch = modelDefaultPatch(config, row, model, fastMode);
+                  serviceTier={typeof config.agents?.[row.provider]?.default_service_tier === "string" ? {id: (config.agents[row.provider].default_service_tier as string) || null} : undefined}
+                  onChange={(model, serviceTier) => {
+                  const patch = modelDefaultPatch(config, row, model, serviceTier);
                   if (patch.agents) onUpdate("agents", patch.agents);
                   if (patch.memory) onUpdate("memory", patch.memory);
                 }} /> : <code className="truncate text-[11px] text-[var(--ct-fg)]">{row.model}</code>}
