@@ -48,7 +48,7 @@ Paired peers are the same user's machines on a private Tailnet, so a host-inject
 
 ### Tab titles
 
-A tab title is one word. A tab that is not task-bound may choose a stable name with `codeterm tab rename --tab "$CODETERM_TAB_ID" "Scout"`; direct `agent spawn` uses `--description` for activity text. `plan task dispatch` derives a short Worker description from the task name, with `--description` as an override. Use `codeterm tab describe` to update an existing tab. Task-bound tabs keep their executor name and record progress in the description; the General Agent home tab (`main` / `general`) keeps its title.
+A tab title is one word. A tab that is not task-bound may pick a stable name with `codeterm tab rename --tab "$CODETERM_TAB_ID" "Scout"`. Activity text is the description: `agent spawn --description`, derived from the task on dispatch (`--description` overrides), updated with `codeterm tab describe`. Task-bound tabs keep their executor name; the General Agent home tab (`main` / `general`) keeps its title.
 
 ### Editing files
 
