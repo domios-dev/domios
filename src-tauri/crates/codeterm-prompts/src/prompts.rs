@@ -206,6 +206,7 @@ pub const NOTIFY_UNSEEN_CLAUSE: &str = "A send that reports `unseen` surfaces un
 pub const CARTOGRAPHER_SUFFIX: &str = include_str!("../../../prompts/cartographer_suffix.md");
 
 pub const TESTER_ROLE_PROMPT: &str = include_str!("../../../prompts/tester.md");
+pub const RELEASE_MANAGER_ROLE_PROMPT: &str = include_str!("../../../prompts/release_manager.md");
 
 /// Compact control context placed after a Worker's task-owned identity.
 pub const WORKER_CODETERM_CONTEXT: &str =
