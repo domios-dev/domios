@@ -278,6 +278,14 @@ fn tab_stop_interrupts_a_working_runtime_and_keeps_the_tab_open() {
         )
         .await
         .unwrap();
+        session
+            .context
+            .lock()
+            .active_turns
+            .iter_mut()
+            .find(|turn| turn.thread_id == "own-thread")
+            .unwrap()
+            .turn_id = "stale-stop-target".into();
         assert!(matches!(
             fixture.service.stop_decision(&id),
             crate::service::tab_stop::StopDecision::Interrupt { .. }

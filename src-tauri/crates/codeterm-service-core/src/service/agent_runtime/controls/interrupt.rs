@@ -4,7 +4,9 @@ use super::super::{
 };
 use crate::service::MuxEmitCause;
 use crate::service::ServiceContext;
-use codeterm_plugin::agent_runtime::{RuntimeContext, RuntimeOperation, RuntimeResult};
+use codeterm_plugin::agent_runtime::{
+    RuntimeActiveTurn, RuntimeContext, RuntimeOperation, RuntimeResult,
+};
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -19,7 +21,7 @@ struct InterruptTarget {
     epoch: u64,
     nonce: String,
     thread: String,
-    turns: Vec<(String, String)>,
+    turns: Vec<RuntimeActiveTurn>,
 }
 
 impl InterruptTarget {
@@ -43,14 +45,26 @@ impl InterruptTarget {
         let mut turns = context
             .active_turns
             .iter()
-            .filter(|turn| threads.contains(&turn.thread_id))
-            .map(|turn| (turn.thread_id.clone(), turn.turn_id.clone()))
+            .filter(|turn| threads.contains(&turn.thread_id) && turn.thread_id != thread)
+            .cloned()
             .collect::<Vec<_>>();
-        if let Some(turn) = &context.active_turn_id {
-            let root = (thread.clone(), turn.clone());
-            if !turns.contains(&root) {
-                turns.push(root);
-            }
+        let root = context
+            .active_turn_id
+            .as_ref()
+            .map(|turn_id| RuntimeActiveTurn {
+                thread_id: thread.clone(),
+                turn_id: turn_id.clone(),
+                parent_thread_id: None,
+            })
+            .or_else(|| {
+                context
+                    .active_turns
+                    .iter()
+                    .find(|turn| turn.thread_id == thread)
+                    .cloned()
+            });
+        if let Some(root) = root {
+            turns.push(root);
         }
         Ok(Self {
             epoch: context.epoch,
@@ -81,7 +95,7 @@ impl InterruptTarget {
         if self
             .turns
             .iter()
-            .all(|(thread, turn)| completed(thread, turn))
+            .all(|turn| completed(&turn.thread_id, &turn.turn_id))
         {
             CompletionState::Complete
         } else {
@@ -100,6 +114,18 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
         engine::validate_binding(svc, &session)?;
         let context = session.context.lock().clone();
         let target = InterruptTarget::capture(&context)?;
+        {
+            let mut current = session.context.lock();
+            if current.epoch != context.epoch
+                || current.binding_nonce != context.binding_nonce
+                || current.thread_id != context.thread_id
+                || current.active_turn_id != context.active_turn_id
+                || current.active_turns != context.active_turns
+            {
+                return Err(RuntimeFailure::Superseded);
+            }
+            current.active_turns = target.turns.clone();
+        }
         let mut changes = session.control_changes.subscribe();
         let process = session
             .process
