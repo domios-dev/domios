@@ -163,9 +163,9 @@ fn config_from_build(vendor: crate::build_config::Vendor) -> Config {
     .all(|value| present(value).is_some());
     Config {
         provider: if available { "firebase" } else { "local" }.into(),
-        signin_url: present(vendor.project_id)
-            .map(|project| format!("https://{project}.web.app/signin/"))
-            .unwrap_or_default(),
+        signin_url: present(vendor.signin_url)
+            .unwrap_or(crate::build_config::DEFAULT_SIGNIN_URL)
+            .into(),
         redeem_url: present(vendor.redeem_url).unwrap_or_default().into(),
         api_key: present(vendor.api_key).unwrap_or_default().into(),
         login_timeout_secs: 180,
