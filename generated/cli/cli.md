@@ -95,6 +95,17 @@ Toggle whether a tab can spawn children
 - `--enable` — Enable or disable spawning
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
+#### `codeterm agent child-history`
+
+Read one recorded child's transcript under the exact parent binding
+
+- `--binding-nonce` — Current parent binding nonce
+- `--cursor` — Opaque continuation cursor from the prior response
+- `--epoch` — Current parent runtime epoch
+- `--root-thread-id` — Current parent thread id from its runtime binding
+- `--tab` — Parent agent tab id
+- `--thread` — Recorded child thread id
+
 #### `codeterm agent cli`
 
 Inspect or manage a provider's CLI using its manifest commands
@@ -290,6 +301,23 @@ Read completed turns from a tool-less agent's exact bound session
 Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
+#### `codeterm agent usage`
+
+Read usage or consume a confirmed reset credit for an exact tab
+
+#### `codeterm agent usage read`
+
+Read this exact tab's provider usage snapshot
+
+- `--tab`
+
+#### `codeterm agent usage reset`
+
+Consume one available reset credit on this exact tab's account
+
+- `--confirm` — Confirm spending one reset credit
+- `--tab`
 
 #### `codeterm analytics`
 

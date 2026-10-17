@@ -159,6 +159,74 @@
           "subcommands": []
         },
         {
+          "name": "child-history",
+          "about": "Read one recorded child's transcript under the exact parent binding",
+          "aliases": [],
+          "args": [
+            {
+              "name": "binding-nonce",
+              "positional": false,
+              "required": true,
+              "value_name": "BINDING_NONCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Current parent binding nonce",
+              "aliases": []
+            },
+            {
+              "name": "cursor",
+              "positional": false,
+              "required": false,
+              "value_name": "CURSOR",
+              "possible_values": [],
+              "default": null,
+              "help": "Opaque continuation cursor from the prior response",
+              "aliases": []
+            },
+            {
+              "name": "epoch",
+              "positional": false,
+              "required": true,
+              "value_name": "EPOCH",
+              "possible_values": [],
+              "default": null,
+              "help": "Current parent runtime epoch",
+              "aliases": []
+            },
+            {
+              "name": "root-thread-id",
+              "positional": false,
+              "required": true,
+              "value_name": "ROOT_THREAD_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Current parent thread id from its runtime binding",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Parent agent tab id",
+              "aliases": []
+            },
+            {
+              "name": "thread",
+              "positional": false,
+              "required": true,
+              "value_name": "THREAD",
+              "possible_values": [],
+              "default": null,
+              "help": "Recorded child thread id",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "cli",
           "about": "Inspect or manage a provider's CLI using its manifest commands",
           "aliases": [],
@@ -1238,6 +1306,60 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "usage",
+          "about": "Read usage or consume a confirmed reset credit for an exact tab",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "read",
+              "about": "Read this exact tab's provider usage snapshot",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "TAB",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "reset",
+              "about": "Consume one available reset credit on this exact tab's account",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "confirm",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "CONFIRM",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Confirm spending one reset credit",
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "TAB",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
         }
       ]
     },

@@ -1,5 +1,3 @@
-Self-switch: `codeterm agent switch-provider PROVIDER --tab TAB`; the daemon carries your task and completes after retiring your process.
-
 Utility shells: `codeterm tab new --team <team-id> --purpose build|qa|dev`; build/QA require `--timeout 10m`, servers do not. Stay within your assignment.
 
 - You are a leaf: propose child tasks in a `partial` report with evidence and remaining slices; never spawn sub-Workers. Use `blocked` only for an unresolved external dependency needing an owner decision.
