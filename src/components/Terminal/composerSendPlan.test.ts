@@ -32,3 +32,7 @@ test("failed chips do not delay the send, mixed chips wait only for pending uplo
   assert.deepEqual(composerSendPlan(capsuleToken("pending") + capsuleToken("failed"), registry, states),
     { clearComposer: true, uploadIds: [1, 2], waitForUploadIds: [1], dropUploadIds: [2] });
 });
+test("a pending HEIC conversion resolves as an image when sent before upload completion", () => {
+  const result = resolveComposerSend(capsuleToken("pending"), { pending: { label: "pending", kind: "file", path: "", uploadId: 1 } }, new Map([[1, "/screen.jpg"]]));
+  assert.deepEqual(result.capsules.pending, { label: "pending", kind: "image", path: "/screen.jpg" });
+});

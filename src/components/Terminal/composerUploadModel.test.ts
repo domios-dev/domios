@@ -116,7 +116,7 @@ test("unsupported HEIC retains the draft and a failed chip without storing or pe
   await h.controller.add(new Blob(["pixels"], { type: "image/heic" }), "photo.heic");
   assert.equal(stores, 0);
   assert.equal(h.uploads()[0].state, "failed");
-  assert.match(h.uploads()[0].failure!.message, /Unsupported image format/);
+  assert.equal(h.uploads()[0].failure!.retryable, false);
   assert.equal(draftHasPendingUploads(h.draft(), h.registry()), true);
   assert.equal(capsuleSpans(h.draft()).length, 1);
   assert(h.draft().includes("left"));

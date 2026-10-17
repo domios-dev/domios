@@ -43,6 +43,7 @@ export function useKeyboardInset(): KeyboardState {
       style.setProperty("--ct-visual-height", `${state.visualHeight}px`);
       style.setProperty("--ct-visual-top", `${state.offsetTop}px`);
       style.setProperty("--ct-visual-bottom", `${Math.max(0, window.innerHeight - state.visualHeight - state.offsetTop)}px`);
+      style.setProperty("--ct-keyboard-composer-gap", state.keyboardOpen ? "0px" : "");
       style.setProperty("--ct-keyboard-safe-bottom", state.keyboardOpen ? "0px" : "var(--ct-safe-bottom, 0px)");
       // iOS scrolls the page when the keyboard opens — pin it so fixed chrome (sidebar burger) stays on-screen.
       if (vv.offsetTop > 0) window.scrollTo(0, 0);
