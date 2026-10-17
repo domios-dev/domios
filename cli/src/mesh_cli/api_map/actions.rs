@@ -744,6 +744,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             task,
             task_file,
             role,
+            kind,
             parent,
             plan,
             report_to,
@@ -823,6 +824,9 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                     body["role_profile"] = serde_json::json!(profile);
                 }
             }
+            if let Some(kind) = kind {
+                body["role_profile"] = serde_json::json!(kind);
+            }
             if let Some(p) = parent {
                 body["parent_tab_id"] = serde_json::json!(p);
             }
@@ -892,6 +896,9 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             if let Some(pt) = plan_task {
                 body["plan_task"] = serde_json::json!(pt);
             }
+            let execution_intent = execution_intent.as_deref().or_else(|| {
+                kind.as_ref().map(|_| "read_only")
+            });
             if let Some(intent) = execution_intent {
                 body["execution_intent"] = serde_json::json!(intent);
                 body["provider_reserve_pct"] = serde_json::json!(provider_reserve_pct);

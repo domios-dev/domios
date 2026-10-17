@@ -20,6 +20,42 @@ fn staged_model_selection_is_visible_but_never_restores_execution() {
     assert!(restored.pending_model_selection.is_none());
 }
 
+#[test]
+fn taskless_gate_grants_are_visible_to_authorization_but_not_wire_deserializable() {
+    let mut tab = tab_with("taskless-worker", TabBacking::Pty);
+    tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+    tab.role_profile = Some("tester".into());
+    tab.parent_tab_id = Some("parent-tab".into());
+    tab.taskless_authorized_gates = vec!["./build.sh verify".into()];
+
+    let record = serde_json::to_value(&tab).unwrap();
+    assert_eq!(record["role"], "Worker");
+    assert_eq!(record["role_profile"], "tester");
+    assert_eq!(record["parent_tab_id"], "parent-tab");
+    assert_eq!(record["taskless_authorized_gates"][0], "./build.sh verify");
+
+    let restored: Tab = serde_json::from_value(record).unwrap();
+    assert!(restored.taskless_authorized_gates.is_empty());
+}
+
+#[test]
+fn taskless_review_grants_are_daemon_records_and_expire_on_restore() {
+    let mut tab = tab_with("taskless-reviewer", TabBacking::Pty);
+    tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+    tab.role_profile = Some("tester".into());
+    tab.parent_tab_id = Some("parent-tab".into());
+    tab.taskless_authorized_review_tasks = vec!["plan-a/task-a".into()];
+
+    let record = serde_json::to_value(&tab).unwrap();
+    assert_eq!(
+        record["taskless_authorized_review_tasks"][0],
+        "plan-a/task-a"
+    );
+
+    let restored: Tab = serde_json::from_value(record).unwrap();
+    assert!(restored.taskless_authorized_review_tasks.is_empty());
+}
+
 fn tab_with(id: &str, backing: TabBacking) -> Tab {
     Tab {
         id: id.to_string(),
@@ -72,6 +108,8 @@ fn tab_with(id: &str, backing: TabBacking) -> Tab {
         lifecycle_epoch: None,
         lifecycle_operation_id: None,
         task_binding: None,
+        taskless_authorized_gates: Vec::new(),
+        taskless_authorized_review_tasks: Vec::new(),
         roleless_tracked: false,
         managed: None,
         role: None,
