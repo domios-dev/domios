@@ -583,7 +583,7 @@ jobs:
       - name: Build the release frontend from the stable build path
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['frontend-windows-build'] }}
       - name: Store frontend warning collection
-        if: always()
+        if: ${{ always() && hashFiles('ci-rust-warnings/rust-warnings-win32-frontend.json') != '' }}
         continue-on-error: ${{ inputs.artifacts_optional }}
         run: bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-warnings/rust-warnings-win32-frontend.json" ci-rust-warnings/rust-warnings-win32-frontend.json
       - *cancel-run-on-failure
