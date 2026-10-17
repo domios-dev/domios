@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, test, vi } from "vitest";
-import { ComposerCapsuleField } from "./ComposerCapsuleField";
+import { ComposerUploadNotices } from "./ComposerUploadNotices";
 import type { ComposerUpload } from "./composerUploadModel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -15,9 +15,7 @@ test("a failed upload's Remove control is reachable without hover and fires once
   const registry = { video1: { label: "video1", kind: "video" as const, path: "", uploadId: 1 } };
   try {
     await act(async () => root.render(
-      <ComposerCapsuleField tabId="t" value={"\u2068\u2007\u2007\u00a0video1\u00a0\u2069"} registry={registry} active textareaRef={{ current: null }} marginPx={0} onRemove={onRemove} uploads={[upload]}>
-        <textarea />
-      </ComposerCapsuleField>,
+      <ComposerUploadNotices value={"\u2068\u2007\u2007\u00a0video1\u00a0\u2069"} registry={registry} onRemove={onRemove} uploads={[upload]} />,
     ));
     expect(host.querySelector('[role="dialog"]')).toBeNull();
     const remove = host.querySelector<HTMLButtonElement>('[aria-label="Remove attachment bad.mp4"]');
