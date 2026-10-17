@@ -123,7 +123,7 @@ async function run() {
     );
   });
 
-  const cards = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-tool-call"]'));
+  const cards = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-tool-call"], [data-testid="chat-sent-to-card"]'));
   const send = cards.find((card) => card.textContent?.includes("Sent to"));
   const list = cards.find((card) => card.textContent?.includes("tab list"));
   const read = cards.find((card) => card.textContent?.includes("Read") && card.textContent.includes("coordination.ts"));
@@ -192,7 +192,7 @@ async function run() {
   assert(editDetails?.style.maxHeight === "600px" && editDetails.style.overflowY === "hidden", "expanded code output should use the 600px preview cap");
   const rawDisclosures = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="raw-command-disclosure"]'));
   assert(rawDisclosures.length === 2, `raw command disclosures render only inside expanded tool cards: expected 2, got ${rawDisclosures.length}`);
-  assert(rawDisclosures.every((view) => view.closest('[data-testid="chat-tool-call"]')), "raw command disclosures live inside tool cards");
+  assert(rawDisclosures.every((view) => view.closest('[data-testid="chat-tool-call"], [data-testid="chat-sent-to-card"]')), "raw command disclosures live inside tool cards");
   assert(rawDisclosures.every((view) => !view.textContent?.includes("User formatted") && !view.textContent?.includes("Assistant formatted")), "ordinary messages have no raw command disclosure");
   const commandDisclosure = completedCommandCard?.querySelector<HTMLButtonElement>('[aria-label="Show full command"]');
   await act(async () => commandDisclosure?.click());
