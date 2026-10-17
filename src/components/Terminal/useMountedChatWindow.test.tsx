@@ -1,11 +1,11 @@
-import { act, useMemo, useRef } from "react";
+import { act, useLayoutEffect, useMemo, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatWindowView } from "./useChatWindowView";
 import { clearTranscriptWindows, commitTranscriptBatch, useTranscriptWindow } from "./transcriptStore";
 import { useMountedChatWindow } from "./useMountedChatWindow";
 import { useChatScroll, type UseChatScrollResult } from "./useChatScroll";
-import { clearPersistedChatScrollState } from "./chatViewport";
+import { clearPersistedChatScrollState, setPersistedChatScrollState } from "./chatViewport";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const SESSION = "window-wiring";
@@ -23,6 +23,8 @@ let viewportHeight = VIEWPORT;
 let loading = false;
 let renders = 0;
 let frames: Map<number, FrameRequestCallback>;
+let firstRange: { start: number; end: number } | null;
+let firstPaint: { top: number; maximum: number } | null;
 
 function extent(element: HTMLElement): number {
   if (element.dataset.height) return Number(element.dataset.height);
@@ -45,10 +47,15 @@ function Harness({ active }: { active: boolean }) {
   renders += 1;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   mountApi = useMountedChatWindow({ rows, scrollRef, active, followTailRef: followTail, sessionKey: SESSION });
+  firstRange ??= { start: mountApi.range.start, end: mountApi.range.end };
   const contentVersion = useMemo(() => ({ rows, range: mountApi.range, revision: mountApi.revision }),
     [rows, mountApi.range.start, mountApi.range.end, mountApi.revision]);
   scrollApi = useChatScroll({ scrollRef, sessionKey: SESSION, active, loading,
     onViewportChange: mountApi.syncViewport, messageCount: rows.length, contentVersion, prependVersion: rows[0]?.msg.id, followTailRef: followTail });
+  useLayoutEffect(() => {
+    const el = scrollRef.current!;
+    firstPaint ??= { top: el.scrollTop, maximum: el.scrollHeight - el.clientHeight };
+  });
   return <div data-testid="scroller" ref={(element) => {
     scrollRef.current = element;
     if (!element || Object.prototype.hasOwnProperty.call(element, "scrollHeight")) return;
@@ -93,6 +100,8 @@ async function move(top: number) {
 }
 
 beforeEach(() => {
+  firstRange = null;
+  firstPaint = null;
   rows = Array.from({ length: 220 }, (_, index) => ({ msg: { id: `m${index}`, sourceMessageId: `s${index}` }, height: 100 }));
   prefixHeight = 0;
   bottomInset = 0;
@@ -116,6 +125,34 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); clearPersistedChatScrollState(SESSION); });
 
 describe("mounted chat wiring", () => {
+  it("starts a restored chat at the newest row while the transcript refresh is pending", async () => {
+    loading = true;
+    await render();
+    expect(firstRange!.end).toBe(rows.length);
+    expect(firstRange!.start).toBeGreaterThan(0);
+    expect(firstPaint!.maximum).toBeGreaterThan(0);
+    expect(firstPaint!.top).toBe(firstPaint!.maximum);
+  });
+  it("mounts the newest row on the first render and reaches the end before paint", async () => {
+    followTail.current = false;
+    setPersistedChatScrollState(SESSION, { mode: "detached", scrollTop: 3000 });
+    await render();
+    expect(firstRange!.end).toBe(rows.length);
+    expect(firstRange!.start).toBeGreaterThan(0);
+    expect(firstPaint!.maximum).toBeGreaterThan(0);
+    expect(firstPaint!.top).toBe(firstPaint!.maximum);
+    expect(followTail.current).toBe(true);
+  });
+  it("mounts a saved reading anchor on the first render and preserves it before paint", async () => {
+    setPersistedChatScrollState(SESSION, { mode: "detached", scrollTop: 6000,
+      anchor: { key: "s60", ordinal: 0, offset: 0 } });
+    await render();
+    expect(firstRange!.start).toBeLessThanOrEqual(60);
+    expect(firstRange!.end).toBeGreaterThan(60);
+    expect(firstPaint!.top).toBeLessThan(firstPaint!.maximum);
+    expect(followTail.current).toBe(false);
+    expect(host.querySelector('[data-source-message-id="s60"]')!.getBoundingClientRect().top).toBe(0);
+  });
   it("pins retained rows immediately when reactivated during a refresh", async () => {
     await render();
     await render(false);

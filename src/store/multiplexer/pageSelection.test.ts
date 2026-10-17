@@ -1,10 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { acceptsPageFocus, reconcilePageSelection } from "./pageSelection";
+import { acceptsPageFocus, initialPageSelection, initialRouteReady, reconcilePageSelection } from "./pageSelection";
 import { mountedChatWindow } from "../../components/Terminal/chatMountedWindow";
 
 const previous = { active_workspace_id: "qa", focused_tab_id: "chat", activeTabIds: { qa: "chat", other: "worker" } };
 const incoming = { active_workspace_id: "other", focused_tab_id: "audit", activeTabIds: { qa: "audit", other: "shell" } };
 const workspaces = [{ id: "qa", tabs: ["chat", "audit"] }, { id: "other", tabs: ["worker", "shell"] }];
+
+describe("initial page route", () => {
+  const snapshot = { active_workspace_id: "qa", focused_tab_id: "shell",
+    workspaces: [{ ...workspaces[0], active_tab_id: "chat" }, { ...workspaces[1], active_tab_id: "shell" }],
+    tabs: { chat: {}, audit: {}, worker: {}, shell: {} } };
+  it("restores workspace and chat together before reconciliation", () => {
+    expect(initialPageSelection(snapshot)).toEqual({ active_workspace_id: "qa", focused_tab_id: "chat",
+      activeTabIds: { qa: "chat", other: "shell" } });
+  });
+  it("falls back to surviving tabs and workspaces", () => {
+    expect(initialPageSelection({ ...snapshot, active_workspace_id: "removed", tabs: { audit: {} } }))
+      .toEqual({ active_workspace_id: "qa", focused_tab_id: "audit", activeTabIds: { qa: "audit" } });
+  });
+  it("allows an empty workspace only after a snapshot exists", () => {
+    expect(initialRouteReady(0)).toBe(false);
+    expect(initialRouteReady(0.5)).toBe(true);
+    expect(initialRouteReady(1)).toBe(true);
+    expect(initialPageSelection({ active_workspace_id: null, workspaces: [], tabs: {} }))
+      .toEqual({ active_workspace_id: null, focused_tab_id: null, activeTabIds: {} });
+  });
+});
 
 describe("page selection during daemon updates", () => {
   it("keeps a confirmed live chat active when another client selects Audit", () => {

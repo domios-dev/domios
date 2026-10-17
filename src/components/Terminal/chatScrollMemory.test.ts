@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ChatScrollMemory, chatScrollBookmark, chatScrollRestoreTarget } from "./chatScrollMemory";
+import { ChatScrollMemory, chatScrollBookmark, chatScrollRestoreTarget, initialChatScrollAnchor } from "./chatScrollMemory";
 import { resolveChatAnchorTop } from "./chatAnchorModel";
 
 const memory = new ChatScrollMemory(3);
@@ -8,6 +8,12 @@ memory.save("tab-a:session", { mode: "detached", scrollTop: 963, anchor });
 memory.save("tab-b:session", { mode: "pinned", scrollTop: 1000 });
 anchor.offset = 99;
 const bookmark = chatScrollBookmark(memory.read("tab-a:session"));
+assert.deepEqual(initialChatScrollAnchor(null), { pinned: true, top: 0, anchor: null });
+assert.deepEqual(initialChatScrollAnchor(memory.read("tab-b:session")), { pinned: true, top: 0, anchor: null });
+assert.deepEqual(initialChatScrollAnchor(memory.read("tab-a:session")), {
+  pinned: false, top: 963, anchor: { key: "source", ordinal: 1, offset: 37 },
+});
+assert.deepEqual(initialChatScrollAnchor({ mode: "detached", scrollTop: 600 }), { pinned: true, top: 0, anchor: null });
 assert.deepEqual(bookmark, { mode: "detached", anchor: { key: "source", ordinal: 1, offset: 37 } });
 assert.deepEqual(chatScrollRestoreTarget(chatScrollBookmark(memory.read("tab-b:session")), null, 2000), { mode: "pinned", top: 2000 });
 assert.equal(bookmark.mode, "detached");
