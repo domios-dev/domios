@@ -36,7 +36,7 @@ export const TAB_MENU_LABELS = {
   makePlanner: "Make Planner",
   replaceOrchestrator: "Replace Orchestrator",
   replaceOrchestratorHint: "Starts a new Team owner without resuming this session.",
-  providerHint: "Restarts the session — the new provider starts fresh.",
+  providerHint: "Continues through a handoff on the target provider. Full history is not transferred.",
   plugins: "Plugins",
   closeSession: "Close Session",
   closeTab: "Close Tab",
@@ -184,8 +184,6 @@ function providerSubmenu({ tab, descriptors, status }: TabMenuInput): TabMenuSub
     testId: "tab-menu-provider",
     label: tabProviderEntryLabel(view),
     icon: "provider",
-    disabled: Boolean(view.blockedReason),
-    title: view.blockedReason ?? undefined,
     description: TAB_MENU_LABELS.providerHint,
     entries: view.providers.map((provider): TabMenuItemEntry => ({
       kind: "item",
@@ -358,8 +356,7 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
       action: { type: "makePlanner", planId: activity.planId },
     });
   }
-  // Other tabs switch the model inside the chat picker, and a provider cannot continue another provider's history.
-  const agentSubmenus = isGeneralAgent(tab) ? [modelSubmenu(input), providerSubmenu(input)] : [];
+  const agentSubmenus = [...(isGeneralAgent(tab) ? [modelSubmenu(input)] : []), providerSubmenu(input)];
   for (const submenu of [...agentSubmenus, recoverySubmenu(input)]) {
     if (submenu) entries.push(submenu);
   }

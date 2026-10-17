@@ -104,6 +104,7 @@ const simple = [
   ["restart_general_agent", "POST", "/api/agents/general/restart"],
   ["spawn_general_agent_session", "POST", "/api/agents/general/sessions"],
   ["restart_agent_tab", "POST", "/api/tabs/tab/agent/restart"],
+  ["read_provider_history", "GET", "/api/tabs/tab/agent/provider-history?file="],
   ["switch_agent_provider", "POST", "/api/tabs/tab/agent/switch-provider"],
   ["refresh_provider_capabilities", "POST", "/api/tabs/tab/agent/capabilities/refresh"],
   ["fork_agent_tab", "POST", "/api/tabs/tab/agent/fork"],

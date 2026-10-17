@@ -12,6 +12,7 @@ import { getAgentDescriptor, listAgentDescriptors } from "../../lib/agentDescrip
 import { TabMenu } from "../Terminal/TabMenu";
 import { buildTabMenu, type TabMenuAction } from "../Terminal/tabMenuModel";
 import { performTabMenuAction } from "../Terminal/tabMenuActions";
+import { useProviderSwitchDialog } from "./ProviderSwitchDialog";
 import { useTelegramThreadMenu } from "../Terminal/useTelegramThreadMenu";
 import { ActivityDots } from "../shared/ActivityDots";
 import { RowMenuButton } from "../shared/RowMenuButton";
@@ -315,6 +316,7 @@ function TabItemInner({
     }
   }, [isClosing, closePhase]);
 
+  const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(tab);
   const pluginTabMenu = usePluginTabMenu();
   const telegramThread = useTelegramThreadMenu(tab.id, !tab.remote_peer_id);
   const menuEntries = useMemo(() => buildTabMenu({
@@ -334,6 +336,7 @@ function TabItemInner({
   const runMenuAction = (action: TabMenuAction) => {
     performTabMenuAction(tab.id, action, {
       sessionBindingNonce: tab.session_binding_nonce,
+      switchProvider: openProviderSwitch,
       rename: () => { setEditName(canonicalTitle); setEditing(true); },
       close: onClose,
     }).catch((error) => console.warn("Tab action failed:", error));
@@ -532,6 +535,7 @@ function TabItemInner({
         {touchMode && tabMenu}
       </div>
       {!touchMode && tabMenu}
+      {providerSwitchDialog}
     </div>
   );
 }

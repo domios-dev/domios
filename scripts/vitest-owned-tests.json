@@ -235,5 +235,6 @@
   "src/components/StaleBuildBanner.test.tsx",
   "src/components/Settings/DefaultModelPicker.test.tsx",
   "src/components/Settings/GeneralAgentProviderChoice.test.tsx",
-  "src/components/Terminal/ProviderUpdateBubble.test.tsx"
+  "src/components/Terminal/ProviderUpdateBubble.test.tsx",
+  "src/components/Sidebar/ProviderSwitchDialog.test.tsx"
 ]

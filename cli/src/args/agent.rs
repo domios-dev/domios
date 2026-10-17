@@ -263,6 +263,12 @@ pub enum AgentAction {
         #[arg(long)]
         force: bool,
     },
+    /// Read a daemon-owned provider switch operation, including self-switch results.
+    SwitchProviderStatus {
+        operation: String,
+        #[arg(long)]
+        tab: Option<String>,
+    },
     /// List available agent providers (claude, codex, ...) with their
     /// display names, default models, and capability flags.
     Providers,

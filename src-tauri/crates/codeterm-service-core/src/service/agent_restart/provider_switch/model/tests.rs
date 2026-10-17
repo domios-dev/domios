@@ -55,6 +55,10 @@ fn backing_transition_preserves_tab_and_task_identity_in_both_directions() {
     tab.team_id = Some("team".into());
     tab.parent_tab_id = Some("parent".into());
     tab.cwd = Some("lane".into());
+    tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+    tab.role_profile = Some("opaque-profile".into());
+    tab.worker_id = Some("worker-token".into());
+    tab.report_target_tab_id = Some("report-target".into());
     tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
         plan_id: Some("plan".into()),
         task_id: Some("task".into()),

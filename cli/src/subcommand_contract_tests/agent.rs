@@ -35,6 +35,22 @@ fn provider_switch_parses_target_selection_and_requires_a_provider() {
 }
 
 #[test]
+fn provider_switch_status_reads_a_specific_daemon_operation() {
+    let parsed = AgentOnly::try_parse_from([
+        "codeterm",
+        "switch-provider-status",
+        "operation-token",
+        "--tab",
+        "main",
+    ])
+    .unwrap();
+    assert!(
+        matches!(parsed.action, AgentAction::SwitchProviderStatus { operation, tab: Some(tab) } if operation == "operation-token" && tab == "main")
+    );
+    assert!(AgentOnly::try_parse_from(["codeterm", "switch-provider-status"]).is_err());
+}
+
+#[test]
 fn fresh_restart_parses_and_rejects_provider_handoff() {
     let parsed = AgentOnly::try_parse_from([
         "codeterm", "restart", "--tab", "tab-id", "--fresh", "--force",
