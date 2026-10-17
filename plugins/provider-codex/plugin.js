@@ -1602,8 +1602,11 @@ function projectHistoryItem(raw, seq, turn, timestamp, parent) {
   const source = object(raw);
   const rows = source.historyTruncated === true ? [{ id: String(source.id), seq, type: "system", content: "[content truncated: history item exceeds display budget]" }] : boundHistoryRows(runtimeItems(historyItem(raw), seq));
   for (const row2 of rows) {
-    if (parent && source.senderThreadId === parent && source.type === "collabAgentToolCall" && source.tool === "spawnAgent" && row2.toolKind === "agent") {
-      row2.toolInput = json({ ...object(row2.toolInput), agent_parent_thread_id: parent });
+    const spawn = source.type === "collabAgentToolCall" && source.tool === "spawnAgent" && source.senderThreadId === parent;
+    const started = source.type === "subAgentActivity" && source.kind === "started" && (source.senderThreadId == null || source.senderThreadId === parent);
+    if (parent && (spawn || started) && row2.toolKind === "agent") {
+      const input = object(row2.toolInput);
+      row2.toolInput = json({ ...input, agent_parent_thread_id: parent, agent_ordinal: input.agent_ordinal ?? 1 });
     }
     row2.toolFlowId = turn;
     if (typeof timestamp === "number" && Number.isFinite(timestamp)) row2.timestamp = new Date(timestamp).toISOString();
