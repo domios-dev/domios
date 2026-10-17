@@ -2589,6 +2589,8 @@ function runtimeReduce(ctx, raw, frames) {
       case "thread/status/changed": {
         const status = threadStatus(params.status);
         if (!status) break;
+        if (status.state === "working" && !state.activeTurnId) break;
+        if (status.state === "idle" && state.activeTurnId && !pendingStatus(state, threadId)) break;
         if (status.state === "idle") delete state.compacting;
         events.push(status.state !== "needs_input" && pendingStatus(state, threadId) || { kind: "turnState", threadId, ...withDetail(status, !!state.compacting), ...state.activeTurnId && status.state !== "idle" ? { turnId: state.activeTurnId } : {} });
         break;
@@ -2669,7 +2671,7 @@ function runtimeReduce(ctx, raw, frames) {
           continue;
         }
         const compactionId = rawItem.type === "contextCompaction" ? text(rawItem.id) : void 0;
-        if (compactionId && frame.method === "item/started") {
+        if (compactionId && frame.method === "item/started" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) {
           if (state.compacting === compactionId || state.compacted.includes(compactionId)) continue;
           state.compacting = compactionId;
           events.push({ kind: "turnState", threadId, state: "working", detail: "compacting", ...turnId ? { turnId } : {} });
@@ -2703,7 +2705,7 @@ function runtimeReduce(ctx, raw, frames) {
         } else row2 = mapItem(state, frame.method, params);
         if (row2) {
           events.push({ kind: "chatItem", threadId, item: row2 });
-          if (row2.type === "tool_call") events.push({ kind: "turnState", threadId, ...state.activeTurnId ? { turnId: state.activeTurnId } : {}, state: "working", ...{ statusLine: runningCallStatus(state) ?? "" } });
+          if (row2.type === "tool_call" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) events.push({ kind: "turnState", threadId, ...state.activeTurnId ? { turnId: state.activeTurnId } : {}, state: "working", ...{ statusLine: runningCallStatus(state) ?? "" } });
         }
         if (frame.method === "item/started" || frame.method === "item/completed") {
           const evidence = sendEvidence(ctx, object(params.item), turnId);
@@ -2726,7 +2728,7 @@ function runtimeReduce(ctx, raw, frames) {
 }
 function pendingStatus(state, threadId) {
   const statusLine = runningCallStatus(state);
-  return statusLine ? { kind: "turnState", threadId, turnId: state.activeTurnId, state: "working", ...{ statusLine } } : void 0;
+  return statusLine && state.activeTurnId ? { kind: "turnState", threadId, turnId: state.activeTurnId, state: "working", ...{ statusLine } } : void 0;
 }
 
 // plugins/provider-codex/src/runtime.ts
