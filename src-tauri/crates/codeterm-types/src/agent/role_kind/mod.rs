@@ -185,8 +185,11 @@ impl RoleKindDescriptor {
 
     const fn taskless_worker(id: &'static str, label: &'static str) -> Self {
         Self {
+            id: Cow::Borrowed(id),
+            label: Cow::Borrowed(label),
+            capability: RoleKindCapability::LEAF,
+            origin: RoleKindOrigin::Builtin,
             taskless_worker: true,
-            ..Self::new(id, label, RoleKindCapability::LEAF)
         }
     }
 
