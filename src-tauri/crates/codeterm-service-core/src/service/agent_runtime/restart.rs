@@ -13,7 +13,9 @@ pub(crate) async fn restart(
     old_nonce: &str,
     fresh: bool,
 ) -> Result<Arc<Session>, RuntimeFailure> {
-    let result = restart_inner(svc, tab, provider, old_nonce, fresh).await;
+    let result = restart_inner(svc, tab, provider, old_nonce, fresh, false)
+        .await
+        .and_then(|session| session.ok_or(RuntimeFailure::Superseded));
     if let Err(reason) = &result {
         let nonce = svc
             .mux
@@ -28,13 +30,23 @@ pub(crate) async fn restart(
     result
 }
 
+pub(crate) async fn restart_idle(
+    svc: &ServiceContext,
+    tab: &str,
+    provider: &str,
+    nonce: &str,
+) -> Result<Option<Arc<Session>>, RuntimeFailure> {
+    restart_inner(svc, tab, provider, nonce, false, true).await
+}
+
 async fn restart_inner(
     svc: &ServiceContext,
     tab: &str,
     provider: &str,
     old_nonce: &str,
     fresh: bool,
-) -> Result<Arc<Session>, RuntimeFailure> {
+    idle_only: bool,
+) -> Result<Option<Arc<Session>>, RuntimeFailure> {
     let session = engine::for_tab(tab);
     let _permit = match &session {
         Some(session) => Some(
@@ -47,6 +59,12 @@ async fn restart_inner(
     };
     if let Some(session) = &session {
         engine::validate_binding(svc, session)?;
+        if idle_only
+            && (super::update::busy(session)
+                || !crate::service::background_work::running(svc, tab).is_empty())
+        {
+            return Ok(None);
+        }
     }
     let old_thread = svc
         .mux
@@ -146,7 +164,7 @@ async fn restart_inner(
             "Fresh runtime returned the previous thread".into(),
         ));
     }
-    Ok(loaded)
+    Ok(Some(loaded))
 }
 
 fn publish_failure(
