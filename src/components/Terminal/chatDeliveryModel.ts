@@ -13,7 +13,7 @@ export interface DeliveryDraft {
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
 }
-export type DeliverySend = ChatSend & { dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; draft?: DeliveryDraft };
+export type DeliverySend = ChatSend & { droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; draft?: DeliveryDraft };
 
 export function deliveryState(send: DeliverySend): DeliveryState {
   if (send.status?.state === "failed" || (!send.status && send.requestFailed)) return "failed";

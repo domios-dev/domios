@@ -1,3 +1,4 @@
+import { DroppedUploadNotice } from "./DroppedUploadNotice";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 import { ChildTranscriptScope } from "./ChildTranscriptScope";
@@ -961,9 +962,10 @@ function TabSessionChatBody({
                 streaming={msg.id === streamingId}
                 userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
                   ? <VoiceTranscriptionProgress /> : undefined}
-                userFooter={deliverySend && deliveryView && deliveryView !== "delivered"
-                  ? <ChatDeliveryState state={deliveryView} onRetry={deliverySend.status?.system_send ? undefined : () => void retryChatDelivery(deliverySend.id)} />
-                  : undefined}
+                userFooter={deliverySend ? <>
+                  {deliveryView && deliveryView !== "delivered" && <ChatDeliveryState state={deliveryView} onRetry={deliverySend.status?.system_send ? undefined : () => void retryChatDelivery(deliverySend.id)} />}
+                  <DroppedUploadNotice tabId={tabId} id={deliverySend.id} names={deliverySend.droppedUploads} />
+                </> : undefined}
                 item={item.kind === "tool" ? item : undefined}
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}
                 origin={originProps?.origin ?? origin}
