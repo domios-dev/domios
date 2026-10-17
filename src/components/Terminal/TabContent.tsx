@@ -24,6 +24,7 @@ import { usageTrackingEnabled, tabUsageProvider } from "./usageTracking";
 import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
 import { useHeaderTabMenu } from "./useHeaderTabMenu";
 import { SurfaceTabHost } from "./SurfaceTabHost";
+import { RemoteTaskTab } from "./RemoteTaskTab";
 import { surfaceBacking } from "../../lib/surfaceTab";
 import { hasSleepingTranscript } from "../../lib/tabSleep";
 
@@ -60,7 +61,7 @@ export function TabContent({
 }: TabContentProps) {
   if (tab?.remote_peer_id) configureRemoteTabTransport(api);
   const wake = useWakeOnOpen(tab, isVisible && Boolean(tab && isTabVisible(tab)));
-  const descriptor = useAgentDescriptor(tab?.agent_type);
+  const descriptor = useAgentDescriptor(tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null));
   const { providers, loading, error } = useAgentProviders();
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
   useLayoutEffect(() => {
@@ -111,7 +112,10 @@ export function TabContent({
     tab.agent_provider_resolved_model ?? tab.agent_session_model ?? tab.agent_requested_model ?? null;
   const cwd = tab.cwd ?? workspaceCwd ?? null;
 
-  const body = tab.frozen && !sleepingTranscript && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : isChatBackend ? (
+  const body = tab.frozen && !sleepingTranscript && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : chatBacking && descriptor?.remote_task ? (
+    tab.remote_peer_id ? <div role="status">Remote task controls are unavailable through this mesh tab.</div> :
+    <RemoteTaskTab key={chatBacking.session_id} pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} capability={descriptor.remote_task} />
+  ) : isChatBackend ? (
     <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
   ) : (
     <TerminalTab

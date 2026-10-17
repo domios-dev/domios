@@ -1,6 +1,12 @@
 use super::agent_runtime::{AgentUsageAction, ChildHistoryArgs};
 use clap::{Args, Subcommand};
 
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpawnLocation {
+    Local,
+    Remote,
+}
+
 #[derive(clap::ValueEnum, Clone, Debug)]
 pub enum SpawnRole {
     #[value(name = "Orchestrator")]
@@ -382,6 +388,17 @@ pub enum AgentAction {
         /// Select a provider-owned preset supported by the target provider.
         #[arg(long)]
         preset: Option<String>,
+        /// Execution location declared by the provider. Remote tasks are one-shot tabs.
+        #[arg(long, value_enum)]
+        location: Option<SpawnLocation>,
+        /// Remote environment ID or unambiguous label; never inferred.
+        #[arg(
+            long,
+            requires = "location",
+            required_if_eq("location", "remote"),
+            conflicts_with = "preset"
+        )]
+        environment: Option<String>,
         /// Watcher charter text.
         #[arg(long, allow_hyphen_values = true, conflicts_with = "charter_file")]
         charter: Option<String>,

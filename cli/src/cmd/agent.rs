@@ -16,6 +16,8 @@ mod agent_login;
 mod agent_model_switch;
 #[path = "agent_models.rs"]
 mod agent_models;
+#[path = "agent_remote.rs"]
+pub(super) mod agent_remote;
 use agent_models::select_provider;
 #[cfg(test)]
 use agent_models::{format_agent_models, format_agent_models_json};
@@ -789,7 +791,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        action @ AgentAction::Spawn { .. } => super::agent_spawn::handle(client, json, action),
+        action @ AgentAction::Spawn { .. } => {
+            super::agent_spawn::handle(client, &local_http, &base, json, action)
+        }
         AgentAction::Ledger { tab } => {
             let tab_id = resolve_tab(client, tab);
             match client.call(
