@@ -104,6 +104,7 @@ const simple = [
   ["restart_general_agent", "POST", "/api/agents/general/restart"],
   ["spawn_general_agent_session", "POST", "/api/agents/general/sessions"],
   ["restart_agent_tab", "POST", "/api/tabs/tab/agent/restart"],
+  ["switch_agent_provider", "POST", "/api/tabs/tab/agent/switch-provider"],
   ["refresh_provider_capabilities", "POST", "/api/tabs/tab/agent/capabilities/refresh"],
   ["fork_agent_tab", "POST", "/api/tabs/tab/agent/fork"],
   ["switch_agent_model", "POST", "/api/tabs/tab/agent/model"],
@@ -265,4 +266,10 @@ it("carries explicit Fast mode on and off through the model Apply request", asyn
     expect(calls[0]).toMatchObject({ method: "POST", path: "/api/tabs/owned/agent/model",
       body: { model: "selected", reasoning_effort: "high", service_tier: serviceTier } });
   }
+});
+
+it("transports provider handoff selection and explicit stop without losing the tab", async () => {
+  const {transport, calls} = fixture();
+  await transport.switch_agent_provider({tabId: "owned", providerId: "target", model: "model-token", reasoningEffort: "effort-token", force: true});
+  expect(calls).toMatchObject([{method: "POST", path: "/api/tabs/owned/agent/switch-provider", body: {provider: "target", model: "model-token", reasoning_effort: "effort-token", force: true}}]);
 });

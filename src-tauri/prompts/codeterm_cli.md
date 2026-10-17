@@ -77,6 +77,8 @@ Workers default to full machine access for either execution intent. For explicit
 
 The owner's explicit `codeterm agent restart --tab <ID> --fresh` starts a new session in the same tab with its recorded model and effort. An existing exact restored session is refused; a live agent requires `--force`. Restore never makes this choice automatically.
 
+For an in-place provider handoff, use `codeterm agent switch-provider TARGET --tab TAB`. The target builds its summary from bounded recent messages and host context. Full history is not transferred. Optional `--model` and `--reasoning-effort` follow the target catalogue; a busy tab requires waiting or explicit `--force` to stop first.
+
 ## Mesh (remote peers)
 
 Flat peer model: paired = trusted. Most tab/agent/workspace commands accept `--mesh PEER` = "run against that peer's daemon". Flow: `mesh peers` → `tab list --mesh PEER` → act on remote ids. A peer's General Agent is always `--tab main --mesh PEER`; remote agents don't auto-reply — say "report back" explicitly. Pairing: `mesh connect|approve|reject|disconnect`; for differing API ports use `codeterm mesh connect <instance-id-or-name> --addr <ip:port>` to read the identity and send an owner-approved request; disconnect revokes the peer (only the local owner lifts it with `mesh unrevoke <instance-id>`). Make this machine discoverable to a NEW device with `mesh broadcast` (requires `mesh online`; tell the user when you toggle it). Visibility: `mesh offline` / `mesh online` (hot-reload, Tailscale untouched). Mesh spawn requires peer `--cwd`; it sends locally read `--task-file` contents.

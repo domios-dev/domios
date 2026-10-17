@@ -204,4 +204,12 @@ With `background_work_guard` enabled, restarts and restart-based model switches 
 
 `spawn.capabilityProbe: stream_json_initialize` supports `capability_probe_enabled` (default false). `POST /api/tabs/{id}/agent/capabilities/refresh` refreshes the project/binary cache: `status` is `pending`, `ready` with typed `data`, or `unavailable` with typed `reason`. Binary/login changes invalidate and rebuild. Render/switch/send never probe. Cached commands carry argument hints; the composer badge shows subscription/modes. No user turn or usage request is sent.
 
-<!-- revision: 59 -->
+## Switch provider in place
+
+Use `codeterm agent switch-provider TARGET --tab TAB [--model MODEL] [--reasoning-effort EFFORT]` to continue on another installed provider. The target receives a bounded handoff containing recent user/assistant messages and host-owned task context, and produces its working summary there. The source provider need not summarize anything.
+
+The tab id, title, description, role, Team, parent, lane/cwd, pad and task attempt remain. The old provider process is retired, and the result names its transcript archive. Full history is not transferred. A busy tab refuses; wait for idle or explicitly pass `--force` to stop its current turn first. Unsupported lifecycle capabilities and unavailable installation or authentication refuse honestly.
+
+REST: `POST /api/tabs/{id}/agent/switch-provider` with `{provider, model?, reasoning_effort?, force?}`. Success returns `tab_id`, `provider`, `session_id`, `previous_provider`, `previous_session_id`, `previous_history_path`, `binding_restored: true` and `handoff_delivered: true`. A delivery uncertainty never replays the handoff automatically.
+
+<!-- revision: 60 -->

@@ -350,6 +350,7 @@
         "/api/agents/general/sessions"
       ]
     ],
+    "switch_agent_provider": [["POST", "/api/tabs/tab/agent/switch-provider"]],
     "restart_agent_tab": [
       [
         "POST",
