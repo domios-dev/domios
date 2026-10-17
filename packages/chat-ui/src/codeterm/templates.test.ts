@@ -38,6 +38,14 @@ const TASK = "task_" + "b".repeat(32);
 
   const named = parseSend(inv(`codeterm send --tab 915fae8e "hi"`), undefined, (r) => (r === "915fae8e" ? "Puccini" : undefined));
   assert(named.recipient === "Puccini", "recipient resolves to tab name");
+  for (const wrapper of [
+    `pwsh.exe -Command "codeterm send --tab 915fae8e --from-pad msg.md"`,
+    `bash -lc 'codeterm send --tab 915fae8e --from-pad msg.md'`,
+    `cmd.exe /c "codeterm send --tab 915fae8e --from-pad msg.md"`,
+  ]) {
+    const shape = recognize(wrapper);
+    assert(shape != null && isSend(shape), `recognizes send inside shell wrapper: ${wrapper.split(" ")[0]}`);
+  }
 
   const mesh = parseSend(inv(`codeterm send --tab bda --mesh mini "yo"`), undefined, undefined);
   assert(mesh.mesh === "mini", "mesh peer parsed");
@@ -49,6 +57,11 @@ const TASK = "task_" + "b".repeat(32);
   assert(!pending.status?.ok, "pending send is never marked delivered");
   const resolved = parseSend(inv(`codeterm send --tab bda "$VAR"`), 'OK (sent)\nCODETERM_RESOLVED_TEXT="expanded ***REDACTED*** text"', undefined);
   assert(resolved.body === "expanded ***REDACTED*** text" && resolved.bodySource === "resolved", "resolved output overrides raw source");
+  const structured = parseSend(inv(`codeterm send --tab bda --from-pad message.md`), JSON.stringify({ delivery: "pending", sent_message: { text: "Recorded markdown **body**", truncated: false } }));
+  assert(structured.body === "Recorded markdown **body**" && structured.formattedAvailable, "structured send evidence supplies staged body");
+  assert(structured.status?.pending === true && !structured.status.ok, "structured pending status never appears sent");
+  const tooLong = parseSend(inv(`codeterm send --tab bda --from-pad message.md`), JSON.stringify({ delivery: "sent", sent_message: { text: "x".repeat(16_385), truncated: true } }));
+  assert(tooLong.body.length === 16_384 && tooLong.truncated === true, "structured body is bounded and marks truncation");
   const typed = parseSend(inv(`codeterm send --tab bda "$VAR"`), "OK (sent)", undefined);
   assert(typed.body === "$VAR" && typed.bodySource === "typed", "missing resolved output is explicitly source as typed");
   const fromFile = parseSend(inv(`codeterm send --tab bda --from-file update.md`), "OK (sent)", undefined);

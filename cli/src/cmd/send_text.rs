@@ -162,6 +162,12 @@ pub fn handle_send_text_result(
                 std::process::exit(*exit_code);
             }
             if json {
+                let mut value = value;
+                if let Some(text) = resolved_text.filter(|_| {
+                    matches!(&outcome, SendTextOutcome::Success(_) | SendTextOutcome::Pending { bytes_written: true, .. })
+                }) {
+                    value["sent_message"] = crate::cmd::resolved_text::resolved_text_evidence(text);
+                }
                 println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 return;
             }
@@ -443,6 +449,9 @@ fn send_text_to_targets(
                 .map(|(tab, err)| serde_json::json!({ "tab": tab, "error": err }))
                 .collect::<Vec<_>>(),
         });
+        if !delivered.is_empty() || !pending_written.is_empty() {
+            report["sent_message"] = crate::cmd::resolved_text::resolved_text_evidence(resolved_text);
+        }
         if !failures.is_empty() {
             report["error"] = crate::cmd::error_contract::error_object(
                 &format!("{} of {} target(s) refused", failures.len(), targets.len()),
@@ -708,7 +717,7 @@ fn send_composite_over_mesh(
     );
     let path = format!("/api/tabs/{}/send", urlencoding::encode(remote_tab));
     let data = crate::mesh_cli::mesh_relay_fetch_json(peer, "POST", &path, Some(&body.to_string()));
-    handle_send_text_result(json, Ok(data), None);
+    handle_send_text_result(json, Ok(data), Some(&resolved_text));
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

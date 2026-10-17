@@ -7,6 +7,7 @@ import {
   tabTitleMapEqual,
   tabsRecordEqual,
   selectTabTitleMap,
+  selectTabCommunicationNameMap,
   selectTeams,
   teamsEqual,
 } from "./selectors";
@@ -85,6 +86,8 @@ const formingTeam: Team = {
   created_at: 1,
   workspace_id: "ws",
 };
+const teamNamedTab = sampleState({ x: { ...sampleTab("x"), title: "✻ Courier", team_id: "team-1" } }, [formingTeam]);
+assert.equal(selectTabCommunicationNameMap(teamNamedTab).get("x"), "Courier · Launch", "communication recipient includes its Team context");
 const activeTeam = { ...formingTeam, name: "Launch renamed", lifecycle: "active" as const };
 const teamsBefore = selectTeams(sampleState({}, [formingTeam]));
 const teamsAfter = selectTeams(sampleState({}, [activeTeam]));
