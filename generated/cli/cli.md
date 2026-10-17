@@ -234,9 +234,11 @@ Spawn a new agent; roleless unless --role is provided.
 - `--charter-file` — Read watcher charter text from a file
 - `--cwd` — Working directory: an existing directory, refused otherwise. A relative path resolves against your current directory. With --mesh it must be absolute on the peer; from Git Bash set MSYS_NO_PATHCONV=1 for POSIX paths
 - `--description` — Short tab description (max 200 chars)
+- `--environment` — Remote environment ID or unambiguous label; never inferred
 - `--execution-intent` — Declared execution intent. Plain mutating Workers require a task binding; Worker kinds may mutate task-less and default to `mutating`
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
 - `--kind` — Worker prompt kind/profile, with or without a task: qa or release_manager
+- `--location` — Execution location declared by the provider. Remote tasks are one-shot tabs
 - `--max-actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--non-user-facing` — Declare the tab non-user-facing (bench/probe): its prompts and exits never notify the user; they are reported to its parent instead

@@ -866,6 +866,16 @@
               "aliases": []
             },
             {
+              "name": "environment",
+              "positional": false,
+              "required": false,
+              "value_name": "ENVIRONMENT",
+              "possible_values": [],
+              "default": null,
+              "help": "Remote environment ID or unambiguous label; never inferred",
+              "aliases": []
+            },
+            {
               "name": "execution-intent",
               "positional": false,
               "required": false,
@@ -896,6 +906,19 @@
               "possible_values": [],
               "default": null,
               "help": "Worker prompt kind/profile, with or without a task: qa or release_manager",
+              "aliases": []
+            },
+            {
+              "name": "location",
+              "positional": false,
+              "required": false,
+              "value_name": "LOCATION",
+              "possible_values": [
+                "local",
+                "remote"
+              ],
+              "default": null,
+              "help": "Execution location declared by the provider. Remote tasks are one-shot tabs",
               "aliases": []
             },
             {
