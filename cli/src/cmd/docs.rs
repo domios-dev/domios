@@ -126,8 +126,13 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
     ),
     doc!(
         "API-AGENTS",
-        "Agent restart, provider handoff/self-switch status, model switch, spawn, report and batch REST contracts",
+        "Agent restart, model switch, spawn, report and batch REST contracts (provider switch: PROVIDER-SWITCH)",
         "../../../prod-docs/API-AGENTS.md"
+    ),
+    doc!(
+        "PROVIDER-SWITCH",
+        "Switch a tab's provider in place: handoff, self-switch, General defaults, status and archive",
+        "../../../prod-docs/PROVIDER-SWITCH.md"
     ),
     doc!(
         "API-TEAMS",
