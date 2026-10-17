@@ -11,7 +11,8 @@ vm.runInContext(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8"
 const provider = sandbox.module.exports.default as AgentRuntime;
 const context: RuntimeContext = { epoch: 1, tabId: "opaque-tab", bindingNonce: "opaque-nonce", threadId: "opaque-thread", cwd: "/lane", hostVersion: "1.14.9", settings: {}, activeTurns: [], threadParents: [], claimedSends: [], providerSettings: {} };
 const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value));
-for (const [mode, type] of [[capability.readOnly!, "readOnly"], [capability.mutating!, "workspaceWrite"]] as const) {
+assert.equal(capability.mutating, undefined, "Mutating dispatch must retain the host-authorized permission mode");
+for (const [mode, type] of [[capability.readOnly!, "readOnly"]] as const) {
   const settings: RuntimeSettings = { mode: mode.runtimeMode!, additionalDirectories: [], networkAccess: false };
   for (const operation of [
     { kind: "openThread" as const, instructions: "opaque", settings },
@@ -25,7 +26,7 @@ for (const [mode, type] of [[capability.readOnly!, "readOnly"], [capability.muta
     const params = plan.action.call.params as Record<string, unknown>;
     assert.equal(params.approvalPolicy, "never");
     if (operation.kind === "openThread" || operation.kind === "resumeThread") {
-      assert.equal(params.sandbox, type === "readOnly" ? "read-only" : "workspace-write");
+      assert.equal(params.sandbox, "read-only");
       const config = params.config as Record<string, unknown>;
       assert.deepEqual(config["sandbox_workspace_write.writable_roots"], []);
       assert.equal(config["sandbox_workspace_write.exclude_tmpdir_env_var"], true);
@@ -33,19 +34,22 @@ for (const [mode, type] of [[capability.readOnly!, "readOnly"], [capability.muta
     } else {
       const policy = params.sandboxPolicy as Record<string, unknown>;
       assert.equal(policy.type, type);
-      if (type === "workspaceWrite") {
-        assert.deepEqual(policy.writableRoots, []);
-        assert.equal(policy.excludeTmpdirEnvVar, true);
-        assert.equal(policy.excludeSlashTmp, true);
-      }
     }
   }
   assert(mode.launchArgs.includes("{cwd}"));
   assert(mode.launchArgs.includes("never"));
   assert(!mode.launchArgs.some(arg => arg.includes("dangerously")));
 }
-const roots: RuntimeSettings = { mode: capability.mutating!.runtimeMode!, additionalDirectories: ["/lane-pad", "/git-metadata"], networkAccess: false };
+const roots: RuntimeSettings = { mode: "workspace-write", additionalDirectories: ["/lane-pad", "/git-metadata"], networkAccess: false };
 const plan = plain(provider.runtimePlan({ ...context, settings: roots }, { kind: "submitTurn", threadId: "opaque-thread", sendId: "opaque-send", input: { text: "opaque", attachments: [] }, settings: roots }));
 if (plan.action.kind !== "request") throw new Error("Missing request");
 assert.deepEqual((plan.action.call.params as { sandboxPolicy: { writableRoots: string[] } }).sandboxPolicy.writableRoots, roots.additionalDirectories);
-console.log("Codex execution sandbox: 9 operation mappings passed");
+for (const [mode, type, approval] of [["full-access", "dangerFullAccess", "never"], ["auto", "workspaceWrite", "on-request"]] as const) {
+  const settings: RuntimeSettings = {mode};
+  const result = plain(provider.runtimePlan({...context, settings}, {kind:"submitTurn", threadId:"opaque-thread", sendId:"opaque-send", input:{text:"opaque", attachments:[]}, settings}));
+  if (result.action.kind !== "request") throw new Error("Missing request");
+  const params = result.action.call.params as {approvalPolicy:string; sandboxPolicy:{type:string}};
+  assert.equal(params.approvalPolicy, approval);
+  assert.equal(params.sandboxPolicy.type, type);
+}
+console.log("Codex execution sandbox: 7 operation mappings passed");

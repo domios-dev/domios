@@ -454,3 +454,52 @@ fn plan_rebind_attempt_preserves_typed_refusal_without_session_env() {
         })
     );
 }
+
+#[test]
+fn relaunched_owner_review_verdicts_forward_rebound_identity() {
+    let _lock = crate::test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    for session in [None, Some("resumed-session")] {
+        let _env = CallerEnv::set(Some("resumed-owner"), session, Some("launch-nonce"));
+        for action in [
+            PlanReviewAction::Accept {
+                plan_id: Some("pl_recovered".into()),
+                task_id: "task_review".into(),
+                note: Some("verified".into()),
+                note_from_pad: None,
+                changed_executable_surfaces: false,
+                distinct_oracle: false,
+                residual_risk: None,
+            },
+            PlanReviewAction::Hold {
+                plan_id: Some("pl_recovered".into()),
+                task_id: "task_review".into(),
+                note: Some("owner decision".into()),
+                note_from_pad: None,
+            },
+        ] {
+            let mut recorder = Recorder::default();
+            run_plan(
+                &mut recorder,
+                true,
+                PlanAction::Rebind {
+                    plan_id: Some("pl_recovered".into()),
+                    task_id: None,
+                    attempt_id: None,
+                },
+            )
+            .unwrap();
+            run_plan(&mut recorder, true, PlanAction::Review { action }).unwrap();
+            assert_eq!(recorder.calls.len(), 2);
+            for (_, params) in &recorder.calls {
+                assert_eq!(params["caller_tab_id"], "resumed-owner");
+                assert_eq!(params["session_binding_nonce"], "launch-nonce");
+                assert_eq!(
+                    params.get("session_id"),
+                    session.map(|value| json!(value)).as_ref()
+                );
+            }
+        }
+    }
+}
