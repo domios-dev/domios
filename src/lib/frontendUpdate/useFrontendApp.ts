@@ -12,7 +12,7 @@ export interface FrontendSelection {
   selectTab(workspaceId: string, tabId: string): void;
 }
 
-export function useFrontendApp(selection: FrontendSelection): void {
+export function useFrontendApp(selection: FrontendSelection): boolean {
   const [restored, setRestored] = useState(false);
   useEffect(() => {
     if (selection.generation <= 0) return;
@@ -34,4 +34,5 @@ export function useFrontendApp(selection: FrontendSelection): void {
     frontendRootRendered();
     frontendSignals.signal({ idle: true });
   }, [selection, restored]);
+  return restored && selection.generation > 0;
 }
