@@ -33,7 +33,7 @@ module.exports = __toCommonJS(plugin_exports);
 // plugins/provider-shared/sessionRecords.ts
 function* sessionRecords(input, accepts) {
   if (typeof input !== "string") {
-    for (const record6 of input) yield { row: record6.row, value: record6.value };
+    for (const record5 of input) yield { row: record5.row, value: record5.value };
     return;
   }
   const lines = String(input || "").split("\n");
@@ -450,6 +450,16 @@ function goalResponse(threadId, state, reply) {
   const expected = state.goalAction === "pause" ? "paused" : state.goalAction === "resume" ? "active" : state.goalAction === "complete" ? "complete" : void 0;
   if (expected && intent?.goalStatus !== expected) return refuse("Goal status was not confirmed");
   return { kind: "complete", result: { kind: "goal", threadId, intent } };
+}
+
+// plugins/provider-codex/src/runtimeVersion.ts
+function runtimeBinaryVersion(userAgent) {
+  if (typeof userAgent !== "string") return void 0;
+  return userAgent.match(/^[^\s/]+\/(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?=\s|$)/)?.[0].split("/")[1];
+}
+function initializedResult(state) {
+  const binaryVersion = typeof state.binaryVersion === "string" ? state.binaryVersion : void 0;
+  return { kind: "initialized", ...binaryVersion ? { binaryVersion } : {} };
 }
 
 // plugins/provider-codex/src/runtimeProtocol.ts
@@ -1581,9 +1591,9 @@ function completedActivity(value, ts, timestamp, turnId) {
 function storedHistoryAvailable(sessionId, head) {
   if (!sessionId || !head) return false;
   try {
-    const record6 = object(JSON.parse(head.split("\n", 1)[0]));
-    const payload = object(record6.payload);
-    return record6.type === "session_meta" && payload.id === sessionId && payload.history_base == null;
+    const record5 = object(JSON.parse(head.split("\n", 1)[0]));
+    const payload = object(record5.payload);
+    return record5.type === "session_meta" && payload.id === sessionId && payload.history_base == null;
   } catch {
     return false;
   }
@@ -1643,19 +1653,19 @@ function* textRecords(records) {
   }
 }
 function runtimeStoredRecords(sessionId, records) {
-  return projectStoredRecords(sessionId, records.map((record6) => {
-    if (!record6.oversized) return record6.value;
-    const value = object(record6.value), payload = object(value.payload);
+  return projectStoredRecords(sessionId, records.map((record5) => {
+    if (!record5.oversized) return record5.value;
+    const value = object(record5.value), payload = object(value.payload);
     return { ...value, payload: { ...payload, item: { ...object(payload.item), historyTruncated: true } } };
   }));
 }
 function projectStoredRecords(sessionId, records) {
   const rows = /* @__PURE__ */ new Map();
   for (const raw of records) {
-    const record6 = object(raw);
-    const payload = object(record6.payload);
-    if (record6.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
-    if (record6.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
+    const record5 = object(raw);
+    const payload = object(record5.payload);
+    if (record5.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
+    if (record5.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
     const turn = text(payload.turn_id);
     if (!turn || !text(object(payload.item).id)) throw new Error("Stored runtime item identity missing");
     const projected = projectHistoryItem(recordedItem(payload.item), rows.size, turn, payload.started_at_ms ?? payload.completed_at_ms);
@@ -1745,10 +1755,10 @@ function pagedHistoryResponse(op, raw, reply) {
   const offset = state.offset ?? 0;
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > value.data.length) failure("History item offset is invalid");
   for (let index = offset; index < value.data.length; index++) {
-    const record6 = object(value.data[index]), item = record6.item ?? record6;
-    const rows = projectHistoryItem(item, 0, state.turn.id, record6.startedAtMs ?? record6.completedAtMs);
+    const record5 = object(value.data[index]), item = record5.item ?? record5;
+    const rows = projectHistoryItem(item, 0, state.turn.id, record5.startedAtMs ?? record5.completedAtMs);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, item, questions);
-    const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(item).status));
+    const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record5.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(item).status));
     const opened = active ? rows.map((item2) => ({ turnId: state.turn.id, item: item2 })) : [];
     const used = serializedBytes({ rows, opened, questions: nextQuestions });
     if (bytes + used > HISTORY_CHUNK_BYTES && index > offset) return finish(op, items, openItems, questions, { ...state, offset: index });
@@ -2976,7 +2986,7 @@ function respondOperation(ctx, op, raw, reply) {
     if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))
       return historyItems(op, { ...state, historyItemLimit: smaller }, text(state.cursor));
     if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" } };
-    if (op.kind === "initialize" && state.stage === "initializeLimits") return { kind: "complete", result: { kind: "initialized" }, events: [state.auth] };
+    if (op.kind === "initialize" && state.stage === "initializeLimits") return { kind: "complete", result: initializedResult(state), events: [state.auth] };
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
     if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
     if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
@@ -2990,14 +3000,14 @@ function respondOperation(ctx, op, raw, reply) {
   const value = object(reply.value);
   switch (op.kind) {
     case "initialize":
-      if (state.stage === "initialize") return continuation({ action: { kind: "notification", notification: { method: "initialized", params: {} } }, state: { stage: "initializedNotification" } });
-      if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { stage: "initializeAccount" }));
+      if (state.stage === "initialize") return continuation({ action: { kind: "notification", notification: { method: "initialized", params: {} } }, state: json({ stage: "initializedNotification", binaryVersion: runtimeBinaryVersion(value.userAgent) }) });
+      if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { ...state, stage: "initializeAccount" }));
       if (state.stage === "initializeAccount") {
         const auth = accountAuth(value);
-        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read", { excludeResetCreditDetails: true }, { stage: "initializeLimits", auth }));
-        return { kind: "complete", result: { kind: "initialized" }, events: [auth] };
+        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read", { excludeResetCreditDetails: true }, { ...state, stage: "initializeLimits", auth }));
+        return { kind: "complete", result: initializedResult(state), events: [auth] };
       }
-      return { kind: "complete", result: { kind: "initialized" }, events: [state.auth, ...rateLimitEvents(value.rateLimits, value.rateLimitResetCredits)] };
+      return { kind: "complete", result: initializedResult(state), events: [state.auth, ...rateLimitEvents(value.rateLimits, value.rateLimitResetCredits)] };
     case "openThread": {
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
@@ -3102,12 +3112,12 @@ function collectHistoryItems(op, state, turn, entries) {
   let questions = list(state.questions);
   let bytes = serializedBytes({ items, openItems, questions });
   for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
-    const record6 = object(entries[index]);
-    const rawItem = historyItem(record6.item ?? record6);
+    const record5 = object(entries[index]);
+    const rawItem = historyItem(record5.item ?? record5);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
-    const timestamp = record6.startedAtMs ?? record6.completedAtMs;
+    const timestamp = record5.startedAtMs ?? record5.completedAtMs;
     const rows = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp);
-    const active = turn.status === "inProgress" && turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
+    const active = turn.status === "inProgress" && turn.startedAt != null && record5.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
     const opened = active ? rows.map((item) => ({ turnId: String(turn.id), item })) : [];
     const rowBytes = serializedBytes(rows) + serializedBytes(opened) + serializedBytes(nextQuestions);
     if (bytes + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
@@ -3190,7 +3200,7 @@ function statusCode2(value) {
   if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
   return null;
 }
-function classifyAccessError(error, record6) {
+function classifyAccessError(error, record5) {
   const detail = object2(error);
   const info = detail?.codexErrorInfo;
   const infoObject = object2(info);
@@ -3205,11 +3215,11 @@ function classifyAccessError(error, record6) {
     typeof info === "string" ? info : null,
     ...Object.keys(infoObject ?? {}),
     ...Object.values(infoObject ?? {}).map((value) => object2(value)?.httpStatusCode),
-    record6.status,
-    record6.statusCode,
-    record6.status_code,
-    record6.apiErrorStatus,
-    record6.apiErrorCode
+    record5.status,
+    record5.statusCode,
+    record5.status_code,
+    record5.apiErrorStatus,
+    record5.apiErrorCode
   ];
   const named = (codes) => fields.some((value) => typeof value === "string" && codes.includes(value));
   const prefixed = (prefix) => fields.some((value) => typeof value === "string" && value.startsWith(prefix));
@@ -3233,15 +3243,15 @@ function readRetry(value) {
   }
   return null;
 }
-function retryAfterSecs(error, record6) {
-  return readRetry(object2(error)) ?? readRetry(record6);
+function retryAfterSecs(error, record5) {
+  return readRetry(object2(error)) ?? readRetry(record5);
 }
-function observationTurnId(record6) {
+function observationTurnId(record5) {
   for (const key of ["uuid", "turn_id", "turnId", "requestId"]) {
-    const value = record6[key];
+    const value = record5[key];
     if (typeof value === "string" && value) return value;
   }
-  const payload = object2(record6.payload);
+  const payload = object2(record5.payload);
   if (!payload) return null;
   for (const key of ["turn_id", "turnId", "uuid", "requestId"]) {
     const value = payload[key];
@@ -3249,32 +3259,32 @@ function observationTurnId(record6) {
   }
   return null;
 }
-function observationRetrying(error, record6) {
-  return record6.willRetry === true || object2(error)?.willRetry === true;
+function observationRetrying(error, record5) {
+  return record5.willRetry === true || object2(error)?.willRetry === true;
 }
-function observationExtras(error, record6) {
+function observationExtras(error, record5) {
   const extras = {};
-  const retry = retryAfterSecs(error, record6);
+  const retry = retryAfterSecs(error, record5);
   if (retry != null) extras.retry_after_secs = retry;
-  const turn = observationTurnId(record6);
+  const turn = observationTurnId(record5);
   if (turn) extras.turn_id = turn;
-  if (observationRetrying(error, record6)) extras.retrying = true;
+  if (observationRetrying(error, record5)) extras.retrying = true;
   return extras;
 }
 
 // plugins/provider-codex/src/signals.ts
 function parseSessionObservations(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record6 = value;
-  if (record6.type !== "event_msg" || !record6.payload || typeof record6.payload !== "object" || Array.isArray(record6.payload)) return null;
-  const payload = record6.payload;
+  const record5 = value;
+  if (record5.type !== "event_msg" || !record5.payload || typeof record5.payload !== "object" || Array.isArray(record5.payload)) return null;
+  const payload = record5.payload;
   if (payload.type === "error") {
     const error = payload.error ?? payload;
     return {
       api_error: classifyAccessError(error, payload),
       permission_mode: null,
       clears_api_error: false,
-      ...observationExtras(error, record6)
+      ...observationExtras(error, record5)
     };
   }
   if (payload.type === "task_complete") return { api_error: null, permission_mode: null, clears_api_error: true };
@@ -3919,35 +3929,18 @@ function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseIns
 }
 
 // plugins/provider-codex/src/update.ts
-function parseVersion(value) {
-  if (typeof value !== "string") return null;
-  const match = value.match(/(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:\s|$)/);
-  if (!match) return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
-}
-function record5(value) {
-  if (value !== null && typeof value === "object") return value;
-  if (typeof value !== "string") return null;
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-function installedCodexVersion(result) {
-  const installed = record5(result);
-  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
-  const current = installed.stdout.match(/\d+\.\d+\.\d+/)?.[0];
-  return current && parseVersion(current) ? current : null;
-}
+var codexSelfUpdateCapability = {
+  npmPackage: "@openai/codex",
+  standaloneDirectory: "packages/standalone",
+  standaloneArgs: ["update"]
+};
 function checkCodexUpdate(host2) {
   return checkProviderUpdate(
     host2,
     "codex",
-    "https://registry.npmjs.org/@openai%2Fcodex/latest",
+    `https://registry.npmjs.org/${encodeURIComponent(codexSelfUpdateCapability.npmPackage)}/latest`,
     void 0,
-    installedCodexVersion
+    installedVersion
   );
 }
 
@@ -6075,6 +6068,9 @@ var plugin = {
   },
   checkForUpdate() {
     return checkCodexUpdate(host);
+  },
+  providerSelfUpdateCapability() {
+    return codexSelfUpdateCapability;
   },
   releaseTabLaunchArtifacts(tabId, instanceId) {
     return releaseCodexProfile(profileSweepHost(), tabId, instanceId);

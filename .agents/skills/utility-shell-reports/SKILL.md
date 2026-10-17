@@ -56,6 +56,11 @@ or reports failure at process exit or the single 600-second deadline.
 
 Run QA commands through a fresh report directory:
 
+Lane checks run directly as `build.ps1 lane-check <crate> --tests` in a Team
+utility shell. Do not wrap them in `qa-batch`: that verb prepends a canonical
+`check` before its supplied commands. If used accidentally in a lane, close
+that utility shell and restart with the authorized direct `lane-check` verb.
+
 ```bash
 scripts/qa-report.sh smoke 'true' 'node --test scripts/tests/dev-wait.test.mjs'
 QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'
