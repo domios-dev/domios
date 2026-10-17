@@ -12,6 +12,8 @@ import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
 import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
+import { ChatWindowRow } from "./ChatWindowRow";
+import { chatWindowRows } from "./chatWindowRowsModel";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
@@ -354,7 +356,7 @@ function TabSessionChatBody({
   });
 
   const renderedEnrichedMessages = useMemo(
-    () => setupView.kind !== "none" ? [] : enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
+    () => setupView.kind !== "none" ? [] : chatWindowRows(enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg))),
     [enrichedMessages, setupView.kind],
   );
   const sharedScrollRef = useRef<HTMLDivElement | null>(null);
@@ -924,8 +926,7 @@ function TabSessionChatBody({
           const deliverySend = sendForRow(deliverySends, msg);
           const deliveryView = deliverySend ? deliveryPresentation(deliverySend, agentActivity.kind) : undefined;
           return (
-            <Fragment key={msg.id}>
-            <div data-chat-window-row={msg.id} style={{ display: "flow-root" }}>
+            <ChatWindowRow key={msg.id} message={msg}>
             <ChatDaySeparator label={daySeparators.get(messageIndex)} />
             <ChatHighlightRow id={msg.id}>
             <ChatMessageRow
@@ -978,8 +979,7 @@ function TabSessionChatBody({
             </ChatHighlightRow>
               {following.map(renderOutboundReport)}
               {(askPlacement.afterIndex.get(messageIndex) ?? []).map(renderAsk)}
-            </div>
-            </Fragment>
+            </ChatWindowRow>
           );
         })}
         </div>
