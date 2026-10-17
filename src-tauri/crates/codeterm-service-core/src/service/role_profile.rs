@@ -182,16 +182,18 @@ pub(super) fn normalize_spawn_params(params: &mut SpawnAgentParams) -> Result<()
 }
 
 /// The Worker subtype a task's executor role names, when it names a builtin
-/// leaf kind. Only a builtin leaf is promoted: a free-text executor role stays a
-/// plain Worker, and a managing kind (Planner, Watcher, Cartographer) is never
-/// demoted into a Worker subtype.
+/// task-bound leaf kind. Task-less kinds are not promoted from task metadata; a
+/// managing kind is never demoted into a Worker subtype.
 pub fn builtin_worker_profile(executor_role: Option<&str>) -> Option<String> {
     let role = executor_role
         .map(str::trim)
         .filter(|role| !role.is_empty())?;
     let descriptor = role_kind::builtin_kind(&role.to_ascii_lowercase())?;
-    (!descriptor.anchors_team() && !descriptor.has_team_authority() && !descriptor.manages())
-        .then(|| descriptor.id().to_string())
+    (!descriptor.anchors_team()
+        && !descriptor.has_team_authority()
+        && !descriptor.manages()
+        && !descriptor.is_taskless_worker())
+    .then(|| descriptor.id().to_string())
 }
 
 /// A Worker subtype narrows within leaf capability, so a subtype id is kept
@@ -216,6 +218,11 @@ fn normalize_manager_profile(profile: &str) -> Result<String, String> {
             .all(|character| character.is_ascii_alphanumeric() || character == '_')
     {
         return Err(format!("Invalid Manager role_profile '{profile}'"));
+    }
+    if role_kind::builtin_kind(&normalized).is_some_and(|kind| kind.is_taskless_worker()) {
+        return Err(format!(
+            "Worker-only role_profile '{profile}' cannot be used with Manager"
+        ));
     }
     Ok(normalized)
 }
@@ -242,7 +249,9 @@ fn json_string_list(params: &serde_json::Value, key: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod normalization_tests {
-    use codeterm_types::agent::role_kind::builtins::{CARTOGRAPHER, GENERAL_AGENT};
+    use codeterm_types::agent::role_kind::builtins::{
+        CARTOGRAPHER, GENERAL_AGENT, RELEASE_MANAGER, TESTER,
+    };
 
     use super::*;
     use crate::service::orchestrator::SpawnAgentParams;
@@ -351,6 +360,23 @@ mod normalization_tests {
                 ..Default::default()
             };
             assert!(params.normalize_role_profile().is_err(), "{stolen}");
+        }
+    }
+
+    #[test]
+    fn taskless_kinds_normalize_only_as_workers_and_never_from_task_executor_roles() {
+        for kind in [TESTER, RELEASE_MANAGER] {
+            assert_eq!(
+                normalized("Worker", Some(kind)),
+                (Some("Worker".into()), Some(kind.into()))
+            );
+            let mut manager = SpawnAgentParams {
+                role: Some("Manager".into()),
+                role_profile: Some(kind.into()),
+                ..Default::default()
+            };
+            assert!(manager.normalize_role_profile().is_err(), "{kind}");
+            assert_eq!(builtin_worker_profile(Some(kind)), None, "{kind}");
         }
     }
 
