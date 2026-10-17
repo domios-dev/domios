@@ -158,6 +158,10 @@ the current run. Read the path printed for the fresh run.
 
 ## Filtered Cargo targets
 
+Notification fixture tests that expect a rustfmt failure must use `fmt-check`,
+with a fake rustfmt tool. `install-local` refuses with exit 2 on Linux and
+macOS before formatting, so it cannot prove cross-platform failure routing.
+
 A focused CLI test can execute in one target while Cargo prints `running 0 tests`
 for unrelated integration targets. Count actual passed/failed tests across Cargo
 result lines before declaring the command empty. Keep genuinely empty or

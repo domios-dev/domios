@@ -92,6 +92,21 @@ pub(super) fn handle(
             inject_trusted_session(&mut params);
             call_plan_rpc(client, "plan.review.authorize-reporter", params).map(Some)
         }
+        PlanReviewAction::Delegate {
+            plan_id,
+            task_id,
+            tester_tab_id,
+        } => {
+            let mut params = json!({
+                "task_id": task_id,
+                "tester_tab_id": tester_tab_id,
+            });
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            inject_trusted_session(&mut params);
+            call_plan_rpc(client, "plan.review.delegate", params).map(Some)
+        }
         PlanReviewAction::Accept {
             plan_id,
             task_id,

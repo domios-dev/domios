@@ -571,6 +571,7 @@ CT_INSTANCE="${CODETERM_INSTANCE:-}"
 CT_PORT="${CODETERM_API_PORT:-7686}"
 CT_VITE_PORT="${CODETERM_VITE_PORT:-}"
 CT_CDP_PORT="${CODETERM_CDP_PORT:-}"
+CT_INSTANCE_HASH=""
 case "$CMD" in
   dev|dev-prebuilt|kill|e2e|e2e:llm)
     if [ "$CT_PORT" = "7685" ]; then
@@ -586,10 +587,19 @@ case "$CMD" in
 esac
 if [ -n "$CT_INSTANCE" ]; then
   CT_SLUG=$(printf '%s' "$CT_INSTANCE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
-  CT_SUFFIX="-$CT_SLUG"
+  if [ "$CT_INSTANCE" = "$CT_SLUG" ]; then
+    CT_INSTANCE_KEY="$CT_SLUG"
+  else
+    CT_INSTANCE_HASH="$(node -e 'process.stdout.write(require("node:crypto").createHash("sha256").update(process.argv[1]).digest("hex").slice(0,10))' "$CT_INSTANCE")"
+    CT_INSTANCE_KEY="$CT_SLUG-x$CT_INSTANCE_HASH"
+  fi
+  CT_SUFFIX="-$CT_INSTANCE_KEY"
   CT_IDENTIFIER="com.codeterm.dev.$(printf '%s' "$CT_SLUG" | tr '-' '.')"
-  # Stable per-instance vite port: sum of slug bytes mod 200, +1 offset.
-  CT_OFFSET=$(printf '%s' "$CT_SLUG" | od -An -tu1 | awk '{for(i=1;i<=NF;i++)s+=$i} END{print (s%200)+1}')
+  if [ -n "$CT_INSTANCE_HASH" ]; then
+    CT_IDENTIFIER="$CT_IDENTIFIER.x$CT_INSTANCE_HASH"
+  fi
+  # Stable per-instance vite/CDP ports use the isolated instance key.
+  CT_OFFSET=$(printf '%s' "$CT_INSTANCE_KEY" | od -An -tu1 | awk '{for(i=1;i<=NF;i++)s+=$i} END{print (s%200)+1}')
   CT_VITE_PORT="${CT_VITE_PORT:-$((1420 + CT_OFFSET))}"
   CT_CDP_PORT="${CT_CDP_PORT:-$((9223 + CT_OFFSET))}"
 else
@@ -601,6 +611,14 @@ else
 fi
 CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
 DEV_NOTIFY_LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
+case "$CMD" in
+  dev|dev-prebuilt)
+    if [ -n "$CT_INSTANCE" ] && [ "$CT_PORT" = "7686" ]; then
+      echo "ERROR: named dev instance '$CT_INSTANCE' requires its own non-default CODETERM_API_PORT." >&2
+      exit 2
+    fi
+    ;;
+esac
 # Export so the spawned daemon + its child PTYs inherit the instance identity.
 export CODETERM_INSTANCE="$CT_INSTANCE"
 export CODETERM_API_PORT="$CT_PORT"
@@ -648,9 +666,11 @@ prepare_named_dev_target() {
 
 if [ "${CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY:-0}" = "1" ]; then
   if [ -n "$CT_INSTANCE" ]; then
-    printf 'instance=%s\nshared_gateway_handoff=skipped\n' "$CT_INSTANCE"
+    printf 'instance=%s\ndata_dir=%s\napi_port=%s\nvite_port=%s\ncdp_port=%s\nshared_gateway_handoff=skipped\n' \
+      "$CT_INSTANCE" "$CT_DATA_DIR" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT"
   else
-    printf 'instance=\nshared_gateway_handoff=required\n'
+    printf 'instance=\ndata_dir=%s\napi_port=%s\nvite_port=%s\ncdp_port=%s\nshared_gateway_handoff=required\n' \
+      "$CT_DATA_DIR" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT"
   fi
   if [ -n "$DEV_NOTIFY_TAB" ]; then
     printf 'notify_tab=%s\nparent_cli=%s\n' "$DEV_NOTIFY_TAB" "$DEV_NOTIFY_PARENT_CLI"

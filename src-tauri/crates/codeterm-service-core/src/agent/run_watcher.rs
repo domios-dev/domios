@@ -257,6 +257,18 @@ impl RunWatcherRegistry {
     /// binding nonce. Claims and completes the nonce-matching tab's run only;
     /// any other nonce claims nothing, leaving every classifier-fallback
     /// completion path (semantic idle, idle backstop, scanner) in charge.
+    pub fn observe_provider_turn_end(
+        &self,
+        svc: &ServiceContext,
+        tab_id: &str,
+        report_nonce: &str,
+        success: bool,
+    ) {
+        if success {
+            self.complete_via_stop_report(svc, tab_id, report_nonce);
+        }
+    }
+
     pub fn complete_via_stop_report(&self, svc: &ServiceContext, tab_id: &str, report_nonce: &str) {
         if svc
             .mux
