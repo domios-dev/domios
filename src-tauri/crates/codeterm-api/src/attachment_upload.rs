@@ -6,7 +6,7 @@ use axum::{
     Json,
 };
 use futures_util::StreamExt;
-use std::{io::Write, path::PathBuf};
+use std::{io::Write, path::PathBuf, task::Poll};
 use tokio::sync::mpsc;
 
 use crate::{
@@ -54,10 +54,18 @@ enum UploadPart {
 
 pub(crate) async fn streaming_multipart(request: Request) -> Result<Multipart, UploadError> {
     let request = request.map(|body| {
-        let chunks = body.into_data_stream().then(|chunk| async move {
-            // Multer drains ready frames into one buffer; yield so it parses each frame before reading more.
-            tokio::task::yield_now().await;
-            chunk
+        let mut chunks = body.into_data_stream();
+        let mut yielded_frame = false;
+        let chunks = futures_util::stream::poll_fn(move |cx| {
+            // Yield after frames: Multer can poll twice before inspecting its first boundary again.
+            if yielded_frame {
+                yielded_frame = false;
+                cx.waker().wake_by_ref();
+                return Poll::Pending;
+            }
+            let next = chunks.poll_next_unpin(cx);
+            yielded_frame = matches!(&next, Poll::Ready(Some(_)));
+            next
         });
         Body::from_stream(chunks)
     });
