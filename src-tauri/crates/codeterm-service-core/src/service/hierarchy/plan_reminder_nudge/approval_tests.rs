@@ -9,13 +9,6 @@ use parking_lot::Mutex;
 use serde_json::Value;
 use std::sync::Arc;
 
-const KINDS: [ReminderKind; 5] = [
-    ReminderKind::Owner,
-    ReminderKind::ModeChange,
-    ReminderKind::StalledTeam,
-    ReminderKind::CompleteWrapup,
-    ReminderKind::Worker,
-];
 const PLAN: &str = "plan-a";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -115,7 +108,7 @@ impl ReminderHost for FakeHost {
             hook(self);
         }
         let transport = match scope.kind {
-            ReminderKind::Worker | ReminderKind::CompleteWrapup => Transport::Automated,
+            ReminderKind::Worker => Transport::Automated,
             _ => Transport::Heartbeat {
                 learning_ids: decision.learning_ids.clone(),
                 plain: false,
@@ -178,13 +171,8 @@ fn attempt(id: &str, tab: &str) -> TaskExecutionAttempt {
 fn kind_plan(kind: ReminderKind, id: &str, owner: &str, worker: &str) -> Plan {
     let mut work = task("task-a", TaskStatus::InProgress, Some(worker));
     work.execution_attempts.push(attempt("attempt-a", worker));
-    let mut plan = plan(id, owner, PlanMode::Execution, vec![work]);
-    match kind {
-        ReminderKind::ModeChange => plan.mode = PlanMode::Planning,
-        ReminderKind::CompleteWrapup => plan.tasks[0].status = TaskStatus::Done,
-        _ => {}
-    }
-    plan
+    let _ = kind;
+    plan(id, owner, PlanMode::Execution, vec![work])
 }
 
 fn owner_view() -> Snapshot {
@@ -390,22 +378,6 @@ fn plan_reminder_rule_capacity_is_bounded_and_cleanup_releases_it() {
     f.host.gate.retain(&scope_keys(&f.host.plans.lock()));
     assert_eq!(f.host.gate.scopes(), 0);
     assert_eq!(f.admit(ReminderKind::Owner, 101), ReminderOutcome::Accepted);
-}
-
-#[test]
-fn plan_reminder_rule_preserves_all_owner_producer_kinds() {
-    for kind in KINDS
-        .into_iter()
-        .filter(|kind| *kind != ReminderKind::Worker)
-    {
-        let f = fixture(kind);
-        assert_eq!(f.admit(kind, 100), ReminderOutcome::Accepted, "{kind:?}");
-        assert_eq!(
-            f.admit(kind, 10000),
-            ReminderOutcome::Suppressed("same_snapshot")
-        );
-        assert_eq!(f.emits(), 1);
-    }
 }
 
 #[test]

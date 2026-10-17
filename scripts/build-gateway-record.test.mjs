@@ -132,3 +132,13 @@ test(identity === 'readable' ? 'dead queued owner is reaped without removing the
 });
 
 }
+
+test('end evidence for a job that never started succeeds without sccache evidence', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-record-'));
+  try {
+    writeJobJson(path.join(directory, 'jobs', 'busy.json'), { job_id: 'busy', state: 'queued' });
+    const result = spawnSync(process.execPath, [path.join(root, 'scripts/build-gateway-state.mjs'), 'evidence-end', '--dir', directory, '--job-id', 'busy'], { encoding: 'utf8', env });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readJobJson(path.join(directory, 'jobs', 'busy.json')).sccache, undefined);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});

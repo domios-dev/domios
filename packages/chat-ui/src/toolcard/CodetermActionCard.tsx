@@ -3,6 +3,7 @@ import { toolCommand, type ToolEvent } from "@codeterm/chat-core";
 import { recognize, type CodetermInvocation } from "../codeterm/recognize";
 import { describeAction, isHelp, isSend, navigationTarget, parseSend, type ActionDescriptor, type NavigationTarget, type PeerNameResolver, type TabNameResolver } from "../codeterm/templates";
 import { CompactMessageContent } from "../codeterm/CompactMessageContent";
+import { SentMessageBubble } from "../codeterm/SentMessageBubble";
 import { usePluginNameResolver } from "../codeterm/PluginNames";
 import type { PluginNameResolver } from "../codeterm/pluginAction";
 import { ToolCardActionButton, ToolCardChips, ToolCardFrame } from "./ToolCardFrame";
@@ -140,7 +141,7 @@ function ActionBody({ event, action, navigation, inlineTabAction }: { event: Too
     <>
       {sent ? (
         <CompactMessageContent
-          text={sent.formattedAvailable ? sent.body : event.detail || event.summary}
+          text={sent.body}
           onOpenPlan={onOpenPlan}
           resolvePlanRef={resolvePlanRef}
           fontScale={fontScale}
@@ -193,6 +194,25 @@ export function CodetermActionDetail({ event, invocation, fallback, ...navigatio
 export function CodetermActionCard({ event, invocation, expanded, onToggle, ...navigation }: Props) {
   const action = codetermAction(event, invocation, navigation, usePluginNameResolver());
   const { inv, descriptor, target, canNavigate, sendSucceeded, sendPending } = action;
+  if (action.sent && inv) {
+    const command = toolCommand(event).command;
+    return (
+      <div data-testid="chat-tool-call" data-tool-status={action.sent.status?.pending ? "pending" : action.sent.status?.ok ? "success" : action.sent.status ? "error" : event.status} className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-lg border px-3 py-2" style={{ borderColor: "var(--ct-border, rgba(128,128,128,.25))", background: "var(--ct-card-bg, var(--ct-bg))" }}>
+        <SentMessageBubble
+          inv={inv}
+          result={event.result}
+          resolveTabName={navigation.resolveTabName}
+          resolvePeerName={navigation.resolvePeerName}
+          onOpenPlan={navigation.onOpenPlan}
+          resolvePlanRef={navigation.resolvePlanRef}
+          fontScale={navigation.fontScale}
+          technicalCommand={command}
+          activityStatus={event.status}
+        />
+        {action.canNavigate && action.target?.kind === "tab" && <ToolCardActionButton label="Show Tab" onClick={() => navigation.onFocusTab!(action.target!.id)} testId="codeterm-focus-tab" />}
+      </div>
+    );
+  }
   const collapsedChips = descriptor.chips.filter((chip) => !/\b(?:pl|task|sec|sp|spec|mem|src)_[a-z0-9][a-z0-9_-]*/i.test(chip));
   const displayEvent: ToolEvent = {
     ...event,

@@ -191,6 +191,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         reason,
         team,
         execution_intent,
+        sandbox,
         authorized_gates,
         provider_reserve_pct,
         non_user_facing,
@@ -246,6 +247,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         .filter(|team_id| routes_to_team_staffing(role.as_ref(), Some(*team_id)));
     if let Some(team_id) = team_orchestrator {
         let unsupported = unsupported_team_orchestrator_flags(&[
+            ("--sandbox", sandbox.is_some()),
             ("--description", description.is_some()),
             ("--cwd", cwd.is_some()),
             ("--parent", parent.is_some()),
@@ -318,6 +320,9 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             "session_id": std::env::var("CODETERM_SESSION_ID").ok(),
             "session_binding_nonce": std::env::var("CODETERM_SESSION_BINDING_NONCE").ok(),
         });
+        if let Some(sandbox) = sandbox {
+            params["sandbox"] = serde_json::json!(sandbox);
+        }
         if let Some(plan) = plan.or_else(|| std::env::var("CODETERM_PLAN_ID").ok()) {
             params["plan_id"] = serde_json::json!(plan);
         }
@@ -435,6 +440,9 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
     }
     if let Some(t) = task {
         body["task"] = serde_json::json!(t);
+    }
+    if let Some(sandbox) = sandbox {
+        body["sandbox"] = serde_json::json!(sandbox);
     }
     if let Some(a) = args {
         body["args"] = serde_json::json!(a);

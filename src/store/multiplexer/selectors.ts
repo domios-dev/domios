@@ -90,6 +90,21 @@ export function selectTabTitleMap(state: ExtendedState): Map<string, string> {
   return byShort;
 }
 
+export function selectTabCommunicationNameMap(state: ExtendedState): Map<string, string> {
+  const teams = new Map(state.teams.map((team) => [team.id, team.name?.trim() || "Team"]));
+  const byShort = new Map<string, string>();
+  for (const ws of state.workspaces) {
+    for (const tabId of ws.tabs) {
+      const tab = state.tabs[tabId];
+      const name = stripTabTitleSpinner(tab?.title);
+      if (!name) continue;
+      const teamName = tab?.team_id ? teams.get(tab.team_id) : undefined;
+      byShort.set(tabId.slice(0, 8), teamName ? `${name} · ${teamName}` : name);
+    }
+  }
+  return byShort;
+}
+
 export function tabTitleMapEqual(a: Map<string, string>, b: Map<string, string>): boolean {
   if (a === b) return true;
   if (a.size !== b.size) return false;

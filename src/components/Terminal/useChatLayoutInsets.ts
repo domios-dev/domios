@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { syncChatTimeGutter } from "./chatTimeGutter";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { chatFloatingBottomInset } from "./chatLayoutInsets";
+import { CHAT_READABLE_WIDTH_REM } from "./chatLayoutTokens";
 
 export function useChatLayoutInsets(rootRef: RefObject<HTMLDivElement | null>): number {
   const previousInset = useRef(0);
@@ -20,7 +21,9 @@ export function useChatLayoutInsets(rootRef: RefObject<HTMLDivElement | null>): 
     const measureTimeGutter = () => {
       if (!surface) return;
       const bounds = surface.getBoundingClientRect();
-      syncChatTimeGutter(surface, bounds.width, Math.max(0, (lane ?? bar).getBoundingClientRect().left - bounds.left), timeMeasure.getBoundingClientRect().width);
+      const rootFontSize = Number.parseFloat(window.getComputedStyle(root).fontSize);
+      const columnWidth = CHAT_READABLE_WIDTH_REM * rootFontSize;
+      syncChatTimeGutter(surface, bounds.width, Math.max(0, (lane ?? bar).getBoundingClientRect().left - bounds.left), timeMeasure.getBoundingClientRect().width, columnWidth);
     };
     const measure = () => {
       measureTimeGutter();

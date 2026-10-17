@@ -7,8 +7,10 @@ import { cronSelectionStore } from "../Cron/cronSelectionStore";
 import { SidebarCronRow } from "./SidebarResourceRow";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { graphA, installBridge, machine, mount, named, settle, teamCron, workspaces as jobsWorkspaces } from "../Jobs/jobsEntry.testdata";
-import { daemon, schedule, shell, tabs, teams, workspaces } from "../General/generalOverview.testdata";
+import { daemon as remoteDaemon, schedule, shell, tabs, teams, workspaces } from "../General/generalOverview.testdata";
 import { mergeJobs, NO_JOBS_FILTER } from "../Jobs/jobsModel";
+
+const daemon = { ...remoteDaemon, source_peer_id: undefined, source_peer: undefined };
 
 test("General sidebar disclosures persist, navigate to original shells and open job details and service refusals", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -18,9 +20,9 @@ test("General sidebar disclosures persist, navigate to original shells and open 
   const unsubscribe = cronSelectionStore.subscribe(() => { opened += 1; });
   const navigated: string[][] = [];
   const props = {
-    workspaces, teams, tabs, touchMode: true, onCloseTab: () => {}, onRenameTab: () => {},
+    generalWorkspaceId: workspaces[0].id, workspaces, teams, tabs, touchMode: true, onCloseTab: () => {}, onRenameTab: () => {},
     onNavigate: (workspaceId: string, tabId: string) => navigated.push([workspaceId, tabId]),
-    jobs: mergeJobs(NO_JOBS_FILTER, [teamCron], []),
+    jobs: mergeJobs(NO_JOBS_FILTER, [{ ...teamCron, workspace_id: workspaces[0].id }], []),
     inventory: { services: [daemon, schedule], peers: [], thisMachine: { name: "Local", ip: "127.0.0.1" }, loading: false, error: null, refresh: () => {} },
   };
   const view = await mount(<GeneralInventorySections {...props} />);
@@ -32,10 +34,10 @@ test("General sidebar disclosures persist, navigate to original shells and open 
       assert.equal(toggle(name).getAttribute("aria-expanded"), "true");
       assert.equal(view.host.querySelector(`ul[aria-label="${name}"]`)?.hasAttribute("hidden"), false);
     }
-    assert.equal(toggle("Jobs").getAttribute("aria-label"), "Jobs, 2");
+    assert.equal(toggle("Jobs").getAttribute("aria-label"), "Jobs, 1");
     await act(async () => named(view.host, `Open job ${teamCron.name}`)!.click());
     assert.equal(opened, 1);
-    assert.deepEqual(cronSelectionStore.get(), { workspaceId: teamCron.workspace_id, cronId: teamCron.id });
+    assert.deepEqual(cronSelectionStore.get(), { workspaceId: workspaces[0].id, cronId: teamCron.id });
     await act(async () => named(view.host, `Open tab qa shell, ${shell.title}`)!.click());
     assert.deepEqual(navigated, [[workspaces[0].id, shell.id]]);
     await act(async () => named(view.host, `Open ${daemon.name}, machine ${daemon.machine_name}`)!.click());
@@ -59,18 +61,18 @@ test("General sidebar disclosures persist, navigate to original shells and open 
   }
 });
 
-test("General jobs read machine crons and workspace graphs through existing jobs sources", async () => {
+test("General jobs read only their workspace crons and graphs", async () => {
   const cleanup = await installBridge();
   machine.graphs.project = { ...graphA, workspace_id: "project" };
   let jobs: ReturnType<typeof useGeneralJobs> | undefined;
   function Probe() {
-    jobs = useGeneralJobs([...jobsWorkspaces, ...workspaces]);
+    jobs = useGeneralJobs([...jobsWorkspaces, ...workspaces], jobsWorkspaces[0].id);
     return null;
   }
   const view = await mount(<Probe />);
   try {
     await settle(() => !!jobs?.jobs.some((job) => job.kind === "cron") && !!jobs?.jobs.some((job) => job.kind === "sentinel"));
-    assert.ok(machine.cronReads.some((read) => JSON.stringify(read) === "{}"));
+    assert.ok(machine.cronReads.some((read) => JSON.stringify(read) === JSON.stringify({ workspaceId: jobsWorkspaces[0].id })));
     assert.equal(jobs?.failed, false);
   } finally {
     await view.close();
@@ -130,4 +132,17 @@ test("system Cron row toggles once and renders deletion unavailable", async () =
     await view.close();
     __setInvokeForTest(null);
   }
+});
+
+test("General Jobs Show all opens the machine-wide Jobs entry once even when General has no jobs", async () => {
+  let opened = 0;
+  const view = await mount(<GeneralInventorySections generalWorkspaceId="general" workspaces={workspaces} teams={teams} tabs={{}}
+    inventory={{ services: [], peers: [], thisMachine: { name: "Local", ip: "" }, loading: false, error: null, refresh: () => {} }} jobs={[]}
+    onCloseTab={() => {}} onRenameTab={() => {}} onNavigate={() => {}} onShowAllJobs={() => { opened++; }} />);
+  try {
+    const showAll = view.host.querySelector<HTMLButtonElement>('section[aria-label="Jobs"] button[aria-label="Show all jobs"]');
+    assert.ok(showAll);
+    await act(async () => showAll.click());
+    assert.equal(opened, 1);
+  } finally { await view.close(); }
 });

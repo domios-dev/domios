@@ -62,22 +62,23 @@ const meshSendHost = await render(
     resolvePeerName={(ref) => ref === meshId ? "BLACKSTAR" : undefined}
   />,
 );
-const meshHeader = meshSendHost.host.querySelector("button")?.textContent ?? "";
+const meshHeader = meshSendHost.host.querySelector('[data-testid="chat-sent-header"]')?.textContent ?? "";
 if (!meshHeader.includes("Sent to") || !meshHeader.includes("Dumas @ BLACKSTAR") || meshHeader.includes(meshId)) throw new Error("mesh send header must use human endpoint names");
 const successfulSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), result: "OK (sent)\nOK" }} expanded onToggle={() => {}} />);
 if (successfulSendHost.host.querySelector('[data-testid="toolcard-result"]') || successfulSendHost.host.textContent?.includes("OK (sent)")) throw new Error("successful send result must stay hidden");
 const pendingSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), result: "OK (pending)" }} expanded onToggle={() => {}} />);
-if (!pendingSendHost.host.querySelector('[data-testid="toolcard-result"]') || !pendingSendHost.host.textContent?.includes("OK (pending)")) throw new Error("pending send result must remain visible");
-if (pendingSendHost.host.querySelector('[data-testid="toolcard-status"]')?.getAttribute("aria-label") !== "pending") throw new Error("pending send must not render as successful");
+if (pendingSendHost.host.querySelector('[data-testid="toolcard-result"]') || pendingSendHost.host.textContent?.includes("OK (pending)")) throw new Error("pending send wrapper output must stay hidden");
+if (pendingSendHost.host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") !== "pending") throw new Error("pending send must not render as successful");
 const contradictorySendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), status: "error", result: 'Exit code: 2\nOK (sent)\nCODETERM_RESOLVED_TEXT="hello"' }} expanded onToggle={() => {}} />);
 if (contradictorySendHost.host.querySelector('[data-testid="toolcard-result"]')) throw new Error("successful send must hide a contradictory wrapper exit code");
-if (contradictorySendHost.host.querySelector('[data-testid="toolcard-status"]')?.getAttribute("aria-label") !== "success") throw new Error("successful send must override a contradictory wrapper status");
+if (contradictorySendHost.host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") !== "delivered") throw new Error("successful send must override a contradictory wrapper status");
 const failedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), status: "error", result: "error: tab not found" }} expanded onToggle={() => {}} />);
-if (!failedSendHost.host.querySelector('[data-testid="toolcard-result"]') || !failedSendHost.host.textContent?.includes("tab not found")) throw new Error("failed send result must remain visible");
+if (!failedSendHost.host.querySelector('[role="alert"]') || !failedSendHost.host.textContent?.includes("tab not found")) throw new Error("failed send reason must remain visible");
 const resolvedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "$VAR"'), result: 'OK (sent)\nCODETERM_RESOLVED_TEXT="expanded ***REDACTED*** text"' }} expanded onToggle={() => {}} />);
 if (!resolvedSendHost.host.textContent.includes("expanded REDACTED text")) throw new Error("resolved send must render redacted text");
 if (resolvedSendHost.host.textContent.includes("expanded-secret")) throw new Error("resolved send must not reveal secret text");
-if (!resolvedSendHost.host.querySelector('[data-testid="raw-command-disclosure"]')) throw new Error("expanded card must own its raw command disclosure");
+const rawCommandDetails = resolvedSendHost.host.querySelector<HTMLDetailsElement>('[data-testid="raw-command-disclosure"]');
+if (!rawCommandDetails || rawCommandDetails.open) throw new Error("send command details must stay collapsed when the card expands");
 if (resolvedSendHost.host.querySelector('[data-testid="message-raw-content"]')) throw new Error("formatted card must hide the raw invocation");
 const typedSendHost = await render(<CodetermActionCard event={event('codeterm send --tab e3fa0754 "$VAR"')} expanded onToggle={() => {}} />);
 if (!typedSendHost.host.textContent?.includes("$VAR")) throw new Error("typed message body must render in the formatted card");
@@ -176,7 +177,9 @@ const descriptorCases: Array<[string, string]> = [
 ];
 for (const [command, lead] of descriptorCases) {
   const descriptorHost = await render(<CodetermActionCard event={event(command)} expanded={false} onToggle={() => {}} />);
-  if (!descriptorHost.host.textContent?.includes(lead) || descriptorHost.host.textContent.includes(command)) throw new Error(`descriptor regression: ${lead}`);
+  const text = descriptorHost.host.textContent ?? "";
+  const rawDetails = descriptorHost.host.querySelector<HTMLDetailsElement>('[data-testid="raw-command-disclosure"]');
+  if (!text.includes(lead) || (text.includes(command) && !(rawDetails && !rawDetails.open))) throw new Error(`descriptor regression: ${lead}`);
 }
 const collapsedHost = await render(<CodetermActionCard event={event("codeterm plan task add pl_d17yp2 --name Implement")} expanded={false} onToggle={() => {}} />);
 if (collapsedHost.host.querySelector('[data-testid="toolcard-command"]')) throw new Error("raw command leaked while collapsed");

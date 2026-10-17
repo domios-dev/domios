@@ -1,3 +1,5 @@
+import { peerInventoryModel } from "./peerInventoryModel";
+import type { Service } from "./types";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, Globe, Plus } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
@@ -44,6 +46,9 @@ interface Props {
   webStatus?: string;
   thisMachine: { name: string; ip: string };
   peers: PeerStatus[];
+  services?: Service[];
+  loading?: boolean;
+  error?: string | null;
   recentPushes: RecentPush[];
   onPeerClick: (peerName: string) => void;
   width: number;
@@ -73,6 +78,9 @@ export function MeshCanvas({
   webStatus = "Unavailable",
   thisMachine,
   peers,
+  services = [],
+  loading = false,
+  error,
   recentPushes,
   onPeerClick,
   width,
@@ -359,6 +367,7 @@ export function MeshCanvas({
             ) : (
               <div style={{ transform: `scale(${MACHINE_CARD_SCALE})` }}>
               <PeerTerminal
+                inventory={peerInventoryModel(services, peers.find((peer) => peer.instance_id === p.id) ?? { instance_id: p.id, name: p.name, online: true }, !!p.isThisMachine, loading, error)}
                 name={p.name}
                 ip={p.ip}
                 isThisMachine={p.isThisMachine}
@@ -366,7 +375,7 @@ export function MeshCanvas({
                 pending={p.pending}
                 accessLevel={p.accessLevel as "full" | "read_only" | "agent_isolated" | undefined}
                 onClick={() => onPeerClick(p.name)}
-                offline={p.isThisMachine && !meshEnabled}
+                offline={p.isThisMachine ? !meshEnabled : !peers.find((peer) => peer.instance_id === p.id)?.online}
                 onGoOnline={p.isThisMachine ? onGoOnline : undefined}
               />
               </div>

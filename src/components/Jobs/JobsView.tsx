@@ -1,9 +1,14 @@
+import type { TransportClient } from "../../lib/transportClient";
+import { JobsMachineFilter } from "./JobsMachineFilter";
+import { PeerJobsView } from "./PeerJobsView";
+import { jobsEntryState, THIS_MACHINE } from "./jobsMachineModel";
+import { useJobsMachines } from "./useJobsMachines";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { Clock3, Network, Plus, Square, Trash2, Workflow } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
 import { returnToOrigin, type ReturnTo, type ReturnToRoute } from "../../lib/returnTo";
-import type { Tab, Team } from "../../lib/types";
+import type { PairedPeer, Tab, Team } from "../../lib/types";
 import { usePlanPeerContext } from "../Canvas/usePlanPeerContext";
 import { CronWorkspaceView } from "../Cron/CronWorkspaceView";
 import type { MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions";
@@ -287,6 +292,8 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
 }
 
 export interface JobsViewProps {
+  machinePeers?: readonly PairedPeer[];
+  peerClient?: (peerId: string) => TransportClient;
   workspaces: readonly JobsWorkspace[];
   teams: readonly Team[];
   tabs?: Record<string, Tab>;
@@ -304,7 +311,7 @@ export interface JobsViewProps {
 }
 
 /** The one Jobs view: crons and Blueprint graphs narrowed by optional workspace and Team capsules. Hosts differ only by initial filter. */
-export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, returnTo, onReturnTo, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
+export function JobsView({ machinePeers, peerClient, workspaces, teams, tabs = {}, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, returnTo, onReturnTo, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
   const origin = useRef<ReturnToRoute>({ returnTo });
   const onReturn = () => {
     if (!returnToOrigin(origin.current, onReturnTo ?? (() => false))) return false;
@@ -313,6 +320,9 @@ export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS
   };
   const close = () => { if (!onReturn()) onClose?.(); };
   const context = usePlanPeerContext();
+  const machines = useJobsMachines(machinePeers === undefined);
+  const peers = machinePeers ?? machines.peers;
+  const [machineId, setMachineId] = useState(jobsEntryState({ kind: "machine" }).machineId);
   const [importOpen, setImportOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
@@ -328,10 +338,13 @@ export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS
   const sourcesKey = JSON.stringify(layout.sources);
   const sources = useMemo<string[]>(() => JSON.parse(sourcesKey), [sourcesKey]);
   const connectionId = `host:${context.ready ? context.generation : "detached"}`;
+  const changeMachine = (id: string) => { changeFilter(NO_JOBS_FILTER); setMachineId(id); };
+  if (machineId !== THIS_MACHINE) return <PeerJobsView clientForPeer={peerClient} key={machineId} peerId={machineId} peers={peers} onMachineChange={changeMachine} onClose={close} />;
   return <section aria-label="Jobs" tabIndex={-1} className="flex h-full min-h-0 flex-col bg-[var(--ct-bg)] text-[var(--ct-fg)]">
     <header hidden={detailOpen} className="ct-jobs-header flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
       {onClose && <BackPill label="where you were" onBack={close} />}
       <h2 className="flex items-center gap-2 text-[length:var(--ct-font-size-md)] font-semibold"><Workflow size={16} className="shrink-0 text-[var(--ct-tone-blueprint)]" aria-hidden="true" />Jobs</h2>
+      <JobsMachineFilter value={machineId} peers={peers} onChange={changeMachine} />
       <JobsFilterBar filter={filter} layout={layout} teams={teams} onChange={changeFilter} />
       <div className="ml-auto flex shrink-0 items-center gap-2">
         <button type="button" className={AUTOMATION_TOOL} onClick={() => setImportOpen(true)}><Plus size={12} aria-hidden="true" />Import Blueprint</button>
@@ -341,6 +354,7 @@ export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS
       </div>
     </header>
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      {machines.failed && machinePeers === undefined && <p role="status" className="px-4 py-2">Paired machine list unavailable.</p>}
       {importOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintImportForm creators={Object.values(tabs).filter((tab) => tab.team_id && teams.some((team) => team.id === tab.team_id && (filter.teamId === null || team.id === filter.teamId) && (filter.workspaceId === null || team.workspace_id === filter.workspaceId))).map((tab) => ({ id: tab.id, label: `${tab.title} (${teams.find((team) => team.id === tab.team_id)?.name ?? tab.team_id})` }))} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} /></div>}
       {importRevision > 0 && <p role="status" className="px-4 py-2">Blueprint imported stopped.</p>}
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>

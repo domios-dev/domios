@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::multiplexer::types::Tab;
-use crate::plan::{Plan, PlanMode, PlanStatus};
+use crate::plan::Plan;
 use crate::service::hierarchy::heartbeat_gate::{
     self, Claim, Decision, Gate, Observation, ReminderKind, Scope, Snapshot, TickFact,
 };
@@ -468,19 +468,8 @@ fn worker_matches(plans: &[Plan], tab_id: &str) -> Vec<(Plan, String)> {
 }
 
 fn owner_eligible(plan: &Plan, kind: ReminderKind) -> bool {
-    let active = plan.status == PlanStatus::Active;
     match kind {
         ReminderKind::Owner => super::owner_reminder_eligible(plan),
-        ReminderKind::ModeChange => active && plan.mode != PlanMode::Execution,
-        ReminderKind::StalledTeam => {
-            active
-                && plan.mode == PlanMode::Execution
-                && !orchestrator_actionable_task_ids(plan).is_empty()
-        }
-        ReminderKind::CompleteWrapup => {
-            crate::service::plan::complete_wrapup::needs_complete_wrapup(plan)
-                && !crate::service::plan::pause_operation::plan_notices_suppressed(plan)
-        }
         ReminderKind::Worker => false,
     }
 }

@@ -203,14 +203,35 @@ impl Member {
                 return Ok(());
             }
 
-            validate_identity_fields(
+            let exit_confirmed = self.exited()?;
+            log::debug!(
+                "[agent-runtime] retained identity pid={} expected_born={} current_born={:?} expected_group={} current_group={} exit_confirmed={}",
                 self.pid,
+                self.born,
+                current_born,
+                boundary.pid,
+                current_group,
+                exit_confirmed
+            );
+            let classification = validate_identity_fields(
                 current_born,
                 current_group,
                 self.born,
                 boundary.pid as i32,
-                || self.exited(),
-            )
+                exit_confirmed,
+            )?;
+            log::debug!(
+                "[agent-runtime] retained identity pid={} classification={:?}",
+                self.pid,
+                classification
+            );
+            match classification {
+                IdentityClassification::AwaitExit => {
+                    // A failed group lookup cannot authorize a signal; only the retained exit event can resolve it.
+                    self.wait(Instant::now() + std::time::Duration::from_secs(5))
+                }
+                IdentityClassification::Valid | IdentityClassification::Exited => Ok(()),
+            }
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -317,31 +338,34 @@ fn event(_: u32) -> i32 {
 }
 
 #[cfg(target_os = "macos")]
+#[derive(Debug, PartialEq, Eq)]
+enum IdentityClassification {
+    Valid,
+    AwaitExit,
+    Exited,
+}
+
+#[cfg(target_os = "macos")]
 fn validate_identity_fields(
-    pid: u32,
     current_born: Result<u128, String>,
     current_group: i32,
     expected_born: u128,
     expected_group: i32,
-    confirm_exit: impl FnOnce() -> Result<bool, String>,
-) -> Result<(), String> {
-    let exited = confirm_exit()?;
-    log::debug!(
-        "[agent-runtime] retained identity mismatch pid={} expected_born={} current_born={:?} expected_group={} current_group={} exit_confirmed={}",
-        pid,
-        expected_born,
-        current_born,
-        expected_group,
-        current_group,
-        exited
-    );
-    if exited {
-        return Ok(());
+    exit_confirmed: bool,
+) -> Result<IdentityClassification, String> {
+    if exit_confirmed {
+        return Ok(IdentityClassification::Exited);
     }
-    if current_born? != expected_born || current_group != expected_group {
+    if current_born? != expected_born {
         return Err("Retained process identity or owned group changed".into());
     }
-    Ok(())
+    if current_group == -1 {
+        return Ok(IdentityClassification::AwaitExit);
+    }
+    if current_group != expected_group {
+        return Err("Retained process identity or owned group changed".into());
+    }
+    Ok(IdentityClassification::Valid)
 }
 
 #[cfg(all(test, target_os = "macos"))]

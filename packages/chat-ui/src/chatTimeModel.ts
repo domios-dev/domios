@@ -1,11 +1,15 @@
-export const CHAT_TIME_GUTTER_BREAKPOINT = 900;
+const CHAT_COLUMN_INSET = 20;
+const CHAT_TIME_GAP = 8;
 
-export function showChatTimeGutter(width: number): boolean {
-  return Number.isFinite(width) && width >= CHAT_TIME_GUTTER_BREAKPOINT;
+export function showChatTimeGutter(paneWidth: number, timestampWidth: number, columnWidth: number): boolean {
+  if (![paneWidth, timestampWidth, columnWidth].every(Number.isFinite) || paneWidth < 0 || timestampWidth < 0 || columnWidth < 0) return false;
+  const rowWidth = Math.min(columnWidth, Math.max(0, paneWidth - CHAT_COLUMN_INSET * 2));
+  const sideMargin = (paneWidth - rowWidth) / 2;
+  return sideMargin >= timestampWidth + CHAT_TIME_GAP + CHAT_COLUMN_INSET;
 }
 
-export function chatHorizontalInsets(width: number, _composerInset: number, timestampWidth: number) {
-  const timeGutter = showChatTimeGutter(width) ? timestampWidth + 8 : 0;
+export function chatHorizontalInsets(width: number, _composerInset: number, timestampWidth: number, columnWidth: number) {
+  const timeGutter = showChatTimeGutter(width, timestampWidth, columnWidth) ? timestampWidth + CHAT_TIME_GAP : 0;
   return { composerInset: 20, contentInset: 20, timeGutter };
 }
 
