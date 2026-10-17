@@ -268,7 +268,7 @@ printf 'PASS stats refuses offline synthetic counters and names the endpoint\n'
   pgrep() { echo scan >> "$WORK/idle-scans"; return 0; }
   powershell.exe() { echo scan >> "$WORK/idle-scans"; return 0; }
   source "$ROOT/scripts/build-gateway.sh"
-  ct_gateway_state_tool() { [ "$1" = evidence-reset ]; }
+  ct_gateway_state_tool() { [ "$1" = evidence-restart ] && [ "$7" = storage_mismatch ]; }
   printf 's3, name: other-bucket, prefix: /' > "$WORK/location"
   ct_configure_sccache
   [ ! -e "$WORK/idle-scans" ]

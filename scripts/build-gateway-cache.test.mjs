@@ -167,7 +167,7 @@ test('cache reset metadata failure stops server restart before compile', { timeo
     const result = await client.exited;
     assert.equal(result.code, 74, result.errors);
     assert.doesNotMatch(result.output, /STOPPED|STARTED/);
-    assert.match(result.errors, /metadata write failed before compilation: cache reset evidence/);
+    assert.match(result.errors, /metadata write failed before compilation: cache restart evidence/);
     assert.equal(fs.existsSync(path.join(directory, 'state', 'sccache-start-state', 'state.lock')), false);
   } finally { await cleanup(directory, [client]); }
 });
@@ -175,7 +175,7 @@ test('cache reset metadata failure stops server restart before compile', { timeo
 test('mixed build verbs share one cache startup and persist four completed history rows', { timeout: 60000 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-mixed-verbs-'));
   const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
-  const dispatch = '\ncase "$CMD" in\n  fmt-check|';
+  const dispatch = '\ncase "$CMD" in\n  lane-wrapper-check|';
   assert.equal(source.split('ct_configure_sccache\n').length - 1, 1);
   assert.ok(source.includes(dispatch));
   const fixture = `
@@ -297,7 +297,7 @@ test('mixed build verbs share one cache startup and persist four completed histo
 
 test('every cargo dispatch is covered by the common entry', () => {
   const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
-  const centralized = source.match(/case "\$CMD" in\n  (fmt-check\|[^\n]+)\)\n    enter_cargo_gateway/)[1].split('|');
+  const centralized = source.match(/case "\$CMD" in\n  ([^\n]+)\)\n    enter_cargo_gateway/)[1].split('|');
   const dispatch = source.slice(source.indexOf('\ncase "$CMD" in\n  help)'));
   const branches = [...dispatch.matchAll(/^  ([\w:|-]+)\)\n([\s\S]*?)(?=^  [\w:|-]+\)\n|$(?![\s\S]))/gm)];
   for (const [, names, body] of branches) {

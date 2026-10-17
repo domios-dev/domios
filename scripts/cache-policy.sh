@@ -265,14 +265,15 @@ ct_sccache_restart_locked() {
       return 75
     fi
   fi
-  local evidence_log="${SCCACHE_ERROR_LOG:-}"
+  local evidence_log="${SCCACHE_ERROR_LOG:-}" restart_reason="${1:-unspecified}"
   if declare -F ct_gateway_dir >/dev/null; then
     evidence_log="${evidence_log:-$(ct_gateway_dir)/sccache-server.log}"
     mkdir -p "$(dirname "$evidence_log")"
     if [ "${CT_GATEWAY_ACTIVE:-0}" = 1 ]; then
-      ct_gateway_state_tool evidence-reset --dir "$(ct_gateway_dir)" --job-id "$CT_BUILD_JOB_ID" || { echo "[build-gateway] metadata write failed before compilation: cache reset evidence" >&2; return 74; }
+      ct_gateway_state_tool evidence-restart --dir "$(ct_gateway_dir)" --job-id "$CT_BUILD_JOB_ID" --reason "$restart_reason" || { echo "[build-gateway] metadata write failed before compilation: cache restart evidence" >&2; return 74; }
     fi
   fi
+  echo "[cache-policy] restarting sccache server: reason=$restart_reason"
   sccache --stop-server >/dev/null 2>&1 || true
   if ! ct_sccache_start_with_evidence "$evidence_log"; then
     echo "[cache-policy] ERROR: sccache server failed to start with $CT_SCCACHE_STORAGE storage" >&2
@@ -329,9 +330,12 @@ ct_configure_sccache_locked() {
     ct_sccache_verify
     return $?
   fi
-  local stats location
+  local stats location restart_reason server_live=0
   stats=""
-  if ct_sccache_server_live; then stats="$(sccache --show-stats 2>/dev/null)" || stats=""; fi
+  if ct_sccache_server_live; then
+    server_live=1
+    stats="$(sccache --show-stats 2>/dev/null)" || stats=""
+  fi
   location="$(printf '%s\n' "$stats" | sed -n 's/^Cache location[[:space:]]*//p')"
   ct_sccache_storage
   if [ "$CT_SCCACHE_STORAGE" = local ] && [ "${CODETERM_SCCACHE_STORAGE:-}" != local ] && [[ "$location" == 's3, name: '* ]]; then
@@ -344,7 +348,11 @@ ct_configure_sccache_locked() {
   if ct_sccache_storage_matches "$location"; then
     echo "[cache-policy] reusing running sccache server"
   else
-    ct_sccache_restart || return $?
+    if [ "$server_live" = 0 ]; then restart_reason=server_unavailable
+    elif [ -n "$location" ]; then restart_reason=storage_mismatch
+    else restart_reason=stats_unavailable
+    fi
+    ct_sccache_restart "$restart_reason" || return $?
     if ! ct_sccache_server_live; then
       echo "[cache-policy] ERROR: sccache startup did not leave a live server" >&2
       return 2
