@@ -10,6 +10,15 @@ impl JsProvider {
     ) -> Result<RuntimePlan, RuntimeFailure> {
         let vm = self.vm.clone();
         let cap = self.runtime_capability()?;
+        if let RuntimeOperation::Control { action, value, .. } = op {
+            if action == "settings" {
+                log::debug!(
+                    "[runtime-control] provider={} version={} tab={} model={:?} effort={:?} mode={:?} service_tier={:?}",
+                    self.manifest.id, self.manifest.version, ctx.tab_id,
+                    value.get("model"), value.get("effort"), value.get("mode"), value.get("serviceTier")
+                );
+            }
+        }
         let ctx = ctx.clone();
         let op = op.clone();
         let deadline = std::time::Instant::now() + RUNTIME_HOOK_DEADLINE;
