@@ -1,6 +1,6 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { nativeBridge } from "../../lib/nativeBridge";
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { invoke, listen } from "../../lib/bridge";
 import { BusySpinner } from "../shared/BusyState";
@@ -138,16 +138,18 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     setDrawerState({ kind: "peer", id: name });
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = mapRef.current;
     if (!element || activeTab !== "inventory") return;
-    const observer = new ResizeObserver(() => {
+    const measure = () => {
       const bounds = element.getBoundingClientRect();
       if (bounds.width <= 0 || bounds.height <= 0) return;
       setMapSize((current) => Math.abs(current.width - bounds.width) < 1 && Math.abs(current.height - bounds.height) < 1
         ? current
         : { width: bounds.width, height: bounds.height });
-    });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
   }, [activeTab]);
@@ -187,7 +189,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         <div className="ct-section-toolbar__identity flex items-center gap-3 mr-4 shrink-0">
           <strong>Mesh</strong>
           <div className={`${UI_TEXT.meta} opacity-70`}>
-            {data.error
+            {data.error && activeTab !== "inventory"
               ? <InlineErrorNotice error={data.error} operation="loading the mesh" />
               : `${headerPeerCount} peer${headerPeerCount === 1 ? "" : "s"}`}
           </div>
