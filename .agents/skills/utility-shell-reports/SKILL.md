@@ -41,7 +41,7 @@ its persisted mesh return route. If there is no parent, build.sh raises a
 `failure` on startup errors).
 
 If a named instance is already running with stale health, stop it before
-restarting: `CODETERM_INSTANCE=<n> ./build.sh kill`.
+restarting: `CODETERM_DEV_INSTANCE=<n> CODETERM_DEV_API_PORT=<port> ./build.sh kill`.
 
 For a visible foreground dev process, omit `--wait`:
 

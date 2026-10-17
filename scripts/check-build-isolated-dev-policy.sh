@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-isolated="$(CODETERM_INSTANCE=playwright-harness CODETERM_API_PORT=7786 CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY=1 ./build.sh dev --wait)"
+isolated="$(CODETERM_DEV_INSTANCE=playwright-harness CODETERM_DEV_API_PORT=7786 CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY=1 ./build.sh dev --wait)"
 grep -Fxq 'mode=isolated-named-wait' <<<"$isolated"
 grep -Eq '^target=.*/\.codeterm-dev-playwright-harness/target$' <<<"$isolated"
 grep -Fxq 'build_gateway=required' <<<"$isolated"
@@ -14,8 +14,8 @@ canonical="$(CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY=1 ./build.sh dev --wait)"
 grep -Fxq 'mode=shared' <<<"$canonical"
 grep -Fxq 'build_gateway=required' <<<"$canonical"
 
-first="$(CODETERM_INSTANCE=tester-one CODETERM_API_PORT=7781 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
-second="$(CODETERM_INSTANCE=tester-two CODETERM_API_PORT=7782 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
+first="$(CODETERM_DEV_INSTANCE=tester-one CODETERM_DEV_API_PORT=7781 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
+second="$(CODETERM_DEV_INSTANCE=tester-two CODETERM_DEV_API_PORT=7782 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
 for field in data_dir api_port vite_port cdp_port; do
   first_value="$(sed -n "s/^${field}=//p" <<<"$first")"
   second_value="$(sed -n "s/^${field}=//p" <<<"$second")"
@@ -26,11 +26,11 @@ for field in data_dir api_port vite_port cdp_port; do
 done
 
 set +e
-missing_port="$(env -u CODETERM_API_PORT CODETERM_INSTANCE=tester-no-port \
+missing_port="$(env -u CODETERM_DEV_API_PORT CODETERM_DEV_INSTANCE=tester-no-port \
   CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait 2>&1)"
 missing_port_status=$?
 set -e
-if [ "$missing_port_status" -ne 2 ] || ! grep -q 'requires its own non-default CODETERM_API_PORT' <<<"$missing_port"; then
+if [ "$missing_port_status" -ne 2 ] || ! grep -q 'requires its own CODETERM_DEV_API_PORT' <<<"$missing_port"; then
   echo "named dev must refuse to share the default API port" >&2
   echo "$missing_port" >&2
   exit 1

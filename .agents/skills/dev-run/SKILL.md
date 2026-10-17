@@ -97,9 +97,12 @@ See the reporting skill above for parent, self-notification and mesh routing.
 
 When running from inside a production Domios tab, the shell may inherit
 `CODETERM_API_PORT=7685`. `build.sh dev`, `build.sh kill`, and e2e commands
-guard against that and switch the canonical dev instance back to 7686; do not
-override that guard unless you are intentionally running a named non-prod
-instance on another port.
+ignore inherited connection selectors and select canonical DEV on 7686. Explicit
+launch settings use `CODETERM_DEV_INSTANCE` and `CODETERM_DEV_API_PORT`;
+the launcher exports the selected `CODETERM_INSTANCE`/`CODETERM_API_PORT` to children.
+It clears parent URL, token, socket and data-directory selectors after capturing
+the parent report route. Optional frontend/CDP launch overrides use
+`CODETERM_DEV_VITE_PORT` and `CODETERM_DEV_CDP_PORT`.
 
 ```bash
 curl -s http://127.0.0.1:7686/api/health | jq '.status'
@@ -240,7 +243,7 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 
 ## Troubleshooting log (grow this as things break)
 
-- **2026-10-18: worktree DEV selected production port 7685.** The debug API default accepted inherited `CODETERM_API_PORT`, and a saved `[api].port` overrode that default. Startup refuses a saved production port even with a safe environment override, then selects the explicit dev launch port over safe saved config; TCP and mesh UDP binding also guard it. `dev`, `dev-prebuilt`, and scoped cleanup refuse non-canonical worktrees without an explicit instance and private port. In Git Bash use `CODETERM_INSTANCE=my-lane CODETERM_API_PORT=7799 ./build.sh dev`; in PowerShell set `$env:CODETERM_INSTANCE='my-lane'; $env:CODETERM_API_PORT='7799'` before `./build.ps1 dev`. Choose an unused port other than 7685/7686 and use the same settings for `kill`. If the refusal names the saved config, change `[api].port` in `~/.codeterm-dev[-<instance>]/config.toml` to that private port first. A bare canonical launch inherited from prod also refuses 7685: explicitly select 7686 for canonical DEV. Never stop production to resolve the refusal.
+- **2026-10-18: worktree DEV selected production port 7685.** The debug API default accepted inherited `CODETERM_API_PORT`, and a saved `[api].port` overrode that default. Startup refuses a saved production port even with a safe environment override, then selects the explicit dev launch port over safe saved config; TCP and mesh UDP binding also guard it. `dev`, `dev-prebuilt`, and scoped cleanup refuse non-canonical worktrees without an explicit instance and private port. In Git Bash use `CODETERM_DEV_INSTANCE=my-lane CODETERM_DEV_API_PORT=7799 ./build.sh dev`; in PowerShell set `$env:CODETERM_DEV_INSTANCE='my-lane'; $env:CODETERM_DEV_API_PORT='7799'` before `./build.ps1 dev`. Choose an unused port other than 7685/7686 and use the same settings for `kill`. If the refusal names the saved config, change `[api].port` in `~/.codeterm-dev[-<instance>]/config.toml` to that private port first. Canonical launch ignores parent connection variables and selects 7686. Explicit `CODETERM_DEV_API_PORT=7685` still refuses. Never stop production to resolve the refusal.
 
 - **2026-10-17: DEV retains an older installed system provider.** DEV skipped embedded bootstrap, leaving installed bundles stale; workspace priority also ignored a newer installed release. Startup now refreshes bundled system ids with the existing version/hash installer, and both initial loading and the watcher keep the newest system version (workspace wins equal versions). Check the final `[js-plugin] codex version=...` startup line or `daemon-reloaded` audit event; an earlier `loaded ...` line or installed manifest alone does not identify the active implementation. After integrating the host repair, the owner rebuilds DEV once with `./build.ps1 dev`. To refresh a running DEV from the official channel without rebuilding, run `source evals/_lib/lib.sh` then `dc plugin update-system codex` in Git Bash from canonical. This installs the channel release and acknowledges live registration; it does not publish unreleased checkout changes. Never copy plugin files manually or downgrade a newer installed release.
 
