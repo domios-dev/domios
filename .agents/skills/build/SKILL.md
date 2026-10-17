@@ -527,7 +527,7 @@ gates skill's Release section owns that step.
 
    From an agent tab, launch it with a receipt (PowerShell and bash lines:
    [utility-shell-reports](../utility-shell-reports/SKILL.md#launcher-recipes-copy-paste)):
-   `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd ".uild.ps1 install-local -NotifyTab $env:CODETERM_TAB_ID"`.
+   `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd ".\build.ps1 install-local -NotifyTab $env:CODETERM_TAB_ID"`.
    rustfmt, the file-size gate and the clean-checkout check run first, in seconds.
 
    This route is Windows-only, requires the clean canonical checkout, reuses a
