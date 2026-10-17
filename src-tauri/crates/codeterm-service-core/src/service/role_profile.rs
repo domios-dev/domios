@@ -183,18 +183,14 @@ pub(super) fn normalize_spawn_params(params: &mut SpawnAgentParams) -> Result<()
 }
 
 /// The Worker subtype a task's executor role names, when it names a builtin
-/// task-bound leaf kind. Task-less kinds are not promoted from task metadata; a
-/// managing kind is never demoted into a Worker subtype.
+/// leaf kind. A managing kind is never demoted into a Worker subtype.
 pub fn builtin_worker_profile(executor_role: Option<&str>) -> Option<String> {
     let role = executor_role
         .map(str::trim)
         .filter(|role| !role.is_empty())?;
     let descriptor = role_kind::builtin_kind(&role.to_ascii_lowercase())?;
-    (!descriptor.anchors_team()
-        && !descriptor.has_team_authority()
-        && !descriptor.manages()
-        && !descriptor.is_taskless_worker())
-    .then(|| descriptor.id().to_string())
+    (!descriptor.anchors_team() && !descriptor.has_team_authority() && !descriptor.manages())
+        .then(|| descriptor.id().to_string())
 }
 
 /// A Worker subtype narrows within leaf capability, so a subtype id is kept
@@ -365,7 +361,7 @@ mod normalization_tests {
     }
 
     #[test]
-    fn taskless_kinds_normalize_only_as_workers_and_never_from_task_executor_roles() {
+    fn worker_kinds_normalize_and_promote_from_task_executor_roles() {
         for kind in [TESTER, RELEASE_MANAGER] {
             assert_eq!(
                 normalized("Worker", Some(kind)),
@@ -377,7 +373,11 @@ mod normalization_tests {
                 ..Default::default()
             };
             assert!(manager.normalize_role_profile().is_err(), "{kind}");
-            assert_eq!(builtin_worker_profile(Some(kind)), None, "{kind}");
+            assert_eq!(
+                builtin_worker_profile(Some(kind)),
+                Some(kind.into()),
+                "{kind}"
+            );
         }
     }
 

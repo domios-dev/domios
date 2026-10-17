@@ -22,6 +22,8 @@ A bounce carries its reason and failing evidence. It returns work to a live Work
 
 A delivered task-bound report ends with one verdict reminder naming its plan, task, accept/bounce command and report time. The reminder is advisory and never blocks dispatch, integration or other work.
 
+Worker kinds add role prompting automatically with the same execution ability with or without a task. A task-bound kind follows the normal Worker lifecycle; a task-less kind works for its parent and gains no task-transition authority. Publication and tags require owner GO.
+
 ## Isolated work and verification
 
 A mutating Worker writes only its own isolated lane unless the Orchestrator explicitly opts one Worker into canonical. That opt-in is exclusive, and lane acceptance waits for its verdict. Lane Workers may run isolated checks that do not rebuild the whole project; full rebuilds, full suites, dev services, packaging and self-install stay out of lanes. The Orchestrator accepts on review and lands accepted lanes by real ancestry-preserving merges, then reruns each merged wave's focused selectors as one canonical batch; a canonical failure becomes a bounce or fix task rather than holding the acceptance. The broad gate runs once, on the release SHA. A lane is removed only after its ancestry is proven integrated.

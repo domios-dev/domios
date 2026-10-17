@@ -302,7 +302,7 @@ pub enum AgentAction {
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
         #[arg(long)]
         role: Option<SpawnRole>,
-        /// Worker kind/profile. Task-less builtins are tester and release_manager.
+        /// Worker prompt kind/profile, with or without a task: tester or release_manager.
         #[arg(long, alias = "role-profile")]
         kind: Option<String>,
         /// Parent tab ID. Required for Workers; for a Planner, resolved
@@ -390,8 +390,8 @@ pub enum AgentAction {
         /// Team whose Orchestrator is gone and carries no other spawn flag.
         #[arg(long, value_name = "TEAM_ID", conflicts_with = "plan_task")]
         team: Option<String>,
-        /// Declared execution intent. `mutating` requires a task binding;
-        /// `read_only` is also the task-less verification-Worker shape.
+        /// Declared execution intent. Plain mutating Workers require a task binding;
+        /// Worker kinds may mutate task-less and default to `mutating`.
         #[arg(long = "execution-intent", value_parser = ["read_only", "mutating"])]
         execution_intent: Option<String>,
         /// Explicit OS confinement for this launch; Workers default to full access.
