@@ -250,6 +250,25 @@ pub enum AgentAction {
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
+    /// Continue this tab on another provider through a bounded handoff produced by the target.
+    SwitchProvider {
+        provider: String,
+        #[arg(long)]
+        tab: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        reasoning_effort: Option<String>,
+        /// Stop the current turn before switching. Otherwise a busy tab refuses.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Read a daemon-owned provider switch operation, including self-switch results.
+    SwitchProviderStatus {
+        operation: String,
+        #[arg(long)]
+        tab: Option<String>,
+    },
     /// List available agent providers (claude, codex, ...) with their
     /// display names, default models, and capability flags.
     Providers,

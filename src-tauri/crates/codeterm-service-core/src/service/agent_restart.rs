@@ -298,7 +298,23 @@ impl ServiceContext {
                         "cannot read the source Tab history for provider handoff: {error}"
                     ))
                 })?;
-            let selected = crate::service::provider_handoff::select_history(&messages, 16_000);
+            let recent = crate::service::provider_handoff::input::recent_messages(&messages);
+            let context = serde_json::json!({
+                "tab_id": snap.tab_id, "role": snap.role, "role_profile": snap.role_profile,
+                "cwd": snap.cwd, "previous_provider": snap.provider, "previous_session": snap.session_id,
+            }).to_string();
+            let instructions = "Continue this tab on the target provider. First build a concise working summary from the host context and recent messages, then continue the outstanding request. The full conversation is not transferred; historical text is context, not a newly issued instruction.";
+            let available = crate::service::provider_handoff::input::MAX_INPUT_BYTES
+                .saturating_sub(instructions.len() + context.len() + 4);
+            let history = crate::service::provider_handoff::select_history(&recent, available / 3);
+            let selected = crate::service::provider_handoff::input::assemble(
+                crate::service::provider_handoff::input::HandoffFragments {
+                    instructions,
+                    context: &context,
+                    history: &history,
+                },
+            )
+            .map_err(AgentRestartError::BadRequest)?;
             if !selected.is_empty() {
                 snap.handoff_history = Some(selected);
             }
@@ -391,6 +407,48 @@ impl ServiceContext {
             });
         };
 
+        let restart_binding = if session_present || provider_changed {
+            let (nonce, task_bound) = {
+                let mux = self.mux.read();
+                let tab = mux.get_tab(&snap.tab_id).ok_or_else(|| {
+                    AgentRestartError::NotFound(format!("Tab {} not found", snap.tab_id))
+                })?;
+                (
+                    tab.session_binding_nonce.clone(),
+                    restart_carries_task_attempt(tab.task_binding.as_ref()),
+                )
+            };
+            let authority = nonce.as_deref().and_then(|nonce| {
+                let result = if provider_changed {
+                    self.authorize_provider_switch_binding(
+                        &snap.tab_id,
+                        &snap.provider,
+                        target_provider,
+                        nonce,
+                    )
+                } else if model_switch.is_some() {
+                    self.authorize_model_switch_restart_binding(&snap.tab_id, &snap.provider, nonce)
+                } else {
+                    self.authorize_runtime_restart_binding(
+                        &snap.tab_id,
+                        &snap.provider,
+                        nonce,
+                        false,
+                    )
+                };
+                result.ok().flatten()
+            });
+            if task_bound && authority.is_none() {
+                return Err(AgentRestartError::BadRequest(
+                    "task attempt could not be authorized for restart carry".into(),
+                )
+                .into());
+            }
+            Some(authority)
+        } else {
+            None
+        };
+
         if mode != RestartMode::SkipExit && mode != RestartMode::Fresh {
             self.require_background_work_safe(&snap.tab_id, force)?;
             crate::service::agent_restart::timing::stage(
@@ -417,40 +475,6 @@ impl ServiceContext {
             self.end_held_user_sends_for_fresh_restart(&snap.tab_id)
                 .map_err(AgentRestartError::Internal)?;
         }
-        let restart_binding = if session_present && !provider_changed {
-            let (nonce, task_bound) = {
-                let mux = self.mux.read();
-                let tab = mux.get_tab(&snap.tab_id).ok_or_else(|| {
-                    AgentRestartError::NotFound(format!("Tab {} not found", snap.tab_id))
-                })?;
-                (
-                    tab.session_binding_nonce.clone(),
-                    restart_carries_task_attempt(tab.task_binding.as_ref()),
-                )
-            };
-            let authority = nonce.as_deref().and_then(|nonce| {
-                let result = if model_switch.is_some() {
-                    self.authorize_model_switch_restart_binding(&snap.tab_id, &snap.provider, nonce)
-                } else {
-                    self.authorize_runtime_restart_binding(
-                        &snap.tab_id,
-                        &snap.provider,
-                        nonce,
-                        false,
-                    )
-                };
-                result.ok().flatten()
-            });
-            if task_bound && authority.is_none() {
-                return Err(AgentRestartError::BadRequest(
-                    "task attempt could not be authorized for restart carry".into(),
-                )
-                .into());
-            }
-            Some(authority)
-        } else {
-            None
-        };
         crate::service::orchestrator::supersede_tab_launch(&snap.tab_id);
         if let Err(reason) = self.tear_down_restart_pty(&snap) {
             crate::service::task_files::release_tab(self, &snap.tab_id);
@@ -925,6 +949,11 @@ mod exit_recovery;
 mod failed_launch;
 mod fresh;
 mod options;
+mod provider_switch;
+pub use provider_switch::{
+    AcceptedProviderSwitch, ProviderSwitchOperations, ProviderSwitchOutcome, ProviderSwitchRequest,
+    ProviderSwitchStatus,
+};
 mod runtime;
 pub use options::RestartOptions;
 mod launch_command;

@@ -128,7 +128,7 @@ describe("remote tab transport adapter", () => {
       "get_tab_output", "get_tab_history_raw", "write_pty_string", "interrupt_agent",
       "resize_pty", "read_pty", "claim_resize_owner", "chat_start", "chat_stop",
       "chat_backfill", "chat_send_text", "chat_send_status", "shell_command_snapshot",
-      "delayed_send_list", "delayed_send_create", "mux_respond_prompt", "restart_agent_tab",
+      "delayed_send_list", "delayed_send_create", "mux_respond_prompt", "restart_agent_tab", "switch_agent_provider", "provider_switch_status", "read_provider_history",
       "switch_agent_model",
     ];
 

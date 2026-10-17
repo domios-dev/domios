@@ -25,6 +25,25 @@ fn key(svc: &ServiceContext, tab: &str) -> (usize, String) {
 }
 
 impl ServiceContext {
+    pub(crate) fn authorize_provider_switch_binding(
+        &self,
+        tab_id: &str,
+        source: &str,
+        target: &str,
+        nonce: &str,
+    ) -> Result<Option<RestartBindingAuthority>, String> {
+        let mut authority = self.authorize_restart_binding_mode(
+            tab_id,
+            source,
+            nonce,
+            RuntimeRestartMode::ProviderSwitch,
+        )?;
+        if let Some(authority) = &mut authority {
+            authority.request.target_provider = Some(target.into());
+        }
+        Ok(authority)
+    }
+
     pub(crate) fn authorize_runtime_restart_binding(
         &self,
         tab_id: &str,
@@ -131,7 +150,10 @@ impl ServiceContext {
             .ok_or("Runtime restart attempt changed")?;
         if detail.plan_id != plan
             || old.retired_at.is_some()
-            || (mode == RuntimeRestartMode::AuthorizedFresh && old.closed_at.is_some())
+            || (matches!(
+                mode,
+                RuntimeRestartMode::AuthorizedFresh | RuntimeRestartMode::ProviderSwitch
+            ) && old.closed_at.is_some())
             || old.session_id.as_deref() != Some(thread.as_str())
             || old.session_binding_nonce.as_deref() != Some(nonce)
             || old.provider.as_deref() != Some(provider)
@@ -146,6 +168,7 @@ impl ServiceContext {
                 attempt_id: attempt,
                 executor_tab_id: tab_id.into(),
                 provider: provider.into(),
+                target_provider: None,
                 old_thread: thread,
                 old_nonce: nonce.into(),
                 new_thread: String::new(),
@@ -194,7 +217,13 @@ impl ServiceContext {
         }
         let request = &authority.request;
         let exact = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
-            tab.agent_type.as_deref() == Some(request.provider.as_str())
+            tab.agent_type.as_deref()
+                == Some(
+                    request
+                        .target_provider
+                        .as_deref()
+                        .unwrap_or(&request.provider),
+                )
                 && tab.agent_session_id.as_deref() == Some(thread)
                 && tab.session_binding_nonce.as_deref() == Some(nonce)
                 && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
@@ -275,7 +304,13 @@ impl ServiceContext {
                     && detail.task.execution_attempts.iter().any(|attempt| {
                         attempt.id == request.attempt_id
                             && attempt.executor_tab_id == request.executor_tab_id
-                            && attempt.provider.as_deref() == Some(request.provider.as_str())
+                            && attempt.provider.as_deref()
+                                == Some(
+                                    request
+                                        .target_provider
+                                        .as_deref()
+                                        .unwrap_or(&request.provider),
+                                )
                             && attempt.session_id.as_deref() == Some(request.new_thread.as_str())
                             && attempt.session_binding_nonce.as_deref()
                                 == Some(request.new_nonce.as_str())
@@ -296,6 +331,15 @@ mod tests {
 
     #[test]
     fn restarted_worker_attempt_is_carried_before_ack() {
+        worker_attempt_carry(None);
+    }
+
+    #[test]
+    fn provider_switch_worker_attempt_is_carried_before_ack() {
+        worker_attempt_carry(Some("target-provider"));
+    }
+
+    fn worker_attempt_carry(target: Option<&str>) {
         let (mut mux, tab_id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some("provider".into());
@@ -357,37 +401,65 @@ mod tests {
             bound_at: 3,
         });
 
-        let authority = fixture
-            .service
-            .authorize_runtime_restart_binding(&tab_id, "provider", "old-nonce", false)
-            .unwrap()
-            .expect("the current task attempt is authorized for restart");
+        let authority = match target {
+            Some(target) => fixture.service.authorize_provider_switch_binding(
+                &tab_id,
+                "provider",
+                target,
+                "old-nonce",
+            ),
+            None => fixture.service.authorize_runtime_restart_binding(
+                &tab_id,
+                "provider",
+                "old-nonce",
+                false,
+            ),
+        }
+        .unwrap()
+        .expect("the current task attempt is authorized for restart");
         fixture
             .service
             .stage_runtime_restart_binding(&tab_id, Some(authority));
         {
             let mut mux = fixture.service.mux.write();
             let tab = mux.get_tab_mut(&tab_id).unwrap();
+            if let Some(target) = target {
+                tab.agent_type = Some(target.into());
+                tab.agent_session_id = Some("new-thread".into());
+            }
             tab.session_binding_nonce = Some("new-nonce".into());
             tab.reported_session_binding_nonce = Some("new-nonce".into());
         }
+        let thread = if target.is_some() {
+            "new-thread"
+        } else {
+            "thread"
+        };
         assert!(fixture
             .service
-            .carry_authorized_runtime_restart_binding(&tab_id, "thread", "new-nonce")
+            .carry_authorized_runtime_restart_binding(&tab_id, thread, "new-nonce")
             .unwrap());
         fixture
             .service
             .plan_store
-            .mark_live_task_attempt_runtime_ready_for_tab(&tab_id, "thread", 4)
+            .mark_live_task_attempt_runtime_ready_for_tab(&tab_id, thread, 4)
             .unwrap();
         assert!(fixture
             .service
-            .finalize_authorized_runtime_restart_binding(&tab_id, "thread", "new-nonce")
+            .finalize_authorized_runtime_restart_binding(&tab_id, thread, "new-nonce")
             .unwrap());
 
         let rebound = store.show_task(&task_id).unwrap().task;
         assert_eq!(rebound.execution_attempts.len(), 1);
         assert_eq!(rebound.execution_attempts[0].id, attempt_id);
+        assert_eq!(
+            rebound.execution_attempts[0].provider.as_deref(),
+            Some(target.unwrap_or("provider"))
+        );
+        assert_eq!(
+            rebound.execution_attempts[0].session_id.as_deref(),
+            Some(thread)
+        );
         assert_eq!(
             rebound.execution_attempts[0]
                 .session_binding_nonce
@@ -399,7 +471,7 @@ mod tests {
                 &tab_id,
                 Some(&plan.id),
                 Some(&task_id),
-                Some(("thread", "new-nonce")),
+                Some((thread, "new-nonce")),
                 5,
             )
             .unwrap();

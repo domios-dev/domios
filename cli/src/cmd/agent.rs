@@ -888,6 +888,37 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
+        AgentAction::SwitchProviderStatus { tab, operation } => {
+            let tab_id = resolve_tab(client, tab);
+            crate::cmd::agent_provider_switch::status(
+                &local_http,
+                &base,
+                &tab_id,
+                &operation,
+                json,
+            );
+        }
+        AgentAction::SwitchProvider {
+            tab,
+            provider,
+            model,
+            reasoning_effort,
+            force,
+        } => {
+            let tab_id = resolve_tab(client, tab);
+            crate::cmd::agent_provider_switch::run(
+                &local_http,
+                &base,
+                &tab_id,
+                crate::cmd::agent_provider_switch::SwitchProviderRequest {
+                    provider,
+                    model,
+                    reasoning_effort,
+                    force,
+                },
+                json,
+            );
+        }
         AgentAction::Fork { tab } => {
             let tab_id = resolve_tab(client, tab);
             let response = local_http

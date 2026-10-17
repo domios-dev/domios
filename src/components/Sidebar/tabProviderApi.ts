@@ -2,8 +2,8 @@ import { invoke } from "../../lib/bridge";
 import type { TabProviderSwitchApi } from "./tabProviderMenu";
 
 const defaultApi: TabProviderSwitchApi = {
-  restartWithProvider: (tabId, providerId) =>
-    invoke("restart_agent_tab", { tabId, providerId }),
+  switchProvider: (tabId, providerId, options) =>
+    invoke("switch_agent_provider", { tabId, providerId, ...options }),
 };
 
 let apiOverride: TabProviderSwitchApi | null = null;
