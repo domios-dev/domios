@@ -54,8 +54,10 @@
   --sidebar-disclosure-transition: 160ms ease;
 }
 
-/* Overscroll is not inherited; include nested scrollports and inline containment rules. */
-* {
+/* Stop shell bounce without trapping wheel gestures in clipped cards and labels. */
+html,
+body,
+#root {
   overscroll-behavior: none !important;
 }
 
