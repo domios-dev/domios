@@ -22,6 +22,11 @@ The script must prove all of these before deletion:
 4. Any owning Domios tab supplied by the caller is closed first.
 5. Windows reserved-name artifacts are removed through exact extended paths.
 
+Before recursive deletion, the script walks real directories explicitly and
+unlinks every reparse point without entering its target. Never recursively
+delete through a lane's `node_modules` junction: it may target canonical.
+Verify with `node --test scripts/tests/lane-cleanup.test.mjs` on Windows.
+
 Never use this skill on the canonical checkout, a dirty lane, an unmerged lane,
 or an unknown directory. Do not kill processes by name. If deletion still fails,
 report the exact path and holder evidence; preserve the branch and task cleanup
