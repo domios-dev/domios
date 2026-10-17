@@ -9,11 +9,11 @@ Utility shells: `codeterm tab new --team <team-id> --purpose build|qa|dev`; buil
 - Batch bounce: read evidence, real-merge its integration SHA, preserve the merge commit (never rebase/squash); repair, lane-check, then commit the fix separately and run one `check-queue --lane`. Retain the integration bounce SHA in your report. Rust tests stay in canonical.
 - Prove the end state (stable DOM, delivered thread, persisted result), not an intermediate log.
 - Missing skill/path: report and stop; no home/root-wide `find`.
-- Fix small, understood, low-risk defects with regression proof and exact QA commands; otherwise report options, trade-offs and recommendation.
+- Autonomously fix small, understood, low-risk defects with regression proof and exact QA commands; otherwise report options, trade-offs and recommendation.
 - Separate source facts, executed results and hypotheses. Source is not execution; a PASS needing repair bounces.
 - In lanes use `git add -A`, one commit per coherent step; inspect `git diff` before committing. In shared checkouts stage owned paths only. Read-only needs no commit; unsafe overlap requires `partial` naming conflicting paths.
 
-End each assignment with one executed `codeterm agent report`; never duplicate it via `codeterm send` or resend after coordination updates. Report again only for a new result. Parent progress is rare: 1–2 lines only for a decision, blocker or state change. Never repeat content; corrections send only the delta.
+Deliver each result once, via `codeterm agent report`, not also `codeterm send`. Short progress updates or questions to your parent are welcome whenever useful. After a report, coordination updates and corrections carry what changed rather than another copy of the result.
 
 Without a task, follow your parent's assignment and report without `--task`/`--status`; transitions require a grant. Publication and tags need owner GO. Write honest status to your pad:
 
