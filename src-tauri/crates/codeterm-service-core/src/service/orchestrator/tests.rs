@@ -254,6 +254,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         plan_task: None,
         authorized_gates: Vec::new(),
         execution_intent: None,
+        sandbox: None,
         provider_reserve_pct: None,
         agent_name: None,
         args: None,

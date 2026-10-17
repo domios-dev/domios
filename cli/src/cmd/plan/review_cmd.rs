@@ -1,6 +1,6 @@
 use crate::args::plan::PlanReviewAction;
 use crate::client::RpcClient;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::{call_plan_rpc, inject_trusted_session, maybe_inject_caller_tab, owner_from_env};
 
@@ -129,7 +129,7 @@ pub(super) fn handle(
             if let Some(residual_risk) = residual_risk {
                 params["residual_risk"] = json!(residual_risk);
             }
-            maybe_inject_caller_tab(&mut params);
+            inject_trusted_session(&mut params);
             call_plan_rpc(client, "plan.review.accept", params).map(Some)
         }
         PlanReviewAction::Bounce {
@@ -167,7 +167,7 @@ pub(super) fn handle(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_tab(&mut params);
+            inject_trusted_session(&mut params);
             call_plan_rpc(client, "plan.review.hold", params).map(Some)
         }
     }
@@ -260,10 +260,12 @@ mod tests {
                 assert!(crate::args::cli::Cli::try_parse_from(argv).is_err());
             }
             for source in ["--note", "--note-from-pad"] {
-                assert!(crate::args::cli::Cli::try_parse_from([
-                    "codeterm", "plan", "review", verdict, "pl_1", "task_1", source, "note.md",
-                ])
-                .is_ok());
+                assert!(
+                    crate::args::cli::Cli::try_parse_from([
+                        "codeterm", "plan", "review", verdict, "pl_1", "task_1", source, "note.md",
+                    ])
+                    .is_ok()
+                );
             }
         }
     }
@@ -312,9 +314,11 @@ mod tests {
             else {
                 panic!("expected review action");
             };
-            assert!(handle(&mut NoCalls, true, action)
-                .unwrap_err()
-                .contains(crate::cmd::quoted_handoff::REFUSAL_CODE));
+            assert!(
+                handle(&mut NoCalls, true, action)
+                    .unwrap_err()
+                    .contains(crate::cmd::quoted_handoff::REFUSAL_CODE)
+            );
         }
     }
 

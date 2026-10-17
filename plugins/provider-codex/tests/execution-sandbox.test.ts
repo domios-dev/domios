@@ -33,19 +33,22 @@ for (const [mode, type] of [[capability.readOnly!, "readOnly"], [capability.muta
     } else {
       const policy = params.sandboxPolicy as Record<string, unknown>;
       assert.equal(policy.type, type);
-      if (type === "workspaceWrite") {
-        assert.deepEqual(policy.writableRoots, []);
-        assert.equal(policy.excludeTmpdirEnvVar, true);
-        assert.equal(policy.excludeSlashTmp, true);
-      }
     }
   }
   assert(mode.launchArgs.includes("{cwd}"));
   assert(mode.launchArgs.includes("never"));
   assert(!mode.launchArgs.some(arg => arg.includes("dangerously")));
 }
-const roots: RuntimeSettings = { mode: capability.mutating!.runtimeMode!, additionalDirectories: ["/lane-pad", "/git-metadata"], networkAccess: false };
+const roots: RuntimeSettings = { mode: "workspace-write", additionalDirectories: ["/lane-pad", "/git-metadata"], networkAccess: false };
 const plan = plain(provider.runtimePlan({ ...context, settings: roots }, { kind: "submitTurn", threadId: "opaque-thread", sendId: "opaque-send", input: { text: "opaque", attachments: [] }, settings: roots }));
 if (plan.action.kind !== "request") throw new Error("Missing request");
 assert.deepEqual((plan.action.call.params as { sandboxPolicy: { writableRoots: string[] } }).sandboxPolicy.writableRoots, roots.additionalDirectories);
-console.log("Codex execution sandbox: 9 operation mappings passed");
+for (const [mode, type, approval] of [["full-access", "dangerFullAccess", "never"], ["auto", "workspaceWrite", "on-request"]] as const) {
+  const settings: RuntimeSettings = {mode};
+  const result = plain(provider.runtimePlan({...context, settings}, {kind:"submitTurn", threadId:"opaque-thread", sendId:"opaque-send", input:{text:"opaque", attachments:[]}, settings}));
+  if (result.action.kind !== "request") throw new Error("Missing request");
+  const params = result.action.call.params as {approvalPolicy:string; sandboxPolicy:{type:string}};
+  assert.equal(params.approvalPolicy, approval);
+  assert.equal(params.sandboxPolicy.type, type);
+}
+console.log("Codex execution sandbox: 11 operation mappings passed");

@@ -5,6 +5,31 @@ use crate::{
 use codeterm_types::plan::{ExecutionIntent, ExecutionSandboxPolicy};
 mod build_roots;
 
+pub(crate) fn requested_intent(sandbox: Option<&str>) -> Result<Option<ExecutionIntent>, String> {
+    match sandbox {
+        None => Ok(None),
+        Some("read-only") => Ok(Some(ExecutionIntent::ReadOnly)),
+        Some("workspace-write") => Ok(Some(ExecutionIntent::Mutating)),
+        Some(_) => Err("Sandbox must be read-only or workspace-write".into()),
+    }
+}
+
+pub(crate) fn resolve_requested(
+    registry: &AgentRegistry,
+    provider: &str,
+    params: &SpawnAgentParams,
+    runtime: bool,
+) -> Result<Option<ExecutionSandboxPolicy>, String> {
+    resolve(
+        registry,
+        provider,
+        requested_intent(params.sandbox.as_deref())?.as_ref(),
+        params.cwd.as_deref(),
+        params.args.as_deref().unwrap_or_default(),
+        runtime,
+    )
+}
+
 fn mode_for_intent(
     registry: &AgentRegistry,
     provider: &str,
@@ -27,7 +52,9 @@ fn mode_for_intent(
         )
         .map_err(|reason| format!("Provider {provider}: {reason}"))?;
     let Some(mode) = mode else {
-        return Ok(None);
+        return Err(format!(
+            "Provider {provider}: requested sandbox is unsupported"
+        ));
     };
     capability.validate_arguments(arguments)?;
     if !arguments.is_empty() {
@@ -45,7 +72,7 @@ pub(crate) fn preflight(
     mode_for_intent(
         registry,
         provider,
-        params.execution_intent.as_ref(),
+        requested_intent(params.sandbox.as_deref())?.as_ref(),
         params.args.as_deref().unwrap_or_default(),
         runtime,
     )?;
@@ -108,13 +135,13 @@ pub(crate) fn for_launch(
             tab.cwd.clone(),
         )
     };
+    let requested = requested_intent(params.sandbox.as_deref())?;
     let intent = saved
         .as_ref()
         .map(|policy| &policy.intent)
-        .or(params.execution_intent.as_ref());
+        .or(requested.as_ref());
     if saved.as_ref().is_some_and(|policy| {
-        params
-            .execution_intent
+        requested
             .as_ref()
             .is_some_and(|intent| intent != &policy.intent)
     }) {
