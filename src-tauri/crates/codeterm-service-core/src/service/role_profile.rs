@@ -1,7 +1,5 @@
 use codeterm_types::agent::role_kind;
-use codeterm_types::agent::role_kind::builtins::{
-    ORCHESTRATOR, PLANNER, RELEASE_MANAGER, TESTER, WATCHER,
-};
+use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER, WATCHER};
 
 use super::{json_str, orchestrator::SpawnAgentParams};
 use crate::multiplexer::types::AgentRole;
@@ -251,7 +249,9 @@ fn json_string_list(params: &serde_json::Value, key: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod normalization_tests {
-    use codeterm_types::agent::role_kind::builtins::{CARTOGRAPHER, GENERAL_AGENT};
+    use codeterm_types::agent::role_kind::builtins::{
+        CARTOGRAPHER, GENERAL_AGENT, RELEASE_MANAGER, TESTER,
+    };
 
     use super::*;
     use crate::service::orchestrator::SpawnAgentParams;
