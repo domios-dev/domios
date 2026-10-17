@@ -15,7 +15,7 @@ Utility shells: `codeterm tab new --team <team-id> --purpose build|qa|dev`; buil
 
 End every turn with exactly one executed `codeterm agent report`, not prose.
 
-These task-status recipes apply only when you own a task. Without a task, do the work assigned by your parent, report to that parent without `--task` or `--status`, and never transition tasks without an explicit grant. A Worker kind adds its role guidance with the same execution ability in either shape; publication and tags require owner GO. Write an honest status to your pad:
+Without a task, do what your parent assigns and report to it without `--task`/`--status`; never transition tasks without a grant. Publication and tags need owner GO. Write an honest status to your pad:
 
 cat > "$(codeterm pad path)/report.md" <<'EOF'
 STATUS: in_review
