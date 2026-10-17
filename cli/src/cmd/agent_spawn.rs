@@ -70,10 +70,8 @@ pub(super) fn validate_spawn_context(ctx: &SpawnContext<'_>) -> Result<(), Strin
     if ctx.kind.is_some() && !ctx.is_worker() {
         return Err("--kind is only valid with --role Worker".into());
     }
-    if ctx.kind.is_some() {
-        if !ctx.has_parent {
-            return Err("Worker kinds require --parent-tab".into());
-        }
+    if ctx.kind.is_some() && !ctx.has_parent {
+        return Err("Worker kinds require --parent-tab".into());
     }
     if ctx.has_authorized_gates {
         if !ctx.is_worker() {
