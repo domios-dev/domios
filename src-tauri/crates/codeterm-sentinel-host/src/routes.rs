@@ -489,7 +489,7 @@ pub(super) fn deliver_pipeline_result_with(
     deliver: impl FnOnce(&str, &str) -> Result<Delivery, String>,
 ) -> PipelineResultDelivery {
     match deliver(target, packet) {
-        Ok(Delivery::Pending { .. }) => PipelineResultDelivery {
+        Ok(Delivery::Pending { .. } | Delivery::Unconfirmed { .. }) => PipelineResultDelivery {
             state: "unconfirmed",
             reason: "delivery_pending",
             body_ref: Some(body_ref),
