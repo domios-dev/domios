@@ -115,7 +115,8 @@ async fn login_failure_deadline_returns_timeout() {
         Status {
             provider: "fake".into(),
             identity: None,
-            pending: false
+            pending: false,
+            session_only: false,
         }
     );
     assert!(store.0.lock().await.is_none());

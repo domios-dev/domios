@@ -11,6 +11,7 @@ export function AccountTab() {
       {model.kind === "signed_in" && <div>
         <p>{model.identity.display_name ?? model.identity.email ?? model.identity.uid}</p>
         {model.identity.email && <p>{model.identity.email}</p>}
+        {model.sessionOnly && <p role="status">You are signed in for this session only. Secure storage is unavailable; sign in again after restarting Domios.</p>}
         <p>UID: {model.identity.uid}</p>
         <button type="button" onClick={() => void signOut()}>Sign out</button>
       </div>}
