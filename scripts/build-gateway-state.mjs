@@ -61,6 +61,11 @@ function updateJob(opts) {
   atomicWrite(file, record);
 }
 
+function serverIdentity(snapshot) {
+  if (!snapshot?.available) return `unavailable (${snapshot?.reason ?? 'unknown'})`;
+  return snapshot.processes.map(process => `pid=${process.pid} started_at=${process.started_at}`).join(', ') || 'unavailable (no process identity)';
+}
+
 function listJobs(dir) {
   const jobsDir = path.join(dir, "jobs");
   if (!fs.existsSync(jobsDir)) return [];
@@ -115,8 +120,15 @@ try {
     if (command === 'evidence-start') await startEvidence(record, opts.dir, opts.scope);
     else if (command === 'evidence-end') await finishEvidence(record, opts.dir);
     else if (command === 'evidence-reset' && record.sccache) record.sccache.reset_during_job = true;
+    else if (command === 'evidence-restart' && record.sccache) {
+      record.sccache.reset_during_job = true;
+      record.sccache.restart_reason = opts.reason ?? 'unspecified';
+      console.log(`[build-gateway] sccache restart reason=${record.sccache.restart_reason}; previous ${serverIdentity(record.sccache.server_process?.start)}`);
+    }
     else throw new Error(`unknown evidence operation: ${command}`);
     atomicWrite(file, record);
+    if (command === 'evidence-start') console.log(`[build-gateway] sccache server at job start: ${serverIdentity(record.sccache.server_process?.start)}`);
+    if (command === 'evidence-end') console.log(`[build-gateway] sccache server at job end: ${serverIdentity(record.sccache.server_process?.end)}`);
   }
   else throw new Error("usage: build-gateway-state.mjs create|update|status");
 } catch (error) {

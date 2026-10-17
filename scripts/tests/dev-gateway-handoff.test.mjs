@@ -12,11 +12,12 @@ ${fn.replace('exec bash ./build.sh', 'launch')}
 CODETERM_WEB_DIST= CT_DEV_CARGO_PROFILE= CT_DEV_CARGO_FEATURES=
 CODETERM_BUILD_SHA=opaque-sha
 CODETERM_BUILD_HASH=opaque-short
+built_cli_artifact=opaque-dev-cli
 owned=1
 gateway_cwd="$PWD"
 configure_dev_cargo() { CT_DEV_CARGO_PROFILE=dev; CT_DEV_CARGO_FEATURES=opaque; }
 dev_conf_path() { printf /dev/null; }
-node() { [ "$owned" = 1 ]; [ "$1" = scripts/bundle-cli.js ]; }
+node() { [ "$owned" = 1 ]; [ "$1" = scripts/bundle-cli.js ]; [ "$2" = "$built_cli_artifact" ]; }
 cargo() { [ "$owned" = 1 ]; [ "$PWD" = "$gateway_cwd" ]; printf 'cargo %s\\n' "$*"; return ${failure}; }
 git() { printf opaque-sha; }
 build_dev_frontend() { [ "$owned" = 1 ]; echo frontend; }

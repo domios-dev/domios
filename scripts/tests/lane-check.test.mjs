@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import test from 'node:test';
@@ -8,6 +9,50 @@ import { laneNativeWrapper } from '../lane-native-wrapper.mjs';
 import { laneBuildDirectory } from '../lane-build-dir.mjs';
 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
+
+test('ordinary lanes use only an already live cache and respect explicit wrappers and opt-out', () => {
+  const result = spawnSync(bash, ['-c', `set -eu
+    source scripts/lane-check.sh
+    RUSTC_WRAPPER=
+    CODETERM_USE_SCCACHE=1
+    command() { return 0; }
+    ct_sccache_server_live() { return 1; }
+    ct_require_prestarted_sccache() { RUSTC_WRAPPER=cache; }
+    configure_lane_cache
+    [ -z "$RUSTC_WRAPPER" ]
+    ct_sccache_server_live() { return 0; }
+    configure_lane_cache
+    [ "$RUSTC_WRAPPER" = cache ]
+    RUSTC_WRAPPER=custom
+    configure_lane_cache
+    [ "$RUSTC_WRAPPER" = custom ]
+    RUSTC_WRAPPER= CODETERM_USE_SCCACHE=0
+    configure_lane_cache
+    [ -z "$RUSTC_WRAPPER" ]
+  `], { cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /no live sccache server; this check will compile without cache/);
+});
+
+test('POSIX nested wrappers invoke the cache once immediately before rustc', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'lane-shell-cache-'));
+  try {
+    const compiler = path.join(directory, 'rustc');
+    const cache = path.join(directory, 'cache');
+    writeFileSync(compiler, '#!/bin/sh\nprintf "%s\\n" "$@"\nexit 37\n');
+    writeFileSync(cache, '#!/bin/sh\nprintf "cache\\n"\nexec "$@"\n');
+    chmodSync(compiler, 0o755);
+    chmodSync(cache, 0o755);
+    const wrapper = path.resolve(import.meta.dirname, '../lane-rustc-wrapper.sh').replaceAll('\\', '/');
+    const result = spawnSync(bash, [wrapper, wrapper, compiler.replaceAll('\\', '/'), 'opaque argument'], {
+      encoding: 'utf8', env: { ...process.env, CODETERM_LANE_CACHE_WRAPPER: cache.replaceAll('\\', '/') },
+    });
+    assert.equal(result.status, 37, result.stderr);
+    assert.equal(result.stdout, 'cache\nopaque argument\n');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 for (const cacheRoot of [false, true]) {
   test(`shared lane directory stays scoped to lane_check, machine root=${cacheRoot}`, () => {
@@ -77,13 +122,16 @@ test('lane checks cap Cargo jobs, propagate errors and request tests only when n
     lane_check codeterm-fixture && exit 1 || [ "$?" = 41 ]
     lane_check codeterm-fixture --tests && exit 1 || [ "$?" = 41 ]
     lane_check codeterm-cli --tests && exit 1 || [ "$?" = 41 ]
+    lane_check codeterm-fixture --tests --timings && exit 1 || [ "$?" = 41 ]
     lane_check codeterm-fixture --all && exit 1 || [ "$?" = 2 ]
   `], { cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(result.stdout.trim().split(/\r?\n/), [
+  assert.match(result.stdout, /no live sccache server; this check will compile without cache/);
+  assert.deepEqual(result.stdout.trim().split(/\r?\n/).filter(line => line.startsWith('jobs=')), [
     'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib',
     'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --tests',
     'jobs=4 check --manifest-path cli/Cargo.toml -p codeterm-cli --bin codeterm --tests',
+    'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --tests --timings',
   ]);
 });
 
@@ -112,6 +160,24 @@ test('native Windows wrapper forwards a command exceeding cmd.exe limits and its
   const result = spawnSync(laneNativeWrapper(), [process.execPath, '-e', 'process.stdout.write(process.argv[1]); process.exit(37)', argument], { encoding: 'utf8' });
   assert.equal(result.status, 37, result.stderr);
   assert.equal(result.stdout, argument);
+});
+
+test('nested Windows wrappers pass rustc directly to the cache exactly once', { skip: process.platform !== 'win32' }, () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'lane-cache-'));
+  try {
+    const preload = path.join(directory, 'cache.cjs');
+    writeFileSync(preload, 'process.stdout.write(JSON.stringify(process.argv.slice(1))); process.exit(37);');
+    const wrapper = laneNativeWrapper();
+    const args = ['C:\\compiler path\\rustc.exe', 'unicode-λ spaces "quoted" ' + 'x'.repeat(12_000)];
+    const result = spawnSync(wrapper, [wrapper, ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, CODETERM_LANE_CACHE_WRAPPER: process.execPath, NODE_OPTIONS: `--require "${preload.replaceAll('\\', '/')}"` },
+    });
+    assert.equal(result.status, 37, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), args);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 
