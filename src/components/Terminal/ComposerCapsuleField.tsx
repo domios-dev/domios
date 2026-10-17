@@ -12,6 +12,7 @@ import {
 } from "./composerCapsules";
 
 import { uploadCardPresence } from "./attachmentUploadModel";
+import { AttachmentUploadNotice } from "./AttachmentUploadNotice";
 import type { ComposerUpload } from "./composerUploadModel";
 
 interface Hover {
@@ -108,6 +109,12 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
   return (
     <div ref={fieldRef} className="relative min-w-0 flex-1 self-center" onMouseMove={track} onMouseLeave={() => setHover(null)}>
       {children}
+      {uploads.filter(upload => upload.state === "failed").map(upload => {
+        const segment = capsuleSegments(value, registry).find(segment => "span" in segment && segment.span.label === upload.label);
+        return segment && "span" in segment
+          ? <AttachmentUploadNotice key={upload.id} upload={upload} onRemove={() => onRemove(segment.span)} />
+          : null;
+      })}
       {uploadEntries.filter((entry) => entry.presence !== "hidden").map((entry) => {
         const visible = entry.presence === "hover";
         return <div key={entry.upload.id} ref={visible ? cardRef : undefined}
