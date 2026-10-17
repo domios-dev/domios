@@ -49,6 +49,10 @@ impl AgentProvider for NativeRuntime {
         Some(self.0.clone())
     }
 
+    fn runtime_stored_history_available(&self, _: &str, session: &str) -> bool {
+        self.0.stored_history && session != "reference-session"
+    }
+
     fn runtime_stored_history(&self, session: &str, records: &str) -> Result<Vec<ChatMsg>, String> {
         if !self.0.stored_history {
             return Err("unsupported".into());
@@ -67,6 +71,20 @@ impl AgentProvider for NativeRuntime {
     ) -> Result<RuntimePlan, RuntimeFailure> {
         validate_runtime_operation(ctx, op)?;
         let action = match op {
+            RuntimeOperation::ForkThread {
+                source_thread_id, ..
+            } => RuntimeAction::Request {
+                call: RpcCall {
+                    target: None,
+                    method: "thread/turns/list".into(),
+                    params: json!({
+                        "threadId":source_thread_id,
+                        "itemsView":"notLoaded",
+                        "sortDirection":"asc",
+                        "limit":8
+                    }),
+                },
+            },
             RuntimeOperation::BackgroundProcesses { thread_id, .. } => RuntimeAction::Request {
                 call: RpcCall {
                     target: Some(RuntimeCallTarget {
@@ -114,10 +132,21 @@ impl AgentProvider for NativeRuntime {
                 },
             },
         };
-        let plan = RuntimePlan {
-            action,
-            state: Value::Null,
+        let state = match op {
+            RuntimeOperation::ForkThread {
+                source_thread_id,
+                turn_id,
+            } => json!({
+                "stage":"threadHistoryTurns",
+                "action":"fork",
+                "sourceThreadId":source_thread_id,
+                "turnId":turn_id,
+                "cursor":null,
+                "targetFound":false
+            }),
+            _ => Value::Null,
         };
+        let plan = RuntimePlan { action, state };
         validate_runtime_plan(&self.0, ctx, op, &plan)?;
         Ok(plan)
     }
@@ -131,6 +160,95 @@ impl AgentProvider for NativeRuntime {
     ) -> Result<RuntimeStep, RuntimeFailure> {
         validate_runtime_operation(ctx, op)?;
         validate_runtime_state(state)?;
+        if let (
+            RuntimeOperation::ForkThread {
+                source_thread_id,
+                turn_id,
+            },
+            RpcReply::Success { value },
+        ) = (op, reply)
+        {
+            let state_matches =
+                state["sourceThreadId"] == *source_thread_id && state["turnId"] == *turn_id;
+            let step = match state["stage"].as_str() {
+                Some("threadHistoryTurns") if state_matches => {
+                    let found = value["data"].as_array().is_some_and(|turns| {
+                        turns.len() <= 8
+                            && turns.iter().all(|turn| {
+                                turn["id"]
+                                    .as_str()
+                                    .is_some_and(|id| !id.is_empty() && id.len() <= 4096)
+                            })
+                            && turns.iter().any(|turn| {
+                                turn["id"].as_str() == Some(turn_id.as_str())
+                                    && turn["status"] != "inProgress"
+                            })
+                    });
+                    if !found {
+                        return Ok(RuntimeStep::Refused {
+                            reason: RuntimeFailure::new(
+                                RuntimeFailureCode::ProviderRefused,
+                                "selected turn unavailable",
+                            ),
+                            before_acceptance: true,
+                        });
+                    }
+                    RuntimeStep::Continue {
+                        plan: RuntimePlan {
+                            action: RuntimeAction::Request {
+                                call: RpcCall {
+                                    target: None,
+                                    method: "thread/fork".into(),
+                                    params: json!({
+                                        "threadId":source_thread_id,
+                                        "lastTurnId":turn_id
+                                    }),
+                                },
+                            },
+                            state: json!({
+                                "stage":"thread/fork",
+                                "sourceThreadId":source_thread_id,
+                                "turnId":turn_id
+                            }),
+                        },
+                        before_acceptance: false,
+                        history: None,
+                    }
+                }
+                Some("thread/fork") if state_matches => {
+                    let thread_id = value["thread"]["id"].as_str().unwrap_or_default();
+                    if thread_id.is_empty() || thread_id == source_thread_id {
+                        return Ok(RuntimeStep::Refused {
+                            reason: RuntimeFailure::new(
+                                RuntimeFailureCode::ProviderRefused,
+                                "Forked thread identity unverified",
+                            ),
+                            before_acceptance: false,
+                        });
+                    }
+                    RuntimeStep::Complete {
+                        result: RuntimeResult::ThreadForked {
+                            source_thread_id: source_thread_id.clone(),
+                            thread_id: thread_id.into(),
+                            turn_id: turn_id.clone(),
+                        },
+                        notification: None,
+                        events: None,
+                    }
+                }
+                _ => {
+                    return Ok(RuntimeStep::Refused {
+                        reason: RuntimeFailure::new(
+                            RuntimeFailureCode::ProviderRefused,
+                            "Fork did not reach its provider boundary",
+                        ),
+                        before_acceptance: false,
+                    });
+                }
+            };
+            validate_runtime_step(&self.0, ctx, op, reply, &step)?;
+            return Ok(step);
+        }
         let step = match reply {
             RpcReply::Error { error } => RuntimeStep::Refused {
                 reason: RuntimeFailure::new(RuntimeFailureCode::ProviderRefused, &error.message),

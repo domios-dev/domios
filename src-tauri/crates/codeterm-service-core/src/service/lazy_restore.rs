@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 static WAKING: LazyLock<parking_lot::Mutex<HashSet<String>>> = LazyLock::new(Default::default);
 
+mod policy;
 mod user_send;
 
 struct WakeRequest(String);
@@ -34,6 +35,7 @@ fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
 }
 
 pub fn initialize(svc: &ServiceContext, active_window_hours: u64) {
+    let continuing = policy::continuing_tabs(&svc.plan_store.list_full());
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -48,12 +50,16 @@ pub fn initialize(svc: &ServiceContext, active_window_hours: u64) {
             if let Some(tab) = mux.get_tab_mut(id) {
                 tab.frozen = tab.restored_from_snapshot
                     && !tab.protected
-                    && restore_on_boot(
-                        general_workspace.as_deref() == Some(workspace.id.as_str()),
-                        tab.protected,
-                        tab.last_active_at_ms,
-                        now_ms,
-                        window_ms,
+                    && policy::decision(
+                        tab,
+                        continuing.contains(id),
+                        restore_on_boot(
+                            general_workspace.as_deref() == Some(workspace.id.as_str()),
+                            tab.protected,
+                            tab.last_active_at_ms,
+                            now_ms,
+                            window_ms,
+                        ),
                     ) == RestoreDecision::Freeze;
             }
         }
@@ -209,6 +215,30 @@ mod tests {
         for id in [&general, &sibling] {
             assert!(!fixture.service.mux.read().get_tab(id).unwrap().frozen);
         }
+    }
+
+    #[test]
+    fn startup_freezes_recent_idle_agents_but_preserves_busy_and_protected_tabs() {
+        let (mut mux, idle) = MultiplexerState::new();
+        mux.register_alias(super::super::general_agent::GENERAL_ALIAS, &idle);
+        let workspace = mux.list_workspaces()[0].id.clone();
+        let busy = mux.create_tab(&workspace).unwrap();
+        let protected = mux.create_tab(&workspace).unwrap();
+        for id in [&idle, &busy, &protected] {
+            let tab = mux.get_tab_mut(id).unwrap();
+            tab.restored_from_snapshot = true;
+            tab.agent_type = Some("fixture".into());
+            tab.last_active_at_ms = Some(u64::MAX);
+        }
+        mux.get_tab_mut(&protected).unwrap().protected = true;
+        mux.get_tab_mut(&busy).unwrap().agent_runtime_state =
+            Some(serde_json::json!({"active_turn_started_at_ms": 42}));
+        let fixture = ServiceFixture::new(mux);
+        initialize(&fixture.service, 48);
+        let mux = fixture.service.mux.read();
+        assert!(mux.get_tab(&idle).unwrap().frozen);
+        assert!(!mux.get_tab(&busy).unwrap().frozen);
+        assert!(!mux.get_tab(&protected).unwrap().frozen);
     }
 
     #[test]

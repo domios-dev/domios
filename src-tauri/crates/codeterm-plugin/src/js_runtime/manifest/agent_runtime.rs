@@ -181,6 +181,7 @@ impl AgentRuntimeCapability {
             "backgroundProcesses",
             "initialize",
             "openThread",
+            "forkThread",
             "resumeThread",
             "readHistory",
             "submitTurn",

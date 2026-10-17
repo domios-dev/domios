@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.32",
+  "version": "1.14.34",
   "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Codex",
@@ -41,6 +41,10 @@
           "thread/resume",
           "thread/read",
           "thread/unarchive"
+        ],
+        "forkThread": [
+          "thread/turns/list",
+          "thread/fork"
         ],
         "readHistory": [
           "thread/turns/list",

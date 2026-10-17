@@ -61,6 +61,7 @@ export type Operation =
   | {kind:"backgroundProcesses"; threadId:string; action:RuntimeBackgroundProcessAction}
   | {kind:"initialize"}
   | {kind:"openThread"; instructions:string; settings:RuntimeSettings}
+  | {kind:"forkThread"; sourceThreadId:string; turnId:string}
   | {kind:"resumeThread"; threadId:string; instructions:string; settings:RuntimeSettings}
   | {kind:"readHistory"; threadId:string; cursor?:string; order?:HistoryOrder}
   | {kind:"submitTurn"; threadId:string; activeTurnId?:string;
@@ -110,9 +111,10 @@ export type AgentEvent =
   | {kind:"question"; threadId:string; itemId:string; questions:readonly RuntimeQuestion[]; response:"message"}
   | {kind:"authLogin"; login:RuntimeLoginState}
   | {kind:"auth"; state:"signedIn"|"signedOut"|"unknown"; billingMode?:"subscription"|"api"|"unknown"; detail?:string}
-  | {kind:"rateLimits"; threadId?:string; rateLimits:readonly RuntimeRateLimit[]; resets?:ResetCredits};
+  | {kind:"rateLimits"; threadId?:string; rateLimits:readonly RuntimeRateLimit[]; resets?:ResetCredits; accountCredits?:RuntimeAccountCredits};
 export interface ResetCredit {id:string; status:"available"|"redeeming"|"redeemed"|"unknown"; expiresAt:number|null; title?:string; description?:string}
 export interface ResetCredits {availableCount:number; nextExpiry:number|null; credits:readonly ResetCredit[]|null}
+export type RuntimeAccountCredits = {kind:"balance"; balance:string} | {kind:"unlimited"};
 export type ResetCreditOutcome = "reset"|"nothingToReset"|"noCredit"|"alreadyRedeemed";
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
@@ -132,6 +134,7 @@ export interface StdioAgentRuntimeCapability {
   notificationMethods:readonly string[];
 }
 export interface AgentRuntime {
+  runtimeStoredHistoryAvailable?(cwd:string, sessionId:string): boolean;
   runtimeStoredHistory?(sessionId:string, records:string): readonly ChatMsg[];
   runtimeStoredRecords?(sessionId:string, records:readonly ParsedSessionRecord[], meta:SessionRecordsMeta): readonly ChatMsg[];
   runtimePlan(ctx:RuntimeContext, op:Operation): RuntimePlan;

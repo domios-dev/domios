@@ -1,7 +1,7 @@
 use super::{engine::Session, model::RuntimeFailure};
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::{
-    RuntimeContext, RuntimeRateLimit, RuntimeSettings, TokenUsage,
+    RuntimeAccountCredits, RuntimeContext, RuntimeRateLimit, RuntimeSettings, TokenUsage,
 };
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -28,6 +28,7 @@ struct UsageProjection {
     token_usage: Option<Reading<TokenUsage>>,
     rate_limits: Option<Reading<Vec<RuntimeRateLimit>>>,
     resets: Option<codeterm_plugin::agent_runtime::ResetCredits>,
+    account_credits: Option<RuntimeAccountCredits>,
 }
 
 static USAGE: LazyLock<Mutex<HashMap<String, UsageProjection>>> =
@@ -70,6 +71,7 @@ fn projection<'a>(
             token_usage: None,
             rate_limits: None,
             resets: None,
+            account_credits: None,
         });
     if reading.provider != provider || reading.nonce != context.binding_nonce {
         reading.provider = provider.into();
@@ -79,6 +81,7 @@ fn projection<'a>(
         reading.token_usage = None;
         reading.rate_limits = None;
         reading.resets = None;
+        reading.account_credits = None;
     }
     if reading.thread_id != context.thread_id {
         reading.thread_id = context.thread_id.clone();
@@ -115,6 +118,7 @@ pub fn billing(
     if mode != codeterm_usage::contract::BillingMode::Subscription {
         reading.rate_limits = None;
         reading.resets = None;
+        reading.account_credits = None;
     }
     if mode == codeterm_usage::contract::BillingMode::Unknown {
         reading.token_usage = None;
@@ -147,6 +151,7 @@ pub async fn rate_limits(
     session: &Session,
     limits: Vec<RuntimeRateLimit>,
     resets: Option<codeterm_plugin::agent_runtime::ResetCredits>,
+    account_credits: Option<RuntimeAccountCredits>,
     at: u64,
 ) -> Result<(), RuntimeFailure> {
     if !publishes_usage(svc, session) {
@@ -164,6 +169,7 @@ pub async fn rate_limits(
     let reading = projection(&mut readings, &session.provider, &context);
     reading.captured_at = at;
     reading.resets = if supported { resets } else { None };
+    reading.account_credits = account_credits;
     reading.rate_limits = Some(Reading {
         captured_at: at,
         value: limits,
@@ -345,6 +351,7 @@ mod tests {
             }),
             rate_limits: None,
             resets: None,
+            account_credits: None,
         };
         let wire = enrich_latest(serde_json::Value::Null, "fixture", vec![reading]).unwrap();
         assert_eq!(
@@ -379,6 +386,9 @@ mod tests {
             next_expiry: None,
             credits: None,
         });
+        first.account_credits = Some(RuntimeAccountCredits::Balance {
+            balance: "12.50".into(),
+        });
         context.thread_id = Some("thread".into());
         let loaded = projection(&mut readings, "fixture", &context);
         assert_eq!(
@@ -390,6 +400,12 @@ mod tests {
             20.0
         );
         assert_eq!(loaded.resets.as_ref().unwrap().available_count, 3);
+        assert_eq!(
+            loaded.account_credits,
+            Some(RuntimeAccountCredits::Balance {
+                balance: "12.50".into()
+            })
+        );
         context.binding_nonce = "new".into();
         let rebound = projection(&mut readings, "fixture", &context);
         assert_eq!(
@@ -397,6 +413,7 @@ mod tests {
             codeterm_usage::contract::BillingMode::Unknown
         );
         assert!(rebound.resets.is_none());
+        assert!(rebound.account_credits.is_none());
         assert!(rebound.rate_limits.is_none());
         assert!(rebound.token_usage.is_none());
     }

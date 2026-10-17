@@ -170,6 +170,10 @@ pub enum RuntimeOperation {
         instructions: String,
         settings: RuntimeSettings,
     },
+    ForkThread {
+        source_thread_id: String,
+        turn_id: String,
+    },
     ResumeThread {
         thread_id: String,
         instructions: String,
@@ -218,6 +222,7 @@ impl RuntimeOperation {
             Self::BackgroundProcesses { .. } => "backgroundProcesses",
             Self::Initialize => "initialize",
             Self::OpenThread { .. } => "openThread",
+            Self::ForkThread { .. } => "forkThread",
             Self::ResumeThread { .. } => "resumeThread",
             Self::ReadHistory { .. } => "readHistory",
             Self::SubmitTurn { .. } => "submitTurn",
@@ -441,6 +446,8 @@ pub enum AgentRuntimeEvent {
         rate_limits: Vec<RuntimeRateLimit>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         resets: Option<ResetCredits>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account_credits: Option<RuntimeAccountCredits>,
     },
     ChatItem {
         thread_id: String,
@@ -518,6 +525,18 @@ pub struct RuntimeRateLimit {
     pub resets_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_minutes: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum RuntimeAccountCredits {
+    Balance { balance: String },
+    Unlimited,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

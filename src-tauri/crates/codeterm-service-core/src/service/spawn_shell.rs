@@ -126,7 +126,12 @@ impl ServiceContext {
             }
             let _ = mux.set_tab_description(&result, spec.description.clone());
             if let Some(attachment) = &team_membership {
-                super::team_membership::apply_team_attachment(&mut mux, attachment, &result)?;
+                super::team_membership::apply_team_attachment_under(
+                    &mut mux,
+                    attachment,
+                    &result,
+                    super::team_membership::utility_shell_parent(Some(&attachment.caller_tab_id)),
+                )?;
             }
             if let Some(title) = spec.title.as_deref().filter(|_| reused.is_none()) {
                 if let Err(e) = mux.rename_tab(&result, title) {

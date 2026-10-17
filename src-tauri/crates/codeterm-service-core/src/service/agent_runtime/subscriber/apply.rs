@@ -25,6 +25,9 @@ pub(in crate::service::agent_runtime) async fn publish_events(
         .collect::<Vec<_>>();
     validate_host_runtime_events(&context, &enriched)
         .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
+    if !enriched.is_empty() {
+        svc.ext::<crate::usage::TabActivity>().mark(&context.tab_id);
+    }
     let mut run_completed = false;
     let mut run_chat_item = false;
     for event in enriched {
@@ -67,6 +70,7 @@ pub(in crate::service::agent_runtime) async fn publish_events(
         if let RuntimeEvent::RateLimitsUpdated {
             rate_limits,
             resets,
+            account_credits,
             ..
         } = &runtime
         {
@@ -75,6 +79,7 @@ pub(in crate::service::agent_runtime) async fn publish_events(
                 session,
                 rate_limits.clone(),
                 resets.clone(),
+                account_credits.clone(),
                 at,
             )
             .await?;

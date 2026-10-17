@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import {ownRuntimeUsage,latestUsageSnapshot,runtimeLimitsSnapshot,runtimeTokenLabel,runtimeTokenBreakdown} from "./runtimeUsage";
+import {ownRuntimeUsage,latestUsageSnapshot,runtimeLimitsSnapshot,runtimeTokenLabel,runtimeTokenBreakdown,runtimeAccountCreditsLabel} from "./runtimeUsage";
 import type {UsageSnapshot,RuntimeUsageProjection} from "../../types/usage";
 const reading:RuntimeUsageProjection={tab_id:"own",thread_id:"thread",billing_mode:"subscription",token_usage:null,rate_limits:{captured_at:100,value:[{window:"primary",usedPercent:2,resetsAt:1000},{window:"secondary",usedPercent:0,resetsAt:2000}]}};
 const snapshot={provider:"fixture",captured_at:100,runtime_usage:[reading]} as UsageSnapshot;
 assert.equal(ownRuntimeUsage(snapshot,"foreign","thread"),null);
 assert.equal(ownRuntimeUsage(snapshot,"own","old"),null);
 assert.equal(ownRuntimeUsage(snapshot,"own","thread"),reading);
+assert.equal(runtimeAccountCreditsLabel({kind:"balance",balance:"123.4500"}),"Credits: 123.4500");
+assert.equal(runtimeAccountCreditsLabel({kind:"unlimited"}),"Credits: Unlimited");
+assert.equal(runtimeAccountCreditsLabel(undefined),null);
 const resets={availableCount:3,nextExpiry:null,credits:null};
 assert.deepEqual(runtimeLimitsSnapshot(snapshot,{...reading,resets}).resets,resets);
 const limits=runtimeLimitsSnapshot(snapshot,reading);

@@ -459,6 +459,15 @@ pub fn validate_operation_thread(
         | RuntimeOperation::SubmitTurn { thread_id, .. }
         | RuntimeOperation::Interrupt { thread_id, .. } => Some(thread_id.as_str()),
         RuntimeOperation::Control { thread_id, .. } => thread_id.as_deref(),
+        RuntimeOperation::ForkThread { .. } => {
+            if context.thread_id.is_some()
+                || context.active_turn_id.is_some()
+                || !context.active_turns.is_empty()
+            {
+                return Err(RuntimeFailure::Superseded);
+            }
+            None
+        }
         RuntimeOperation::Initialize
         | RuntimeOperation::OpenThread { .. }
         | RuntimeOperation::Answer { .. } => None,

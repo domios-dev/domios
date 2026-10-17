@@ -35,7 +35,12 @@ async function render(mode:RuntimeUsageProjection){
 }
 await render(reading);
 assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage session 2% weekly 0%");
-snapshot = {...snapshot, parsed_ok:true, captured_at:Date.now()+1, session_pct:3, weekly_pct:11};
+snapshot = {...snapshot, runtime_usage:[{...reading,rate_limits:{captured_at:Date.now()+1,value:[{window:"primary",usedPercent:7},{window:"secondary",usedPercent:13}]}}]};
+await act(async()=>emit("foreign"));
+assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage session 2% weekly 0%");
+await act(async()=>emit());
+assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage session 7% weekly 13%");
+snapshot = {...snapshot, parsed_ok:true, captured_at:Date.now()+2, session_pct:3, weekly_pct:11};
 await act(async()=>emit());
 assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage session 3% weekly 11%");
 pendingReads = [];
@@ -56,9 +61,10 @@ Date.now = () => snapshot.captured_at + 55 * 60_000;
 await act(async()=>document.dispatchEvent(new Event("visibilitychange")));
 assert.ok(container.textContent?.includes("55m ago"));
 Date.now = now;
-await render({...reading,resets:{availableCount:1,nextExpiry:null,credits:null}});
+await render({...reading,resets:{availableCount:1,nextExpiry:null,credits:null},account_credits:{kind:"balance",balance:"123.45"}});
 await act(async()=>container.querySelector("button")!.click());
 assert.deepEqual(resetRequests,[{action:"read"}]);
+assert.ok(container.querySelector('[role="dialog"]')?.textContent?.includes("Credits: 123.45"));
 const namedButton=(name:string)=>{const found=[...document.querySelectorAll("button")].find(button=>button.textContent === name);assert.ok(found);return found;};
 await act(async()=>namedButton("Reset now").click());
 assert.equal(resetRequests.length,1);

@@ -201,9 +201,9 @@ pub async fn add_team_member(
         &prepared.expected_role,
         prepared.expected_profile.as_deref(),
     );
-    let result = {
+    let (result, history_batch) = {
         let mut mux = svc.mux.write();
-        commit_team_member_with_plan_takeover(
+        let result = commit_team_member_with_plan_takeover(
             &mut mux,
             &svc.events,
             team_id,
@@ -213,8 +213,14 @@ pub async fn add_team_member(
             &prepared.expected_profile,
             anchors,
             |mux| take_over_team_plan(mux, &svc.plan_store, team_id, &tab_id, now_ms()),
-        )
+        );
+        (result, mux.take_closed_history_batch())
     };
+    if let Some(batch) = history_batch {
+        tauri::async_runtime::spawn_blocking(move || batch.persist())
+            .await
+            .map_err(|error| format!("closed history persistence task failed: {error}"))?;
+    }
     let mut result = match result {
         Ok(result) => result,
         Err(error) => {
@@ -417,15 +423,21 @@ async fn close_team_inner(
             .store
             .adopt_external_commit(&sentinel_commit)?;
     }
-    let commit = {
+    let (commit, history_batch) = {
         let mut mux = svc.mux.write();
-        if storage_commit.is_some() {
+        let commit = if storage_commit.is_some() {
             let current = prepare_team_close(&mux, team_id, &caller)?;
             commit_prepared_team_close(&mut mux, team_id, &caller, &current)
         } else {
             commit_prepared_team_close(&mut mux, team_id, &caller, &prepared)
-        }
+        };
+        (commit, mux.take_closed_history_batch())
     };
+    if let Some(batch) = history_batch {
+        tokio::task::spawn_blocking(move || batch.persist())
+            .await
+            .map_err(|error| format!("closed history persistence task failed: {error}"))?;
+    }
     let (team, cleanup) = match commit {
         Ok(closed) => closed,
         Err(error) => {

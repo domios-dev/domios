@@ -36,7 +36,7 @@ Run it in the **background** so you can keep working:
 # Background (use run_in_background=true via the Bash tool)
 ```
 
-Agent launchers for dev, build, check, QA batch and install-local (PowerShell and bash lines, `--notify-tab` receipts): [utility-shell-reports](../utility-shell-reports/SKILL.md#launcher-recipes-copy-paste). Manual live drills: `scripts/hand-tests/README.md`; PowerShell isolation check against a warm dev: `scripts/check-dev-instance-isolation.ps1`.
+Agent launchers for dev, build, check, QA batch and install-local (PowerShell and bash lines with automatic owner receipts): [utility-shell-reports](../utility-shell-reports/SKILL.md#launcher-recipes-copy-paste). Manual live drills: `scripts/hand-tests/README.md`; PowerShell isolation check against a warm dev: `scripts/check-dev-instance-isolation.ps1`.
 
 ### Other `build.sh` verbs
 
@@ -63,10 +63,11 @@ node scripts/reap-dev-sidecars.mjs "$HOME/.codeterm-dev" --count
 
 For dev readiness reports routed to the calling agent tab, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
 
-`--notify-tab` reports the first compile error during startup immediately,
-or reports an exit before READY. The shared stream reader covers setup and
-compilation; foreground readiness also consumes the live pipe. See the
-reporting skill above for receipts and parent routing.
+Inside Domios, `dev` and `dev-prebuilt` resolve the recipient from the live
+shell tab and report once when health is ready, or once on a startup failure.
+An explicit `--notify-tab` overrides that route. The shared stream reader
+covers setup and compilation; foreground readiness consumes the live pipe.
+See the reporting skill above for parent, self-notification and mesh routing.
 
 ## Verifying the running binary matches your code
 
@@ -92,35 +93,16 @@ curl -s http://127.0.0.1:7686/api/health | jq '.build'
 
 The hash only changes when you commit. During iterative development it stays the same across restarts (and that's fine — the kill-then-start sequence is your "did the restart take" signal).
 
-## Polling for readiness (after restart)
+## Waiting for readiness
 
-**Always poll, never `ScheduleWakeup` a fixed delay** — Rust re-link is unpredictable (5–60s depending on how much changed), and polling returns in milliseconds when it's ready. Fixed `sleep 90` or a 90s wakeup wastes time on a 15s rebuild and misses a 120s one.
+Use `./build.sh dev --wait` for an automation run that exits after health is
+proven. It waits on the launcher's process and output events, then validates
+`/api/health`; a bounded deadline is a failure condition. Do not add a polling
+loop or fixed sleep. For an interactive run, use one visible foreground dev
+tab; its stream reader reports health readiness to the resolved Domios target.
 
-Easiest: `./build.sh dev --wait` does this for you (kills, builds, polls /api/health, exits when ready or times out at 300s).
-
-Manual polling:
-
-```bash
-./build.sh kill && ./build.sh dev &   # or run_in_background=true via the Bash tool
-for i in $(seq 1 120); do
-  if curl -fs --max-time 2 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
-    echo "ready after ${i}s"
-    break
-  fi
-  sleep 1
-done
-```
-
-Runs up to 2 minutes at 1s intervals. Because `build.sh kill` ran first, the only thing that can answer is the new build.
-
-**What NOT to do:**
-- Don't `ScheduleWakeup` a blind delay for a rebuild — you don't know how long it'll take.
-- Don't use `Monitor` on the background build task expecting to catch "ready" in the output. The Rust compile log is noisy and you'll get pinged on every `Compiling foo v0.x` line. Polling health is lower-overhead.
-- Don't poll faster than 1s — `curl` on Windows has ~200ms overhead per call already, anything tighter just burns CPU for nothing.
-
-### If the build takes > 2 min
-
-Rare, but happens with `./build.sh clean && ./build.sh dev` or after a big refactor that invalidates the incremental cache. Bump the Bash tool timeout to 300000ms (5 min) and the loop counter to 300, OR poll in chunks by re-running the same loop.
+If a build takes longer than the caller's command deadline, raise that
+deadline. The build itself retains its bounded readiness failure deadline.
 
 ## Logs
 
@@ -204,7 +186,7 @@ Changes to prompt markdown files (`src-tauri/prompts/*.md`, `.md` under `src-tau
 |---|---|
 | `src/**/*.tsx` / `src/**/*.ts` | nothing — Vite HMR picks it up |
 | `src/index.css` or Tailwind | nothing — HMR |
-| `src-tauri/src/**/*.rs` | `./build.sh kill && ./build.sh dev` in background, poll health |
+| `src-tauri/src/**/*.rs` | `./build.sh kill && ./build.sh dev` in a Team dev shell; use its READY receipt, then verify health once |
 | `src-tauri/prompts/**/*.md` | same as above — included via `include_str!` |
 | `cli/src/**/*.rs` | `./build.sh cli` — no dev restart needed |
 | `src-tauri/Cargo.toml` deps | `./build.sh clean && ./build.sh dev` |
@@ -250,7 +232,7 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 
 - **`dev-prebuilt` refuses a recorded build commit that differs from HEAD** —
   saved provenance belongs to another source revision. Run the normal `dev`
-  operation with `--notify-tab`; require its fresh build/health receipt before
+  operation; require its fresh build/health receipt before
   testing. Preserve the refusal and never rewrite provenance to bypass it.
 
 > When you hit a dev-startup issue on any platform, add a dated entry below with: symptom, root cause, fix. Keep entries short.

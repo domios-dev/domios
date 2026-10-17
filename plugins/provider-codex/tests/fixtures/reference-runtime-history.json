@@ -1,0 +1,37 @@
+{
+  "sessionId": "child-session",
+  "records": [
+    {
+      "type": "session_meta",
+      "payload": {
+        "id": "child-session",
+        "forked_from_id": "source-session",
+        "forked_from_ordinal_exclusive": 25,
+        "history_mode": "paginated",
+        "history_base": {
+          "thread_id": "source-session",
+          "end_ordinal_exclusive": 25,
+          "end_byte_offset": 74176
+        }
+      }
+    },
+    {
+      "type": "event_msg",
+      "payload": {
+        "type": "item_completed",
+        "thread_id": "foreign-session",
+        "turn_id": "foreign-turn",
+        "item": {"type": "AgentMessage", "id": "foreign-item", "text": "foreign"}
+      }
+    },
+    {
+      "type": "event_msg",
+      "payload": {
+        "type": "item_completed",
+        "thread_id": "child-session",
+        "turn_id": "child-turn",
+        "item": {"type": "AgentMessage", "id": "child-item", "text": "child"}
+      }
+    }
+  ]
+}

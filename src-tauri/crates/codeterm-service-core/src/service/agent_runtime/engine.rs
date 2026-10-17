@@ -34,7 +34,8 @@ pub struct Session {
     pub thread_loaded: std::sync::atomic::AtomicBool,
     pub hook_state: Mutex<Value>,
     pub maps: Mutex<super::events::RuntimeMaps>,
-    pub(super) bookkeeping_failures: std::sync::atomic::AtomicU32,
+    pub(super) provider_operation_failures: std::sync::atomic::AtomicU32,
+    pub(super) bookkeeping_warning_emitted: std::sync::atomic::AtomicBool,
     pub prompts: Mutex<HashMap<RpcId, OutstandingRequest>>,
     pub process: ProcessSlot<Arc<Process>>,
     pub gate: tokio::sync::Semaphore,
@@ -144,6 +145,28 @@ pub async fn stop(svc: &ServiceContext, tab: &str) -> Result<(), String> {
 }
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
+    ensure_with_fork(svc, tab, None).await
+}
+
+pub(super) async fn ensure_fork(
+    svc: &ServiceContext,
+    tab: &str,
+    source_thread_id: &str,
+    turn_id: &str,
+) -> Result<Arc<Session>, RuntimeFailure> {
+    ensure_with_fork(
+        svc,
+        tab,
+        Some((source_thread_id.to_string(), turn_id.to_string())),
+    )
+    .await
+}
+
+async fn ensure_with_fork(
+    svc: &ServiceContext,
+    tab: &str,
+    fork: Option<(String, String)>,
+) -> Result<Arc<Session>, RuntimeFailure> {
     if svc
         .mux
         .read()
@@ -229,7 +252,8 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
                     thread_loaded: std::sync::atomic::AtomicBool::new(false),
                     hook_state: Mutex::new(Value::Null),
                     maps: Mutex::new(super::events::RuntimeMaps::default()),
-                    bookkeeping_failures: std::sync::atomic::AtomicU32::new(0),
+                    provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
+                    bookkeeping_warning_emitted: std::sync::atomic::AtomicBool::new(false),
                     prompts: Mutex::new(HashMap::new()),
                     process: ProcessSlot::new(None),
                     gate: tokio::sync::Semaphore::new(1),
@@ -249,7 +273,7 @@ pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, Run
             .await
             .map_err(|_| RuntimeFailure::Superseded)?;
         attempted.store(true, std::sync::atomic::Ordering::Release);
-        ensure_locked(svc, tab, &provider, &config, &session).await
+        ensure_locked(svc, tab, &provider, &config, &session, fork.as_ref()).await
     })
     .await
     .map_err(|_| RuntimeFailure::Deadline)
@@ -271,7 +295,13 @@ async fn ensure_locked(
     provider: &str,
     config: &Value,
     session: &Arc<Session>,
+    fork: Option<&(String, String)>,
 ) -> Result<(), RuntimeFailure> {
+    if fork.is_some() && session.context.lock().thread_id.is_some() {
+        return Err(RuntimeFailure::Refused(
+            "Fork startup requires an unbound child runtime".into(),
+        ));
+    }
     let nonce = session.context.lock().binding_nonce.clone();
     {
         let mux = svc.mux.read();
@@ -330,8 +360,11 @@ async fn ensure_locked(
         }
         let epoch = session.state.lock().begin();
         session
-            .bookkeeping_failures
+            .provider_operation_failures
             .store(0, std::sync::atomic::Ordering::Relaxed);
+        session
+            .bookkeeping_warning_emitted
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         {
             let mut context = session.context.lock();
             context.epoch = epoch;
@@ -480,25 +513,50 @@ async fn ensure_locked(
             "Restored runtime thread identity missing".into(),
         ));
     }
-    let operation = match context.thread_id.clone() {
-        Some(thread_id) => RuntimeOperation::ResumeThread {
-            thread_id,
-            instructions: config["systemPrompt"].as_str().unwrap_or_default().into(),
-            settings: context.settings.clone(),
+    let operation = match fork {
+        Some((source_thread_id, turn_id)) => RuntimeOperation::ForkThread {
+            source_thread_id: source_thread_id.clone(),
+            turn_id: turn_id.clone(),
         },
-        None => RuntimeOperation::OpenThread {
-            instructions: config["systemPrompt"].as_str().unwrap_or_default().into(),
-            settings: context.settings.clone(),
+        None => match context.thread_id.clone() {
+            Some(thread_id) => RuntimeOperation::ResumeThread {
+                thread_id,
+                instructions: config["systemPrompt"].as_str().unwrap_or_default().into(),
+                settings: context.settings.clone(),
+            },
+            None => RuntimeOperation::OpenThread {
+                instructions: config["systemPrompt"].as_str().unwrap_or_default().into(),
+                settings: context.settings.clone(),
+            },
         },
     };
-    let RuntimeResult::ThreadLoaded {
-        thread_id,
-        settings,
-    } = run(svc, provider, session, &process, operation).await?
-    else {
-        return Err(RuntimeFailure::HookFailed(
-            "Thread load result is invalid".into(),
-        ));
+    let result = run(svc, provider, session, &process, operation).await?;
+    let (thread_id, settings) = match (fork, result) {
+        (
+            Some((expected_source, expected_turn)),
+            RuntimeResult::ThreadForked {
+                source_thread_id,
+                thread_id,
+                turn_id,
+            },
+        ) if source_thread_id == *expected_source
+            && turn_id == *expected_turn
+            && thread_id != *expected_source =>
+        {
+            (thread_id, context.settings.clone())
+        }
+        (
+            None,
+            RuntimeResult::ThreadLoaded {
+                thread_id,
+                settings,
+            },
+        ) => (thread_id, settings),
+        _ => {
+            return Err(RuntimeFailure::HookFailed(
+                "Thread load result is invalid".into(),
+            ));
+        }
     };
     crate::startup::boot_timing::mark(tab, None, "thread_resumed");
     let resumed_ms = started.elapsed().as_millis();
@@ -548,13 +606,18 @@ async fn ensure_locked(
     };
     let mut port = backfill::RpcPort::new(svc, session, &process, tab, &thread_id);
     let mut replay = backfill::Replay::new(context.epoch, generation, &thread_id);
-    if session
-        .adapter
-        .lock()
-        .as_ref()
-        .and_then(|adapter| adapter.agent_runtime())
-        .is_some_and(|runtime| runtime.stored_history)
-    {
+    let history_adapter = session.adapter.lock().clone();
+    let history_cwd = context.cwd.clone();
+    let history_thread = thread_id.clone();
+    let stored_history = tokio::task::spawn_blocking(move || {
+        history_adapter.is_some_and(|adapter| {
+            adapter.runtime_stored_history_available(&history_cwd, &history_thread)
+        })
+    })
+    .await
+    .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?;
+    log::debug!("[chat_backfill] tab={tab} thread={thread_id} stored_history={stored_history}");
+    if stored_history {
         session.cache.lock().bound_rereadable();
         replay.bound_startup();
     }

@@ -6,9 +6,11 @@ use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
 use codeterm_types::agent::chat_types::ChatMsg;
 use std::sync::{
-    atomic::{AtomicU32, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
+
+const MAX_CONSECUTIVE_PROVIDER_OPERATION_FAILURES: u32 = 8;
 
 static WARNING_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -23,10 +25,68 @@ pub enum Step {
     Close(RuntimeFailure),
 }
 
-pub(super) fn first_failure(failures: &AtomicU32) -> bool {
-    failures.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
-        Some(count.saturating_add(1))
-    }) == Ok(0)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reason {
+    Lag,
+    Hook,
+    Publish,
+    Limit,
+}
+
+impl Reason {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Lag => "lag",
+            Self::Hook => "hook",
+            Self::Publish => "publish",
+            Self::Limit => "limit",
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum RecoveryEvent {
+    Bookkeeping(Reason),
+    ProviderOperation(Result<(), RuntimeFailure>),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Resolution {
+    Resync,
+    Continue { provider_failures: u32 },
+    Break,
+    Close(RuntimeFailure),
+}
+
+pub(super) fn first_warning(emitted: &AtomicBool) -> bool {
+    !emitted.swap(true, Ordering::Relaxed)
+}
+
+pub fn resolve(event: RecoveryEvent, provider_failures: u32) -> Resolution {
+    match event {
+        RecoveryEvent::Bookkeeping(_) => Resolution::Resync,
+        RecoveryEvent::ProviderOperation(Ok(())) => Resolution::Continue {
+            provider_failures: 0,
+        },
+        RecoveryEvent::ProviderOperation(Err(reason)) if protocol(&reason) => {
+            Resolution::Close(reason)
+        }
+        RecoveryEvent::ProviderOperation(Err(RuntimeFailure::Superseded)) => Resolution::Break,
+        RecoveryEvent::ProviderOperation(Err(reason))
+            if matches!(
+                reason,
+                RuntimeFailure::HookFailed(_) | RuntimeFailure::Deadline
+            ) =>
+        {
+            let provider_failures = provider_failures.saturating_add(1);
+            if provider_failures >= MAX_CONSECUTIVE_PROVIDER_OPERATION_FAILURES {
+                Resolution::Close(reason)
+            } else {
+                Resolution::Continue { provider_failures }
+            }
+        }
+        RecoveryEvent::ProviderOperation(Err(_)) => Resolution::Continue { provider_failures },
+    }
 }
 
 pub async fn account(
@@ -34,20 +94,34 @@ pub async fn account(
     session: &Arc<Session>,
     process: &Arc<Process>,
     epoch: u64,
-    reason: &str,
+    reason: Reason,
 ) -> Step {
-    if first_failure(&session.bookkeeping_failures) {
-        emit_warning(svc, session, epoch, reason);
+    if first_warning(&session.bookkeeping_warning_emitted) {
+        emit_warning(svc, session, epoch, reason.label());
     }
-    recovery_step(resync(svc, session, process).await)
+    match resolve(
+        RecoveryEvent::Bookkeeping(reason),
+        session.provider_operation_failures.load(Ordering::Relaxed),
+    ) {
+        Resolution::Resync => recovery_step(resync(svc, session, process).await, session),
+        Resolution::Continue { .. } => Step::Continue,
+        Resolution::Break => Step::Break,
+        Resolution::Close(reason) => Step::Close(reason),
+    }
 }
 
-pub(super) fn recovery_step(result: Result<(), RuntimeFailure>) -> Step {
-    match result {
-        Ok(()) => Step::Continue,
-        Err(reason) if protocol(&reason) => Step::Close(reason),
-        Err(RuntimeFailure::Superseded) => Step::Break,
-        Err(_) => Step::Continue,
+pub(super) fn recovery_step(result: Result<(), RuntimeFailure>, session: &Session) -> Step {
+    let failures = session.provider_operation_failures.load(Ordering::Relaxed);
+    match resolve(RecoveryEvent::ProviderOperation(result), failures) {
+        Resolution::Continue { provider_failures } => {
+            session
+                .provider_operation_failures
+                .store(provider_failures, Ordering::Relaxed);
+            Step::Continue
+        }
+        Resolution::Break => Step::Break,
+        Resolution::Close(reason) => Step::Close(reason),
+        Resolution::Resync => unreachable!(),
     }
 }
 
