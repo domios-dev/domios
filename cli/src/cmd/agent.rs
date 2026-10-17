@@ -390,7 +390,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         .and_then(serde_json::Value::as_u64)
                         .unwrap_or(observed_version);
                     if live_discovery_warning_needed(discovery_required, refreshed) {
-                        eprintln!("WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot.");
+                        eprintln!(
+                            "WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot."
+                        );
                     }
                     if discovery_required || refreshed || current_version != observed_version {
                         let response = match local_http
@@ -561,11 +563,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     .unwrap_or_else(|| tab_id.clone());
                 crate::cmd::print::fail(1, missing_report_binding_incident(&tab));
             }
-            let mut body = serde_json::json!({
-                "tab_id": tab_id,
-                "caller_tab_id": tab_id,
-                "message": message,
-            });
+            let mut body = CallerContext::from_env().report_body(&tab_id, message);
             if let Ok(attempt_id) = std::env::var("CODETERM_ATTEMPT_ID") {
                 body["attempt_id"] = serde_json::json!(attempt_id);
             }
@@ -913,8 +911,90 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 );
             }
         }
-        AgentAction::Model { name, tab, force } => {
+        AgentAction::Model {
+            name,
+            tab,
+            force,
+            speed,
+            list_speeds,
+        } => {
             let tab_id = resolve_tab(client, tab);
+            if list_speeds || speed.is_some() {
+                let response = local_http
+                    .get(format!("{}/api/tabs/{}/agent/service-tiers", base, tab_id))
+                    .send()
+                    .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
+                let status = response.status();
+                let text = response.text().unwrap_or_default();
+                let catalogue = match agent_model_switch::model_switch_result(status, &text) {
+                    Ok(value) => value,
+                    Err(error) => crate::cmd::print::exit_with_cli_error(json, &error),
+                };
+                if list_speeds {
+                    let mut listed = catalogue.clone();
+                    if let Some(tiers) = listed["tiers"].as_array_mut() {
+                        tiers.retain(|tier| tier.get("unavailableReason").is_none());
+                    }
+                    if json {
+                        crate::cmd::print::print_json(&listed);
+                    } else {
+                        for tier in listed["tiers"].as_array().into_iter().flatten() {
+                            println!(
+                                "{}\t{}",
+                                tier["id"].as_str().unwrap_or("?"),
+                                tier["name"].as_str().unwrap_or("")
+                            );
+                        }
+                    }
+                    return;
+                }
+                let requested = speed.as_deref().unwrap_or_default();
+                let selection =
+                    agent_model_switch::requested_service_tier(&catalogue, requested, &tab_id)
+                        .unwrap_or_else(|error| {
+                            crate::cmd::print::exit_with_cli_error(json, &error)
+                        });
+                let body = serde_json::json!({"model": name.as_deref().unwrap_or(""), "force":force, "service_tier":selection});
+                let result = local_http
+                    .post(format!("{}/api/tabs/{}/agent/model", base, tab_id))
+                    .json(&body)
+                    .send()
+                    .map_err(|error| crate::cmd::print::CliError::new(error.to_string()))
+                    .and_then(|resp| {
+                        agent_model_switch::model_switch_result(
+                            resp.status(),
+                            &resp.text().unwrap_or_default(),
+                        )
+                    });
+                match result {
+                    Ok(mut value) => {
+                        value["requested_service_tier"] = selection.clone();
+                        let readback = local_http
+                            .get(format!("{}/api/tabs/{}/agent/service-tiers", base, tab_id))
+                            .send()
+                            .ok()
+                            .and_then(|response| response.json::<serde_json::Value>().ok());
+                        let confirmed = readback
+                            .as_ref()
+                            .and_then(|catalogue| catalogue.get("confirmed"));
+                        let matches = confirmed
+                            .is_some_and(|confirmed| confirmed.get("id") == selection.get("id"));
+                        value["confirmed_service_tier"] =
+                            confirmed.cloned().unwrap_or(serde_json::Value::Null);
+                        value["service_tier_outcome"] =
+                            if matches { "confirmed" } else { "pending" }.into();
+                        if json {
+                            crate::cmd::print::print_json(&value);
+                        } else {
+                            println!("{}", agent_model_switch::render_model_switch(&value));
+                        }
+                    }
+                    Err(error) => crate::cmd::print::exit_with_cli_error(json, &error),
+                }
+                return;
+            }
+            let name =
+                name.unwrap_or_else(|| crate::cmd::print::fail(2, "provide MODEL or --speed"));
             let result = local_http
                 .post(format!("{}/api/tabs/{}/agent/model", base, tab_id))
                 .json(&serde_json::json!({ "model": name, "force":force }))

@@ -58,6 +58,31 @@ test("Card click fires handler", async () => {
   assert(clicked, "onClick not fired");
 });
 
+test("wheel over a card, title or subtitle reaches its containing list uncancelled", async () => {
+  let received = 0;
+  const { host, root } = await render(
+    <div role="list" aria-label="Cards" style={{ overflowY: "auto", height: 100 }}
+      onWheel={() => { received++; }}>
+      <Card role="listitem">
+        <h3>Title</h3>
+        <p>Subtitle</p>
+      </Card>
+    </div>,
+  );
+  try {
+    const card = host.querySelector('[role="listitem"]')!;
+    for (const target of [card, card.querySelector("h3")!, card.querySelector("p")!]) {
+      const event = new window.WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 40 });
+      await act(async () => { target.dispatchEvent(event); });
+      assert(!event.defaultPrevented, "card content must leave native wheel scrolling enabled");
+    }
+    assert(received === 3, "each wheel must reach the list exactly once");
+  } finally {
+    await act(async () => { root.unmount(); });
+    host.remove();
+  }
+});
+
 async function main() {
   setupDom();
   let failed = 0;

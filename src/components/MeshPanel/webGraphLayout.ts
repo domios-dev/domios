@@ -1,7 +1,7 @@
 export const WEB_CARD_SCALE = 0.8;
 export const MACHINE_CARD_SCALE = 1.5;
 export const MACHINE_CARD_WIDTH = 360 * MACHINE_CARD_SCALE;
-export const MACHINE_CARD_HEIGHT = 100 * MACHINE_CARD_SCALE;
+export const MACHINE_CARD_HEIGHT = 340 * MACHINE_CARD_SCALE;
 const GAP = 20;
 
 export function webGraphLayout(width: number, height: number, machineCount: number, webHeight = 800) {

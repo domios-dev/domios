@@ -3,6 +3,7 @@ import { invoke, listen } from "../../lib/bridge";
 import type { MeshStatus, MeshPeersResponse, PairedPeer, DiscoveredPeer } from "../../lib/types";
 import type { Service } from "./types";
 import {
+  cachedServices,
   collectPeerErrors,
   mergeServicesView,
   type PeerFetchResult,
@@ -82,8 +83,8 @@ export function useMeshData(refreshKey: number): MeshDataResult {
     if (!cached) return DEFAULT_DATA;
     return {
       thisMachine: cached.thisMachine,
-      peers: cached.peers,
-      services: cached.services,
+      peers: cached.peers.map((peer) => ({ ...peer, services_stale: true })),
+      services: cachedServices(cached.services),
       loading: true,
       error: null,
     };
@@ -170,7 +171,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           ...p,
           services_loaded: !!r.view,
           services_stale: r.view?.stale ?? true,
-          services_error: r.view?.error ?? (r.view ? null : "services fetch failed"),
+          services_error: r.view?.error ?? r.view?.partial_error ?? (r.view ? null : "services fetch failed"),
           services_fetched_at: r.view?.fetched_at ?? null,
         };
       });

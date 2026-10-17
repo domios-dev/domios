@@ -8,6 +8,11 @@ for (const id of [null,"priority","ultrafast"]) {
   assert.equal(codexEffectiveSettings({serviceTier:{id}},{}).serviceTier,undefined);
 }
 assert.deepEqual(codexServiceTier({}),{});
+for (const reply of [{serviceTier:"default"},{thread:{serviceTier:"default"}}]) {
+  const confirmed = codexEffectiveSettings({model:"next-model",serviceTier:{id:"priority"}},reply);
+  assert.deepEqual(confirmed.serviceTier,{id:null});
+  assert.equal(tierAvailable(confirmed,confirmed.serviceTier!),true);
+}
 assert.equal(serviceTierSelection({id:false}),false);
 assert.equal(serviceTierSelection(null),false);
 const catalogue = [{model:"model",serviceTiers:[{id:"priority",name:"Fast",description:"fast"},{id:"ultrafast",name:"Ultrafast",description:"ultra"}]}];

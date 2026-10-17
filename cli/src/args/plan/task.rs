@@ -396,6 +396,9 @@ pub enum PlanTaskAction {
             help = "Explicit task intent used by provider reserve policy"
         )]
         execution_intent: String,
+        /// Explicit OS confinement for this launch; Workers default to full access.
+        #[arg(long, value_parser = ["read-only", "workspace-write"])]
+        sandbox: Option<String>,
         #[arg(
             long = "provider-reserve-pct",
             default_value_t = 0.0,

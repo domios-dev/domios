@@ -4,6 +4,7 @@ import { invoke } from "../../lib/bridge";
 import { IS_WEB } from "../../lib/webApi";
 import type { InlineAttachment } from "./useComposerCapsules";
 import { storeBlob } from "./voice/audio";
+import { isFileTransfer, planFileDrop } from "./composerTransferModel";
 
 export async function storeBrowserFiles(
   files: Iterable<File>,
@@ -44,7 +45,7 @@ export function useWebFileDrop(
   }
   const handlers = {
     onDragOver: (e: DragEvent) => {
-      if (e.dataTransfer.types.includes("Files")) {
+      if (isFileTransfer(e.dataTransfer)) {
         e.preventDefault();
         setDragOver(true);
       }
@@ -59,9 +60,11 @@ export function useWebFileDrop(
     },
     onDrop: (e: DragEvent) => {
       setDragOver(false);
-      if (e.dataTransfer.files.length === 0) return;
-      e.preventDefault();
-      void (uploadFiles ? uploadFiles(Array.from(e.dataTransfer.files)) : storeBrowserFiles(Array.from(e.dataTransfer.files), onAttach, onError));
+      const { preventNavigation, files, error } = planFileDrop(e.dataTransfer);
+      if (preventNavigation) e.preventDefault();
+      if (error) onError(error);
+      if (!files.length) return;
+      void (uploadFiles ? uploadFiles(files) : storeBrowserFiles(files, onAttach, onError)).catch(error => onError(error instanceof Error ? error.message : String(error)));
     },
   };
   return { dragOver, handlers };
