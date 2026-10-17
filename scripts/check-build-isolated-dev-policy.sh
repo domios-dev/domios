@@ -14,6 +14,28 @@ canonical="$(CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY=1 ./build.sh dev --wait)"
 grep -Fxq 'mode=shared' <<<"$canonical"
 grep -Fxq 'build_gateway=required' <<<"$canonical"
 
+first="$(CODETERM_INSTANCE=tester-one CODETERM_API_PORT=7781 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
+second="$(CODETERM_INSTANCE=tester-two CODETERM_API_PORT=7782 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
+for field in data_dir api_port vite_port cdp_port; do
+  first_value="$(sed -n "s/^${field}=//p" <<<"$first")"
+  second_value="$(sed -n "s/^${field}=//p" <<<"$second")"
+  if [ "$first_value" = "$second_value" ]; then
+    echo "named Tester instances share $field=$first_value" >&2
+    exit 1
+  fi
+done
+
+set +e
+missing_port="$(env -u CODETERM_API_PORT CODETERM_INSTANCE=tester-no-port \
+  CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait 2>&1)"
+missing_port_status=$?
+set -e
+if [ "$missing_port_status" -ne 2 ] || ! grep -q 'requires its own non-default CODETERM_API_PORT' <<<"$missing_port"; then
+  echo "named dev must refuse to share the default API port" >&2
+  echo "$missing_port" >&2
+  exit 1
+fi
+
 node --test scripts/tests/dev-gateway-handoff.test.mjs
 
 echo "isolated named dev policy check passed"

@@ -9,6 +9,7 @@ use crate::client::SocketClient;
 #[derive(Default)]
 pub(super) struct SpawnContext<'a> {
     pub role: Option<&'a SpawnRole>,
+    pub kind: Option<&'a str>,
     pub has_workspace: bool,
     pub has_team: bool,
     pub has_parent: bool,
@@ -66,11 +67,19 @@ pub(super) fn validate_spawn_context(ctx: &SpawnContext<'_>) -> Result<(), Strin
             "--plan <id> is required when spawning --role Planner (or pass --parent)".into(),
         );
     }
+    if ctx.kind.is_some() && !ctx.is_worker() {
+        return Err("--kind is only valid with --role Worker".into());
+    }
+    if ctx.kind.is_some() {
+        if !ctx.has_parent {
+            return Err("Worker kinds require --parent-tab".into());
+        }
+    }
     if ctx.has_authorized_gates {
         if !ctx.is_worker() {
             return Err("--authorized-gate is only valid with --role Worker".into());
         }
-        if ctx.has_plan_task {
+        if ctx.task_bound() {
             return Err(concat!(
                 "--authorized-gate is not carried by a task-bound spawn; declare the gates ",
                 "where they are also enforced: codeterm plan task dispatch <plan> <task> ",
@@ -147,6 +156,10 @@ pub(super) fn unsupported_team_orchestrator_flags(
         .collect()
 }
 
+fn resolved_execution_intent(kind: Option<&str>, intent: Option<String>) -> Option<String> {
+    intent.or_else(|| kind.is_some().then(|| READ_ONLY.to_string()))
+}
+
 /// The `agent spawn` verb: validate the flag combination, resolve file-backed
 /// inputs, and build the `agent.spawn` request.
 pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction) {
@@ -156,6 +169,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         description,
         cwd,
         role,
+        kind,
         parent,
         plan,
         report_to,
@@ -186,8 +200,10 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
     else {
         unreachable!("agent_spawn::handle received a non-spawn action")
     };
+    let execution_intent = resolved_execution_intent(kind.as_deref(), execution_intent);
     let context = SpawnContext {
         role: role.as_ref(),
+        kind: kind.as_deref(),
         has_workspace: workspace.is_some(),
         has_team: team.is_some(),
         has_parent: parent.is_some(),
@@ -404,6 +420,9 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             body["role_profile"] = serde_json::json!(profile);
         }
     }
+    if let Some(kind) = kind {
+        body["role_profile"] = serde_json::json!(kind);
+    }
     if let Some(p) = parent {
         body["parent_tab_id"] = serde_json::json!(p);
     }
@@ -592,6 +611,54 @@ mod tests {
             has_plan,
             execution_intent,
             ..Default::default()
+        }
+    }
+
+    #[test]
+    fn taskless_kinds_default_to_read_only_and_stay_under_their_parent() {
+        assert_eq!(
+            resolved_execution_intent(Some("tester"), None).as_deref(),
+            Some(READ_ONLY)
+        );
+        assert_eq!(
+            resolved_execution_intent(Some("release_manager"), None).as_deref(),
+            Some(READ_ONLY)
+        );
+        for kind in ["tester", "release_manager"] {
+            assert!(
+                validate_spawn_context(&SpawnContext {
+                    role: Some(&SpawnRole::Worker),
+                    kind: Some(kind),
+                    has_parent: true,
+                    has_authorized_gates: true,
+                    execution_intent: Some(READ_ONLY),
+                    ..Default::default()
+                })
+                .is_ok(),
+                "{kind}"
+            );
+            assert!(
+                validate_spawn_context(&SpawnContext {
+                    role: Some(&SpawnRole::Worker),
+                    kind: Some(kind),
+                    execution_intent: Some(READ_ONLY),
+                    ..Default::default()
+                })
+                .is_err(),
+                "{kind} without parent"
+            );
+            assert!(
+                validate_spawn_context(&SpawnContext {
+                    role: Some(&SpawnRole::Worker),
+                    kind: Some(kind),
+                    has_parent: true,
+                    has_plan_task: true,
+                    execution_intent: Some(READ_ONLY),
+                    ..Default::default()
+                })
+                .is_err(),
+                "{kind} with task"
+            );
         }
     }
 

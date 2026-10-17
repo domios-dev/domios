@@ -27,8 +27,12 @@ export function gateCommand(args) {
     ? arg : `'${arg.replaceAll("'", "'\\''")}'`).join(' ');
 }
 
-export function authorizedRustGate({ env, current, canonical, plan, tasks, args }) {
-  if (!current || !canonical || !env.CODETERM_TAB_ID || plan?.id !== env.CODETERM_PLAN_ID) return false;
+export function authorizedRustGate({ env, current, canonical, plan, tasks, taskless_worker, args }) {
+  if (!current || !canonical || !env.CODETERM_TAB_ID) return false;
+  if (current === canonical && !env.CODETERM_TASK_ID && !env.CODETERM_ATTEMPT_ID &&
+      tasklessWorkerRecordMatches(env.CODETERM_TAB_ID, taskless_worker) &&
+      taskless_worker.taskless_authorized_gates.some(grant => grantMatches(grant, args))) return true;
+  if (!plan || !env.CODETERM_PLAN_ID || plan.id !== env.CODETERM_PLAN_ID) return false;
   const owner = plan.owner?.tab_id;
   if (current === canonical && owner && !env.CODETERM_TASK_ID && !env.CODETERM_ATTEMPT_ID) {
     if (env.CODETERM_ROLE === 'Orchestrator' && env.CODETERM_TAB_ID === owner) return true;
@@ -49,7 +53,28 @@ export function authorizedRustGate({ env, current, canonical, plan, tasks, args 
   return Array.isArray(attempt.authorized_gates) && attempt.authorized_gates.some(grant => grantMatches(grant, args));
 }
 
-export function readGateProof(env, read = fs.readFileSync, list = fs.readdirSync) {
+function tasklessWorkerRecordMatches(tabId, record) {
+  if (!record || record.id !== tabId || record.role !== 'Worker' ||
+      typeof record.parent_tab_id !== 'string' || record.parent_tab_id.length === 0 || record.task_binding != null ||
+      !Array.isArray(record.taskless_authorized_gates)) return false;
+  return record.taskless_authorized_gates.length > 0 &&
+    record.taskless_authorized_gates.every(grant => typeof grant === 'string' && grant.length > 0);
+}
+
+function readTasklessWorkerRecord(env, run) {
+  if (!env.CODETERM_TAB_ID) return null;
+  const result = JSON.parse(run('codeterm', ['--json', 'tab', 'inspect', '--tab', env.CODETERM_TAB_ID],
+    { encoding: 'utf8', env }));
+  const rows = result.data ?? result;
+  const record = Array.isArray(rows) ? rows.find(tab => tab?.id === env.CODETERM_TAB_ID) : rows;
+  return tasklessWorkerRecordMatches(env.CODETERM_TAB_ID, record) ? record : null;
+}
+
+export function readGateProof(env, read = fs.readFileSync, list = fs.readdirSync, run = execFileSync, parseYaml = null) {
+  if (env.CODETERM_ROLE === 'Worker' && !env.CODETERM_TASK_ID && !env.CODETERM_ATTEMPT_ID) {
+    const taskless_worker = readTasklessWorkerRecord(env, run);
+    if (taskless_worker) return { plan: { id: env.CODETERM_PLAN_ID ?? null }, tasks: [], taskless_worker };
+  }
   if (!/^pl_[a-zA-Z0-9]+$/.test(env.CODETERM_PLAN_ID ?? '') || !path.isAbsolute(env.CODETERM_PAD_DIR ?? '')) return null;
   // The host pad lives at <instance>/runtime/agent-pads/<tab> beside the plan store.
   const root = path.resolve(env.CODETERM_PAD_DIR, '../../..');
@@ -57,10 +82,12 @@ export function readGateProof(env, read = fs.readFileSync, list = fs.readdirSync
       path.basename(path.dirname(path.dirname(env.CODETERM_PAD_DIR))) !== 'runtime') return null;
   const directory = path.join(root, 'plans', 'active', env.CODETERM_PLAN_ID);
   let planText;
-  try { planText = read(path.join(directory, 'plan.yaml'), 'utf8'); } catch { return readGateProofFromHost(env); }
+  try { planText = read(path.join(directory, 'plan.yaml'), 'utf8'); } catch { return readGateProofFromHost(env, run); }
   // Lanes without node_modules still get a decision through the host CLI.
-  let parse;
-  try { ({ parse } = createRequire(import.meta.url)('yaml')); } catch { return readGateProofFromHost(env); }
+  let parse = parseYaml;
+  if (!parse) {
+    try { ({ parse } = createRequire(import.meta.url)('yaml')); } catch { return readGateProofFromHost(env, run); }
+  }
   const plan = parse(planText);
   const tasks = env.CODETERM_TASK_ID ? list(path.join(directory, 'tasks'))
     .filter(file => file.endsWith('.yaml'))

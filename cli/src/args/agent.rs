@@ -295,6 +295,9 @@ pub enum AgentAction {
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
         #[arg(long)]
         role: Option<SpawnRole>,
+        /// Worker kind/profile. Task-less builtins are tester and release_manager.
+        #[arg(long, alias = "role-profile")]
+        kind: Option<String>,
         /// Parent tab ID. Required for Workers; for a Planner, resolved
         /// from --plan (its Orchestrator) when omitted.
         #[arg(long = "parent-tab")]
@@ -791,6 +794,46 @@ mod tests {
                         "./build.sh test-one app verifier".to_string(),
                         "./build.sh verify".to_string()
                     ]
+                );
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn taskless_worker_kind_cli_contract_needs_no_plan_task() {
+        let action = parse_spawn(&[
+            "codex",
+            "--role",
+            "Worker",
+            "--kind",
+            "tester",
+            "--parent-tab",
+            "parent_tab",
+            "--authorized-gate",
+            "./build.sh test-one app verifier",
+        ])
+        .expect("task-less tester Worker spawn parses");
+        match action {
+            AgentAction::Spawn {
+                role,
+                kind,
+                parent,
+                plan,
+                plan_task,
+                execution_intent,
+                authorized_gates,
+                ..
+            } => {
+                assert!(matches!(role, Some(SpawnRole::Worker)));
+                assert_eq!(kind.as_deref(), Some("tester"));
+                assert_eq!(parent.as_deref(), Some("parent_tab"));
+                assert!(plan.is_none());
+                assert!(plan_task.is_none());
+                assert!(execution_intent.is_none());
+                assert_eq!(
+                    authorized_gates,
+                    vec!["./build.sh test-one app verifier".to_string()]
                 );
             }
             _ => panic!("expected agent spawn"),
