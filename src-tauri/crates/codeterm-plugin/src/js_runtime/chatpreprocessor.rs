@@ -14,11 +14,21 @@ use crate::chatpreprocessor::{ChatPreprocessorProvider, PreprocessCtx};
 pub struct JsChatPreprocessor {
     vm: Arc<PluginVm>,
     id: String,
+    provider_scope: Option<String>,
 }
 
 impl JsChatPreprocessor {
     pub fn new(vm: Arc<PluginVm>, id: impl Into<String>) -> Self {
-        Self { vm, id: id.into() }
+        Self {
+            vm,
+            id: id.into(),
+            provider_scope: None,
+        }
+    }
+
+    pub fn scoped_to_provider(mut self, provider: impl Into<String>) -> Self {
+        self.provider_scope = Some(provider.into());
+        self
     }
 }
 
@@ -31,6 +41,10 @@ struct PreprocessOut {
 impl ChatPreprocessorProvider for JsChatPreprocessor {
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn provider_scope(&self) -> Option<&str> {
+        self.provider_scope.as_deref()
     }
 
     fn preprocess(&self, ctx: &PreprocessCtx, text: &str) -> Option<String> {
