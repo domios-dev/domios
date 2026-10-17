@@ -136,14 +136,14 @@ struct PeerVerdict {
 }
 
 fn peer_delivery_verdict(data: &serde_json::Value) -> PeerVerdict {
-    let Some(error) = data.get("error").filter(|e| e.is_object()) else {
+    let Some(error) = data.get("error").filter(|e| !e.is_null()) else {
         return PeerVerdict::default();
     };
     let text = |key: &str| error.get(key).and_then(|v| v.as_str()).map(str::to_string);
     PeerVerdict {
         code: text("code"),
         bytes_written: error.get("bytes_written").and_then(|v| v.as_bool()),
-        message: text("message"),
+        message: text("message").or_else(|| error.as_str().map(str::to_string)),
     }
 }
 
@@ -204,7 +204,9 @@ fn route_retry_hint(
     bytes_written: Option<bool>,
     status: u16,
 ) -> String {
-    if code.is_none() && data.get("error").is_none() {
+    if !super::is_send_relay(relayed.0, relayed.1)
+        || (code.is_none() && data.get("error").is_none())
+    {
         relay_retry_hint(relayed, status)
     } else {
         delivery_retry_hint(data, code, bytes_written, status)
@@ -297,6 +299,12 @@ pub(crate) fn classify_relay_answer(
             .get("error")
             .and_then(|v| v.as_str())
             .map(str::to_string)
+            .or_else(|| {
+                val.get("error")?
+                    .get("message")?
+                    .as_str()
+                    .map(str::to_string)
+            })
             .or_else(|| match (&code, &message) {
                 (Some(code), Some(message)) => Some(format!("{code}: {message}")),
                 (Some(code), None) => Some(code.clone()),
@@ -315,14 +323,15 @@ pub(crate) fn classify_relay_answer(
             .with_delivery(code, bytes_written));
     }
 
-    // On a send the peer's own body is the only delivery evidence, so its `ok: false` outranks an accepting envelope.
     let peer_refused = data.get("ok").and_then(|v| v.as_bool()) == Some(false);
-    if super::is_send_relay(relayed.0, relayed.1) && peer_refused {
+    let rpc_error =
+        relayed.1 != "/api/mesh/rpc" && data.get("error").is_some_and(|error| !error.is_null());
+    if peer_refused || rpc_error {
         let reason = match (&code, &message) {
             (Some(code), Some(message)) => format!("{code}: {message}"),
             (Some(code), None) => code.clone(),
             (None, Some(message)) => message.clone(),
-            _ => format!("peer did not confirm delivery (HTTP {envelope_status})"),
+            _ => format!("peer refused the request (HTTP {envelope_status})"),
         };
         let hint = route_retry_hint(
             relayed,
