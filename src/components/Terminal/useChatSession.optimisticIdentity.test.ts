@@ -188,6 +188,10 @@ test("optimistic chat session preserves committed send identity across stream up
   await flush();
   const rows = v().allMessages;
   const secondKey = rows.find((row) => row.id === secondId)?.timestamp;
+  const { readChatSends } = await import("./chatSendStore");
+  const boundary = readChatSends("tab").find((send) => send.id === secondId)?.echoBoundary;
+  assert(boundary?.lastRowId === "a-1", "the stable send callback captures the latest committed row");
+  assert(boundary.sourceSessionId === "sid-1" && boundary.sessionBindingNonce === "nonce-1", "the boundary belongs to the attached session");
   assert(typeof secondKey === "string", "the second send projects with its own key");
   assert(
     Number(secondKey) >= Number(firstKey),

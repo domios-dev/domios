@@ -2,6 +2,7 @@ import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { type MutableRefObject, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   lastSessionResetIndex,
+  captureSendEchoBoundary,
   projectContextEpochs,
   projectTranscript,
   reduceToolEvents,
@@ -11,6 +12,7 @@ import {
   transcriptRows,
   type TimelineItem,
   type TranscriptState,
+  type TranscriptAuthority,
 } from "@codeterm/chat-core";
 import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
 import {
@@ -44,6 +46,7 @@ export function useChatWindowView({
   tabId,
   windowKey,
   transcript,
+  attachedAuthority = null,
   anchorKey,
   followTailRef,
   loadOlderPage,
@@ -51,6 +54,7 @@ export function useChatWindowView({
   tabId: string;
   windowKey: string;
   transcript: TranscriptState;
+  attachedAuthority?: TranscriptAuthority | null;
   anchorKey: string | null;
   followTailRef: MutableRefObject<boolean>;
   loadOlderPage: (beforeOffset: number, maxBytes: number) => Promise<OlderChatPage | null>;
@@ -223,7 +227,8 @@ export function useChatWindowView({
     const sentAtMs = Date.now();
     const id = `opt-${sentAtMs}-${Math.floor(Math.random() * 1e6)}`;
     // The bubble's own id doubles as its send-correlation token.
-    addChatSend(tabId, { id, content, sentAtMs, correlationId: id });
+    addChatSend(tabId, { id, content, sentAtMs, correlationId: id,
+      echoBoundary: captureSendEchoBoundary(transcript.authority ?? attachedAuthority, committedRows) });
     return id;
   }, [tabId]);
 
