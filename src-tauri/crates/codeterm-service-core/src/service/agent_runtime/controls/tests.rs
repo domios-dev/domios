@@ -40,7 +40,7 @@ const PROVIDER: &str = "settings-fixture";
 const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) {
-    if (op.kind === 'control' && op.value.fastMode !== undefined) return {action:{kind:'request',call:{method:'fixture/settings',params:op}},state:null};
+    if (op.kind === 'control' && op.value.serviceTier !== undefined) return {action:{kind:'request',call:{method:'fixture/settings',params:op}},state:null};
     const target = op.kind === 'interrupt' ? {threadId:op.threadId,turnId:op.activeTurnId} : undefined;
     return {action:{kind:'request',call:{method:op.kind,params:op,...(target ? {target} : {})}},state:null};
   },
@@ -53,7 +53,7 @@ module.exports = {
     if (op.kind === 'interrupt') events = [{kind:'turnState',threadId:op.threadId,turnId:op.activeTurnId,state:'idle'}];
     if (op.kind === 'control') {
       if (op.value.model === 'refuse') return {kind:'refused',reason:{code:'provider_refused',message:'settings refused'}};
-      if (op.value.fastMode === undefined) events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:op.value}];
+      if (op.value.serviceTier === undefined) events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:op.value}];
     }
     return {kind:'complete',result,events};
   },
@@ -126,7 +126,7 @@ pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
     let manifest = PluginManifest::from_json_str(&json!({
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-            "agentRuntime":{"fastMode":true,"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":["fixture/settings/updated"]}},
+            "agentRuntime":{"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":["fixture/settings/updated"]}},
         "permissions":{"subprocess":{"allow":["node"]}}
     }).to_string()).unwrap();
     fixture
@@ -158,7 +158,7 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
             Some("high"),
             Some(RuntimeMode::Auto),
             crate::service::agent_runtime::model::ModelSwitchOptions {
-                fast_mode: Some(false),
+                service_tier: Some(tier_selection(false)),
                 force: false,
                 restart_resume: false,
             },
@@ -181,8 +181,8 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
         );
         assert_eq!(tab.structured_runtime_mode.as_deref(), Some("auto"));
         assert_eq!(
-            tab.agent_runtime_config.as_ref().unwrap()["fastMode"],
-            false
+            tab.agent_runtime_config.as_ref().unwrap()["serviceTier"],
+            serde_json::json!({"id":null})
         );
         assert!(tab.pending_model_selection.is_none());
         assert_eq!(tab.restorable_launch.model.as_deref(), Some("target"));
@@ -212,11 +212,14 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
             .unwrap()
             .agent_runtime_config
             .as_ref()
-            .unwrap()["fastMode"],
-        false
+            .unwrap()["serviceTier"],
+        serde_json::json!({"id":null})
     );
     let session = engine::for_tab(&id).unwrap();
-    assert_eq!(session.context.lock().settings.fast_mode, Some(false));
+    assert_eq!(
+        session.context.lock().settings.service_tier,
+        Some(tier_selection(false))
+    );
     session.context.lock().active_turn_id = Some("working-turn".into());
     fixture
         .service
@@ -328,20 +331,64 @@ fn tab_stop_interrupts_a_working_runtime_and_keeps_the_tab_open() {
 }
 
 #[test]
-fn fast_mode_requires_explicit_matching_runtime_confirmation() {
+fn service_tier_requires_explicit_matching_runtime_confirmation() {
     for value in [true, false] {
         let requested = RuntimeSettings {
-            fast_mode: Some(value),
+            service_tier: Some(tier_selection(value)),
             ..Default::default()
         };
         assert!(!confirms(&requested, &RuntimeSettings::default()));
         assert!(!confirms(
             &requested,
             &RuntimeSettings {
-                fast_mode: Some(!value),
+                service_tier: Some(tier_selection(!value)),
                 ..Default::default()
             }
         ));
         assert!(confirms(&requested, &requested));
     }
+}
+
+fn tier_selection(fast: bool) -> codeterm_plugin::agent_runtime::RuntimeServiceTierSelection {
+    codeterm_plugin::agent_runtime::RuntimeServiceTierSelection {
+        id: fast.then(|| "priority".into()),
+    }
+}
+
+#[test]
+fn service_tier_availability_is_explicit_and_model_scoped() {
+    use codeterm_plugin::agent_runtime::{RuntimeServiceTier, RuntimeServiceTierSelection};
+    let selection = RuntimeServiceTierSelection {
+        id: Some("advertised-tier".into()),
+    };
+    let mut settings = RuntimeSettings {
+        model: Some("selected".into()),
+        ..Default::default()
+    };
+    assert!(!tier_available(&settings, &selection));
+    assert!(tier_available(
+        &settings,
+        &RuntimeServiceTierSelection { id: None }
+    ));
+    settings.service_tier_availability = Some(std::collections::BTreeMap::from([(
+        "selected".into(),
+        vec![RuntimeServiceTier {
+            id: "advertised-tier".into(),
+            name: "Tier".into(),
+            description: String::new(),
+            unavailable_reason: None,
+        }],
+    )]));
+    assert!(tier_available(&settings, &selection));
+    settings.model = Some("foreign-model".into());
+    assert!(!tier_available(&settings, &selection));
+    settings.model = Some("selected".into());
+    settings
+        .service_tier_availability
+        .as_mut()
+        .unwrap()
+        .get_mut("selected")
+        .unwrap()[0]
+        .unavailable_reason = Some("blocked".into());
+    assert!(!tier_available(&settings, &selection));
 }

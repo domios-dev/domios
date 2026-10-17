@@ -73,7 +73,7 @@ fn generic_provider_with_history(dir: &Path, stored_history: bool) -> JsProvider
             ((*kind).into(), methods)
         })
         .collect();
-    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"storedHistory":stored_history,"fastMode":true,"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
+    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"storedHistory":stored_history,"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
     let source = std::fs::read_to_string(dir.join("plugin.js"))
         .expect("generic runtime plugin path must exist");
     JsProvider::new(
@@ -127,6 +127,21 @@ fn runtime_stored_history_native_quickjs_parity_and_capability_gate() {
 
 #[tokio::test]
 async fn runtime_native_quickjs_shared_fixture_parity() {
+    assert!(serde_json::from_value::<RuntimeServiceTierSelection>(json!({})).is_err());
+    assert_eq!(
+        serde_json::from_value::<RuntimeSettings>(json!({}))
+            .unwrap()
+            .service_tier,
+        None
+    );
+    assert_eq!(
+        serde_json::from_value::<RuntimeSettings>(json!({"serviceTier":{"id":null}}))
+            .unwrap()
+            .service_tier
+            .unwrap()
+            .id,
+        None
+    );
     let dir = generic_paths();
     let fixture: GenericFixture =
         serde_json::from_str(&std::fs::read_to_string(dir.join("shared.json")).unwrap()).unwrap();
@@ -134,10 +149,10 @@ async fn runtime_native_quickjs_shared_fixture_parity() {
     let native = native::NativeRuntime(js.agent_runtime().unwrap());
     assert_eq!(js.agent_runtime(), native.agent_runtime());
     assert!(js.agent_runtime().unwrap().usage);
-    assert!(js.agent_runtime().unwrap().fast_mode);
+    assert_eq!(js.agent_runtime().unwrap().service_tiers.len(), 1);
     assert_eq!(
-        serde_json::to_value(native.describe()).unwrap()["agent_runtime"]["fastMode"],
-        true
+        serde_json::to_value(native.describe()).unwrap()["agent_runtime"]["serviceTiers"][0]["id"],
+        "priority"
     );
     assert!(js.agent_runtime().unwrap().background_processes);
     assert_eq!(
@@ -152,11 +167,13 @@ async fn runtime_native_quickjs_shared_fixture_parity() {
         native.describe().settings_schema
     );
     assert_eq!(js.describe().agent_runtime, native.describe().agent_runtime);
-    for value in [true, false] {
+    for value in [None, Some("priority"), Some("ultrafast")] {
         let operation = RuntimeOperation::OpenThread {
             instructions: String::new(),
             settings: RuntimeSettings {
-                fast_mode: Some(value),
+                service_tier: Some(RuntimeServiceTierSelection {
+                    id: value.map(str::to_owned),
+                }),
                 ..Default::default()
             },
         };
@@ -185,7 +202,12 @@ async fn runtime_native_quickjs_shared_fixture_parity() {
         else {
             panic!()
         };
-        assert_eq!(settings.fast_mode, Some(value));
+        assert_eq!(
+            settings.service_tier,
+            Some(RuntimeServiceTierSelection {
+                id: value.map(str::to_owned)
+            })
+        );
     }
     for case in &fixture.operations {
         let ctx = case.context.as_ref().unwrap_or(&fixture.context);

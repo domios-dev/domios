@@ -38,7 +38,7 @@ async function main() {
   ]);
   setAgentDescriptors([{
     id: "fixture-provider", display_name: "Fixture", transport: "pty",
-    available_models: [], agent_runtime: { fastMode: true },
+    available_models: [], agent_runtime: { serviceTiers: [{id:"priority",name:"Fast",description:""},{id:"ultrafast",name:"Ultrafast",description:"",unavailableReason:"Not available on your plan"}] },
   } as unknown as ProviderDescriptor]);
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -50,8 +50,8 @@ async function main() {
   };
   const render = async (fast?: boolean) => {
     await act(async () => root.render(<TabItem tab={{ ...tab, agent_runtime_config: {
-      fastMode: true,
-      ...(fast === undefined ? {} : { confirmedFastMode: { enabled: fast, sessionId: "own-thread", bindingNonce: "own-nonce" } }),
+      serviceTier: {id:"priority"},
+      ...(fast === undefined ? {} : { confirmedServiceTier: { selection: {id:fast ? "priority" : null}, sessionId: "own-thread", bindingNonce: "own-nonce" } }),
     } }} index={0} isActive={false} onClick={() => undefined} onClose={() => undefined}
       canClose={false} workspaceId="workspace" hasAgent status="Idle" />));
     return host.querySelector('[data-testid="tab-subline"]')?.textContent ?? "";

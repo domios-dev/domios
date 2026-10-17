@@ -218,14 +218,15 @@ fn runtime_control_refusal_is_typed_and_never_offers_restart_fallback() {
 }
 
 #[test]
-fn model_apply_preserves_explicit_fast_mode_false_and_rejects_non_boolean() {
-    for value in [true, false] {
-        let body: AgentModelBody =
-            serde_json::from_value(serde_json::json!({"model":"selected","fast_mode":value}))
-                .unwrap();
-        assert_eq!(body.fast_mode, Some(value));
+fn model_apply_preserves_default_and_paid_service_tiers() {
+    for value in [None, Some("priority"), Some("ultrafast")] {
+        let body: AgentModelBody = serde_json::from_value(
+            serde_json::json!({"model":"selected","service_tier":{"id":value}}),
+        )
+        .unwrap();
+        assert_eq!(body.service_tier.unwrap().id.as_deref(), value);
     }
     assert!(
-        serde_json::from_value::<AgentModelBody>(serde_json::json!({"fast_mode":"on"})).is_err()
+        serde_json::from_value::<AgentModelBody>(serde_json::json!({"service_tier":"on"})).is_err()
     );
 }

@@ -216,8 +216,8 @@ function FieldRenderer({
       if (agentNamespace && field.key === "default_model") {
         return <div data-testid="settings-schema-field" data-settings-field={field.key}>
           <FormRow label={field.label} hint={field.description}>
-            <DefaultModelPicker providerId={providerId} value={value} fastMode={typeof providerConfig.default_fast_mode === "boolean" ? providerConfig.default_fast_mode : undefined}
-              onChange={(model, fastMode) => onChange(providerId, { [field.key]: model, ...(fastMode !== undefined ? { default_fast_mode: fastMode } : {}) })} />
+            <DefaultModelPicker providerId={providerId} value={value} serviceTier={typeof providerConfig.default_service_tier === "string" ? {id:providerConfig.default_service_tier || null} : undefined}
+              onChange={(model, serviceTier) => onChange(providerId, { [field.key]: model, ...(serviceTier !== undefined ? { default_service_tier: serviceTier.id ?? "" } : {}) })} />
           </FormRow>
         </div>;
       }

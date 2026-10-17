@@ -55,8 +55,8 @@ test("model default help follows its setting namespace", () => {
 test("provider tier defaults persist explicit on and off alongside model defaults", () => {
   const original = config({ agents: { arbitrary: { default_model: "old", visible_in_menu: false } } });
   const row = modelDefaultRows(original)[0];
-  for (const fastMode of [true, false]) {
-    assert.deepEqual(modelDefaultPatch(original, row, "next", fastMode).agents?.arbitrary,
-      { default_model: "next", visible_in_menu: false, default_fast_mode: fastMode });
+  for (const serviceTier of [{id:null},{id:"priority"},{id:"ultrafast"}]) {
+    assert.deepEqual(modelDefaultPatch(original, row, "next", serviceTier).agents?.arbitrary,
+      { default_model: "next", visible_in_menu: false, default_service_tier: serviceTier.id ?? "" });
   }
 });

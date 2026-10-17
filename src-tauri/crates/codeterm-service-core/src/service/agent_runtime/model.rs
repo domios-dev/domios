@@ -13,7 +13,7 @@ pub enum RuntimeMode {
 }
 
 pub struct ModelSwitchOptions {
-    pub fast_mode: Option<bool>,
+    pub service_tier: Option<codeterm_plugin::agent_runtime::RuntimeServiceTierSelection>,
     pub force: bool,
     pub restart_resume: bool,
 }
@@ -507,7 +507,8 @@ pub fn settings_from_config(
     config: &serde_json::Value,
 ) -> codeterm_plugin::agent_runtime::RuntimeSettings {
     codeterm_plugin::agent_runtime::RuntimeSettings {
-        fast_mode: config["fastMode"].as_bool(),
+        service_tier: serde_json::from_value(config["serviceTier"].clone()).ok(),
+        service_tier_availability: None,
         model: config["model"].as_str().map(str::to_string),
         effort: config["effort"].as_str().map(str::to_string),
         mode: config["mode"].as_str().map(str::to_string),

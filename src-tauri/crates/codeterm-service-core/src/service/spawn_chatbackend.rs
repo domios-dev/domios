@@ -484,16 +484,25 @@ impl ServiceContext {
                 .with_provider(&plugin_id, |provider| {
                     provider
                         .agent_runtime()
-                        .is_some_and(|capability| capability.fast_mode)
+                        .is_some_and(|capability| !capability.service_tiers.is_empty())
                 })
                 .unwrap_or(false);
-            let default_fast_mode = self
+            let default_service_tier = self
                 .configuration()
                 .agents
                 .get(&plugin_id)
-                .and_then(|provider| provider.extra.get("default_fast_mode"))
-                .and_then(toml::Value::as_bool);
-            launch_options::apply_fast_mode_default(&mut config, supports_fast, default_fast_mode);
+                .and_then(|provider| provider.extra.get("default_service_tier"))
+                .and_then(toml::Value::as_str)
+                .map(
+                    |id| codeterm_plugin::agent_runtime::RuntimeServiceTierSelection {
+                        id: (!id.is_empty()).then(|| id.to_owned()),
+                    },
+                );
+            launch_options::apply_service_tier_default(
+                &mut config,
+                supports_fast,
+                default_service_tier,
+            );
             return match runtime_fork {
                 Some(fork) => super::agent_runtime::transport::launch_fork(
                     self,

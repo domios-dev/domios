@@ -5,11 +5,15 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
-`agentRuntime.fastMode` declares a boolean Fast mode control in the shared model
-picker and provider defaults. `RuntimeSettings.fastMode` carries the requested
-value; runtime confirmation must report it explicitly, including false. Providers
-map it to their own protocol and must preserve omission versus an explicit off.
-This adds no host API or sandbox access; native/JS descriptor parity is required.
+`agentRuntime.serviceTiers` declares tier descriptors (`id`, `name`, `description`,
+optional `unavailableReason`) in the shared model picker. `RuntimeSettings.serviceTier`
+is `{id: string | null}`: omission preserves the tier, `{id:null}` explicitly selects
+Default. Providers refresh `serviceTierAvailability` through the `serviceTiers`
+control, keyed by model, using their account catalogue and managed requirements.
+Unknown availability disables advertised paid tiers. Account changes invalidate it.
+The provider's own settings event confirms the selected tier; metadata is never
+selection confirmation. This adds no host API or sandbox access; native/JS parity
+must cover descriptor and selection round trips, including explicit Default.
 
 `capabilities.recordSources` opts JSONL sources into parsed records. Declare
 `sessionTranscript` for `parseSessionRecords(records, meta)` (delta rows) and

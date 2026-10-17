@@ -33,7 +33,7 @@ fn init_process_boundary_test_logger() {
 
 fn capability() -> AgentRuntimeCapability {
     AgentRuntimeCapability {
-        fast_mode: false,
+        service_tiers: Vec::new(),
         background_processes: false,
         goals: None,
         thread_history: None,
