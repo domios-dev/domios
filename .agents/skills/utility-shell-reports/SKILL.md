@@ -11,7 +11,7 @@ bare `codeterm` call or exit status would go.
 
 Open build shells with `--purpose build` and foreground servers with `--purpose dev`. Purpose is retained when restarting the shell. The sidebar command state reports shell marks only; use the readiness and QA receipts below to establish the operation outcome.
 
-Set `--timeout 10m` for tests, QA and builds; leave servers unset. Reset or extend the same shell with `codeterm tab timeout --tab <ID> --timeout 20m`; `--timeout none` disables it. An idle expiry closes quietly; running or unknown activity produces one owner status and terminates with the shell. Normal command completion adds no message.
+Set `--timeout 10m` for tests, QA and builds; leave servers unset. Reset or extend the same shell with `codeterm tab timeout --tab <ID> --timeout 20m`; `--timeout none` disables it. An idle expiry closes quietly; running or unknown activity produces one owner status and terminates with the shell. Ordinary shell commands add no message; long build verbs send their one result receipt.
 
 Shell restart renews the previous lifetime. Pass `codeterm tab restart --tab <ID> --timeout 20m` to override it, or `--timeout none` to disable it. `codeterm tab inspect --tab <ID>` shows `utility_deadline.started_ms` and `deadline_ms` in epoch milliseconds; their difference is the requested lifetime. Timeout notices distinguish shell lifetime from the latest command elapsed time.
 
@@ -19,27 +19,35 @@ With `QA_NOTIFY_TAB`, QA streams each step to its log and sends one early
 failure receipt on the first Cargo compile error, nextest/Vitest failure,
 Node `not ok`, or non-zero exit (including gateway refusal 75 and cap 124).
 The receipt names the label, step, first failure and log path. The command
-continues, and the final summary still arrives. Dev `--notify-tab` uses the
-same stream detector across setup and compilation; compile failure or exit
-before READY reports immediately. No sleep or polling drives failure detection.
+continues, and the final summary still arrives. Every Domios `dev` and
+`dev-prebuilt` startup uses the same stream detector across setup and
+compilation; compile failure or exit before READY reports immediately. No
+sleep or polling drives failure detection.
 
 ## Commands
 
 For a health-proven dev startup that exits when ready:
 
 ```bash
-./build.sh dev --wait --notify-tab <agent-tab-id>
-./build.sh dev-prebuilt --wait --notify-tab <agent-tab-id>
+./build.sh dev --wait
+./build.sh dev-prebuilt --wait
 ```
+
+Inside Domios, build.sh inspects the current shell tab and sends the ready or
+failure receipt to its live parent/owner. `--notify-tab <tab>` (or
+`BUILD_NOTIFY_TAB`) explicitly overrides that recipient. A remote shell uses
+its persisted mesh return route. If there is no parent, build.sh raises a
+`codeterm notify` from the shell's AgentPad (`verbose` when ready,
+`failure` on startup errors).
 
 If a named instance is already running with stale health, stop it before
 restarting: `CODETERM_INSTANCE=<n> ./build.sh kill`.
 
-For a visible foreground dev process, use the same flag without `--wait`:
+For a visible foreground dev process, omit `--wait`:
 
 ```bash
-./build.sh dev --notify-tab <agent-tab-id>
-./build.sh dev-prebuilt --notify-tab <agent-tab-id>
+./build.sh dev
+./build.sh dev-prebuilt
 ```
 
 The foreground stream reader treats each output line as a cue to validate `/api/health`
@@ -55,11 +63,7 @@ QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'
 
 ## Launcher recipes (copy-paste)
 
-`check`, `check-queue`, `check-tests`, `test-one`, `nextest`, `nextest-archive`, `test`, `verify`, `release-preflight`, `build` and `install-local` take
-`--notify-tab <tab>` (or `BUILD_NOTIFY_TAB`, or `-NotifyTab` through `build.ps1`): one `OK` receipt on success, or one
-early-failure receipt naming the step, first error line and log path (gateway refusal 75 included), sent
-through the captured parent context. `install-local` runs rustfmt, the file-size gate and the clean-checkout check
-before compilation; Cargo formatting uses the same gateway entry as other Cargo verbs.
+`check`, `check-queue`, `check-tests`, `test-one`, `nextest`, `nextest-archive`, `test`, `verify`, `release-preflight`, `build` and `install-local` resolve the recipient from the current Domios tab by default. They send one short success receipt or one failure receipt with the step, first compiler error line and log path (gateway refusal 75 included). `--notify-tab <tab>` (or `BUILD_NOTIFY_TAB`, or `-NotifyTab` through `build.ps1`) overrides the recipient. `install-local` runs rustfmt, the file-size gate and the clean-checkout check before compilation; Cargo formatting uses the same gateway entry as other Cargo verbs.
 
 The Windows utility shell is PowerShell, where `&&` is invalid: set the directory with `--cwd` and never chain.
 `<checkout>` is this checkout's absolute path; `<tab>` is the calling tab (bash `$CODETERM_TAB_ID`,
@@ -67,16 +71,20 @@ PowerShell `$env:CODETERM_TAB_ID`, inside double quotes).
 
 | Operation | PowerShell caller and shell | bash caller and shell |
 |---|---|---|
-| install-local | `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd ".uild.ps1 install-local -NotifyTab $env:CODETERM_TAB_ID"` | `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd "./build.sh install-local --notify-tab $CODETERM_TAB_ID"` |
-| check | `... --cmd ".uild.ps1 check -NotifyTab $env:CODETERM_TAB_ID"` | `... --cmd "./build.sh check --notify-tab $CODETERM_TAB_ID"` |
-| check-queue | `... --purpose qa --cmd ".\build.ps1 check-queue <sha> -NotifyTab $env:CODETERM_TAB_ID"` | `... --purpose qa --cmd "./build.sh check-queue <sha> --notify-tab $CODETERM_TAB_ID"` |
-| test-one | `... --cmd ".uild.ps1 test-one app NAME -NotifyTab $env:CODETERM_TAB_ID"` | `... --cmd "./build.sh test-one app NAME --notify-tab $CODETERM_TAB_ID"` |
-| release-preflight | `... --cmd ".uild.ps1 release-preflight -NotifyTab $env:CODETERM_TAB_ID"` | `... --cmd "./build.sh release-preflight --notify-tab $CODETERM_TAB_ID"` |
-| QA batch (`check` first) | `... --purpose qa --cmd ".uild.ps1 qa-batch smoke -NotifyTab $env:CODETERM_TAB_ID 'node --test scripts/tests/dev-wait.test.mjs'"` | `... --purpose qa --cmd "./build.sh qa-batch smoke --notify-tab $CODETERM_TAB_ID 'node --test scripts/tests/dev-wait.test.mjs'"` |
-| dev (ready receipt) | `... --purpose dev --cmd ".uild.ps1 dev -NotifyTab $env:CODETERM_TAB_ID"` | `... --purpose dev --cmd "./build.sh dev --notify-tab $CODETERM_TAB_ID"` |
+| install-local | `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd ".\\build.ps1 install-local"` | `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd "./build.sh install-local"` |
+| check | `... --cmd ".\\build.ps1 check"` | `... --cmd "./build.sh check"` |
+| check-queue | `... --purpose qa --cmd ".\\build.ps1 check-queue <sha>"` | `... --purpose qa --cmd "./build.sh check-queue <sha>"` |
+| test-one | `... --cmd ".\\build.ps1 test-one app NAME"` | `... --cmd "./build.sh test-one app NAME"` |
+| release-preflight | `... --cmd ".\\build.ps1 release-preflight"` | `... --cmd "./build.sh release-preflight"` |
+| QA batch | `... --purpose qa --cmd ".\\build.ps1 qa-batch smoke -NotifyTab $env:CODETERM_TAB_ID 'true' 'node --test scripts/tests/dev-wait.test.mjs'"` | `... --purpose qa --cmd "./build.sh qa-batch smoke --notify-tab $CODETERM_TAB_ID 'true' 'node --test scripts/tests/dev-wait.test.mjs'"` |
+| dev | `... --purpose dev --cmd ".\\build.ps1 dev"` | `... --purpose dev --cmd "./build.sh dev"` |
+| dev-prebuilt | `... --purpose dev --cmd ".\\build.ps1 dev-prebuilt"` | `... --purpose dev --cmd "./build.sh dev-prebuilt"` |
 
-`...` is `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>"`. `qa-batch <label> '<cmd>'...`
-always runs `./build.sh check` as step one, then your commands, and sends one QA summary.
+The `--notify-tab` values in the table are optional overrides; omit them to use
+the shell's inspected parent/owner route. `...` is `codeterm tab new --team
+<team-id> --purpose build --timeout 10m --cwd "<checkout>"`. `qa-batch <label>
+'<cmd>'...` always runs `./build.sh check` as step one, then your commands,
+and sends one QA summary.
 
 ## Recovering a lane whose recorded base is wrong
 
@@ -94,7 +102,7 @@ bash ./build.sh lane-recover merge <lane-branch>
 From PowerShell, use:
 
 ```powershell
-.\build.ps1 dev --wait -NotifyTab <agent-tab-id>
+.\build.ps1 dev --wait
 ```
 
 Create one Team-bound QA tab for repeated reports, then restart it for each run:
@@ -118,13 +126,14 @@ or gateway job ran when the old wrapper stopped before forwarding.
 ## Parent environment trap
 
 `build.sh` captures the parent `codeterm` path and its connection and request
-identity values before `setup_env` and before named-instance exports. The dev
-CLI is later put first on `PATH`, and `CODETERM_INSTANCE` / `CODETERM_API_PORT`
-can override the caller's socket selection and then select the dev daemon, even
-when set by a command prefix before `build.sh` starts. The notification helper
-clears every `CODETERM_*` variable, restores the captured parent URL, socket,
-token, tab, and request identity, and leaves `CODETERM_INSTANCE` and
-`CODETERM_API_PORT` unset before invoking the captured CLI path.
+identity values before `setup_env` and named-instance exports. It inspects the
+current shell tab through that captured CLI and resolves the live parent,
+creator, or persisted mesh return route. `CODETERM_PARENT_TAB_ID` is only a
+fallback when tab inspection is unavailable. Explicit `--notify-tab` wins.
+The notification helper clears every `CODETERM_*` variable, restores the
+captured parent URL, socket, token, tab and request identity, and leaves
+`CODETERM_INSTANCE` and `CODETERM_API_PORT` unset before invoking the captured
+CLI path.
 
 Bench helpers use a dev-pinned `dc` wrapper, and named-instance exports retarget
 bare `codeterm` calls to dev. Capture the parent CLI and connection before those
