@@ -33,9 +33,12 @@ function pnpm(lane, args) {
   return result;
 }
 
-test('copy imports override shared hardlink settings', t => {
+test('directory guard preserves package import configuration', t => {
   const { lane } = fixture(t);
-  assert.equal(hook.hooks.updateConfig({ lockfileDir: lane, packageImportMethod: 'hardlink' }).packageImportMethod, 'copy');
+  for (const packageImportMethod of [undefined, 'auto', 'hardlink', 'clone', 'copy']) {
+    const config = { lockfileDir: lane, packageImportMethod };
+    assert.equal(hook.hooks.updateConfig(config), config);
+  }
 });
 
 test('dependency directories outside the checkout are refused', t => {
@@ -74,7 +77,7 @@ test('ordinary offline install still succeeds', t => {
   assert.equal(frozen.status, 0, frozen.stdout + frozen.stderr);
 });
 
-test('two offline installs sharing a store have independent writable package files', t => {
+test('unlinking a package in one shared-store install preserves the other checkout', t => {
   const { root, lane, canonical } = fixture(t);
   const packed = path.join(root, 'package');
   fs.mkdirSync(packed);
@@ -91,8 +94,8 @@ test('two offline installs sharing a store have independent writable package fil
     assert.equal(result.status, 0, result.stdout + result.stderr);
   }
   const relative = 'node_modules/isolation-proof/proof.txt';
-  assert.equal(fs.statSync(path.join(lane, relative)).nlink, 1);
-  fs.writeFileSync(path.join(lane, relative), 'lane changed');
+  fs.unlinkSync(path.join(lane, relative));
+  assert.equal(fs.existsSync(path.join(lane, relative)), false);
   assert.equal(fs.readFileSync(path.join(canonical, relative), 'utf8'), 'original');
 });
 

@@ -26,7 +26,7 @@ module.exports = {
       const modules = path.resolve(root, config.modulesDir || 'node_modules');
       refuseLinkedDirectory(modules, root);
       refuseLinkedDirectory(path.resolve(root, config.virtualStoreDir || path.join(modules, '.pnpm')), root);
-      return { ...config, packageImportMethod: 'copy' };
+      return config;
     },
   },
 };
