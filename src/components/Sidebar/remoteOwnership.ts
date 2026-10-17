@@ -1,3 +1,4 @@
+import { roleDisplayWord } from "./roleDisplay";
 import type { Tab } from "../../lib/types";
 import { roleKindLabel, hasTeamAuthority } from "../../lib/roleKind";
 
@@ -16,7 +17,7 @@ function titleCaseRole(profile: string): string {
   return profile
     .split(/[-_\s]+/)
     .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .map(roleDisplayWord)
     .join(" ");
 }
 
