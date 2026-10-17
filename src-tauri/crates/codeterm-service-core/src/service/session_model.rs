@@ -929,13 +929,21 @@ fn apply_runtime_controls(
         tab.reasoning_effort_identity.resolved = Some(effort.clone());
         tab.reasoning_effort_identity.actual_source = Some("session-owned".into());
     }
-    if let Some(fast_mode) = settings.fast_mode {
+    if let Some(availability) = settings.service_tier_availability.as_ref() {
         let config = tab
             .agent_runtime_config
             .get_or_insert_with(|| serde_json::json!({}));
-        config["fastMode"] = fast_mode.into();
-        config["confirmedFastMode"] = serde_json::json!({
-            "enabled": fast_mode,
+        config["serviceTierAvailability"] = serde_json::json!(availability);
+        config["serviceTierAvailabilityBinding"] =
+            serde_json::json!({"sessionId":thread,"bindingNonce":tab.session_binding_nonce});
+    }
+    if let Some(service_tier) = settings.service_tier.as_ref() {
+        let config = tab
+            .agent_runtime_config
+            .get_or_insert_with(|| serde_json::json!({}));
+        config["serviceTier"] = serde_json::json!(service_tier);
+        config["confirmedServiceTier"] = serde_json::json!({
+            "selection": service_tier,
             "sessionId": thread,
             "bindingNonce": tab.session_binding_nonce,
         });

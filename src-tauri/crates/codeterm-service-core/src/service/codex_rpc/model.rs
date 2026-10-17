@@ -234,10 +234,10 @@ impl crate::service::ServiceContext {
                 model,
                 effort,
                 mode,
-                options.fast_mode,
+                options.service_tier,
             );
         }
-        if options.fast_mode.is_some() {
+        if options.service_tier.is_some() {
             return Err(
                 crate::service::agent_restart::ModelSwitchError::NotSwitchable(
                     "Fast mode requires a capable runtime".into(),

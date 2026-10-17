@@ -20,7 +20,7 @@ pub struct AgentModelBody {
     #[serde(default)]
     pub cancel: bool,
     pub reasoning_effort: Option<String>,
-    pub fast_mode: Option<bool>,
+    pub service_tier: Option<codeterm_plugin::agent_runtime::RuntimeServiceTierSelection>,
     pub runtime_mode: Option<codeterm_service_core::service::agent_runtime::model::RuntimeMode>,
     #[serde(default)]
     pub restart_resume: bool,
@@ -54,7 +54,7 @@ pub async fn agent_model_handler(
             body.reasoning_effort.as_deref(),
             body.runtime_mode,
             codeterm_service_core::service::agent_runtime::model::ModelSwitchOptions {
-                fast_mode: body.fast_mode,
+                service_tier: body.service_tier,
                 force: body.force,
                 restart_resume: body.restart_resume,
             },

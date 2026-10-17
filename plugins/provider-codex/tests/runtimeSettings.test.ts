@@ -19,5 +19,6 @@ for (const requirements of [undefined,{requirements:{featureRequirements:{ultraf
 assert.equal(tierAvailable({model:"model",serviceTierAvailability:modelServiceTiers([{model:"model",serviceTiers:[]}],{})},{id:"ultrafast"}),false);
 assert.equal(tierAvailable({},{id:"ultrafast"}),false);
 assert.equal(tierAvailable({},{id:null}),true);
+assert.equal(modelServiceTiers([{model:"model",serviceTiers:[]}],{requirements:{featureRequirements:{ultrafast_mode:false}}}).model.find(tier => tier.id === "ultrafast")?.unavailableReason,"Disabled by your administrator");
 assert.equal(tierAvailable({model:"model",serviceTierAvailability:modelServiceTiers(catalogue,{supportsIndependentSpeedModes:true,requirements:{featureRequirements:{fast_mode:false}}})},{id:"ultrafast"}),true);
 console.log("runtime tier mapping, confirmation and availability passed");

@@ -2152,7 +2152,11 @@ function modelServiceTiers(models, requirements) {
       const allowed = knownRequirements && (tierId === "flex" || (tierId === "ultrafast" ? ultra : fast));
       return [{ id: tierId, name, description: description ?? "", ...!allowed ? { unavailableReason: knownRequirements ? "Disabled by your administrator" : "Availability not confirmed" } : {} }];
     });
-    result[id] = [...advertised, ...codexServiceTiers.filter((tier) => !advertised.some((item) => item.id === tier.id))];
+    const missing = codexServiceTiers.filter((tier) => !advertised.some((item) => item.id === tier.id)).map((tier) => ({
+      ...tier,
+      ...knownRequirements && !(tier.id === "ultrafast" ? ultra : fast) ? { unavailableReason: "Disabled by your administrator" } : {}
+    }));
+    result[id] = [...advertised, ...missing];
   }
   return result;
 }
