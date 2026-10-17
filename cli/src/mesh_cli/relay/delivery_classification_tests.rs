@@ -134,20 +134,79 @@ fn an_abandoned_relay_deadline_reports_unknown_never_nothing_landed() {
     );
 }
 
-/// Only a send's success is decided by the peer's body. Other relayed routes
-/// legitimately answer 200 with a domain-level `ok: false` (bridge migrate,
-/// hook posts) and must still be handed back as data.
 #[test]
-fn a_domain_level_ok_false_on_a_non_send_route_is_still_data() {
+fn a_domain_level_ok_false_on_a_non_send_route_is_a_refusal() {
     let envelope = serde_json::json!({
         "ok": true,
         "status": 200,
         "error": serde_json::Value::Null,
         "data": { "ok": false, "claimed_lock": false },
     });
-    let data = classify(("POST", "/api/bridge/migrate"), envelope)
-        .expect("a non-send route keeps its own ok semantics");
-    assert_eq!(data["claimed_lock"].as_bool(), Some(false));
+    classify(("POST", "/api/bridge/migrate"), envelope)
+        .expect_err("a refused remote operation cannot succeed");
+}
+
+#[test]
+fn remote_refusals_preserve_the_reason_across_routes() {
+    let reason = "refusal-token-7731";
+    for path in ["/api/tabs", "/api/agents/spawn", "/api/update/install"] {
+        for error in [
+            serde_json::json!(reason),
+            serde_json::json!({"code": "refused", "message": reason}),
+        ] {
+            let failure = classify(
+                ("POST", path),
+                serde_json::json!({
+                    "ok": true, "status": 200, "data": {"ok": false, "error": error}
+                }),
+            )
+            .expect_err("peer refusal must fail the CLI");
+            assert!(failure.reason.contains(reason));
+        }
+    }
+}
+
+#[test]
+fn remote_rpc_error_is_not_success_data() {
+    let failure = classify(
+        ("POST", "/api/tabs"),
+        serde_json::json!({
+            "ok": true, "status": 200,
+            "data": {"error": {"code": -32000, "message": "rpc-refusal-token"}}
+        }),
+    )
+    .expect_err("an RPC error must fail even without ok:false");
+    assert!(failure.reason.contains("rpc-refusal-token"));
+}
+
+#[test]
+fn refused_remote_result_exits_nonzero_with_reason() {
+    const CHILD: &str = "CODETERM_TEST_MESH_REFUSAL_CHILD";
+    const REASON: &str = "remote-refusal-token-8274";
+    if let Ok(mode) = std::env::var(CHILD) {
+        let failure = classify(
+            ("POST", "/api/tabs"),
+            serde_json::json!({
+                "ok": true, "status": 200,
+                "data": {"ok": false, "error": {"message": REASON}}
+            }),
+        )
+        .expect_err("refused remote result");
+        failure.print_and_exit(mode == "json");
+    }
+    for mode in ["human", "json"] {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "mesh_cli::relay::delivery_classification_tests::refused_remote_result_exits_nonzero_with_reason", "--nocapture"])
+            .env(CHILD, mode)
+            .output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        let stream = if mode == "json" {
+            output.stdout
+        } else {
+            output.stderr
+        };
+        assert!(String::from_utf8(stream).unwrap().contains(REASON));
+    }
 }
 
 #[test]
