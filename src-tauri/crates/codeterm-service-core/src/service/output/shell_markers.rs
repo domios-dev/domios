@@ -69,17 +69,7 @@ impl ServiceContext {
             return;
         }
         for event in &events {
-            if let crate::agent::command_detection::CommandLifecycle::Finished {
-                exit_code, ..
-            } = event
-            {
-                crate::service::shell_exec::publish(
-                    pty_id,
-                    crate::service::shell_exec::ExecCompletion::CommandFinished {
-                        exit_code: *exit_code,
-                    },
-                );
-            }
+            crate::service::shell_exec::observe_command(pty_id, event);
         }
         let Some(tab_id) = tab_id else {
             return;

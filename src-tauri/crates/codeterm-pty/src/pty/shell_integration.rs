@@ -74,7 +74,11 @@ if (-not $global:__CodeTermShellIntegrationLoaded) {
       function global:PSConsoleHostReadLine {
         $line = & $global:__CodeTermOriginalReadLine @args
         if (-not [string]::IsNullOrWhiteSpace($line) -and -not [string]::IsNullOrEmpty($global:__CodeTermShellNonce)) {
-          [Console]::Write(([char]27 + ']633;E;;' + $global:__CodeTermShellNonce + [char]7))
+          $escapedLine = [regex]::Replace($line, '[\\;\x00-\x1f\x7f]', {
+            param($match)
+            if ($match.Value -eq '\') { '\\' } else { '\x{0:x2}' -f [int][char]$match.Value }
+          })
+          [Console]::Write(([char]27 + ']633;E;' + $escapedLine + ';' + $global:__CodeTermShellNonce + [char]7))
           [Console]::Write(([char]27 + ']633;C' + [char]7))
         }
         $line
