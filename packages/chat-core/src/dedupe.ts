@@ -153,6 +153,7 @@ function candidateFollowsEcho<T extends NormalizedChatMessage>(echo: OptimisticE
 export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   optimistic: OptimisticEcho[],
   parsedUsers: T[],
+  appendedRow: (sendId: string, index: number) => boolean | undefined = () => undefined,
 ): { matchedIds: string[]; pendingIds: string[]; claims: Array<{ echoId: string; parsedIndex: number }> } {
   const sourceRows = parsedUsers;
   parsedUsers = parsedUsers.map((row) => row.segments ? { ...row, content: envelopeText(row.segments) } : row);
@@ -163,11 +164,14 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   const coveredMatched = new Set<string>();
   const claimedRowsById = new Map<string, number>();
   const pendingIds: string[] = [];
+  const follows = (echo: OptimisticEcho, candidate: T, index: number) =>
+    appendedRow(echo.id, index) !== false && candidateFollowsEcho(echo, candidate);
   // Consume-once, and no ordering guard — a token is globally unique to its send, so its echo is unambiguous.
   for (const echo of optimistic) {
     if (!echo.correlationId) continue;
     for (let i = 0; i < parsedUsers.length; i++) {
       if (consumed[i]) continue;
+      if (appendedRow(echo.id, i) === false) continue;
       const candidate = parsedUsers[i];
       if (candidate.type !== "user" && candidate.type !== "local_command") continue;
       if (candidate.correlationId == null || candidate.correlationId !== echo.correlationId) continue;
@@ -185,6 +189,8 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
     if (wanted) {
       for (let i = 0; i < parsedUsers.length; i++) {
         if (consumed[i]) continue;
+        const appended = appendedRow(echo.id, i);
+        if (appended === false) continue;
         const candidate = parsedUsers[i];
         if (candidate.type !== "user" && candidate.type !== "local_command") continue;
         const markerMatch = markerEchoMatchesParsed(echo, candidate);
@@ -196,7 +202,9 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
         ) {
           continue;
         }
-        if (!markerMatch && !candidateFollowsEcho(echo, candidate)) continue;
+        const appendedExact = appended === true
+          && normalizeChatText(echo.content) === normalizeChatText(sourceRows[i].content);
+        if (!markerMatch && !appendedExact && !candidateFollowsEcho(echo, candidate)) continue;
         hit = i;
         break;
       }
@@ -216,7 +224,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
     if (!text) continue;
     for (let start = 0; start < optimistic.length; start += 1) {
       const first = optimistic[start];
-      if (!candidateFollowsEcho(first, candidate)) continue;
+      if (!follows(first, candidate, rowIndex)) continue;
       const firstOwner = claimedRowsById.get(first.id);
       if (firstOwner != null && firstOwner !== rowIndex) continue;
       const firstText = normalizeChatText(matchableContent(first.content)).toLowerCase();
@@ -225,7 +233,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
       const matched = [first];
       for (let next = start + 1; next < optimistic.length; next += 1) {
         const send = optimistic[next];
-        if (!candidateFollowsEcho(send, candidate)) break;
+        if (!follows(send, candidate, rowIndex)) break;
         const owner = claimedRowsById.get(send.id);
         if (owner != null && owner !== rowIndex) break;
         while (offset < text.length && /\s/.test(text[offset] ?? "")) offset += 1;
@@ -258,7 +266,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
     const wanted = tokenNeedle(echo.content);
     if (wanted.length === 0) continue;
     for (const candidate of coverage) {
-      if (!candidateFollowsEcho(echo, candidate.message)) continue;
+      if (!follows(echo, candidate.message, candidate.index)) continue;
       if (consumeTokenSequence(candidate.tokens, wanted)) {
         coveredMatched.add(echo.id);
         coverageClaimed.add(candidate.index);
@@ -280,7 +288,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
       if (consumed[i] || coverageClaimed.has(i)) continue;
       const candidate = parsedUsers[i];
       if ((candidate.type !== "user" && candidate.type !== "local_command") || isFileIdentityMarker(candidate.content, candidate.segments)) continue;
-      if (!candidateFollowsEcho(echo, candidate)) continue;
+      if (!follows(echo, candidate, i)) continue;
       const candidateTokens = meaningfulTokens(candidate.content);
       if (candidateTokens.length === 0) continue;
       if (candidateTokens.join(" ") === echoText) {

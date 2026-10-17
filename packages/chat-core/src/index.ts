@@ -112,7 +112,7 @@ export {
 export { ECHO_SKEW_MS, matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
 export { mergeById } from "./merge";
 export { timestampMs } from "./time";
-export { type ChatSend, type SendEcho } from "./sendOrder";
+export { captureSendEchoBoundary, type ChatSend, type SendEcho, type SendEchoBoundary } from "./sendOrder";
 export {
   TRANSCRIPT_RETENTION_LIMIT,
   createTranscriptState,
