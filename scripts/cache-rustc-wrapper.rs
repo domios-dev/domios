@@ -4,6 +4,9 @@ use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
 const BRIDGE: &str = "CODETERM_CACHE_COMPILER_BRIDGE";
+const REMAP: &str = "CODETERM_CACHE_REMAP_GENERATED";
+const POLICY: &str = "CARGO_CODETERM_CACHE_OUTPUT_POLICY";
+const OUTPUT_PREFIX: &str = env!("CODETERM_CACHE_OUTPUT_PREFIX");
 const SETTINGS: [&str; 2] = ["CARGO_TARGET_DIR", "CARGO_INCREMENTAL"];
 
 fn forward(mut command: Command) -> ExitCode {
@@ -28,6 +31,15 @@ fn forward(mut command: Command) -> ExitCode {
 
 fn main() -> ExitCode {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if std::env::var_os(BRIDGE).is_none()
+        && args
+            .first()
+            .is_none_or(|arg| arg.to_string_lossy().starts_with('-'))
+    {
+        let mut command = Command::new("sccache");
+        command.args(args);
+        return forward(command);
+    }
     let executable = match std::env::current_exe() {
         Ok(path) => path,
         Err(error) => {
@@ -53,6 +65,17 @@ fn main() -> ExitCode {
         // Restore driver settings for rustc: env! dependencies must still enter sccache's key.
         let mut command = Command::new(compiler);
         command.args(args).env_remove(BRIDGE);
+        if std::env::var_os(REMAP).as_deref() == Some(OsStr::new("1")) {
+            let target = std::env::var_os("CODETERM_CACHE_SAVED_CARGO_TARGET_DIR").unwrap();
+            let output = std::env::var_os("OUT_DIR").unwrap();
+            let relative = std::path::Path::new(&output).strip_prefix(&target).unwrap();
+            let mut mapping = OsString::from("--remap-path-prefix=");
+            mapping.push(&output);
+            mapping.push("=");
+            mapping.push(std::path::Path::new(OUTPUT_PREFIX).join(relative));
+            command.arg(mapping).env_remove(POLICY);
+        }
+        command.env_remove(REMAP);
         for name in SETTINGS {
             let saved = format!("CODETERM_CACHE_SAVED_{name}");
             let present = format!("CODETERM_CACHE_PRESENT_{name}");
@@ -71,13 +94,41 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
     if std::fs::canonicalize(requested).ok().as_ref() != Some(&compiler) {
-        let mut command = Command::new(requested);
-        command.args(&args[1..]);
+        let rust = args.iter().any(|arg| arg == "--crate-name")
+            || args.iter().take(2).any(|arg| {
+                let name = std::path::Path::new(arg).file_stem().unwrap_or_default();
+                let name = name.to_string_lossy();
+                name.contains("rustc") || name.contains("clippy")
+            });
+        let mut command = Command::new(if rust {
+            requested
+        } else {
+            OsStr::new("sccache")
+        });
+        command.args(if rust { &args[1..] } else { &args });
         return forward(command);
     }
 
     let mut command = Command::new("sccache");
     command.arg(executable).args(&args[1..]).env(BRIDGE, "1");
+    let generated = std::env::var_os("CARGO_TARGET_DIR")
+        .zip(std::env::var_os("OUT_DIR"))
+        .and_then(|(target, output)| {
+            let relative = std::path::Path::new(&output).strip_prefix(&target).ok()?;
+            if output.to_str().is_some_and(|path| !path.contains('=')) {
+                Some(relative.to_path_buf())
+            } else {
+                None
+            }
+        });
+    if let Some(relative) = generated {
+        command.env(REMAP, "1").env(
+            POLICY,
+            format!("generated-v1:{OUTPUT_PREFIX}:{}", relative.display()),
+        );
+    } else {
+        command.env_remove(REMAP);
+    }
     for name in SETTINGS {
         let saved = format!("CODETERM_CACHE_SAVED_{name}");
         let present = format!("CODETERM_CACHE_PRESENT_{name}");

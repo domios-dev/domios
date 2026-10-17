@@ -366,13 +366,33 @@
               "aliases": []
             },
             {
+              "name": "list-speeds",
+              "positional": false,
+              "required": false,
+              "value_name": "LIST_SPEEDS",
+              "possible_values": [],
+              "default": null,
+              "help": "List this tab's currently available service tiers",
+              "aliases": []
+            },
+            {
               "name": "name",
               "positional": true,
-              "required": true,
+              "required": false,
               "value_name": "NAME",
               "possible_values": [],
               "default": null,
-              "help": "Model id. Run `agent models PROVIDER` to list",
+              "help": "Model id. Run `agent models PROVIDER` to list. Model id. Omit when changing only the service tier",
+              "aliases": []
+            },
+            {
+              "name": "speed",
+              "positional": false,
+              "required": false,
+              "value_name": "TIER",
+              "possible_values": [],
+              "default": null,
+              "help": "Service tier id or `default` to clear the selection",
               "aliases": []
             },
             {
@@ -944,6 +964,19 @@
               ],
               "default": null,
               "help": "Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar",
+              "aliases": []
+            },
+            {
+              "name": "sandbox",
+              "positional": false,
+              "required": false,
+              "value_name": "SANDBOX",
+              "possible_values": [
+                "read-only",
+                "workspace-write"
+              ],
+              "default": null,
+              "help": "Explicit OS confinement for this launch; Workers default to full access",
               "aliases": []
             },
             {
@@ -12500,6 +12533,19 @@
                   "possible_values": [],
                   "default": null,
                   "help": "Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)",
+                  "aliases": []
+                },
+                {
+                  "name": "sandbox",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "SANDBOX",
+                  "possible_values": [
+                    "read-only",
+                    "workspace-write"
+                  ],
+                  "default": null,
+                  "help": "Explicit OS confinement for this launch; Workers default to full access",
                   "aliases": []
                 },
                 {
