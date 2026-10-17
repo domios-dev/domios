@@ -22,8 +22,12 @@ export function projectHistoryItem(raw: unknown, seq: number, turn: string, time
     ? [{id:String(source.id),seq,type:"system",content:"[content truncated: history item exceeds display budget]"}]
     : boundHistoryRows(runtimeItems(historyItem(raw), seq));
   for (const row of rows) {
-    if (parent && source.senderThreadId === parent && source.type === "collabAgentToolCall" && source.tool === "spawnAgent" && row.toolKind === "agent") {
-      row.toolInput = json({...object(row.toolInput), agent_parent_thread_id: parent});
+    const spawn = source.type === "collabAgentToolCall" && source.tool === "spawnAgent" && source.senderThreadId === parent;
+    const started = source.type === "subAgentActivity" && source.kind === "started"
+      && (source.senderThreadId == null || source.senderThreadId === parent);
+    if (parent && (spawn || started) && row.toolKind === "agent") {
+      const input=object(row.toolInput);
+      row.toolInput = json({...input, agent_parent_thread_id: parent, agent_ordinal:input.agent_ordinal ?? 1});
     }
     row.toolFlowId = turn;
     if (typeof timestamp === "number" && Number.isFinite(timestamp)) row.timestamp = new Date(timestamp).toISOString();
