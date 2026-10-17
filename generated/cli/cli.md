@@ -260,6 +260,23 @@ Cancel automatic cleanup for an inspected startup attempt
 - `--attempt` — Launch attempt shown in the startup-overdue report
 - `--tab` — Target spawned Tab
 
+#### `codeterm agent switch-provider`
+
+Continue this tab on another provider through a bounded handoff produced by the target
+
+- `--force` — Stop the current turn before switching. Otherwise a busy tab refuses
+- `--model`
+- `<provider>`
+- `--reasoning-effort`
+- `--tab`
+
+#### `codeterm agent switch-provider-status`
+
+Read a daemon-owned provider switch operation, including self-switch results
+
+- `<operation>`
+- `--tab`
+
 #### `codeterm agent turns`
 
 Read completed turns from a tool-less agent's exact bound session
