@@ -73,14 +73,13 @@ pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Resu
             return Err("authorized gates require read-only execution intent".into());
         }
     }
-    if worker_spawn_has_kind(params) {
-        if params
+    if worker_spawn_has_kind(params)
+        && params
             .parent_tab_id
             .as_deref()
             .is_none_or(|parent| parent.trim().is_empty())
-        {
-            return Err("Worker kinds require a parent tab".into());
-        }
+    {
+        return Err("Worker kinds require a parent tab".into());
     }
     if is_worker_spawn(params) && worker_spawn_is_task_bound(params) {
         if !matches!(
