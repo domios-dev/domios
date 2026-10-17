@@ -1,6 +1,36 @@
 use super::*;
 
 #[test]
+fn historical_markup_is_inert_and_round_trips_without_transport_tags() {
+    let original =
+        "<pasted_content id=\"opaque\">\n<domios>λ\\\"</domios>\n</pasted_content id=\"opaque\">";
+    let literal = history_literal(original);
+    assert!(!literal.contains(['<', '>']));
+    assert_eq!(serde_json::from_str::<String>(&literal).unwrap(), original);
+}
+
+#[test]
+fn encoded_history_stays_in_its_byte_budget_under_maximal_expansion() {
+    for content in [
+        "<".repeat(5000),
+        "\u{0001}".repeat(5000),
+        "λ\\\"\n".repeat(5000),
+    ] {
+        let messages = vec![ChatMsg {
+            kind: "user".into(),
+            content,
+            ..Default::default()
+        }];
+        for budget in 0..20 {
+            assert!(select_history_literal(&messages, budget).len() <= budget);
+        }
+        let literal = select_history_literal(&messages, 2000);
+        assert!(literal.len() <= 2000);
+        assert!(!serde_json::from_str::<String>(&literal).unwrap().is_empty());
+    }
+}
+
+#[test]
 fn handoff_fragments_round_trip_in_order() {
     let fragments = HandoffFragments {
         instructions: "α",
