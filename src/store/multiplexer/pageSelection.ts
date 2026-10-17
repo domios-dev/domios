@@ -7,6 +7,29 @@ interface PageSelection {
 interface SelectionWorkspace {
   id: string;
   tabs: readonly string[];
+  active_tab_id?: string | null;
+}
+
+export function initialPageSelection(snapshot: {
+  active_workspace_id: string | null;
+  workspaces: readonly SelectionWorkspace[];
+  tabs: Readonly<Record<string, unknown>>;
+}): PageSelection {
+  const activeTabIds: Record<string, string> = {};
+  for (const workspace of snapshot.workspaces) {
+    const selected = workspace.active_tab_id;
+    const tabId = selected && workspace.tabs.includes(selected) && snapshot.tabs[selected]
+      ? selected : workspace.tabs.find((id) => snapshot.tabs[id]);
+    if (tabId) activeTabIds[workspace.id] = tabId;
+  }
+  const workspaceId = snapshot.workspaces.some((workspace) => workspace.id === snapshot.active_workspace_id)
+    ? snapshot.active_workspace_id : snapshot.workspaces[0]?.id ?? null;
+  return { active_workspace_id: workspaceId, activeTabIds,
+    focused_tab_id: workspaceId == null ? null : activeTabIds[workspaceId] ?? null };
+}
+
+export function initialRouteReady(generation: number): boolean {
+  return generation > 0;
 }
 
 export function reconcilePageSelection(
