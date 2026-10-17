@@ -112,5 +112,5 @@ fn declares_agent_provider(manifest: &std::path::Path) -> bool {
     std::fs::read_to_string(manifest)
         .ok()
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .is_some_and(|value| value["capabilities"]["agentProvider"].is_object())
+        .is_some_and(|value| !value["capabilities"]["agentProvider"].is_null())
 }
