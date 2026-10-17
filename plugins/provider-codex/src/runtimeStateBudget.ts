@@ -1,4 +1,4 @@
-import type { AgentEvent, ChatMsg } from "@codeterm/plugin-sdk";
+import type { ChatMsg } from "@codeterm/plugin-sdk";
 import type { RuntimeItem } from "./runtimeAbandonedTurns";
 
 // The host closes the app-server, killing the live turn, when reducer state exceeds 256 KiB.
@@ -138,8 +138,4 @@ function fitTotal(state: BudgetState): void {
       parts.content = parts.content.map(part => capText(part,cap));
     }
   }
-}
-
-export function capEvents(events: AgentEvent[]): AgentEvent[] {
-  return events.map(event => event.kind === "chatItem" ? {...event,item:capRow(event.item,EVENT_TEXT_CAP)} : event);
 }

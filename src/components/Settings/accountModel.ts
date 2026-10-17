@@ -7,15 +7,16 @@ export interface AccountIdentity {
 export interface AccountStatus {
   identity: AccountIdentity | null;
   pending: boolean;
+  session_only?: boolean;
 }
 export type AccountModel =
   | { kind: "signed_out" }
   | { kind: "pending" }
-  | { kind: "signed_in"; identity: AccountIdentity }
+  | { kind: "signed_in"; identity: AccountIdentity; sessionOnly?: boolean }
   | { kind: "error"; message: string };
 export function accountModel(status: AccountStatus): AccountModel {
   if (status.pending) return { kind: "pending" };
-  return status.identity ? { kind: "signed_in", identity: status.identity } : { kind: "signed_out" };
+  return status.identity ? { kind: "signed_in", identity: status.identity, ...(status.session_only ? { sessionOnly: true } : {}) } : { kind: "signed_out" };
 }
 export function accountFailure(error: unknown): AccountModel {
   return { kind: "error", message: error instanceof Error ? error.message : "Account request failed" };

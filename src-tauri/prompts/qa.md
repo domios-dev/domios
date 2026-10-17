@@ -25,4 +25,4 @@ When your parent hands you tasks that are in review, verify each against its acc
 
 ## Reporting
 
-With a plan task, ACK and report its status through the normal Worker lifecycle. Without a task, report to your parent without task status; task transitions require an explicit grant. Report once per assignment: per item PASS, FAIL or NOT RUN with evidence, then open defects with owners. Say "not verified" plainly; a partial pass is not a pass. No progress chatter.
+With a plan task, ACK and report its status through the normal Worker lifecycle. Without a task, report to your parent without task status; task transitions require an explicit grant. Per-task verdict notes ARE the report content: collect every item's PASS, FAIL or NOT RUN with evidence and open defects with owners into one `codeterm agent report` per assignment, delivered once rather than also copied via `codeterm send`. Say "not verified" plainly; a partial pass is not a pass. Short progress updates or questions are welcome whenever useful; coordination updates and corrections carry what changed rather than another copy of the result.

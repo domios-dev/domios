@@ -1090,6 +1090,7 @@ dependencies = [
  "codeterm-socket",
  "codeterm-types",
  "codeterm-util",
+ "core-foundation",
  "dirs 6.0.0",
  "fern",
  "include_dir",
@@ -1102,6 +1103,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "shell-words",
  "tauri",
  "tauri-build",
  "tauri-plugin-deep-link",
@@ -1123,13 +1125,16 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "log",
  "rand 0.8.5",
  "reqwest 0.12.28",
+ "security-framework",
  "serde",
  "serde_json",
  "sha2",
  "tokio",
  "url",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 

@@ -13,3 +13,7 @@ assert.equal(accountLoginPath(), "/api/account/login");
 assert.equal(accountLoginPath({provider:"google",mode:"signup"}), "/api/account/login?provider=google&mode=signup");
 assert.equal(accountLoginPath({provider:"email",mode:"signin"}), "/api/account/login?provider=email&mode=signin");
 console.log("3 login hint URL assertions passed");
+
+assert.deepEqual(accountModel({ identity, pending: false, session_only: true }), { kind: "signed_in", identity, sessionOnly: true });
+assert.deepEqual(accountModel({ identity: null, pending: false, session_only: true }), { kind: "signed_out" });
+console.log("2 session-only account assertions passed");
