@@ -95,6 +95,22 @@ mod tests {
     }
 
     #[test]
+    fn pasted_wrapper_framing_newline_does_not_change_follow_up_evidence() {
+        let normalization = TurnEvidenceNormalization {
+            unwrap_pasted_content_wrapper: true,
+            ..Default::default()
+        };
+        let body = "opaque-a\nopaque-b";
+        for suffix in ["opaque-c", "\nopaque-c", "\n\nopaque-c"] {
+            let expected = format!("{body}{suffix}");
+            let observed = format!(
+                "<pasted_content id=\"opaque\">\n{body}\n</pasted_content id=\"opaque\">\n{suffix}"
+            );
+            assert_eq!(normalization.normalize(&observed), expected);
+        }
+    }
+
+    #[test]
     fn pasted_content_wrapper_between_typed_route_tags_keeps_exact_turn_evidence() {
         let normalization = TurnEvidenceNormalization {
             unwrap_pasted_content_wrapper: true,
@@ -131,11 +147,9 @@ fn unwrap_pasted_content_wrapper(text: &str) -> Option<String> {
     let close_at = text[body_start..].find(&closing)? + body_start;
     let pasted = text[body_start..close_at].trim();
     let suffix_start = close_at + closing.len();
-    Some(format!(
-        "{}{pasted}{}",
-        &text[..opening_start],
-        &text[suffix_start..]
-    ))
+    let suffix = &text[suffix_start..];
+    let suffix = suffix.strip_prefix('\n').unwrap_or(suffix);
+    Some(format!("{}{pasted}{}", &text[..opening_start], suffix))
 }
 
 /// How to wait for agent readiness after PTY spawn.
