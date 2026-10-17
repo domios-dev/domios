@@ -17,6 +17,9 @@ pub struct PreprocessCtx {
 /// A send-time text stage. Returns `Some(text)` to replace or `None` to pass through.
 pub trait ChatPreprocessorProvider: Send + Sync {
     fn id(&self) -> &str;
+    fn provider_scope(&self) -> Option<&str> {
+        None
+    }
     fn preprocess(&self, ctx: &PreprocessCtx, text: &str) -> Option<String>;
 }
 
