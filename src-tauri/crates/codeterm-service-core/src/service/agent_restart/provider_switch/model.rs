@@ -54,6 +54,10 @@ pub(super) fn require_idle(idle: bool, force: bool, booting: bool) -> Result<(),
     Ok(())
 }
 
+pub(super) fn runtime_idle(live: bool, active_turn: bool, pending_prompts: bool) -> bool {
+    live && !active_turn && !pending_prompts
+}
+
 pub(super) fn reset_for_target(
     tab: &mut Tab,
     target: &str,

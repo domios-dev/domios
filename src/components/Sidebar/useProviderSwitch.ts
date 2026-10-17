@@ -56,7 +56,7 @@ export function useProviderSwitch(tab: Tab, initialProviderId: string) {
     try {
       const rows: unknown = await invoke("read_provider_history", { tabId: tab.id, file: result.previous_history_path });
       if (!Array.isArray(rows)) throw new Error("The previous transcript is unavailable.");
-      setHistory(rows.filter((row): row is { kind: string; content: string } => row !== null && typeof row === "object" && typeof row.kind === "string" && typeof row.content === "string"));
+      setHistory(rows.filter((row): row is { type: string; content: string } => row !== null && typeof row === "object" && typeof row.type === "string" && typeof row.content === "string").map((row) => ({ kind: row.type, content: row.content })));
     } catch (error) { setError(String(error)); }
   }
 
