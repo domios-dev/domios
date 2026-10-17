@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 /// Caller identity resolved once from the environment, applied per call site.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
