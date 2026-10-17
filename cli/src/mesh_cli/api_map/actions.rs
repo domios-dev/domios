@@ -950,6 +950,15 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             "agent restart --mesh requires a non-empty explicit --tab <ID> from the target peer",
         ),
         crate::AgentAction::SetOrchestrator { .. } => unsupported_agent_action("set-orchestrator"),
+        crate::AgentAction::SwitchProviderStatus { tab: Some(tab), operation } if !tab.trim().is_empty() => ("GET".into(), format!("/api/tabs/{}/agent/switch-provider/{}", urlencoding::encode(tab), urlencoding::encode(operation)), None),
+        crate::AgentAction::SwitchProviderStatus { .. } => unsupported("agent switch-provider-status --mesh requires explicit --tab"),
+        crate::AgentAction::SwitchProvider { tab: Some(tab), provider, model, reasoning_effort, force } if !tab.trim().is_empty() => (
+            "POST".into(), format!("/api/tabs/{}/agent/switch-provider", urlencoding::encode(tab)),
+            Some(serde_json::json!(crate::cmd::agent_provider_switch::SwitchProviderRequest {
+                provider: provider.clone(), model: model.clone(), reasoning_effort: reasoning_effort.clone(), force: *force,
+            }).to_string()),
+        ),
+        crate::AgentAction::SwitchProvider { .. } => unsupported("agent switch-provider --mesh requires a non-empty explicit --tab <ID> from the target peer"),
         crate::AgentAction::Link { .. } => unsupported_agent_action("link"),
         crate::AgentAction::Unlink { .. } => unsupported_agent_action("unlink"),
         crate::AgentAction::AllowSpawn { .. } => unsupported_agent_action("allow-spawn"),

@@ -3,6 +3,8 @@ mod tests;
 
 use crate::agent::chat_types::ChatMsg;
 
+pub(crate) mod input;
+
 const BYTES_PER_TOKEN: usize = 3;
 const TOOL_LINE_LIMIT: usize = 8;
 const TOOL_LINE_CHARS: usize = 320;

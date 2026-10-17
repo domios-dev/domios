@@ -648,6 +648,8 @@ export interface GeneralAgentConfig {
   capability_hints?: boolean;
   enabled: boolean;
   agent_provider: string;
+  model?: string | null;
+  reasoning_effort?: string | null;
   auto_restart: boolean;
   max_restart_attempts: number;
   restart_delay_s: number;

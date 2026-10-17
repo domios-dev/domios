@@ -114,6 +114,9 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | POST | `/api/tabs/{id}/adopt-agent` | See API-ADOPT | Adopt a live PTY; see API-ADOPT. |
 | * | `/api/tabs/{id}/delayed-messages`, `/api/delayed-messages/{id}` | *(per route)* | List, queue, edit, delete, and send-now for delayed Chat UI messages — all in API-CHAT |
 | POST | `/api/tabs/{id}/hook/{permission,session_state,stop,session_start}` | *(per-hook, see below)* | Agent lifecycle hooks for one tab. Payloads, modes, nonce rejection and responses live in API-TABS |
+| POST | `/api/tabs/{id}/agent/switch-provider` | `{provider, model?, reasoning_effort?, force?}` | Accept a daemon-owned handoff in place, including General/self-switch. Returns HTTP 202 and an operation id; see API-AGENTS. |
+| GET | `/api/tabs/{id}/agent/switch-provider/{operation}` | `?wait=true` optional | Read pending/running/completed/failed operation and outcome. |
+| GET | `/api/tabs/{id}/agent/provider-history` | `?file=PATH` | Read this tab's archived previous provider transcript. |
 | POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64, provider?: string, handoff_history?: bool}` | Restart a live agent, fresh-launch a known provider from a confirmed unbound shell, or resume an exited provider's verified owned session. An optional PTY provider change can hand off bounded redacted history. See [Agent Restart](API-AGENTS.md#agent-restart-post-apitabsidagentrestart). |
 | POST | `/api/tabs/{id}/agent/model` | `{model: string, reasoning_effort?: string, runtime_mode?: string}` | Switch through declared `model_switch`; `next_turn` records per-thread controls without restarting; advertised Live routes are tab-bound, otherwise idle RestartResume reports the mode used. Never changes the provider's global default. See [Agent Model Switch](#agent-model-switch-post-apitabsidagentmodel). |
 | GET | `/api/tabs/{id}/agent/service-tiers` | none | Reads the exact tab's session-bound model tier catalogue and requested/confirmed service tier selections. Returns typed `no_runtime`, `no_tiers`, or `not_found` refusals. |
@@ -176,4 +179,4 @@ Local analytics: `/api/analytics/{status,consent,event}` (see ACCOUNT).
 
 Account and plan routes: see `ACCOUNT`.
 
-<!-- revision: 201 -->
+<!-- revision: 202 -->
