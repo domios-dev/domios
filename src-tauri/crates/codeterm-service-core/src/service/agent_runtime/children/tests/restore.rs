@@ -69,12 +69,21 @@ module.exports = {
                 } else {
                     json!([{"id":"answer","type":"assistant","content":"persisted child answer"}])
                 };
-                let reply = json!({"jsonrpc":"2.0","id":call["id"],"result":{"kind":"historyPage","threadId":thread,"items":items,"order":"desc"}});
+                let result = RuntimeResult::HistoryPage {
+                    thread_id: thread.into(),
+                    items: serde_json::from_value(items).unwrap(),
+                    next_cursor: None,
+                    open_items: Vec::new(),
+                    questions: None,
+                    order: Some(HistoryOrder::Desc),
+                };
+                let reply = json!({"jsonrpc":"2.0","id":call["id"],"result":result});
                 writer
                     .write_all(format!("{reply}\n").as_bytes())
                     .await
                     .unwrap();
             }
+            Ok::<(), RuntimeFailure>(())
         };
         let read = history_inner(
             &fixture.service,
@@ -87,11 +96,13 @@ module.exports = {
                 cursor: None,
             },
         );
-        let (page, ()) =
-            tokio::time::timeout(Duration::from_secs(10), async { tokio::join!(read, peer) })
-                .await
-                .expect("parent and child history RPCs must complete");
-        page.unwrap()
+        let (page, ()) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::try_join!(read, peer)
+        })
+        .await
+        .expect("parent and child history RPCs must complete")
+        .expect("restored child history read must succeed");
+        page
     });
     assert_eq!(page.epoch, 2);
     assert_eq!(page.binding_nonce, "restored");
