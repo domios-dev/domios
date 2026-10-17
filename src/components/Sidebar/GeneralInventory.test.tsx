@@ -16,10 +16,12 @@ test("General sidebar disclosures persist, navigate to original shells and open 
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.clear();
   cronSelectionStore.close();
+  let shownAll = 0;
   let opened = 0;
   const unsubscribe = cronSelectionStore.subscribe(() => { opened += 1; });
   const navigated: string[][] = [];
   const props = {
+    onShowAllJobs: () => { shownAll += 1; },
     generalWorkspaceId: workspaces[0].id, workspaces, teams, tabs, touchMode: true, onCloseTab: () => {}, onRenameTab: () => {},
     onNavigate: (workspaceId: string, tabId: string) => navigated.push([workspaceId, tabId]),
     jobs: mergeJobs(NO_JOBS_FILTER, [{ ...teamCron, workspace_id: workspaces[0].id }], []),
@@ -34,6 +36,16 @@ test("General sidebar disclosures persist, navigate to original shells and open 
       assert.equal(toggle(name).getAttribute("aria-expanded"), "true");
       assert.equal(view.host.querySelector(`ul[aria-label="${name}"]`)?.hasAttribute("hidden"), false);
     }
+    const jobsList = view.host.querySelector('ul[aria-label="Jobs"]')!;
+    assert.equal(jobsList.lastElementChild?.querySelector("button")?.getAttribute("aria-label"), "Show all jobs");
+    await act(async () => named(jobsList, "Show all jobs")!.click());
+    assert.equal(shownAll, 1);
+    await act(async () => toggle("Jobs").click());
+    assert.equal(named(view.host, "Show all jobs"), null);
+    await act(async () => toggle("Jobs").click());
+    await act(async () => view.root.render(<GeneralInventorySections {...props} jobsFailed inventory={{ ...props.inventory, error: "transient" }} />));
+    assert.equal(view.host.querySelector('[role="alert"]'), null);
+    assert.ok(named(view.host, `Open job ${teamCron.name}`));
     assert.equal(toggle("Jobs").getAttribute("aria-label"), "Jobs, 1");
     await act(async () => named(view.host, `Open job ${teamCron.name}`)!.click());
     assert.equal(opened, 1);
@@ -51,8 +63,7 @@ test("General sidebar disclosures persist, navigate to original shells and open 
     assert.equal(toggle("Services").getAttribute("aria-expanded"), "false");
     await act(async () => view.root.render(<GeneralInventorySections {...props} key="empty" jobs={[]} inventory={{ ...props.inventory, services: [] }} tabs={{}} />));
     for (const name of ["Jobs", "Services", "Utility shells"]) {
-      assert.equal(toggle(name).getAttribute("aria-label"), `${name}, 0`);
-      assert.equal(toggle(name).getAttribute("aria-expanded"), "false");
+      assert.equal(view.host.querySelector(`section[aria-label="${name}"]`), null);
     }
   } finally {
     await view.close();
@@ -134,15 +145,16 @@ test("system Cron row toggles once and renders deletion unavailable", async () =
   }
 });
 
-test("General Jobs Show all opens the machine-wide Jobs entry once even when General has no jobs", async () => {
+test("General hides failed empty groups even when Show all is available", async () => {
   let opened = 0;
   const view = await mount(<GeneralInventorySections generalWorkspaceId="general" workspaces={workspaces} teams={teams} tabs={{}}
-    inventory={{ services: [], peers: [], thisMachine: { name: "Local", ip: "" }, loading: false, error: null, refresh: () => {} }} jobs={[]}
+    inventory={{ services: [], peers: [], thisMachine: { name: "Local", ip: "" }, loading: false, error: "transient", refresh: () => {} }} jobs={[]} jobsFailed
     onCloseTab={() => {}} onRenameTab={() => {}} onNavigate={() => {}} onShowAllJobs={() => { opened++; }} />);
   try {
     const showAll = view.host.querySelector<HTMLButtonElement>('section[aria-label="Jobs"] button[aria-label="Show all jobs"]');
-    assert.ok(showAll);
-    await act(async () => showAll.click());
-    assert.equal(opened, 1);
+    assert.equal(showAll, null);
+    assert.equal(view.host.querySelector("section"), null);
+    assert.equal(view.host.querySelector('[role="alert"]'), null);
+    assert.equal(opened, 0);
   } finally { await view.close(); }
 });

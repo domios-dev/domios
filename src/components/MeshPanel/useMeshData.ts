@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import type { MeshStatus, MeshPeersResponse, PairedPeer, DiscoveredPeer } from "../../lib/types";
+import { DEV_BUILD } from "../../lib/devBuild";
 import type { Service } from "./types";
 import {
   cachedServices,
@@ -187,6 +188,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
       writeCache(next);
       setData({ ...next, loading: false, error: null });
     } catch (e) {
+      if (DEV_BUILD) console.debug("[mesh] local inventory fetch failed", e);
       setData((d) => ({ ...d, loading: false, error: String(e) }));
     } finally {
       inFlightRef.current = false;
