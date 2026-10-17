@@ -1,3 +1,4 @@
+use super::agent_runtime::{AgentUsageAction, ChildHistoryArgs};
 use clap::{Args, Subcommand};
 
 #[derive(clap::ValueEnum, Clone, Debug)]
@@ -117,6 +118,13 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
+    /// Read usage or consume a confirmed reset credit for an exact tab.
+    Usage {
+        #[command(subcommand)]
+        action: AgentUsageAction,
+    },
+    /// Read one recorded child's transcript under the exact parent binding.
+    ChildHistory(ChildHistoryArgs),
     /// Sign in to the tab's runtime provider without a terminal
     Login {
         #[arg(long, value_name = "TAB")]
