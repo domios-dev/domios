@@ -1,4 +1,4 @@
-import { PeerInventorySections } from "./PeerInventorySections";
+import { PeerCapsuleSections } from "./PeerCapsuleSections";
 import type { PeerInventory } from "./peerInventoryModel";
 import { memo } from "react";
 
@@ -42,7 +42,7 @@ function PeerTerminalComponent({
           ? offline
             ? "border border-[var(--ct-border)] shadow-none opacity-55 grayscale"
             : "border border-[color-mix(in_srgb,var(--ct-accent)_72%,var(--ct-border))] shadow-[var(--ct-shadow-capsule)]"
-          : "border border-[var(--ct-border)] shadow-sm"
+          : `border border-[var(--ct-border)] shadow-sm ${offline ? "opacity-55 grayscale" : ""}`
       }`}
       style={{ width: 360 }}
     >
@@ -81,7 +81,7 @@ function PeerTerminalComponent({
           color: "var(--ct-muted-fg)",
         }}
       >
-        {inventory && <PeerInventorySections inventory={inventory} compact />}
+        {inventory && <PeerCapsuleSections inventory={inventory} />}
         {isPaired && accessLevel && (
           <div className="mt-2 text-[10px] text-[var(--ct-muted)]">
             paired · access: {accessLevel}
