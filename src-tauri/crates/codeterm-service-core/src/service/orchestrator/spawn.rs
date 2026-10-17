@@ -419,6 +419,7 @@ impl ServiceContext {
             }
             if let Some(tab) = mux.get_tab_mut(&result) {
                 initialize_ordinary_pty_agent_tab(tab, &params);
+                tab.taskless_authorized_gates = params.authorized_gates.clone();
             }
             if params.activate.unwrap_or(false) {
                 let _ = mux.set_active_tab(&ws_id, &result);

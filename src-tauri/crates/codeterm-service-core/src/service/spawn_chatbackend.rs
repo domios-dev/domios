@@ -110,6 +110,11 @@ impl ServiceContext {
         spec: SpawnTabSpec,
         emit_state_change: bool,
     ) -> Result<TabHandle, String> {
+        let taskless_authorized_gates = spec
+            .chatbackend_launch
+            .as_ref()
+            .map(|launch| launch.params.authorized_gates.clone())
+            .unwrap_or_default();
         let (plugin_id, mut config, role, role_profile, can_spawn, watcher) = match &spec.command {
             TabCommand::ChatBackend {
                 plugin_id,
@@ -248,6 +253,7 @@ impl ServiceContext {
                 }
                 tab.audience = spec.audience;
                 tab.role_profile = role_profile.clone();
+                tab.taskless_authorized_gates = taskless_authorized_gates.clone();
                 tab.watcher = watcher.clone();
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
