@@ -256,6 +256,10 @@ impl SpawnTabSpec {
             plan_task: None,
             authorized_gates: Vec::new(),
             execution_intent: None,
+            sandbox: self
+                .chatbackend_launch
+                .as_ref()
+                .and_then(|metadata| metadata.params.sandbox.clone()),
             provider_reserve_pct: None,
             workspace_id: self.workspace_id.clone(),
             force_tab: None,

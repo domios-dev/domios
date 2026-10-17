@@ -11,8 +11,7 @@ vm.runInContext(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8"
 const provider = sandbox.module.exports.default as AgentRuntime;
 const context: RuntimeContext = { epoch: 1, tabId: "opaque-tab", bindingNonce: "opaque-nonce", threadId: "opaque-thread", cwd: "/lane", hostVersion: "1.14.9", settings: {}, activeTurns: [], threadParents: [], claimedSends: [], providerSettings: {} };
 const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value));
-assert.equal(capability.mutating, undefined, "Mutating dispatch must retain the host-authorized permission mode");
-for (const [mode, type] of [[capability.readOnly!, "readOnly"]] as const) {
+for (const [mode, type] of [[capability.readOnly!, "readOnly"], [capability.mutating!, "workspaceWrite"]] as const) {
   const settings: RuntimeSettings = { mode: mode.runtimeMode!, additionalDirectories: [], networkAccess: false };
   for (const operation of [
     { kind: "openThread" as const, instructions: "opaque", settings },
@@ -26,7 +25,7 @@ for (const [mode, type] of [[capability.readOnly!, "readOnly"]] as const) {
     const params = plan.action.call.params as Record<string, unknown>;
     assert.equal(params.approvalPolicy, "never");
     if (operation.kind === "openThread" || operation.kind === "resumeThread") {
-      assert.equal(params.sandbox, "read-only");
+      assert.equal(params.sandbox, type === "readOnly" ? "read-only" : "workspace-write");
       const config = params.config as Record<string, unknown>;
       assert.deepEqual(config["sandbox_workspace_write.writable_roots"], []);
       assert.equal(config["sandbox_workspace_write.exclude_tmpdir_env_var"], true);
@@ -52,4 +51,4 @@ for (const [mode, type, approval] of [["full-access", "dangerFullAccess", "never
   assert.equal(params.approvalPolicy, approval);
   assert.equal(params.sandboxPolicy.type, type);
 }
-console.log("Codex execution sandbox: 7 operation mappings passed");
+console.log("Codex execution sandbox: 11 operation mappings passed");

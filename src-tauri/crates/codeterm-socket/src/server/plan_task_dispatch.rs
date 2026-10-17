@@ -723,6 +723,7 @@ where
         plan_id: Some(plan_id.clone()),
         task_id: Some(task_id.clone()),
         execution_intent: Some(execution_intent.clone()),
+        sandbox: owned_str(p, "sandbox"),
         authorized_gates: authorized_gates.clone(),
         provider_reserve_pct: Some(reserve_pct),
         workspace_id: owned_str(p, "workspace_id"),
