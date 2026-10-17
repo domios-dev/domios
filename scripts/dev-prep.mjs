@@ -55,6 +55,7 @@ const inputPathspecs = [
   "scripts/dev-prep.mjs",
   "scripts/dev-app-process.mjs",
   "scripts/dev-runtime-environment.mjs",
+  "scripts/dev-instance-policy.mjs",
   "scripts/windows-dev-app.ps1",
   "scripts/windows-dev-app.cs",
   "scripts/bundle-cli.js",

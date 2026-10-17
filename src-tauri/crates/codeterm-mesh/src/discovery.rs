@@ -479,8 +479,6 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
     if mesh.lock().udp_started {
         return Ok(());
     }
-    mesh.lock().udp_started = true;
-
     let (instance_id, instance_name, api_port) = {
         let m = mesh.lock();
         (
@@ -489,6 +487,9 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
             m.api_port,
         )
     };
+
+    codeterm_paths::validate_listener_port(api_port, cfg!(debug_assertions))?;
+    mesh.lock().udp_started = true;
 
     let mesh_for_sender = mesh.clone();
     let sender_id = instance_id.clone();

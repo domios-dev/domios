@@ -574,15 +574,7 @@ CT_CDP_PORT="${CODETERM_CDP_PORT:-}"
 CT_INSTANCE_HASH=""
 case "$CMD" in
   dev|dev-prebuilt|kill|e2e|e2e:llm)
-    if [ "$CT_PORT" = "7685" ]; then
-      if [ -n "$CT_INSTANCE" ]; then
-        echo "ERROR: refusing to run $CMD against prod port 7685 (CODETERM_INSTANCE=$CT_INSTANCE)." >&2
-        echo "Pick a non-prod CODETERM_API_PORT for this dev instance." >&2
-        exit 2
-      fi
-      echo "WARNING: ignoring inherited CODETERM_API_PORT=7685 for $CMD; using dev port 7686." >&2
-      CT_PORT=7686
-    fi
+    node scripts/dev-instance-policy.mjs || exit $?
     ;;
 esac
 if [ -n "$CT_INSTANCE" ]; then

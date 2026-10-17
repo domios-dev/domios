@@ -6,6 +6,9 @@
 
 use std::path::PathBuf;
 
+mod port_policy;
+pub use port_policy::{runtime_api_port, validate_listener_port, PRODUCTION_PORT};
+
 /// Sanitize a raw instance slug to `[a-z0-9-]+` (lowercase; other chars → `-`).
 #[cfg(debug_assertions)]
 fn sanitize_slug(raw: &str) -> String {
