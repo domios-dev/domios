@@ -133,6 +133,41 @@ impl PlanStore {
         attempt_id: &str,
         now_ms: u64,
     ) -> Result<super::super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
+        self.acknowledge_task_attempt_inner(
+            plan_id, task_id, tab_id, attempt_id, None, false, now_ms,
+        )
+    }
+
+    pub fn acknowledge_task_attempt_with_runtime_binding(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        runtime_binding: Option<(&str, &str)>,
+        now_ms: u64,
+    ) -> Result<super::super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
+        self.acknowledge_task_attempt_inner(
+            plan_id,
+            task_id,
+            tab_id,
+            attempt_id,
+            runtime_binding,
+            true,
+            now_ms,
+        )
+    }
+
+    fn acknowledge_task_attempt_inner(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        runtime_binding: Option<(&str, &str)>,
+        enforce_runtime_binding: bool,
+        now_ms: u64,
+    ) -> Result<super::super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
         let _writer_turn = self.mutation_writer.enter();
         let current_task = self.read_task_for_verification(plan_id, task_id)?;
         let Some((current_attempt, competitive)) =
@@ -143,6 +178,16 @@ impl PlanStore {
                 "attempt no longer owns the acknowledging tab",
             ));
         };
+        if !attempt_matches_acknowledging_binding(
+            current_attempt,
+            runtime_binding,
+            enforce_runtime_binding,
+        ) {
+            return Err(Self::task_readback_error(
+                "task_dispatch_ack",
+                "attempt session binding differs from the acknowledging tab",
+            ));
+        }
         if current_attempt.acknowledged_at.is_some() {
             let attempt = current_attempt.clone();
             return Ok(super::super::task_attempts::TaskAttemptAcknowledgement {
@@ -173,6 +218,16 @@ impl PlanStore {
                 return Err(Self::task_readback_error(
                     "task_dispatch_ack",
                     "attempt no longer owns the acknowledging tab",
+                ));
+            }
+            if !attempt_matches_acknowledging_binding(
+                &plan.tasks[task_index].execution_attempts[attempt_index],
+                runtime_binding,
+                enforce_runtime_binding,
+            ) {
+                return Err(Self::task_readback_error(
+                    "task_dispatch_ack",
+                    "attempt session binding changed before acknowledgement",
                 ));
             }
             if plan.tasks[task_index].status == crate::plan::TaskStatus::Pending {
@@ -213,6 +268,11 @@ impl PlanStore {
             };
             if persisted.executor_tab_id != tab_id
                 || persisted.acknowledged_at != attempt.acknowledged_at
+                || !attempt_matches_acknowledging_binding(
+                    persisted,
+                    runtime_binding,
+                    enforce_runtime_binding,
+                )
                 || task.status != crate::plan::TaskStatus::InProgress
                 || !executor_persisted
             {
@@ -305,6 +365,38 @@ impl PlanStore {
         task_hint: Option<&str>,
         now_ms: u64,
     ) -> Result<super::super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
+        self.acknowledge_live_task_attempt_for_tab_inner(
+            tab_id, plan_hint, task_hint, None, false, now_ms,
+        )
+    }
+
+    pub fn acknowledge_live_task_attempt_for_tab_with_runtime_binding(
+        &self,
+        tab_id: &str,
+        plan_hint: Option<&str>,
+        task_hint: Option<&str>,
+        runtime_binding: Option<(&str, &str)>,
+        now_ms: u64,
+    ) -> Result<super::super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
+        self.acknowledge_live_task_attempt_for_tab_inner(
+            tab_id,
+            plan_hint,
+            task_hint,
+            runtime_binding,
+            true,
+            now_ms,
+        )
+    }
+
+    fn acknowledge_live_task_attempt_for_tab_inner(
+        &self,
+        tab_id: &str,
+        plan_hint: Option<&str>,
+        task_hint: Option<&str>,
+        runtime_binding: Option<(&str, &str)>,
+        enforce_runtime_binding: bool,
+        now_ms: u64,
+    ) -> Result<super::super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
         let bound = self.live_task_attempts_for_tab(tab_id);
         let acknowledgeable = bound
             .iter()
@@ -349,11 +441,13 @@ impl PlanStore {
                 hinted[0]
             }
         };
-        self.acknowledge_task_attempt(
+        self.acknowledge_task_attempt_inner(
             &selected.plan_id,
             &selected.task_id,
             tab_id,
             &selected.attempt.id,
+            runtime_binding,
+            enforce_runtime_binding,
             now_ms,
         )
     }
@@ -573,5 +667,28 @@ impl PlanStore {
             Ok(())
         })();
         pending_after_verified(write, verified, Some(task_id.to_string()))
+    }
+}
+
+fn attempt_matches_acknowledging_binding(
+    attempt: &crate::plan::TaskExecutionAttempt,
+    runtime_binding: Option<(&str, &str)>,
+    enforce_runtime_binding: bool,
+) -> bool {
+    if !enforce_runtime_binding {
+        return true;
+    }
+    match (
+        attempt.session_id.as_deref(),
+        attempt.session_binding_nonce.as_deref(),
+        runtime_binding,
+    ) {
+        (None, None, _) => true,
+        (Some(session), Some(nonce), Some((current_session, current_nonce))) => {
+            session == current_session && nonce == current_nonce
+        }
+        (Some(session), None, Some((current_session, _))) => session == current_session,
+        (None, Some(nonce), Some((_, current_nonce))) => nonce == current_nonce,
+        _ => false,
     }
 }

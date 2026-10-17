@@ -35,10 +35,7 @@ fn assign_current(caller: &LiveCaller, now: u64) {
 fn ack(caller: &LiveCaller) -> Value {
     crate::server::agent::dispatch(
         "agent.ack",
-        &Some(json!({
-            "tab_id": caller.tab_id(),
-            "session_binding_nonce": CALLER_NONCE,
-        })),
+        &Some(json!({ "tab_id": caller.tab_id() })),
         &caller.svc,
     )
     .unwrap()
@@ -483,6 +480,62 @@ fn current_attempt_ack_rejects_foreign_nonce_before_announcement() {
             .task,
         before
     );
+}
+
+#[test]
+fn stale_ack_nonce_refuses_before_marking_the_current_attempt() {
+    let caller = LiveCaller::new();
+    let current_nonce = "nonce-after-restart";
+    caller
+        .svc
+        .plan_store
+        .update_attempt_executor_identity(
+            &caller.plan_id,
+            &caller.task_id,
+            &caller.tab_id(),
+            Some("Worker"),
+            Some(CALLER_SESSION),
+            Some(current_nonce),
+            7,
+        )
+        .unwrap();
+    {
+        let mut mux = caller.svc.mux.write();
+        let tab = mux.get_tab_mut(&caller.tab_id()).unwrap();
+        tab.session_binding_nonce = Some(current_nonce.into());
+        tab.reported_session_binding_nonce = Some(current_nonce.into());
+    }
+
+    for claim in [
+        json!({ "session_binding_nonce": CALLER_NONCE }),
+        json!({ "caller_session_id": "foreign-session" }),
+    ] {
+        let mut params = claim;
+        params["tab_id"] = json!(caller.tab_id());
+        let refused = crate::server::agent::dispatch("agent.ack", &Some(params), &caller.svc);
+        assert!(refused.is_err());
+        let after_refusal = caller
+            .svc
+            .plan_store
+            .show_task(&caller.task_id)
+            .unwrap()
+            .task;
+        assert!(after_refusal.execution_attempts[0]
+            .acknowledged_at
+            .is_none());
+    }
+
+    let accepted = ack(&caller);
+    assert_eq!(accepted["attempt_id"], caller.attempt_id);
+    assert!(caller
+        .svc
+        .plan_store
+        .show_task(&caller.task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
+        .acknowledged_at
+        .is_some());
 }
 
 #[test]
