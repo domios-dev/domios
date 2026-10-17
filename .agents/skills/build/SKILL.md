@@ -41,6 +41,35 @@ publishing keeps the signed release workflow. The package is written under
 `src-tauri/target/release/bundle/deb` unless the normal target policy selects
 another existing target root.
 
+Packaging entrypoints (`release-bundle`, `build`, `install-local`) prepare the
+checked frontend and bundled CLI, then let Tauri compile the native application
+once with the final merged config. Do not precompile the app before Tauri:
+`--config` changes `TAURI_CONFIG`, a tracked build-script input, and recompiles
+the app even when Cargo's feature graph matches. Standalone `release-inputs`
+still compiles the app for callers that request those artifacts explicitly.
+
+Measure the full installer command above, not only `release-inputs`. Record
+wall time and whether Cargo outputs and compiler-cache entries were retained.
+A new commit rebuilds the stamped CLI and app; a backend edit can also rebuild
+large crates such as service-core or API. A warm installer below five minutes
+does not establish the same bound for an empty Cargo and compiler cache.
+
+For a committed, clean-tree measurement without any existing Cargo outputs,
+insert `--fresh-target` immediately after `release-bundle`. It uses the existing
+fresh release-target allocator, disables incremental compilation as release
+builds do, and preserves compiler-cache entries and the normal warm targets.
+The gateway log prints the new target path. This is cold Cargo with a retained
+compiler cache; do not call it fully cold. Check disk space first and retain
+the resulting package before removing any inactive measurement outputs.
+
+Read [Cargo timings](https://doc.rust-lang.org/cargo/reference/timings.html),
+[Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html), and
+the [Rust Performance Book](https://nnethercote.github.io/perf-book/compile-times.html)
+before changing code generation. Prefer eliminating duplicate work and expensive
+generic expansion; changing optimization or codegen units trades runtime behavior
+for compile time and needs separate measurements. Preserve tuned profiles,
+embeddings, warning checks, package resources and signing policy.
+
 ## Rebuild cost
 
 `release-inputs` keeps the normal release checks and profiles. TypeScript stores
@@ -223,11 +252,11 @@ Focused proof: `node --test scripts/build-history.test.mjs scripts/build-gateway
 `bash -n build.sh && bash -n scripts/build-gateway.sh && bash -n scripts/cache-policy.sh`, and
 `.\build.ps1 build-history --last 5 --json` on BLACKSTAR.
 
-`release-inputs` (also used by `build` and `install-local`) records Cargo HTML
-timings for CLI and app/embed preparation under the operation’s target
-`cargo-timings/` directory. App preparation enables `tauri/custom-protocol`,
-matching Tauri packaging so its dependency graph can be reused. Preserve that
-feature when changing release preparation.
+Standalone `release-inputs` records Cargo HTML timings for CLI and app/embed
+preparation under the operation's target `cargo-timings/` directory. App
+preparation enables `tauri/custom-protocol`, matching Tauri packaging so its
+dependency graph can be reused. Packaging entrypoints compile only the CLI
+during preparation and let Tauri own the app compile with the final config.
 
 If packaging recompiles native dependencies, Tauri and the app after preparation,
 compare `release/.fingerprint/*/run-*.json` environment records. Tauri CLI sets
@@ -1109,7 +1138,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 44 -->
+<!-- revision: 45 -->
 
 ### Lane and batch scopes
 
