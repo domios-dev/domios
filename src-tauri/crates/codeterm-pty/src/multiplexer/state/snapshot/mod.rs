@@ -176,6 +176,7 @@ impl MultiplexerState {
                 agent_type_locked: tab.map(|p| p.agent_type_locked).unwrap_or(false),
                 claude_session_id: tab.and_then(|p| p.agent_session_id.clone()),
                 agent_identity: tab.map(|p| AgentIdentitySnapshot {
+                    description_origin: p.description_origin,
                     agent_runtime_state: p.agent_runtime_state.clone(),
                     agent_runtime_config: p.agent_runtime_config.clone(),
                     agent_runtime_questions: p.agent_runtime_questions.clone(),
@@ -647,6 +648,10 @@ fn install_leaf(
             pending_delivery: pending_delivery.clone(),
             title: restored_title,
             description: description.clone(),
+            description_origin: agent_identity
+                .as_ref()
+                .map(|identity| identity.description_origin)
+                .unwrap_or_default(),
             cwd: normalized_snapshot_cwd(cwd.as_deref()),
             provisioned_cwd: agent_identity
                 .as_ref()

@@ -181,6 +181,28 @@ fn socket_plan_task_dispatch_runtime_preserves_binding_and_reaches_worker_ack() 
     let attempt_id = response["attempt_id"].as_str().unwrap();
     assert_eq!(svc.mux.read().snapshot().tabs.len(), before + 1);
     let tab = svc.mux.read().get_tab(worker).unwrap().clone();
+    assert_eq!(tab.description.as_deref(), Some("runtime task"));
+    assert_eq!(
+        tab.description_origin,
+        codeterm_service_core::multiplexer::types::TabDescriptionOrigin::Task
+    );
+    svc.set_tab_description(worker, "manual worker note")
+        .unwrap();
+    assert!(!svc
+        .update_task_tab_description(worker, "renamed runtime task")
+        .unwrap());
+    assert!(!svc
+        .assign_task_tab_description(worker, "reassigned runtime task")
+        .unwrap());
+    assert_eq!(
+        svc.mux
+            .read()
+            .get_tab(worker)
+            .unwrap()
+            .description
+            .as_deref(),
+        Some("manual worker note")
+    );
     assert!(matches!(
         tab.backing,
         codeterm_service_core::multiplexer::types::TabBacking::ChatBackend { .. }

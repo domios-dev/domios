@@ -335,6 +335,7 @@ impl MultiplexerState {
             pending_delivery: None,
             title: names::generate_tab_name(),
             description: None,
+            description_origin: Default::default(),
             cwd: None,
             provisioned_cwd: None,
             url: None,

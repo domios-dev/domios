@@ -12,13 +12,12 @@ pub(super) use super::plan_task_authority::authorize_draft_mutation;
 use super::plan_task_authority::{task_mutation_authority, verify_owner_epoch_for_task_mutation};
 #[cfg(test)]
 use super::plan_task_dispatch::dispatch_with_spawn;
+use super::plan_task_dispatch::set_local_task_name_description as set_task_description;
 use super::{get_string_param, JsonRpcError};
 use codeterm_service_core::plan::TaskStatus;
 use codeterm_service_core::service::plan::task_queries::TaskListFilter;
 use codeterm_service_core::service::plan::{hints, NewTask, PlanError};
-use codeterm_service_core::service::{
-    persist_attempt_executor_identity, respawn_title_provenance, ServiceState,
-};
+use codeterm_service_core::service::{persist_attempt_executor_identity, ServiceState};
 use serde_json::{json, Value};
 
 mod split;
@@ -292,6 +291,10 @@ pub(super) fn dispatch(
             store
                 .set_task_assignment(&task_id, Some(&tab_id), role, now)
                 .map_err(plan_rpc_err)?;
+            let detail = store
+                .show_task(&task_id)
+                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+            set_task_description(svc, p, &tab_id, &detail.task.name, false)?;
             emit_plan_changed(svc, &plan_id);
             Ok(json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }))
         }
@@ -542,7 +545,7 @@ pub(super) fn dispatch(
                         assigned_tab_id: p
                             .and_then(|x| x.get("assign_tab"))
                             .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
+                            .map(str::to_string),
                         lane: lane_metadata_field(p)?,
                         group: p
                             .and_then(|x| x.get("group"))
@@ -612,6 +615,11 @@ pub(super) fn dispatch(
             let files = task_files_field(p)?;
             validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let (id, tid) = plan_refs::resolve_task(store, params)?;
+            let previous_name = store
+                .show_task(&tid)
+                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?
+                .task
+                .name;
             let author = svc
                 .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
                 .map_err(|message| JsonRpcError {
@@ -761,6 +769,15 @@ pub(super) fn dispatch(
                     .add_task_external_refs(&id, &tid, &external_refs, now)
                     .map_err(plan_rpc_err)?;
             }
+            let updated_task = store
+                .show_task(&tid)
+                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?
+                .task;
+            if previous_name != updated_task.name {
+                if let Some(tab_id) = updated_task.assigned_tab_id.as_deref() {
+                    set_task_description(svc, p, tab_id, &updated_task.name, true)?;
+                }
+            }
             emit_plan_changed(svc, &id);
             let caller_tab = p
                 .and_then(|x| x.get("caller_tab_id"))
@@ -835,6 +852,11 @@ pub(super) fn dispatch(
             } else {
                 assign_task_with_profile(store, svc, params, p, None, now)?
             };
+            let tab_id = get_string_param(params, "tab")?;
+            let detail = store
+                .show_task(&task_id)
+                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+            set_task_description(svc, p, &tab_id, &detail.task.name, false)?;
             emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true }))
         }
@@ -1047,28 +1069,12 @@ pub(super) fn dispatch(
                     data: None,
                 })?;
             draft.parent_tab_id = Some(parent_tab_id.clone());
-            let spawn_params = codeterm_service_core::service::SpawnAgentParams {
-                agent: Some(draft.provider.clone()),
-                cwd: Some(draft.cwd.clone()),
-                title: draft.title.clone(),
-                title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
-                role: Some("Worker".into()),
-                parent_tab_id: Some(parent_tab_id.clone()),
-                task: Some(draft.task_prompt.clone()),
-                workspace_id: draft.workspace_id.clone(),
-                model: draft.model.clone(),
-                planned_model: draft.planned_model.clone(),
-                planned_reasoning_effort: draft.reasoning_effort.clone(),
-                reasoning_effort: draft.reasoning_effort.clone(),
-                task_launch_authority: Some(codeterm_service_core::service::TaskLaunchAuthority {
-                    plan_id: draft.plan_id.clone(),
-                    task_id: draft.task_id.clone(),
-                    attempt_id: draft.attempt_id.clone(),
-                    lane_base: task.lane.base.clone(),
-                }),
-                spawned_by_tab_id: Some(parent_tab_id.clone()),
-                ..Default::default()
-            };
+            let spawn_params = super::plan_task_dispatch::respawn_worker_params(
+                &draft,
+                &task.name,
+                task.lane.base.clone(),
+                &parent_tab_id,
+            );
             let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
             let spawn = svc
                 .spawn_agent_sync_with_ready(spawn_params, Some(ready_tx))
