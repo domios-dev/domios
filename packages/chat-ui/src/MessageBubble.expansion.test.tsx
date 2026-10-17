@@ -130,7 +130,8 @@ async function run() {
   const completedCommandCard = cards.find((card) => card.textContent?.includes("git status --short"));
   const edit = cards.find((card) => card.querySelector('[data-testid="toolcard-edit-summary"]'));
   assert(send?.querySelector('[data-testid="chat-sent-message"]'), "outbound message body renders as the primary content");
-  assert(send?.querySelector('[data-testid="chat-sent-expand"]'), "outbound message body keeps its preview and expand control");
+  assert(send?.textContent?.includes("Please review the change"), "short outbound message body is visible in the Sent-to card");
+  assert(!send?.querySelector('[data-testid="chat-sent-expand"]'), "short outbound message body needs no expand control");
   assert(!send?.querySelector('[data-testid="raw-command-disclosure"]')?.hasAttribute("open"), "outbound raw command starts collapsed in technical details");
   assert(list?.querySelector('[aria-label="Show full command"]'), "ordinary operational command should start collapsed");
   assert(read?.querySelector('[aria-label="Expand tool details"]'), "completed read-only inspection should start collapsed");
