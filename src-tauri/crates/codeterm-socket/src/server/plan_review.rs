@@ -342,7 +342,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            consume_tester_review_grant(svc, &from, &plan_id, &task_id);
+            tester_authority::consume_tester_review_grant(svc, &from, &plan_id, &task_id);
             if let Some(worker) = worker {
                 if let Some(ports) =
                     svc.try_ext::<codeterm_service_core::ports::sentinel::SentinelPorts>()
@@ -798,7 +798,7 @@ mod tests {
         ));
     }
 
-    fn socket_bounce_fixture(
+    pub(super) fn socket_bounce_fixture(
         worker_present: bool,
     ) -> (
         codeterm_service_core::service::test_fixture::ServiceFixture,
