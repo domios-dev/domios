@@ -17,6 +17,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 mod deferred_first_turn;
+mod first_materialization;
+pub(crate) use first_materialization::FirstMaterialization;
 mod pending_receipt;
 pub(crate) mod session_append;
 mod turn_window;
@@ -165,6 +167,7 @@ fn jsonl_boundary(
 #[derive(Clone, Default)]
 pub(crate) struct CapturedSendEvidence {
     pub(crate) anchor: Option<SendEvidenceAnchor>,
+    pub(crate) first_materialization: Option<FirstMaterialization>,
     pub(crate) live_binding: Option<SendLiveBinding>,
     pub(crate) turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
     pub(crate) absence_witness: Option<Arc<str>>,
@@ -367,6 +370,7 @@ impl ServiceContext {
         let (Some(provider_id), Some(session_id)) = (provider_id, session_id) else {
             return CapturedSendEvidence {
                 anchor: None,
+                first_materialization: None,
                 live_binding,
                 turn_normalization,
                 absence_witness: None,
@@ -409,6 +413,28 @@ impl ServiceContext {
             "[session-turn-evidence] append-capture tab={} provider={} session={} window={:?} absence_witness={}",
             tab_id, provider_id, session_id, window, absence_witness.is_some(),
         );
+        let first_materialization = absence_witness.as_ref().and_then(|witness| {
+            self.agent_registry
+                .with_provider(&provider_id, |provider| {
+                    provider.session_jsonl_path(&cwd, &session_id)
+                })
+                .flatten()
+                .map(|path| {
+                    FirstMaterialization::new(
+                        SendEvidenceAnchor {
+                            provider_id: provider_id.clone(),
+                            cwd: cwd.clone(),
+                            session_id: session_id.clone(),
+                            window: EvidenceWindow::Jsonl {
+                                transcript_offset: 0,
+                            },
+                            turn_normalization,
+                        },
+                        path,
+                        witness.clone(),
+                    )
+                })
+        });
         let anchor = window.map(|window| SendEvidenceAnchor {
             provider_id,
             cwd,
@@ -418,6 +444,7 @@ impl ServiceContext {
         });
         CapturedSendEvidence {
             anchor,
+            first_materialization,
             live_binding,
             turn_normalization,
             absence_witness,
