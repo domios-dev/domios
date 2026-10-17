@@ -1135,3 +1135,14 @@ check("Fast mode maps both values through thread settings and the next turn with
 });
 
 console.log(`runtime Fast mode regressions: ${count} checks passed`);
+
+check("runtime image attachments reach turn start once",()=> {
+  const text = '<domios type="attachment" kind="image" path="C:/images/a.png" />';
+  const input = {text,attachments:[{id:"attachment:C:/images/a.png",mimeType:"image/png",path:"C:/images/a.png"}]};
+  const operation:Operation = {kind:"submitTurn",threadId:ctx.threadId!,sendId:"image-send",input,settings:ctx.settings};
+  const plan = plain(hooks.runtimePlan({...ctx,activeTurnId:undefined},operation));
+  assert.equal(plan.action.kind,"request");
+  if (plan.action.kind !== "request") throw new Error("request absent");
+  assert.equal(plan.action.call.method,"turn/start");
+  assert.deepEqual((plan.action.call.params as {input:unknown}).input,[{type:"text",text},{type:"localImage",path:"C:/images/a.png"}]);
+});

@@ -73,3 +73,27 @@ fn acceptance_is_written_and_never_fabricates_delivery() {
         ChatSendState::Written
     );
 }
+
+#[test]
+fn runtime_turn_input_carries_images_once_and_preserves_marker_text() {
+    let text =
+        "describe <domios type=\"attachment\" kind=\"image\" path=\"C:/images/a&amp;b.jpg\" />";
+    let input = super::turn_input(&format!("{text}\n{text}"));
+    assert_eq!(input.text, format!("{text}\n{text}"));
+    assert_eq!(input.attachments.len(), 1);
+    assert_eq!(
+        input.attachments[0].path.as_deref(),
+        Some("C:/images/a&b.jpg")
+    );
+    assert_eq!(input.attachments[0].mime_type, "image/jpeg");
+    assert_eq!(input.attachments[0].id, "attachment:C:/images/a&b.jpg");
+    for text in [
+        "plain input",
+        "<domios type=\"attachment\" kind=\"file\" path=\"/work/file.txt\" />",
+        "`<domios type=\"attachment\" kind=\"image\" path=\"/example.png\" />`",
+    ] {
+        let input = super::turn_input(text);
+        assert_eq!(input.text, text);
+        assert!(input.attachments.is_empty());
+    }
+}
