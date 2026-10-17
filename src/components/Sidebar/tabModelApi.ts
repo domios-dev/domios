@@ -1,8 +1,9 @@
+import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import { invoke } from "../../lib/bridge";
 
 export interface TabModelApi {
   cancelStagedModel?(tabId: string): Promise<void>;
-  switchModel(tabId: string, modelId: string, reasoningEffort?: string, runtimeMode?: string, fastMode?: boolean): Promise<ModelSwitchResult | void>;
+  switchModel(tabId: string, modelId: string, reasoningEffort?: string, runtimeMode?: string, serviceTier?: ServiceTierSelection): Promise<ModelSwitchResult | void>;
   restartAndSwitchModel?(tabId: string, modelId: string, reasoningEffort?: string): Promise<ModelSwitchResult | void>;
 }
 
@@ -16,8 +17,8 @@ const defaultApi: TabModelApi = {
   cancelStagedModel: (tabId) => invoke("switch_agent_model", { tabId, model: "", cancel: true }),
   restartAndSwitchModel: (tabId, model, reasoningEffort) =>
     invoke<ModelSwitchResult>("switch_agent_model", { tabId, model, reasoningEffort, restartResume: true }),
-  switchModel: async (tabId, model, reasoningEffort, runtimeMode, fastMode) => {
-    return invoke<ModelSwitchResult>("switch_agent_model", { tabId, model, reasoningEffort, runtimeMode, ...(fastMode !== undefined ? { fastMode } : {}) });
+  switchModel: async (tabId, model, reasoningEffort, runtimeMode, serviceTier) => {
+    return invoke<ModelSwitchResult>("switch_agent_model", { tabId, model, reasoningEffort, runtimeMode, ...(serviceTier !== undefined ? { serviceTier } : {}) });
   },
 };
 

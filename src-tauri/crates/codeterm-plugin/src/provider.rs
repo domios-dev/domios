@@ -329,6 +329,8 @@ pub struct ProviderDescriptor {
     /// a Stop button on the tab that POSTs to `/api/tabs/:id/stop`.
     #[serde(default)]
     pub supports_stop: bool,
+    #[serde(default)]
+    pub supports_subagent_visibility: bool,
     /// `true` when the provider can render a tab as chat — either it
     /// stores sessions as tailable JSONL or serves structured chat from
     /// its own store. The UI gates the chat/terminal toggle on this
@@ -392,7 +394,7 @@ pub struct ProviderUpdateAvailability {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 21;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 22;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file

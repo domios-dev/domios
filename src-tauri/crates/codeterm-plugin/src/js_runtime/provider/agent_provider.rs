@@ -17,6 +17,7 @@ use super::super::{call_json, manifest_settings_sections, IntegrationKind};
 use super::wire::{SerdeSessionMetadata, VmUsageParser};
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
+mod capabilities;
 mod chat_read;
 mod delivery;
 mod directory_trust;
@@ -28,16 +29,12 @@ use session_wire::WireUsageSource;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
+    fn supports_subagent_visibility(&self) -> bool {
+        capabilities::supports_subagent_visibility(self)
+    }
+
     fn record_source(&self, source: &str) -> Option<&crate::jsonl_window::records::RecordSource> {
-        let hook = match source {
-            "sessionTranscript" => "parseSessionRecords",
-            "storedHistory" => "runtimeStoredRecords",
-            _ => return None,
-        };
-        if !self.has_js(hook) {
-            return None;
-        }
-        self.manifest.capabilities.record_sources.get(source)
+        capabilities::record_source(self, source)
     }
 
     fn parse_session_records(

@@ -126,6 +126,7 @@ fn provider_descriptor_round_trip() {
                 managed_keys: vec!["session_start".into()],
             }),
             supports_stop: true,
+            supports_subagent_visibility: true,
             supports_chat_ui: true,
             supports_structured_prompts: true,
             supports_prompt_answers: true,

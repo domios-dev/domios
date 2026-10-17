@@ -129,6 +129,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       events.push(loginCompleted(params)); continue;
     }
     if (frame.kind === "notification" && frame.method === "account/updated") {
+      if (ctx.threadId) events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{serviceTierAvailability:{}}});
       events.push(notificationAuth(params)); continue;
     }
     if (frame.kind === "notification" && frame.method === "thread/reverted") {
@@ -213,6 +214,8 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       case "thread/status/changed": {
         const status = threadStatus(params.status);
         if (!status) break;
+        if (status.state === "working" && !state.activeTurnId) break;
+        if (status.state === "idle" && state.activeTurnId && !pendingStatus(state,threadId)) break;
         if (status.state === "idle") delete state.compacting;
         events.push((status.state !== "needs_input" && pendingStatus(state,threadId))
           || {kind:"turnState",threadId,...withDetail(status,!!state.compacting),...(state.activeTurnId && status.state !== "idle" ? {turnId:state.activeTurnId} : {})});
@@ -288,7 +291,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
           continue;
         }
         const compactionId = rawItem.type === "contextCompaction" ? text(rawItem.id) : undefined;
-        if (compactionId && frame.method === "item/started") {
+        if (compactionId && frame.method === "item/started" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) {
           if (state.compacting === compactionId || state.compacted.includes(compactionId)) continue;
           state.compacting = compactionId;
           events.push({kind:"turnState",threadId,state:"working",detail:"compacting",...(turnId ? {turnId} : {})});
@@ -321,7 +324,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         } else row = mapItem(state,frame.method,params);
         if (row) {
           events.push({kind:"chatItem",threadId,item:row});
-          if (row.type === "tool_call") events.push({kind:"turnState",threadId,...(state.activeTurnId ? {turnId:state.activeTurnId} : {}),state:"working",...{statusLine:runningCallStatus(state) ?? ""}});
+          if (row.type === "tool_call" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) events.push({kind:"turnState",threadId,...(state.activeTurnId ? {turnId:state.activeTurnId} : {}),state:"working",...{statusLine:runningCallStatus(state) ?? ""}});
         }
         if (frame.method === "item/started" || frame.method === "item/completed") {
           const evidence = sendEvidence(ctx,object(params.item),turnId);
@@ -342,5 +345,5 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
 
 function pendingStatus(state: ReduceState, threadId: string): AgentEvent | undefined {
   const statusLine = runningCallStatus(state);
-  return statusLine ? {kind:"turnState",threadId,turnId:state.activeTurnId,state:"working",...{statusLine}} : undefined;
+  return statusLine && state.activeTurnId ? {kind:"turnState",threadId,turnId:state.activeTurnId,state:"working",...{statusLine}} : undefined;
 }

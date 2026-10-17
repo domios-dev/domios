@@ -1,3 +1,4 @@
+import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../packages/plugin-sdk/src/agentRuntime";
 import type { RemoteChannelAvailabilityMap } from "./remoteTabTransportState";
 import type {ProviderSignals} from "./providerSignals";
 
@@ -183,7 +184,7 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
-  agent_runtime_config?: { confirmedFastMode?: { enabled: boolean; sessionId: string; bindingNonce: string | null }; fastMode?: boolean; [key: string]: unknown } | null;
+  agent_runtime_config?: { confirmedServiceTier?: { selection: ServiceTierSelection; sessionId: string; bindingNonce: string | null }; serviceTier?: ServiceTierSelection; serviceTierAvailability?: Record<string, readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>; serviceTierAvailabilityBinding?: {sessionId:string;bindingNonce:string|null}; [key: string]: unknown } | null;
   agent_runtime_questions?: import("./agentRuntimeQuestions").AgentRuntimeQuestion[];
   agent_runtime_state?: import("./agentRuntimeState").AgentRuntimeState | null;
   pending_model_selection?: { model: string; effort: string | null } | null;
@@ -1069,13 +1070,14 @@ export type ModelSwitchMode = "live" | "live_command" | "next_turn" | "restart_r
 
 export interface ProviderDescriptor {
   agent_runtime?: {
-    fastMode?: boolean;
+    serviceTiers?: readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[];
     usage?: boolean;
     backgroundProcesses?: boolean;
     goals?: { actions: readonly string[] };
     threadHistory?: { actions: readonly ("fork" | "revert")[] };
   };
   supports_session_fork?: boolean;
+  supports_subagent_visibility?: boolean;
   cli_status?: import("./providerCli").ProviderCliStatus;
   schema_version: number;
   id: string;

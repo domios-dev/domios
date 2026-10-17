@@ -1,5 +1,16 @@
 use super::{ServiceContext, SpawnAgentParams};
 
+fn next_fork_title(source: &str, existing: &[&str]) -> String {
+    let base = format!("{source} Fork");
+    let mut candidate = base.clone();
+    let mut number = 2;
+    while existing.contains(&candidate.as_str()) {
+        candidate = format!("{base} ({number})");
+        number += 1;
+    }
+    candidate
+}
+
 #[derive(Debug, serde::Serialize)]
 pub struct ForkResult {
     pub tab_id: String,
@@ -9,6 +20,22 @@ pub struct ForkResult {
     pub binding_pending: bool,
 }
 impl ServiceContext {
+    pub(crate) fn name_fork_tab(&self, tab_id: &str, source_title: &str) -> Result<(), String> {
+        {
+            let mut mux = self.mux.write();
+            let titles: Vec<_> = mux.all_tabs().map(|tab| tab.title.as_str()).collect();
+            let title = next_fork_title(source_title, &titles);
+            // Host-generated fork names use the title model, outside the CLI's one-word contract.
+            mux.rename_tab(tab_id, &title)?;
+        }
+        self.emit_state_changed(super::MuxEmitCause::Title);
+        super::session_persist::persist_session_after_mutation(
+            self,
+            super::session_persist::SessionPersistUrgency::Prompt,
+        )?;
+        Ok(())
+    }
+
     pub fn agent_fork(&self, source_tab: &str) -> Result<ForkResult, String> {
         let (source, workspace) = {
             let mux = self.mux.read();
@@ -71,6 +98,7 @@ impl ServiceContext {
             activate: Some(true),
             ..Default::default()
         })?;
+        self.name_fork_tab(&result.tab_id, &source.title)?;
         let bound = self
             .mux
             .read()
@@ -88,6 +116,24 @@ impl ServiceContext {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fork_titles_keep_source_and_number_collisions() {
+        assert_eq!(super::next_fork_title("Scout", &[]), "Scout Fork");
+        assert_eq!(
+            super::next_fork_title("Scout", &["Scout Fork"]),
+            "Scout Fork (2)"
+        );
+        assert_eq!(
+            super::next_fork_title("Scout", &["Scout Fork", "Scout Fork (2)"]),
+            "Scout Fork (3)"
+        );
+        assert_eq!(super::next_fork_title("Scout Fork", &[]), "Scout Fork Fork");
+        assert_eq!(
+            super::next_fork_title("Scout", &["Scout Fork", "Scout Fork (3)"]),
+            "Scout Fork (2)"
+        );
+    }
+
     #[test]
     fn agent_fork_host_intent_cannot_be_injected_through_spawn_json() {
         let params: super::SpawnAgentParams =

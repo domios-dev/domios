@@ -579,7 +579,7 @@ fn ack_runtime_binding(
 ) -> Result<Option<(String, String)>, String> {
     let claimed_session = optional_ack_identity_claim(params, "caller_session_id")?;
     let claimed_nonce = optional_ack_identity_claim(params, "session_binding_nonce")?;
-    let (session_id, configured_nonce, reported_nonce) = {
+    let (session_id, configured_nonce, reported_nonce, booting) = {
         let mux = svc.mux.read();
         let tab = mux
             .get_tab(tab_id)
@@ -588,6 +588,7 @@ fn ack_runtime_binding(
             tab.agent_session_id.clone(),
             tab.session_binding_nonce.clone(),
             tab.reported_session_binding_nonce.clone(),
+            tab.agent_booting,
         )
     };
     let live = session_id
@@ -600,6 +601,14 @@ fn ack_runtime_binding(
                 .filter(|nonce| reported_nonce.as_deref() == Some(*nonce)),
         );
     let Some((session_id, nonce)) = live else {
+        if booting
+            && session_id.is_none()
+            && reported_nonce.is_none()
+            && claimed_session.is_none()
+            && claimed_nonce.is_some_and(|nonce| configured_nonce.as_deref() == Some(nonce))
+        {
+            return Ok(None);
+        }
         return if claimed_session.is_some() || claimed_nonce.is_some() {
             Err("acknowledging tab has no verified current launch binding".into())
         } else {

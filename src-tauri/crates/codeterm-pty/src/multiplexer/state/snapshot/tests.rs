@@ -538,9 +538,15 @@ fn tab_description_round_trips_through_snapshot() {
         watcher: None,
         pending_delivery: None,
     };
-    let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
+    let mut state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
+    state.tabs.get_mut("p-desc").unwrap().description_origin =
+        crate::multiplexer::types::TabDescriptionOrigin::Task;
     let tab = state.tabs.get("p-desc").expect("Tab restored");
     assert_eq!(tab.description.as_deref(), Some("running focused tests"));
+    assert_eq!(
+        tab.description_origin,
+        crate::multiplexer::types::TabDescriptionOrigin::Task
+    );
     assert_eq!(tab.role_profile.as_deref(), Some("planner"));
     assert_eq!(
         state
@@ -552,6 +558,11 @@ fn tab_description_round_trips_through_snapshot() {
     );
 
     let round = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&round);
+    assert_eq!(
+        restored.tabs.get("p-desc").unwrap().description_origin,
+        crate::multiplexer::types::TabDescriptionOrigin::Task
+    );
     assert_eq!(
         round.workspaces[0].tabs[0].description.as_deref(),
         Some("running focused tests")

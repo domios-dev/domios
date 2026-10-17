@@ -227,6 +227,13 @@ pub(super) fn dispatch(
     let origin_tab_id = owned_str(p, "caller_tab_id")
         .or(plan.owner.tab_id.clone())
         .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
+    let description_override =
+        owned_str(p, "description").filter(|description| !description.trim().is_empty());
+    let description =
+        super::task_tab_description(&detail.task.name, description_override.as_deref());
+    let description = codeterm_service_core::service::normalize_tab_description(&description)
+        .map_err(invalid_dispatch)?
+        .ok_or_else(|| invalid_dispatch("task Worker description cannot be empty"))?;
     let request = json!({
         "repository_identity": repository_identity,
         "repository_identities": repository_identities,
@@ -238,6 +245,8 @@ pub(super) fn dispatch(
         "provider": model.provider_id,
         "model": model.model,
         "reasoning_effort": owned_str(p, "reasoning_effort"),
+        "description": description,
+        "task_description_managed": description_override.is_none(),
         "brief": brief,
     });
     let Some(client) = peer_client else {

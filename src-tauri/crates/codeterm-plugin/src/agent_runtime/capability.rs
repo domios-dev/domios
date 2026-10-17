@@ -20,7 +20,7 @@ pub struct AgentRuntimeCommand {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentRuntimeCapability {
     #[serde(default)]
-    pub fast_mode: bool,
+    pub service_tiers: Vec<super::RuntimeServiceTier>,
     #[serde(default)]
     pub background_processes: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]

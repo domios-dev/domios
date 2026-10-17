@@ -30364,7 +30364,7 @@
               "model": "gpt-6-luna",
               "effort": "low",
               "mode": "approval-required",
-              "fastMode": true
+              "serviceTier": {"id": "priority"}
             }
           }
         }
@@ -30402,11 +30402,6 @@
             "windowMinutes": 10080
           }
         ]
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a143fd-6189-7021-beb5-dd2320bbc32f",
-        "state": "working"
       },
       {
         "kind": "turnState",
@@ -41917,11 +41912,6 @@
           "used_tokens": 17617,
           "window_tokens": 258400
         }
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a143fd-6189-7021-beb5-dd2320bbc32f",
-        "state": "idle"
       },
       {
         "kind": "turnState",

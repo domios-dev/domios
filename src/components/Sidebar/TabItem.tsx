@@ -1,4 +1,4 @@
-import { confirmedTabFastMode, tabMetaParts } from "../../lib/tabMetaLabel";
+import { confirmedTabServiceTier, serviceTierLabel, tabMetaParts } from "../../lib/tabMetaLabel";
 import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
@@ -343,7 +343,7 @@ function TabItemInner({
   const meshLabel = meshBadgeLabel(tab);
   const localMetaParts = tab.remote_peer_id ? [] : tabMetaParts(
     restoreFailure.showIdentityBadges ? tabModel : null,
-    restoreFailure.showIdentityBadges ? confirmedTabFastMode(tab, descriptor) : undefined,
+    restoreFailure.showIdentityBadges ? serviceTierLabel(descriptor, confirmedTabServiceTier(tab, descriptor)) : undefined,
     roleShield,
     hasAgent ? tabState.status.toLowerCase() : null,
   );
@@ -681,7 +681,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.permission_auto_confirm === np.permission_auto_confirm &&
     pp.pending_prompt === np.pending_prompt &&
     pp.agent_session_model === np.agent_session_model &&
-    pp.agent_runtime_config?.confirmedFastMode === np.agent_runtime_config?.confirmedFastMode &&
+    pp.agent_runtime_config?.confirmedServiceTier === np.agent_runtime_config?.confirmedServiceTier &&
     pp.session_binding_nonce === np.session_binding_nonce &&
     pp.agent_provider_resolved_model === np.agent_provider_resolved_model &&
     pp.agent_requested_model === np.agent_requested_model &&

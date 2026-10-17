@@ -307,6 +307,8 @@ pub async fn task_add(
         .as_deref()
         .is_some_and(|s| !s.trim().is_empty());
     let external_refs = body.external_refs.clone();
+    let assigned_tab = body.assign_tab.clone();
+    let task_name = body.name.clone();
     let tid = state
         .svc
         .plan_store
@@ -344,6 +346,13 @@ pub async fn task_add(
             epoch_ms(),
         )
         .map_err(plan_err)?;
+    if let Some(tab_id) = assigned_tab.as_deref() {
+        let description = codeterm_service_core::service::task_tab_description(&task_name, None);
+        state
+            .svc
+            .assign_task_tab_description(tab_id, &description)
+            .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
+    }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({
         "task_id": tid.clone(),
@@ -403,6 +412,12 @@ fn task_update_core(
     tid: &str,
     body: Value,
 ) -> PlanRouteResult {
+    let previous_name = service
+        .plan_store
+        .show_task(tid)
+        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))?
+        .task
+        .name;
     codeterm_service_core::plan::task_update_fields::validate_task_update_fields(
         &body,
         codeterm_service_core::plan::task_update_fields::TaskUpdateSeam::Rest,
@@ -608,6 +623,20 @@ fn task_update_core(
             .map_err(plan_err)?;
     }
     // (orchestrator) directly, so a separate `agent report` isn't needed.
+    let updated_task = service
+        .plan_store
+        .show_task(tid)
+        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))?
+        .task;
+    if previous_name != updated_task.name {
+        if let Some(tab_id) = updated_task.assigned_tab_id.as_deref() {
+            let description =
+                codeterm_service_core::service::task_tab_description(&updated_task.name, None);
+            service
+                .update_task_tab_description(tab_id, &description)
+                .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
+        }
+    }
     if body.get("status").and_then(|v| v.as_str()) == Some("in_review") {
         let by_tab = headers
             .get("X-CodeTerm-Tab-Id")
@@ -780,6 +809,17 @@ pub async fn task_assign(
             epoch_ms(),
         )
         .map_err(plan_err)?;
+        if body.peer.is_none() {
+            let detail = state.svc.plan_store.show_task(&tid).ok_or_else(|| {
+                plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound)
+            })?;
+            let description =
+                codeterm_service_core::service::task_tab_description(&detail.task.name, None);
+            state
+                .svc
+                .assign_task_tab_description(&body.tab, &description)
+                .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
+        }
         emit_plan_changed(&state, &id);
         Ok(Json(serde_json::json!({ "ok": true })))
     })

@@ -66,15 +66,13 @@ pub(super) fn apply_prepared(
     Ok(config)
 }
 
-pub(super) fn apply_fast_mode_default(
+pub(super) fn apply_service_tier_default(
     config: &mut serde_json::Value,
     supported: bool,
-    default: Option<bool>,
+    default: Option<codeterm_plugin::agent_runtime::RuntimeServiceTierSelection>,
 ) {
-    if supported && config.get("fastMode").is_none() {
-        if let Some(value) = default {
-            config["fastMode"] = value.into();
-        }
+    if supported && config.get("serviceTier").is_none() {
+        config["serviceTier"] = serde_json::json!(default.unwrap_or_default());
     }
 }
 

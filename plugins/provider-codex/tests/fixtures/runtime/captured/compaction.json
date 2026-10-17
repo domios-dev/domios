@@ -1857,7 +1857,7 @@
               "model": "gpt-6-luna",
               "effort": "low",
               "mode": "approval-required",
-              "fastMode": true
+              "serviceTier": {"id": "priority"}
             }
           }
         }
@@ -1934,11 +1934,6 @@
             "windowMinutes": 10080
           }
         ]
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
-        "state": "working"
       },
       {
         "kind": "turnState",
@@ -2029,20 +2024,10 @@
       {
         "kind": "turnState",
         "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
-        "state": "idle"
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
         "turnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
         "state": "idle",
         "startedAt": 1792142391000,
         "completedAt": 1792142394000
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
-        "state": "working"
       },
       {
         "kind": "turnState",
@@ -2100,20 +2085,10 @@
       {
         "kind": "turnState",
         "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
-        "state": "idle"
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
         "turnId": "01a14402-c57f-7f61-8cd8-624ebc242e04",
         "state": "idle",
         "startedAt": 1792142394000,
         "completedAt": 1792142400000
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
-        "state": "working"
       },
       {
         "kind": "turnState",
@@ -2212,11 +2187,6 @@
           "used_tokens": 16762,
           "window_tokens": 258400
         }
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
-        "state": "idle"
       },
       {
         "kind": "turnState",

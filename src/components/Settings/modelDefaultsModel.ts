@@ -1,3 +1,4 @@
+import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import type { AppConfig } from "../../lib/types";
 import type { HelpSectionId } from "../../help/types";
 
@@ -13,13 +14,13 @@ export function modelDefaultGuideSection(row: ModelDefaultRow): HelpSectionId {
   return row.key.startsWith("memory.") ? "memory" : "agents";
 }
 
-export function modelDefaultPatch(config: AppConfig, row: ModelDefaultRow, model: string, fastMode?: boolean): Partial<AppConfig> {
+export function modelDefaultPatch(config: AppConfig, row: ModelDefaultRow, model: string, serviceTier?: ServiceTierSelection): Partial<AppConfig> {
   if (row.key === `agents.${row.provider}.default_model`) {
-    return { agents: { ...config.agents, [row.provider]: { ...config.agents?.[row.provider], default_model: model, ...(fastMode !== undefined ? { default_fast_mode: fastMode } : {}) } } };
+    return { agents: { ...config.agents, [row.provider]: { ...config.agents?.[row.provider], default_model: model, ...(serviceTier !== undefined ? { default_service_tier: serviceTier.id ?? "" } : {}) } } };
   }
   for (const key of ["extraction_model", "dreaming_model", "worker_model"] as const) {
     if (row.key === `memory.${key}`) return { memory: { ...config.memory, [key]: model },
-      ...(fastMode !== undefined ? { agents: { ...config.agents, [row.provider]: { ...config.agents?.[row.provider], default_fast_mode: fastMode } } } : {}) };
+      ...(serviceTier !== undefined ? { agents: { ...config.agents, [row.provider]: { ...config.agents?.[row.provider], default_service_tier: serviceTier.id ?? "" } } } : {}) };
   }
   throw new Error("Unknown model default");
 }

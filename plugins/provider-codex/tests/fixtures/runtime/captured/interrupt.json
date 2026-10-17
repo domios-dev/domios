@@ -776,7 +776,7 @@
               "model": "gpt-6-luna",
               "effort": "low",
               "mode": "approval-required",
-              "fastMode": true
+              "serviceTier": {"id": "priority"}
             }
           }
         }
@@ -827,11 +827,6 @@
       {
         "kind": "turnState",
         "threadId": "01a143fd-5c1e-7cf2-87fc-8e0d3a842f36",
-        "state": "working"
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a143fd-5c1e-7cf2-87fc-8e0d3a842f36",
         "turnId": "01a143fd-5cdb-7382-ac91-3190959c0143",
         "state": "working",
         "startedAt": 1792142040000
@@ -866,11 +861,6 @@
           "timestamp": "2026-10-16T09:14:00.432Z",
           "toolFlowId": "01a143fd-5cdb-7382-ac91-3190959c0143"
         }
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a143fd-5c1e-7cf2-87fc-8e0d3a842f36",
-        "state": "idle"
       },
       {
         "kind": "turnState",

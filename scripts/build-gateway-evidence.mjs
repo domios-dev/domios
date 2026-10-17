@@ -4,6 +4,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { spawnSync } from 'node:child_process';
 import { serverAddress, serverIsListening } from './sccache-server-probe.mjs';
+import { serverProcessSnapshot } from './sccache-server-process.mjs';
 
 const total = counter => Object.values(counter?.counts ?? {}).reduce((sum, value) => sum + value, 0);
 
@@ -94,6 +95,8 @@ function logCursor(file) {
 
 export async function startEvidence(record, directory, scope) {
   record.sccache = { start: scope === 'fixture' ? { available: false, reason: 'fixture' } : await snapshot(), end: null, delta: null };
+  record.sccache.server_process = { start: scope === 'fixture' ? { available: false, reason: 'fixture' } : serverProcessSnapshot() };
+  record.sccache.restart_reason = null;
   record.sccache_log_cursor = logCursor(process.env.SCCACHE_ERROR_LOG || path.join(directory, 'sccache-server.log'));
   record.fingerprint_log_path = path.join(directory, 'jobs', `${record.job_id}.fingerprint.log`);
 }
@@ -111,6 +114,8 @@ async function selectedLines(file, predicate, start = 0) {
 export async function finishEvidence(record, directory) {
   if (!record.sccache?.start) return;
   record.sccache.end = record.sccache.start.reason === 'fixture' ? { available: false, reason: 'fixture' } : await snapshot();
+  record.sccache.server_process ??= {};
+  record.sccache.server_process.end = record.sccache.start.reason === 'fixture' ? { available: false, reason: 'fixture' } : serverProcessSnapshot();
   record.sccache.delta = record.sccache.start.available && record.sccache.end.available ? cacheDelta(record.sccache.start, record.sccache.end, record.sccache.reset_during_job) : null;
   const fingerprint = await selectedLines(record.fingerprint_log_path, line => line.includes('cargo::core::compiler::fingerprint'));
   const cursor = record.sccache_log_cursor;

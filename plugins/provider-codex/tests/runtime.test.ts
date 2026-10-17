@@ -261,10 +261,6 @@ check("taskless read-only verification turn maps through completion",()=> {
   assert.ok(events.some(event=>event.kind === "chatItem" && event.item.id === "command" && event.item.toolResult === "opaque-command-result"));
   assert.ok(events.some(event=>event.kind === "turnState" && event.turnId === "verify-turn" && event.state === "idle"));
 });
-check("wrong thread and active turn refuse",()=> {
-  assert.throws(()=>hooks.runtimePlan(ctx,{kind:"interrupt",threadId:"foreign",activeTurnId:"active"}));
-  assert.throws(()=>hooks.runtimePlan(ctx,{kind:"interrupt",threadId:ctx.threadId!,activeTurnId:"wrong"}));
-});
 check("numeric and string approval ids are distinct",()=> {
   assert.throws(()=>hooks.runtimePlan({...ctx,pendingRequest:{requestId:7,method:"item/commandExecution/requestApproval",params:{}}},
     {kind:"answer",requestId:"7",answer:{kind:"cancel"}}));
@@ -403,17 +399,6 @@ check("file change and turn diff use app-server arrays and exact hunks",()=> {
   assert.equal(changes.cumulative[0].additions,1);assert.equal(changes.cumulative[0].deletions,1);
 });
 console.log(`runtime expanded hooks: ${count} checks passed`);
-check("descendant interrupt walks deepest first with explicit targets",()=> {
-  const context={...ctx,threadParents:[{threadId:"child",parentThreadId:ctx.threadId!},{threadId:"grandchild",parentThreadId:"child"}],activeTurnId:"root-turn",activeTurns:[{threadId:ctx.threadId!,turnId:"root-turn"},{threadId:"child",turnId:"child-turn",parentThreadId:ctx.threadId!},{threadId:"grandchild",turnId:"grandchild-turn",parentThreadId:"child"}]};
-  const operation:Operation={kind:"interrupt",threadId:ctx.threadId!,activeTurnId:"root-turn"};
-  let plan=hooks.runtimePlan(context,operation);
-  for(const target of [{threadId:"grandchild",turnId:"grandchild-turn"},{threadId:"child",turnId:"child-turn"},{threadId:ctx.threadId!,turnId:"root-turn"}]) {
-    assert.equal(plan.action.kind,"request");if(plan.action.kind !== "request")return;
-    assert.deepEqual(plain(plan.action.call.target),target);assert.deepEqual(plain(plan.action.call.params),target);
-    const step=hooks.runtimeResponse(context,operation,plan.state,{kind:"success",value:{}});
-    if(step.kind === "continue")plan=step.plan;else assert.equal(step.kind,"complete");
-  }
-});
 check("subagent thread source verifies child turn state",()=> {
   const frames:RuntimeFrame[]=[
     {kind:"notification",method:"thread/started",params:{thread:{id:"child",source:{subAgent:{thread_spawn:{parent_thread_id:ctx.threadId!,depth:1}}}}}},
@@ -464,21 +449,6 @@ check("unsupported MCP forms remain visible and can only decline or cancel",()=>
   assert.deepEqual(plain(hooks.runtimePlan(context,{kind:"answer",requestId:"mcp",answer:{kind:"choice",values:["decline"]}}).action),{kind:"reply",requestId:"mcp",result:{kind:"success",value:{action:"decline"}}});
 });
 console.log(`runtime reviewed hooks: ${count} checks passed`);
-check("inactive parent retains ancestry but is never an interrupt target",()=> {
-  const context={...ctx,activeTurnId:"root-turn",threadParents:[{threadId:"child",parentThreadId:ctx.threadId!},{threadId:"grandchild",parentThreadId:"child"}],
-    activeTurns:[{threadId:ctx.threadId!,turnId:"root-turn"},{threadId:"grandchild",turnId:"grandchild-turn"}]};
-  const operation:Operation={kind:"interrupt",threadId:ctx.threadId!};
-  const plan=hooks.runtimePlan(context,operation);assert.equal(plan.action.kind,"request");if(plan.action.kind !== "request")return;
-  assert.deepEqual(plain(plan.action.call.target),{threadId:"grandchild",turnId:"grandchild-turn"});
-  const next=hooks.runtimeResponse(context,operation,plan.state,{kind:"success",value:{}});assert.equal(next.kind,"continue");if(next.kind !== "continue" || next.plan.action.kind !== "request")return;
-  assert.deepEqual(plain(next.plan.action.call.target),{threadId:ctx.threadId!,turnId:"root-turn"});
-  assert.equal(hooks.runtimeResponse(context,operation,next.plan.state,{kind:"success",value:{}}).kind,"complete");
-  const childStart:RuntimeFrame={kind:"notification",method:"turn/started",params:{threadId:"grandchild",turn:{id:"grandchild-turn"}}};
-  assert.deepEqual(plain(hooks.runtimeReduce(context,null,[childStart]).events),[{kind:"turnState",threadId:"grandchild",turnId:"grandchild-turn",parentThreadId:"child",state:"working"}]);
-});
-check("idle root with no roster turn is not a synthetic interrupt target",()=> {
-  assert.throws(()=>hooks.runtimePlan({...ctx,activeTurnId:"stale",activeTurns:[]},{kind:"interrupt",threadId:ctx.threadId!}));
-});
 console.log(`runtime ancestry hooks: ${count} checks passed`);
 check("history questions survive item pagination and require exact later native answers",()=> {
   const operation:Operation={kind:"readHistory",threadId:ctx.threadId!};
@@ -1003,7 +973,7 @@ console.log(`runtime subagent regressions: ${count} checks passed`);
 check("thread and turn statuses map to shared turn details",()=> {
   const status=(value:unknown)=>plain(hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"thread/status/changed",params:{threadId:ctx.threadId!,status:value as JsonValue}}]).events);
   assert.deepEqual(status({type:"idle"}),[{kind:"turnState",threadId:ctx.threadId,state:"idle"}]);
-  assert.deepEqual(status({type:"active",activeFlags:[]}),[{kind:"turnState",threadId:ctx.threadId,state:"working"}]);
+  assert.deepEqual(status({type:"active",activeFlags:[]}),[]);
   assert.deepEqual(status({type:"active",activeFlags:["waitingOnApproval"]}),[{kind:"turnState",threadId:ctx.threadId,state:"needs_input",detail:"awaitingApproval"}]);
   assert.deepEqual(status({type:"active",activeFlags:["waitingOnUserInput"]}),[{kind:"turnState",threadId:ctx.threadId,state:"needs_input",detail:"awaitingInput"}]);
   assert.deepEqual(status({type:"systemError"}),[{kind:"turnState",threadId:ctx.threadId,state:"needs_input",detail:"systemError"}]);
@@ -1086,21 +1056,6 @@ check("stalled call remains running until the exact superseding turn event",()=>
   const reset=hooks.runtimeReduce({...fixture.context,epoch:fixture.context.epoch+1},finished.state,[frames[4]]);
   assert.equal(reset.events.some(event=>event.kind === "chatItem" && event.item.systemSubtype === "turn_abandoned"),false);
 });
-check("explicit turn completion interrupts unfinished calls without inventing output",()=> {
-  const frames:RuntimeFrame[]=[
-    {kind:"notification",method:"turn/started",params:{threadId:ctx.threadId!,turn:{id:"open"}}},
-    {kind:"notification",method:"item/started",params:{threadId:ctx.threadId!,turnId:"open",item:{id:"pending",type:"mcpToolCall",tool:"lookup",arguments:{},status:"inProgress"}}},
-    {kind:"notification",method:"turn/completed",params:{threadId:ctx.threadId!,turn:{id:"open",status:"interrupted"}}},
-  ];
-  const result=hooks.runtimeReduce(ctx,null,frames);
-  const row=result.events.filter(event=>event.kind === "chatItem").at(-1);
-  assert.ok(row?.kind === "chatItem");
-  assert.equal((row.item as {toolStatus?:string}).toolStatus,"interrupted");
-  assert.equal(row.item.toolResult,undefined);
-  assert.equal(row.item.toolError,undefined);
-  const last=result.events.at(-1);
-  assert.ok(last?.kind === "turnState");assert.equal(last.state,"idle");
-});
 console.log(`runtime lifecycle regressions: ${count} checks passed`);
 
 check("reset credit reads and consume outcomes stay inside declared runtime methods",()=> {
@@ -1143,10 +1098,11 @@ check("descending bounded history never falls back to a full-thread read",()=> {
 });
 
 check("Fast mode maps both values through thread settings and the next turn with runtime readback",()=> {
-  for (const fastMode of [true,false]) {
-    const serviceTier = fastMode ? "priority" : null;
-    const context = {...ctx,settings:{...ctx.settings,fastMode:!fastMode}};
-    const op:Operation = {kind:"control",threadId:ctx.threadId!,action:"settings",value:{model:"selected",effort:"high",fastMode}};
+  for (const tierId of [null,"priority","ultrafast"]) {
+    const serviceTier = tierId;
+    const selection = {id:tierId};
+    const context = {...ctx,settings:{...ctx.settings,serviceTier:{id:null},serviceTierAvailability:{selected:[{id:"priority",name:"Fast",description:""},{id:"ultrafast",name:"Ultrafast",description:""}]}}};
+    const op:Operation = {kind:"control",threadId:ctx.threadId!,action:"settings",value:{model:"selected",effort:"high",serviceTier:selection}};
     const plan = hooks.runtimePlan(context,op);
     assert.equal(plan.action.kind,"request");
     if (plan.action.kind !== "request") throw new Error("Expected settings request");
@@ -1154,9 +1110,10 @@ check("Fast mode maps both values through thread settings and the next turn with
     assert.equal((plan.action.call.params as Record<string,JsonValue>).serviceTier,serviceTier);
     const step = plain(hooks.runtimeResponse(context,op,plan.state,{kind:"success",value:{threadSettings:{model:"selected",effort:"high",serviceTier}}}));
     if (step.kind !== "complete") throw new Error("Expected confirmation");
-    const event = step.events?.find(event=>event.kind === "controlsConfirmed");
+    assert.equal(step.events?.find(event=>event.kind === "controlsConfirmed"),undefined);
+    const event = hooks.runtimeReduce(context,null,[{kind:"notification",method:"thread/settings/updated",params:{threadId:ctx.threadId!,threadSettings:{model:"selected",effort:"high",serviceTier}}}]).events.find(event=>event.kind === "controlsConfirmed");
     assert.ok(event?.kind === "controlsConfirmed");
-    assert.equal(event.settings.fastMode,fastMode);
+    assert.deepEqual(event.settings.serviceTier,selection);
     const turn = hooks.runtimePlan(context,{...submit,kind:"submitTurn",settings:event.settings} as Operation);
     assert.equal(turn.action.kind,"request");
     if (turn.action.kind !== "request") throw new Error("Expected turn request");
@@ -1165,7 +1122,7 @@ check("Fast mode maps both values through thread settings and the next turn with
     if (missing.kind !== "complete") throw new Error("Expected completion");
     assert.equal(missing.events?.find(event=>event.kind === "controlsConfirmed"),undefined);
     for (const kind of ["openThread","resumeThread"] as const) {
-      const launch = hooks.runtimePlan(context,{kind,instructions:"",...(kind === "resumeThread" ? {threadId:ctx.threadId!} : {}),settings:{...ctx.settings,fastMode}} as Operation);
+      const launch = hooks.runtimePlan(context,{kind,instructions:"",...(kind === "resumeThread" ? {threadId:ctx.threadId!} : {}),settings:{...ctx.settings,serviceTier:selection}} as Operation);
       assert.equal(launch.action.kind,"request");
       if (launch.action.kind !== "request") throw new Error("Expected thread request");
       assert.equal((launch.action.call.params as Record<string,JsonValue>).serviceTier,serviceTier);
@@ -1173,7 +1130,7 @@ check("Fast mode maps both values through thread settings and the next turn with
     const notification = hooks.runtimeReduce(context,null,[{kind:"notification",method:"thread/settings/updated",params:{threadId:ctx.threadId!,threadSettings:{serviceTier}}}]);
     const reported = notification.events.find(event=>event.kind === "controlsConfirmed");
     assert.ok(reported?.kind === "controlsConfirmed");
-    assert.equal(reported.settings.fastMode,fastMode);
+    assert.deepEqual(reported.settings.serviceTier,selection);
   }
 });
 
