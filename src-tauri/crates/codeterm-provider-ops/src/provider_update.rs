@@ -20,6 +20,8 @@ use state::Admission;
 
 mod boot;
 mod command;
+mod discovery;
+pub use discovery::refresh_available;
 mod idle;
 mod policy;
 use policy::command_for_target;
@@ -72,15 +74,21 @@ pub fn check_available(service: Arc<impl ProviderUpdateHost>, api_port: u16, all
         watch::start(service.as_ref());
         idle::schedule_async(service.as_ref(), None);
     }
-    // The gate runs this on the opener's thread (the restore worker), so it must only spawn.
-    boot::RESTORE_GATE.defer(Box::new(move || {
+    schedule_checks(service, allowed, &boot::RESTORE_GATE);
+    if codeterm_agent_model::restore_report::wave_is_settled() {
+        restore_completed();
+    }
+}
+
+fn schedule_checks(service: Arc<impl ProviderUpdateHost>, allowed: bool, gate: &boot::RestoreGate) {
+    for provider in service.providers() {
+        refresh_available(service.as_ref(), provider.id());
+    }
+    gate.defer(Box::new(move || {
         spawn_utility("provider-update-check", move || {
             check_providers(service.as_ref(), allowed)
         });
     }));
-    if codeterm_agent_model::restore_report::wave_is_settled() {
-        restore_completed();
-    }
 }
 
 /// The restore wave settled; the deferred startup availability check may run now.
@@ -94,7 +102,6 @@ fn check_providers(service: &impl ProviderUpdateHost, allowed: bool) {
             continue;
         }
         if provider.provider_self_update_capability().is_some() {
-            publish_available(service, provider.id(), provider.check_for_update());
             continue;
         }
         let Some(command) = provider.update_command(command::platform_key()) else {
