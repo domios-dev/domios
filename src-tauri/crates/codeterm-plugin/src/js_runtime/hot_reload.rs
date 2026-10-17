@@ -328,6 +328,17 @@ impl HotReloadRegistry {
         }
     }
 
+    fn notify_plugin_index_changed(&self) {
+        if let Some(service) = self
+            .service
+            .lock()
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+        {
+            service.contributions_changed(crate::agent_verbs::PLUGIN_INDEX_CONTRIBUTION_KIND);
+        }
+    }
+
     pub fn new(
         roots: Vec<PathBuf>,
         registrar: Arc<dyn PluginProviderRegistrar>,
@@ -565,6 +576,7 @@ impl HotReloadRegistry {
             self.refresh_installed_reconciled(ids)
         };
         self.flush_settings_changed();
+        self.notify_plugin_index_changed();
         result
     }
 
@@ -664,6 +676,7 @@ impl HotReloadRegistry {
         }
         if event_sources_changed {
             self.notify_event_sources_changed();
+            self.notify_plugin_index_changed();
         }
         self.failed.lock().retain(|path, _| path.exists());
         self.load_errors
@@ -825,6 +838,7 @@ impl HotReloadRegistry {
                     log::info!(
                         "[plugin-watcher] {id} declares requiresReload — pending until daemon reload"
                     );
+                    self.notify_plugin_index_changed();
                     return Some(id);
                 }
                 self.bind_service(provider.vm());
@@ -873,6 +887,7 @@ impl HotReloadRegistry {
                     },
                 );
                 crate::audit::append_daemon_reloaded(&id, &version);
+                self.notify_plugin_index_changed();
                 #[cfg(test)]
                 self.load_count
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
