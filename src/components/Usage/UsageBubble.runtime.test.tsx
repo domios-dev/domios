@@ -35,7 +35,12 @@ async function render(mode:RuntimeUsageProjection){
 }
 await render(reading);
 assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage session 2% weekly 0%");
-snapshot = {...snapshot, parsed_ok:true, captured_at:Date.now()+1, session_pct:3, weekly_pct:11};
+snapshot = {...snapshot, runtime_usage:[{...reading,rate_limits:{captured_at:Date.now()+1,value:[{window:"primary",usedPercent:7},{window:"secondary",usedPercent:13}]}}]};
+await act(async()=>emit("foreign"));
+assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage session 2% weekly 0%");
+await act(async()=>emit());
+assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage session 7% weekly 13%");
+snapshot = {...snapshot, parsed_ok:true, captured_at:Date.now()+2, session_pct:3, weekly_pct:11};
 await act(async()=>emit());
 assert.equal(container.querySelector("button")?.getAttribute("aria-label"),"usage session 3% weekly 11%");
 pendingReads = [];
