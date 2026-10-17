@@ -41,6 +41,26 @@ fn captured_root_and_descendants_require_every_exact_completion() {
 }
 
 #[test]
+fn captured_current_root_turn_replaces_a_stale_roster_entry() {
+    let mut context = context();
+    context.active_turns.push(RuntimeActiveTurn {
+        thread_id: "root".into(),
+        turn_id: "stale-root-turn".into(),
+        parent_thread_id: None,
+    });
+    let target = InterruptTarget::capture(&context).unwrap();
+    assert_eq!(
+        target
+            .turns
+            .iter()
+            .filter(|turn| turn.thread_id == "root")
+            .map(|turn| turn.turn_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["root-turn"]
+    );
+}
+
+#[test]
 fn superseded_epoch_and_unload_never_report_completion() {
     let context = context();
     let target = InterruptTarget::capture(&context).unwrap();

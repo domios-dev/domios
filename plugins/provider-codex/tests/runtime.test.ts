@@ -261,9 +261,28 @@ check("taskless read-only verification turn maps through completion",()=> {
   assert.ok(events.some(event=>event.kind === "chatItem" && event.item.id === "command" && event.item.toolResult === "opaque-command-result"));
   assert.ok(events.some(event=>event.kind === "turnState" && event.turnId === "verify-turn" && event.state === "idle"));
 });
+check("interrupted completion publishes the interrupted idle outcome",()=> {
+  const turnId="interrupted-turn";
+  const context={...ctx,activeTurnId:turnId,activeTurns:[{threadId:ctx.threadId!,turnId}]};
+  const frame:RuntimeFrame={kind:"notification",method:"turn/completed",params:{threadId:ctx.threadId!,turn:{id:turnId,status:"interrupted"}}};
+  assert.deepEqual(plain(hooks.runtimeReduce(context,null,[frame]).events),[
+    {kind:"turnState",threadId:ctx.threadId!,turnId,state:"idle",detail:"interrupted"},
+  ]);
+});
 check("wrong thread and active turn refuse",()=> {
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"interrupt",threadId:"foreign",activeTurnId:"active"}));
   assert.throws(()=>hooks.runtimePlan(ctx,{kind:"interrupt",threadId:ctx.threadId!,activeTurnId:"wrong"}));
+});
+check("interrupt plan carries the exact root turn and refuses absent authority",()=> {
+  const context={...ctx,activeTurnId:"current-turn",activeTurns:[{threadId:ctx.threadId!,turnId:"current-turn"}]};
+  const operation:Operation={kind:"interrupt",threadId:ctx.threadId!,activeTurnId:"current-turn"};
+  const plan=hooks.runtimePlan(context,operation);
+  assert.equal(plan.action.kind,"request");if(plan.action.kind !== "request")return;
+  assert.equal(plan.action.call.method,"turn/interrupt");
+  assert.deepEqual(plain(plan.action.call.params),{threadId:ctx.threadId,turnId:"current-turn"});
+  assert.deepEqual(plain(plan.action.call.target),{threadId:ctx.threadId,turnId:"current-turn"});
+  assert.throws(()=>hooks.runtimePlan({...context,activeTurns:[]},operation));
+  assert.throws(()=>hooks.runtimePlan(context,{...operation,threadId:"foreign"}));
 });
 check("numeric and string approval ids are distinct",()=> {
   assert.throws(()=>hooks.runtimePlan({...ctx,pendingRequest:{requestId:7,method:"item/commandExecution/requestApproval",params:{}}},
