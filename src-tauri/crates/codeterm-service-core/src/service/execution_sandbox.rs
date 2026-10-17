@@ -155,9 +155,20 @@ pub(crate) fn for_launch(
         params.args.as_deref().unwrap_or_default(),
         runtime,
     )?;
+    if let (Some(saved), Some(resolved)) = (saved.as_ref(), policy.as_mut()) {
+        *resolved = restore_recorded(saved, resolved, |root| {
+            build_roots::restore_recorded_root(root, &saved.cwd);
+            std::path::Path::new(root)
+                .canonicalize()
+                .ok()
+                .and_then(|path| path.to_str().map(codeterm_paths::strip_verbatim_prefix))
+                .as_deref()
+                == Some(root)
+        })?;
+    }
     if let Some(policy) = policy
         .as_mut()
-        .filter(|policy| policy.intent == ExecutionIntent::Mutating)
+        .filter(|policy| saved.is_none() && policy.intent == ExecutionIntent::Mutating)
     {
         svc.ensure_agent_pad(tab)?;
         let project = crate::service::launch_session_detection::canonical_project_for_launch(
@@ -207,6 +218,27 @@ pub(crate) fn for_launch(
     Ok(policy)
 }
 
+fn restore_recorded(
+    saved: &ExecutionSandboxPolicy,
+    resolved: &ExecutionSandboxPolicy,
+    mut resolves_unchanged: impl FnMut(&str) -> bool,
+) -> Result<ExecutionSandboxPolicy, String> {
+    let mut confinement = saved.clone();
+    confinement.cwd = resolved.cwd.clone();
+    confinement.intent = resolved.intent.clone();
+    confinement.launch_args = resolved.launch_args.clone();
+    confinement.runtime_mode = resolved.runtime_mode.clone();
+    validate_saved(Some(saved), Some(&confinement))?;
+    confinement.writable_roots.retain(|root| {
+        let retained = resolves_unchanged(root);
+        if !retained {
+            log::warn!("[execution-sandbox] dropping unavailable or redirected recorded writable root: {root}");
+        }
+        retained
+    });
+    Ok(confinement)
+}
+
 fn validate_saved(
     saved: Option<&ExecutionSandboxPolicy>,
     resolved: Option<&ExecutionSandboxPolicy>,
@@ -219,19 +251,19 @@ fn validate_saved(
                     saved.cwd, resolved.cwd
                 ));
             }
-            for root in &saved.writable_roots {
-                if !resolved.writable_roots.contains(root) {
-                    return Err(format!(
-                        "Execution sandbox recorded writable root no longer resolves: {root}"
-                    ));
-                }
-            }
             for root in &resolved.writable_roots {
                 if !saved.writable_roots.contains(root) {
                     return Err(format!(
                         "Execution sandbox refuses new writable root: {root}"
                     ));
                 }
+            }
+        }
+        if let (Some(saved), Some(resolved)) = (saved, resolved) {
+            let mut narrowed = saved.clone();
+            narrowed.writable_roots = resolved.writable_roots.clone();
+            if &narrowed == resolved {
+                return Ok(());
             }
         }
         return Err(
