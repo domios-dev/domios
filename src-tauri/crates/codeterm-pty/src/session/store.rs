@@ -60,6 +60,8 @@ pub struct TabSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentIdentitySnapshot {
+    #[serde(default)]
+    pub description_origin: crate::multiplexer::types::TabDescriptionOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_runtime_state: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

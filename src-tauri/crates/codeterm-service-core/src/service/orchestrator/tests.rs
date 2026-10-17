@@ -262,6 +262,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         title: None,
         title_provenance: None,
         description: None,
+        task_description_managed: false,
         role: None,
         role_profile: None,
         parent_tab_id: None,

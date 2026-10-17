@@ -33,6 +33,7 @@ impl MultiplexerState {
             pending_delivery,
             title: "Terminal".to_string(),
             description: None,
+            description_origin: Default::default(),
             cwd: None,
             provisioned_cwd: None,
             url: None,
@@ -252,7 +253,58 @@ impl MultiplexerState {
             .get_mut(tab_id)
             .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
         tab.description = description;
+        tab.description_origin = super::super::types::TabDescriptionOrigin::User;
         Ok(())
+    }
+
+    pub fn set_task_tab_description(
+        &mut self,
+        tab_id: &str,
+        description: Option<String>,
+    ) -> Result<(), String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
+        tab.description = description;
+        tab.description_origin = super::super::types::TabDescriptionOrigin::Task;
+        Ok(())
+    }
+
+    pub fn update_task_tab_description(
+        &mut self,
+        tab_id: &str,
+        description: Option<String>,
+    ) -> Result<bool, String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
+        if tab.description_origin != super::super::types::TabDescriptionOrigin::Task {
+            return Ok(false);
+        }
+        tab.description = description;
+        Ok(true)
+    }
+
+    pub fn assign_task_tab_description(
+        &mut self,
+        tab_id: &str,
+        description: Option<String>,
+    ) -> Result<bool, String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
+        if tab.description_origin == super::super::types::TabDescriptionOrigin::User
+            || (tab.description_origin == super::super::types::TabDescriptionOrigin::Default
+                && tab.description.is_some())
+        {
+            return Ok(false);
+        }
+        tab.description = description;
+        tab.description_origin = super::super::types::TabDescriptionOrigin::Task;
+        Ok(true)
     }
 
     /// Find an agent tab whose CWD starts with `project_root`. Used by the

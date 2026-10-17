@@ -587,6 +587,8 @@ pub struct Tab {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
+    #[serde(skip, default)]
+    pub description_origin: TabDescriptionOrigin,
     pub cwd: Option<String>,
     #[serde(skip, default)]
     pub provisioned_cwd: Option<String>,
@@ -832,6 +834,15 @@ pub struct Tab {
     /// provisional `boot_stage` and cleared by any stage that is not one.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub provisional_launch: Option<codeterm_types::pty::ProvisionalLaunch>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TabDescriptionOrigin {
+    #[default]
+    Default,
+    Task,
+    User,
 }
 
 fn default_show_in_tabbar() -> bool {

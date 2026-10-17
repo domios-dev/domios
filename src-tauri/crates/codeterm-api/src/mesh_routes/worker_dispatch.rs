@@ -23,6 +23,10 @@ pub struct MeshWorkerDispatchRequest {
     provider: String,
     model: Option<String>,
     reasoning_effort: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    task_description_managed: bool,
     brief: String,
 }
 
@@ -216,7 +220,7 @@ pub(crate) fn remote_worker_spawn_params(
     workspace_id: String,
     worktree_path: String,
     origin_peer_id: String,
-    origin_peer_name: &str,
+    _origin_peer_name: &str,
 ) -> codeterm_service_core::service::SpawnAgentParams {
     let suffix: String = request.attempt_id.chars().take(6).collect();
     codeterm_service_core::service::SpawnAgentParams {
@@ -224,10 +228,8 @@ pub(crate) fn remote_worker_spawn_params(
         cwd: Some(worktree_path.clone()),
         provisioned_cwd: Some(worktree_path),
         title: Some(format!("Remote{suffix}")),
-        description: Some(format!(
-            "Plan task {} on origin peer {}",
-            request.task_id, origin_peer_name
-        )),
+        description: request.description,
+        task_description_managed: request.task_description_managed,
         plan_id: Some(request.plan_id.clone()),
         task_id: Some(request.task_id.clone()),
         task_launch_authority: Some(codeterm_service_core::service::TaskLaunchAuthority {
@@ -431,6 +433,8 @@ mod tests {
             provider: "provider".into(),
             model: None,
             reasoning_effort: None,
+            description: None,
+            task_description_managed: false,
             brief: String::new(),
         };
         let response = super::observed_worker_dispatch(&state, "peer-origin", &request)
@@ -556,6 +560,8 @@ mod tests {
             provider: "remote-mock".into(),
             model: None,
             reasoning_effort: None,
+            description: Some("remote task summary".into()),
+            task_description_managed: true,
             brief: "remote brief".into(),
         };
         let mut params = super::remote_worker_spawn_params(
@@ -575,6 +581,11 @@ mod tests {
             assert_eq!(
                 tab.report_target_tab_id.as_deref(),
                 Some("origin-orchestrator")
+            );
+            assert_eq!(tab.description.as_deref(), Some("remote task summary"));
+            assert_eq!(
+                tab.description_origin,
+                codeterm_service_core::multiplexer::types::TabDescriptionOrigin::Task
             );
             let binding = tab.task_binding.as_ref().expect("task binding");
             assert_eq!(binding.attempt_id.as_deref(), Some("attempt-origin"));

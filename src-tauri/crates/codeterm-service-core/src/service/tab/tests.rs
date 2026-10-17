@@ -7,6 +7,35 @@ use codeterm_types::pty::{RemoteOwnership, RemoteOwnershipTeam};
 use std::collections::HashSet;
 
 #[test]
+fn task_tab_description_normalizes_and_truncates_on_a_word_boundary() {
+    assert_eq!(
+        super::task_tab_description("  Review   task rows  ", None),
+        "Review task rows"
+    );
+    assert_eq!(
+        super::task_tab_description(
+            "Review dispatched Worker descriptions when plans rename task rows",
+            None
+        ),
+        "Review dispatched Worker descriptions when plans rename"
+    );
+    assert_eq!(
+        super::task_tab_description("Task name", Some(" Owner review ")),
+        "Owner review"
+    );
+    assert_eq!(
+        super::task_tab_description("Task name", Some("A custom description that wins")),
+        "A custom description that wins"
+    );
+    assert_eq!(
+        super::task_tab_description(&"x".repeat(80), None)
+            .chars()
+            .count(),
+        60
+    );
+}
+
+#[test]
 fn failed_restore_keeps_identity_session_and_exact_restore_data() {
     use codeterm_types::pty::BootStage;
     for stage in [

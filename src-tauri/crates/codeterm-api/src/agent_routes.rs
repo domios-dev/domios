@@ -274,6 +274,7 @@ pub async fn spawn_agent(
             codeterm_service_core::service::SpawnIdentityProvenance::UserSupplied,
         ),
         description: body.description,
+        task_description_managed: false,
         role: role_probe.role,
         role_profile: role_probe.role_profile,
         parent_tab_id: body.parent_tab_id,

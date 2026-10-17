@@ -317,7 +317,7 @@ pub use plan_authority::{
 };
 pub use session_binding_state::SessionBindingState;
 pub use spawn_params::starter_prompt_for_role;
-pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
+pub use tab::{normalize_tab_description, task_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
 pub use team_core::TeamMutationCaller;
 pub use team_core::TeamPlanError;
