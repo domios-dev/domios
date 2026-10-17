@@ -392,3 +392,34 @@ fn service_tier_availability_is_explicit_and_model_scoped() {
         .unavailable_reason = Some("blocked".into());
     assert!(!tier_available(&settings, &selection));
 }
+
+#[test]
+fn unchanged_settings_confirm_without_a_new_provider_event() {
+    let current = RuntimeSettings {
+        model: Some("current".into()),
+        service_tier: Some(tier_selection(true)),
+        ..Default::default()
+    };
+    assert!(unchanged_settings(&current, &current).is_some());
+    for changed in [
+        RuntimeSettings {
+            model: Some("other".into()),
+            ..current.clone()
+        },
+        RuntimeSettings {
+            service_tier: Some(tier_selection(false)),
+            ..current.clone()
+        },
+        RuntimeSettings {
+            effort: Some("high".into()),
+            ..current.clone()
+        },
+        RuntimeSettings {
+            mode: Some("auto".into()),
+            ..current.clone()
+        },
+    ] {
+        assert!(unchanged_settings(&changed, &current).is_none());
+    }
+    assert!(unchanged_settings(&RuntimeSettings::default(), &RuntimeSettings::default()).is_none());
+}
