@@ -72,6 +72,8 @@ Live agent activity also carries `agent_binding_nonce` and `agent_runtime_epoch`
 
 History projection preserves authenticated spawn parent/child markers under the exact requested root session. Restoring those relations grants only descendant history reads; it never restores active turns or current liveness evidence.
 
+A provider-authenticated started-activity record in that parent's own history can establish the same relation as a spawn call. Completion-only activity and references from foreign sessions cannot establish it.
+
 `launchOnboardingSafeChoice(screen)` declares the exact option value associated
 with `launchOnboardingResponse(screen)`. Missing or null means unsupported. The
 host requires a unique provider-parsed option, a delegated Worker/Planner role,
