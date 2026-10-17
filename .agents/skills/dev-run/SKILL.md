@@ -216,7 +216,7 @@ Changes to prompt markdown files (`src-tauri/prompts/*.md`, `.md` under `src-tau
 
 ## Restart an existing build safely
 
-Run `./build.sh dev-prebuilt --wait` (PowerShell: `.\build.ps1 dev-prebuilt --wait`)
+Run `./build.sh dev-prebuilt --wait` (PowerShell: `./build.ps1 dev-prebuilt --wait`)
 directly, without a preceding `kill`. This command validates provenance and runtime
 prerequisites while the current app remains running, then stops and launches dev.
 A failed preflight preserves the running app. There is no separate `restart` verb.

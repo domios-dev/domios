@@ -1,3 +1,4 @@
+# PowerShell launchers use ./build.ps1 <operation>.
 # A positional parameter would take the build command itself, so every parameter is named-only.
 [CmdletBinding(PositionalBinding = $false)]
 param(
