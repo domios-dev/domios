@@ -12,7 +12,8 @@ import { codexReportedSettings } from "./runtimeSettings";
 import { abandonOpenTurn, interruptPendingCalls, runningCallStatus, stampToolLifecycle, type RuntimeItem } from "./runtimeAbandonedTurns";
 import { reduceRuntimeAgents, type RuntimeAgents } from "./runtimeAgents";
 import { threadStatus, turnOutcome, requestDetail, withDetail } from "./runtimeTurnStatus";
-import { capEvents, compactState, isRetired, markClosed, markOpen } from "./runtimeStateBudget";
+import { compactState, isRetired, markClosed, markOpen } from "./runtimeStateBudget";
+import { budgetReduction } from "./runtimeBatchBudget";
 
 interface ReduceState {
   epoch: number;
@@ -343,7 +344,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
     }
   }
   compactState(state);
-  return {state:json(state),events:capEvents(events)};
+  return budgetReduction(json(state),events);
 }
 
 function pendingStatus(state: ReduceState, threadId: string): AgentEvent | undefined {
