@@ -23,6 +23,7 @@ pub(super) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
         settings.push(usage_store_tracking_section());
     }
     ProviderDescriptor {
+        remote_task: None,
         agent_runtime: runtime.clone(),
         supports_session_fork: provider.fork_session_args().is_some(),
         structured_control: provider.structured_control(),

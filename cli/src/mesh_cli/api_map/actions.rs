@@ -756,6 +756,8 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             reasoning_effort,
             system_prompt,
             preset,
+            location,
+            environment,
             charter,
             charter_file,
             interval,
@@ -772,6 +774,9 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             unplanned,
             reason: _,
         } => {
+            if matches!(location, Some(crate::args::agent::SpawnLocation::Remote)) || environment.is_some() {
+                return unsupported("Remote task spawning is local-only; run the command on the peer that owns the provider");
+            }
             if *unplanned {
                 return unsupported(
                     "agent spawn --unplanned is local-only: plan dispatch runs on the peer that owns the Plan",

@@ -71,6 +71,10 @@ impl std::error::Error for ChatBackendError {}
 pub trait ChatBackendProvider: Send + Sync {
     fn id(&self) -> &str;
 
+    fn remote_task_capability(&self) -> Option<crate::remote_tasks::RemoteTaskCapability> {
+        None
+    }
+
     fn supports_agent_tasks(&self) -> bool {
         false
     }
@@ -213,6 +217,7 @@ pub trait ChatBackendProvider: Send + Sync {
     fn describe(&self) -> ProviderDescriptor {
         let catalog = model_catalog::registered_snapshot(self.id());
         ProviderDescriptor {
+            remote_task: self.remote_task_capability(),
             agent_runtime: None,
             supports_session_fork: false,
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,

@@ -523,6 +523,7 @@ fn chat_backend_round_trips_symmetrically() {
     assert_eq!(v, serde_json::json!(false));
 
     let spawnable = ChatBackendCap {
+        remote_task: None,
         enabled: true,
         spawnable: true,
         watcher: false,
@@ -536,6 +537,7 @@ fn chat_backend_round_trips_symmetrically() {
     assert!(back.enabled() && back.spawnable() && !back.watcher());
 
     let watcher = ChatBackendCap {
+        remote_task: None,
         enabled: true,
         spawnable: false,
         watcher: true,
@@ -549,6 +551,7 @@ fn chat_backend_round_trips_symmetrically() {
     assert!(back.enabled() && !back.spawnable() && back.watcher());
 
     let session_config = ChatBackendCap {
+        remote_task: None,
         enabled: true,
         spawnable: false,
         watcher: false,
@@ -562,6 +565,7 @@ fn chat_backend_round_trips_symmetrically() {
     assert!(back.enabled() && back.session_config());
 
     let host_context = ChatBackendCap {
+        remote_task: None,
         enabled: true,
         spawnable: false,
         watcher: false,

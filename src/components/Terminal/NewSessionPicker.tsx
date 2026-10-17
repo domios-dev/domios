@@ -27,6 +27,8 @@ import { Button } from "../shared/Button";
 import { X } from "lucide-react";
 import { FolderPaneState } from "../shared/FolderPaneState";
 import { createPortal } from "react-dom";
+import {remoteProvider, remoteSpawnSelection, type ExecutionLocation} from "../../lib/remoteExecution";
+import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
 
 export function NewSessionPicker({
   workspaceId,
@@ -45,17 +47,23 @@ export function NewSessionPicker({
   section?: NewSessionSection;
   onClose: () => void;
 }) {
-  const { providers } = useAgentProviders();
+  const { providers, refetch: refreshProviders } = useAgentProviders();
   const { spawnAgentTab, createOrchestrationPair, selectTabByTab, addNotification } = useMultiplexer();
   const state = useMuxState();
   const { presets, loading: presetsLoading, error: presetsError } = useModelPresets();
-  const visibleProviders = useMemo(
+  const menuProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],
   );
+  const visibleProviders = useMemo(() => menuProviders.filter(provider => !provider.remote_task), [menuProviders]);
+  const [execution, setExecution] = useState({providerId: "", location: "local" as ExecutionLocation, environmentId: ""});
   const allowedModes = allowedNewSessionModes(section);
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
   const [choice, setChoice] = useState<NewSessionChoice>(() => choiceForSessionSection(defaultNewSessionChoice(visibleProviders), section));
+  const localId = choice.mode === "single" ? choice.providerId : "";
+  const remote = section === "workspace" ? remoteProvider(menuProviders, localId) : undefined;
+  const location = remote && execution.providerId === localId ? execution.location : "local";
+  const environmentId = execution.providerId === localId ? execution.environmentId : "";
   const [busy, setBusy] = useState(false);
   const [dismissing, setDismissing] = useState(false);
   const [firstAccessFull, setFirstAccessFull] = useState(true);
@@ -80,11 +88,14 @@ export function NewSessionPicker({
       return;
     }
     const restored = readPersistedNewSessionChoice(visibleProviders);
-    if (initialProviderId && visibleProviders.some((provider) => provider.id === initialProviderId)) {
-      const provider = visibleProviders.find((candidate) => candidate.id === initialProviderId);
+    const initialRemote = menuProviders.find(provider => provider.id === initialProviderId)?.remote_task;
+    const initialLocalId = initialRemote?.localProviderId ?? initialProviderId;
+    if (initialLocalId && visibleProviders.some((provider) => provider.id === initialLocalId)) {
+      const provider = visibleProviders.find((candidate) => candidate.id === initialLocalId);
+      if (initialRemote && section === "workspace") setExecution({providerId: initialLocalId, location: "remote", environmentId: ""});
       setChoice({
         mode: "single",
-        providerId: initialProviderId,
+        providerId: initialLocalId,
         modelId: provider?.default_model,
         effortId: resolveEffort(provider, provider?.default_model),
       });
@@ -92,7 +103,7 @@ export function NewSessionPicker({
       setChoice(choiceForSessionSection(restored, section));
     }
     hasRestoredRef.current = true;
-  }, [initialProviderId, visibleProviders, section]);
+  }, [initialProviderId, visibleProviders, section, menuProviders]);
 
   useEffect(() => {
     if (!hasRestoredRef.current) return;
@@ -195,8 +206,13 @@ export function NewSessionPicker({
 
   const runSingleSpawn = useCallback(async () => {
     if (choice.mode !== "single") return;
+    if (location === "remote") {
+      const target = remoteSpawnSelection(menuProviders, choice.providerId, environmentId);
+      await runProviderSpawn(target.providerId, undefined, undefined, target.preset);
+      return;
+    }
     await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset);
-  }, [choice, runProviderSpawn]);
+  }, [choice, runProviderSpawn, location, environmentId, menuProviders]);
 
   const runPairSpawn = useCallback(async () => {
     if (choice.mode !== "pair" || !allowedNewSessionModes(section).includes("pair")) return;
@@ -231,7 +247,7 @@ export function NewSessionPicker({
         await runSingleSpawn();
       }
     };
-    if (agentConfig?.full_access !== undefined) {
+    if (location === "remote" || agentConfig?.full_access !== undefined) {
       void start();
       return;
     }
@@ -262,6 +278,7 @@ export function NewSessionPicker({
     agentConfig?.full_access,
     choice.mode,
     firstAccessFull,
+    location,
     runPairSpawn,
     runSingleSpawn,
     workspaceId,
@@ -291,8 +308,10 @@ export function NewSessionPicker({
     });
   }, [section]);
 
+  const remoteCanStart = location === "remote" && remote?.remote_task?.availability.status === "available"
+    && remote.remote_task.environments.some(environment => environment.id === environmentId);
   const canStart = choice.mode === "single"
-    ? choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId)
+    ? location === "remote" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId)
     : choice.orchestratorProviderId.length > 0
       && choice.plannerProviderId.length > 0
       && !disabledProviderIds.has(choice.orchestratorProviderId)
@@ -343,7 +362,7 @@ export function NewSessionPicker({
         <div ref={modeFrameRef} className="picker-mode-frame relative">
           <div ref={modeContentRef}>
             <div key={choice.mode} className="picker-mode-panel">
-              {choice.mode === "single" && presets.some((preset) => preset.provider === choice.providerId) && <label>
+              {choice.mode === "single" && location === "local" && presets.some((preset) => preset.provider === choice.providerId) && <label>
                 Preset<select aria-label="Preset" disabled={presetsLoading} value={choice.preset ?? ""} onChange={(event) => {
                   const preset = presets.find((preset) => preset.provider === choice.providerId && preset.name === event.target.value);
                   setChoice({ ...choice, preset: preset?.name, modelId: preset?.model ?? choice.modelId,
@@ -354,14 +373,19 @@ export function NewSessionPicker({
                 </select>
               </label>}
               {presetsError && <InlineErrorNotice error={presetsError} operation="loading session presets" />}
+              {choice.mode === "single" && <ExecutionLocationPicker provider={remote} location={location} environmentId={environmentId}
+                onLocation={next => setExecution({providerId: localId, location: next, environmentId})}
+                onEnvironment={id => setExecution({providerId: localId, location, environmentId: id})}
+                onRefresh={refreshProviders} />}
               {choice.mode === "single" ? (
                 <OrchestrationRoleRow
                   label="Agent"
+                  modelControls={location === "local"}
                   providers={visibleProviders}
                   providerId={choice.providerId}
                   modelId={choice.modelId ?? ""}
                   effortId={choice.effortId}
-                  disabledProviderIds={disabledProviderIds}
+                  disabledProviderIds={location === "local" ? disabledProviderIds : undefined}
                   onProviderChange={(providerId) => {
                     const provider = visibleProviders.find((p) => p.id === providerId);
                     setChoice({
@@ -428,7 +452,7 @@ export function NewSessionPicker({
           </div>
         </div>
 
-        {agentConfig?.full_access === undefined && (
+        {location !== "remote" && agentConfig?.full_access === undefined && (
           <label className="relative mt-4 flex cursor-pointer items-start gap-2.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] px-3 py-2.5">
             <input
               type="checkbox"
