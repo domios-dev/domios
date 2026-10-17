@@ -102,7 +102,20 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
                 .map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
             let result = eval_source::<String, _>(&ctx, INVOKE)
                 .catch(&ctx)
-                .map_err(|e| failure(RuntimeFailureCode::HookFailed, format!("{method}: {e:?}")));
+                .map_err(|e| {
+                    #[cfg(debug_assertions)]
+                    if let rquickjs::CaughtError::Value(value) = &e {
+                        if let Some(object) = value.as_object() {
+                            log::debug!(
+                                "[runtime-hook-refusal] method={} code={:?} message={:?}",
+                                method,
+                                object.get::<_, Option<String>>("code").ok().flatten(),
+                                object.get::<_, Option<String>>("message").ok().flatten()
+                            );
+                        }
+                    }
+                    failure(RuntimeFailureCode::HookFailed, format!("{method}: {e:?}"))
+                });
             let _ = globals.remove("__ct_runtime_args__");
             result
         })
