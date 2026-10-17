@@ -128,9 +128,9 @@ Judge structure against your role brief's plan-shape contract before dispatch.
 If the Planner is waived, record that on the plan.
 ## Dispatch contract
 
-`--execution-intent read_only` requires provider-declared filesystem enforcement; an unsupported provider is refused with its capability gap. Scoped launches override the global full-access preference and reject custom launch arguments. The intent and allowed paths survive restart and restore; runtime controls cannot broaden them. Mutating workers use their lane plus explicit host-owned pad and Git metadata roots.
+Workers default to full machine access for both execution intents. `--execution-intent` governs task and report authority, independently of OS permissions. Explicitly request confinement with `--sandbox read-only` or `--sandbox workspace-write` on `agent spawn` or local `plan task dispatch`; unsupported mappings are refused. A requested sandbox rejects custom provider arguments and persists its immutable policy across restore. Explicit sandbox selection on mesh task dispatch is refused before dispatch.
 
-A read-only Worker reports through UTF-8 stdin with `codeterm agent report --from-pad -`, since its pad is read-only too; task-less verification reports omit `--status` and `--task`. Authorized gate commands do not grant filesystem writes. A gate that needs writes outside the provider sandbox is an explicit owner-run canonical gate; the Worker reports the refusal instead of requesting broader access.
+Task-less verification reports omit `--status` and `--task`; execution intent still bounds authorized work even with full machine access. A launch explicitly confined to a read-only filesystem can report through UTF-8 stdin with `codeterm agent report --from-pad -`. Existing saved sandbox policies are not widened by the Worker default.
 
 ## Task-less Worker kinds
 
@@ -179,4 +179,4 @@ A `[provider access lost]` notice means recover the login or respawn on another 
 
 Confined mutating Workers receive persisted host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR, TEMP and TMP select the lane-local `.codeterm-tmp` directory. Task-bound Worker spawns require an explicit read_only or mutating intent. Restoring an older task tab without a saved confinement policy retains its existing behavior.
 
-<!-- revision: 124 -->
+<!-- revision: 125 -->

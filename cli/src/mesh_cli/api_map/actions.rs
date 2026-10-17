@@ -765,6 +765,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             plan_task,
             team,
             execution_intent,
+            sandbox,
             authorized_gates,
             provider_reserve_pct,
             non_user_facing,
@@ -896,6 +897,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             if let Some(pt) = plan_task {
                 body["plan_task"] = serde_json::json!(pt);
             }
+            if let Some(sandbox) = sandbox { body["sandbox"] = serde_json::json!(sandbox); }
             let execution_intent = execution_intent.as_deref().or_else(|| {
                 kind.as_ref().map(|_| "read_only")
             });

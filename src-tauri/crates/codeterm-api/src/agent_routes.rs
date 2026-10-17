@@ -54,6 +54,7 @@ pub struct SpawnAgentBody {
     #[serde(default)]
     authorized_gates: Vec<String>,
     execution_intent: Option<codeterm_service_core::plan::ExecutionIntent>,
+    sandbox: Option<String>,
     provider_reserve_pct: Option<f32>,
     workspace_id: Option<String>,
     force_tab: Option<bool>,
@@ -288,6 +289,7 @@ pub async fn spawn_agent(
         plan_task: body.plan_task,
         authorized_gates: body.authorized_gates,
         execution_intent: body.execution_intent,
+        sandbox: body.sandbox,
         provider_reserve_pct: body.provider_reserve_pct,
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,
