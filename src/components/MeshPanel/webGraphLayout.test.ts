@@ -12,18 +12,7 @@ for (const width of [390, 1280, 1920]) {
         ...layout.machines.map((node) => ({ x: node.x - MACHINE_CARD_WIDTH / 2, y: node.y - MACHINE_CARD_HEIGHT / 2, width: MACHINE_CARD_WIDTH, height: MACHINE_CARD_HEIGHT })),
       ];
       assert.equal(layout.machines.length, count);
-      const tightened = rectangles.map((rectangle, index) => {
-        const centerX = rectangle.x + rectangle.width / 2;
-        const centerY = rectangle.y + rectangle.height / 2;
-        const factor = index === 0 ? 1 : 0.999;
-        return {
-          x: layout.web.x + (centerX - layout.web.x) * factor - rectangle.width / 2 - 10,
-          y: layout.web.y + (centerY - layout.web.y) * factor - rectangle.height / 2 - 10,
-          width: rectangle.width + 20, height: rectangle.height + 20,
-        };
-      });
-      assert.ok(tightened.some((rectangle, index) => tightened.slice(index + 1).some((other) => intersects(rectangle, other))), "A smaller radius violates the reserved 20 px gap");
-      assert.ok(layout.qrSize >= 200);
+      assert.equal(layout.qrSize, 128);
       assert.ok(layout.web.width < width);
       assert.equal(layout.web.x, width / 2);
       assert.equal(layout.web.y, 400);
@@ -33,7 +22,7 @@ for (const width of [390, 1280, 1920]) {
     }
   }
 }
-console.log("✓ 36 circular layouts: 1/2/8/15 machines at phone/desktop widths, varying Web heights, no overlap; readable QR fits viewport at default zoom");
+console.log("✓ 36 circular layouts: 1/2/8/15 machines at phone/desktop widths, varying Web heights, no overlap; compact QR");
 
 const viewFor = (width: number, height: number, count: number) => {
   const layout = webGraphLayout(width, height, count);
@@ -44,19 +33,22 @@ const viewFor = (width: number, height: number, count: number) => {
   const x = Math.min(...nodes.map((node) => node.x));
   const y = Math.min(...nodes.map((node) => node.y));
   const bounds = { x, y, width: Math.max(...nodes.map((node) => node.x + node.width)) - x, height: Math.max(...nodes.map((node) => node.y + node.height)) - y };
-  const view = webGraphInitialView(width, height, bounds, layout.web, layout.qrSize);
-  assert.ok(view.scale * layout.qrSize >= 200);
-  assert.ok(Math.abs(view.bounds.width / 2 * view.scale - width / 2) < 1e-8);
-  assert.ok(Math.abs(view.bounds.height / 2 * view.scale - height / 2) < 1e-8);
+  const view = webGraphInitialView(width, height, bounds)!;
+  assert.ok(view.scale * bounds.width <= width + 1e-8);
+  assert.ok(view.scale * bounds.height <= height + 1e-8);
+  assert.deepEqual(view.bounds, bounds);
   return view;
 };
-assert.ok(Math.abs(webGraphLayout(1440, 900, 2).web.width - 275.2) < 1e-8);
-assert.ok(Math.abs(webGraphLayout(390, 844, 2).web.width - 275.2) < 1e-8);
-assert.equal(viewFor(1440, 2000, 2).mode, "fit");
-assert.equal(viewFor(1440, 1200, 2).mode, "web");
-assert.equal(viewFor(1440, 900, 8).mode, "web");
-assert.equal(viewFor(1440, 900, 15).mode, "web");
-assert.equal(viewFor(390, 844, 8).mode, "web");
-assert.equal(viewFor(390, 844, 15).mode, "web");
-viewFor(1920, 1600, 15);
-console.log("✓ Initial camera fits readable inventories, otherwise centres Web at readable scale; both axes centre in the actual surface");
+for (const [width, height, count] of [[1440, 900, 2], [1440, 900, 15], [390, 844, 15]]) viewFor(width, height, count);
+assert.equal(webGraphInitialView(800, 600, { x: 0, y: 0, width: 1000, height: 900 }, true), null);
+assert.equal(webGraphInitialView(0, 600, { x: 0, y: 0, width: 1000, height: 900 }), null);
+console.log("Initial view fits all nodes and preserves user adjustments");
+
+const balanced = webGraphLayout(1600, 900, 4, 320, [160, 240, 180, 200]);
+assert.equal(balanced.web.x, 800);
+assert.equal(balanced.web.y, 450);
+const gaps = balanced.machines.map((machine, index) => index % 2
+  ? Math.abs(machine.x - balanced.web.x) - (balanced.web.width + MACHINE_CARD_WIDTH) / 2
+  : Math.abs(machine.y - balanced.web.y) - (balanced.web.height + machine.height) / 2);
+for (const gap of gaps) assert.ok(Math.abs(gap - balanced.gap) < 1e-8);
+console.log("Measured cardinal cards have equal gaps from the exact center");

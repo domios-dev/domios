@@ -1,15 +1,15 @@
 import { peerInventoryModel } from "./peerInventoryModel";
 import type { Service } from "./types";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, Globe, Plus } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
-import { ConnectionLine } from "./ConnectionLine";
+import { meshEdgeModel } from "./meshEdgeModel";
 import type { PeerStatus } from "./useMeshData";
 import { CanvasToolbar } from "../Canvas/CanvasToolbar";
 import { useCanvasViewport, formatLayerTransform } from "../Canvas/useCanvasViewport";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
-import { webGraphLayout, webGraphInitialView, WEB_CARD_SCALE, MACHINE_CARD_SCALE, MACHINE_CARD_WIDTH, MACHINE_CARD_HEIGHT } from "./webGraphLayout";
+import { webGraphLayout, webGraphInitialView, WEB_CARD_SCALE, MACHINE_CARD_SCALE, MACHINE_CARD_WIDTH } from "./webGraphLayout";
 import { webGatewayGraph } from "./meshProjection";
 
 export interface RecentPush {
@@ -24,6 +24,7 @@ interface PeerLayout {
   ip: string;
   x: number;
   y: number;
+  height: number;
   isThisMachine?: boolean;
   isPaired?: boolean;
   pending?: boolean;
@@ -31,11 +32,6 @@ interface PeerLayout {
   isGhost?: boolean;
   webUrl?: string | null;
   webUnavailableReason?: string;
-}
-
-interface PushStats {
-  pushCount: number;
-  pulsing: boolean;
 }
 
 interface Props {
@@ -61,14 +57,11 @@ interface Props {
   webUiToken?: string | null;
 }
 
-const VOLUME_WINDOW_MS = 60 * 1000;
-const PULSE_WINDOW_MS = 3000;
-const MIN_SCALE = 0.25;
+const MIN_SCALE = 0.001;
 const MAX_SCALE = 2.5;
 const ZOOM_STEP = 0.06;
-const FIT_PADDING = 0;
+const FIT_PADDING = 24;
 const CARD_HALF_WIDTH = MACHINE_CARD_WIDTH / 2;
-const CARD_HALF_HEIGHT = MACHINE_CARD_HEIGHT / 2;
 
 export function MeshCanvas({
   webCard,
@@ -81,7 +74,6 @@ export function MeshCanvas({
   services = [],
   loading = false,
   error,
-  recentPushes,
   onPeerClick,
   width,
   height,
@@ -94,26 +86,27 @@ export function MeshCanvas({
 }: Props) {
   const webCardRef = useRef<HTMLDivElement>(null);
   const [webHeight, setWebHeight] = useState(800);
-  useEffect(() => {
+  const [machineHeights, setMachineHeights] = useState<number[]>([]);
+  const machineLayerRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
     const element = webCardRef.current;
     if (!element) return;
+    if (element.offsetHeight > 0) setWebHeight(element.offsetHeight);
     const observer = new ResizeObserver(() => { if (element.offsetHeight > 0) setWebHeight(element.offsetHeight); });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  const geometry = webGraphLayout(width, height, peers.length + 1, webHeight);
+  const geometry = webGraphLayout(width, height, peers.length + 1, webHeight, machineHeights);
   const showGhost = peers.length === 0 && !!onAddPeerClick;
   const layout = useMemo<PeerLayout[]>(() => {
     const cx = width / 2;
     const cy = height / 2;
-    const radius = geometry.radius;
     const items: PeerLayout[] = [
       {
         id: "__self__",
         name: thisMachine.name,
         ip: thisMachine.ip,
-        x: cx + Math.cos(-Math.PI / 2) * radius,
-        y: cy + Math.sin(-Math.PI / 2) * radius,
+        ...geometry.machines[0],
         isThisMachine: true,
         webUrl: webUiBaseUrl
           ? webLinkWithTokenAndRelay(webUiBaseUrl, webUiToken, null)
@@ -122,14 +115,11 @@ export function MeshCanvas({
       },
     ];
     peers.forEach((p, i) => {
-      const angle =
-        ((i + 1) / (peers.length + 1)) * Math.PI * 2 - Math.PI / 2;
       items.push({
         id: p.instance_id,
         name: p.name,
         ip: p.ip,
-        x: cx + Math.cos(angle) * radius,
-        y: cy + Math.sin(angle) * radius,
+        ...geometry.machines[i + 1],
         // A discovered-but-not-paired (vouched) peer must never render as paired (codeterm#440).
         isPaired: !p.pending,
         pending: p.pending,
@@ -151,57 +141,30 @@ export function MeshCanvas({
         id: "__ghost_add_peer__",
         name: "__ghost_add_peer__",
         ip: "",
-        x: cx + radius,
+        x: cx + geometry.web.width / 2 + MACHINE_CARD_WIDTH / 2 + 20,
         y: cy,
+        height: 88,
         isGhost: true,
       });
     }
     return items;
-  }, [thisMachine, peers, width, height, showGhost, webUiBaseUrl, webUiToken, geometry.radius]);
-  const layoutFitKey = useMemo(
-    () =>
-      [
-        `${Math.round(width)}x${Math.round(height)}`,
-        `${thisMachine.name}@${thisMachine.ip}`,
-        showGhost ? "ghost" : "no-ghost",
-        peers
-          .map((p) => `${p.instance_id}:${p.name}@${p.ip}:${p.access_level ?? ""}`)
-          .sort()
-          .join("|"),
-      ].join("::"),
-    [width, height, thisMachine.name, thisMachine.ip, showGhost, peers],
-  );
+  }, [thisMachine, peers, width, height, showGhost, webUiBaseUrl, webUiToken, geometry.machines, geometry.web.width]);
+
+  useLayoutEffect(() => {
+    const nodes = Array.from(machineLayerRef.current?.querySelectorAll<HTMLElement>("[data-machine-index]") ?? []);
+    const measure = () => {
+      const heights = nodes.map((node) => node.offsetHeight * MACHINE_CARD_SCALE);
+      if (heights.some((height) => height <= 0)) return;
+      setMachineHeights((current) => heights.length === current.length && heights.every((height, index) => height === current[index]) ? current : heights);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    nodes.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [peers.length]);
 
   const gateway = { x: width / 2, y: height / 2 };
   const gatewayGraph = webGatewayGraph(peers, meshEnabled);
-  const local = layout[0];
-  const remoteLayout = useMemo(() => layout.slice(1), [layout]);
-  const pushStatsByPeer = useMemo(() => {
-    const now = Date.now();
-    const stats = new Map<string, PushStats>();
-    for (const p of peers) stats.set(p.name, { pushCount: 0, pulsing: false });
-    for (const rp of recentPushes) {
-      const inVolumeWindow = now - rp.at < VOLUME_WINDOW_MS;
-      const inPulseWindow = now - rp.at < PULSE_WINDOW_MS;
-      if (!inVolumeWindow && !inPulseWindow) continue;
-      for (const p of peers) {
-        if (!rp.source_id.includes(p.name) && !rp.target.includes(p.name)) continue;
-        const stat = stats.get(p.name);
-        if (!stat) continue;
-        if (inVolumeWindow) stat.pushCount++;
-        if (inPulseWindow) stat.pulsing = true;
-      }
-    }
-    return stats;
-  }, [peers, recentPushes]);
-  const peerLinks = useMemo(
-    () =>
-      remoteLayout.flatMap((a, i) =>
-        remoteLayout.slice(i + 1).map((b, j) => ({ a, b, key: `p2p-${a.name}-${b.name}-${i}-${j}` })),
-      ),
-    [remoteLayout],
-  );
-
   const { transform, handlers, fitToView, zoomBy, isDragging, containerRef, layerRef } = useCanvasViewport({
     width,
     height,
@@ -211,25 +174,28 @@ export function MeshCanvas({
     ignoreSelector: "[data-peer-card]",
     wheelBehavior: "zoom",
   });
-  const lastAutoFitKeyRef = useRef<string | null>(null);
+  const userAdjustedRef = useRef(false);
+  const fittedBoundsRef = useRef("");
 
   const contentBounds = useMemo(() => {
     if (!layout.length) return null;
     const minX = Math.min(gateway.x - geometry.web.width / 2, ...layout.map((p) => p.x - CARD_HALF_WIDTH));
     const maxX = Math.max(gateway.x + geometry.web.width / 2, ...layout.map((p) => p.x + CARD_HALF_WIDTH));
-    const minY = Math.min(gateway.y - webHeight / 2, ...layout.map((p) => p.y - CARD_HALF_HEIGHT));
-    const maxY = Math.max(gateway.y + webHeight / 2, ...layout.map((p) => p.y + CARD_HALF_HEIGHT));
-    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    const minY = Math.min(gateway.y - webHeight / 2, ...layout.map((p) => p.y - p.height / 2));
+    const maxY = Math.max(gateway.y + webHeight / 2, ...layout.map((p) => p.y + p.height / 2));
+    const halfWidth = Math.max(gateway.x - minX, maxX - gateway.x);
+    const halfHeight = Math.max(gateway.y - minY, maxY - gateway.y);
+    return { x: gateway.x - halfWidth, y: gateway.y - halfHeight, width: halfWidth * 2, height: halfHeight * 2 };
   }, [layout, gateway.x, gateway.y, geometry.web.width, webHeight, webCard, geometry.web, geometry.qrSize]);
 
-  useEffect(() => {
-    if (!contentBounds || width <= 0 || height <= 0) return;
-    const key = `${layoutFitKey}:${webHeight}`;
-    if (lastAutoFitKeyRef.current === key) return;
-    lastAutoFitKeyRef.current = key;
-    const initial = webGraphInitialView(width, height, contentBounds, geometry.web, geometry.qrSize);
-    fitToView(webCard ? initial.bounds : contentBounds);
-  }, [fitToView, contentBounds, layoutFitKey, width, height, gateway.x, gateway.y, geometry.web.width, webHeight, webCard, geometry.web, geometry.qrSize]);
+  useLayoutEffect(() => {
+    if (!contentBounds) return;
+    const key = [width, height, contentBounds.x, contentBounds.y, contentBounds.width, contentBounds.height].join(":");
+    const initial = webGraphInitialView(width, height, contentBounds, userAdjustedRef.current);
+    if (!initial || fittedBoundsRef.current === key) return;
+    fittedBoundsRef.current = key;
+    fitToView(initial.bounds);
+  }, [fitToView, contentBounds, width, height]);
 
   const reset = () => {
     if (contentBounds) fitToView(contentBounds);
@@ -239,7 +205,9 @@ export function MeshCanvas({
     <div
       ref={containerRef}
       className="relative w-full h-full overflow-hidden"
-      onMouseDown={handlers.onMouseDown}
+      onMouseDown={(event) => { userAdjustedRef.current = true; handlers.onMouseDown(event); }}
+      onWheelCapture={() => { userAdjustedRef.current = true; }}
+      onTouchStartCapture={() => { userAdjustedRef.current = true; }}
       style={{
         minHeight: height,
         background:
@@ -249,9 +217,9 @@ export function MeshCanvas({
         touchAction: "none",
       }}
     >
-      <CanvasToolbar label="Mesh graph controls" onRefresh={onRefresh} onFit={reset} onZoomOut={() => zoomBy(-ZOOM_STEP)} onZoomIn={() => zoomBy(ZOOM_STEP)} />
+      <CanvasToolbar label="Mesh graph controls" onRefresh={onRefresh} onFit={() => { userAdjustedRef.current = true; reset(); }} onZoomOut={() => { userAdjustedRef.current = true; zoomBy(-ZOOM_STEP); }} onZoomIn={() => { userAdjustedRef.current = true; zoomBy(ZOOM_STEP); }} />
       <div
-        ref={layerRef}
+        ref={(element) => { layerRef.current = element; machineLayerRef.current = element; }}
         style={{
           transform: formatLayerTransform(transform),
           transformOrigin: "0 0",
@@ -269,6 +237,7 @@ export function MeshCanvas({
           {gatewayGraph.edges.map((edge) => {
             const machine = layout.find((item) => item.id === edge.machineId);
             if (!machine) return null;
+            const paint = meshEdgeModel(geometry.web, { ...machine, width: MACHINE_CARD_WIDTH }, edge.online);
             const label = `${machine.name}: ${edge.online ? "online" : "offline"} ${edge.label}`;
             const launch = () => {
               if (machine.isThisMachine) onWebClick?.();
@@ -282,52 +251,11 @@ export function MeshCanvas({
                   if (event.code === "Enter" || event.code === "Space") { event.preventDefault(); launch(); }
                 }}>
                 <title>{label}</title>
-                <line x1={gateway.x} y1={gateway.y} x2={machine.x} y2={machine.y} stroke="var(--ct-accent)" strokeWidth={2} strokeDasharray={edge.online ? undefined : "6 4"} />
+                <path d={paint.path} fill="none" stroke="var(--ct-muted-fg)" strokeWidth={1.2} strokeLinecap="round" opacity={paint.opacity} strokeDasharray={paint.dash} />
               </g>
             );
           })}
-          {remoteLayout.map((p, i) => {
-            if (p.isGhost) {
-              return (
-                <ConnectionLine
-                  key={`hub-ghost-${i}`}
-                  fromX={local.x}
-                  fromY={local.y}
-                  toX={p.x}
-                  toY={p.y}
-                  pushCount={0}
-                  pulsing={false}
-                  isGhost
-                />
-              );
-            }
-            const stats = pushStatsByPeer.get(p.name);
-            return (
-              <ConnectionLine
-                key={`hub-${p.name}-${i}`}
-                fromX={local.x}
-                fromY={local.y}
-                toX={p.x}
-                toY={p.y}
-                pushCount={stats?.pushCount ?? 0}
-                pulsing={stats?.pulsing ?? false}
-              />
-            );
-          })}
-          {peerLinks.map(({ a, b, key }) => {
-              if (a.isGhost || b.isGhost) return null;
-              return (
-                <ConnectionLine
-                  key={key}
-                  fromX={a.x}
-                  fromY={a.y}
-                  toX={b.x}
-                  toY={b.y}
-                  pushCount={0}
-                  pulsing={false}
-                />
-              );
-            })}
+
         </svg>
         <div ref={webCardRef} data-peer-card className="absolute" style={{ left: gateway.x, top: gateway.y, width: geometry.web.width, transform: "translate(-50%,-50%)" }}>
           <div style={{ zoom: WEB_CARD_SCALE, width: geometry.web.width / WEB_CARD_SCALE }}>
@@ -341,6 +269,7 @@ export function MeshCanvas({
           <div
             key={`${p.id}-${i}`}
             data-peer-card
+            data-machine-index={i}
             style={{
               position: "absolute",
               left: p.x,
