@@ -37,8 +37,8 @@ it("renders separators from the day model between consecutive local days", async
   } finally { await act(async () => root.unmount()); }
 });
 
-it("hides the side time gutter below the breakpoint and restores it on resize", async () => {
-  let width = 899;
+it("hides the side time gutter until the side margin fits it", async () => {
+  let width = 1007;
   let composerLeft = 20;
   let resized = () => {};
   vi.stubGlobal("ResizeObserver", class {
@@ -54,7 +54,7 @@ it("hides the side time gutter below the breakpoint and restores it on resize", 
   function Surface() {
     const rootRef = useRef<HTMLDivElement>(null);
     useChatLayoutInsets(rootRef);
-    return <div ref={rootRef}><div role="log" className="ct-chat-surface"><MessageTimeFrame timestamp="2026-10-14T12:00:00Z" side="left"><button>fixture</button></MessageTimeFrame></div><div className="ct-chat-bottom-bar"><div className="ct-composer-lane" /></div></div>;
+    return <div ref={rootRef} style={{ fontSize: "16px" }}><div role="log" className="ct-chat-surface"><MessageTimeFrame timestamp="2026-10-14T12:00:00Z" side="left"><button>fixture</button></MessageTimeFrame></div><div className="ct-chat-bottom-bar"><div className="ct-composer-lane" /></div></div>;
   }
   const host = document.createElement("div");
   document.body.append(host);
@@ -67,7 +67,7 @@ it("hides the side time gutter below the breakpoint and restores it on resize", 
     expect(time.hidden).toBe(true);
     const surface = host.querySelector<HTMLElement>("[role='log']")!;
     expect(surface.style.getPropertyValue("--ct-chat-content-inset")).toBe(surface.style.getPropertyValue("--ct-chat-composer-inset"));
-    width = 900;
+    width = 1008;
     await act(async () => resized());
     expect(time.hidden).toBe(false);
     width = 700;
