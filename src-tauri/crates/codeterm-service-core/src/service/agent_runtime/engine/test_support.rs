@@ -42,6 +42,7 @@ pub(crate) fn loaded_runtime(
             binding_nonce: tab.session_binding_nonce.clone().unwrap(),
             thread_id: tab.agent_session_id.clone(),
             cwd: tab.cwd.clone().unwrap_or_default(),
+            host_version: codeterm_build_info::version().into(),
             ..Default::default()
         }),
         controls_confirmation: Mutex::new(None),

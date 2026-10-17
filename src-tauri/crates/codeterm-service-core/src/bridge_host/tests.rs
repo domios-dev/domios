@@ -97,6 +97,8 @@ fn bridge_main_and_local_send_share_refreshed_runtime_exact_session() {
         .is_none());
     let tab = fixture.service.mux.read().get_tab(&id).unwrap().clone();
     let mut runtime = loaded_runtime(&tab, Some(adapter));
+    let session = crate::service::agent_runtime::engine::for_tab(&id).unwrap();
+    codeterm_plugin::agent_runtime::validate_runtime_context(&session.context.lock()).unwrap();
     let port: Arc<dyn BridgeTabPort> = Arc::new(ServiceBridgeTabPort(fixture.service.clone()));
     crate::async_runtime::block_on(async {
         let mut peer = BufReader::new(&mut runtime.peer);
