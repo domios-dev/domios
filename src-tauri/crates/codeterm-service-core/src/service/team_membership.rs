@@ -1,5 +1,5 @@
-use codeterm_types::team::Team;
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
+use codeterm_types::team::Team;
 
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::general_agent::{refuse_general_agent_team_membership, shape_for_tab};

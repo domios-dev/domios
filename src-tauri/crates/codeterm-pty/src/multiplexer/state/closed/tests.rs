@@ -3,7 +3,7 @@
 //! workspace restore).
 
 use std::collections::HashSet;
-use std::sync::{Arc, mpsc};
+use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 use super::*;
