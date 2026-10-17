@@ -3,7 +3,7 @@ use crate::multiplexer::types::Tab;
 
 pub(crate) struct LiveRuntime {
     tab_id: String,
-    _peer: tokio::io::DuplexStream,
+    pub(crate) peer: tokio::io::DuplexStream,
 }
 
 impl Drop for LiveRuntime {
@@ -13,6 +13,13 @@ impl Drop for LiveRuntime {
 }
 
 pub(crate) fn live_runtime(tab: &Tab) -> LiveRuntime {
+    loaded_runtime(tab, None)
+}
+
+pub(crate) fn loaded_runtime(
+    tab: &Tab,
+    adapter: Option<Arc<dyn crate::agent::provider::AgentProvider>>,
+) -> LiveRuntime {
     let (process, peer) = crate::async_runtime::block_on(async {
         let (host, peer) = tokio::io::duplex(4096);
         let (reader, writer) = tokio::io::split(host);
@@ -28,12 +35,13 @@ pub(crate) fn live_runtime(tab: &Tab) -> LiveRuntime {
     assert!(state.load(epoch, tab.agent_session_id.as_deref().unwrap()));
     let session = Arc::new(Session {
         provider: tab.agent_type.clone().unwrap(),
-        adapter: Mutex::new(None),
+        adapter: Mutex::new(adapter),
         context: Mutex::new(RuntimeContext {
             epoch,
             tab_id: tab.id.clone(),
             binding_nonce: tab.session_binding_nonce.clone().unwrap(),
             thread_id: tab.agent_session_id.clone(),
+            cwd: tab.cwd.clone().unwrap_or_default(),
             ..Default::default()
         }),
         controls_confirmation: Mutex::new(None),
@@ -60,7 +68,7 @@ pub(crate) fn live_runtime(tab: &Tab) -> LiveRuntime {
     SESSIONS.lock().insert(tab.id.clone(), session);
     LiveRuntime {
         tab_id: tab.id.clone(),
-        _peer: peer,
+        peer,
     }
 }
 
