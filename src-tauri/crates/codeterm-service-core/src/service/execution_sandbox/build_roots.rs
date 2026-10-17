@@ -113,5 +113,20 @@ pub(super) fn for_lane(lane: &str) -> Result<BuildRoots, String> {
     Ok(resolved)
 }
 
+pub(super) fn restore_recorded_root(root: &str, lane: &str) {
+    let Some(home) = dirs::home_dir() else { return };
+    let selected = select(
+        Path::new(lane),
+        &home,
+        std::env::consts::OS,
+        &std::env::vars().collect(),
+    );
+    if selected.values().any(|path| path.to_str() == Some(root)) && !Path::new(root).exists() {
+        if let Err(error) = std::fs::create_dir_all(root) {
+            log::warn!("[execution-sandbox] cannot recreate recorded host cache {root}: {error}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;
