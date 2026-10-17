@@ -18,10 +18,12 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 | `agent_type` | `string?` | Agent running in tab, e.g. `"claude"` |
 | `claude_session_id` | `string?` | Linked Claude Code session ID for resume |
 | `role` | `string?` | `"Orchestrator"`, `"Worker"`, or `null` |
-| `parent_tab_id` | `string?` | Parent tab ID in hierarchy, or `null` |
+| `parent_tab_id` | `string?` | Parent tab ID in hierarchy, or `null`; Team utility shells use their creating tab when one is available |
 | `can_spawn` | `bool` | Whether this tab can spawn children. Orchestrator: true (default). Worker: always false. |
 | `connected_services` | `string[]` | External services connected to this tab (e.g. `["telegram"]`), shown as sidebar icons. |
-| `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Orchestrator), 2 (Worker under Orchestrator) |
+| `depth` | `number` | Hierarchy depth: 0 for a root tab, increasing for each child |
+
+Team utility shells keep their `team_id` for Team cleanup. When a caller tab creates one, its `parent_tab_id` points to that caller, so the tab tree and report routing follow the creator. Without a caller tab, the shell stays under the Team anchor. Worker-owned shells receive the Worker's plan, task, and attempt environment values. Closing a Team member closes its owned Team utility shells.
 
 Tab creation accepts `shell` (profile id). `GET /api/shells?refresh=true` refreshes detection; otherwise cached. Socket: `tab.new` (`shell`), `tab.shells` (`refresh`). Unknown ids refuse creation. Shells alone accept profiles; agents remain native.
 
@@ -206,4 +208,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 59 -->
+<!-- revision: 60 -->

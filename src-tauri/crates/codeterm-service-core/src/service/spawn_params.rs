@@ -121,6 +121,7 @@ impl SpawnTabSpec {
                 agent: agent.clone(),
                 params: params.clone(),
                 owner_linkage: None,
+                runtime_fork: None,
             })
         });
         let agent_command = command.unwrap_or(TabCommand::Agent(agent));
@@ -147,6 +148,10 @@ impl SpawnTabSpec {
     }
 
     pub(crate) fn route_agent_to_chatbackend(&mut self) -> Result<(), String> {
+        let runtime_fork = self
+            .chatbackend_launch
+            .as_ref()
+            .and_then(|metadata| metadata.runtime_fork.clone());
         let mut params = self
             .chatbackend_launch
             .as_ref()
@@ -198,6 +203,7 @@ impl SpawnTabSpec {
             agent,
             params,
             owner_linkage,
+            runtime_fork,
         }));
         Ok(())
     }

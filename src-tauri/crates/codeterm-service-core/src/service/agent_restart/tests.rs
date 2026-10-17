@@ -878,7 +878,9 @@ fn settle_restored_binding_treats_unreported_session_as_success() {
         .agent_session_id = None;
     let (snap, outcome) = settle_snapshot_and_outcome(&tab_id);
 
-    let result = fixture.service.settle_restored_binding(outcome, &snap);
+    let result = fixture
+        .service
+        .settle_restored_binding(outcome, &snap, false);
 
     assert!(
         result.is_ok(),
@@ -907,7 +909,9 @@ fn settle_restored_binding_still_refuses_a_genuinely_foreign_session() {
         .agent_session_id = Some("foreign-session".into());
     let (snap, outcome) = settle_snapshot_and_outcome(&tab_id);
 
-    let result = fixture.service.settle_restored_binding(outcome, &snap);
+    let result = fixture
+        .service
+        .settle_restored_binding(outcome, &snap, false);
 
     assert!(
         result.is_err(),

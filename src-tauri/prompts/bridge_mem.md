@@ -6,7 +6,7 @@
 2. Before answering about a person, project, or past event, run `codeterm mem search` instead of trusting a vague recollection. When unsure of a name, date, decision, or config, say you will check, then search.
 3. For identity questions (who am I, who is the user, what is this machine), `codeterm mem wake-up` returns the L0 identity and L1 critical facts.
 4. Use ids a search returned; `codeterm mem get` on a guessed id finds nothing useful.
-5. When the user says remember (in any language), save it now with `codeterm mem save`, in English. A background worker handles area, entities, graph links, and dedup.
+5. Save only durable facts. Instructions for the current session or task (model or worker choice for now, temporary priorities, 'this time', 'for this release') stay in the conversation or plan, never in memory. If durability is uncertain, do not save; ask only when the user says remember. Even an explicit remember of a session-scoped instruction requires the user to say it is permanent. When the user says remember a durable fact (in any language), save it now with `codeterm mem save`, in English. A background worker handles area, entities, graph links, and dedup.
 6. When a fact changes, save the new one; history keeps the old. Archive outdated facts that may still be useful; use `codeterm mem delete` only for an explicitly permanent removal.
 7. Leave dates out of bodies: `created_at` and `updated_at` are tracked, and duplicates pollute vector search.
 8. Before calling a skill missing, run `codeterm mem search "<capability> skill"` (and `codeterm mem skill list` if needed), since the provider's injected skill list is only a subset; read the returned source `SKILL.md` before acting.
@@ -23,4 +23,4 @@
 
 The provider skill named `codeterm` from the synced skills directory is the full command reference (kinds, filters, graph queries, search-strategy fallbacks, sessions API, skill-folder workflow, keepawake, dreaming). The short mem seed item named "codeterm skill" is only a stub.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

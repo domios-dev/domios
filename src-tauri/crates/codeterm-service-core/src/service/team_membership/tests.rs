@@ -127,6 +127,23 @@ fn applying_an_attachment_binds_team_parent_and_spawner() {
 }
 
 #[test]
+fn utility_shell_parent_uses_caller_or_falls_back_to_team_anchor() {
+    assert_eq!(
+        utility_shell_parent(Some("worker")),
+        AttachmentParent::Owner("worker")
+    );
+    assert_eq!(
+        utility_shell_parent(Some("orchestrator")),
+        AttachmentParent::Owner("orchestrator")
+    );
+    assert_eq!(utility_shell_parent(None), AttachmentParent::TeamAnchor);
+    assert_eq!(
+        utility_shell_parent(Some("  ")),
+        AttachmentParent::TeamAnchor
+    );
+}
+
+#[test]
 fn adopt_agent_attaches_a_running_roleless_tab() {
     let (mut mux, team_id, orchestrator, workspace_id) = anchored_team();
     let agent_tab = mux.create_tab(&workspace_id).unwrap();

@@ -111,13 +111,7 @@ impl MultiplexerState {
     }
 
     pub(crate) fn closed_structure_views(&self) -> Vec<ClosedStructureView> {
-        match self.closed_store.structure_views() {
-            Ok(views) => views,
-            Err(error) => {
-                log::error!("[closed-history] inventory read failed: {error}");
-                Vec::new()
-            }
-        }
+        self.closed_store.snapshot_structures()
     }
 
     pub fn restore_structure(

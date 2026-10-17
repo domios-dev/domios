@@ -1,6 +1,9 @@
 #[path = "spawn/cwd.rs"]
 mod cwd;
 mod dispatch_rollback;
+#[path = "spawn/preparation.rs"]
+mod preparation;
+
 pub(crate) mod runtime_prompt;
 use dispatch_rollback::create_pending_delivery_or_rollback_dispatch;
 pub use runtime_prompt::{
@@ -20,152 +23,12 @@ use crate::service::general_agent::{
     refuse_general_agent_team_membership, refuse_parenting_under_general_agent, shape_for_tab,
 };
 use crate::service::{spawn_title, MuxEmitCause, ServiceContext};
-
-/// Build effort provenance for a launch where the requested effort has already
-/// passed capability validation. No silent downgrade ⇒ `resolved == requested`.
-/// `actual` stays `None` — the launch flag is a request, not runtime proof.
-pub(crate) fn resolved_effort_provenance(
-    planned: Option<String>,
-    requested: Option<String>,
-) -> ReasoningEffortProvenance {
-    let has_effort = planned.is_some() || requested.is_some();
-    ReasoningEffortProvenance {
-        planned,
-        requested: requested.clone(),
-        resolved: requested,
-        actual: None,
-        actual_source: has_effort.then(|| "provider-default-unverified".into()),
-    }
-}
-
-/// An idle Team bootstrap is instructions, not work: a provider that can carry
-/// it as a system prompt needs no visible starter turn to repeat it.
-fn prepare_manager_bootstrap(
-    params: &mut SpawnAgentParams,
-    system_prompt_capable: bool,
-) -> Option<String> {
-    let has_assignment = params
-        .task
-        .as_deref()
-        .is_some_and(|task| !task.trim().is_empty());
-    let bootstrap = params.manager_bootstrap.as_ref()?.compose();
-    params.task = Some(match params.task.take() {
-        Some(task) if !task.trim().is_empty() => format!("{bootstrap}\n\n{task}"),
-        None => bootstrap.clone(),
-        Some(_) => bootstrap.clone(),
-    });
-    params.starter_prompt = match (has_assignment, system_prompt_capable) {
-        (true, _) => crate::agent::provider::StarterPrompt::AssignedTask,
-        (false, true) => crate::agent::provider::StarterPrompt::NoStarter,
-        (false, false) => crate::agent::provider::StarterPrompt::TeamBootstrap,
-    };
-    Some(bootstrap)
-}
-
-/// The real bound Team id a manager bootstrap carries, or None for an empty or
-/// `UNBOUND_TEAM` placeholder so nothing is invented. Caller checks liveness.
-fn bootstrap_bound_team_id(
-    bootstrap: Option<&crate::service::role_identity::ManagerBootstrapInputs>,
-) -> Option<&str> {
-    let team_id = bootstrap?.team_id.trim();
-    (!team_id.is_empty() && team_id != crate::service::spawn_factory::UNBOUND_TEAM)
-        .then_some(team_id)
-}
-
-fn prepare_standard_starter_prompt(params: &mut SpawnAgentParams) {
-    params.starter_prompt = crate::service::spawn_params::starter_prompt_for_creation(
-        params.role.as_deref(),
-        params.task.as_deref(),
-    );
-}
-
-fn apply_startup_handshake(
-    params: &mut SpawnAgentParams,
-    supervised: bool,
-    carries_startup_attempt: bool,
-) {
-    if let Some(prompt) = crate::service::launch_delivery::startup_starter_prompt_for_class(
-        supervised && !params.user_created,
-        params.task_launch_authority.is_some(),
-        false,
-        carries_startup_attempt,
-    ) {
-        params.starter_prompt = prompt;
-    }
-}
-
-fn team_bootstrap_payload(system_prompt_capable: bool, body: String) -> String {
-    if system_prompt_capable {
-        return body;
-    }
-    crate::service::messenger::Messenger::from(
-        crate::service::messenger::MessageEnvelope::codeterm_reminder("team-bootstrap"),
-    )
-    .wrap(&body)
-}
-
-fn build_or_refuse_orchestrated_launch_command(
-    service: &ServiceContext,
-    tab_id: &str,
-    agent_cmd: &str,
-    params: &SpawnAgentParams,
-    bg_task: Option<&str>,
-    launch_session_id: Option<&str>,
-) -> Result<super::PreparedAgentCommand, String> {
-    let launch_cmd =
-        crate::service::launch_session_detection::marked_prepared_agent_command_for_service(
-            service,
-            tab_id,
-            agent_cmd,
-            params,
-            bg_task,
-            launch_session_id,
-            &service.agent_registry,
-        );
-    if launch_cmd.trim().is_empty() {
-        return Err(service.rollback_empty_agent_launch_if_created(
-            tab_id,
-            agent_cmd,
-            params.existing_tab_id.is_none(),
-        ));
-    }
-    Ok(launch_cmd)
-}
-
-fn planner_startup_payload(
-    system_prompt_capable: bool,
-    manager_prompt: Option<String>,
-    onboarding: &str,
-) -> String {
-    if !system_prompt_capable {
-        return team_bootstrap_payload(false, onboarding.to_string());
-    }
-    match manager_prompt {
-        Some(prompt) => format!("{prompt}\n\n## Planner startup\n\n{onboarding}"),
-        None => agent_system_prompt(Some(onboarding)),
-    }
-}
-
-fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -> Option<String> {
-    let assignment = params.system_prompt.take().or_else(|| params.task.take());
-    let assignment = match params.manager_bootstrap.as_ref() {
-        Some(manager) => {
-            let bootstrap = manager.compose();
-            Some(match assignment {
-                Some(assignment) if !assignment.trim().is_empty() => {
-                    format!("{bootstrap}\n\n{assignment}")
-                }
-                _ => bootstrap,
-            })
-        }
-        None => assignment,
-    };
-    role_onboarding_task(
-        assignment.as_deref(),
-        params.role.as_deref(),
-        params.role_profile.as_deref(),
-    )
-}
+pub(crate) use preparation::resolved_effort_provenance;
+use preparation::{
+    apply_startup_handshake, bootstrap_bound_team_id, build_or_refuse_orchestrated_launch_command,
+    compose_chatbackend_system_prompt, planner_startup_payload, prepare_manager_bootstrap,
+    prepare_standard_starter_prompt, team_bootstrap_payload,
+};
 
 impl ServiceContext {
     /// Legacy wrapper for callers still on `SpawnAgentParams` (CLI/REST/batch/cron/socket).
@@ -176,8 +39,33 @@ impl ServiceContext {
     /// Variant of `spawn_agent_sync` with a readiness oneshot for echo+submit verification.
     pub fn spawn_agent_sync_with_ready(
         &self,
+        params: SpawnAgentParams,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<SpawnResult, String> {
+        self.spawn_agent_sync_with_runtime_fork(params, ready_tx, None)
+    }
+
+    pub(crate) fn spawn_agent_sync_for_runtime_fork(
+        &self,
+        params: SpawnAgentParams,
+        source_thread_id: String,
+        turn_id: String,
+    ) -> Result<SpawnResult, String> {
+        self.spawn_agent_sync_with_runtime_fork(
+            params,
+            None,
+            Some(crate::service::spawn::RuntimeForkLaunch {
+                source_thread_id,
+                turn_id,
+            }),
+        )
+    }
+
+    fn spawn_agent_sync_with_runtime_fork(
+        &self,
         mut params: SpawnAgentParams,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        runtime_fork: Option<crate::service::spawn::RuntimeForkLaunch>,
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
         spawn_title::validate_agent_tab_title(
@@ -213,15 +101,26 @@ impl ServiceContext {
             .agent
             .clone()
             .unwrap_or_else(|| self.configuration().general_agent.agent_provider);
+        if runtime_fork.is_some() && !crate::service::agent_runtime::engine::requested(self, &agent)
+        {
+            return Err("Runtime fork requires an agent runtime capability".into());
+        }
         self.move_chatbackend_task_to_system_prompt(&agent, &mut params)?;
         self.apply_model_preset(&agent, &mut params)?;
         let reasoning_effort = params.reasoning_effort.clone();
         self.classify_spawn_target_for_params(&agent, &params)?;
         let bind_params = params.clone();
-        let spec = crate::service::spawn::SpawnTabSpec::from_agent_params_with_chatbackends(
+        let mut spec = crate::service::spawn::SpawnTabSpec::from_agent_params_with_chatbackends(
             self.chatbackend_registry.as_ref(),
             params,
         );
+        if let Some(runtime_fork) = runtime_fork {
+            let metadata = spec
+                .chatbackend_launch
+                .as_mut()
+                .ok_or("Runtime fork requires a chat backend spawn")?;
+            metadata.runtime_fork = Some(runtime_fork);
+        }
         let handle = self.spawn_tab_with_ready(spec, ready_tx)?;
         if let Some(tab) = self.mux.write().get_tab_mut(&handle.tab_id) {
             crate::service::reasoning_effort::persist_launch_identity(

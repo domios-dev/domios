@@ -1,7 +1,7 @@
 use codeterm_plugin::agent_runtime::RpcId;
 use codeterm_plugin::agent_runtime::{
-    AgentRuntimeEvent, RuntimeAuthState, RuntimeContext, RuntimeLoginState, RuntimeQuestion,
-    RuntimeQuestionResponse, RuntimeRateLimit, RuntimeSettings, RuntimeTurnDetail,
+    AgentRuntimeEvent, RuntimeAccountCredits, RuntimeAuthState, RuntimeContext, RuntimeLoginState,
+    RuntimeQuestion, RuntimeQuestionResponse, RuntimeRateLimit, RuntimeSettings, RuntimeTurnDetail,
     RuntimeTurnState, TokenUsage,
 };
 use codeterm_types::agent::chat_types::ChatMsg;
@@ -65,6 +65,7 @@ pub enum RuntimeEvent {
         thread_id: Option<String>,
         rate_limits: Vec<RuntimeRateLimit>,
         resets: Option<codeterm_plugin::agent_runtime::ResetCredits>,
+        account_credits: Option<RuntimeAccountCredits>,
     },
     CompactionUpdated {
         thread_id: String,
@@ -166,10 +167,12 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             thread_id,
             rate_limits,
             resets,
+            account_credits,
         } => RuntimeEvent::RateLimitsUpdated {
             thread_id: thread_id.clone(),
             rate_limits: rate_limits.clone(),
             resets: resets.clone(),
+            account_credits: account_credits.clone(),
         },
         AgentRuntimeEvent::ChatItem { thread_id, item } => RuntimeEvent::ItemUpdated {
             thread_id: thread_id.clone(),

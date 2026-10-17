@@ -292,12 +292,24 @@ pub(super) fn dispatch(
                 .as_ref()
                 .and_then(|value| value.get("task_id"))
                 .and_then(Value::as_str);
-            let mut acknowledged = match svc.plan_store.acknowledge_live_task_attempt_for_tab(
-                &tab_id,
-                plan_id,
-                task_id,
-                epoch_ms(),
-            ) {
+            let runtime_binding =
+                ack_runtime_binding(params, &tab_id, svc).map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
+            let runtime_binding = runtime_binding
+                .as_ref()
+                .map(|(session, nonce)| (session.as_str(), nonce.as_str()));
+            let mut acknowledged = match svc
+                .plan_store
+                .acknowledge_live_task_attempt_for_tab_with_runtime_binding(
+                    &tab_id,
+                    plan_id,
+                    task_id,
+                    runtime_binding,
+                    epoch_ms(),
+                ) {
                 Ok(acknowledged) => {
                     log_ack_event(
                         "task_ack",
@@ -329,9 +341,19 @@ pub(super) fn dispatch(
                     || acknowledged.attempt.session_binding_nonce.is_none())
             {
                 let completion = (|| {
-                    let nonce = get_string_param(params, "session_binding_nonce")
-                        .map_err(|error| error.message)?;
                     let body = params.as_ref().ok_or("caller params are missing")?;
+                    let nonce = body
+                        .get("session_binding_nonce")
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.trim().is_empty())
+                        .map(str::to_string)
+                        .or_else(|| {
+                            svc.mux
+                                .read()
+                                .get_tab(&tab_id)
+                                .and_then(|tab| tab.session_binding_nonce.clone())
+                        })
+                        .ok_or("acknowledging tab has no current launch nonce")?;
                     let session = body
                         .get("caller_session_id")
                         .map(|value| {
@@ -550,6 +572,64 @@ fn task_ack_refusal_class(message: &str) -> &'static str {
     }
 }
 
+fn ack_runtime_binding(
+    params: &Option<Value>,
+    tab_id: &str,
+    svc: &ServiceState,
+) -> Result<Option<(String, String)>, String> {
+    let claimed_session = optional_ack_identity_claim(params, "caller_session_id")?;
+    let claimed_nonce = optional_ack_identity_claim(params, "session_binding_nonce")?;
+    let (session_id, configured_nonce, reported_nonce) = {
+        let mux = svc.mux.read();
+        let tab = mux
+            .get_tab(tab_id)
+            .ok_or_else(|| "acknowledging tab is not live".to_string())?;
+        (
+            tab.agent_session_id.clone(),
+            tab.session_binding_nonce.clone(),
+            tab.reported_session_binding_nonce.clone(),
+        )
+    };
+    let live = session_id
+        .as_deref()
+        .filter(|session| !session.trim().is_empty())
+        .zip(
+            configured_nonce
+                .as_deref()
+                .filter(|nonce| !nonce.trim().is_empty())
+                .filter(|nonce| reported_nonce.as_deref() == Some(*nonce)),
+        );
+    let Some((session_id, nonce)) = live else {
+        return if claimed_session.is_some() || claimed_nonce.is_some() {
+            Err("acknowledging tab has no verified current launch binding".into())
+        } else {
+            Ok(None)
+        };
+    };
+    if claimed_session.is_some_and(|claim| claim != session_id)
+        || claimed_nonce.is_some_and(|claim| claim != nonce)
+    {
+        return Err("acknowledging tab identity claim is stale or foreign".into());
+    }
+    Ok(Some((session_id.into(), nonce.into())))
+}
+
+fn optional_ack_identity_claim<'a>(
+    params: &'a Option<Value>,
+    field: &str,
+) -> Result<Option<&'a str>, String> {
+    params
+        .as_ref()
+        .and_then(|body| body.get(field))
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|claim| !claim.trim().is_empty())
+                .ok_or_else(|| format!("acknowledging {field} claim is invalid"))
+        })
+        .transpose()
+}
+
 fn task_ack_success_response(
     plan_id: &str,
     task_id: &str,
@@ -586,10 +666,51 @@ fn task_ack_with_skill_brief(
     acknowledged: &codeterm_service_core::service::plan::task_attempts::TaskAttemptAcknowledgement,
 ) -> Result<Value, JsonRpcError> {
     let mux = svc.mux.read();
+    let mut identity = params.clone().unwrap_or_else(|| serde_json::json!({}));
+    let attempt_bound = acknowledged.attempt.session_id.is_some()
+        && acknowledged.attempt.session_binding_nonce.is_some();
+    if attempt_bound && !identity.get("session_binding_nonce").is_some() {
+        let tab = mux
+            .get_tab(&acknowledged.attempt.executor_tab_id)
+            .ok_or_else(|| {
+                super::plan_skills_rpc::attempt_binding_refusal(
+                    acknowledged,
+                    "acknowledging tab is missing",
+                )
+            })?;
+        let nonce = tab
+            .session_binding_nonce
+            .as_deref()
+            .filter(|nonce| tab.reported_session_binding_nonce.as_deref() == Some(*nonce))
+            .filter(|nonce| acknowledged.attempt.session_binding_nonce.as_deref() == Some(*nonce))
+            .ok_or_else(|| {
+                super::plan_skills_rpc::attempt_binding_refusal(
+                    acknowledged,
+                    "current launch nonce is not reported by the acknowledging tab",
+                )
+            })?;
+        let session = tab
+            .agent_session_id
+            .as_deref()
+            .filter(|session| acknowledged.attempt.session_id.as_deref() == Some(*session))
+            .ok_or_else(|| {
+                super::plan_skills_rpc::attempt_binding_refusal(
+                    acknowledged,
+                    "current provider session differs from the attempt",
+                )
+            })?;
+        if !identity.get("tab_id").is_some() {
+            identity["tab_id"] = serde_json::json!(acknowledged.attempt.executor_tab_id);
+        }
+        if !identity.get("caller_session_id").is_some() {
+            identity["caller_session_id"] = serde_json::json!(session);
+        }
+        identity["session_binding_nonce"] = serde_json::json!(nonce);
+    }
     let brief = super::plan_skills_rpc::ack_skill_brief(
         &svc.plan_store,
         &mux,
-        params,
+        &Some(identity),
         acknowledged,
         epoch_ms(),
     )?;

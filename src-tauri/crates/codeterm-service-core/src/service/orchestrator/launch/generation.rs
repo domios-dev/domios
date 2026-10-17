@@ -88,10 +88,13 @@ impl LaunchGeneration {
             .lock()
             .bind_provider_session(self, nonce.clone());
         if let Some(sidecar) = sidecar {
-            svc.set_agent_session_id(&self.tab_id, Some(sidecar.thread.lock().clone()));
+            let session_id = sidecar.thread.lock().clone();
+            svc.set_agent_session_id(&self.tab_id, Some(session_id.clone()));
             if let Some(tab) = svc.mux.write().get_tab_mut(&self.tab_id) {
                 tab.reported_session_binding_nonce = Some(nonce.clone());
             }
+            svc.carry_authorized_runtime_restart_binding(&self.tab_id, &session_id, &nonce)
+                .map_err(|error| error.reason)?;
             record_provider_session(
                 &self.tab_id,
                 &ProviderSessionBinding {

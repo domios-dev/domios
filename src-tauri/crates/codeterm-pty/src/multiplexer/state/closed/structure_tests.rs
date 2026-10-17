@@ -156,6 +156,7 @@ fn structure_restore_is_idempotent_after_durable_store_and_desk_restart() {
     mux.attach_closed_store(ClosedTabsStore::open(dir.path()).unwrap());
     mux.save_closed_structure(&record).unwrap();
     mux.close_workspace(&record.workspace.id).unwrap();
+    mux.take_closed_history_batch().unwrap().persist();
     mux.finish_structure_close(&record.id).unwrap();
     drop(mux);
     let mut reopened = MultiplexerState::empty();

@@ -108,6 +108,22 @@ pub fn validate_runtime_operation(
         | RuntimeOperation::SubmitTurn { settings, .. } => validate_runtime_settings(settings)?,
         _ => {}
     }
+    if let RuntimeOperation::ForkThread {
+        source_thread_id,
+        turn_id,
+    } = op
+    {
+        if ctx.thread_id.is_some()
+            || ctx.active_turn_id.is_some()
+            || !ctx.active_turns.is_empty()
+            || !identifier(source_thread_id)
+            || !identifier(turn_id)
+        {
+            return Err(mismatch(
+                "fork requires an unbound runtime and valid source boundary",
+            ));
+        }
+    }
     if let RuntimeOperation::BackgroundProcesses { thread_id, action } = op {
         if !owns_runtime_thread(ctx, thread_id) {
             return Err(mismatch("background operation targets an unowned thread"));
@@ -136,6 +152,7 @@ pub fn validate_runtime_operation(
             }
             None
         }
+        RuntimeOperation::ForkThread { .. } => None,
         RuntimeOperation::AnswerQuestion { thread_id, .. }
         | RuntimeOperation::ReadHistory { thread_id, .. }
         | RuntimeOperation::SubmitTurn { thread_id, .. }
@@ -213,6 +230,14 @@ pub fn validate_runtime_plan(
     validate_runtime_operation(ctx, op)?;
     validate_runtime_size(plan, MAX_RUNTIME_VALUE_BYTES)?;
     validate_runtime_size(&plan.state, MAX_RUNTIME_STATE_BYTES)?;
+    if matches!(op, RuntimeOperation::ForkThread { .. })
+        && !cap
+            .thread_history
+            .as_ref()
+            .is_some_and(|history| history.actions.contains(&RuntimeThreadHistoryAction::Fork))
+    {
+        return Err(mismatch("fork thread history capability absent"));
+    }
     if let RuntimeOperation::ReadHistory { thread_id, .. } = op {
         if runtime_descendant(ctx, thread_id)
             && !super::children::child_history_request(&plan.action, thread_id)
@@ -266,6 +291,28 @@ pub fn validate_runtime_call(
     op: &RuntimeOperation,
     call: &RpcCall,
 ) -> Result<(), RuntimeFailure> {
+    if let RuntimeOperation::ForkThread {
+        source_thread_id,
+        turn_id,
+    } = op
+    {
+        let params = &call.params;
+        let valid = call.target.is_none()
+            && match call.method.as_str() {
+                "thread/turns/list" => {
+                    params["threadId"].as_str() == Some(source_thread_id)
+                        && params["itemsView"] == "notLoaded"
+                }
+                "thread/fork" => {
+                    params["threadId"].as_str() == Some(source_thread_id)
+                        && params["lastTurnId"].as_str() == Some(turn_id)
+                }
+                _ => false,
+            };
+        if !valid {
+            return Err(mismatch("fork request differs from its source boundary"));
+        }
+    }
     if let RuntimeOperation::BackgroundProcesses { thread_id, .. } = op {
         if !cap.background_processes {
             return Err(mismatch("background processes capability absent"));
@@ -399,10 +446,9 @@ fn validate_runtime_result(
     }
     let valid = match (op, result) {
         (
-            RuntimeOperation::Control {
-                thread_id: Some(target),
-                action,
-                value,
+            RuntimeOperation::ForkThread {
+                source_thread_id: source,
+                turn_id: expected_turn,
             },
             RuntimeResult::ThreadForked {
                 source_thread_id,
@@ -410,13 +456,11 @@ fn validate_runtime_result(
                 turn_id,
             },
         ) => {
-            action == "threadHistory"
-                && value["action"] == "fork"
-                && value["turnId"].as_str() == Some(turn_id)
-                && target == source_thread_id
+            source == source_thread_id
+                && expected_turn == turn_id
                 && identifier(thread_id)
                 && identifier(turn_id)
-                && thread_id != target
+                && thread_id != source
         }
         (
             RuntimeOperation::Control {
@@ -699,6 +743,7 @@ pub fn validate_runtime_reduction(
             thread_id,
             rate_limits,
             resets,
+            ..
         } = event
         {
             if thread_id

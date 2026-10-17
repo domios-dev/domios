@@ -102,6 +102,13 @@ pub struct ChatBackendLaunchMetadata {
     pub(crate) agent: AgentSpawnSpec,
     pub(crate) params: super::SpawnAgentParams,
     pub(crate) owner_linkage: Option<RuntimeOwnerLinkage>,
+    pub(crate) runtime_fork: Option<RuntimeForkLaunch>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeForkLaunch {
+    pub(crate) source_thread_id: String,
+    pub(crate) turn_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

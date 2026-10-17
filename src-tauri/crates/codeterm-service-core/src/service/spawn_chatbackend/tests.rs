@@ -404,6 +404,7 @@ fn runtime_worker_identity_is_stamped_before_launch() {
         },
         params: Default::default(),
         owner_linkage: None,
+        runtime_fork: None,
     };
     let tab = mux.get_tab_mut(&tab_id).unwrap();
     super::stamp_chatbackend_launch_identity(tab, &metadata);

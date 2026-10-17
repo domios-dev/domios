@@ -29,6 +29,10 @@
         "thread/read",
         "thread/unarchive"
       ],
+      "forkThread": [
+        "thread/turns/list",
+        "thread/fork"
+      ],
       "readHistory": [
         "thread/turns/list",
         "thread/items/list",

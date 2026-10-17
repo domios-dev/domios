@@ -23,6 +23,7 @@ import { staleBannerCopy } from "./staleBanner";
 
 interface UsageDetailProps {
   snapshot: UsageSnapshot;
+  accountCreditsLabel?: string|null;
   resetSection?: import("react").ReactNode;
   flipUp: boolean;
   onRefresh: () => Promise<void>;
@@ -47,7 +48,7 @@ function StaleBanner({ snapshot, now }: { snapshot: UsageSnapshot; now: number }
   );
 }
 
-export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory, resetSection }: UsageDetailProps) {
+export function UsageDetail({ snapshot, accountCreditsLabel, flipUp, onRefresh, onOpenHistory, resetSection }: UsageDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   // Open-count gating is centralized in config (bounded writes: stops at MAX)
@@ -152,6 +153,7 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory, resetS
         />
       ))}
 
+      <UsageAccountCreditsRow label={accountCreditsLabel} />
       <MiniWeekBars buckets={buckets} />
 
       {resetSection}
@@ -170,7 +172,7 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory, resetS
 }
 
 // the cycle spend and reset instead of the gauge/projection machinery.
-export function UsageSpendDetail({ snapshot, flipUp, onRefresh, resetSection }: UsageDetailProps) {
+export function UsageSpendDetail({ snapshot, accountCreditsLabel, flipUp, onRefresh, resetSection }: UsageDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   const now = Date.now();
@@ -233,6 +235,7 @@ export function UsageSpendDetail({ snapshot, flipUp, onRefresh, resetSection }: 
         </span>
       </div>
 
+      <UsageAccountCreditsRow label={accountCreditsLabel} />
       {resetSection}
       <div className="ct-usage-foot">
         <span className="live">
@@ -242,6 +245,10 @@ export function UsageSpendDetail({ snapshot, flipUp, onRefresh, resetSection }: 
       </div>
     </div>
   );
+}
+
+function UsageAccountCreditsRow({label}: {label?:string|null}) {
+  return label ? <div className="ct-usage-account-credits">{label}</div> : null;
 }
 
 // ---------- Projection → marker conversion ----------

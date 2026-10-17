@@ -113,7 +113,7 @@ pub(super) async fn handle(
     }
     if reducible.is_empty() {
         return if lagged {
-            bookkeeping::account(svc, session, process, epoch, "lag").await
+            bookkeeping::account(svc, session, process, epoch, bookkeeping::Reason::Lag).await
         } else {
             Step::Continue
         };
@@ -144,14 +144,30 @@ pub(super) async fn handle(
                 "[agent-runtime] tab={} epoch={epoch} reducer failed: {reason}",
                 context.tab_id
             );
-            return fail_requests(svc, session, process, epoch, &accepted, "hook").await;
+            return fail_requests(
+                svc,
+                session,
+                process,
+                epoch,
+                &accepted,
+                bookkeeping::Reason::Hook,
+            )
+            .await;
         }
         Err(reason) => {
             log::debug!(
                 "[agent-runtime] tab={} epoch={epoch} reducer deadline: {reason}",
                 context.tab_id
             );
-            return fail_requests(svc, session, process, epoch, &accepted, "hook").await;
+            return fail_requests(
+                svc,
+                session,
+                process,
+                epoch,
+                &accepted,
+                bookkeeping::Reason::Hook,
+            )
+            .await;
         }
     };
     let received_at = chrono::Utc::now().timestamp_millis().max(0) as u64;
@@ -171,7 +187,15 @@ pub(super) async fn handle(
         || reduced.events.len() > MAX_RUNTIME_BATCH
         || validate_host_runtime_events(&context, &valid_events).is_err()
     {
-        return fail_requests(svc, session, process, epoch, &accepted, "limit").await;
+        return fail_requests(
+            svc,
+            session,
+            process,
+            epoch,
+            &accepted,
+            bookkeeping::Reason::Limit,
+        )
+        .await;
     }
     for id in &accepted {
         if let Some(error) = super::unmapped_request_error(&context, id, &reduced.events) {
@@ -188,11 +212,14 @@ pub(super) async fn handle(
         return match reason {
             RuntimeFailure::Superseded => Step::Break,
             reason if bookkeeping_protocol(&reason) => Step::Close(reason),
-            _ => bookkeeping::account(svc, session, process, epoch, "publish").await,
+            _ => {
+                bookkeeping::account(svc, session, process, epoch, bookkeeping::Reason::Publish)
+                    .await
+            }
         };
     }
     if lagged {
-        bookkeeping::account(svc, session, process, epoch, "lag").await
+        bookkeeping::account(svc, session, process, epoch, bookkeeping::Reason::Lag).await
     } else {
         Step::Continue
     }
@@ -214,7 +241,7 @@ async fn fail_requests(
     process: &Arc<Process>,
     epoch: u64,
     accepted: &[RpcId],
-    reason: &str,
+    reason: bookkeeping::Reason,
 ) -> Step {
     for id in accepted {
         session.prompts.lock().remove(id);

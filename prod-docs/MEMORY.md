@@ -1,6 +1,6 @@
 # Domios Memory System
 
-Agent-agnostic persistent memory survives restarts, provider switches and upgrades.
+Persistent memory survives restarts, provider switches and upgrades.
 
 ## TL;DR
 
@@ -12,9 +12,11 @@ Agent-agnostic persistent memory survives restarts, provider switches and upgrad
 - **Workers** — hidden headless agents that extract entities, build graph, dedup; `mem worker spawn` for ad-hoc enrichment
 - **Skills** — folder skills (`SKILL.md` + scripts) registered via `mem skill new/add`, indexed alongside other items
 - **Librarian** — periodic file-sync daemon: re-vectorizes source-tracked items when their on-disk file changes, flags deletions
-- **Dreaming** — nightly consolidation at 6 AM with 0..30 min delay-only jitter: four SQL phases (light, deep, normalize, calibration) run server-side in `POST /api/mem/dream`, then the LLM REM worker is spawned to handle structural cleanup + diary; the REM prompt is read-only with respect to calibration (sweep already ran); hygiene is reversible (merge archives, never deletes)
+- **Dreaming** — 6 AM consolidation (0..30 min jitter): `POST /api/mem/dream` runs light, deep, normalize and calibration SQL phases, then REM handles structural cleanup and diary. REM cannot change calibration; merges archive, never delete.
 - **Session lifecycle** — hooks bind sessions and report completion; terminal scrollback is never exported into memory.
-- **Protocol** — 7 behavioral rules injected into every agent session
+- **Protocol** — behavioral rules injected into every agent session
+
+Save only durable facts; session/task instructions stay in conversation or plan. If unsure, do not save; ask only on explicit remember. Remember durable facts now; remember session instructions only if the user says permanent.
 
 ## Mem vs past-session search
 
@@ -179,4 +181,4 @@ The prior deletion receipt must establish conversation kind, `flush:<tab> pre-co
 
 Check row/byte counts and compaction outcomes. Blob unlink, VACUUM and WAL checkpoint reclaim storage, without secure erasure. Backups, snapshots, old WAL copies, filesystem free space and provider transcripts remain untouched. No global orphan sweep runs.
 
-<!-- revision: 46 -->
+<!-- revision: 47 -->

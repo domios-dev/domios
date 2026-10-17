@@ -68,7 +68,7 @@ async fn restart_inner(
     }
     let nonce = super::authority::rotate_restart(svc, tab, provider, old_nonce)
         .map_err(RuntimeFailure::Refused)?;
-    svc.retain_runtime_restart_binding(tab, binding, &nonce);
+    svc.stage_runtime_restart_binding(tab, binding);
     if let Some(session) = &session {
         let context = session.context.lock().clone();
         super::prompt_answers::clear(svc, &context);

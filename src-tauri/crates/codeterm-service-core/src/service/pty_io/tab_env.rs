@@ -140,6 +140,24 @@ pub(crate) fn tab_task_env(plan_store: &PlanStore, tab_id: &str) -> HashMap<Stri
     HashMap::new()
 }
 
+fn task_binding_env(tab: &Tab) -> HashMap<String, String> {
+    let Some(binding) = tab.task_binding.as_ref() else {
+        return HashMap::new();
+    };
+    [
+        ("CODETERM_PLAN_ID", binding.plan_id.as_ref()),
+        ("CODETERM_TASK_ID", binding.task_id.as_ref()),
+        ("CODETERM_ATTEMPT_ID", binding.attempt_id.as_ref()),
+    ]
+    .into_iter()
+    .filter_map(|(key, value)| {
+        value
+            .filter(|value| !value.is_empty())
+            .map(|value| (key.into(), value.to_string()))
+    })
+    .collect()
+}
+
 pub(crate) fn tab_identity_env(tab: &Tab) -> HashMap<String, String> {
     let mut env_vars = HashMap::new();
     if tab.agent_type.is_some() {
@@ -173,31 +191,31 @@ impl ServiceContext {
             .map(|pad| pad.env_value());
         let session_binding_nonce = self.ensure_session_binding_nonce(tab_id);
         let shell_nonce = self.ensure_shell_integration_nonce(tab_id);
-        let (identity, binding_task) = {
+        let (mut identity, child_binding_task, parent_binding_task, parent_tab_id, parent_role) = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
                 .map(|tab| {
-                    let task = tab
-                        .task_binding
-                        .as_ref()
-                        .map(|binding| {
-                            let mut task = HashMap::new();
-                            for (key, value) in [
-                                ("CODETERM_PLAN_ID", &binding.plan_id),
-                                ("CODETERM_TASK_ID", &binding.task_id),
-                                ("CODETERM_ATTEMPT_ID", &binding.attempt_id),
-                            ] {
-                                if let Some(value) = value {
-                                    task.insert(key.into(), value.clone());
-                                }
-                            }
-                            task
-                        })
-                        .unwrap_or_default();
-                    (tab_identity_env(tab), task)
+                    let parent = if tab.is_utility_shell() && tab.team_id.is_some() {
+                        tab.parent_tab_id
+                            .as_deref()
+                            .and_then(|parent_id| mux.get_tab(parent_id))
+                            .filter(|parent| parent.team_id.as_deref() == tab.team_id.as_deref())
+                    } else {
+                        None
+                    };
+                    (
+                        tab_identity_env(tab),
+                        task_binding_env(tab),
+                        parent.map(task_binding_env).unwrap_or_default(),
+                        parent.map(|parent| parent.id.clone()),
+                        parent.and_then(|parent| parent.role),
+                    )
                 })
                 .unwrap_or_default()
         };
+        if parent_role == Some(crate::multiplexer::types::AgentRole::Worker) {
+            identity.insert("CODETERM_ROLE".into(), "Worker".into());
+        }
         TabLaunchEnv {
             tab_id: tab_id.to_string(),
             pad_dir,
@@ -205,7 +223,12 @@ impl ServiceContext {
             shell_nonce,
             identity,
             task: {
-                let mut task = binding_task;
+                let mut task = HashMap::new();
+                if let Some(parent_tab_id) = parent_tab_id.as_deref() {
+                    task.extend(parent_binding_task);
+                    task.extend(tab_task_env(&self.plan_store, parent_tab_id));
+                }
+                task.extend(child_binding_task);
                 task.extend(tab_task_env(&self.plan_store, tab_id));
                 task
             },
