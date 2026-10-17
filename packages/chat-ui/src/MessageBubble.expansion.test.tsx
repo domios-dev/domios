@@ -129,7 +129,9 @@ async function run() {
   const read = cards.find((card) => card.textContent?.includes("Read") && card.textContent.includes("coordination.ts"));
   const completedCommandCard = cards.find((card) => card.textContent?.includes("git status --short"));
   const edit = cards.find((card) => card.querySelector('[data-testid="toolcard-edit-summary"]'));
-  assert(send?.querySelector('[aria-label="Hide full command"]'), "outbound message should start expanded");
+  assert(send?.querySelector('[data-testid="chat-sent-message"]'), "outbound message body renders as the primary content");
+  assert(send?.querySelector('[data-testid="chat-sent-expand"]'), "outbound message body keeps its preview and expand control");
+  assert(!send?.querySelector('[data-testid="raw-command-disclosure"]')?.hasAttribute("open"), "outbound raw command starts collapsed in technical details");
   assert(list?.querySelector('[aria-label="Show full command"]'), "ordinary operational command should start collapsed");
   assert(read?.querySelector('[aria-label="Expand tool details"]'), "completed read-only inspection should start collapsed");
   assert(!read?.textContent?.includes("private inspection output"), "collapsed read-only inspection should hide output");
