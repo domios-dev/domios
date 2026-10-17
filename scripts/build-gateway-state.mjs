@@ -128,7 +128,7 @@ try {
     else throw new Error(`unknown evidence operation: ${command}`);
     atomicWrite(file, record);
     if (command === 'evidence-start') console.log(`[build-gateway] sccache server at job start: ${serverIdentity(record.sccache.server_process?.start)}`);
-    if (command === 'evidence-end') console.log(`[build-gateway] sccache server at job end: ${serverIdentity(record.sccache.server_process?.end)}`);
+    if (command === 'evidence-end' && record.sccache) console.log(`[build-gateway] sccache server at job end: ${serverIdentity(record.sccache.server_process?.end)}`);
   }
   else throw new Error("usage: build-gateway-state.mjs create|update|status");
 } catch (error) {
