@@ -172,6 +172,9 @@ pub fn launch_with_dispatch(
         };
         target = Some(available);
     }
+    if matches!(operation, CliOperation::Update) {
+        command = update::prepare_command(command, platform)?;
+    }
     let prerequisites = match operation {
         CliOperation::Install => &status.installer_prerequisites,
         CliOperation::Update => &status.updater_prerequisites,
