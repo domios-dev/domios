@@ -88,9 +88,9 @@ impl ServiceContext {
         {
             return Err("Runtime launch capability or provider changed".into());
         }
-        let skip = params.permission_bypass_requested(&provider);
         let policy =
             crate::service::execution_sandbox::for_launch(self, tab_id, &provider, params, true)?;
+        let skip = policy.is_none() && params.permission_bypass_requested(&provider);
         let mode = match &policy {
             Some(policy) => policy
                 .runtime_mode
@@ -221,15 +221,23 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
             ),
         )
     };
-    let requested = requested && permission_policy::configured_full_access_for(&svc)?;
-    let intent = svc.mux.read().get_tab(tab_id).and_then(|tab| {
+    let worker = svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .is_some_and(|tab| tab.role == Some(crate::multiplexer::types::AgentRole::Worker));
+    let requested = requested && (worker || permission_policy::configured_full_access_for(&svc)?);
+    let sandbox = svc.mux.read().get_tab(tab_id).and_then(|tab| {
         tab.restorable_launch
             .execution_sandbox
             .as_ref()
-            .map(|policy| policy.intent.clone())
+            .map(|policy| match &policy.intent {
+                crate::plan::ExecutionIntent::ReadOnly => "read-only".into(),
+                _ => "workspace-write".into(),
+            })
     });
     let params = SpawnAgentParams {
-        execution_intent: intent,
+        sandbox,
         agent: Some(provider.clone()),
         skip_permissions: Some(requested),
         permission_bypass_authorization: permission_policy::authorize_permission_bypass(

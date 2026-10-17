@@ -1,6 +1,7 @@
 import { VIDEO_SNIFF_BYTES, attachmentKindForUpload, validateAttachment } from "@codeterm/chat-core";
 import { createAttachmentUploads, type AttachmentUpload } from "./attachmentUploadModel";
 import { addCapsule, capsuleSpans, type CapsuleRegistry, type ComposerCapsule } from "./composerCapsules";
+import { imageUploadName } from "./composerTransferModel";
 
 export interface ComposerUpload extends AttachmentUpload { label: string }
 
@@ -14,7 +15,7 @@ export async function validatedStore(store: (blob: Blob, name: string) => Promis
   const head = kind === "video" ? new Uint8Array(await blob.slice(0, VIDEO_SNIFF_BYTES).arrayBuffer()) : undefined;
   const verdict = validateAttachment({ kind, size: blob.size, head });
   if (!verdict.ok) throw new Error(verdict.error);
-  return store(blob, name);
+  return store(blob, imageUploadName(name, blob.type));
 }
 
 export function createComposerUploads(deps: {

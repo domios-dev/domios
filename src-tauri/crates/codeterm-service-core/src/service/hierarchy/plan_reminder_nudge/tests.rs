@@ -755,7 +755,7 @@ fn review_hold_note_skips_stale_review_and_actionable_projection() {
 }
 
 #[test]
-fn plan_reminder_owner_with_two_plans_considers_both_gates() {
+fn plan_reminder_owner_with_two_plans_waits_for_interval() {
     let plans = [
         plan(
             "plan-a",
@@ -778,7 +778,7 @@ fn plan_reminder_owner_with_two_plans_considers_both_gates() {
         }
         Ok(false)
     });
-    assert_eq!(*considered.borrow(), vec!["plan-a", "plan-b"]);
+    assert!(considered.borrow().is_empty());
 }
 
 #[test]
@@ -889,4 +889,20 @@ fn send_due_plan_time_reminders_with(
         deliver,
         |_, _, _: TickFact| {},
     );
+}
+
+#[test]
+fn plan_events_cannot_advance_owner_heartbeat_deadline() {
+    let counter = TurnCounter::new();
+    let mut plans = vec![owner_plan("orch")];
+    assert!(!counter.time_nudge_due("orch", 0, 2700));
+    let deliveries = RefCell::new(Vec::new());
+    for now in [60, 120, 180, 2699, 2700, 2701, 2800, 5399, 5400] {
+        plans[0].tasks[0].status_label = Some(format!("event-{now}"));
+        send_due_plan_time_reminders_with(&plans, &counter, now, 2700, |_, _, _| {
+            deliveries.borrow_mut().push(now);
+            Ok(true)
+        });
+    }
+    assert_eq!(*deliveries.borrow(), vec![2700, 5400]);
 }

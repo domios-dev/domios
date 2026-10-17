@@ -125,3 +125,21 @@ fn a_closed_attempt_without_a_newer_live_dispatch_is_not_reported_as_superseded(
     assert!(message.contains(super::super::task_dispatch::ACK_CAUSE_NO_LIVE_ATTEMPT));
     assert!(!message.contains(super::super::task_dispatch::ACK_CAUSE_ATTEMPT_SUPERSEDED));
 }
+
+#[test]
+fn acknowledgement_reads_current_task_after_dispatch_despite_retained_snapshot() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    let mut before_dispatch = store.get(&plan_id).unwrap();
+    before_dispatch.tasks.clear();
+    store.record_committed_snapshot(&before_dispatch);
+
+    let acknowledged = store
+        .acknowledge_live_task_attempt_for_tab("worker", Some(&plan_id), Some(&task_id), 4)
+        .unwrap();
+    assert_eq!(acknowledged.task_id, task_id);
+    assert_eq!(acknowledged.attempt.acknowledged_at, Some(4));
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.status,
+        TaskStatus::InProgress
+    );
+}

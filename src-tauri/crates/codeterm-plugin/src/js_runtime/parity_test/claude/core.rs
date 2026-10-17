@@ -1,7 +1,6 @@
 //! Claude parity: detection, metadata, slash commands, launch, resume,
 //! session-jsonl path resolution, and settings-json integration hooks.
 
-use super::super::*;
 use super::*;
 
 fn integration_options() -> crate::provider::IntegrationInstallOptions {

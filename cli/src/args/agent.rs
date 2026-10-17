@@ -238,7 +238,14 @@ pub enum AgentAction {
         #[arg(long)]
         force: bool,
         /// Model id. Run `agent models PROVIDER` to list.
-        name: String,
+        /// Model id. Omit when changing only the service tier.
+        name: Option<String>,
+        /// Service tier id or `default` to clear the selection.
+        #[arg(long, value_name = "TIER", conflicts_with = "list_speeds")]
+        speed: Option<String>,
+        /// List this tab's currently available service tiers.
+        #[arg(long, conflicts_with_all = ["speed", "name", "force"])]
+        list_speeds: bool,
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
@@ -387,6 +394,9 @@ pub enum AgentAction {
         /// `read_only` is also the task-less verification-Worker shape.
         #[arg(long = "execution-intent", value_parser = ["read_only", "mutating"])]
         execution_intent: Option<String>,
+        /// Explicit OS confinement for this launch; Workers default to full access.
+        #[arg(long, value_parser = ["read-only", "workspace-write"])]
+        sandbox: Option<String>,
         /// Gate token this Worker may claim as executed; repeatable. Carried
         /// into its brief. For a task-bound Worker declare gates on the
         /// dispatch instead (`plan task dispatch --authorized-gate`).
@@ -423,6 +433,38 @@ mod tests {
                 action: AgentAction::Model { force: true, .. }
             }
         ));
+    }
+
+    #[test]
+    fn agent_model_parses_speed_only_and_catalogue_listing() {
+        let speed = Cli::try_parse_from([
+            "codeterm", "agent", "model", "--tab", "tab-a", "--speed", "default",
+        ])
+        .unwrap();
+        assert!(
+            matches!(speed.command, crate::Commands::Agent { action: AgentAction::Model { name: None, speed: Some(value), .. } } if value == "default")
+        );
+        let list = Cli::try_parse_from([
+            "codeterm",
+            "agent",
+            "model",
+            "--tab",
+            "tab-a",
+            "--list-speeds",
+        ])
+        .unwrap();
+        assert!(matches!(
+            list.command,
+            crate::Commands::Agent {
+                action: AgentAction::Model {
+                    list_speeds: true,
+                    ..
+                }
+            }
+        ));
+        assert!(
+            Cli::try_parse_from(["codeterm", "agent", "model", "--list-speeds", "opus"]).is_err()
+        );
     }
 
     #[test]
@@ -1043,4 +1085,69 @@ pub enum ProviderCliAction {
     Install { provider: String },
     /// Run the manifest updater in a visible utility tab and report its result.
     Update { provider: String },
+}
+
+#[cfg(test)]
+mod sandbox_tests {
+    use crate::args::cli::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn worker_spawn_sandbox_is_explicit_and_off_by_default() {
+        for mode in [None, Some("read-only"), Some("workspace-write")] {
+            let mut args = vec![
+                "codeterm",
+                "agent",
+                "spawn",
+                "codex",
+                "--role",
+                "Worker",
+                "--plan",
+                "pl",
+                "--execution-intent",
+                "read_only",
+            ];
+            if let Some(mode) = mode {
+                args.extend(["--sandbox", mode]);
+            }
+            let parsed = Cli::try_parse_from(args).unwrap();
+            let crate::Commands::Agent {
+                action: super::AgentAction::Spawn { sandbox, .. },
+            } = parsed.command
+            else {
+                panic!("spawn");
+            };
+            assert_eq!(sandbox.as_deref(), mode);
+        }
+    }
+
+    #[test]
+    fn dispatch_sandbox_is_explicit_and_off_by_default() {
+        for mode in [None, Some("read-only"), Some("workspace-write")] {
+            let mut args = vec![
+                "codeterm",
+                "plan",
+                "task",
+                "dispatch",
+                "pl",
+                "task",
+                "--execution-intent",
+                "mutating",
+            ];
+            if let Some(mode) = mode {
+                args.extend(["--sandbox", mode]);
+            }
+            let parsed = Cli::try_parse_from(args).unwrap();
+            let crate::Commands::Plan {
+                action:
+                    crate::PlanAction::Task {
+                        action: crate::args::plan::PlanTaskAction::Dispatch { sandbox, .. },
+                    },
+            } = parsed.command
+            else {
+                panic!("dispatch");
+            };
+            assert_eq!(sandbox.as_deref(), mode);
+        }
+    }
 }

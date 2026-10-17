@@ -154,10 +154,17 @@ pub fn restore_permission_bypass_authorization(
     if launch.captured && !launch.permission_bypass_requested {
         return Ok(None);
     }
-    let authorization = crate::service::permission_policy::configured_permission_bypass_for(
+    let worker = svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .is_some_and(|tab| tab.role == Some(crate::multiplexer::types::AgentRole::Worker));
+    let authorization = crate::service::permission_policy::spawn_permission_bypass_for(
         svc,
         registry,
         provider_id,
+        worker,
+        launch.execution_sandbox.is_some(),
     )?;
     if launch.captured && launch.permission_bypass_requested && authorization.is_none() {
         log::warn!(
@@ -211,7 +218,13 @@ pub fn restored_fresh_launch_input(
 ) -> RestoredFreshLaunchInput {
     let legacy_snapshot = !launch_parameters.captured;
     if let Some(policy) = &launch_parameters.execution_sandbox {
-        params.execution_intent = Some(policy.intent.clone());
+        params.sandbox = Some(
+            match &policy.intent {
+                crate::plan::ExecutionIntent::ReadOnly => "read-only",
+                _ => "workspace-write",
+            }
+            .into(),
+        );
         params.cwd = Some(policy.cwd.clone());
         params.skip_permissions = Some(false);
         params.permission_bypass_authorization = None;

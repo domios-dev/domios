@@ -100,6 +100,7 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
             workspace: None,
             cwd: None,
             execution_intent: "read_only".into(),
+            sandbox: None,
             provider_reserve_pct: 0.0,
         },
         None,
@@ -140,6 +141,7 @@ fn dispatch_action(cwd: &str) -> PlanTaskAction {
         workspace: None,
         cwd: Some(cwd.into()),
         execution_intent: "mutating".into(),
+        sandbox: None,
         provider_reserve_pct: 0.0,
     }
 }
@@ -667,4 +669,16 @@ fn structured_task_files_use_authorized_update_and_preserve_paths() {
         params["files"],
         json!({"edit":["new file.rs"],"read":["context.md"]})
     );
+}
+
+#[test]
+fn plan_task_dispatch_forwards_explicit_sandbox_choice() {
+    let mut client = FakeRpc::scripted([owner_epoch_task(), json!({"tab_id":"worker"})]);
+    let mut action = dispatch_action("lane");
+    let PlanTaskAction::Dispatch { sandbox, .. } = &mut action else {
+        unreachable!()
+    };
+    *sandbox = Some("read-only".into());
+    run_dispatch(&mut client, true, action, None).unwrap();
+    assert_eq!(client.calls[1].1["sandbox"], "read-only");
 }

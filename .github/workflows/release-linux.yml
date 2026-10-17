@@ -6,7 +6,7 @@ name: Release Linux x86_64 platform
 #
 # The caller creates the private and public draft releases before platform jobs start.
 # Runner provisioning (one-time, on ubunta): register a self-hosted runner with
-# label `linux-build`; install rustup on the repo-pinned channel (1.95.0),
+# label `linux-build`; install rustup on the repo-pinned channel (1.99.1),
 # node 22 / pnpm 10.32.1, gh, and the GTK/webkit/appindicator/rsvg/patchelf/
 # libfuse2/xdg-utils deps (pre-provisioned — the runner user has no passwordless
 # sudo, so there is no per-build apt step).
@@ -60,6 +60,7 @@ jobs:
     timeout-minutes: 120
     env:
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
+      RUSTUP_TOOLCHAIN: 1.99.1
       RUSTC_WRAPPER: sccache
       TARGET: x86_64-unknown-linux-gnu
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
@@ -105,7 +106,7 @@ jobs:
       # (ubunta). No apt-install step — the runner user has no passwordless sudo,
       # and re-installing per build is wrong for a self-hosted machine.
 
-      # Repo-pinned toolchain (rust-toolchain.toml = 1.95.0) drives rustc; do NOT
+      # Repo-pinned toolchain (rust-toolchain.toml = 1.99.1) drives rustc; do NOT
       # use dtolnay@stable, which would float off the pin. x86_64-unknown-linux-gnu
       # is the host target on the x86_64 runner, so no cross target is needed.
       - name: Show pinned Rust toolchain

@@ -225,6 +225,9 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
               webStatus={deriveWebUiView(serve?.snapshot, serveLoading).label}
               thisMachine={data.thisMachine}
               peers={data.peers}
+              services={data.services}
+              loading={data.loading}
+              error={data.error}
               recentPushes={recentPushes}
               onPeerClick={handlePeerClick}
               width={mapSize.width}
@@ -244,6 +247,8 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         )}
         <ServiceDrawer
           state={drawerState}
+          loading={data.loading}
+          error={data.error}
           services={data.services}
           peers={data.peers}
           thisMachineName={data.thisMachine.name}

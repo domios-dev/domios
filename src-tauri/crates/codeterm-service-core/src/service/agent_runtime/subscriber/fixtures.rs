@@ -182,7 +182,7 @@ impl AgentProvider for Adapter {
         let armed = self
             .0
             .fail_next
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
         if armed.is_ok() {
             self.0.reduce_failures.fetch_add(1, Ordering::SeqCst);
             return Err(codeterm_plugin::agent_runtime::RuntimeFailure::new(

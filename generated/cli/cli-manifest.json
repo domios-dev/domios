@@ -12382,6 +12382,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "description",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "DESCRIPTION",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Worker tab description (defaults to a short summary of the task name)",
+                  "aliases": []
+                },
+                {
                   "name": "execution-intent",
                   "positional": false,
                   "required": true,

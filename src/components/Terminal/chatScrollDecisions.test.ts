@@ -90,6 +90,8 @@ test("inner wheel consumption transfers to the transcript at either directional 
   assert.equal(consumes({ ...inner, scrollTop: 600 }, -40), true);
   assert.equal(consumes({ ...inner, scrollTop: 250.5 }, 0.25), true);
   assert.equal(consumes({ ...inner, scrollHeight: 200 }, 40), false);
+  assert.equal(consumes({ ...inner, scrollHeight: 200 }, -40), false);
+  assert.equal(consumes({ scrollTop: 0, scrollHeight: 24, clientHeight: 24 }, 40), false);
   assert.equal(consumes({ ...inner, scrollTop: -10 }, -40), false);
   assert.equal(consumes({ ...inner, scrollTop: 620 }, 40), false);
   assert.equal(consumes(inner, 0), false);

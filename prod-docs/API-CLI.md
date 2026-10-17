@@ -101,6 +101,8 @@ descriptor array with `--json` in both local and mesh mode.
 
 Choose a model with `codeterm agent models <provider>`, which first refreshes a catalogue that requires live discovery and, when no new snapshot publishes, warns and lists the registered one. Pass the id with `codeterm agent spawn [provider] --model <id>`. Without a provider, a uniquely advertised bare id selects its provider; otherwise spawn uses the configured default provider. Authoritative catalogues refuse unknown ids before creating a tab and list the valid ids in the error. Free-form providers validate ids against a published live model list and pass the id through unchanged when none exists. Provider-qualified ids select their provider; an unqualified id advertised by one provider routes to it. If several advertise it, `plan task dispatch` requires `--agent` and `agent spawn` requires the positional provider. Ambiguous ids and aliases advertised by another provider are refused instead of falling through or crossing providers.
 
+Switch a tab's runtime service tier with `codeterm agent model --tab TAB --speed TIER`; use `--speed default` to clear it or `--list-speeds` to read the exact tab's session-bound, model-scoped catalogue. `GET /api/tabs/{id}/agent/service-tiers` returns available tiers and requested/confirmed selection. Unavailable tiers are refused before the existing model-control endpoint is called.
+
 Task attempt inspection keeps `requested_model`, `provider_resolved_model`, and `session_model` separate. The resolved field stays null until launch resolution identifies the model; the session field stays null until detection reads that attempt's bound session. A different detected model is stored in `model_identity_mismatch` and raises one dispatcher notice.
 
 ### Open agent shells (`chatBackend`)
@@ -179,4 +181,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 41 -->
+<!-- revision: 42 -->

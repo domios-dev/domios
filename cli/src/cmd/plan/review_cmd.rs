@@ -129,7 +129,7 @@ pub(super) fn handle(
             if let Some(residual_risk) = residual_risk {
                 params["residual_risk"] = json!(residual_risk);
             }
-            maybe_inject_caller_tab(&mut params);
+            inject_trusted_session(&mut params);
             call_plan_rpc(client, "plan.review.accept", params).map(Some)
         }
         PlanReviewAction::Bounce {
@@ -167,7 +167,7 @@ pub(super) fn handle(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_tab(&mut params);
+            inject_trusted_session(&mut params);
             call_plan_rpc(client, "plan.review.hold", params).map(Some)
         }
     }

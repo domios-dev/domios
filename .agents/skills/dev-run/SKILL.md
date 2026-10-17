@@ -24,7 +24,25 @@ DEV installs and bundles that exact debug CLI artifact. Production builds and
 standalone `cli` retain their release profile. The CLI's existing package-only
 opt-level 1 is unchanged; dependencies keep their existing profile settings.
 
-Vite `build --watch` refreshes the frontend bundle; Rust edits need another `dev`.
+Vite `build --watch` refreshes the production-mode frontend bundle; Rust edits need another `dev`.
+For browser UI/provider development, `pnpm dev` uses Vite HMR. Its watcher
+excludes Rust `src-tauri/target`, `cli/target` and `target-check` trees so native
+compiler outputs do not inflate the frontend watch set. The loader accepts
+the replacement module so providers use fresh glob imports. Do not switch the
+default desktop watcher to React development mode: its WebView memory growth
+is why this workflow uses production-mode bundles.
+Installed JavaScript plugins reload on filesystem events without following
+dependency symlinks, including creation
+of a previously missing plugin root. Settings changes update the existing VM;
+a failed code reload retains the last working plugin. Native Rust has no stable
+hot-swap ABI here: use `check` and focused tests, then rebuild/restart dev.
+A native hot-swap extension would need an explicit module boundary: keep tabs,
+PTYs, sessions and service state in the host, and reload a pure parser or
+transform over versioned byte inputs/outputs. Replacing arbitrary Rust libraries
+cannot preserve the layout and lifetimes of trait objects, futures and globals.
+A future implementation must retain each loaded generation until its in-flight
+calls finish, use copied library filenames on Windows, and reject ABI mismatches.
+
 All build logic lives in `build.sh`; `build.ps1` forwards to it.
 All Cargo work, including named `dev --wait`, owns the shared build gateway and
 initializes sccache through its common entry. The build writes the existing dev
@@ -336,7 +354,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
 
 ### REST listener bind recovery
 

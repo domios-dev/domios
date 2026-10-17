@@ -1,7 +1,7 @@
 import { chatHorizontalInsets } from "@codeterm/chat-ui";
 
-export function syncChatTimeGutter(surface: HTMLElement, width: number, composerInset: number, timestampWidth: number): void {
-  const insets = chatHorizontalInsets(width, composerInset, timestampWidth);
+export function syncChatTimeGutter(surface: HTMLElement, width: number, composerInset: number, timestampWidth: number, columnWidth: number): void {
+  const insets = chatHorizontalInsets(width, composerInset, timestampWidth, columnWidth);
   const show = insets.timeGutter > 0;
   surface.style.setProperty("--ct-chat-content-inset", `${insets.contentInset}px`);
   surface.style.setProperty("--ct-chat-composer-inset", `${insets.composerInset}px`);

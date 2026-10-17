@@ -97,7 +97,7 @@ bash ./build.sh lane-recover keep <lane-branch> <worktree-path>
 bash ./build.sh lane-recover merge <lane-branch>
 ```
 
-`bash ./build.sh ...` runs unchanged on bash and PowerShell with Git Bash on PATH; `.uild.ps1 lane-recover keep <lane-branch> <worktree-path>` is the PowerShell-only form.
+`bash ./build.sh ...` runs unchanged on bash and PowerShell with Git Bash on PATH; `.\build.ps1 lane-recover keep <lane-branch> <worktree-path>` is the PowerShell-only form.
 
 From PowerShell, use:
 

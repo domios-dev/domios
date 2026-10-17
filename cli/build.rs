@@ -1,3 +1,5 @@
+#[path = "build/git_inputs.rs"]
+mod git_inputs;
 #[path = "../src-tauri/build/plugin_bundles.rs"]
 mod plugin_bundles;
 
@@ -7,12 +9,16 @@ fn main() {
     plugin_bundles::generate_system_plugin_hashes();
     for path in ["HEAD", "packed-refs"] {
         if let Some(path) = git_output(&["rev-parse", "--git-path", path]) {
+            if !std::path::Path::new(&path).exists() {
+                continue;
+            }
             println!("cargo:rerun-if-changed={path}");
         }
     }
     if let Some(reference) = git_output(&["symbolic-ref", "-q", "HEAD"]) {
         if let Some(path) = git_output(&["rev-parse", "--git-path", &reference]) {
-            println!("cargo:rerun-if-changed={path}");
+            let input = git_inputs::existing_input(std::path::Path::new(&path));
+            println!("cargo:rerun-if-changed={}", input.display());
         }
     }
 

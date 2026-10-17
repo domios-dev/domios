@@ -1,4 +1,5 @@
 import {
+  cachedServices,
   collectPeerErrors,
   mergeServicesView,
   type PeerServicesView,
@@ -119,5 +120,11 @@ console.log("servicesView tests");
   );
 }
 
+const mutable = { ...svc("cached", "Cached"), capabilities: { delete: { allowed: true }, get: { allowed: false, unavailable_reason: "not_authorized" as const } } };
+const [cached] = cachedServices([mutable]);
+assert("cached resources are stale", cached.provenance?.freshness === "stale" && cached.stale === true);
+assert("cached operations cannot mutate", cached.capabilities?.delete?.allowed === false && cached.capabilities.delete.unavailable_reason === "stale");
+assert("cached denial preserves authorization reason", cached.capabilities?.get?.unavailable_reason === "not_authorized");
+assert("cache invalidation does not mutate source", mutable.capabilities.delete.allowed === true);
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) throw new Error(`${failed} test(s) failed`);
