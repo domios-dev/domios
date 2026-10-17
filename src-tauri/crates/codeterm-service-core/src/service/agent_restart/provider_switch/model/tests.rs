@@ -62,6 +62,25 @@ fn handoff_routes_both_transport_directions_by_capability() {
 }
 
 #[test]
+fn sleeping_source_switches_without_waking_the_retired_provider() {
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.pty_id = None;
+    tab.frozen = true;
+    assert!(sleeping_source_idle(tab));
+    tab.agent_booting = true;
+    assert!(!sleeping_source_idle(tab));
+    tab.agent_booting = false;
+    tab.pty_id = Some("live-pty".into());
+    assert!(!sleeping_source_idle(tab));
+    for target in [TargetRoute::Pty, TargetRoute::Runtime] {
+        tab.frozen = true;
+        reset_for_target(tab, "target", target, &Default::default());
+        assert!(!tab.frozen);
+    }
+}
+
+#[test]
 fn busy_switch_requires_explicit_stop_and_refuses_an_inflight_launch() {
     assert!(require_idle(true, false, false).is_ok());
     assert!(require_idle(false, false, false).is_err());
