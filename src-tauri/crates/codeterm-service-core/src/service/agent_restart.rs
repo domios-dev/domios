@@ -417,6 +417,40 @@ impl ServiceContext {
             self.end_held_user_sends_for_fresh_restart(&snap.tab_id)
                 .map_err(AgentRestartError::Internal)?;
         }
+        let restart_binding = if session_present && !provider_changed {
+            let (nonce, task_bound) = {
+                let mux = self.mux.read();
+                let tab = mux.get_tab(&snap.tab_id).ok_or_else(|| {
+                    AgentRestartError::NotFound(format!("Tab {} not found", snap.tab_id))
+                })?;
+                (
+                    tab.session_binding_nonce.clone(),
+                    tab.task_binding.is_some(),
+                )
+            };
+            let authority = nonce.as_deref().and_then(|nonce| {
+                let result = if model_switch.is_some() {
+                    self.authorize_model_switch_restart_binding(&snap.tab_id, &snap.provider, nonce)
+                } else {
+                    self.authorize_runtime_restart_binding(
+                        &snap.tab_id,
+                        &snap.provider,
+                        nonce,
+                        false,
+                    )
+                };
+                result.ok().flatten()
+            });
+            if task_bound && authority.is_none() {
+                return Err(AgentRestartError::BadRequest(
+                    "task attempt could not be authorized for restart carry".into(),
+                )
+                .into());
+            }
+            Some(authority)
+        } else {
+            None
+        };
         crate::service::orchestrator::supersede_tab_launch(&snap.tab_id);
         if let Err(reason) = self.tear_down_restart_pty(&snap) {
             crate::service::task_files::release_tab(self, &snap.tab_id);
@@ -455,6 +489,13 @@ impl ServiceContext {
             launch.commit(self, &snap.tab_id);
         }
 
+        let attempt_carry_required = restart_binding.as_ref().is_some_and(Option::is_some);
+        self.stage_runtime_restart_binding(
+            &snap.tab_id,
+            restart_binding
+                .as_ref()
+                .and_then(|authority| authority.clone()),
+        );
         self.set_and_lock_tab_agent_type_from(
             &snap.tab_id,
             target_provider.to_string(),
@@ -500,6 +541,7 @@ impl ServiceContext {
         let ready = match ready {
             Ok(ready) => ready,
             Err(error) => {
+                self.clear_runtime_restart_binding(&snap.tab_id);
                 crate::service::task_files::release_tab(self, &snap.tab_id);
                 return Err(error);
             }
@@ -509,7 +551,11 @@ impl ServiceContext {
             ready.new_pty_id.as_deref().unwrap_or("-"),
             "ready",
         );
-        self.settle_restored_binding(ready, &snap)
+        let settled = self.settle_restored_binding(ready, &snap, attempt_carry_required);
+        if settled.is_err() {
+            self.clear_runtime_restart_binding(&snap.tab_id);
+        }
+        settled
     }
 
     /// Rebind callers before readiness is reported: a tab that cannot regain
@@ -518,12 +564,47 @@ impl ServiceContext {
         &self,
         mut outcome: RestartOutcome,
         snap: &TabRestartSnapshot,
+        require_attempt_carry: bool,
     ) -> Result<RestartOutcome, RestartAttemptError> {
         // Only a resumed session has an id the tab must still be holding; a
         // fresh launch legitimately comes back on a new one.
         let expected = (outcome.session_action() == "resumed")
             .then_some(snap.session_id.as_deref())
             .flatten();
+        if require_attempt_carry {
+            let (thread, nonce) = self
+                .mux
+                .read()
+                .get_tab(&snap.tab_id)
+                .and_then(|tab| {
+                    Some((
+                        tab.agent_session_id.clone()?,
+                        tab.session_binding_nonce.clone()?,
+                    ))
+                })
+                .ok_or_else(|| RestartAttemptError::Failed {
+                    outcome: outcome.clone(),
+                    reason: "restarted task worker has no current session binding".into(),
+                    timed_out: false,
+                })?;
+            match self.finalize_authorized_runtime_restart_binding(&snap.tab_id, &thread, &nonce) {
+                Ok(true) => {}
+                Ok(false) => {
+                    return Err(RestartAttemptError::Failed {
+                        outcome,
+                        reason: "restarted task worker attempt was not carried".into(),
+                        timed_out: false,
+                    });
+                }
+                Err(error) => {
+                    return Err(RestartAttemptError::Failed {
+                        outcome,
+                        reason: error.reason,
+                        timed_out: false,
+                    });
+                }
+            }
+        }
         match self.restore_caller_binding(&snap.tab_id, expected) {
             Ok(restored) => {
                 outcome.binding_restored = true;
