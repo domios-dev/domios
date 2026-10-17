@@ -1076,6 +1076,7 @@ export interface ProviderDescriptor {
     threadHistory?: { actions: readonly ("fork" | "revert")[] };
   };
   supports_session_fork?: boolean;
+  supports_subagent_visibility?: boolean;
   cli_status?: import("./providerCli").ProviderCliStatus;
   schema_version: number;
   id: string;

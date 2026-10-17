@@ -371,6 +371,8 @@ pub struct Capabilities {
     #[serde(default)]
     pub agent_provider: bool,
     #[serde(default)]
+    pub subagent_visibility: bool,
+    #[serde(default)]
     pub reply_relay: bool,
     #[serde(default)]
     pub tool_less: bool,

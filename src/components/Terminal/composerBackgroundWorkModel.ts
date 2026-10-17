@@ -2,14 +2,15 @@ import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { BackgroundProcessEntry } from "../../lib/backgroundProcesses";
 
 export const LONG_RUNNING_WORK_MS = 15_000;
-export const VISIBLE_WORK_BADGES = 2;
 
 export interface ComposerBackgroundWorkItem {
   id: string;
   kind: "agent" | "terminal";
   name: string;
   threadId: string;
+  transcriptThreadId?: string;
   startedAtMs: number;
+  elapsed: string;
   prompt?: string;
   model?: string;
   effort?: string;
@@ -21,10 +22,10 @@ export interface ComposerBackgroundWorkItem {
   osPid?: number | null;
 }
 
-export type ComposerWorkBadgeLayout =
-  | { kind: "empty" }
-  | { kind: "individual"; items: ComposerBackgroundWorkItem[] }
-  | { kind: "count"; count: number; items: ComposerBackgroundWorkItem[] };
+export interface ComposerBackgroundWorkBubble {
+  count: number;
+  items: ComposerBackgroundWorkItem[];
+}
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -55,30 +56,47 @@ function messageOutput(message: NormalizedChatMessage | undefined): string | und
   return content?.slice(-800);
 }
 
-function agentWork(messages: readonly NormalizedChatMessage[], nowMs: number, minDurationMs: number): ComposerBackgroundWorkItem[] {
+export function backgroundWorkElapsed(elapsedMs: number): string {
+  const seconds = Math.floor(Math.max(0, elapsedMs) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: string, nowMs: number, minDurationMs: number): ComposerBackgroundWorkItem[] {
   const latest = new Map<string, { item: ComposerBackgroundWorkItem; order: number }>();
   messages.forEach((message, order) => {
     if (message.type !== "tool_call" || message.toolKind !== "agent" || message.toolName !== "agent_activity") return;
     const source = record(message.toolInput);
     if (!source) return;
-    const threadId = string(source.agent_id);
-    const parentThreadId = string(source.agent_parent_thread_id);
+    const callId = string(source.agent_call_id);
+    const transcriptThreadId = string(source.agent_id);
+    const threadId = transcriptThreadId ?? callId;
+    const parentThreadId = string(source.agent_parent_thread_id) ?? string(message.sourceSessionId);
     const ordinal = source.agent_ordinal;
     const status = string(source.agent_state);
     const startedAtMs = timestampMs(message.timestamp);
-    if (!threadId || !parentThreadId || threadId === parentThreadId || !Number.isSafeInteger(ordinal) || Number(ordinal) < 1 || Number(ordinal) > 64 || !status || startedAtMs === undefined) return;
-    const previous = latest.get(threadId);
+    if (!threadId || !parentThreadId || parentThreadId !== rootThreadId || threadId === parentThreadId
+      || (ordinal !== undefined && ordinal !== null && (!Number.isSafeInteger(ordinal) || Number(ordinal) < 1 || Number(ordinal) > 64))
+      || !status || startedAtMs === undefined) return;
+    const key = callId ? `call:${callId}` : `thread:${threadId}`;
+    const previous = latest.get(key);
     const earliest = Math.min(previous?.item.startedAtMs ?? startedAtMs, startedAtMs);
     const prompt = string(source.agent_description);
     const path = string(source.agent_path);
-    latest.set(threadId, {
+    latest.set(key, {
       order,
       item: {
         id: `agent:${threadId}`,
         kind: "agent",
         name: shortName(path, prompt ?? threadId),
         threadId,
+        transcriptThreadId,
         startedAtMs: earliest,
+        elapsed: backgroundWorkElapsed(nowMs - earliest),
         prompt,
         model: string(source.agent_model),
         effort: string(source.agent_reasoning_effort),
@@ -97,8 +115,9 @@ export function composerBackgroundWorkItems(
   messages: readonly NormalizedChatMessage[],
   terminals: readonly BackgroundProcessEntry[],
   nowMs: number,
-  minDurationMs = LONG_RUNNING_WORK_MS,
+  options: { minDurationMs?: number; subagentsVisible?: boolean; rootThreadId?: string } = {},
 ): ComposerBackgroundWorkItem[] {
+  const { minDurationMs = LONG_RUNNING_WORK_MS, subagentsVisible = false, rootThreadId } = options;
   const messagesById = new Map(messages.map((message) => [message.id, message]));
   const terminalItems = terminals.flatMap((terminal): ComposerBackgroundWorkItem[] => {
     const sourceMessage = messagesById.get(terminal.itemId);
@@ -110,6 +129,7 @@ export function composerBackgroundWorkItems(
       name: shortName(terminal.command.split(/\s+/)[0], "Terminal"),
       threadId: terminal.threadId,
       startedAtMs,
+      elapsed: backgroundWorkElapsed(nowMs - startedAtMs),
       command: terminal.command,
       outputTail: messageOutput(sourceMessage),
       processId: terminal.processId,
@@ -117,12 +137,10 @@ export function composerBackgroundWorkItems(
       osPid: terminal.osPid,
     }];
   });
-  return [...terminalItems, ...agentWork(messages, nowMs, minDurationMs)]
+  return [...terminalItems, ...(subagentsVisible && rootThreadId ? agentWork(messages, rootThreadId, nowMs, minDurationMs) : [])]
     .sort((a, b) => a.startedAtMs - b.startedAtMs);
 }
 
-export function composerWorkBadgeLayout(items: readonly ComposerBackgroundWorkItem[]): ComposerWorkBadgeLayout {
-  if (!items.length) return { kind: "empty" };
-  if (items.length <= VISIBLE_WORK_BADGES) return { kind: "individual", items: [...items] };
-  return { kind: "count", count: items.length, items: [...items] };
+export function composerBackgroundWorkBubble(items: readonly ComposerBackgroundWorkItem[]): ComposerBackgroundWorkBubble | null {
+  return items.length ? { count: items.length, items: [...items] } : null;
 }
