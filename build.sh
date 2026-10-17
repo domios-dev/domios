@@ -32,10 +32,11 @@ CMD="${1:-dev}"
 source scripts/lane-rust-guard.sh
 require_canonical_rust_tests "$CMD" "${@:2}" || exit $?
 CT_DEV_WAIT=0
-DEV_NOTIFY_TAB=""
+DEV_NOTIFY_TAB="${DEV_NOTIFY_TAB:-${BUILD_NOTIFY_TAB:-}}"
+DEV_NOTIFY_TARGET_KIND="${DEV_NOTIFY_TARGET_KIND:-none}"
+DEV_NOTIFY_TARGET_MESH="${DEV_NOTIFY_TARGET_MESH:-}"
 
-# Uniform receipt: re-run under report_run_stream so one success or early-failure receipt
-# (step, first error line, log path; exit 75 included) reaches --notify-tab / BUILD_NOTIFY_TAB.
+# Long operations stream one receipt through the shell's live Domios return route.
 case "$CMD" in
   qa-lock-storm|feature-cycle|lane-check|embedding-parity|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
@@ -59,21 +60,25 @@ case "$CMD" in
         echo "ERROR: --notify-tab requires a non-empty tab id" >&2
         exit 2
       fi
-      if [ "$BUILD_NOTIFY_GIVEN" = 1 ]; then
-        if [ -z "$DEV_NOTIFY_PARENT_CLI" ]; then
-          echo "ERROR: codeterm was not available on the parent PATH for --notify-tab" >&2
-          exit 127
-        fi
+      if [ "$BUILD_NOTIFY_GIVEN" = 1 ] && [ -z "$DEV_NOTIFY_PARENT_CLI" ]; then
+        echo "ERROR: codeterm was not available on the parent PATH for --notify-tab" >&2
+        exit 127
+      fi
+      if [ "$BUILD_NOTIFY_GIVEN" = 1 ] || [ -n "${DEV_NOTIFY_PARENT_CODETERM_TAB_ID:-}" ] || [ -n "${DEV_NOTIFY_PARENT_CODETERM_PARENT_TAB_ID:-}" ]; then
+        dev_notify_resolve_target "${BUILD_NOTIFY_TAB:-}"
+      fi
+      if [ "${DEV_NOTIFY_TARGET_KIND:-none}" != none ]; then
         BUILD_NOTIFY_LOG="$(mktemp "${TMPDIR:-/tmp}/codeterm-build-$CMD.XXXXXX")"
         BUILD_NOTIFY_MARKER="$BUILD_NOTIFY_LOG.sent"
         rm -rf "$BUILD_NOTIFY_MARKER"
         BUILD_NOTIFY_STATUS=0
-        report_run_stream "$BUILD_NOTIFY_MARKER" "$BUILD_NOTIFY_TAB" "$CMD" "$CMD ${BUILD_NOTIFY_ARGS[*]:-}" "$BUILD_NOTIFY_LOG" \
-          env BUILD_NOTIFY_CHILD=1 bash "$0" "$CMD" ${BUILD_NOTIFY_ARGS[@]+"${BUILD_NOTIFY_ARGS[@]}"} || BUILD_NOTIFY_STATUS=$?
+        report_run_stream "$BUILD_NOTIFY_MARKER" "$DEV_NOTIFY_TAB" "$CMD" "$CMD ${BUILD_NOTIFY_ARGS[*]:-}" "$BUILD_NOTIFY_LOG" \
+          env BUILD_NOTIFY_CHILD=1 DEV_NOTIFY_TAB="$DEV_NOTIFY_TAB" DEV_NOTIFY_TARGET_KIND="$DEV_NOTIFY_TARGET_KIND" \
+            DEV_NOTIFY_TARGET_MESH="$DEV_NOTIFY_TARGET_MESH" bash "$0" "$CMD" ${BUILD_NOTIFY_ARGS[@]+"${BUILD_NOTIFY_ARGS[@]}"} || BUILD_NOTIFY_STATUS=$?
         if [ "$BUILD_NOTIFY_STATUS" -eq 0 ]; then
           BUILD_NOTIFY_BODY="$(dev_notify_new_body_file)"
           printf 'OK label=%s step=%s\nLog: %s\n' "$CMD" "$CMD ${BUILD_NOTIFY_ARGS[*]:-}" "$BUILD_NOTIFY_LOG" > "$BUILD_NOTIFY_BODY"
-          dev_notify_send_once "$BUILD_NOTIFY_MARKER" "$BUILD_NOTIFY_TAB" "$BUILD_NOTIFY_BODY" || true
+          dev_notify_send_once "$BUILD_NOTIFY_MARKER" "$DEV_NOTIFY_TAB" "$BUILD_NOTIFY_BODY" || true
         fi
         rm -rf "$BUILD_NOTIFY_MARKER"
         exit "$BUILD_NOTIFY_STATUS"
@@ -128,11 +133,14 @@ if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
       *) DEV_NOTIFY_INDEX=$((DEV_NOTIFY_INDEX + 1)) ;;
     esac
   done
-  if [ "$DEV_NOTIFY_SEEN" = "1" ]; then
-    if [ -z "$DEV_NOTIFY_PARENT_CLI" ]; then
-      echo "ERROR: codeterm was not available on the parent PATH for --notify-tab" >&2
-      exit 127
-    fi
+  if [ "$DEV_NOTIFY_SEEN" = "1" ] && [ -z "$DEV_NOTIFY_PARENT_CLI" ]; then
+    echo "ERROR: codeterm was not available on the parent PATH for --notify-tab" >&2
+    exit 127
+  fi
+  if [ "${DEV_NOTIFY_STREAM_CHILD:-0}" != 1 ] && { [ "$DEV_NOTIFY_SEEN" = "1" ] || [ -n "$DEV_NOTIFY_TAB" ] || [ -n "${DEV_NOTIFY_PARENT_CODETERM_TAB_ID:-}" ]; }; then
+    dev_notify_resolve_target "$DEV_NOTIFY_TAB"
+  fi
+  if [ "${DEV_NOTIFY_TARGET_KIND:-none}" != none ]; then
     DEV_NOTIFY_SENT_MARKER="${DEV_NOTIFY_SENT_MARKER:-${TMPDIR:-/tmp}/codeterm-dev-notify.$$.sent}"
     if [ "${DEV_NOTIFY_STREAM_CHILD:-0}" != 1 ]; then rm -rf "$DEV_NOTIFY_SENT_MARKER"; fi
     DEV_NOTIFY_STAGE=setup
@@ -140,13 +148,14 @@ if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
   fi
 fi
 
-if [ -n "$DEV_NOTIFY_TAB" ] && [ "${DEV_NOTIFY_STREAM_CHILD:-0}" != 1 ]; then
+if [ -n "$DEV_NOTIFY_TAB" ] && [ "${DEV_NOTIFY_STREAM_CHILD:-0}" != 1 ] && [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
   DEV_NOTIFY_STREAM_LOG="$(mktemp "${TMPDIR:-/tmp}/codeterm-dev-stream.XXXXXX")"
   DEV_NOTIFY_EARLY_MARKER="$DEV_NOTIFY_SENT_MARKER"
   trap - EXIT
   DEV_NOTIFY_STREAM_STATUS=0
   report_run_stream "$DEV_NOTIFY_EARLY_MARKER" "$DEV_NOTIFY_TAB" "$CMD" startup "$DEV_NOTIFY_STREAM_LOG" \
-    env DEV_NOTIFY_STREAM_CHILD=1 DEV_NOTIFY_SENT_MARKER="$DEV_NOTIFY_SENT_MARKER" bash "$0" "$@" || DEV_NOTIFY_STREAM_STATUS=$?
+    env DEV_NOTIFY_STREAM_CHILD=1 DEV_NOTIFY_SENT_MARKER="$DEV_NOTIFY_SENT_MARKER" DEV_NOTIFY_TAB="$DEV_NOTIFY_TAB" \
+      DEV_NOTIFY_TARGET_KIND="$DEV_NOTIFY_TARGET_KIND" DEV_NOTIFY_TARGET_MESH="$DEV_NOTIFY_TARGET_MESH" bash "$0" "$@" || DEV_NOTIFY_STREAM_STATUS=$?
   rm -rf "$DEV_NOTIFY_EARLY_MARKER"
   exit "$DEV_NOTIFY_STREAM_STATUS"
 fi
@@ -2273,8 +2282,9 @@ CodeTerm build commands
   qa-batch <label> '<cmd>'...  Run check first, then the commands, one QA receipt
   lane-recover keep|merge ...  Park a wrong-base lane on keep/<lane>, then merge it back
 
-Long operations (check, check-tests, test-one, test, verify, build, install-local, release-preflight, release-rust)
-accept --notify-tab <tab> or BUILD_NOTIFY_TAB: one OK or early-failure receipt.
+Long operations (dev, dev-prebuilt, check, check-tests, test-one, test, verify, build,
+install-local, release-preflight, release-rust) send one success or failure receipt
+inside Domios. --notify-tab <tab> or BUILD_NOTIFY_TAB overrides the recipient.
   build                       Build production artifacts
   cache-status                Show configured/server cache locations and endpoint health
   cache-verify                Verify shared S3 storage; start the S3 server only when none is live
@@ -3093,7 +3103,9 @@ LOCK_STORM_PY
         if [ "$DEV_NOTIFY_STATUS" -eq 0 ]; then DEV_NOTIFY_STATUS="$DEV_NOTIFY_TEE_STATUS"; fi
         DEV_NOTIFY_SEND_CLAIMED=0
         if ! dev_notify_is_sent "$DEV_NOTIFY_SENT_MARKER"; then
-          dev_notify_failure_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" exited "$CT_INSTANCE" "$CT_PORT" "$INTERACTIVE_LOG" "$DEV_NOTIFY_STATUS"
+          if [ "$DEV_NOTIFY_STATUS" -eq 0 ]; then DEV_NOTIFY_STATUS=1; fi
+          DEV_NOTIFY_STAGE=exited-before-ready
+          dev_notify_failure_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$DEV_NOTIFY_STAGE" "$CT_INSTANCE" "$CT_PORT" "$INTERACTIVE_LOG" "$DEV_NOTIFY_STATUS"
         fi
         if [ "$DEV_NOTIFY_SEND_CLAIMED" = 1 ]; then
           dev_notify_stop_stream_waiter "$DEV_NOTIFY_WAITER_PID"
