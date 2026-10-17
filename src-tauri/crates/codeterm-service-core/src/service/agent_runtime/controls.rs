@@ -111,49 +111,55 @@ async fn switch_inner(
             .ok()
             .and_then(|value| value.as_str().map(str::to_owned));
     }
-    let operation = RuntimeOperation::Control {
-        thread_id: Some(thread.clone()),
-        action: "settings".into(),
-        value: serde_json::to_value(&settings)
-            .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?,
-    };
-    let mut changes = session.control_changes.subscribe();
-    session.controls_confirmation.lock().take();
-    let process = session
-        .process
-        .lock()
-        .clone()
-        .ok_or(RuntimeFailure::PipeEof)?;
-    let result = engine::run(svc, &session.provider, &session, &process, operation).await?;
-    engine::validate_binding(svc, &session)?;
-    if session.context.lock().epoch != before.epoch {
-        return Err(RuntimeFailure::Superseded);
-    }
-    if !matches!(result, RuntimeResult::Done) {
-        return Err(RuntimeFailure::Refused(
-            "Runtime did not apply requested controls".into(),
-        ));
-    }
-    let confirmed = if settings.service_tier.is_some() {
-        tokio::time::timeout(std::time::Duration::from_secs(30), async {
-            loop {
-                let confirmed = session.controls_confirmation.lock().take();
-                if let Some(confirmed) = confirmed {
-                    return Ok::<_, RuntimeFailure>(confirmed);
-                }
-                changes
-                    .changed()
-                    .await
-                    .map_err(|_| RuntimeFailure::PipeEof)?;
-                engine::validate_binding(svc, &session)?;
-            }
-        })
-        .await
-        .map_err(|_| RuntimeFailure::Refused("Runtime settings confirmation deadline".into()))??
+    let confirmed = if let Some(confirmed) = unchanged_settings(&settings, &before.settings) {
+        confirmed
     } else {
-        session.controls_confirmation.lock().take().ok_or_else(|| {
-            RuntimeFailure::Refused("Runtime did not confirm requested controls".into())
-        })?
+        let operation = RuntimeOperation::Control {
+            thread_id: Some(thread.clone()),
+            action: "settings".into(),
+            value: serde_json::to_value(&settings)
+                .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?,
+        };
+        let mut changes = session.control_changes.subscribe();
+        session.controls_confirmation.lock().take();
+        let process = session
+            .process
+            .lock()
+            .clone()
+            .ok_or(RuntimeFailure::PipeEof)?;
+        let result = engine::run(svc, &session.provider, &session, &process, operation).await?;
+        engine::validate_binding(svc, &session)?;
+        if session.context.lock().epoch != before.epoch {
+            return Err(RuntimeFailure::Superseded);
+        }
+        if !matches!(result, RuntimeResult::Done) {
+            return Err(RuntimeFailure::Refused(
+                "Runtime did not apply requested controls".into(),
+            ));
+        }
+        if settings.service_tier.is_some() {
+            tokio::time::timeout(std::time::Duration::from_secs(30), async {
+                loop {
+                    let confirmed = session.controls_confirmation.lock().take();
+                    if let Some(confirmed) = confirmed {
+                        return Ok::<_, RuntimeFailure>(confirmed);
+                    }
+                    changes
+                        .changed()
+                        .await
+                        .map_err(|_| RuntimeFailure::PipeEof)?;
+                    engine::validate_binding(svc, &session)?;
+                }
+            })
+            .await
+            .map_err(|_| {
+                RuntimeFailure::Refused("Runtime settings confirmation deadline".into())
+            })??
+        } else {
+            session.controls_confirmation.lock().take().ok_or_else(|| {
+                RuntimeFailure::Refused("Runtime did not confirm requested controls".into())
+            })?
+        }
     };
     engine::validate_binding(svc, &session)?;
     if session.context.lock().epoch != before.epoch {
@@ -227,6 +233,13 @@ async fn switch_inner(
             evidence: ModelSwitchEvidence::LiveSessionRecord,
         },
     })
+}
+
+fn unchanged_settings(
+    requested: &RuntimeSettings,
+    current: &RuntimeSettings,
+) -> Option<RuntimeSettings> {
+    (current.model.is_some() && confirms(requested, current)).then(|| current.clone())
 }
 
 fn confirms(requested: &RuntimeSettings, confirmed: &RuntimeSettings) -> bool {
