@@ -261,6 +261,10 @@ pub struct CreateShellTabBody {
     #[serde(default)]
     pub detach_from_team: bool,
     pub description: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "codeterm_wire::shell_command::deserialize_optional"
+    )]
     pub cmd: Option<String>,
     #[serde(default)]
     pub eager: bool,
