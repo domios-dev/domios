@@ -77,7 +77,7 @@ pub(super) fn boundary(path: &Path, offset: u64) -> Result<bool, String> {
     let mut last = [0];
     file.read_exact(&mut last)
         .map_err(|error| error.to_string())?;
-    Ok(last == [b'\n'])
+    Ok(last == *b"\n")
 }
 
 fn reset(reason: ResumeResetReason) -> ChatResumeResult {

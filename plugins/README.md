@@ -359,20 +359,16 @@ when its own CI is green.
 
 ## Hot reload in dev
 
-`./build.sh dev` runs Vite. Vite watches `plugins/*/src/**` along
-with the main `src/`. On edit:
+For browser development, `pnpm dev` watches `plugins/*/src/**` and the main
+`src/` with Vite HMR. The loader calls the replacement module's registration
+function; registry subscribers then use the new provider functions. Host-owned
+tab state remains outside the replaced provider module.
 
-1. Vite re-bundles the affected plugin module (~10ms).
-2. `import.meta.hot.accept()` in `src/lib/plugins/loader.ts` re-imports.
-3. `register()` overwrites the old plugin reference.
-4. Components subscribed via `useRegistryVersion()` re-render with the
-   new functions.
-5. **Tab state (events, status) is preserved** because it lives in the
-   host, not the plugin.
-
-If you don't see hot reload working: open browser devtools, look for
-`[plugins] registered <id> (v<N>)` in the console — the version should
-bump on each edit.
+The desktop `./build.sh dev` workflow uses production-mode `vite build --watch`
+and refreshes the frontend bundle instead. Native Rust changes require a dev
+rebuild/restart. Installed backend JavaScript plugins use filesystem events
+rather than a polling interval; settings-only changes preserve the running VM,
+and a failed code reload keeps the last working plugin.
 
 ## Other plugin kinds (future)
 
@@ -435,10 +431,10 @@ To keep the plugin contract honest:
 | Per-plugin tests via `npx tsx` | ✅ shipped |
 | Per-plugin vitest config | ⏳ planned |
 | `codeterm plugin install` CLI | ⏳ planned |
-| Hot-reload from `~/.codeterm/plugins/` | ⏳ planned |
+| Hot-reload from `~/.codeterm/plugins/` | ✅ shipped (filesystem events; last working VM retained on failure) |
 | Server-side provider runtime (QuickJS `plugin.js`) | ✅ shipped — authoritative for claude/codex/opencode |
 | Full session/usage/chat surface in JS + `host.sqliteQuery` | ✅ shipped |
 | Snapshot CI for JSONL drift | ⏳ planned |
 | Non-provider plugin kinds | 🟡 contract-only (extensible by design) |
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

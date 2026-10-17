@@ -8,7 +8,7 @@
 #   ./build.sh check     — integration-owner cargo check
 #   ./build.sh frontend  — production frontend typecheck + bundle
 #   ./build.sh release-inputs — build target-aware frontend/CLI bundle inputs
-#   ./build.sh release-bundle — release-inputs plus tauri build in one gateway session
+#   ./build.sh release-bundle [tauri args...] — prepare and bundle in one gateway session
 #   ./build.sh release-preflight — run local PR checks and verify release inputs
 #   ./build.sh worktree-check — explicit isolated, nonincremental checkout check
 #   ./build.sh build     — production build
@@ -2272,7 +2272,7 @@ CodeTerm build commands
   runner-status               List runners with labels and paused machines
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend and CLI bundle inputs
-  release-bundle              release-inputs, then the target-aware tauri build from the same path
+  release-bundle [tauri args...]  Prepare inputs and forward Tauri packaging flags in one gateway session
   ci-tests full|platform|embeddings  Compile and run ordinary, OS-specific, or embeddings Rust tests
   ci-clippy                   Run the clippy repo gate through the shared compile cache
   frontend-build              Run the release bundle's frontend step from its stable build path, without Rust
@@ -2562,7 +2562,7 @@ EOF
     prepare_release_bundle_inputs
     bundle_target_args=()
     [ -z "${CARGO_BUILD_TARGET:-}" ] || bundle_target_args=(--target "$CARGO_BUILD_TARGET")
-    pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}"
+    pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" "${@:2}"
     ;;
   release-preflight)
     prepare_dev_frontend_dist "$(pwd -P)"

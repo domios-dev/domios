@@ -133,7 +133,7 @@ Serial named gates for warm-checkout verification (orchestrator stride paste-bac
 ## Files
 
 ```
-docker/Dockerfile.linux-arm64   baked aarch64 Linux env (webkit/gtk + rust 1.95 + node/pnpm)
+docker/Dockerfile.linux-arm64   baked aarch64 Linux env (webkit/gtk + rust 1.99.1 + node/pnpm)
 docker/Dockerfile.linux-x64     ORPHANED — x86_64 Linux now builds natively on the ROG/WSL runner
                                 (release-linux.yml), not cross-compiled here. Kept for ad-hoc use.
 scripts/build-linux.sh          thin in-container step: clone tag → pnpm install → tauri build → collect
@@ -167,7 +167,7 @@ and the updater key, including after failures. Credential preflight uses the sam
 
 **Windows host (the ROG), one-time:** registered as a **self-hosted GitHub Actions runner**
 (`ROG-windows-build`, labels include `windows-build`) — NOT driven over SSH. Toolchain on the runner:
-rustup on the repo-pinned channel (1.95.0) with targets `x86_64-pc-windows-msvc` &
+rustup on the repo-pinned channel (1.99.1) with targets `x86_64-pc-windows-msvc` &
 `aarch64-pc-windows-msvc` installed, VS2022 C++ build tools (x64 **and** ARM64 — the aarch64 build
 loads `vcvarsall x64_arm64`), node 22 + pnpm 10.32.1, git, LLVM. Windows signing uses the
 `TAURI_SIGNING_PRIVATE_KEY` / optional `TAURI_KEY_PASSWORD` repo secrets directly on the runner;
@@ -175,7 +175,7 @@ publishing to the mirror uses `PACKAGE_REPOS_TOKEN`. No SSH, no remote-build env
 Mac→Windows SSH/QEMU path is gone.
 
 **x86_64 Linux runner (the ROG's WSL2), one-time:** install WSL2 with **Ubuntu 24.04**, register a **self-hosted GitHub Actions runner** with label
-`linux-build`, and install rustup on the repo-pinned channel (1.95.0), node 22 + pnpm 10.32.1, `gh`,
+`linux-build`, and install rustup on the repo-pinned channel (1.99.1), node 22 + pnpm 10.32.1, `gh`,
 and the apt deps listed in `release-linux.yml` (`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`,
 `libayatana-appindicator3-dev`, `librsvg2-dev`, `libssl-dev`, `patchelf`). Same signing/mirror
 secrets as Windows. Runs natively → produces the `x86_64` AppImage the ARM Mac can't.
@@ -233,7 +233,7 @@ secrets `SCCACHE_AWS_ACCESS_KEY_ID` and `SCCACHE_AWS_SECRET_ACCESS_KEY`, plus
 `CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner`, on every runner including the
 BLACKSTAR WSL runners, which have no `codeterm` CLI. Values stay in process
 environment, never runner `.env`, command arguments, files or logs; both are
-required. Select pinned Rust 1.95.0 only in the build process, preserving the
+required. Select pinned Rust 1.99.1 only in the build process, preserving the
 machine's default toolchain.
 
 Post-release follow-up: establish a shared Linux user or an approved `/opt` path
@@ -345,4 +345,4 @@ and common Linux physical paths remain separate follow-ups. The historical
 air server shutdown/endpoint anomaly is not uniquely explained by its retained
 logs; the fixed same-SHA measurement establishes current wrapper usage.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

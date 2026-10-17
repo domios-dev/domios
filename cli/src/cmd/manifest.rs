@@ -217,6 +217,16 @@ fn output_path(file: &str) -> std::path::PathBuf {
     repo_path(OUTPUT_DIR).join(file)
 }
 
+fn write_if_changed(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    match std::fs::read(path) {
+        Ok(previous) if previous == contents.as_bytes() => return Ok(()),
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    std::fs::write(path, contents)
+}
+
 pub fn handle(write: bool, markdown: bool) {
     if markdown {
         print!("{}", to_markdown());
@@ -227,18 +237,18 @@ pub fn handle(write: bool, markdown: bool) {
         return;
     }
     let manifest = output_path("cli-manifest.json");
-    std::fs::write(&manifest, to_json()).expect("write cli-manifest.json");
+    write_if_changed(&manifest, &to_json()).expect("write cli-manifest.json");
     println!("wrote {}", manifest.display());
 
     let cli_md = output_path("cli.md");
     let md = std::fs::read_to_string(&cli_md).expect("read generated/cli/cli.md");
     let spliced = render_document(&md, MD_PREAMBLE, &to_markdown())
         .expect("invalid generated CLI document markers");
-    std::fs::write(&cli_md, spliced).expect("write generated/cli/cli.md");
+    write_if_changed(&cli_md, &spliced).expect("write generated/cli/cli.md");
     println!("wrote {}", cli_md.display());
 
     let command_paths = repo_path("packages/chat-ui/src/codeterm/commandPaths.ts");
-    std::fs::write(&command_paths, to_command_paths()).expect("write commandPaths.ts");
+    write_if_changed(&command_paths, &to_command_paths()).expect("write commandPaths.ts");
     println!("wrote {}", command_paths.display());
 }
 
@@ -246,6 +256,27 @@ pub fn handle(write: bool, markdown: bool) {
 mod tests {
     mod doc_references;
     use super::*;
+
+    #[test]
+    fn build_artifact_writes_preserve_unchanged_metadata_and_replace_changed_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("commandPaths.ts");
+        write_if_changed(&path, "original").unwrap();
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_times(
+            std::fs::FileTimes::new()
+                .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(100)),
+        )
+        .unwrap();
+        let modified = file.metadata().unwrap().modified().unwrap();
+        write_if_changed(&path, "original").unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            modified
+        );
+        write_if_changed(&path, "updated").unwrap();
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "updated");
+    }
 
     fn normalize_newlines(s: &str) -> String {
         s.replace("\r\n", "\n")

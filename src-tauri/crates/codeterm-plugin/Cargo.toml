@@ -25,6 +25,7 @@ include_dir = "0.7"
 indexmap = { version = "2", features = ["serde"] }
 log = "0.4"
 md-5 = "0.10"
+notify = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
 parking_lot = "0.12"
 quick-xml = "0.37"
 regex = "1"

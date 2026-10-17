@@ -45,6 +45,20 @@ test("CLI build entrypoints leave source timestamps under Cargo ownership", () =
   assert.doesNotMatch(prep, /touch\("cli\/src\/main\.rs"\)|utimesSync/);
 });
 
+test('release bundle forwards local packaging flags without splitting config paths', () => {
+  const entrypoint = source.match(/^  release-bundle\)\n([\s\S]*?)^    ;;/m)?.[1];
+  assert.ok(entrypoint);
+  const calls = execFileSync(bash, ['-c', `
+set -e
+ensure_deps() { :; }
+prepare_release_bundle_inputs() { :; }
+pnpm() { printf 'pnpm'; printf ' <%s>' "$@"; }
+set -- release-bundle --bundles deb --config '/tmp/local bundle.json' --ci
+${entrypoint}
+`], { encoding: 'utf8', env: { ...process.env, CARGO_BUILD_TARGET: '', CODETERM_RELEASE_FEATURES: '' } });
+  assert.equal(calls, 'pnpm <tauri> <build> <--features> <embeddings> <--bundles> <deb> <--config> </tmp/local bundle.json> <--ci>');
+});
+
 test("release preparation exports the packaging deployment target to child processes", () => {
   const config = JSON.parse(readFileSync(new URL("../../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
   const calls = commands({ MACOSX_DEPLOYMENT_TARGET: "fixture-inherited-target" }, true);

@@ -2697,6 +2697,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--authorized-gate` — Gate token the worker may claim as executed; repeatable
 - `--canonical-writer` — Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred
 - `--cwd`
+- `--description` — Worker tab description (defaults to a short summary of the task name)
 - `--execution-intent` — Explicit task intent used by provider reserve policy
 - `--model`
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
