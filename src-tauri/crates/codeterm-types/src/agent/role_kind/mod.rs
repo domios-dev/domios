@@ -11,6 +11,7 @@ mod tests;
 pub use builtins::all as builtin_kinds;
 pub use builtins::capability_for as capability_for_kind;
 pub use builtins::lookup as builtin_kind;
+pub use query::can_close_review;
 pub use query::{anchors_team, can_spawn, has_team_authority, manages, plan_approval, plan_edit};
 pub use query::{kind_capability, kind_descriptor, kind_id, kind_label, taskless_worker};
 pub use query::{release, requires_parent};

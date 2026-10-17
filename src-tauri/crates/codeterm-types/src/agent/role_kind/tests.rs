@@ -221,6 +221,26 @@ fn taskless_worker_kinds_resolve_as_leaf_workers_without_task_authority() {
 }
 
 #[test]
+fn only_the_tester_worker_kind_can_close_parent_handed_reviews() {
+    assert!(query::can_close_review(
+        Some(AgentRole::Worker),
+        Some(TESTER)
+    ));
+    assert!(!query::can_close_review(
+        Some(AgentRole::Worker),
+        Some(RELEASE_MANAGER)
+    ));
+    assert!(!query::can_close_review(
+        Some(AgentRole::Worker),
+        Some(WORKER)
+    ));
+    assert!(!query::can_close_review(
+        Some(AgentRole::Manager),
+        Some(TESTER)
+    ));
+}
+
+#[test]
 fn builtin_table_is_exactly_the_declared_rows() {
     let ids: Vec<&str> = builtins::all().iter().map(RoleKindDescriptor::id).collect();
     let expected: Vec<&str> = ROWS.iter().map(|row| row.id).collect();

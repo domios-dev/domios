@@ -92,3 +92,7 @@ pub fn plan_edit(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
 pub fn release(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
     capability_or_leaf(role, role_profile).release()
 }
+
+pub fn can_close_review(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
+    role == Some(AgentRole::Worker) && kind_id(role, role_profile) == Some(builtins::TESTER)
+}

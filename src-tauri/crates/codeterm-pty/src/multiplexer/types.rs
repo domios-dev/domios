@@ -695,6 +695,8 @@ pub struct Tab {
     pub task_binding: Option<TaskBinding>,
     #[serde(default, skip_deserializing, skip_serializing_if = "Vec::is_empty")]
     pub taskless_authorized_gates: Vec<String>,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Vec::is_empty")]
+    pub taskless_authorized_review_tasks: Vec<String>,
     /// True for an agent pane spawned WITHOUT a role that was nonetheless linked
     /// into the hierarchy (parent + audit row). Distinguishes a tracked roleless
     /// agent from an ordinary shell/utility tab, which is also role=None.
