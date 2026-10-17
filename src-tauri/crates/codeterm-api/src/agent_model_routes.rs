@@ -1,15 +1,112 @@
 use axum::{
+    Json,
     extract::{Path, State as AxumState},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::Deserialize;
+use serde_json::Value;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::{AppState, check_auth};
 use codeterm_service_core::service::agent_restart::{
     ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
 };
+
+pub async fn agent_service_tiers(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_tab_id): Path<String>,
+) -> Response {
+    if let Err((status, message)) = check_auth(&state, &headers) {
+        return (status, message.to_string()).into_response();
+    }
+    let tab_id = match crate::routes::resolve_tab_async(&state, &raw_tab_id).await {
+        Ok(tab_id) => tab_id,
+        Err((status, message)) => {
+            return (
+                status,
+                Json(serde_json::json!({"ok":false,"error":message,"reason":"not_found"})),
+            )
+                .into_response();
+        }
+    };
+    let mux = state.svc.mux.read();
+    let Some(tab) = mux.get_tab(&tab_id) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"ok":false,"error":"Tab not found","reason":"not_found"})),
+        )
+            .into_response();
+    };
+    let Some(config) = tab.agent_runtime_config.as_ref() else {
+        return (StatusCode::CONFLICT, Json(serde_json::json!({"ok":false,"error":"Tab has no agent runtime settings","reason":"no_runtime"}))).into_response();
+    };
+    match service_tier_catalogue(
+        config,
+        tab.agent_session_id.as_deref(),
+        tab.session_binding_nonce.as_deref(),
+    ) {
+        Ok(catalogue) => {
+            let mut body = catalogue;
+            body["tab_id"] = tab_id.into();
+            Json(body).into_response()
+        }
+        Err((status, error)) => (status, Json(error)).into_response(),
+    }
+}
+
+fn service_tier_catalogue(
+    config: &Value,
+    session_id: Option<&str>,
+    binding_nonce: Option<&str>,
+) -> Result<Value, (StatusCode, Value)> {
+    let binding = config
+        .get("serviceTierAvailabilityBinding")
+        .unwrap_or(&Value::Null);
+    let binding_matches = binding.get("sessionId").and_then(Value::as_str) == session_id
+        && binding
+            .get("bindingNonce")
+            .and_then(Value::as_str)
+            .is_some_and(|nonce| !nonce.is_empty() && Some(nonce) == binding_nonce);
+    if !binding_matches {
+        return Err((
+            StatusCode::CONFLICT,
+            serde_json::json!({"ok":false,"error":"No service tier catalogue is bound to this runtime session","reason":"no_tiers"}),
+        ));
+    }
+    let model = config
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let tiers = config
+        .get("serviceTierAvailability")
+        .and_then(|value| value.get(model))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|tier| tier.get("unavailableReason").is_none())
+        .collect::<Vec<_>>();
+    if tiers.is_empty() {
+        return Err((
+            StatusCode::CONFLICT,
+            serde_json::json!({"ok":false,"error":"This runtime model advertises no available service tiers","reason":"no_tiers"}),
+        ));
+    }
+    let confirmed = config
+        .get("confirmedServiceTier")
+        .filter(|value| {
+            value.get("sessionId").and_then(Value::as_str) == session_id
+                && value.get("bindingNonce").and_then(Value::as_str) == binding_nonce
+        })
+        .and_then(|value| value.get("selection"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    Ok(
+        serde_json::json!({"ok":true,"model":model,"supports_service_tiers":true,"tiers":tiers,
+        "requested":config.get("serviceTier").cloned().unwrap_or(Value::Null),"confirmed":confirmed}),
+    )
+}
 
 #[derive(Debug, Deserialize)]
 pub struct AgentModelBody {
@@ -64,7 +161,7 @@ pub async fn agent_model_handler(
     let result = match result {
         Ok(Some(result)) => result,
         Ok(None) => {
-            return Json(serde_json::json!({"ok": true, "cancelled": true})).into_response()
+            return Json(serde_json::json!({"ok": true, "cancelled": true})).into_response();
         }
         Err(error) => {
             let error =
@@ -227,3 +324,40 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod service_tier_tests {
+    use super::*;
+
+    #[test]
+    fn exact_bound_catalogue_includes_available_tiers_and_both_selections() {
+        let config = serde_json::json!({
+            "model":"model-a",
+            "serviceTier":{"id":"fast"},
+            "serviceTierAvailability":{"model-a":[{"id":"fast"},{"id":"ultra","unavailableReason":"plan"}]},
+            "serviceTierAvailabilityBinding":{"sessionId":"session-a","bindingNonce":"nonce-a"},
+            "confirmedServiceTier":{"selection":{"id":"fast"},"sessionId":"session-a","bindingNonce":"nonce-a"}
+        });
+        let result = service_tier_catalogue(&config, Some("session-a"), Some("nonce-a")).unwrap();
+        assert_eq!(result["tiers"], serde_json::json!([{"id":"fast"}]));
+        assert_eq!(result["requested"]["id"], "fast");
+        assert_eq!(result["confirmed"]["id"], "fast");
+    }
+
+    #[test]
+    fn stale_binding_and_empty_availability_are_typed_no_tiers_refusals() {
+        let config = serde_json::json!({"model":"model-a","serviceTierAvailabilityBinding":{"sessionId":"session-a","bindingNonce":"nonce-a"},"serviceTierAvailability":{"model-a":[]}});
+        assert_eq!(
+            service_tier_catalogue(&config, Some("session-b"), Some("nonce-a"))
+                .unwrap_err()
+                .1["reason"],
+            "no_tiers"
+        );
+        assert_eq!(
+            service_tier_catalogue(&config, Some("session-a"), Some("nonce-a"))
+                .unwrap_err()
+                .1["reason"],
+            "no_tiers"
+        );
+    }
+}

@@ -238,7 +238,14 @@ pub enum AgentAction {
         #[arg(long)]
         force: bool,
         /// Model id. Run `agent models PROVIDER` to list.
-        name: String,
+        /// Model id. Omit when changing only the service tier.
+        name: Option<String>,
+        /// Service tier id or `default` to clear the selection.
+        #[arg(long, value_name = "TIER", conflicts_with = "list_speeds")]
+        speed: Option<String>,
+        /// List this tab's currently available service tiers.
+        #[arg(long, conflicts_with_all = ["speed", "name", "force"])]
+        list_speeds: bool,
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
@@ -426,6 +433,38 @@ mod tests {
     }
 
     #[test]
+    fn agent_model_parses_speed_only_and_catalogue_listing() {
+        let speed = Cli::try_parse_from([
+            "codeterm", "agent", "model", "--tab", "tab-a", "--speed", "default",
+        ])
+        .unwrap();
+        assert!(
+            matches!(speed.command, crate::Commands::Agent { action: AgentAction::Model { name: None, speed: Some(value), .. } } if value == "default")
+        );
+        let list = Cli::try_parse_from([
+            "codeterm",
+            "agent",
+            "model",
+            "--tab",
+            "tab-a",
+            "--list-speeds",
+        ])
+        .unwrap();
+        assert!(matches!(
+            list.command,
+            crate::Commands::Agent {
+                action: AgentAction::Model {
+                    list_speeds: true,
+                    ..
+                }
+            }
+        ));
+        assert!(
+            Cli::try_parse_from(["codeterm", "agent", "model", "--list-speeds", "opus"]).is_err()
+        );
+    }
+
+    #[test]
     fn agent_turns_parses_bounded_window_and_rejects_invalid_limits() {
         let cli = Cli::try_parse_from([
             "codeterm", "agent", "turns", "--tab", "worker", "--last", "2", "--after", "101",
@@ -441,14 +480,18 @@ mod tests {
                 }
             }
         ));
-        assert!(Cli::try_parse_from([
-            "codeterm", "agent", "turns", "--tab", "worker", "--last", "0"
-        ])
-        .is_err());
-        assert!(Cli::try_parse_from([
-            "codeterm", "agent", "turns", "--tab", "worker", "--last", "51"
-        ])
-        .is_err());
+        assert!(
+            Cli::try_parse_from([
+                "codeterm", "agent", "turns", "--tab", "worker", "--last", "0"
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "codeterm", "agent", "turns", "--tab", "worker", "--last", "51"
+            ])
+            .is_err()
+        );
     }
 
     use super::*;
