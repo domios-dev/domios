@@ -271,6 +271,18 @@ fn perform_compatible_mesh_relay_call(
     .map(|value| response_for_dialect(dialect, value))
 }
 
+fn peer_relay_envelope(
+    target: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> serde_json::Value {
+    let body = body
+        .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
+        .unwrap_or(serde_json::Value::Null);
+    serde_json::json!({"target_peer_id": target, "method": method, "path": path, "body": body})
+}
+
 /// Resolve a peer (refreshing once on miss), sign, and relay — returning the
 /// answer with the peer that produced it, or a structured failure.
 pub(crate) fn mesh_relay_invoke_answered(
@@ -286,17 +298,9 @@ pub(crate) fn mesh_relay_invoke_answered(
             "start Domios locally, then retry",
         )
     })?;
-    let relay_body = body
-        .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
-        .unwrap_or(serde_json::Value::Null);
     let response = local
         .post("/api/mesh/relay-to")
-        .json(&serde_json::json!({
-            "target_peer_id": target,
-            "method": method,
-            "path": path,
-            "body": relay_body,
-        }))
+        .json(&peer_relay_envelope(target, method, path, body))
         .send()
         .map_err(|error| {
             MeshSpawnFailure::new(
@@ -687,6 +691,9 @@ mod delivery_classification_tests;
 
 #[cfg(test)]
 mod verdict_tests;
+
+#[cfg(test)]
+mod command_round_trip_tests;
 
 #[cfg(test)]
 mod mesh_spawn_failure_tests {
