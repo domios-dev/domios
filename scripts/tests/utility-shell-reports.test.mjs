@@ -718,7 +718,7 @@ test("build_long_verb_reports_one_failure_to_the_live_parent_by_default", () => 
       spawned_by_tab_id: "launcher-agent",
       team_id: "team-fixture",
     }]));
-    const result = runBash([buildPath, "install-local"], {
+    const result = runBash([buildPath, "fmt-check"], {
       ...h.env,
       CODETERM_TAB_ID: "build-shell",
       CODETERM_PARENT_TAB_ID: "stale-env-parent",
@@ -728,9 +728,9 @@ test("build_long_verb_reports_one_failure_to_the_live_parent_by_default", () => 
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1, result.stdout + result.stderr + JSON.stringify(sent));
     assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "live-orchestrator"]);
-    assert.match(sent[0].body, /EARLY FAILURE label=install-local/);
+    assert.match(sent[0].body, /EARLY FAILURE label=fmt-check/);
     assert.match(sent[0].body, /First failure: Diff in src\/failing\.rs/);
-    assert.match(sent[0].body, /Log: .*codeterm-build-install-local/);
+    assert.match(sent[0].body, /Log: .*codeterm-build-fmt-check/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
@@ -742,7 +742,7 @@ test("build_long_verb_uses_one_failure_notification_when_the_shell_has_no_parent
     writeFakeTool(h.dir, "rustfmt", "echo 'Diff in src/failing.rs:1:'; exit 1");
     const tabModel = path.join(h.dir, "tab-model.json");
     writeFileSync(tabModel, JSON.stringify([{ id: "standalone-shell" }]));
-    const result = runBash([buildPath, "install-local"], {
+    const result = runBash([buildPath, "fmt-check"], {
       ...h.env,
       CODETERM_TAB_ID: "standalone-shell",
       BUILD_NOTIFICATION_TAB_MODEL: tabModel,
@@ -753,7 +753,7 @@ test("build_long_verb_uses_one_failure_notification_when_the_shell_has_no_parent
     assert.equal(sent[0].args[0], "notify");
     assert.ok(sent[0].args.includes("--level") && sent[0].args[sent[0].args.indexOf("--level") + 1] === "failure");
     assert.ok(sent[0].args.includes("--from-pad"));
-    assert.match(sent[0].body, /EARLY FAILURE label=install-local/);
+    assert.match(sent[0].body, /EARLY FAILURE label=fmt-check/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
