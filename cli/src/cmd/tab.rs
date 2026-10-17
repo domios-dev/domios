@@ -12,7 +12,7 @@ pub(crate) const INVALID_REMOTE_TAB_ID: &str = "invalid remote tab id";
 mod adopt;
 mod capture;
 mod chat_view;
-mod exec;
+pub(super) mod exec;
 mod inspect;
 pub(crate) mod labels;
 pub(crate) mod remote_target;
@@ -42,6 +42,16 @@ pub use search::print_tab_find_results;
 use search::rank_tabs;
 
 pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
+    let command = match &action {
+        TabAction::New { cmd, .. } | TabAction::Restart { cmd, .. } => cmd.as_deref(),
+        TabAction::Exec { command, .. } => Some(command.as_str()),
+        _ => None,
+    };
+    if let Some(command) = command {
+        if let Err(error) = codeterm_wire::shell_command::validate(command) {
+            exit_with_cli_error(json, &CliError::new(error));
+        }
+    }
     if let Err(error) = validate_user_tab_selectors(&action) {
         exit_with_cli_error(json, &CliError::new(error));
     }

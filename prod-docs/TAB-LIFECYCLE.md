@@ -15,6 +15,10 @@ codeterm tab timeout --tab <ID> --timeout 20m   # resets from now; `none` disabl
 
 A reset keeps the shell and its command. At expiry an idle shell closes quietly; running or unknown activity is terminated and the owner gets one `timed out` status giving shell lifetime and command elapsed separately. `tab restart` renews the previous lifetime from the restart; `--timeout` overrides it (or `none` disables it), for the owning agent only. Later commands share that lifetime. Daemon restarts preserve the absolute deadline; `tab inspect` shows `utility_deadline` (`started_ms`, `deadline_ms`, epoch ms) and the close journal records `utility_timeout`. An unrestorable shell is reported lost. REST: `POST /api/tabs` and `POST /api/tabs/{id}/restart` take optional `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}`.
 
+`tab restart --cmd` passes command text verbatim and waits up to 10 seconds for shell command completion. It prints command output and returns the command's exit status; a completion timeout returns 124. A successful shell replacement alone does not mean the command succeeded. JSON output retains both `restart` and `exec` receipts.
+
+Shell commands in `tab new --cmd`, `tab restart --cmd`, and `tab exec` reject C0 control characters except tab, newline, and carriage return. The error names the code point and character position. When constructing JSON, use forward slashes in paths or double each backslash so JSON cannot turn `\b` into a backspace.
+
 ## Storage authority and recovery
 
 The instance's desk is owned by one Storage authority in `storage/state.db` beneath its data directory. Storage opens before restore; an open, import, or archive-verification failure leaves desk state unavailable and prevents a default-empty desk from replacing it. The typed importer preserves recognized source files under `storage/legacy-originals/`.
@@ -231,4 +235,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 54 -->
+<!-- revision: 55 -->
