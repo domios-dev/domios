@@ -1,6 +1,6 @@
-use super::ServiceContext;
 use super::orchestrator::SpawnAgentParams;
 use super::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
+use super::ServiceContext;
 use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
 
 pub fn starter_prompt_for_role(role: Option<&str>) -> crate::agent::provider::StarterPrompt {
@@ -793,14 +793,12 @@ mod tests {
 
     #[test]
     fn a_spawn_without_a_team_never_trips_the_binding_guard() {
-        assert!(
-            reject_team_with_binding(&SpawnAgentParams {
-                role: Some("Worker".into()),
-                plan_task: Some("task_one".into()),
-                ..Default::default()
-            })
-            .is_ok()
-        );
+        assert!(reject_team_with_binding(&SpawnAgentParams {
+            role: Some("Worker".into()),
+            plan_task: Some("task_one".into()),
+            ..Default::default()
+        })
+        .is_ok());
     }
 
     #[test]

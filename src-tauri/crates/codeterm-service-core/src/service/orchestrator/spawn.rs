@@ -4,7 +4,7 @@ mod dispatch_rollback;
 pub(crate) mod runtime_prompt;
 use dispatch_rollback::create_pending_delivery_or_rollback_dispatch;
 pub use runtime_prompt::{
-    ROLE_AUTHORITY, compose_runtime_system_prompt, ensure_tab_runtime_prompt,
+    compose_runtime_system_prompt, ensure_tab_runtime_prompt, ROLE_AUTHORITY,
 };
 
 use codeterm_types::agent::role_kind::builtins;
@@ -19,7 +19,7 @@ use crate::multiplexer::types::TabCloseReason;
 use crate::service::general_agent::{
     refuse_general_agent_team_membership, refuse_parenting_under_general_agent, shape_for_tab,
 };
-use crate::service::{MuxEmitCause, ServiceContext, spawn_title};
+use crate::service::{spawn_title, MuxEmitCause, ServiceContext};
 
 /// Build effort provenance for a launch where the requested effort has already
 /// passed capability validation. No silent downgrade ⇒ `resolved == requested`.

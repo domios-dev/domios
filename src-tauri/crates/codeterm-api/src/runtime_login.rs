@@ -1,10 +1,10 @@
-use super::routes::{AppState, check_auth};
+use super::routes::{check_auth, AppState};
 use axum::{
-    Json,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
+    Json,
 };
-use codeterm_service_core::service::agent_runtime::login::{LoginRequest, operate};
+use codeterm_service_core::service::agent_runtime::login::{operate, LoginRequest};
 
 pub(super) async fn background_processes(
     State(state): State<AppState>,

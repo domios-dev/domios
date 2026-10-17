@@ -4,7 +4,7 @@ use super::{
 };
 use crate::service::MuxEmitCause;
 use crate::service::{
-    ServiceContext, chat_send_transaction::SendLiveBinding, delivery_error::DeliveryError,
+    chat_send_transaction::SendLiveBinding, delivery_error::DeliveryError, ServiceContext,
 };
 use codeterm_plugin::agent_runtime::*;
 use serde_json::Value;
