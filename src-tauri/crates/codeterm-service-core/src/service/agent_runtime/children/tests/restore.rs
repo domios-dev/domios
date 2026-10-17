@@ -14,6 +14,11 @@ fn restored_epoch_reads_child_from_own_parent_history() {
     tab.agent_session_id = Some("root".into());
     tab.session_binding_nonce = Some("restored".into());
     tab.reported_session_binding_nonce = Some("restored".into());
+    tab.cwd = Some(
+        crate::test_support::fixture_manifest_dir()
+            .to_string_lossy()
+            .into_owned(),
+    );
     tab.backing = TabBacking::ChatBackend {
         plugin_id: provider_id.clone(),
         session_id: "root".into(),
@@ -54,6 +59,8 @@ module.exports = {
     assert_eq!(epoch, 2);
     assert!(session.state.lock().load(epoch, "root"));
     session.context.lock().epoch = epoch;
+    codeterm_plugin::agent_runtime::validate_runtime_context(&session.context.lock())
+        .expect("restored fixture must have valid runtime authority");
     assert!(session.maps.lock().child(epoch, "child").is_none());
     let page = crate::async_runtime::block_on(async {
         let peer = async {
