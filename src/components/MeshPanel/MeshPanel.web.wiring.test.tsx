@@ -76,7 +76,9 @@ it("renders authoritative daemon and schedule data in the map and peer sections"
     const mesh = host.querySelector('section[aria-label="Mesh resource source"]')!;
     expect(mesh.textContent).toContain(daemon.name);
     expect(mesh.textContent).toContain(schedule.name);
-    for (const name of ["Jobs", "Services", "Utility shells"]) {
+    expect(host.querySelector('section[aria-label="Jobs"]')).toBeNull();
+    expect(host.querySelector('section[aria-label="Services"] button[aria-expanded]')).toBeNull();
+    for (const name of ["Utility shells"]) {
       const toggle = host.querySelector<HTMLButtonElement>(`section[aria-label="${name}"] button[aria-expanded]`)!;
       if (toggle.getAttribute("aria-expanded") !== "true") await act(async () => toggle.click());
     }
