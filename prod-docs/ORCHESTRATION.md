@@ -132,6 +132,17 @@ If the Planner is waived, record that on the plan.
 
 A read-only Worker reports through UTF-8 stdin with `codeterm agent report --from-pad -`, since its pad is read-only too; task-less verification reports omit `--status` and `--task`. Authorized gate commands do not grant filesystem writes. A gate that needs writes outside the provider sandbox is an explicit owner-run canonical gate; the Worker reports the refusal instead of requesting broader access.
 
+## Task-less Worker kinds
+
+`tester` and `release_manager` are task-less Worker kinds, not Managers. Choose by the work:
+
+| Kind | Use | Spawn |
+|---|---|---|
+| `tester` | Task-less, read-only browser verification; may accept or bounce only an exact in-review task handed off by its parent, with an evidence note. | `codeterm agent spawn <provider> --role Worker --kind tester --parent-tab <tab> [--authorized-gate <command>]` |
+| `release_manager` | Task-less, read-only coordination for the current release; publication remains owner-authorized. | `codeterm agent spawn <provider> --role Worker --kind release_manager --parent-tab <tab> [--authorized-gate <command>]` |
+
+Both kinds own no task, spawn no children, and report to the parent without `--status`. Their role prompts define their work and evidence rules. A gate grant authorizes only the exact recorded commands and does not grant source-edit access.
+
 Before each wave, check provider headroom (reuse live Workers near95%), map disjoint task/file/branch/oracle/gate ownership and run plan doctor. Give each Worker `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, its checkout and exact acceptance/test commands; it ACKs first and reports last. On a Full-access paired peer, `codeterm plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating` creates an origin attempt and peer lane. Judge the persisted origin report, then merge its exact accepted SHA to the clean dispatch-time branch.
 
 If dispatch fails, send a standalone user alert immediately with impact, affected tasks, cleanup, and fallback; verify rollback. After two failures of the same class, stop, diagnose, and await owner direction. Never self-implement plan-owned work to bypass a blocked dispatch.
@@ -168,4 +179,4 @@ A `[provider access lost]` notice means recover the login or respawn on another 
 
 Confined mutating Workers receive persisted host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR, TEMP and TMP select the lane-local `.codeterm-tmp` directory. Task-bound Worker spawns require an explicit read_only or mutating intent. Restoring an older task tab without a saved confinement policy retains its existing behavior.
 
-<!-- revision: 122 -->
+<!-- revision: 124 -->
