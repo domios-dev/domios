@@ -41,6 +41,12 @@ publishing keeps the signed release workflow. The package is written under
 `src-tauri/target/release/bundle/deb` unless the normal target policy selects
 another existing target root.
 
+Queued builds watch only the gateway root, queue entries and the current owner
+directory. Recursive slot watchers also traverse Cargo artifacts and transient
+`state.lock.pending.*` directories; Node can race their removal and abort a
+queued build with `ENOENT`. Keep subscriptions established before checking the
+captured snapshot, and reattach the owner watcher after directory replacement.
+
 Packaging entrypoints (`release-bundle`, `build`, `install-local`) prepare the
 checked frontend and bundled CLI, then let Tauri compile the native application
 once with the final merged config. Do not precompile the app before Tauri:
@@ -1170,7 +1176,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 47 -->
+<!-- revision: 48 -->
 
 ### Lane and batch scopes
 
