@@ -431,6 +431,13 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "job_if": "always()"
   },
   {
+    "job": "rust-warnings → report",
+    "run": "for file in rust-warnings-report/*; do\n  [ -f \"$file\" ] || continue\n  bash scripts/ci-artifact.sh put \"$GITHUB_RUN_ID/$WARNING_REPORT_NAME/${file##*/}\" \"$file\"\ndone",
+    "if": "always()",
+    "reason": "Warning summary reports to the MinIO ci-artifacts bucket",
+    "job_if": "always()"
+  },
+  {
     "job": "frontend-windows",
     "run": "test ! -f ci-rust-warnings/rust-warnings-win32-frontend.json || bash scripts/ci-artifact.sh put \"$GITHUB_RUN_ID/rust-warnings/rust-warnings-win32-frontend.json\" ci-rust-warnings/rust-warnings-win32-frontend.json",
     "if": "always()",
