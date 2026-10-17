@@ -2,7 +2,7 @@ use super::engine::{self, Session};
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::{RuntimeOperation, RuntimeResult};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "camelCase", deny_unknown_fields)]
@@ -126,20 +126,16 @@ mod tests {
     #[test]
     fn reset_operation_requires_confirmation_and_preserves_retry_key() {
         let key = uuid::Uuid::parse_str("12345678-1234-4123-8123-123456789abc").unwrap();
-        assert!(
-            operation(ResetCreditsRequest::Redeem {
-                idempotency_key: key,
-                confirmed: false
-            })
-            .is_err()
-        );
-        assert!(
-            operation(ResetCreditsRequest::Redeem {
-                idempotency_key: uuid::Uuid::nil(),
-                confirmed: true
-            })
-            .is_err()
-        );
+        assert!(operation(ResetCreditsRequest::Redeem {
+            idempotency_key: key,
+            confirmed: false
+        })
+        .is_err());
+        assert!(operation(ResetCreditsRequest::Redeem {
+            idempotency_key: uuid::Uuid::nil(),
+            confirmed: true
+        })
+        .is_err());
         let a = operation(ResetCreditsRequest::Redeem {
             idempotency_key: key,
             confirmed: true,
