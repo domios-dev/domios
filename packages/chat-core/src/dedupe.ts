@@ -1,4 +1,5 @@
 import { normalizeChatText } from "./normalize";
+import { userEchoBody } from "./userEchoBody";
 import { markVoice, buildMarker } from "./markers";
 import { formatAttachmentMarker, type AttachmentKind } from "./attachmentMarker";
 import { envelopeText, type MessageSegment } from "./envelope";
@@ -44,21 +45,22 @@ function fileName(path: string): string {
 }
 
 function markerEchoMatchesParsed(echo: OptimisticEcho, candidate: NormalizedChatMessage): boolean {
+  const content = userEchoBody(echo.content);
   const attachments = candidate.segments?.filter((segment) => segment.type === "attachment") ?? [];
   return attachments.some((segment) => {
     if (segment.kind === "voice" && (attachments.length !== 1 || candidate.segments?.some((part) =>
       part.type === "frame" || (part.type === "text" && Boolean(part.text.trim())) || (part.type === "paste" && Boolean(part.body.trim()))))) return false;
     if (echo.segments?.some((own) => own.type === "attachment" && own.kind === segment.kind && own.path === segment.path)) return true;
     if (segment.kind === "voice") {
-      return echo.content.startsWith(markVoice(segment.path)) || echo.content.startsWith(markVoice(segment.path, null, ""));
+      return content.startsWith(markVoice(segment.path)) || content.startsWith(markVoice(segment.path, null, ""));
     }
-    return echo.content.startsWith(formatAttachmentMarker(segment.path, segment.kind as AttachmentKind, segment.label ?? undefined))
-      || echo.content.startsWith(buildMarker(segment.kind === "image" ? "photo" : "file", [["file", segment.path]]));
+    return content.startsWith(formatAttachmentMarker(segment.path, segment.kind as AttachmentKind, segment.label ?? undefined))
+      || content.startsWith(buildMarker(segment.kind === "image" ? "photo" : "file", [["file", segment.path]]));
   });
 }
 
 function matchableContent(content: string): string {
-  return content;
+  return userEchoBody(content);
 }
 
 function isFileIdentityMarker(_content: string, segments?: MessageSegment[] | null): boolean {
@@ -188,7 +190,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
         const markerMatch = markerEchoMatchesParsed(echo, candidate);
         if (
           !markerMatch
-          && normalizeChatText(sourceRows[i].content).toLowerCase() !== wanted
+          && normalizeChatText(matchableContent(sourceRows[i].content)).toLowerCase() !== wanted
           && normalizeChatText(matchableContent(candidate.content)).toLowerCase() !== wanted
           && !attachmentEchoMatches(echo.content, candidate)
         ) {
