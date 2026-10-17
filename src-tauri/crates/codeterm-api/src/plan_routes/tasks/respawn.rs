@@ -141,6 +141,8 @@ pub async fn task_respawn(
         )
     })?;
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let description =
+        codeterm_service_core::service::task_tab_description(&original_task.name, None);
     let spawn = state
         .svc
         .spawn_agent(
@@ -149,6 +151,8 @@ pub async fn task_respawn(
                 cwd: Some(draft.cwd.clone()),
                 title: draft.title.clone(),
                 title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
+                description: Some(description),
+                task_description_managed: true,
                 role: Some("Worker".into()),
                 parent_tab_id: draft.parent_tab_id.clone(),
                 task: Some(draft.task_prompt.clone()),

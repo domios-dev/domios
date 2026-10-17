@@ -218,7 +218,11 @@ impl ServiceContext {
                 }
             }
             if let Some(ref description) = spec.description {
-                let _ = mux.set_tab_description(&result, Some(description.clone()));
+                if spec.task_description_managed {
+                    let _ = mux.set_task_tab_description(&result, Some(description.clone()));
+                } else {
+                    let _ = mux.set_tab_description(&result, Some(description.clone()));
+                }
             }
             result
         };

@@ -10,9 +10,10 @@ terminal `</domios>` preserve routed-message provenance. Follow the host-supplie
 reply hint inside `<tip>…</tip>`: agent senders use its command; shell senders
 get a reply in your own chat/output.
 
-A tab title is one word and stays stable; pass an activity summary with
-`--description` when spawning, or use `codeterm tab describe` for an existing
-tab. Finish related edits, then run tests once.
+A tab title is one word and stays stable. `plan task dispatch` derives a short
+description from the task name; `--description` overrides it. Direct `agent
+spawn` still needs `--description`. Use `codeterm tab describe` to update an
+existing tab. Finish related edits, then run tests once.
 
 Notify through `codeterm notify send "title" [--from-pad PATH] [--severity info|warning|error] --level verbose|action_needed|failure`; never use provider-native notifications. `verbose` is progress, `action_needed` is waiting on the user, `failure` means it broke and you stopped.
 

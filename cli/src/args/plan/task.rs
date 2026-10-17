@@ -371,6 +371,12 @@ pub enum PlanTaskAction {
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
         #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Worker tab description (defaults to a short summary of the task name)"
+        )]
+        description: Option<Vec<String>>,
+        #[arg(
             long = "reasoning-effort",
             help = "Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)"
         )]
@@ -538,6 +544,34 @@ mod tests {
             } => canonical_writer,
             _ => panic!("expected plan task dispatch"),
         }
+    }
+
+    #[test]
+    fn plan_task_dispatch_accepts_description_override() {
+        use clap::Parser;
+        let parsed = Cli::try_parse_from([
+            "codeterm",
+            "plan",
+            "task",
+            "dispatch",
+            "pl_test",
+            "task_test",
+            "--execution-intent",
+            "mutating",
+            "--description",
+            "Owner task summary",
+        ])
+        .expect("dispatch description parses");
+        let crate::Commands::Plan {
+            action:
+                crate::PlanAction::Task {
+                    action: super::PlanTaskAction::Dispatch { description, .. },
+                },
+        } = parsed.command
+        else {
+            panic!("expected plan task dispatch")
+        };
+        assert_eq!(description, Some(vec!["Owner task summary".into()]));
     }
 
     #[test]

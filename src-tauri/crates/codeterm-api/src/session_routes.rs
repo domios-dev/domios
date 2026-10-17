@@ -500,6 +500,7 @@ pub async fn resume_session_api(
             codeterm_service_core::service::SpawnIdentityProvenance::UserSupplied,
         ),
         description: None,
+        task_description_managed: false,
         role: identity.as_ref().map(|identity| identity.role.clone()),
         role_profile: identity
             .as_ref()
