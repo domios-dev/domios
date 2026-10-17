@@ -6,7 +6,7 @@ use crate::service::plan::NewTask;
 use crate::service::pty_ownership::OwnershipEvent;
 use crate::service::spawn::SpawnTabSpec;
 use crate::service::test_fixture::ServiceFixture;
-use std::sync::{Arc, mpsc};
+use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 const DEADLINE: Duration = Duration::from_secs(5);
@@ -116,16 +116,14 @@ fn failed_shell_build_leaves_no_pty_link() {
         .link_hidden_shell_pty_with_builder(&tab_id, |_| Err("spawn failed".into()))
         .unwrap_err();
     assert_eq!(error, "spawn failed");
-    assert!(
-        fixture
-            .service
-            .mux
-            .read()
-            .get_tab(&tab_id)
-            .unwrap()
-            .pty_id
-            .is_none()
-    );
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pty_id
+        .is_none());
 }
 
 #[test]
@@ -184,9 +182,7 @@ fn worker_owned_utility_shell_inherits_task_context_and_reports_to_worker() {
         .id
         .clone();
     let delivered =
-        fixture
-            .service
-            .bind_recorded_agent_recipient(&worker_id, "worker-session", "worker-nonce");
+        fixture.bind_recorded_agent_recipient(&worker_id, "worker-session", "worker-nonce");
 
     let shell = fixture
         .service
@@ -242,20 +238,16 @@ fn worker_owned_utility_shell_inherits_task_context_and_reports_to_worker() {
         .unwrap();
 
     assert_eq!(report.orchestrator_tab_id, worker_id);
-    assert!(
-        delivered
-            .texts
-            .lock()
-            .iter()
-            .any(|text| text.contains("UTILITY_SHELL_REPORT_PAYLOAD"))
-    );
-    assert!(
-        fixture
-            .service
-            .report_store
-            .lock()
-            .get(&worker_id, false)
-            .iter()
-            .any(|entry| entry.message.contains("UTILITY_SHELL_REPORT_PAYLOAD"))
-    );
+    assert!(delivered
+        .texts
+        .lock()
+        .iter()
+        .any(|text| text.contains("UTILITY_SHELL_REPORT_PAYLOAD")));
+    assert!(fixture
+        .service
+        .report_store
+        .lock()
+        .get(&worker_id, false)
+        .iter()
+        .any(|entry| entry.message.contains("UTILITY_SHELL_REPORT_PAYLOAD")));
 }

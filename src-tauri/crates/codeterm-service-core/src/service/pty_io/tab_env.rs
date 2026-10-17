@@ -1,9 +1,9 @@
 //! The single launch-env stamper. Every PTY launch path composes here, so one
 //! tab record yields one identity map no matter which path built the PTY.
 use crate::multiplexer::types::Tab;
-use crate::service::ServiceContext;
 use crate::service::instance_env::InstanceEnv;
 use crate::service::plan::PlanStore;
+use crate::service::ServiceContext;
 use std::collections::HashMap;
 
 /// Which launch surface is composing. Identity is identical for both surfaces;

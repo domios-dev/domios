@@ -1,4 +1,4 @@
-use super::{MultiplexerState, TabCloseReservation, short_id};
+use super::{short_id, MultiplexerState, TabCloseReservation};
 use crate::multiplexer::types::{
     PendingDeliveryRecord, Tab, TabBacking, TabCloseReason, TabType, TitleLevel,
 };
@@ -565,11 +565,9 @@ mod display_label_tests {
             spawn_handle: Some("M3 IV-gate".into()),
             bound_at: 100,
         };
-        assert!(
-            state
-                .set_task_binding_once(&tab_id, binding.clone())
-                .unwrap()
-        );
+        assert!(state
+            .set_task_binding_once(&tab_id, binding.clone())
+            .unwrap());
         // The pane renames itself repeatedly as its understanding evolves.
         state.rename_tab(&tab_id, "Holdings").unwrap();
         state

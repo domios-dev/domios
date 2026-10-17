@@ -1,11 +1,11 @@
 use axum::{
-    Json,
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
+    Json,
 };
 use serde::Deserialize;
 
-use crate::routes::{AppState, check_auth, resolve_tab};
+use crate::routes::{check_auth, resolve_tab, AppState};
 use send::wait_for_pty_link as await_pty_link;
 
 mod exec;
@@ -30,10 +30,10 @@ pub(crate) use exec::ExecBody;
 
 #[cfg(test)]
 pub(crate) use codeterm_service_core::service::input_transport::{
-    TabInputTransport, should_prepend_source,
+    should_prepend_source, TabInputTransport,
 };
 #[cfg(test)]
-pub(crate) use send::{SendAction, SendTextBody, send_action_bytes};
+pub(crate) use send::{send_action_bytes, SendAction, SendTextBody};
 
 pub async fn list_tabs(
     AxumState(state): AxumState<AppState>,

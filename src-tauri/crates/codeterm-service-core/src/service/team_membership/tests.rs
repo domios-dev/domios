@@ -78,11 +78,15 @@ fn ordinary_shell_attachment_inherits_the_live_creator_team() {
 #[test]
 fn explicit_detach_is_required_to_leave_the_creator_team() {
     let (mux, team_id, orchestrator, workspace_id) = anchored_team();
-    assert!(
-        resolve_inherited_team_attachment(&mux, None, Some(&orchestrator), &workspace_id, true,)
-            .unwrap()
-            .is_none()
-    );
+    assert!(resolve_inherited_team_attachment(
+        &mux,
+        None,
+        Some(&orchestrator),
+        &workspace_id,
+        true,
+    )
+    .unwrap()
+    .is_none());
     let error = resolve_inherited_team_attachment(
         &mux,
         Some(&team_id),
@@ -321,14 +325,12 @@ fn applying_an_attachment_under_an_owner_outside_the_team_is_refused() {
     let surface = mux.create_tab(&workspace_id).unwrap();
     let attachment =
         authorize_team_attachment(&mux, &team_id, &orchestrator, &workspace_id).unwrap();
-    assert!(
-        apply_team_attachment_under(
-            &mut mux,
-            &attachment,
-            &surface,
-            AttachmentParent::Owner(&outsider),
-        )
-        .is_err()
-    );
+    assert!(apply_team_attachment_under(
+        &mut mux,
+        &attachment,
+        &surface,
+        AttachmentParent::Owner(&outsider),
+    )
+    .is_err());
     assert!(mux.get_tab(&surface).unwrap().team_id.is_none());
 }

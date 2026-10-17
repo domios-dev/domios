@@ -1,7 +1,7 @@
 //! Shell-tab spawning: visible Team terminals and hidden utility shells.
 
+use super::spawn::{resolve_spawn_workspace_id, SpawnTabSpec, TabHandle};
 use super::ServiceContext;
-use super::spawn::{SpawnTabSpec, TabHandle, resolve_spawn_workspace_id};
 use crate::service::MuxEmitCause;
 
 impl ServiceContext {

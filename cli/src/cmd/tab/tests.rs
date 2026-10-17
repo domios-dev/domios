@@ -524,17 +524,13 @@ fn human_row_collapses_when_tab_title_equals_tab_title() {
 #[test]
 fn inspect_rejects_mixed_and_multi_peer_owners() {
     let mixed = vec!["local".into(), "mesh:peer/remote".into()];
-    assert!(
-        super::remote_inspect_target(&mixed)
-            .unwrap_err()
-            .contains("mixed")
-    );
+    assert!(super::remote_inspect_target(&mixed)
+        .unwrap_err()
+        .contains("mixed"));
     let peers = vec!["mesh:a/one".into(), "mesh:b/two".into()];
-    assert!(
-        super::remote_inspect_target(&peers)
-            .unwrap_err()
-            .contains("multi-peer")
-    );
+    assert!(super::remote_inspect_target(&peers)
+        .unwrap_err()
+        .contains("multi-peer"));
 }
 
 #[test]
@@ -676,12 +672,10 @@ fn invalid_remote_tab_selector_emits_the_envelope_with_no_rpc_code() {
     assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
     assert_eq!(envelope["kind"], "error");
     assert_eq!(envelope["error"]["rpc_code"], serde_json::Value::Null);
-    assert!(
-        envelope["error"]["message"]
-            .as_str()
-            .expect("error message is a string")
-            .starts_with(INVALID_REMOTE_TAB_ID)
-    );
+    assert!(envelope["error"]["message"]
+        .as_str()
+        .expect("error message is a string")
+        .starts_with(INVALID_REMOTE_TAB_ID));
 }
 
 #[test]
@@ -693,12 +687,10 @@ fn mixed_local_and_remote_inspection_emits_the_envelope_with_no_rpc_code() {
 
     assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
     assert_eq!(envelope["error"]["rpc_code"], serde_json::Value::Null);
-    assert!(
-        !envelope["error"]["message"]
-            .as_str()
-            .expect("error message is a string")
-            .contains("-32")
-    );
+    assert!(!envelope["error"]["message"]
+        .as_str()
+        .expect("error message is a string")
+        .contains("-32"));
 }
 
 struct StubRpc {
@@ -819,12 +811,10 @@ fn a_converted_tab_failure_renders_as_the_envelope_on_stdout() {
     assert_eq!(envelope["kind"], "error");
     assert_eq!(envelope["error"]["rpc_code"], -32603);
     assert_eq!(envelope["error"]["code"], "not_found");
-    assert!(
-        !envelope["error"]["message"]
-            .as_str()
-            .expect("error message is a string")
-            .contains("-32")
-    );
+    assert!(!envelope["error"]["message"]
+        .as_str()
+        .expect("error message is a string")
+        .contains("-32"));
 }
 
 #[test]
