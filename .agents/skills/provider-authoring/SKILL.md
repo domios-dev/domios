@@ -64,6 +64,8 @@ Keep own-session filtering in the stored projector and cover native/JS policy pa
 
 Runtime agent rows may carry `agent_parent_thread_id` beside `agent_id`, `agent_ordinal`, `agent_state`, `agent_description`, `agent_model` and `agent_reasoning_effort` in `toolInput`. Emit the parent marker only for provider-authenticated spawn/activity receivers. The host records those children under the current root binding and permits descendant `readHistory` requests with an exact `call.target.threadId`, never child sends, rebinds, notifications or response side effects. Ordinary references to another thread grant no inspection authority.
 
+Live agent activity also carries `agent_binding_nonce` and `agent_runtime_epoch` from its runtime context. Historical activity cannot establish liveness: the background panel shows unknown status without elapsed time unless those fields match the current parent binding.
+
 `launchOnboardingSafeChoice(screen)` declares the exact option value associated
 with `launchOnboardingResponse(screen)`. Missing or null means unsupported. The
 host requires a unique provider-parsed option, a delegated Worker/Planner role,

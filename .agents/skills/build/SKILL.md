@@ -142,13 +142,14 @@ pnpm install
 
 ```powershell
 # Daily commands; run from the repository root.
-.\build.ps1 dev           # foreground dev on 7686
-.\build.ps1 check         # incremental compile check
-.\build.ps1 worktree-check # canonical integration compile check
-.\build.ps1 cli           # rebuild only the installed CLI
-.\build.ps1 install-local # incremental production build + self-install
+./build.ps1 dev           # foreground dev on 7686
+./build.ps1 check         # incremental compile check
+./build.ps1 worktree-check # canonical integration compile check
+./build.ps1 cli           # rebuild only the installed CLI
+./build.ps1 install-local # incremental production build + self-install
 ```
 
+PowerShell accepts the forward-slash launcher `./build.ps1 <operation>`.
 `build.ps1` is the Windows command hub; do not add a Makefile or hand-expand
 its underlying Cargo, pnpm, gateway, or installer commands. `install-local`
 already resumes the calling tab with a default continuation intent. Keep the
@@ -183,8 +184,8 @@ Orchestrator's canonical wave batch.
 
 | Goal | Entry point | Touches production? | Read first |
 |---|---|---:|---|
-| Develop and inspect changes | `./build.sh dev` / `.\build.ps1 dev` | No; port 7686 only | `.agents/skills/dev-run/SKILL.md` |
-| Compile both Rust test profiles (a full rebuild, run in canonical) | `./build.sh check-tests` / `.\build.ps1 check-tests` | No; shared Cargo gateway | `.agents/skills/gates/SKILL.md` |
+| Develop and inspect changes | `./build.sh dev` / `./build.ps1 dev` | No; port 7686 only | `.agents/skills/dev-run/SKILL.md` |
+| Compile both Rust test profiles (a full rebuild, run in canonical) | `./build.sh check-tests` / `./build.ps1 check-tests` | No; shared Cargo gateway | `.agents/skills/gates/SKILL.md` |
 | Build and test a local production installer | `./build.sh release-preflight`, then `./build.sh build` | Only the explicit self-install step | this section |
 | Publish to all users | PR to `master`, then `release-X.Y.Z` tag | Yes; CI and public updater mirror | `.agents/skills/github-release/SKILL.md` |
 
@@ -249,7 +250,7 @@ A lane Worker runs isolated checks only. When a generator needs the checkout's b
 ## Build timing and warm reuse
 
 `./build.sh build-history [--last N] [--verb V] [--json]` (Windows:
-`.\build.ps1 build-history`) reads the existing machine gateway job records,
+`./build.ps1 build-history`) reads the existing machine gateway job records,
 without acquiring the build slot or starting a cache server. The default is 50
 jobs, newest start/queue time first. Verb filtering happens before the limit.
 The table shows UTC time, verb, elapsed/duration, exit, canonical/lane/check
@@ -288,7 +289,7 @@ diagnostic artifacts, not a second job store. No history can reconstruct old rea
 
 Focused proof: `node --test scripts/build-history.test.mjs scripts/build-gateway-evidence.test.mjs`,
 `bash -n build.sh && bash -n scripts/build-gateway.sh && bash -n scripts/cache-policy.sh`, and
-`.\build.ps1 build-history --last 5 --json` on BLACKSTAR.
+`./build.ps1 build-history --last 5 --json` on BLACKSTAR.
 
 Standalone `release-inputs` records Cargo HTML timings for CLI and app/embed
 preparation under the operation's target `cargo-timings/` directory. App
@@ -371,7 +372,7 @@ for the small two-worktree metadata fixture and native forwarding tests.
 Release-input preparation now calls the same cache policy before invoking Cargo.
 `ci-tests full|platform` owns CI test compilation and execution through that
 policy (full suite, or this OS's cfg-gated subset plus the native input crates); on
-Windows use `.\build.ps1 ci-tests <mode>`, which locates Git Bash explicitly without
+Windows use `./build.ps1 ci-tests <mode>`, which locates Git Bash explicitly without
 requiring it on PATH. Native release jobs export `RUSTC_WRAPPER=sccache` at job scope so the
 separate Tauri invocation inherits it, verify shared storage before compiling,
 and print `cache-stats` in their final step.
@@ -414,13 +415,13 @@ announces local disk fallback;
 `SCCACHE_CACHE_SIZE` retains its existing default of `10G` and custom limits.
 A configured shared endpoint that cannot start is an error, not a claimed hit.
 
-`./build.sh cache-status` (Windows: `.\build.ps1 cache-status`) resolves the
+`./build.sh cache-status` (Windows: `./build.ps1 cache-status`) resolves the
 configured location, reads the running server's actual `Cache location`, and
 checks the shared endpoint's health URL. It starts no build or cache server,
 and changes no hooks or compiler environment. Configured and actual locations
 can differ until the next idle setup restarts the server.
 
-CI uses `./build.sh cache-verify` (Windows: `.\build.ps1 cache-verify`). It prints
+CI uses `./build.sh cache-verify` (Windows: `./build.ps1 cache-verify`). It prints
 configured and actual storage plus endpoint health, exits 0 only when both storage
 checks select the shared S3 bucket, and otherwise exits 2. It never restarts a
 server or checks for an idle machine. When no server is live and both S3 keys
@@ -554,7 +555,7 @@ Missing-checkout targets and targets unused for `CODETERM_CACHE_MAX_AGE_DAYS` (d
 
 At the same hook, installed `cargo-sweep` prunes the current checkout's `src-tauri/target` and `cli/target` with the same configurable age. An unavailable sweep tool prints one installation hint; sweep failures do not fail a build. `SCCACHE_CACHE_SIZE` is explicitly exported with default **10G** before starting sccache. An already-running server retains its startup configuration: apply changed sccache limits only by restarting it with the gateway idle, never during compilation.
 
-Run `./build.sh gc --dry-run` to preview or `./build.sh gc` to reclaim immediately (Windows: `.\build.ps1 gc --dry-run` / `.\build.ps1 gc`). Manual GC acquires the machine gateway, bypasses the hourly throttle, and reports exceptional bytes reclaimed plus sweep output. Dry-run preserves artifacts and the hourly timestamp. Normal targets have an age policy; current artifacts and protected exceptional targets can exceed their usual retained size.
+Run `./build.sh gc --dry-run` to preview or `./build.sh gc` to reclaim immediately (Windows: `./build.ps1 gc --dry-run` / `./build.ps1 gc`). Manual GC acquires the machine gateway, bypasses the hourly throttle, and reports exceptional bytes reclaimed plus sweep output. Dry-run preserves artifacts and the hourly timestamp. Normal targets have an age policy; current artifacts and protected exceptional targets can exceed their usual retained size.
 
 Orphan build-directory GC runs in manual GC and in the hourly automatic retention.
 It maps every existing Git worktree of this repository and the sibling
@@ -592,7 +593,7 @@ and [flock](https://github.com/rust-lang/cargo/blob/rust-1.95.0/src/cargo/util/f
 Windows `LockFileEx`, Unix `flock`. Python 3.12+ is required on Windows for junction
 validation. Links and unexpected hash layouts refuse collection. Each orphan and
 the total are reported in GiB. Fixtures: `node --test scripts/cargo-build-gc.test.mjs`.
-For an explicitly blocking cleanup use `.\build.ps1 gc --wait-build` in a Team
+For an explicitly blocking cleanup use `./build.ps1 gc --wait-build` in a Team
 build shell; capture `Get-PSDrive C` before and after, and preview first.
 
 If GC exits 2 on a live lane's malformed Cargo manifest, no orphan deletion is
@@ -617,7 +618,7 @@ gates skill's Release section owns that step.
    lockfiles and verifies they match `package.json`:
 
    ```powershell
-   .\build.ps1 release-preflight
+   ./build.ps1 release-preflight
    git add src-tauri/Cargo.lock cli/Cargo.lock
    git commit -m "release: sync Cargo lock versions"
    git status --short
@@ -627,13 +628,13 @@ gates skill's Release section owns that step.
    persistent canonical cache:
 
    ```powershell
-   .\build.ps1 install-local
+   ./build.ps1 install-local
    Invoke-RestMethod http://127.0.0.1:7685/api/health
    ```
 
    From an agent tab, launch it with a receipt (PowerShell and bash lines:
    [utility-shell-reports](../utility-shell-reports/SKILL.md#launcher-recipes-copy-paste)):
-   `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd ".\build.ps1 install-local -NotifyTab $env:CODETERM_TAB_ID"`.
+   `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd "./build.ps1 install-local -NotifyTab $env:CODETERM_TAB_ID"`.
    rustfmt, the file-size gate and the clean-checkout check run first, in seconds.
 
    This route is Windows-only, requires the clean canonical checkout, reuses a
@@ -647,9 +648,9 @@ gates skill's Release section owns that step.
    disable it when needed:
 
    ```powershell
-   .\build.ps1 install-local --continue-prompt "Verify the installed build, then resume release QA."
-   .\build.ps1 install-local --continue-tab "$env:CODETERM_TAB_ID" --continue-prompt "Continue the interrupted task."
-   .\build.ps1 install-local --no-continue
+   ./build.ps1 install-local --continue-prompt "Verify the installed build, then resume release QA."
+   ./build.ps1 install-local --continue-tab "$env:CODETERM_TAB_ID" --continue-prompt "Continue the interrupted task."
+   ./build.ps1 install-local --no-continue
    ```
 
    Cargo incremental remains disabled because sccache rejects incremental rustc
@@ -678,7 +679,7 @@ gates skill's Release section owns that step.
    artifact:
 
    ```powershell
-   .\build.ps1 build
+   ./build.ps1 build
    codeterm update install --from-file "<printed-installer-path>"
    ```
 
@@ -833,7 +834,7 @@ foreground owner:
 
 ```powershell
 # Verify no previous dev listener/process remains, then open one visible tab.
-codeterm tab new --team <team-id> --purpose dev --cmd "Set-Location '<checkout>'; .\build.ps1 dev"
+codeterm tab new --team <team-id> --purpose dev --cmd "Set-Location '<checkout>'; ./build.ps1 dev"
 ```
 
 Keep that Tab open and require all of the following before reporting ready:
@@ -1030,11 +1031,11 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | `EPERM rename state.lock.guard -> state.guard.released.owner.*` under parallel checks | Directory guard release raced concurrent readers on Windows, leaving a guard that could cause state-mutex timeouts. | Update the gateway scripts; the publication guard now uses atomic exclusive file creation and owner-checked unlink. Incomplete ownership stays a bounded refusal; a proven dead owner is reclaimed by one exclusive reaper. A crashed reaper leaves a conservative refusal requiring an owner decision, never manual deletion during live checks. Verify with `node --test scripts/build-gateway-mutex.test.mjs` (six concurrent Bash callers all complete). |
 | A build exits with `Timed out acquiring build gateway state mutex` | Another live or stale gateway owner held the state mutex through the acquisition deadline. Owner liveness probes now run outside publication exclusivity; the owner tuple is revalidated before reclamation, so a slow probe cannot block release or remove a successor. The failed invocation terminates only its own Cargo/rustc descendants before returning. | Run `./build.sh gateway-status` to inspect the active and queued job IDs. If a job is stale, run `./build.sh gateway-cancel <job-id>`, then rerun the original command. |
 | Checks queue silently behind a running DEV (fixed) | The old Tauri dev parent retained the gateway for the app lifetime. | Update and run `dev`: Cargo builds under the gateway, then `dev-prebuilt` validates and launches outside it. Confirm `gateway-status` is idle while the app runs and a `check-queue` completes. |
-| A Windows dev build fails while writing `codeterm_lib.lib` with `os error 112` or a localized “not enough disk space” message | The canonical `src-tauri/target` exhausted the checkout drive while Cargo was replacing the debug archive. | Verify the failure owns the canonical target and no dev build is running, then run `.\build.ps1 clean`. Confirm free space before restarting `.\build.ps1 dev`; do not delete another worktree's target or touch production. |
-| A Windows native dependency fails with `LNK1106` and `dumpbin` shows a cached `.o` ending before its COFF string-table length | `sccache` retained a truncated C/C++ object; a clean Cargo target can restore the same corrupt cache entry. | In PowerShell set `$env:SCCACHE_RECACHE='1'`, rerun the failing `.\build.ps1` operation once, then remove the environment variable. Verify the rebuilt object with `dumpbin` before retrying normally. |
+| A Windows dev build fails while writing `codeterm_lib.lib` with `os error 112` or a localized “not enough disk space” message | The canonical `src-tauri/target` exhausted the checkout drive while Cargo was replacing the debug archive. | Verify the failure owns the canonical target and no dev build is running, then run `./build.ps1 clean`. Confirm free space before restarting `./build.ps1 dev`; do not delete another worktree's target or touch production. |
+| A Windows native dependency fails with `LNK1106` and `dumpbin` shows a cached `.o` ending before its COFF string-table length | `sccache` retained a truncated C/C++ object; a clean Cargo target can restore the same corrupt cache entry. | In PowerShell set `$env:SCCACHE_RECACHE='1'`, rerun the failing `./build.ps1` operation once, then remove the environment variable. Verify the rebuilt object with `dumpbin` before retrying normally. |
 | A build in one worktree could reuse a cached artifact built from a different worktree's sources (codeterm#327). Never reproduced on demand — this is a configuration hazard, not an observed rebuild; see `scripts/check-sccache-basedir-isolation.sh`. | `scripts/cache-policy.sh` and `scripts/test-capped.sh` defaulted `SCCACHE_BASEDIRS` to the current worktree root. That tells sccache to strip the worktree path before hashing, so two worktrees sharing one `SCCACHE_DIR`/server can derive the same cache key even though their absolute paths differ. | Basedir rewriting is disabled for this repo: `ct_reject_basedir_rewriting` in `scripts/cache-policy.sh` unsets `SCCACHE_BASEDIRS` (warning if a parent shell leaked one in) before every `ct_configure_sccache`/`ct_require_prestarted_sccache` call, and `scripts/test-capped.sh` no longer sets it. Machine-level `sccache` and per-worktree `CARGO_TARGET_DIR` isolation are unaffected. Verify with `bash scripts/check-sccache-basedir-isolation.sh`; do not reintroduce `SCCACHE_BASEDIRS` for this repo. |
 | `rustc` exits with `0xc0000005 (STATUS_ACCESS_VIOLATION)` while compiling an unchanged dependency | The Windows compiler process crashed before producing a source diagnostic; this is not a Rust assertion or test failure. | Rerun the same bounded `build.ps1` operation once so completed artifacts are reused. If it repeats, stop, preserve the exact rustc command and Windows crash evidence, and report the toolchain fault; do not clean targets or raise test deadlines. |
-| After an OS crash, `rustc` panics while linking with `Invalid archive terminator` | A generated `.rlib` in the canonical Cargo target was truncated; incremental metadata cleanup cannot repair the archive payload. | Confirm no dev build is running, run `.\build.ps1 clean`, then restart the original named operation. Do not delete individual archives or reuse the damaged target. |
+| After an OS crash, `rustc` panics while linking with `Invalid archive terminator` | A generated `.rlib` in the canonical Cargo target was truncated; incremental metadata cleanup cannot repair the archive payload. | Confirm no dev build is running, run `./build.ps1 clean`, then restart the original named operation. Do not delete individual archives or reuse the damaged target. |
 | Dev compiles and opens but port 7686 never listens, with a trust-boundary policy error in `~/.codeterm-dev/logs/codeterm.log` | The retained dev config requests a non-loopback host without a bearer token, or contains a wildcard/malformed CORS origin. | Keep dev local by setting `api.host = "127.0.0.1"`, or configure a token for an intentional network-facing instance. Remove `*` and malformed entries from `api.cors_allow_origins`; an empty list is valid and denies all cross-origin browser requests. |
 | Windows `build.ps1 kill` reports that the clean shutdown deadline elapsed after a high-tab-count dev fixture | Closing many PTYs and watcher leases can exceed the bounded graceful-shutdown window even though the instance is otherwise healthy. | Let the named operation use its port-scoped force-stop fallback, then verify 7686 is free and 7685 still listens. Never replace it with a process-name kill. |
 | `test-one plan` fails to compile old `Task` fixtures after an orchestration schema change | The app gate compiled the plan crate as a dependency but did not compile its own unit-test fixtures. | Update every direct `Task` fixture and changed helper signature, then rerun the exact `test-one plan` filter. Do not remove the plan gate or move it to an app filter. |
@@ -1085,7 +1086,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | Source-size gate counts downloaded SDK declarations in `target-check/` | The traversal included ignored generated benchmark artifacts. | Prune that root output tree only when Git confirms ignored/untracked ownership; all authored source stays guarded. Use a scalar prune path: Bash3.2 with `set -u` rejects empty array expansion inside the traversal. Preserve fixture bytes; rerun the guard controls and size gate. |
 | Windows plan-index reports `queue did not drain` | An inner deadline raced background work. | Wait on the queue condition and rely on the test process exit. |
 | `check-tests` emits allocation failures, rustc `0xc0000409`, then missing-rlib cascades while another app build is active | Concurrent app compilation exhausted available host memory; the later rlib errors are secondary until proven otherwise. | Preserve the first allocation failure and raw exits. Defer the app checks to the owner's canonical batch with dev stopped; use `CARGO_BUILD_JOBS=1` for the named operation if memory pressure persists. Never kill production or clean shared targets from a Worker lane. |
-| Windows PowerShell QA capture throws `NativeCommandError` on ordinary Cargo progress and records no exit | Caller-level `*>` redirection turns native stderr into PowerShell errors under `build.ps1` strict error handling. | Run a child `powershell -NoProfile -File .\build.ps1 ...` with OS-level `cmd /d /c` redirection (`> run.log 2>&1`), then record the child exit code. Do not classify the progress line as a compiler failure. |
+| Windows PowerShell QA capture throws `NativeCommandError` on ordinary Cargo progress and records no exit | Caller-level `*>` redirection turns native stderr into PowerShell errors under `build.ps1` strict error handling. | Run a child `powershell -NoProfile -File ./build.ps1 ...` with OS-level `cmd /d /c` redirection (`> run.log 2>&1`), then record the child exit code. Do not classify the progress line as a compiler failure. |
 | `test-one` fails with sccache socket error 10048 and has no build-history row | A scope bypassed gateway acquisition and configured sccache before owning the build slot. | Use the shared cargo gateway entry for every scope and cargo-running verb, including CLI, check-tests, CI inputs and named dev. Check `build-history` for each invocation; run the mixed-verb fixture in `scripts/build-gateway-cache.test.mjs`. After merge, run two focused `test-one` and two `check-queue` calls concurrently with `--wait-build`, and retain all four exits and history rows. |
 | `check-tests` fails at catalogue watcher `targets.sort()` / `dedup()` | The watcher parameter was immutable. | Declare `mut targets` in `ProviderBinaryWatchers::watch`; rerun the authorized `check-tests` and focused catalogue gates. |
 | A release-time test fails in `#[cfg(test)]` code while `check` was green | `check` compiles the production profile only, so test-only code is never type-checked | Run `./build.ps1 check-tests`, which compiles `--all-targets` for both workspaces through the build gateway. A stale generated map or a document over its reading boundary is a different cause: use the matching row above. |

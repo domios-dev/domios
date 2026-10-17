@@ -302,7 +302,7 @@ pub enum AgentAction {
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
         #[arg(long)]
         role: Option<SpawnRole>,
-        /// Worker prompt kind/profile, with or without a task: tester or release_manager.
+        /// Worker prompt kind/profile, with or without a task: qa or release_manager.
         #[arg(long, alias = "role-profile")]
         kind: Option<String>,
         /// Parent tab ID. Required for Workers; for a Planner, resolved
@@ -849,13 +849,13 @@ mod tests {
             "--role",
             "Worker",
             "--kind",
-            "tester",
+            "qa",
             "--parent-tab",
             "parent_tab",
             "--authorized-gate",
             "./build.sh test-one app verifier",
         ])
-        .expect("task-less tester Worker spawn parses");
+        .expect("task-less qa Worker spawn parses");
         match action {
             AgentAction::Spawn {
                 role,
@@ -868,7 +868,7 @@ mod tests {
                 ..
             } => {
                 assert!(matches!(role, Some(SpawnRole::Worker)));
-                assert_eq!(kind.as_deref(), Some("tester"));
+                assert_eq!(kind.as_deref(), Some("qa"));
                 assert_eq!(parent.as_deref(), Some("parent_tab"));
                 assert!(plan.is_none());
                 assert!(plan_task.is_none());

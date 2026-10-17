@@ -31,7 +31,7 @@ function WorkDetails({ item, onStop, onInspect }: {
     {item.kind === "agent" ? <>
       <p className="m-0 text-xs text-[var(--ct-fg)]">{item.name}</p>
       {item.prompt && item.prompt !== item.name && <p className="m-0 whitespace-pre-wrap break-words text-xs text-[var(--ct-fg)]">{item.prompt}</p>}
-      <p className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{[item.model, item.effort, item.status, `${item.elapsed} elapsed`].filter(Boolean).join(" · ")}</p>
+      <p className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{[item.model, item.effort, item.status, item.elapsed && `${item.elapsed} elapsed`].filter(Boolean).join(" · ")}</p>
       {onInspect && transcriptThreadId && <button type="button" className="mt-1 underline" onClick={() => onInspect(transcriptThreadId)}>Open transcript</button>}
     </> : <>
       <code className="block whitespace-pre-wrap break-all text-xs text-[var(--ct-fg)]">{item.command}</code>

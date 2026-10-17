@@ -21,11 +21,11 @@ Two shapes, and picking the wrong one is what costs hours.
 | The branch is releasable | Delegate the broad gate, get a summary |
 | A release | Delegate, then verify its SHA yourself |
 
-In canonical, a per-task Rust test-profile change uses `.\build.ps1 check-tests`, which
+In canonical, a per-task Rust test-profile change uses `./build.ps1 check-tests`, which
 compiles all test targets in both the app and CLI workspaces without running
 them. A following `test-one app` or `test-one cli` reuses those artifacts.
 It uses the shared Cargo gateway entry and accepts `--wait-build`.
-`.\build.ps1 check` does not compile `#[cfg(test)]` code, so a green `check`
+`./build.ps1 check` does not compile `#[cfg(test)]` code, so a green `check`
 alone does not cover test-only Rust changes.
 
 A focused check is one test module, one type check, one file's lint. It
@@ -42,10 +42,10 @@ active libtest case names captured from the execution output.
 ## Focused checks (Rust commands are canonical only)
 
 ```bash
-.\build.ps1 check                      # cargo check, ~2s incremental
-.\build.ps1 test-one app  <filter>     # one app test
-.\build.ps1 test-one plan <filter>     # one codeterm-plan test
-.\build.ps1 test-one cli  <filter>     # one CLI test
+./build.ps1 check                      # cargo check, ~2s incremental
+./build.ps1 test-one app  <filter>     # one app test
+./build.ps1 test-one plan <filter>     # one codeterm-plan test
+./build.ps1 test-one cli  <filter>     # one CLI test
 node node_modules/typescript/bin/tsc --noEmit
 node --import tsx --import ./scripts/ts-test-asset-hook.mjs <file>.test.tsx
 bash scripts/check-file-sizes.sh --fail
@@ -94,7 +94,7 @@ The provider boundary guard compares exact exceptions with `origin/develop`; CI 
 
 ## Broad, delegate
 
-The broad gate is `.\build.ps1 release-preflight`: fmt, size, bundles,
+The broad gate is `./build.ps1 release-preflight`: fmt, size, bundles,
 versions, cargo check, clippy, the release Rust set, tsc, knip,
 489 TS test files, biome. It runs **once, on the release SHA, immediately
 before cutting** — never per merge.
@@ -123,7 +123,7 @@ codeterm agent spawn codex --model gpt-5.6-luna --reasoning-effort xhigh \
   --title "gate" --cwd "D:\Developer\codeterm" --task-file <pad>/gate-brief.md
 ```
 
-The brief must say: run `.\build.ps1 release-preflight` with **no**
+The brief must say: run `./build.ps1 release-preflight` with **no**
 `CODETERM_INSTANCE` or `CODETERM_API_PORT` set, capture the whole log, and
 report back with `codeterm agent report`:
 

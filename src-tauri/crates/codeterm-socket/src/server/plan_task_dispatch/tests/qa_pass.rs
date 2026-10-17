@@ -66,8 +66,8 @@ fn claim_qa(store: &PlanStore, plan_id: &str, task_id: &str) {
         .claim_next_qa(
             plan_id,
             "canonical QA",
-            AgentRef::from_tab("tester"),
-            Some("tester"),
+            AgentRef::from_tab("qa"),
+            Some("qa"),
             6,
         )
         .unwrap()
@@ -101,7 +101,7 @@ fn qa_pass_atomically_closes_attempt_checkout_binding_and_task() {
             &plan_id,
             &task_id,
             "focused oracle passed",
-            AgentRef::from_tab("tester"),
+            AgentRef::from_tab("qa"),
             10,
         )
         .unwrap();
@@ -135,7 +135,7 @@ fn qa_pass_atomically_closes_attempt_checkout_binding_and_task() {
     assert_eq!(accepted_task.assigned_tab_id, None);
     assert_eq!(accepted_task.lane.tab_id, None);
     assert_eq!(accepted_task.status, TaskStatus::Done);
-    assert_eq!(store.task_binding_for_tab("tester"), None);
+    assert_eq!(store.task_binding_for_tab("qa"), None);
     assert!(store.task_bindings_for_tab("executor").is_empty());
 }
 
@@ -167,7 +167,7 @@ fn qa_pass_failure_preserves_attempt_checkout_binding_and_task() {
             &plan_id,
             &task_id,
             "focused oracle passed",
-            AgentRef::from_tab("tester"),
+            AgentRef::from_tab("qa"),
             10,
         )
         .unwrap_err();
@@ -263,7 +263,7 @@ fn qa_pass_rejects_live_competition_and_superseded_replacement_without_mutation(
             &plan.id,
             &task_id,
             "claimed winner accepted",
-            AgentRef::from_tab("tester"),
+            AgentRef::from_tab("qa"),
             7,
         )
         .unwrap_err();
@@ -324,7 +324,7 @@ fn qa_pass_rejects_live_competition_and_superseded_replacement_without_mutation(
             &plan.id,
             &task_id,
             "claimed winner accepted",
-            AgentRef::from_tab("tester"),
+            AgentRef::from_tab("qa"),
             10,
         )
         .unwrap_err();
