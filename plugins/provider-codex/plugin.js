@@ -2476,6 +2476,9 @@ function stamp(state, row2, params) {
   else if (typeof ms === "number" && Number.isFinite(ms)) row2.timestamp = new Date(ms).toISOString();
   const turnId = text(params.turnId) ?? text(object(params.turn).id);
   if (turnId && !row2.toolFlowId) row2.toolFlowId = turnId;
+  if (row2.toolKind === "agent" && row2.toolName === "agent_activity") {
+    row2.toolInput = json({ ...object(row2.toolInput), agent_binding_nonce: state.bindingNonce, agent_runtime_epoch: state.epoch });
+  }
   state.items[row2.id] = row2;
   return row2;
 }

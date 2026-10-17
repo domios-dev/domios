@@ -102,6 +102,6 @@ export function useComposerBackgroundWork(tabId: string, supported: boolean, sub
   }, [acceptSnapshot, identity, tabId]);
 
   const terminals = sameAuthority(loaded.identity, identity) ? loaded.processes : [];
-  const items = composerBackgroundWorkItems(messages, terminals, Date.now(), { subagentsVisible, rootThreadId: identity?.rootThreadId });
+  const items = composerBackgroundWorkItems(messages, terminals, Date.now(), { subagentsVisible, rootThreadId: identity?.rootThreadId, authority: identity ?? undefined });
   return { items, error, stop };
 }
