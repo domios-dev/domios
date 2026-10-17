@@ -157,6 +157,32 @@ fn agent_restart_mesh_preserves_explicit_tab() {
 }
 
 #[test]
+fn taskless_worker_kind_mesh_spawn_preserves_profile_and_read_only_intent() {
+    let action = parse_action(&[
+        "spawn",
+        "claude",
+        "--role",
+        "Worker",
+        "--kind",
+        "tester",
+        "--parent-tab",
+        "parent-tab",
+        "--cwd",
+        "/peer/workspace",
+    ]);
+    let (method, path, body) = agent_to_api(&action);
+    let body = serde_json::from_str::<serde_json::Value>(&body.expect("spawn carries a body"))
+        .expect("spawn body is JSON");
+
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/agents/spawn");
+    assert_eq!(body["role"], "Worker");
+    assert_eq!(body["role_profile"], "tester");
+    assert_eq!(body["parent_tab_id"], "parent-tab");
+    assert_eq!(body["execution_intent"], "read_only");
+}
+
+#[test]
 fn agent_restart_fresh_parses_and_reaches_remote_api() {
     let action = parse_action(&["restart", "--tab", "restored-tab", "--fresh", "--force"]);
     let (method, path, body) = agent_to_api(&action);
