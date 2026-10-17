@@ -8,7 +8,7 @@ description: "Choose and run Domios build operations, including dev work, local 
 ## Prerequisites
 
 ### Windows
-- **Rust** 1.93+ (`rustup install stable`)
+- **Rust** 1.99.1 (pinned by `rust-toolchain.toml`)
 - **Node.js** 22+ with **pnpm** (`npm install -g pnpm`)
 - **MSVC Build Tools** — Visual Studio 2022 Build Tools with:
   - `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`
@@ -22,6 +22,45 @@ description: "Choose and run Domios build operations, including dev work, local 
 ### Linux
 - `build-essential`, `libwebkit2gtk-4.1-dev`, `libssl-dev`, `libgtk-3-dev`
 - Rust, Node.js, pnpm
+
+## Local Linux package
+
+Use the normal gateway entry for a local Debian package, including its frontend,
+CLI and embedded resources:
+
+```bash
+cat > /tmp/codeterm-local-bundle.json <<'EOF'
+{"bundle":{"createUpdaterArtifacts":false}}
+EOF
+./build.sh release-bundle --bundles deb --config /tmp/codeterm-local-bundle.json --ci
+```
+
+`release-bundle` forwards trailing Tauri flags, including config paths with spaces.
+This override produces a local installer without updater artifacts; public
+publishing keeps the signed release workflow. The package is written under
+`src-tauri/target/release/bundle/deb` unless the normal target policy selects
+another existing target root.
+
+## Rebuild cost
+
+`release-inputs` keeps the normal release checks and profiles. TypeScript stores
+incremental diagnostics in `node_modules/.cache`; Vite builds in a temporary
+directory there and promotes successful output into `dist`. Equal output bytes
+retain their timestamps, including the Linux/Windows bundled CLI and generated
+CLI contract files. The CLI generator must preserve equal `commandPaths.ts`
+bytes: plugin-local pnpm symlinks otherwise make its timestamp a Cargo input.
+This avoids
+rerunning Cargo resource embedding when nothing changed. macOS still follows
+its copy/sign path. Failed type checks or Vite builds preserve the last working
+frontend, and warning ratchets still block promotion.
+
+For measurements, keep commit, toolchain, features and job count identical.
+On Linux, `/usr/bin/time -v ./build.sh release-inputs` records wall time, CPU
+and peak memory for the normal pipeline. Repeat without edits for a warm run.
+Distinguish empty Cargo outputs, a populated compiler cache, and unchanged
+Cargo outputs; report each separately. Do not compare a partially cached old
+toolchain build with a fully cold new toolchain build. Use gateway logs and
+`CODETERM_BUILD_FINGERPRINTS=1` to diagnose unexpected rebuilds.
 
 ## Quick Start
 
@@ -333,7 +372,7 @@ have no `codeterm` CLI. Reusable workflows receive them through `secrets: inheri
 containerized builds forward the names with bare `-e NAME`. Values stay in process
 environment, never runner `.env`, command arguments, files or logs; both are
 required. The vault entries above remain the source on dev machines and peers.
-Select pinned Rust 1.95.0 only in the build process, preserving the machine's
+Select pinned Rust 1.99.1 only in the build process, preserving the machine's
 default toolchain.
 
 Post-release follow-up: establish a shared Linux user or an approved `/opt` path
@@ -624,6 +663,9 @@ initialization. Smoke the produced bundled CLI directly as well.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| A broad gate or its gateway metadata write fails with `ENOSPC` | Repeated compiler/profile experiments retain superseded incremental graphs on a small cloud disk | Stop compilation, inspect `df` and target sizes, and remove only inactive session-owned caches after preserving final outputs. Keep at least 6 GiB free before a full build. Run `gateway-status` to reap a finished failed owner; never delete an unknown state lock. Then rerun the interrupted gate. |
+| A Rust pin upgrade reports `double_must_use` from `async_trait` | Old macro expansions add a redundant attribute to boxed futures | Keep both lockfiles on `async-trait` 0.1.92 or newer and run `./build.sh ci-clippy`; do not suppress application warnings. |
+| An unchanged CLI recompiles on every invocation | A `rerun-if-changed` input names an absent `packed-refs` file | Watch existing Git metadata; for packed branch refs watch the nearest existing ref parent so loose-ref creation remains visible. Preserve SHA-triggered rebuilds. |
 | Release executable ignores `CODETERM_INSTANCE` and still selects prod data | `codeterm-paths::instance_suffix` and `dir_name` select named instances only with debug assertions; release always uses `~/.codeterm`. A separate port does not isolate its databases. | Never launch a release daemon/GUI for testing. Validate a fresh `build` bundle and each binary's non-daemon `--version`/`--help` entry; full launch proof belongs to the owner-approved `install-local`, with the next Windows release workflow as an independent build proof. |
 | Fresh release build ends as `owner_lost` after its Team shell deadline | The utility owner exited before the command result; a rustc child of the detached sccache server can outlive that owner. This is not a compiler diagnostic. | Preserve the job log and partial target, inspect compiler command lines for the exact owned scratch root, and terminate only those orphaned compilers. Obtain a new bounded build grant before retrying; retain intermediates, keep the fresh final target, and require the completed bundle before claiming success. |
 | Lane dispatch fixture exits 127 at `configure_product_cargo` | Its extracted dispatch fragment omitted the real product feature helper. | Load the helper from build.sh and assert selected features with `node --test scripts/check-queue-plan.test.mjs`. |
@@ -1067,7 +1109,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 43 -->
+<!-- revision: 44 -->
 
 ### Lane and batch scopes
 

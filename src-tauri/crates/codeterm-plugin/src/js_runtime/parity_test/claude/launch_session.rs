@@ -1,7 +1,6 @@
 //! Claude launch-session parity: native process-registry detection and the
 //! bundled JS plugin agree on one registry fixture.
 
-use super::super::*;
 use super::*;
 use crate::agent_claude::provider::launch_session::PROCESS_REGISTRY_DIR_ENV;
 use crate::provider::{

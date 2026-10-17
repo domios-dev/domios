@@ -1,5 +1,8 @@
 use std::fmt;
 
+#[cfg(test)]
+mod tests;
+
 /// SHA-256 of captured original bytes.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Sha256Digest([u8; 32]);
@@ -91,13 +94,10 @@ impl Sha256 {
             compress(&mut self.state, &block);
             self.filled = 0;
         }
-        let mut chunks = data.chunks_exact(64);
-        for chunk in &mut chunks {
-            let mut block = [0_u8; 64];
-            block.copy_from_slice(chunk);
-            compress(&mut self.state, &block);
+        let (chunks, rest) = data.as_chunks::<64>();
+        for block in chunks {
+            compress(&mut self.state, block);
         }
-        let rest = chunks.remainder();
         self.block[..rest.len()].copy_from_slice(rest);
         self.filled = rest.len();
     }
@@ -114,7 +114,7 @@ impl Sha256 {
         tail[padding..padding + 8].copy_from_slice(&bits.to_be_bytes());
         self.update(&tail[..padding + 8]);
         let mut digest = [0_u8; 32];
-        for (out, word) in digest.chunks_exact_mut(4).zip(self.state) {
+        for (out, word) in digest.as_chunks_mut::<4>().0.iter_mut().zip(self.state) {
             out.copy_from_slice(&word.to_be_bytes());
         }
         Sha256Digest(digest)
@@ -123,8 +123,8 @@ impl Sha256 {
 
 fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
     let mut schedule = [0_u32; 64];
-    for (word, bytes) in schedule.iter_mut().zip(block.chunks_exact(4)) {
-        *word = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    for (word, bytes) in schedule.iter_mut().zip(block.as_chunks::<4>().0) {
+        *word = u32::from_be_bytes(*bytes);
     }
     for index in 16..64 {
         let (w15, w2) = (schedule[index - 15], schedule[index - 2]);
