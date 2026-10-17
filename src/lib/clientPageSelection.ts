@@ -1,21 +1,29 @@
 import { apiHost, relayTarget } from "./webApi";
 import type { SavedPageSelection } from "../store/multiplexer/pageSelection";
 
-function storageKey(): string {
+function storageKeys(): { workspace: string; tab: string } {
   let origin = window.location?.origin ?? "local";
   try { origin = apiHost(); } catch {}
-  return `codeterm:page-selection:${origin}:${relayTarget()?.id ?? "self"}`;
+  const hostScope = origin === window.location?.origin ? "" : `:${origin}`;
+  const peer = relayTarget()?.id;
+  const scope = `${hostScope}${peer ? `:${peer}` : ""}`;
+  return { workspace: `codeterm.sidebar.selected-workspace${scope}`, tab: `codeterm.sidebar.selected-tab${scope}` };
 }
 
 export function loadClientPageSelection(): SavedPageSelection | null {
   try {
-    const value = JSON.parse(window.localStorage.getItem(storageKey()) ?? "null") as unknown;
-    if (value && typeof value === "object" && "workspaceId" in value && typeof value.workspaceId === "string"
-      && "tabId" in value && (value.tabId === null || typeof value.tabId === "string")) return value as SavedPageSelection;
+    const keys = storageKeys();
+    const workspaceId = window.localStorage.getItem(keys.workspace);
+    if (workspaceId) return { workspaceId, tabId: window.localStorage.getItem(keys.tab) };
   } catch {}
   return null;
 }
 
 export function saveClientPageSelection(selection: SavedPageSelection): void {
-  try { window.localStorage.setItem(storageKey(), JSON.stringify(selection)); } catch {}
+  try {
+    const keys = storageKeys();
+    window.localStorage.setItem(keys.workspace, selection.workspaceId);
+    if (selection.tabId) window.localStorage.setItem(keys.tab, selection.tabId);
+    else window.localStorage.removeItem(keys.tab);
+  } catch {}
 }
