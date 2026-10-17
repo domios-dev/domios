@@ -202,7 +202,17 @@ pub(crate) fn scrub_inherited_api_env(config_state: &ConfigState) {
 /// Create and initialize all application states.
 pub(crate) fn init_states() -> AppStates {
     let mut storage = codeterm_service_core::startup::open_instance_storage();
-    let app_config = config::load_config();
+    let mut app_config = config::load_config();
+    app_config.api.port = codeterm_service_core::paths::runtime_api_port(
+        app_config.api.port,
+        std::env::var("CODETERM_API_PORT").ok().as_deref(),
+        cfg!(debug_assertions),
+    )
+    .unwrap_or_else(|error| {
+        log::error!("[startup] refusing unsafe instance port: {error}");
+        eprintln!("Domios startup refused: {error}");
+        std::process::exit(2);
+    });
     log::info!("Config loaded: theme={}", app_config.theme.name);
     let config_state: ConfigState = Arc::new(Mutex::new(app_config));
     scrub_inherited_api_env(&config_state);
