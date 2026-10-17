@@ -31,8 +31,8 @@ $bash = $candidates[0]
 $repo = Split-Path -Parent $MyInvocation.MyCommand.Path
 function Invoke-CdpReload {
   param([int]$TimeoutSeconds = 90)
-  $vitePort = if ($env:CODETERM_VITE_PORT) { [int]$env:CODETERM_VITE_PORT } else { 1420 }
-  $cdpPort = if ($env:CODETERM_CDP_PORT) { [int]$env:CODETERM_CDP_PORT } else { 9223 }
+  $vitePort = if ($env:CODETERM_DEV_VITE_PORT) { [int]$env:CODETERM_DEV_VITE_PORT } else { 1420 }
+  $cdpPort = if ($env:CODETERM_DEV_CDP_PORT) { [int]$env:CODETERM_DEV_CDP_PORT } else { 9223 }
   $target_url = "http://127.0.0.1:$vitePort/"
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 

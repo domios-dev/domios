@@ -564,7 +564,7 @@ case "$CMD" in
 esac
 
 # --- Per-worktree dev instance isolation ---
-# CODETERM_INSTANCE (optional) names a dev instance so multiple worktrees can
+# CODETERM_DEV_INSTANCE names a dev instance so multiple worktrees can
 # run ./build.sh dev concurrently without colliding. Unset = canonical defaults
 # (.codeterm-dev / 7686 / 1420). See AGENTS.md "Process safety".
 CT_INSTANCE="${CODETERM_INSTANCE:-}"
@@ -574,7 +574,14 @@ CT_CDP_PORT="${CODETERM_CDP_PORT:-}"
 CT_INSTANCE_HASH=""
 case "$CMD" in
   dev|dev-prebuilt|kill|e2e|e2e:llm)
-    node scripts/dev-instance-policy.mjs || exit $?
+    CT_DEV_SELECTION="$(node scripts/dev-instance-policy.mjs)" || exit $?
+    CT_INSTANCE="${CT_DEV_SELECTION%:*}"
+    CT_PORT="${CT_DEV_SELECTION##*:}"
+    CT_VITE_PORT="${CODETERM_DEV_VITE_PORT:-}"
+    CT_CDP_PORT="${CODETERM_DEV_CDP_PORT:-}"
+    export CODETERM_DEV_INSTANCE="$CT_INSTANCE"
+    export CODETERM_DEV_API_PORT="$CT_PORT"
+    unset CODETERM_API_URL CODETERM_API_TOKEN CODETERM_SOCKET_PATH CODETERM_DATA_DIR
     ;;
 esac
 if [ -n "$CT_INSTANCE" ]; then
@@ -603,14 +610,6 @@ else
 fi
 CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
 DEV_NOTIFY_LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
-case "$CMD" in
-  dev|dev-prebuilt)
-    if [ -n "$CT_INSTANCE" ] && [ "$CT_PORT" = "7686" ]; then
-      echo "ERROR: named dev instance '$CT_INSTANCE' requires its own non-default CODETERM_API_PORT." >&2
-      exit 2
-    fi
-    ;;
-esac
 # Export so the spawned daemon + its child PTYs inherit the instance identity.
 export CODETERM_INSTANCE="$CT_INSTANCE"
 export CODETERM_API_PORT="$CT_PORT"
@@ -3231,7 +3230,7 @@ LOCK_STORM_PY
           elif [ -n "$CT_INSTANCE" ]; then
             DEV_NOTIFY_STAGE=stale-health
             DEV_NOTIFY_LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
-            echo "ERROR: named dev listener is stale or wrong-lane; run CODETERM_INSTANCE=$CT_INSTANCE ./build.sh kill before retrying." >&2
+            echo "ERROR: named dev listener is stale or wrong-lane; run CODETERM_DEV_INSTANCE=$CT_INSTANCE CODETERM_DEV_API_PORT=$CT_PORT ./build.sh kill before retrying." >&2
             exit 1
           fi
         else
