@@ -59,14 +59,16 @@ pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Resu
         if !is_worker_spawn(params) {
             return Err("authorized gates are only valid with --role Worker".into());
         }
-        if worker_spawn_is_task_bound(params) {
+        if worker_spawn_is_task_bound(params) && params.task_launch_authority.is_none() {
             return Err(concat!(
                 "authorized gates are not carried by a task-bound spawn; declare them ",
                 "on the dispatch, where they are also enforced"
             )
             .into());
         }
-        if params.execution_intent != Some(crate::plan::ExecutionIntent::ReadOnly) {
+        if params.task_launch_authority.is_none()
+            && params.execution_intent != Some(crate::plan::ExecutionIntent::ReadOnly)
+        {
             return Err("authorized gates require read-only execution intent".into());
         }
     }
