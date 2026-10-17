@@ -1,6 +1,6 @@
 use axum::{
-    routing::{get, post},
     Router,
+    routing::{get, post},
 };
 
 use super::{
@@ -124,6 +124,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         .route(
             "/api/tabs/{id}/agent/model",
             post(super::agent_model_routes::agent_model_handler),
+        )
+        .route(
+            "/api/tabs/{id}/agent/service-tiers",
+            get(super::agent_model_routes::agent_service_tiers),
         )
         .route(
             "/api/tabs/{id}/agent-type",

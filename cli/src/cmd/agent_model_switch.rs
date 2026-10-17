@@ -1,5 +1,20 @@
 use crate::cmd::print::CliError;
 
+pub(super) fn requested_service_tier(
+    catalogue: &serde_json::Value,
+    requested: &str,
+    tab_id: &str,
+) -> Result<serde_json::Value, CliError> {
+    if requested.eq_ignore_ascii_case("default") {
+        return Ok(serde_json::json!({"id": null}));
+    }
+    catalogue["tiers"].as_array().into_iter().flatten()
+        .find(|tier| tier["id"].as_str() == Some(requested) && tier.get("unavailableReason").is_none())
+        .map(|tier| serde_json::json!({"id": tier["id"]}))
+        .ok_or_else(|| CliError { message: format!("Unsupported or unavailable service tier: {requested}"), code: None,
+            data: Some(serde_json::json!({"reason":"unsupported_service_tier","tier":requested,"tab_id":tab_id})) })
+}
+
 /// The daemon answers every switch with a JSON body; success is only an `ok`
 /// body on a success status, and every refusal keeps that body as error data.
 pub(super) fn model_switch_result(
@@ -98,6 +113,31 @@ mod tests {
             String::from_utf8(out).unwrap(),
             String::from_utf8(err).unwrap(),
         )
+    }
+
+    #[test]
+    fn service_tier_selection_uses_only_available_catalogue_entries() {
+        let catalogue = serde_json::json!({"tiers":[
+            {"id":"opaque-fast","name":"Fast"},
+            {"id":"opaque-ultra","name":"Ultrafast","unavailableReason":"plan"}
+        ]});
+        assert_eq!(
+            requested_service_tier(&catalogue, "opaque-fast", "tab-a").unwrap(),
+            serde_json::json!({"id":"opaque-fast"})
+        );
+        assert_eq!(
+            requested_service_tier(&catalogue, "default", "tab-a").unwrap(),
+            serde_json::json!({"id":null})
+        );
+        let error = requested_service_tier(&catalogue, "opaque-ultra", "tab-a").unwrap_err();
+        assert_eq!(error.data.unwrap()["reason"], "unsupported_service_tier");
+        assert_eq!(
+            requested_service_tier(&serde_json::json!({"tiers":[]}), "opaque-fast", "tab-b")
+                .unwrap_err()
+                .data
+                .unwrap()["tab_id"],
+            "tab-b"
+        );
     }
 
     #[test]

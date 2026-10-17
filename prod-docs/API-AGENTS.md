@@ -71,7 +71,7 @@ Every error body is `{"ok": false, "error": "...", "reason": "..."}` plus the fi
 - `502 model_mismatch` — the current binding's launch report or first post-relaunch turn names a different model; `launched_model`, `observed_model`, and `restart` are included. Missing model confirmation by its deadline is a pending success, not an error.
 - `502 live_switch_failed` — the tab server advertised the live route, but the POST failed. `mode_used` is `live`; Domios does not silently restart after a live request error.
 
-CLI: `codeterm agent model --tab TAB_ID MODEL [--force] [--json]`; `--json` prints the success body, or the error envelope carrying the error body as `data`.
+CLI: `codeterm agent model --tab TAB_ID MODEL [--force] [--json]`; service tiers use `--speed TIER|default` or `--list-speeds`. `GET /api/tabs/{id}/agent/service-tiers` reads that exact tab's runtime catalogue, returning available model-scoped tiers and bound requested/confirmed selections. Typed refusals include `no_runtime`, `no_tiers`, and `not_found`. `--json` prints the success body, or the error envelope carrying the error body as `data`.
 
 ### Plan task attempts and Teams
 
@@ -194,8 +194,6 @@ Plan surface contracts — planner authority over task structure, partial `plan 
 
 A provider declaring model-provider configuration support accepts `preset` on PTY spawn: Domios resolves its owned model and agent launch arguments before tab creation. See `codeterm docs INTEGRATIONS` for endpoint keys and preset commands. Provider changes publish versioned catalogue events; selectors refresh without reloading. OpenCode advertises per-model variants as reasoning levels, passed at launch and live switch. Model-switch responses and the chip expose the live or restart/resume path.
 
-<!-- revision: 55 -->
-
 ### Background work and session forks
 
 With `background_work_guard` enabled, restarts and restart-based model switches return `409 background_work_running` with `running_items`. Provider updates defer until roster drain. Owner `--force` overrides with a visible warning.
@@ -205,3 +203,5 @@ With `background_work_guard` enabled, restarts and restart-based model switches 
 ### Model-free capabilities
 
 `spawn.capabilityProbe: stream_json_initialize` supports `capability_probe_enabled` (default false). `POST /api/tabs/{id}/agent/capabilities/refresh` refreshes the project/binary cache: `status` is `pending`, `ready` with typed `data`, or `unavailable` with typed `reason`. Binary/login changes invalidate and rebuild. Render/switch/send never probe. Cached commands carry argument hints; the composer badge shows subscription/modes. No user turn or usage request is sent.
+
+<!-- revision: 56 -->
