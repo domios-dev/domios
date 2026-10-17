@@ -107,8 +107,7 @@ impl ServiceContext {
             tab_id,
             crate::service::worker_loss::WorkerLossCause::TabGone,
         );
-        let changed_plans = self.flag_bound_tasks_without_report(tab_id, now_ms);
-        self.nudge_stalled_teams_for_gone_tab(tab_id, &changed_plans);
+        self.flag_bound_tasks_without_report(tab_id, now_ms);
         self.report_worker_losses(losses);
     }
 

@@ -15,7 +15,6 @@ mod report_event;
 mod report_persistence;
 pub mod report_plan_ctx;
 mod report_target;
-pub(crate) mod stalled_team;
 mod status;
 pub mod team_plan_creation;
 mod worker_handoff;
