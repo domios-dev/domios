@@ -99,4 +99,76 @@ check("parallel running tools with large output stay under the plugin total budg
   assert.ok(live.largest() <= 192 * 1024,`state peaked at ${live.largest()} bytes`);
 });
 
+check("a 64-frame growing tool batch keeps only its final row under the host bound",()=>{
+  const frames = [note("item/started",{turnId:"batch",item:{id:"batch-tool",type:"commandExecution",command:"echo",status:"inProgress"}}),
+    ...Array.from({length:62},()=>note("item/commandExecution/outputDelta",{turnId:"batch",itemId:"batch-tool",delta:"x".repeat(2200)})),
+    note("item/completed",{turnId:"batch",item:{id:"batch-tool",type:"commandExecution",command:"echo",status:"completed",aggregatedOutput:"x".repeat(62 * 2200),exitCode:0}})];
+  const batch = hooks.runtimeReduce(ctx,null,frames);
+  const bytes = Buffer.byteLength(JSON.stringify(batch));
+  console.log(`    growing batch: ${bytes} bytes`);
+  assert.ok(bytes <= 4194304,`reducer returned ${bytes} bytes`);
+  assert.equal(rows([...batch.events],"batch-tool").length,1);
+  let state: JsonValue = null;
+  let final: ChatMsg | undefined;
+  for (const frame of frames) {
+    const step = hooks.runtimeReduce(ctx,state,[frame]);
+    state = step.state;
+    final = rows([...step.events],"batch-tool").at(-1) ?? final;
+  }
+  assert.deepEqual(JSON.parse(JSON.stringify(batch.state)),JSON.parse(JSON.stringify(state)));
+  assert.deepEqual(JSON.parse(JSON.stringify(rows([...batch.events],"batch-tool")[0])),JSON.parse(JSON.stringify(final)));
+  assert.equal(final?.toolResult,"x".repeat(62 * 2200));
+});
+
+check("unique large rows share an aggregate budget including UTF-8 and JSON escaping",()=>{
+  const output = '\u0000😀'.repeat(18000) + "TAIL";
+  const frames = Array.from({length:16},(_,index)=>note("item/completed",{turnId:"wide",item:{id:`wide-${index}`,type:"commandExecution",command:"echo",status:"completed",aggregatedOutput:output,exitCode:0}}));
+  const batch = hooks.runtimeReduce(ctx,null,frames);
+  const bytes = Buffer.byteLength(JSON.stringify(batch));
+  console.log(`    wide batch: ${bytes} bytes`);
+  assert.ok(bytes <= 4194304,`reducer returned ${bytes} bytes`);
+  assert.equal(batch.events.filter(event=>event.kind === "chatItem").length,16);
+  for (const event of batch.events) {
+    if (event.kind !== "chatItem") continue;
+    assert.equal(event.item.toolStatus,"completed");
+    assert.ok(event.item.toolResult?.endsWith("TAIL"));
+    assert.ok((event.item.content + event.item.toolResult).includes("[earlier output truncated]"));
+  }
+  let state: JsonValue = null;
+  for (const frame of frames) state = hooks.runtimeReduce(ctx,state,[frame]).state;
+  assert.deepEqual(JSON.parse(JSON.stringify(batch.state)),JSON.parse(JSON.stringify(state)));
+});
+
+check("aggregate tail truncation preserves every final tool identity and outcome",()=>{
+  const output = "HEAD" + "z".repeat(200000) + "TAIL";
+  const frames = Array.from({length:16},(_,index)=>note("item/completed",{turnId:"tails",item:{id:`tail-${index}`,type:"commandExecution",command:"echo",status:"completed",aggregatedOutput:output,exitCode:index % 2}}));
+  assert.ok(Buffer.byteLength(JSON.stringify(frames)) < 4194304);
+  const batch = hooks.runtimeReduce(ctx,null,frames);
+  assert.ok(Buffer.byteLength(JSON.stringify(batch)) <= 4194304);
+  assert.equal(batch.events.length,16);
+  batch.events.forEach((event,index)=>{
+    assert.equal(event.kind,"chatItem");
+    if (event.kind !== "chatItem") return;
+    assert.equal(event.item.id,`tail-${index}`);
+    assert.equal(event.item.toolExitCode,index % 2);
+    assert.equal(event.item.toolError,index % 2 !== 0);
+    assert.ok(event.item.toolResult?.startsWith("[earlier output truncated]"));
+    assert.ok(event.item.toolResult?.endsWith("TAIL"));
+    assert.ok(event.item.toolResult!.length < output.length);
+    assert.ok(event.item.content.length > 0);
+  });
+});
+
+check("coalescing interleaved rows retains final update positions and other event order",()=>{
+  const frames = [note("item/agentMessage/delta",{itemId:"a",delta:"first"}),
+    note("thread/tokenUsage/updated",{tokenUsage:{total:{inputTokens:1,outputTokens:2}}}),
+    note("item/agentMessage/delta",{itemId:"b",delta:"other"}),
+    note("item/agentMessage/delta",{itemId:"a",delta:" last"})];
+  const batch = hooks.runtimeReduce(ctx,null,frames);
+  assert.deepEqual(Array.from(batch.events,event=>event.kind === "chatItem" ? [event.item.id,event.item.seq,event.item.content] : event.kind),["usage",["b",2,"other"],["a",1,"first last"]]);
+  let state: JsonValue = null;
+  for (const frame of frames) state = hooks.runtimeReduce(ctx,state,[frame]).state;
+  assert.deepEqual(JSON.parse(JSON.stringify(batch.state)),JSON.parse(JSON.stringify(state)));
+});
+
 console.log(`runtime state budget: ${count} checks passed`);
