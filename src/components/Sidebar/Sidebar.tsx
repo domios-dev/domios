@@ -664,7 +664,6 @@ export function Sidebar({
     const active = ordinaryWorkspaces.find((workspace) => workspace.id === state.active_workspace_id);
     if (active) {
       setSelectedWorkspaceId(active.id);
-      persistSelectedWorkspaceId(active.id);
       return;
     }
     if (!ordinaryWorkspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
