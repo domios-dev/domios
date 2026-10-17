@@ -2426,8 +2426,57 @@ function fitTotal(state) {
     }
   }
 }
-function capEvents(events) {
-  return events.map((event) => event.kind === "chatItem" ? { ...event, item: capRow(event.item, EVENT_TEXT_CAP) } : event);
+
+// plugins/provider-codex/src/runtimeBatchBudget.ts
+var REDUCTION_BYTE_BUDGET = 4 * 1024 * 1024;
+var TRUNCATED2 = "[earlier output truncated]\n";
+var CONTINUATION = "[full output available in session history]\n";
+var TEXT_FIELDS = ["content", "toolResult", "toolDetail", "toolSummary", "toolArgs", "toolTitle", "toolName", "toolDescription"];
+var DATA_FIELDS = ["toolInput", "toolRichResult", "fileDiffs", "toolEdits"];
+function serializedBytes2(value) {
+  const serialized = JSON.stringify(value);
+  let size = 0;
+  for (const character of serialized) {
+    const point = character.codePointAt(0);
+    size += point < 128 ? 1 : point < 2048 ? 2 : point < 65536 ? 3 : 4;
+  }
+  return size;
+}
+function coalesce(events) {
+  const last = /* @__PURE__ */ new Map();
+  events.forEach((event, index) => {
+    if (event.kind === "chatItem") last.set(JSON.stringify([event.threadId, event.item.id]), index);
+  });
+  return events.filter((event, index) => event.kind !== "chatItem" || last.get(JSON.stringify([event.threadId, event.item.id])) === index);
+}
+function shrinkRow(row2, cap) {
+  const result = { ...row2 };
+  let shortened = false;
+  for (const field of TEXT_FIELDS) {
+    const value = result[field];
+    if (typeof value === "string" && value.length > cap) {
+      result[field] = capText(value, cap);
+      shortened = true;
+    }
+  }
+  let omitted = false;
+  for (const field of DATA_FIELDS) {
+    if (result[field] !== void 0 && serializedBytes2(result[field]) > cap) {
+      delete result[field];
+      omitted = true;
+    }
+  }
+  if (omitted && !result.content.startsWith(TRUNCATED2)) result.content = TRUNCATED2 + result.content;
+  if ((shortened || omitted) && !result.content.includes(CONTINUATION)) result.content = CONTINUATION + result.content;
+  return result;
+}
+function budgetReduction(state, updates) {
+  let events = coalesce(updates).map((event) => event.kind === "chatItem" ? { ...event, item: capRow(event.item, EVENT_TEXT_CAP) } : event);
+  for (let cap = EVENT_TEXT_CAP / 2; serializedBytes2({ state, events }) > REDUCTION_BYTE_BUDGET && cap >= 64; cap = Math.floor(cap / 2)) {
+    events = events.map((event) => event.kind === "chatItem" ? { ...event, item: shrinkRow(event.item, cap) } : event);
+  }
+  if (serializedBytes2({ state, events }) > REDUCTION_BYTE_BUDGET) throw new Error("runtime batch metadata exceeds output budget");
+  return { state, events };
 }
 
 // plugins/provider-codex/src/runtimeReduce.ts
@@ -2778,7 +2827,7 @@ function runtimeReduce(ctx, raw, frames) {
     }
   }
   compactState(state);
-  return { state: json(state), events: capEvents(events) };
+  return budgetReduction(json(state), events);
 }
 function pendingStatus(state, threadId) {
   const statusLine = runningCallStatus(state);
