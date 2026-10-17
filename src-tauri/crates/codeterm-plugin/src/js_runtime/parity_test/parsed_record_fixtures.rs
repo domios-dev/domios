@@ -108,36 +108,43 @@ fn bundled_captured_runtime_records_match_text_sibling_after_host_filter() {
         let Some(source) = manifest.capabilities.record_sources.get("storedHistory") else {
             continue;
         };
-        let fixture: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(
-                directory.join("tests/fixtures/recorded-runtime-history.json"),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        let session = fixture["sessionId"].as_str().unwrap();
-        let input = fixture["records"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|record| record.to_string() + "\n")
-            .collect::<String>();
+        assert!(directory
+            .join("tests/fixtures/recorded-runtime-history.json")
+            .exists());
         let kernel = load_one(&path).unwrap();
         let text = text_sibling(&kernel);
-        let window = crate::jsonl_window::records::parse_records_with_limit(
-            input.as_bytes(),
-            37,
-            source,
-            Some(session),
-            1024 * 1024,
-        );
-        let expected = text.runtime_stored_history(session, &input).unwrap();
-        let actual = kernel.runtime_stored_records(session, &window).unwrap();
-        assert_eq!(
-            serde_json::to_value(actual).unwrap(),
-            serde_json::to_value(expected).unwrap()
-        );
-        cases += 1;
+        for name in [
+            "recorded-runtime-history.json",
+            "reference-runtime-history.json",
+        ] {
+            let fixture_path = directory.join("tests/fixtures").join(name);
+            if !fixture_path.exists() {
+                continue;
+            }
+            let fixture: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(fixture_path).unwrap()).unwrap();
+            let session = fixture["sessionId"].as_str().unwrap();
+            let input = fixture["records"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|record| record.to_string() + "\n")
+                .collect::<String>();
+            let window = crate::jsonl_window::records::parse_records_with_limit(
+                input.as_bytes(),
+                37,
+                source,
+                Some(session),
+                1024 * 1024,
+            );
+            let expected = text.runtime_stored_history(session, &input).unwrap();
+            let actual = kernel.runtime_stored_records(session, &window).unwrap();
+            assert_eq!(
+                serde_json::to_value(actual).unwrap(),
+                serde_json::to_value(expected).unwrap()
+            );
+            cases += 1;
+        }
     }
     assert!(cases > 0, "a declared stored-record source is required");
 }

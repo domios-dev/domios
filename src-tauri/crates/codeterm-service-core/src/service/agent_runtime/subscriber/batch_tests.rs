@@ -133,9 +133,16 @@ async fn reducer_failure_warns_resyncs_and_keeps_hook_state() {
     assert_eq!(reply["error"]["code"], -32602);
     assert_eq!(*scene.session.hook_state.lock(), json!({"keep": 1}));
     assert_eq!(
-        scene.session.bookkeeping_failures.load(Ordering::Relaxed),
-        1
+        scene
+            .session
+            .provider_operation_failures
+            .load(Ordering::Relaxed),
+        0
     );
+    assert!(scene
+        .session
+        .bookkeeping_warning_emitted
+        .load(Ordering::Relaxed));
     assert!(scene.session.process.lock().is_some());
 }
 
@@ -145,14 +152,20 @@ async fn a_successful_batch_preserves_epoch_warning_deduplication() {
     scene.probe.fail_next.store(1, Ordering::SeqCst);
     run(&mut scene, vec![delta(0)], false, true).await;
     assert_eq!(
-        scene.session.bookkeeping_failures.load(Ordering::Relaxed),
-        1
+        scene
+            .session
+            .provider_operation_failures
+            .load(Ordering::Relaxed),
+        0
     );
     let (step, _) = run(&mut scene, vec![delta(1)], false, false).await;
     assert!(matches!(step, Step::Continue));
     assert_eq!(
-        scene.session.bookkeeping_failures.load(Ordering::Relaxed),
-        1
+        scene
+            .session
+            .provider_operation_failures
+            .load(Ordering::Relaxed),
+        0
     );
 }
 
@@ -165,6 +178,13 @@ async fn repeated_reducer_failures_warn_once_and_keep_the_process() {
         assert!(matches!(step, Step::Continue));
     }
     assert_eq!(scene.probe.reduce_failures.load(Ordering::SeqCst), 16);
+    assert_eq!(
+        scene
+            .session
+            .provider_operation_failures
+            .load(Ordering::Relaxed),
+        0
+    );
     let rows = scene.session.cache.lock().snapshot();
     assert_eq!(
         rows.iter()
@@ -177,37 +197,69 @@ async fn repeated_reducer_failures_warn_once_and_keep_the_process() {
 }
 
 #[test]
-fn nonfatal_recovery_never_escalates_and_warning_count_saturates() {
-    let failures = std::sync::atomic::AtomicU32::new(0);
-    for index in 0..64 {
-        assert_eq!(bookkeeping::first_failure(&failures), index == 0);
-        assert!(matches!(
-            bookkeeping::recovery_step(Err(RuntimeFailure::HookFailed("opaque".into()))),
-            Step::Continue
-        ));
+fn resolution_resyncs_bookkeeping_and_stops_after_real_provider_failures() {
+    for reason in [bookkeeping::Reason::Lag, bookkeeping::Reason::Hook] {
+        assert_eq!(
+            bookkeeping::resolve(bookkeeping::RecoveryEvent::Bookkeeping(reason), 7),
+            bookkeeping::Resolution::Resync
+        );
     }
-    failures.store(u32::MAX, Ordering::Relaxed);
-    assert!(!bookkeeping::first_failure(&failures));
-    assert_eq!(failures.load(Ordering::Relaxed), u32::MAX);
-    assert!(matches!(
-        bookkeeping::recovery_step(Err(RuntimeFailure::PipeEof)),
-        Step::Close(RuntimeFailure::PipeEof)
-    ));
-    assert!(matches!(
-        bookkeeping::recovery_step(Err(RuntimeFailure::Superseded)),
-        Step::Break
-    ));
+
+    let mut failures = 0;
+    for expected in 1..=8 {
+        let resolution = bookkeeping::resolve(
+            bookkeeping::RecoveryEvent::ProviderOperation(Err(RuntimeFailure::HookFailed(
+                "provider operation failed".into(),
+            ))),
+            failures,
+        );
+        if expected < 8 {
+            assert_eq!(
+                resolution,
+                bookkeeping::Resolution::Continue {
+                    provider_failures: expected
+                }
+            );
+            failures = expected;
+        } else {
+            assert!(matches!(resolution, bookkeeping::Resolution::Close(_)));
+        }
+    }
+
+    assert_eq!(
+        bookkeeping::resolve(bookkeeping::RecoveryEvent::ProviderOperation(Ok(())), 7),
+        bookkeeping::Resolution::Continue {
+            provider_failures: 0
+        }
+    );
+    assert_eq!(
+        bookkeeping::resolve(
+            bookkeeping::RecoveryEvent::ProviderOperation(Err(RuntimeFailure::PipeEof)),
+            0
+        ),
+        bookkeeping::Resolution::Close(RuntimeFailure::PipeEof)
+    );
+    assert_eq!(
+        bookkeeping::resolve(
+            bookkeeping::RecoveryEvent::ProviderOperation(Err(RuntimeFailure::Superseded)),
+            0
+        ),
+        bookkeeping::Resolution::Break
+    );
 }
 
 #[tokio::test]
-async fn lag_is_bookkeeping_not_a_close() {
+async fn lagged_subscriber_resyncs_and_keeps_runtime_alive() {
     let mut scene = fixtures::scene();
     let (step, _) = run(&mut scene, Vec::new(), true, true).await;
     assert!(matches!(step, Step::Continue));
     assert!(scene.probe.reduces.lock().is_empty());
     assert_eq!(
-        scene.session.bookkeeping_failures.load(Ordering::Relaxed),
-        1
+        scene
+            .session
+            .provider_operation_failures
+            .load(Ordering::Relaxed),
+        0
     );
     let process = scene.session.process.lock().clone().unwrap();
     assert!(process.client.ended().borrow().is_none());

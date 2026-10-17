@@ -34,7 +34,8 @@ pub struct Session {
     pub thread_loaded: std::sync::atomic::AtomicBool,
     pub hook_state: Mutex<Value>,
     pub maps: Mutex<super::events::RuntimeMaps>,
-    pub(super) bookkeeping_failures: std::sync::atomic::AtomicU32,
+    pub(super) provider_operation_failures: std::sync::atomic::AtomicU32,
+    pub(super) bookkeeping_warning_emitted: std::sync::atomic::AtomicBool,
     pub prompts: Mutex<HashMap<RpcId, OutstandingRequest>>,
     pub process: ProcessSlot<Arc<Process>>,
     pub gate: tokio::sync::Semaphore,
@@ -251,7 +252,8 @@ async fn ensure_with_fork(
                     thread_loaded: std::sync::atomic::AtomicBool::new(false),
                     hook_state: Mutex::new(Value::Null),
                     maps: Mutex::new(super::events::RuntimeMaps::default()),
-                    bookkeeping_failures: std::sync::atomic::AtomicU32::new(0),
+                    provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
+                    bookkeeping_warning_emitted: std::sync::atomic::AtomicBool::new(false),
                     prompts: Mutex::new(HashMap::new()),
                     process: ProcessSlot::new(None),
                     gate: tokio::sync::Semaphore::new(1),
@@ -358,8 +360,11 @@ async fn ensure_locked(
         }
         let epoch = session.state.lock().begin();
         session
-            .bookkeeping_failures
+            .provider_operation_failures
             .store(0, std::sync::atomic::Ordering::Relaxed);
+        session
+            .bookkeeping_warning_emitted
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         {
             let mut context = session.context.lock();
             context.epoch = epoch;
@@ -601,13 +606,18 @@ async fn ensure_locked(
     };
     let mut port = backfill::RpcPort::new(svc, session, &process, tab, &thread_id);
     let mut replay = backfill::Replay::new(context.epoch, generation, &thread_id);
-    if session
-        .adapter
-        .lock()
-        .as_ref()
-        .and_then(|adapter| adapter.agent_runtime())
-        .is_some_and(|runtime| runtime.stored_history)
-    {
+    let history_adapter = session.adapter.lock().clone();
+    let history_cwd = context.cwd.clone();
+    let history_thread = thread_id.clone();
+    let stored_history = tokio::task::spawn_blocking(move || {
+        history_adapter.is_some_and(|adapter| {
+            adapter.runtime_stored_history_available(&history_cwd, &history_thread)
+        })
+    })
+    .await
+    .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?;
+    log::debug!("[chat_backfill] tab={tab} thread={thread_id} stored_history={stored_history}");
+    if stored_history {
         session.cache.lock().bound_rereadable();
         replay.bound_startup();
     }

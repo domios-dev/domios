@@ -49,6 +49,10 @@ impl AgentProvider for NativeRuntime {
         Some(self.0.clone())
     }
 
+    fn runtime_stored_history_available(&self, _: &str, session: &str) -> bool {
+        self.0.stored_history && session != "reference-session"
+    }
+
     fn runtime_stored_history(&self, session: &str, records: &str) -> Result<Vec<ChatMsg>, String> {
         if !self.0.stored_history {
             return Err("unsupported".into());
