@@ -195,6 +195,7 @@ impl Serialize for SecretBackendCap {
 /// forms mean "enabled"; the object also carries whether a user may spawn it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatBackendCap {
+    pub remote_task: Option<crate::remote_tasks::RemoteTaskCapability>,
     pub enabled: bool,
     /// Whether a user may open this backend as a tab from the new-session
     /// picker. Bare `chatBackend: true` ⇒ false (backend-only); the object form
@@ -252,10 +253,13 @@ impl<'de> Deserialize<'de> for ChatBackendCap {
                 context_owner: Option<String>,
                 #[serde(default, rename = "agentTasks")]
                 agent_tasks: bool,
+                #[serde(default, rename = "remoteTask")]
+                remote_task: Option<crate::remote_tasks::RemoteTaskCapability>,
             },
         }
         Ok(match Raw::deserialize(d)? {
             Raw::Flag(enabled) => Self {
+                remote_task: None,
                 enabled,
                 spawnable: false,
                 watcher: false,
@@ -269,6 +273,7 @@ impl<'de> Deserialize<'de> for ChatBackendCap {
                 session_config,
                 context_owner,
                 agent_tasks,
+                remote_task,
             } => {
                 let context_owner = match context_owner {
                     None => ContextOwner::default(),
@@ -289,6 +294,7 @@ impl<'de> Deserialize<'de> for ChatBackendCap {
                     session_config,
                     context_owner,
                     agent_tasks,
+                    remote_task,
                 }
             }
         })
@@ -307,15 +313,20 @@ impl Serialize for ChatBackendCap {
             || self.watcher
             || self.session_config
             || host_context
-            || self.agent_tasks;
+            || self.agent_tasks
+            || self.remote_task.is_some();
         if self.enabled && declares {
             use serde::ser::SerializeMap;
             let len = (if self.spawnable { 1 } else { 0 })
                 + (if self.watcher { 1 } else { 0 })
                 + (if self.session_config { 1 } else { 0 })
                 + (if self.agent_tasks { 1 } else { 0 })
-                + (if host_context { 1 } else { 0 });
+                + (if host_context { 1 } else { 0 })
+                + usize::from(self.remote_task.is_some());
             let mut m = s.serialize_map(Some(len))?;
+            if let Some(remote) = &self.remote_task {
+                m.serialize_entry("remoteTask", remote)?;
+            }
             if self.spawnable {
                 m.serialize_entry("spawnable", &true)?;
             }

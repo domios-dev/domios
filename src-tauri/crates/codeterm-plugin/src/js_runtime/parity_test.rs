@@ -22,6 +22,8 @@ mod parsed_record_fixtures;
 mod parsed_records;
 #[path = "parity_test/raw_arguments.rs"]
 mod raw_arguments;
+#[path = "parity_test/remote_tasks.rs"]
+mod remote_tasks;
 #[path = "parity_test/runtime.rs"]
 mod runtime;
 #[path = "parity_test/session_resume.rs"]
