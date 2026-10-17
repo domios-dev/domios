@@ -88,6 +88,34 @@ fn taskless_worker_kind_prompts_are_delivered_after_the_worker_contract() {
 }
 
 #[test]
+fn release_manager_prompt_is_delivered_after_the_worker_contract() {
+    let preset = resolve(
+        Some(AgentRole::Worker),
+        Some(builtins::RELEASE_MANAGER),
+        None,
+    )
+    .expect("taskless Release Manager preset");
+
+    assert_eq!(
+        preset
+            .fragments
+            .iter()
+            .map(|fragment| fragment.source.label())
+            .collect::<Vec<_>>(),
+        vec!["inherited_base", "builtin"]
+    );
+    assert_eq!(
+        preset.contract_guidance(),
+        format!(
+            "{}\n\n{}",
+            crate::prompts::worker_suffix(),
+            crate::prompts::RELEASE_MANAGER_ROLE_PROMPT
+        )
+    );
+    assert_eq!(preset.task_guidance(), "");
+}
+
+#[test]
 fn a_roleless_tab_resolves_no_preset() {
     assert!(resolve(None, Some(builtins::PLANNER), Some("persona")).is_none());
 }
