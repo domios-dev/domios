@@ -36,6 +36,29 @@ fn handoff_routes_both_transport_directions_by_capability() {
     .is_err());
     assert!(route(pty, runtime, true, &TabBacking::Pty).is_err());
     assert!(route(runtime, pty, false, &TabBacking::Pty).is_err());
+    let dual = (ProviderTransport::Pty, true);
+    assert_eq!(
+        route(dual, pty, false, &TabBacking::Pty).unwrap().source,
+        TargetRoute::Pty
+    );
+    assert_eq!(
+        route(pty, dual, false, &TabBacking::Pty).unwrap().target,
+        TargetRoute::Runtime
+    );
+    assert_eq!(
+        route(
+            dual,
+            pty,
+            false,
+            &TabBacking::ChatBackend {
+                plugin_id: "opaque".into(),
+                session_id: "thread".into()
+            }
+        )
+        .unwrap()
+        .source,
+        TargetRoute::Runtime
+    );
 }
 
 #[test]
