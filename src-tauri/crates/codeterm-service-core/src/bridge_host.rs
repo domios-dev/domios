@@ -84,6 +84,13 @@ impl BridgeTabPort for ServiceBridgeTabPort {
         prefixed: &str,
         agent_type: Option<&str>,
     ) -> Result<(), String> {
+        if self.0.mux.read().get_tab(tab_id).is_none() {
+            return Err(serde_json::json!({
+                "code": "bridge_target_not_found",
+                "tab_id": tab_id,
+            })
+            .to_string());
+        }
         if agent_type.is_none() {
             let preview: String = prefixed.chars().take(120).collect();
             log::info!(
@@ -95,8 +102,8 @@ impl BridgeTabPort for ServiceBridgeTabPort {
             return Ok(());
         }
 
-        if let Some((plugin_id, session_id)) = self.0.tab_chat_backing(tab_id) {
-            return self.0.chatbackend_send(&plugin_id, &session_id, prefixed);
+        if self.0.tab_chat_backing(tab_id).is_some() {
+            return self.0.chatbackend_tab_send(tab_id, prefixed);
         }
 
         self.0
@@ -135,6 +142,9 @@ impl BridgeTabPort for ServiceBridgeTabPort {
         self
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 impl ThreadTabs for ServiceBridgeTabPort {
     fn sender_identity(&self, tab_id: &str) -> Option<SenderIdentity> {
@@ -177,6 +187,3 @@ impl ChatPreprocessorPort for ServiceChatPreprocessorPort {
             .active()
     }
 }
-
-#[cfg(test)]
-mod tests;
