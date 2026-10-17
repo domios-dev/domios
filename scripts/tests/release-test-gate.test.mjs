@@ -20,6 +20,25 @@ const fastJobs = ["guards", "plugins", "clippy-linux", "ts-static", "frontend-wi
 const longJobs = ["rust-tests", "rust-platform", "rust-embeddings", "rust-receipts"];
 const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
 
+test("warning collection resolves Git Bash explicitly on Windows", () => {
+  const action = parse(readFileSync(new URL("../../.github/actions/rust-warnings/action.yml", import.meta.url), "utf8"));
+  for (const step of action.runs.steps) {
+    assert.match(step.shell, /runner\.os == 'Windows'/);
+    assert.ok(step.shell.includes('"C:\\Program Files\\Git\\bin\\bash.exe"'));
+    assert.ok(step.shell.includes("{0}"));
+    assert.ok(step.shell.endsWith("|| 'bash' }}"));
+  }
+});
+
+test("warning summary stores reports in MinIO without GitHub artifact quota", () => {
+  const steps = workflow("rust-warnings-summary").jobs.report.steps;
+  assert.ok(steps.every(step => !step.uses?.startsWith("actions/upload-artifact@")));
+  const store = steps.find(step => step.name === "Store warning report");
+  assert.equal(store.env.WARNING_REPORT_NAME, "${{ inputs.report_name }}");
+  assert.ok(store.env.AWS_ACCESS_KEY_ID && store.env.AWS_SECRET_ACCESS_KEY);
+  assert.match(store.run, /ci-artifact\.sh put "\$GITHUB_RUN_ID\/\$WARNING_REPORT_NAME\//);
+});
+
 const overlapped = ["macos-arm64", "macos-x64", "linux-arm64", "windows-x64", "windows-arm64"];
 const afterFast = ["linux-x86_64", "tests"];
 const app = { result: "success", outputs: { kind: "app", published: "false", dry_run: "false" } };
