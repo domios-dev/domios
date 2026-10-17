@@ -167,9 +167,7 @@ function replay(fixture:Fixture) {
   }
   assert.equal(plans.size,0,"Every operation finishes");
   assert.deepEqual(results,fixture.expected.results);
-  const expected = fixture.expected.events.map(event => event.kind === "chatItem" && event.item.toolKind === "agent" && event.item.toolName === "agent_activity"
-    ? {...event,item:{...event.item,toolInput:{...event.item.toolInput as Record<string,JsonValue>,agent_binding_nonce:fixture.context.bindingNonce,agent_runtime_epoch:fixture.context.epoch}}} : event);
-  assert.deepEqual(plain(events),expected);
+  assert.deepEqual(plain(events),fixture.expected.events);
   return {events,state};
 }
 const names = fs.readdirSync(fileURLToPath(root)).filter(n => n.endsWith(".json")).sort();
