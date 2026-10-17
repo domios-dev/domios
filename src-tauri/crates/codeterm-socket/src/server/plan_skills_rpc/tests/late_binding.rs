@@ -131,6 +131,28 @@ impl LateLaunch {
                 .hold_agent_startup(&launch.parent, &launch.tab, LAUNCH)
                 .unwrap();
         }
+        let before = launch.task();
+        for (field, claim) in [
+            ("tab_id", "foreign-tab"),
+            ("caller_session_id", "foreign-session"),
+            ("session_binding_nonce", "stale-nonce"),
+        ] {
+            let mut params = json!({
+                "tab_id": launch.tab, "session_binding_nonce": CALLER_NONCE,
+            });
+            params[field] = json!(claim);
+            assert!(
+                crate::server::dispatch_service_rpc(
+                    "agent.ack",
+                    Some(params),
+                    &launch.caller.svc,
+                    None,
+                )
+                .is_err(),
+                "{field}"
+            );
+            assert_eq!(launch.task(), before, "{field}");
+        }
         let early = launch.ack().unwrap();
         assert_eq!(early["state"], "awaiting_runtime_ready");
         assert_eq!(early["attempt_id"], launch.attempt);
