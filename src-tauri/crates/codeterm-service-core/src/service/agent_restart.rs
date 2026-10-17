@@ -950,7 +950,10 @@ mod failed_launch;
 mod fresh;
 mod options;
 mod provider_switch;
-pub use provider_switch::ProviderSwitchOutcome;
+pub use provider_switch::{
+    AcceptedProviderSwitch, ProviderSwitchOperations, ProviderSwitchOutcome, ProviderSwitchRequest,
+    ProviderSwitchStatus,
+};
 mod runtime;
 pub use options::RestartOptions;
 mod launch_command;

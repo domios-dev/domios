@@ -126,7 +126,7 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
     ),
     doc!(
         "API-AGENTS",
-        "Agent restart, model switch, spawn, report, keep-awake, and batch REST contracts",
+        "Agent restart, provider handoff/self-switch status, model switch, spawn, report and batch REST contracts",
         "../../../prod-docs/API-AGENTS.md"
     ),
     doc!(

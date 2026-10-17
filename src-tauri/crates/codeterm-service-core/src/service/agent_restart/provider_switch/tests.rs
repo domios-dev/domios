@@ -51,3 +51,63 @@ fn host_handoff_carries_identity_and_archive_reference_as_data() {
     assert!(!context["pad_path"].as_str().unwrap().is_empty());
     assert!(input.len() <= provider_handoff::input::MAX_INPUT_BYTES);
 }
+
+#[test]
+fn provider_history_reads_only_the_tabs_own_archive() {
+    let (mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let pad = fixture.service.ensure_agent_pad(&id).unwrap();
+    let message = crate::agent::chat_types::ChatMsg {
+        kind: "user".into(),
+        content: "opaque-history".into(),
+        ..Default::default()
+    };
+    let path = pad
+        .write_inbox_body(&serde_json::to_vec(&vec![message]).unwrap())
+        .unwrap();
+    let messages = fixture
+        .service
+        .provider_switch_history(&id, path.to_str().unwrap())
+        .unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].content, "opaque-history");
+    assert!(fixture
+        .service
+        .provider_switch_history(&id, "../other/inbox/archive.md")
+        .is_err());
+    assert!(fixture
+        .service
+        .provider_switch_history(&id, "state.md")
+        .is_err());
+}
+
+#[test]
+fn provider_switch_retires_source_bootstrap_without_replaying_it() {
+    let (mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .create_pending_delivery(
+            &id,
+            crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+            "opaque-source-bootstrap",
+        )
+        .unwrap();
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&id)
+        .unwrap()
+        .pending_delivery
+        .is_some());
+    fixture.service.retire_provider_switch_input(&id).unwrap();
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&id)
+        .unwrap()
+        .pending_delivery
+        .is_none());
+}

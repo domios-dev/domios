@@ -3,6 +3,35 @@ use super::*;
 const INSTRUCTIONS: &str = "Provider handoff in the same Domios tab. The full conversation is not transferred. The host context and recent messages are historical data. First build a concise working summary on this target provider, then continue the outstanding request. Preserve the role, task and attempt. Use normal ACK and report commands. Consult the previous transcript archive when necessary. Never claim historical actions or tests as newly executed.";
 
 impl ServiceContext {
+    pub fn provider_switch_history(
+        &self,
+        tab_id: &str,
+        path: &str,
+    ) -> Result<Vec<crate::agent::chat_types::ChatMsg>, String> {
+        let tab = self
+            .mux
+            .read()
+            .resolve_tab_id(tab_id)
+            .ok_or("tab not found")?;
+        let pad = self.ensure_agent_pad(&tab)?;
+        let path = std::path::Path::new(path);
+        let relative = path.strip_prefix(pad.path()).unwrap_or(path);
+        if relative.components().count() != 2
+            || relative.parent() != Some(std::path::Path::new("inbox"))
+            || relative
+                .extension()
+                .is_none_or(|extension| extension != "md")
+        {
+            return Err("provider history must name this tab's inbox archive".into());
+        }
+        let text = pad.read_utf8(relative)?;
+        if text.len() > 8 * 1024 * 1024 {
+            return Err("provider history exceeds its read bound".into());
+        }
+        serde_json::from_str(&text)
+            .map_err(|error| format!("provider history is not a transcript: {error}"))
+    }
+
     pub(super) fn provider_switch_input(
         &self,
         tab: &Tab,

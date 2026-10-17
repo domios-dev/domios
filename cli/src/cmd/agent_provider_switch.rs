@@ -28,23 +28,41 @@ pub(crate) fn run(
     }
     let result: serde_json::Value = serde_json::from_str(&text)
         .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
-    if result["handoff_delivered"] != true || result["binding_restored"] != true {
-        crate::cmd::print::fail(
-            1,
-            "provider switch did not confirm handoff and session binding",
-        );
+    if result["phase"] != "pending" || result["operation_id"].as_str().is_none() {
+        crate::cmd::print::fail(1, "provider switch was not accepted");
     }
     if json {
         crate::cmd::print::print_json(&result);
     } else {
-        println!(
-            "Switched tab {} to {} (session {}). Previous transcript: {}",
-            tab,
-            request.provider,
-            result["session_id"].as_str().unwrap_or("unknown"),
-            result["previous_history_path"]
-                .as_str()
-                .unwrap_or("unavailable")
-        );
+        println!("Accepted provider switch {} for tab {}. Read: codeterm agent switch-provider-status {} --tab {}", result["operation_id"].as_str().unwrap(), tab, result["operation_id"].as_str().unwrap(), tab);
+    }
+}
+
+pub(crate) fn status(
+    client: &crate::local_api::LocalApiClient,
+    base: &str,
+    tab: &str,
+    operation: &str,
+    json: bool,
+) {
+    let response = client
+        .get(format!(
+            "{base}/api/tabs/{}/agent/switch-provider/{}",
+            urlencoding::encode(tab),
+            urlencoding::encode(operation)
+        ))
+        .send()
+        .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
+    let code = response.status();
+    let text = response.text().unwrap_or_default();
+    if !code.is_success() {
+        crate::cmd::print::fail_http(1, code.as_u16(), &text);
+    }
+    let result: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
+    if json {
+        crate::cmd::print::print_json(&result);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&result).unwrap());
     }
 }

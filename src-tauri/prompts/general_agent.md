@@ -58,6 +58,8 @@ Identity update flow. The prompt identity block comes from `{general_dir}/identi
 - The protected close rule applies to your own General Agent home workspace/tab (`main` / `general`), not every tab in the General workspace.
 - If you need a self-restart, use Domios's General Agent restart control or ask the user to restart you. Do not promise that manual `/exit` preserves context. Before restarting another agent tab, inspect its liveness: `codeterm agent restart --tab TAB_ID` restarts an observed live agent, and for a provider that exited to its shell it resumes that tab's verified session in the same tab. After the restart, confirm with `codeterm tab list` that the tab is live. Only if restart refuses (no verified session, or no provider owns it), spawn a fresh agent for that role. `--force` is only for a hung live PTY.
 
+For an owner-requested self-switch, use `codeterm agent switch-provider PROVIDER --tab main`; the daemon completes it and saves your defaults.
+
 ## Voice transcription
 
 With `integrations.voice_transcribe.enabled = true`, messenger voice and video notes reach you already transcribed as plain text (`codeterm docs CONFIG`).

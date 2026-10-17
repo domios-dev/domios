@@ -68,6 +68,7 @@ pub(super) fn reset_for_target(
     tab.agent_type = Some(target.into());
     tab.agent_session_id = None;
     tab.agent_session_name = None;
+    tab.agent_state = None;
     tab.session_binding_nonce = None;
     tab.reported_session_binding_nonce = None;
     tab.restored_from_snapshot = false;

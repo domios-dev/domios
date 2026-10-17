@@ -3,14 +3,19 @@ use crate::agent::provider::ProviderTransport;
 use crate::multiplexer::types::{RestorableLaunchParameters, Tab, TabBacking};
 use crate::service::{agent_runtime, provider_handoff, ServiceContext, SpawnAgentParams};
 
+mod general;
 mod input;
 mod model;
+mod operations;
 use model::{HandoffRoute, TargetRoute};
+pub use operations::{
+    AcceptedProviderSwitch, ProviderSwitchOperations, ProviderSwitchRequest, ProviderSwitchStatus,
+};
 
 #[cfg(test)]
 mod tests;
 
-#[derive(serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct ProviderSwitchOutcome {
     pub tab_id: String,
     pub provider: String,
@@ -45,6 +50,7 @@ impl ServiceContext {
             .as_deref()
             .ok_or("provider_switch_no_agent: tab has no provider")?;
         let route = self.provider_switch_route(source, target, &tab)?;
+        let _general_claim = self.claim_general_provider_switch(&tab)?;
         model::require_idle(self.tab_is_idle(&tab.id), force, tab.agent_booting)?;
         self.require_background_work_safe(&tab.id, force)
             .map_err(|error| format!("provider_switch_background_work: {error:?}"))?;
@@ -120,6 +126,7 @@ impl ServiceContext {
             &self.agent_registry,
             params,
             RestorableLaunchParameters {
+                identity_instructions: self.general_provider_switch_prompt(&tab, target),
                 captured: true,
                 requested_model,
                 model,
@@ -162,6 +169,7 @@ impl ServiceContext {
             }
         }
         model::require_idle(self.tab_is_idle(&tab.id), force, false)?;
+        self.retire_provider_switch_input(&tab.id)?;
         crate::service::orchestrator::supersede_tab_launch(&tab.id);
         match route.source {
             TargetRoute::Runtime => {
@@ -196,6 +204,13 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
+        if crate::service::general_agent::is_general_agent(&tab) {
+            crate::service::general_agent::generate_instructions(
+                self.configuration().general_agent.capability_hints,
+                target,
+                Some(&self.mem),
+            );
+        }
         let result =
             self.provider_switch_launch(&snap, route.target, &input, prepared, carry_required);
         if result.is_err() {
@@ -222,6 +237,7 @@ impl ServiceContext {
         }
         let session_id = result?;
         self.send_text(&tab.id, &handoff).map_err(|error| format!("provider_switch_handoff_unconfirmed: target session {session_id} is running; input will not be replayed: {error}"))?;
+        self.persist_general_provider_switch(&tab, target, &input.launch_parameters, &session_id)?;
         self.schedule_session_persist_debounced();
         self.emit_state_changed(crate::service::MuxEmitCause::AgentRestart);
         Ok(ProviderSwitchOutcome {
@@ -234,6 +250,12 @@ impl ServiceContext {
             binding_restored: true,
             handoff_delivered: true,
         })
+    }
+
+    fn retire_provider_switch_input(&self, tab: &str) -> Result<(), String> {
+        self.end_held_user_sends_for_fresh_restart(tab)?;
+        self.discard_pending_delivery(tab)
+            .map_err(|error| error.to_string())
     }
 
     fn provider_switch_launch(
@@ -252,6 +274,13 @@ impl ServiceContext {
         match route {
             TargetRoute::Runtime => {
                 self.ensure_session_binding_nonce(&snap.tab_id);
+                if let Some(prompt) = input.launch_parameters.identity_instructions.as_ref() {
+                    if let Some(tab) = self.mux.write().get_tab_mut(&snap.tab_id) {
+                        tab.agent_runtime_config
+                            .get_or_insert_with(|| serde_json::json!({}))["systemPrompt"] =
+                            serde_json::json!(prompt);
+                    }
+                }
                 self.prepare_agent_runtime_launch_options(&snap.tab_id, &input.params)?;
                 self.prepare_agent_runtime_launch_env(&snap.tab_id, &Default::default())?;
                 let config = self
