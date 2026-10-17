@@ -2,7 +2,7 @@ use super::engine::{self, Session};
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::{RuntimeOperation, RuntimeResult};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "camelCase", deny_unknown_fields)]
@@ -49,6 +49,9 @@ pub async fn operate(
             _ => Err("Reset credits are unsupported by the installed provider".into()),
         };
     }
+    let before_count = super::projections::for_tab(svc, tab)
+        .ok()
+        .and_then(|usage| usage["runtime_usage"][0]["resets"]["availableCount"].as_u64());
     let (action, value) = operation(request)?;
     let _permit = session
         .gate
@@ -75,7 +78,14 @@ pub async fn operate(
     .map_err(|error| error.to_string())?;
     engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
     match result {
-        RuntimeResult::ResetCreditConsumed { outcome } => Ok(json!({"outcome":outcome})),
+        RuntimeResult::ResetCreditConsumed { outcome } => {
+            let remaining_count = super::projections::for_tab(svc, tab)
+                .ok()
+                .and_then(|usage| usage["runtime_usage"][0]["resets"]["availableCount"].as_u64());
+            Ok(
+                json!({"outcome":outcome,"beforeCount":before_count,"remainingCount":remaining_count}),
+            )
+        }
         RuntimeResult::Done if action == "readResetCredits" => Ok(json!({"supported":true})),
         _ => Err("Unexpected reset credit response".into()),
     }
@@ -116,16 +126,20 @@ mod tests {
     #[test]
     fn reset_operation_requires_confirmation_and_preserves_retry_key() {
         let key = uuid::Uuid::parse_str("12345678-1234-4123-8123-123456789abc").unwrap();
-        assert!(operation(ResetCreditsRequest::Redeem {
-            idempotency_key: key,
-            confirmed: false
-        })
-        .is_err());
-        assert!(operation(ResetCreditsRequest::Redeem {
-            idempotency_key: uuid::Uuid::nil(),
-            confirmed: true
-        })
-        .is_err());
+        assert!(
+            operation(ResetCreditsRequest::Redeem {
+                idempotency_key: key,
+                confirmed: false
+            })
+            .is_err()
+        );
+        assert!(
+            operation(ResetCreditsRequest::Redeem {
+                idempotency_key: uuid::Uuid::nil(),
+                confirmed: true
+            })
+            .is_err()
+        );
         let a = operation(ResetCreditsRequest::Redeem {
             idempotency_key: key,
             confirmed: true,
