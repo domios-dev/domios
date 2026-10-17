@@ -400,11 +400,9 @@ mod tests {
         assert!(wire.get("session_pct").is_none());
         assert_eq!(wire["limits_reported"], false);
         assert!(wire["runtime_usage"][0].get("nonce").is_none());
-        assert!(
-            enrich_latest(serde_json::Value::Null, "fixture", vec![])
-                .unwrap()
-                .is_null()
-        );
+        assert!(enrich_latest(serde_json::Value::Null, "fixture", vec![])
+            .unwrap()
+            .is_null());
     }
     #[test]
     fn runtime_usage_binding_changes_clear_tokens_but_keep_account_limits() {
