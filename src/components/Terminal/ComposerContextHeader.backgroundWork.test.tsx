@@ -37,7 +37,7 @@ const adapter: AutomationGraphAdapter = {
 function harness(messages: readonly NormalizedChatMessage[], onInspect: (threadId: string) => void) {
   const state = {
     workspaces: [],
-    tabs: { "tab-a": { agent_type: "codex", agent_session_id: authority.rootThreadId, session_binding_nonce: authority.bindingNonce, agent_runtime_state: { epoch: authority.epoch } } },
+    tabs: { "tab-a": { agent_type: "codex", agent_session_id: authority.rootThreadId, session_binding_nonce: authority.bindingNonce, agent_runtime_state: { state:"loaded", epoch: authority.epoch } } },
     teams: [], active_workspace_id: null, focused_tab_id: null, notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
   } as unknown as ExtendedState;
   const store = createMuxStateStore(() => state);
@@ -108,7 +108,7 @@ it("opens the shared background panel and stops a terminal once", async () => {
 it("shows provider-declared internal subagents with elapsed time and transcript access", async () => {
   const message = fixtureMessage("agent-item", {
     agent_id: "child-thread", agent_call_id: "call-1", agent_parent_thread_id: "root", agent_ordinal: 1,
-    agent_state: "running", agent_description: "Inspect the launch path", agent_model: "model-x", agent_reasoning_effort: "high",
+    agent_state: "running", agent_description: "Inspect the launch path", agent_model: "model-x", agent_reasoning_effort: "high", agent_binding_nonce:authority.bindingNonce, agent_runtime_epoch:authority.epoch,
   });
   const inspect = vi.fn();
   configureOrchestrationTransport(orchestrationTestClient(async <T,>() => [] as T));

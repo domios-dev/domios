@@ -1,5 +1,6 @@
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { BackgroundProcessEntry } from "../../lib/backgroundProcesses";
+import type { ChildTranscriptAuthority } from "../../lib/childTranscript";
 
 export const LONG_RUNNING_WORK_MS = 15_000;
 
@@ -66,7 +67,7 @@ export function backgroundWorkElapsed(elapsedMs: number): string {
   return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
-function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: string, nowMs: number, minDurationMs: number): ComposerBackgroundWorkItem[] {
+function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: string, nowMs: number, minDurationMs: number, authority?: ChildTranscriptAuthority): ComposerBackgroundWorkItem[] {
   const latest = new Map<string, { item: ComposerBackgroundWorkItem; order: number }>();
   messages.forEach((message, order) => {
     if (message.type !== "tool_call" || message.toolKind !== "agent" || message.toolName !== "agent_activity") return;
@@ -87,6 +88,7 @@ function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: str
     const earliest = Math.min(previous?.item.startedAtMs ?? startedAtMs, startedAtMs);
     const prompt = string(source.agent_description);
     const path = string(source.agent_path);
+    const current = authority?.rootThreadId === rootThreadId && source.agent_binding_nonce === authority?.bindingNonce && source.agent_runtime_epoch === authority?.epoch;
     latest.set(key, {
       order,
       item: {
@@ -96,18 +98,18 @@ function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: str
         threadId,
         transcriptThreadId,
         startedAtMs: earliest,
-        elapsed: backgroundWorkElapsed(nowMs - earliest),
+        elapsed: current ? backgroundWorkElapsed(nowMs - earliest) : "",
         prompt,
         model: string(source.agent_model),
         effort: string(source.agent_reasoning_effort),
-        status,
+        status: status === "started" || status === "running" ? current ? status : "unknown" : status,
       },
     });
   });
   return [...latest.values()]
     .sort((a, b) => a.order - b.order)
     .map(({ item }) => item)
-    .filter((item) => (item.status === "started" || item.status === "running")
+    .filter((item) => (item.status === "started" || item.status === "running" || item.status === "unknown")
       && nowMs - item.startedAtMs >= minDurationMs);
 }
 
@@ -115,7 +117,7 @@ export function composerBackgroundWorkItems(
   messages: readonly NormalizedChatMessage[],
   terminals: readonly BackgroundProcessEntry[],
   nowMs: number,
-  options: { minDurationMs?: number; subagentsVisible?: boolean; rootThreadId?: string } = {},
+  options: { minDurationMs?: number; subagentsVisible?: boolean; rootThreadId?: string; authority?: ChildTranscriptAuthority } = {},
 ): ComposerBackgroundWorkItem[] {
   const { minDurationMs = LONG_RUNNING_WORK_MS, subagentsVisible = false, rootThreadId } = options;
   const messagesById = new Map(messages.map((message) => [message.id, message]));
@@ -137,7 +139,7 @@ export function composerBackgroundWorkItems(
       osPid: terminal.osPid,
     }];
   });
-  return [...terminalItems, ...(subagentsVisible && rootThreadId ? agentWork(messages, rootThreadId, nowMs, minDurationMs) : [])]
+  return [...terminalItems, ...(subagentsVisible && rootThreadId ? agentWork(messages, rootThreadId, nowMs, minDurationMs, options.authority) : [])]
     .sort((a, b) => a.startedAtMs - b.startedAtMs);
 }
 
