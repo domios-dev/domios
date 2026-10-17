@@ -681,7 +681,7 @@ if ((PSConsoleHostReadLine) -ne '') { throw 'Empty input changed' }
         let stdout = String::from_utf8(output.stdout).unwrap();
         assert_eq!(
             stdout
-                .matches("\x1b]633;E;;own-nonce\x07\x1b]633;C\x07")
+                .matches("\x1b]633;E;line-argument;own-nonce\x07\x1b]633;C\x07")
                 .count(),
             1
         );
