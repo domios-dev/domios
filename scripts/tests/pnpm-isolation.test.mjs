@@ -84,7 +84,8 @@ test('unlinking a package in one shared-store install preserves the other checko
   fs.writeFileSync(path.join(packed, 'package.json'), JSON.stringify({ name: 'isolation-proof', version: '1.0.0' }));
   fs.writeFileSync(path.join(packed, 'proof.txt'), 'original');
   const archive = path.join(root, 'proof.tgz');
-  const tar = spawnSync('tar', ['-czf', archive, '-C', root, 'package'], { encoding: 'utf8', timeout: 30000, windowsHide: true });
+  // GNU tar (Git Bash) reads a drive-letter archive path as host:path; a relative name avoids it.
+  const tar = spawnSync('tar', ['-czf', 'proof.tgz', 'package'], { cwd: root, encoding: 'utf8', timeout: 30000, windowsHide: true });
   assert.equal(tar.status, 0, tar.stderr || tar.error?.message);
   for (const checkout of [canonical, lane]) {
     fs.copyFileSync(hookPath, path.join(checkout, '.pnpmfile.cjs'));
