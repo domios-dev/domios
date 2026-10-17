@@ -122,11 +122,11 @@ pub(super) fn dispatch(
                 let queue = store.qa_queue(&plan_id, now).map_err(plan_rpc_err)?;
                 return Ok(json!({ "plan_id": plan_id, "next": queue.queued.first() }));
             }
-            let tester = p
-                .and_then(|x| x.get("tester_tab_id").or_else(|| x.get("caller_tab_id")))
+            let qa = p
+                .and_then(|x| x.get("qa_tab_id").or_else(|| x.get("caller_tab_id")))
                 .and_then(|v| v.as_str());
             let result = store
-                .claim_next_qa(&plan_id, note(p), actor(p), tester, now)
+                .claim_next_qa(&plan_id, note(p), actor(p), qa, now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(svc, &plan_id);
             Ok(json!({ "plan_id": plan_id, "claimed": result }))

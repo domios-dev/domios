@@ -462,7 +462,7 @@ fn built_in_plugins_section_follows_the_primer_and_is_absent_without_contributor
 #[test]
 fn worker_kind_prompt_reaches_task_bound_and_taskless_launches() {
     use codeterm_types::agent::role_kind::builtins;
-    for kind in [builtins::TESTER, builtins::RELEASE_MANAGER] {
+    for kind in [builtins::QA, builtins::RELEASE_MANAGER] {
         let guidance = crate::service::role_preset::builtin_guidance(kind).unwrap();
         for task_id in [None, Some("opaque-task")] {
             for system_prompt_capable in [false, true] {

@@ -132,13 +132,13 @@ pub enum PlanReviewAction {
         #[arg(long, value_parser = ["review", "canonical_qa"])]
         class: String,
     },
-    /// Hand one in-review task to a direct child Tester for accept/bounce review
+    /// Hand one in-review task to a direct child QA for accept/bounce review
     #[command(allow_missing_positional = true)]
     Delegate {
         plan_id: Option<String>,
         task_id: String,
-        #[arg(long = "tester-tab")]
-        tester_tab_id: String,
+        #[arg(long = "qa-tab")]
+        qa_tab_id: String,
     },
     /// ACCEPT: attaches the verdict and closes the task (in_review -> done)
     #[command(allow_missing_positional = true)]
