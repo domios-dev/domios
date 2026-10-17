@@ -483,7 +483,7 @@ fn qa_cannot_hold_a_handed_review_or_accept_without_its_live_binding() {
 }
 
 #[test]
-fn qa_bounce_consumes_the_handoff_before_reopening_a_gone_workers_task() {
+fn qa_bounce_accepts_nonce_only_cli_identity_and_refuses_an_unhanded_tab() {
     let (fixture, plan_id, task_id, _) = socket_bounce_fixture(false);
     let owner = fixture
         .service
@@ -507,7 +507,17 @@ fn qa_bounce_consumes_the_handoff_before_reopening_a_gone_workers_task() {
     handoff["qa_tab_id"] = json!(qa);
     super::dispatch("plan.review.delegate", &Some(handoff), &svc).unwrap();
 
+    let unhanded_qa = qa_child(&fixture, &owner);
+    let mut unhanded_bounce = qa_caller(&unhanded_qa);
+    unhanded_bounce["plan_id"] = json!(plan_id);
+    unhanded_bounce["task_id"] = json!(task_id);
+    unhanded_bounce["note"] = json!("An unhanded tab must be rejected");
+    let error = super::dispatch("plan.review.bounce", &Some(unhanded_bounce), &svc)
+        .expect_err("only the handed QA tab may bounce the task");
+    assert_eq!(error.code, -32003);
+
     let mut bounce = qa_caller(&qa);
+    bounce.as_object_mut().unwrap().remove("session_id");
     bounce["plan_id"] = json!(plan_id);
     bounce["task_id"] = json!(task_id);
     bounce["note"] = json!("FAIL: expected persisted row was absent");
