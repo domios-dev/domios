@@ -1448,11 +1448,6 @@
       {
         "kind": "turnState",
         "threadId": "01a143fc-b641-7a63-836a-b9ab9e3b5e4e",
-        "state": "working"
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a143fc-b641-7a63-836a-b9ab9e3b5e4e",
         "turnId": "01a143fc-b72c-74f2-ba07-83c4b9a8a39f",
         "state": "working",
         "startedAt": 1792141997000
@@ -1539,20 +1534,10 @@
       {
         "kind": "turnState",
         "threadId": "01a143fc-b641-7a63-836a-b9ab9e3b5e4e",
-        "state": "idle"
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a143fc-b641-7a63-836a-b9ab9e3b5e4e",
         "turnId": "01a143fc-b72c-74f2-ba07-83c4b9a8a39f",
         "state": "idle",
         "startedAt": 1792141997000,
         "completedAt": 1792142001000
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a143fc-b641-7a63-836a-b9ab9e3b5e4e",
-        "state": "working"
       },
       {
         "kind": "turnState",
@@ -1651,11 +1636,6 @@
           "used_tokens": 16663,
           "window_tokens": 258400
         }
-      },
-      {
-        "kind": "turnState",
-        "threadId": "01a143fc-b641-7a63-836a-b9ab9e3b5e4e",
-        "state": "idle"
       },
       {
         "kind": "turnState",
