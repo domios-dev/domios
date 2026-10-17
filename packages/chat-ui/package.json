@@ -10,6 +10,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./MessageBubble": "./src/MessageBubble.tsx",
+    "./renderability": "./src/renderability.ts",
     "./dsTasksBlock": "./src/codeterm/dsTasksBlock.ts"
   },
   "dependencies": {
