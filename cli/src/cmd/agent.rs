@@ -316,6 +316,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
     };
     match action {
+        AgentAction::Usage { action } => {
+            super::agent_runtime::handle_usage(&local_http, &base, json, action)
+        }
+        AgentAction::ChildHistory(args) => {
+            super::agent_runtime::handle_child_history(&local_http, &base, json, args)
+        }
         AgentAction::Login {
             tab,
             device,

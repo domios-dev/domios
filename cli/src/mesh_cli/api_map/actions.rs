@@ -949,6 +949,8 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
         crate::AgentAction::Restart { .. } => unsupported(
             "agent restart --mesh requires a non-empty explicit --tab <ID> from the target peer",
         ),
+        crate::AgentAction::Usage { .. } => unsupported_agent_action("usage"),
+        crate::AgentAction::ChildHistory(_) => unsupported_agent_action("child-history"),
         crate::AgentAction::SetOrchestrator { .. } => unsupported_agent_action("set-orchestrator"),
         crate::AgentAction::SwitchProviderStatus { tab: Some(tab), operation } if !tab.trim().is_empty() => ("GET".into(), format!("/api/tabs/{}/agent/switch-provider/{}", urlencoding::encode(tab), urlencoding::encode(operation)), None),
         crate::AgentAction::SwitchProviderStatus { .. } => unsupported("agent switch-provider-status --mesh requires explicit --tab"),
