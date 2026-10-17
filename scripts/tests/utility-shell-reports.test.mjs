@@ -35,6 +35,8 @@ const connectionKeys = [
   "CODETERM_SESSION_ID",
   "CODETERM_SESSION_BINDING_NONCE",
   "CODETERM_WORKER_ID",
+  "CODETERM_PARENT_TAB_ID",
+  "CODETERM_TEAM_ID",
 ];
 
 function shellQuote(value) {
@@ -58,8 +60,11 @@ function writeFakeCli(cliPath, recordPath) {
     "#!/usr/bin/env node\n" +
     "const fs = require('node:fs');\n" +
     "const args = process.argv.slice(2);\n" +
+    "if (args[0] === 'tab' && args[1] === 'inspect') { const model = process.env.BUILD_NOTIFICATION_TAB_MODEL; process.stdout.write(model ? fs.readFileSync(model, 'utf8') : '[]'); process.exit(0); }\n" +
+    "if (args[0] === 'pad' && args[1] === 'path') { process.stdout.write(process.env.BUILD_NOTIFICATION_PAD_PATH || process.cwd()); process.exit(0); }\n" +
     "const fromFile = args.indexOf('--from-file');\n" +
-    "const bodyFile = fromFile >= 0 ? args[fromFile + 1] : null;\n" +
+    "const fromPad = args.indexOf('--from-pad');\n" +
+    "const bodyFile = fromFile >= 0 ? args[fromFile + 1] : (fromPad >= 0 ? require('node:path').join(process.env.BUILD_NOTIFICATION_PAD_PATH || process.cwd(), args[fromPad + 1]) : null);\n" +
     "const keys = " + JSON.stringify(connectionKeys) + ";\n" +
     "const env = {};\n" +
     "for (const key of keys) env[key] = process.env[key] ?? null;\n" +
@@ -77,6 +82,7 @@ function makeHarness() {
   const devRecord = path.join(dir, "dev-record.jsonl");
   const parentCli = path.join(parentBin, "codeterm");
   const devCli = path.join(devBin, "codeterm");
+  const padPath = path.join(dir, "agent-pad");
   const fixtureBuild = path.join(dir, "build.sh");
   const buildSource = readFileSync(buildPath, "utf8").replaceAll("\r\n", "\n");
   const gateway = 'enter_cargo_gateway() {\n  enter_build_gateway "$@"\n  ct_configure_sccache\n}';
@@ -84,6 +90,7 @@ function makeHarness() {
   writeFileSync(fixtureBuild, buildSource.replace(gateway, 'enter_cargo_gateway() { :; }'));
   writeFakeCli(parentCli, parentRecord);
   writeFakeCli(devCli, devRecord);
+  mkdirSync(padPath, { recursive: true });
   return {
     dir,
     parentBin,
@@ -92,7 +99,8 @@ function makeHarness() {
     devRecord,
     parentCli,
     devCli,
-    env: cleanEnv({ BUILD_NOTIFICATION_FIXTURE_PATH: fixtureBuild, PATH: parentBin + path.delimiter + (process.env.PATH ?? "") }),
+    padPath,
+    env: cleanEnv({ BUILD_NOTIFICATION_FIXTURE_PATH: fixtureBuild, BUILD_NOTIFICATION_PAD_PATH: padPath, PATH: parentBin + path.delimiter + (process.env.PATH ?? "") }),
   };
 }
 
@@ -285,7 +293,7 @@ test("qa_report_parent_env_survives_instance_exports", () => {
   }
 });
 
-test("dev_notify_ready_sends_sha", () => {
+test("dev_notify_ready_sends_one_short_sha_receipt", () => {
   const h = makeHarness();
   try {
     const marker = path.join(h.dir, "ready-sent");
@@ -299,18 +307,18 @@ test("dev_notify_ready_sends_sha", () => {
     assert.equal(result.status, 0, result.stderr);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
-    assert.ok(sent[0].body.startsWith("READY instance=named api_port=7690 build=" + sha + " listener_pid=4321"));
+    assert.equal(sent[0].body, `READY instance=named api_port=7690 build=${sha}\n`);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
 });
 
-test("dev_notify_failure_sends_stage_and_tail", () => {
+test("dev_notify_failure_sends_stage_and_first_compiler_errors", () => {
   const h = makeHarness();
   try {
     const marker = path.join(h.dir, "failed-sent");
     const log = path.join(h.dir, "dev.log");
-    writeFileSync(log, Array.from({ length: 40 }, (_, i) => String(i + 1)).join("\n") + "\n");
+    writeFileSync(log, ["compile started", "error[E0432]: unresolved import `crate::missing`", "second compiler line", ...Array.from({ length: 40 }, (_, i) => String(i + 1))].join("\n") + "\n");
     const script = [
       "source " + shellQuote(helperPath),
       "dev_notify_capture_parent",
@@ -320,7 +328,8 @@ test("dev_notify_failure_sends_stage_and_tail", () => {
     assert.equal(result.status, 0, result.stderr);
     const body = records(h.parentRecord)[0].body;
     assert.match(body, /^FAILED stage=health rc=7 instance=named api_port=7690\n/);
-    assert.ok(body.endsWith(Array.from({ length: 25 }, (_, i) => String(i + 16)).join("\n") + "\n"));
+    assert.match(body, /Compiler errors:\nerror\[E0432\]: unresolved import/);
+    assert.doesNotMatch(body, /\n40\n/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
@@ -366,6 +375,28 @@ test("dev_notify_uses_parent_env_when_instance_set", () => {
     assert.equal(sent[0].env.CODETERM_SESSION_BINDING_NONCE, "parent-nonce");
     assert.equal(sent[0].env.CODETERM_WORKER_ID, "parent-worker");
     assert.equal(records(h.devRecord).length, 0);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("dev_notify_sends_remote_receipts_through_codeterm_mesh", () => {
+  const h = makeHarness();
+  try {
+    const bodyFile = path.join(h.dir, "remote-body.txt");
+    writeFileSync(bodyFile, "remote report\n");
+    const script = [
+      "source " + shellQuote(helperPath),
+      "dev_notify_capture_parent",
+      "DEV_NOTIFY_TARGET_KIND=send",
+      "DEV_NOTIFY_TARGET_MESH=paired-origin-id",
+      "dev_notify_send origin-owner " + shellQuote(bodyFile),
+    ].join("\n");
+    const result = runBash(["-c", script], h.env);
+    assert.equal(result.status, 0, result.stderr);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].args, ["send", "--mesh", "paired-origin-id", "--tab", "origin-owner", "--from-file", bodyFile]);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
@@ -624,6 +655,105 @@ test("build_notify_tab_failure_names_step_first_error_and_log", () => {
     assert.match(sent[0].body, /EARLY FAILURE label=install-local step=install-local/);
     assert.match(sent[0].body, /First failure: Diff in src\/foo\.rs/);
     assert.match(sent[0].body, /Log: .*codeterm-build-install-local/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_dev_defaults_to_the_inspected_parent_and_sends_ready_once", () => {
+  const h = makeHarness();
+  try {
+    const tabModel = path.join(h.dir, "tab-model.json");
+    writeFileSync(tabModel, JSON.stringify([{ id: "dev-shell", parent_tab_id: "live-owner" }]));
+    const result = runBash([buildPath, "dev"], {
+      ...h.env,
+      CODETERM_TAB_ID: "dev-shell",
+      CODETERM_PARENT_TAB_ID: "stale-parent-env",
+      BUILD_NOTIFICATION_TAB_MODEL: tabModel,
+      CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY: "1",
+      CODETERM_TEST_SEND_PARENT_REPORT: "1",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "live-owner"]);
+    assert.match(sent[0].body, /^READY instance=default api_port=7686 build=a{40}\n$/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_dev_uses_one_self_notification_for_ready_without_a_parent", () => {
+  const h = makeHarness();
+  try {
+    const tabModel = path.join(h.dir, "tab-model.json");
+    writeFileSync(tabModel, JSON.stringify([{ id: "standalone-shell" }]));
+    const result = runBash([buildPath, "dev"], {
+      ...h.env,
+      CODETERM_TAB_ID: "standalone-shell",
+      BUILD_NOTIFICATION_TAB_MODEL: tabModel,
+      CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY: "1",
+      CODETERM_TEST_SEND_PARENT_REPORT: "1",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].args[0], "notify");
+    assert.ok(sent[0].args.includes("--from-pad"));
+    assert.ok(sent[0].args.includes("--level") && sent[0].args[sent[0].args.indexOf("--level") + 1] === "verbose");
+    assert.match(sent[0].body, /^READY instance=default api_port=7686 build=a{40}\n$/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_long_verb_reports_one_failure_to_the_live_parent_by_default", () => {
+  const h = makeHarness();
+  try {
+    writeFakeTool(h.dir, "rustfmt", "echo 'Diff in src/failing.rs:1:'; exit 1");
+    const tabModel = path.join(h.dir, "tab-model.json");
+    writeFileSync(tabModel, JSON.stringify([{
+      id: "build-shell",
+      parent_tab_id: "live-orchestrator",
+      spawned_by_tab_id: "launcher-agent",
+      team_id: "team-fixture",
+    }]));
+    const result = runBash([buildPath, "install-local"], {
+      ...h.env,
+      CODETERM_TAB_ID: "build-shell",
+      CODETERM_PARENT_TAB_ID: "stale-env-parent",
+      BUILD_NOTIFICATION_TAB_MODEL: tabModel,
+    });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1, result.stdout + result.stderr + JSON.stringify(sent));
+    assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "live-orchestrator"]);
+    assert.match(sent[0].body, /EARLY FAILURE label=install-local/);
+    assert.match(sent[0].body, /First failure: Diff in src\/failing\.rs/);
+    assert.match(sent[0].body, /Log: .*codeterm-build-install-local/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_long_verb_uses_one_failure_notification_when_the_shell_has_no_parent", () => {
+  const h = makeHarness();
+  try {
+    writeFakeTool(h.dir, "rustfmt", "echo 'Diff in src/failing.rs:1:'; exit 1");
+    const tabModel = path.join(h.dir, "tab-model.json");
+    writeFileSync(tabModel, JSON.stringify([{ id: "standalone-shell" }]));
+    const result = runBash([buildPath, "install-local"], {
+      ...h.env,
+      CODETERM_TAB_ID: "standalone-shell",
+      BUILD_NOTIFICATION_TAB_MODEL: tabModel,
+    });
+    assert.equal(result.status, 1, result.stderr);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].args[0], "notify");
+    assert.ok(sent[0].args.includes("--level") && sent[0].args[sent[0].args.indexOf("--level") + 1] === "failure");
+    assert.ok(sent[0].args.includes("--from-pad"));
+    assert.match(sent[0].body, /EARLY FAILURE label=install-local/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
