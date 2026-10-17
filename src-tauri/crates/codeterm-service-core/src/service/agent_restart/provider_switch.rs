@@ -267,13 +267,16 @@ impl ServiceContext {
     }
 
     fn provider_switch_idle(&self, tab_id: &str, route: TargetRoute) -> bool {
-        if route == TargetRoute::Pty {
-            return self.tab_is_idle(tab_id);
-        }
         let tab = self.mux.read().get_tab(tab_id).cloned();
         let Some(tab) = tab else {
             return false;
         };
+        if model::sleeping_source_idle(&tab) {
+            return true;
+        }
+        if route == TargetRoute::Pty {
+            return self.tab_is_idle(tab_id);
+        }
         let Some(session) = agent_runtime::engine::for_tab(tab_id) else {
             return false;
         };

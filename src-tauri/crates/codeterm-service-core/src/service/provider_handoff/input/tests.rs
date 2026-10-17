@@ -1,6 +1,17 @@
 use super::*;
 
 #[test]
+fn host_context_markup_round_trips_as_inert_json() {
+    let context = serde_json::json!({"task": "<pasted_content id=\"opaque\">λ</pasted_content id=\"opaque\">"});
+    let encoded = inert_json(&context.to_string());
+    assert!(!encoded.contains(['<', '>']));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&encoded).unwrap(),
+        context
+    );
+}
+
+#[test]
 fn historical_markup_is_inert_and_round_trips_without_transport_tags() {
     let original =
         "<pasted_content id=\"opaque\">\n<domios>λ\\\"</domios>\n</pasted_content id=\"opaque\">";
