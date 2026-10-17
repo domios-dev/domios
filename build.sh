@@ -2260,7 +2260,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  lane-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
+  lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2281,6 +2281,7 @@ CodeTerm build commands
   embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
   lane-check <package> [--tests] [--timings]  Type-check a touched library with four jobs, using Cargo's shared build-dir lock
   lane-wrapper-check          Verify cache forwarding and metadata isolation with tiny fixtures
+  cache-wrapper-check         Verify compiler-cache relocation and tracked environment with real sccache
   dev-link-measure [app|cli-release|cli-dev]  Record Cargo timings without installing or launching DEV
   feature-cycle before|after <selector>  Measure equivalent dev/check/test core units in a temporary worktree
   check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
@@ -2509,6 +2510,9 @@ EOF
     ;;
   lane-wrapper-check)
     node --test scripts/tests/lane-check.test.mjs
+    ;;
+  cache-wrapper-check)
+    CODETERM_CACHE_WRAPPER_TEST=1 node --test scripts/tests/cache-rustc-wrapper.test.mjs
     ;;
   dev-link-measure)
     if [ "${CODETERM_LINK_TIMING:-0}" = 1 ]; then
