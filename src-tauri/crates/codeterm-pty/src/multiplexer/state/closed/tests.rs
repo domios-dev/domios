@@ -197,6 +197,38 @@ fn close_tab_detaches_children_without_closing_them() {
 }
 
 #[test]
+fn closing_a_team_member_closes_only_its_owned_utility_shells() {
+    let (mut state, orchestrator_id) = MultiplexerState::new();
+    let workspace_id = state.list_workspaces()[0].id.clone();
+    state.set_orchestrator_role(&orchestrator_id).unwrap();
+    let worker_id = state.create_tab(&workspace_id).unwrap();
+    state
+        .set_tab_role(&worker_id, AgentRole::Worker, Some(&orchestrator_id))
+        .unwrap();
+    let team_id = state.get_tab(&worker_id).unwrap().team_id.clone().unwrap();
+    let shell_id = state.create_tab(&workspace_id).unwrap();
+    state.link_pty(&shell_id, "worker-shell-pty".into());
+    {
+        let shell = state.get_tab_mut(&shell_id).unwrap();
+        shell.team_id = Some(team_id);
+        shell.parent_tab_id = Some(worker_id.clone());
+        shell.spawned_by_tab_id = Some(worker_id.clone());
+        shell.purpose = crate::multiplexer::types::ShellPurpose::Build;
+    }
+    let unrelated_child = state.create_tab(&workspace_id).unwrap();
+    state.get_tab_mut(&unrelated_child).unwrap().parent_tab_id = Some(worker_id.clone());
+
+    let pty_ids = state.close_tab(&worker_id).unwrap();
+
+    assert_eq!(pty_ids, ["worker-shell-pty"]);
+    assert!(state.get_tab(&worker_id).is_none());
+    assert!(state.get_tab(&shell_id).is_none());
+    let child = state.get_tab(&unrelated_child).unwrap();
+    assert_eq!(child.parent_tab_id, None);
+    assert_eq!(child.depth, 0);
+}
+
+#[test]
 fn close_tab_records_agent_identity() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);

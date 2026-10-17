@@ -319,8 +319,15 @@ impl MultiplexerState {
         reason: TabCloseReason,
     ) -> Result<Vec<String>, String> {
         self.ensure_tab_membership_mutable(tab_id)?;
+        let utility_shells = self.owned_utility_shells(tab_id);
         self.record_single_close(tab_id, reason);
-        self.close_tab_inner(tab_id)
+        let mut pty_ids = Vec::new();
+        for shell_id in utility_shells {
+            self.record_single_close(&shell_id, reason);
+            pty_ids.extend(self.close_tab_inner(&shell_id)?);
+        }
+        pty_ids.extend(self.close_tab_inner(tab_id)?);
+        Ok(pty_ids)
     }
 
     /// Commit a tab close while holding its workspace membership reservation.
@@ -411,6 +418,26 @@ impl MultiplexerState {
             }
         }
         Ok(pty_ids)
+    }
+
+    fn owned_utility_shells(&self, owner_tab_id: &str) -> Vec<String> {
+        let Some(owner_team_id) = self
+            .tabs
+            .get(owner_tab_id)
+            .and_then(|owner| owner.team_id.as_deref())
+        else {
+            return Vec::new();
+        };
+        self.get_children_ids(owner_tab_id)
+            .into_iter()
+            .filter(|child_id| {
+                self.tabs.get(child_id).is_some_and(|child| {
+                    child.is_utility_shell()
+                        && child.team_id.as_deref() == Some(owner_team_id)
+                        && child.spawned_by_tab_id.as_deref() == Some(owner_tab_id)
+                })
+            })
+            .collect()
     }
 
     /// Remove the tab that owns a given tab. Single-tab-per-tab makes this

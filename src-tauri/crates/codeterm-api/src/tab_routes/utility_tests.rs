@@ -134,3 +134,44 @@ async fn utility_tabs_api_description_icon_reuse_and_busy_refusal() {
     assert_eq!(tab.icon.as_deref(), Some("flask-conical"));
     assert_eq!(tab.title, "Builder");
 }
+
+#[tokio::test]
+async fn authenticated_tab_header_owns_a_team_utility_shell() {
+    let (mut mux, orchestrator) = MultiplexerState::new();
+    mux.set_orchestrator_role(&orchestrator).unwrap();
+    let team = mux
+        .resolve_or_mint_team_for_parent(&orchestrator)
+        .unwrap()
+        .team_id;
+    let workspace = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    let worker = mux.create_tab(&workspace).unwrap();
+    mux.set_tab_role(
+        &worker,
+        codeterm_service_core::multiplexer::types::AgentRole::Worker,
+        Some(&orchestrator),
+    )
+    .unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let state = app_state(&fixture);
+    let mut headers = HeaderMap::new();
+    headers.insert("x-codeterm-tab-id", worker.parse().unwrap());
+    let body = serde_json::from_value::<CreateShellTabBody>(serde_json::json!({
+        "workspace_id": workspace,
+        "creator_tab_id": orchestrator,
+        "team_id": team,
+        "purpose": "qa"
+    }))
+    .unwrap();
+
+    let created = create_shell_tab(AxumState(state.clone()), headers, Json(body))
+        .await
+        .unwrap()
+        .0;
+    let id = created["tab_id"].as_str().unwrap();
+    let mux = state.svc.mux.read();
+    let tab = mux.get_tab(id).unwrap();
+    assert_eq!(tab.parent_tab_id.as_deref(), Some(worker.as_str()));
+    assert_eq!(tab.spawned_by_tab_id.as_deref(), Some(worker.as_str()));
+    assert_eq!(tab.team_id.as_deref(), Some(team.as_str()));
+    assert_eq!(tab.role, None);
+}
