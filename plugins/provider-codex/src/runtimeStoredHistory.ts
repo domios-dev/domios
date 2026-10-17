@@ -1,6 +1,6 @@
 import type { ChatMsg, ParsedSessionRecord } from "@codeterm/plugin-sdk";
 import { boundHistoryRows, historyItem } from "./runtimeHistoryBounds";
-import { runtimeItems } from "./runtimeMessages";
+import { json, runtimeItems } from "./runtimeMessages";
 import { object, text } from "./runtimeProtocol";
 import { durationMilliseconds } from "./activity";
 import { commandText } from "./execWrapper";
@@ -16,12 +16,15 @@ export function storedHistoryAvailable(sessionId: string, head: string | null): 
   }
 }
 
-export function projectHistoryItem(raw: unknown, seq: number, turn: string, timestamp: unknown): ChatMsg[] {
+export function projectHistoryItem(raw: unknown, seq: number, turn: string, timestamp: unknown, parent?: string): ChatMsg[] {
   const source = object(raw);
   const rows:ChatMsg[] = source.historyTruncated === true
     ? [{id:String(source.id),seq,type:"system",content:"[content truncated: history item exceeds display budget]"}]
     : boundHistoryRows(runtimeItems(historyItem(raw), seq));
   for (const row of rows) {
+    if (parent && source.senderThreadId === parent && source.type === "collabAgentToolCall" && source.tool === "spawnAgent" && row.toolKind === "agent") {
+      row.toolInput = json({...object(row.toolInput), agent_parent_thread_id: parent});
+    }
     row.toolFlowId = turn;
     if (typeof timestamp === "number" && Number.isFinite(timestamp)) row.timestamp = new Date(timestamp).toISOString();
   }
@@ -93,7 +96,7 @@ function projectStoredRecords(sessionId: string, records: Iterable<unknown>): Ch
     if (record.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
     const turn = text(payload.turn_id);
     if (!turn || !text(object(payload.item).id)) throw new Error("Stored runtime item identity missing");
-    const projected = projectHistoryItem(recordedItem(payload.item), rows.size, turn, payload.started_at_ms ?? payload.completed_at_ms);
+    const projected = projectHistoryItem(recordedItem(payload.item), rows.size, turn, payload.started_at_ms ?? payload.completed_at_ms, sessionId);
     for (const row of projected) {
       row.seq = rows.get(row.id)?.seq ?? rows.size;
       rows.set(row.id, row);

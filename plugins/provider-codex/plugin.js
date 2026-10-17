@@ -1598,10 +1598,13 @@ function storedHistoryAvailable(sessionId, head) {
     return false;
   }
 }
-function projectHistoryItem(raw, seq, turn, timestamp) {
+function projectHistoryItem(raw, seq, turn, timestamp, parent) {
   const source = object(raw);
   const rows = source.historyTruncated === true ? [{ id: String(source.id), seq, type: "system", content: "[content truncated: history item exceeds display budget]" }] : boundHistoryRows(runtimeItems(historyItem(raw), seq));
   for (const row2 of rows) {
+    if (parent && source.senderThreadId === parent && source.type === "collabAgentToolCall" && source.tool === "spawnAgent" && row2.toolKind === "agent") {
+      row2.toolInput = json({ ...object(row2.toolInput), agent_parent_thread_id: parent });
+    }
     row2.toolFlowId = turn;
     if (typeof timestamp === "number" && Number.isFinite(timestamp)) row2.timestamp = new Date(timestamp).toISOString();
   }
@@ -1668,7 +1671,7 @@ function projectStoredRecords(sessionId, records) {
     if (record5.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
     const turn = text(payload.turn_id);
     if (!turn || !text(object(payload.item).id)) throw new Error("Stored runtime item identity missing");
-    const projected = projectHistoryItem(recordedItem(payload.item), rows.size, turn, payload.started_at_ms ?? payload.completed_at_ms);
+    const projected = projectHistoryItem(recordedItem(payload.item), rows.size, turn, payload.started_at_ms ?? payload.completed_at_ms, sessionId);
     for (const row2 of projected) {
       row2.seq = rows.get(row2.id)?.seq ?? rows.size;
       rows.set(row2.id, row2);
@@ -1756,7 +1759,7 @@ function pagedHistoryResponse(op, raw, reply) {
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > value.data.length) failure("History item offset is invalid");
   for (let index = offset; index < value.data.length; index++) {
     const record5 = object(value.data[index]), item = record5.item ?? record5;
-    const rows = projectHistoryItem(item, 0, state.turn.id, record5.startedAtMs ?? record5.completedAtMs);
+    const rows = projectHistoryItem(item, 0, state.turn.id, record5.startedAtMs ?? record5.completedAtMs, op.threadId);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, item, questions);
     const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record5.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(item).status));
     const opened = active ? rows.map((item2) => ({ turnId: state.turn.id, item: item2 })) : [];
@@ -3119,7 +3122,7 @@ function collectHistoryItems(op, state, turn, entries) {
     const rawItem = historyItem(record5.item ?? record5);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
     const timestamp = record5.startedAtMs ?? record5.completedAtMs;
-    const rows = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp);
+    const rows = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp, op.threadId);
     const active = turn.status === "inProgress" && turn.startedAt != null && record5.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
     const opened = active ? rows.map((item) => ({ turnId: String(turn.id), item })) : [];
     const rowBytes = serializedBytes(rows) + serializedBytes(opened) + serializedBytes(nextQuestions);
