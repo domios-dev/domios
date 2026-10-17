@@ -21,6 +21,21 @@ const reopenedRecords = JSON.parse(fs.readFileSync(new URL("./fixtures/reopened-
 const reopenedText = reopenedRecords.map(record => JSON.stringify(record)).join("\n");
 const reopenedInput = recordInput(reopenedText);
 const bundle = loadRecordPlugin(fileURLToPath(new URL("..", import.meta.url)));
+const spawnRecords=[
+  {type:"session_meta",payload:{id:"parent"}},
+  {type:"event_msg",payload:{type:"item_completed",thread_id:"parent",turn_id:"turn",item:{id:"spawn",type:"CollabAgentToolCall",tool:"spawnAgent",sender_thread_id:"parent",receiver_thread_ids:["child"],agents_states:{child:{status:"pendingInit"}}}}},
+];
+for (const project of [runtimeStoredHistory, bundle.runtimeStoredHistory]) {
+  const rows=project("parent",spawnRecords.map(record=>JSON.stringify(record)).join("\n")) as ChatMsg[];
+  assert.equal(object(rows[0].toolInput).agent_parent_thread_id,"parent");
+  assert.equal(object(rows[0].toolInput).agent_ordinal,1);
+  assert.equal(object(rows[0].toolInput).agent_binding_nonce,undefined);
+  assert.equal((project("foreign",spawnRecords.slice(1).map(record=>JSON.stringify(record)).join("\n")) as ChatMsg[]).length,0);
+  const inherited=structuredClone(spawnRecords);
+  inherited[1].payload.item!.sender_thread_id="foreign";
+  const foreign=project("parent",inherited.map(record=>JSON.stringify(record)).join("\n")) as ChatMsg[];
+  assert.equal(object(foreign[0].toolInput).agent_parent_thread_id,undefined);
+}
 const reference = JSON.parse(fs.readFileSync(new URL("./fixtures/reference-runtime-history.json", import.meta.url), "utf8")) as {
   sessionId:string; records:JsonValue[];
 };

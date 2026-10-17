@@ -66,6 +66,8 @@ Runtime agent rows may carry `agent_parent_thread_id` beside `agent_id`, `agent_
 
 Live agent activity also carries `agent_binding_nonce` and `agent_runtime_epoch` from its runtime context. Historical activity cannot establish liveness: the background panel shows unknown status without elapsed time unless those fields match the current parent binding.
 
+History projection preserves authenticated spawn parent/child markers under the exact requested root session. Restoring those relations grants only descendant history reads; it never restores active turns or current liveness evidence.
+
 `launchOnboardingSafeChoice(screen)` declares the exact option value associated
 with `launchOnboardingResponse(screen)`. Missing or null means unsupported. The
 host requires a unique provider-parsed option, a delegated Worker/Planner role,
