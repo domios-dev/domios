@@ -737,17 +737,16 @@ shared store inodes; unlinking one name does not remove the others.
 pnpm can purge the target of a `node_modules` junction when recreating an
 incompatible install, including during an offline install. Never junction or
 symlink canonical dependencies into a lane. The repository `.pnpmfile.cjs`
-refuses linked dependency directories during configuration, before pnpm's purge,
-and forces copy imports so new installs cannot overwrite shared store inodes.
+refuses linked dependency directories during configuration, before pnpm's purge.
+It preserves pnpm's package import method and shared-store reuse.
 Do not bypass it with `--ignore-pnpmfile`. Normal package links inside
 `node_modules` remain supported.
 
 Stop the operation using the junction. Unlink only the junction, without
 recursion (`[IO.Directory]::Delete(<junction>, $false)` on Windows), then install
-inside that checkout with `pnpm install --frozen-lockfile`. Existing hardlinked
-installs are not retroactively copied: recreate their local dependency directory
-after preserving any needed evidence and proving it is not a link. Canonical
-repair belongs to its integrator. A failed network install in an isolated real
+inside that checkout with `pnpm install --frozen-lockfile`. Preserve evidence
+before repairing a damaged dependency directory, and prove it is not a link.
+Canonical repair belongs to its integrator. A failed network install in an isolated real
 directory does not explain missing pathnames in canonical.
 
 Frontend staging creates and removes only its unique
