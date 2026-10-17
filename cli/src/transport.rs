@@ -128,7 +128,7 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         ),
         Commands::Tab { action: crate::TabAction::Timeout { .. } }
         | Commands::Tab { action: crate::TabAction::New { timeout: Some(_), .. } } =>
-            socket_unsupported("utility shell timeouts require a local owning agent"),
+            socket_unsupported("utility shell timeouts require a local owning agent; ask an agent running on the target peer to create or manage the shell with --timeout"),
         Commands::Tab { .. } => socket_rest(),
         Commands::SendText { .. } => socket_rest(),
         Commands::Delayed { .. } => socket_rest(),
