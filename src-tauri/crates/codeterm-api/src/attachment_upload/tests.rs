@@ -45,6 +45,59 @@ fn request(body: Body) -> Request<Body> {
         .unwrap()
 }
 
+async fn assert_browser_multipart(chunks: Vec<Bytes>) {
+    let dir = tempfile::tempdir().unwrap();
+    let body = Body::from_stream(stream::iter(
+        chunks.into_iter().map(Ok::<_, std::io::Error>),
+    ));
+    let request = Request::post("/api/attachments/upload")
+        .header(
+            "content-type",
+            "multipart/form-data; boundary=----WebKitFormBoundaryNIAAHosBHTyyBBLM",
+        )
+        .body(body)
+        .unwrap();
+    let response = router(dir.path().to_path_buf())
+        .oneshot(request)
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let path = PathBuf::from(result["path"].as_str().unwrap());
+    assert_eq!(path.parent(), Some(dir.path()));
+    assert!(path.to_string_lossy().ends_with("-keel-wire.png"));
+    assert_eq!(result["content_type"], "image/png");
+    assert_eq!(result["size"], 28);
+    assert_eq!(
+        tokio::fs::read(path).await.unwrap(),
+        b"KEEL_MULTIPART_OPAQUE_647004"
+    );
+    assert_eq!(
+        std::fs::read_dir(dir.path().join(".partial"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+fn browser_multipart() -> Bytes {
+    Bytes::from_static(b"------WebKitFormBoundaryNIAAHosBHTyyBBLM\r\nContent-Disposition: form-data; name=\"file\"; filename=\"keel-wire.png\"\r\nContent-Type: image/png\r\n\r\nKEEL_MULTIPART_OPAQUE_647004\r\n------WebKitFormBoundaryNIAAHosBHTyyBBLM--\r\n")
+}
+
+#[tokio::test]
+async fn browser_single_frame_multipart_persists_exact_image_bytes() {
+    assert_browser_multipart(vec![browser_multipart()]).await;
+}
+
+#[tokio::test]
+async fn browser_split_boundary_multipart_persists_exact_image_bytes() {
+    let body = browser_multipart();
+    let chunks = body.chunks(7).map(Bytes::copy_from_slice).collect();
+    assert_browser_multipart(chunks).await;
+}
+
 #[tokio::test]
 async fn multipart_round_trip_preserves_bytes_name_and_type() {
     let dir = tempfile::tempdir().unwrap();

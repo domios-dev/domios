@@ -165,15 +165,6 @@ impl Gate {
         self.entries.lock().retain(|key, _| keys.contains(key));
     }
 
-    pub(crate) fn mode_changed(&self, key: &str, current: &str) -> bool {
-        self.entries
-            .lock()
-            .get(key)
-            .and_then(|entry| entry.baseline.projection.as_ref())
-            .and_then(|projection| projection.get("mode"))
-            .is_some_and(|mode| mode != current)
-    }
-
     pub(crate) fn observation(&self, key: &str) -> Observation {
         self.entries
             .lock()

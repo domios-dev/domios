@@ -7,6 +7,8 @@ import { SentMessageBubble } from "./SentMessageBubble";
 import { CodetermCard } from "./CodetermCard";
 import { CROSS_TAB_SHELL_TESTID } from "../crossTabBubble";
 import { MessageBubble } from "../MessageBubble";
+import type { ToolEvent } from "@codeterm/chat-core";
+import { CodetermActionCard } from "../toolcard/CodetermActionCard";
 
 const windowInstance = new Window({ url: "http://localhost/sent-message-test" });
 const windowAny = windowInstance as unknown as Window & typeof globalThis;
@@ -260,6 +262,29 @@ await (async () => {
     link!.click();
   });
   assert(opened != null && opened![0] === PLAN && opened![1] === TASK, "clicking task link opens plan+task");
+})();
+
+await (async () => {
+  const body = "## Deployment\n" + "detail line\n".repeat(12);
+  const message = {
+    id: "narrow-send", type: "tool_call" as const, content: "", toolName: "exec", toolKind: "codeterm" as const,
+    toolInput: { command: `pwsh.exe -Command 'codeterm send --tab 915fae8e --from-pad message.md --json'` },
+  };
+  const event: ToolEvent = {
+    id: "narrow-send", phase: "result", status: "success", kind: "codeterm",
+    summary: message.toolInput.command, detail: message.toolInput.command,
+    result: JSON.stringify({ delivery: "sent", sent_message: { text: body, truncated: false } }),
+    message,
+  };
+  const host = await render(<CodetermActionCard event={event} expanded={false} onToggle={() => {}} resolveTabName={(ref) => ref === "915fae8e" ? "Courier · Launch" : undefined} />);
+  (host.firstElementChild as HTMLElement).style.width = "320px";
+  const card = host.querySelector('[data-testid="chat-sent-to-card"]');
+  const status = host.querySelector('[role="status"][aria-label="sent"]');
+  const expand = host.querySelector('[data-testid="chat-sent-expand"]');
+  const technical = host.querySelector('summary');
+  assert(card != null && status != null, "narrow send card exposes recipient card and truthful sent status");
+  assert(host.textContent?.includes("Courier · Launch") && host.textContent.includes("Deployment"), "narrow send card shows resolved recipient, Team context and body preview");
+  assert(expand != null && technical?.textContent === "Technical details", "long body has an explicit expand control and collapsed technical details");
 })();
 
 // plan card click-to-open intent

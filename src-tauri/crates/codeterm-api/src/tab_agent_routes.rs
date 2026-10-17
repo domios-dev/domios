@@ -126,6 +126,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(super::agent_model_routes::agent_model_handler),
         )
         .route(
+            "/api/tabs/{id}/agent/service-tiers",
+            get(super::agent_model_routes::agent_service_tiers),
+        )
+        .route(
             "/api/tabs/{id}/agent-type",
             post(agent_routes::set_agent_type),
         )

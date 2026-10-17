@@ -1,0 +1,27 @@
+import assert from "node:assert/strict";
+import type { PairedPeer } from "../../lib/types";
+import { jobsEntryState, jobsMachineAvailability, jobsMachineOptions, THIS_MACHINE, filterMachineJobs, peerJobsState } from "./jobsMachineModel";
+import { NO_JOBS_FILTER, type MergedJob } from "./jobsModel";
+
+const peer = (id: string, name: string, online: boolean): PairedPeer => ({ instance_id: id, instance_name: name, online } as PairedPeer);
+const peers = [peer("b", "Zulu", true), peer("a", "Alpha", false)];
+assert.deepEqual(jobsMachineOptions(peers).map((option) => option.id), [THIS_MACHINE, "a", "b"]);
+assert.equal(jobsMachineOptions(peers)[1].online, false);
+assert.equal(peers[0].instance_id, "b");
+assert.equal(jobsMachineAvailability(THIS_MACHINE, peers), "local");
+assert.equal(jobsMachineAvailability("b", peers), "online");
+assert.equal(jobsMachineAvailability("a", peers), "unavailable");
+assert.equal(jobsMachineAvailability("missing", peers), "unavailable");
+assert.deepEqual(jobsEntryState({ kind: "machine" }), { machineId: THIS_MACHINE, filter: NO_JOBS_FILTER });
+assert.deepEqual(jobsEntryState({ kind: "workspace", workspaceId: "general", teamId: "team" }), { machineId: THIS_MACHINE, filter: { workspaceId: "general", teamId: "team" } });
+const job = (workspace_id: string, team_id: string | null) => ({ kind: "cron", cron: { workspace_id, team_id }, title: "Job", state: "Enabled", active: true }) as MergedJob;
+const jobs = [job("general", null), job("project", "team")];
+assert.deepEqual(filterMachineJobs(jobs, NO_JOBS_FILTER), jobs);
+assert.deepEqual(filterMachineJobs(jobs, { workspaceId: "general", teamId: null }), [jobs[0]]);
+assert.deepEqual(filterMachineJobs(jobs, { workspaceId: null, teamId: "team" }), [jobs[1]]);
+assert.equal(peerJobsState(null, false, 0), "loading");
+assert.equal(peerJobsState(null, true, 0), "unavailable");
+assert.equal(peerJobsState({ partial: true }, false, 0), "partial");
+assert.equal(peerJobsState({ partial: false }, false, 0), "empty");
+assert.equal(peerJobsState({ partial: false }, false, 1), "ready");
+console.log("17 machine default, availability and scope assertions passed");

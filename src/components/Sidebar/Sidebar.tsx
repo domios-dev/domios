@@ -802,7 +802,7 @@ export function Sidebar({
                         : undefined}
                       onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(generalWorkspace.id, target) : undefined}
                     />}
-                    {generalExpanded && <GeneralInventory workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} touchMode={touchMode}
+                    {generalExpanded && <GeneralInventory generalWorkspaceId={generalWorkspace.id} onShowAllJobs={() => onOpenWorkspaceAutomation?.(generalWorkspace.id, undefined, "machine")} workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} touchMode={touchMode}
                       rowState={{ tabStatuses: state.tabStatuses, tabAttentionByTab: attention, planIndex, activeWork,
                         closingTabIds: new Set(closingTabs.keys()), appearingTabIds: appearingTabs, orchestrators: generalOrchestrators, uiFontScale }}
                       onCloseTab={animatedCloseTab} onRenameTab={setTabTitle}

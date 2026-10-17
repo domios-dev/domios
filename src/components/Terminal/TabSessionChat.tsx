@@ -45,6 +45,7 @@ import {
   selectTabAgentTypes,
   selectTabAsks,
   selectTabTitleMap,
+  selectTabCommunicationNameMap,
   selectPlanNavContext,
   tabAsksEqual,
 } from "../../store/multiplexer/selectors";
@@ -226,6 +227,7 @@ function TabSessionChatBody({
   const workspaceSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
   const workspaceId = useMuxSelector(workspaceSelector);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
+  const tabCommunicationNames = useMuxSelector(selectTabCommunicationNameMap, tabTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
   const tabAgentTypes = useMuxSelector(selectTabAgentTypes, tabAgentTypesEqual);
   const askSelector = useLatestCallback((s: Parameters<typeof selectTabAsks>[0]) => selectTabAsks(s, tabId), [tabId]);
@@ -563,18 +565,18 @@ function TabSessionChatBody({
     value: new Map(),
   });
   const communicationTabNames = useMemo(() => {
-    const names = new Map(tabTitleMap);
+    const names = new Map(tabCommunicationNames);
     for (const { origin } of enrichedMessages) {
       if (origin?.kind !== "tab") continue;
       const sender = origin.title.split("@")[0]?.trim();
-      if (sender) names.set(origin.tabIdShort.slice(0, 8), sender);
+      if (sender && !names.has(origin.tabIdShort.slice(0, 8))) names.set(origin.tabIdShort.slice(0, 8), sender);
     }
     const key = JSON.stringify([...names]);
     const prev = communicationTabNamesRef.current;
     if (key === prev.key) return prev.value;
     communicationTabNamesRef.current = { key, value: names };
     return names;
-  }, [enrichedMessages, tabTitleMap]);
+  }, [enrichedMessages, tabCommunicationNames]);
 
   const resolveTabName = useLatestCallback(
     (tabRef: string): string | undefined => communicationTabNames.get(tabRef.slice(0, 8)),

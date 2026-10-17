@@ -10,14 +10,11 @@ pub mod composition;
 pub enum NudgeKind {
     Worker,
     Orchestrator,
-    StalledTeam,
 }
 
 pub const WORKER_REMINDER: &str = "Plan reminder: you are assigned to an active task. Run `codeterm agent report --plan <plan_id> --task <task_id> \"status update\"` so your parent can see progress.";
 
 pub const ORCHESTRATOR_REMINDER: &str = "Plan reminder: {actionable}. {parked}";
-
-pub const ORCHESTRATOR_STALLED_TEAM_REMINDER: &str = "Stalled team: no live Worker remains for actionable tasks: {actionable}. {parked} Dispatch, unblock, or replan actionable tasks.";
 
 pub fn worker_nudge_text() -> String {
     WORKER_REMINDER.to_string()

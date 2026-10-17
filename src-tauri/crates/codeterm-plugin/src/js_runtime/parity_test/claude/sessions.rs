@@ -1,7 +1,6 @@
 //! Claude parity: tab-state classification, interactive-event extraction,
 //! and JSONL session delta/flatten parsing.
 
-use super::super::*;
 use super::*;
 
 #[test]

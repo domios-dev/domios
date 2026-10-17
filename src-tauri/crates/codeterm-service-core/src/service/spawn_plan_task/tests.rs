@@ -327,6 +327,29 @@ fn validate_accepts_a_worker_that_declares_no_intent_and_owns_no_task() {
 }
 
 #[test]
+fn validate_accepts_dispatch_authorized_gates_for_task_bound_workers() {
+    for intent in [
+        crate::plan::ExecutionIntent::ReadOnly,
+        crate::plan::ExecutionIntent::Mutating,
+    ] {
+        let mut params = SpawnAgentParams {
+            plan_task: Some("opaque-task".into()),
+            task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+                plan_id: "opaque-plan".into(),
+                task_id: "opaque-task".into(),
+                attempt_id: "opaque-attempt".into(),
+                lane_base: None,
+            }),
+            execution_intent: Some(intent),
+            ..verifier(&["opaque-gate"])
+        };
+        validate_worker_plan_task_spawn(&params).expect("dispatch carries enforced gates");
+        params.task_launch_authority = None;
+        assert!(validate_worker_plan_task_spawn(&params).is_err());
+    }
+}
+
+#[test]
 fn validate_rejects_gates_a_spawn_cannot_enforce() {
     let roleless = validate_worker_plan_task_spawn(&SpawnAgentParams {
         role: None,

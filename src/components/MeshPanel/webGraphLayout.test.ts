@@ -52,7 +52,8 @@ const viewFor = (width: number, height: number, count: number) => {
 };
 assert.ok(Math.abs(webGraphLayout(1440, 900, 2).web.width - 275.2) < 1e-8);
 assert.ok(Math.abs(webGraphLayout(390, 844, 2).web.width - 275.2) < 1e-8);
-assert.equal(viewFor(1440, 1200, 2).mode, "fit");
+assert.equal(viewFor(1440, 2000, 2).mode, "fit");
+assert.equal(viewFor(1440, 1200, 2).mode, "web");
 assert.equal(viewFor(1440, 900, 8).mode, "web");
 assert.equal(viewFor(1440, 900, 15).mode, "web");
 assert.equal(viewFor(390, 844, 8).mode, "web");

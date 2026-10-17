@@ -15,8 +15,10 @@ pub(super) fn parse_wsl_distros(bytes: &[u8]) -> Vec<String> {
     let text = if bytes.starts_with(&[0xff, 0xfe]) || bytes.contains(&0) {
         let bytes = bytes.strip_prefix(&[0xff, 0xfe]).unwrap_or(bytes);
         let words: Vec<_> = bytes
-            .chunks_exact(2)
-            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| u16::from_le_bytes(*b))
             .collect();
         String::from_utf16_lossy(&words)
     } else {

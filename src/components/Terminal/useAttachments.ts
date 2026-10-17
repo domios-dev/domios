@@ -5,6 +5,7 @@ import { classifyAttachmentPaths, useWebFileDrop } from "./composerFiles";
 import type { InlineAttachment, InlineAttachmentSink } from "./useComposerCapsules";
 import { useAttachmentUploads } from "./useAttachmentUploads";
 import { needsAsyncClipboardImageRead } from "./composerAttachmentPlan";
+import { extractTransferFiles } from "./composerTransferModel";
 
 const IMAGE_EXT: Record<string, string> = {
   "image/png": "png",
@@ -95,13 +96,7 @@ export function useAttachments({
     if (handledPastes.has(e)) return;
     handledPastes.add(e);
     const cd = e.clipboardData;
-    const files = Array.from(cd?.files ?? []);
-    if (!files.length) {
-      files.push(...Array.from(cd?.items ?? [])
-        .filter((item) => item.kind === "file")
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => file !== null));
-    }
+    const files = cd ? extractTransferFiles(cd) : [];
     if (files.length) {
       e.preventDefault();
       e.stopImmediatePropagation();

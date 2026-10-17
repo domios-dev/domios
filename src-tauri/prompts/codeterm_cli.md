@@ -26,6 +26,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 - NEVER HARDCODE MODEL IDS. Discover with `codeterm agent providers` / `codeterm agent models <provider>`, which refreshes live-discovery catalogues before listing.
 - MODEL SELECTION: `--model` is validated through each provider's catalogue capability. Authoritative catalogues refuse unknown ids before creating a tab and show close ids; free-form providers keep provider-owned ids. If a required live catalogue is unavailable, the requested id is preserved and the response carries a warning.
 - LIVE MODEL SWITCH: `codeterm agent model --tab TAB MODEL` relaunches that idle tab on its own verified session; `model_confirmation: "pending"` means no model was reported before the deadline, and the label follows the first turn.
+- SERVICE TIER: `codeterm agent model --tab TAB --list-speeds` lists that tab's session-bound model tiers; `--speed TIER` selects one and `--speed default` clears it. Never infer tiers from provider names or static labels.
 - SESSION FORK: `codeterm agent fork --tab TAB` opens a separate tab when its provider declares forking. Its session stays pending until that new launch supplies its own evidence. With `background_work_guard` enabled, model switches refuse running background work; an explicit `--force` override reports the affected items.
 - Version/quota questions: `codeterm identify` (not `--version`, not curl) and `codeterm usage latest` (never `ccusage` or parsing `~/.claude`).
 - System sleep: `codeterm keepawake ...` — never `caffeinate`/`powercfg`/`systemd-inhibit`.
@@ -69,6 +70,8 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Keep the machine awake | `keepawake start` / `stop` / `status` | — |
 
 Plans, tasks, Teams: `codeterm plan --help` / `codeterm task --help` / `codeterm team --help`, with the full rules in `codeterm docs PLAN-EDITING` and `codeterm docs ORCHESTRATION`. Orchestrator, Planner and Worker launches carry their own flag contract.
+
+Workers default to full machine access for either execution intent. For explicit confinement pass `--sandbox read-only` or `--sandbox workspace-write` to `codeterm agent spawn` or local `codeterm plan task dispatch`. Execution intent still limits task and report authority; saved sandbox policies remain immutable.
 
 The owner's explicit `codeterm agent restart --tab <ID> --fresh` starts a new session in the same tab with its recorded model and effort. An existing exact restored session is refused; a live agent requires `--force`. Restore never makes this choice automatically.
 

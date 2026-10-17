@@ -48,6 +48,7 @@ impl SpawnAgentParams {
             plan_skill_manifest: None,
             plan_task: json_str(params, "plan_task").or_else(|| json_str(params, "plan-task")),
             authorized_gates: json_string_list(params, "authorized_gates"),
+            sandbox: json_str(params, "sandbox"),
             execution_intent: params
                 .get("execution_intent")
                 .cloned()
