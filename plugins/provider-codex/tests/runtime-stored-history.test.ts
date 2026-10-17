@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { ChatMsg, JsonValue, RuntimeContext } from "@codeterm/plugin-sdk";
-import { runtimeStoredHistory, runtimeStoredRecords } from "../src/runtimeStoredHistory";
+import { runtimeStoredHistory, runtimeStoredRecords, storedHistoryAvailable } from "../src/runtimeStoredHistory";
 import { loadRecordPlugin, plain, recordInput } from "../../provider-shared/tests/recordHookFixture";
 import { runtimePlan, runtimeResponse } from "../src/runtime";
 import { collectHistory } from "./runtimeHistoryHost";
@@ -21,6 +21,39 @@ const reopenedRecords = JSON.parse(fs.readFileSync(new URL("./fixtures/reopened-
 const reopenedText = reopenedRecords.map(record => JSON.stringify(record)).join("\n");
 const reopenedInput = recordInput(reopenedText);
 const bundle = loadRecordPlugin(fileURLToPath(new URL("..", import.meta.url)));
+const reference = JSON.parse(fs.readFileSync(new URL("./fixtures/reference-runtime-history.json", import.meta.url), "utf8")) as {
+  sessionId:string; records:JsonValue[];
+};
+const referenceText = reference.records.map(record => JSON.stringify(record)).join("\n");
+assert.equal(storedHistoryAvailable(fixture.sessionId, JSON.stringify(fixture.records[0])), true);
+for (const head of [referenceText, null, "{", JSON.stringify({type:"session_meta",payload:{id:"foreign-session"}})]) {
+  assert.equal(storedHistoryAvailable(reference.sessionId, head), false);
+}
+const referenceInput = recordInput(referenceText);
+for (const rows of [
+  runtimeStoredHistory(reference.sessionId, referenceText),
+  runtimeStoredRecords(reference.sessionId, referenceInput.records),
+  bundle.runtimeStoredHistory!(reference.sessionId, referenceText),
+  bundle.runtimeStoredRecords!(reference.sessionId, referenceInput.records, referenceInput.meta),
+]) {
+  assert.deepEqual(plain(rows.map(row => row.id)), ["child-item"]);
+}
+const opened: string[] = [];
+const referenceBundle = loadRecordPlugin(fileURLToPath(new URL("..", import.meta.url)), {
+  fileExists: () => true,
+  readDir: () => [{name:"state_5.sqlite",path:"/tmp/.codex/state_5.sqlite",isFile:true,isDir:false,size:0,modifiedMs:null,createdMs:null}],
+  sqliteQuery: <T>(_db:string, _sql:string, params?:unknown[]) => {
+    assert.deepEqual(plain(params), [reference.sessionId]);
+    return [{rollout_path:"/child.jsonl"}] as T[];
+  },
+  readFileHead: (path, limit) => {
+    opened.push(path);
+    assert.ok(limit <= 262144);
+    return referenceText;
+  },
+});
+assert.equal(referenceBundle.runtimeStoredHistoryAvailable!("/work/project", reference.sessionId), false);
+assert.deepEqual(opened, ["/child.jsonl"]);
 for (const rows of [
   runtimeStoredHistory("fixture-identity-1", reopenedText),
   runtimeStoredRecords("fixture-identity-1", reopenedInput.records),

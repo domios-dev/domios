@@ -133,6 +133,7 @@ export interface StdioAgentRuntimeCapability {
   notificationMethods:readonly string[];
 }
 export interface AgentRuntime {
+  runtimeStoredHistoryAvailable?(cwd:string, sessionId:string): boolean;
   runtimeStoredHistory?(sessionId:string, records:string): readonly ChatMsg[];
   runtimeStoredRecords?(sessionId:string, records:readonly ParsedSessionRecord[], meta:SessionRecordsMeta): readonly ChatMsg[];
   runtimePlan(ctx:RuntimeContext, op:Operation): RuntimePlan;

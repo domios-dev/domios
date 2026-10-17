@@ -123,6 +123,9 @@ fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Optio
     else {
         return Ok(None);
     };
+    if !provider.runtime_stored_history_available(tab.cwd.as_deref().unwrap_or_default(), session) {
+        return Ok(None);
+    }
     let path = provider
         .session_file_path(tab.cwd.as_deref().unwrap_or_default(), session)
         .ok_or("Provider has no recorded runtime session")?;

@@ -1,4 +1,5 @@
 module.exports = {
+  runtimeStoredHistoryAvailable(cwd, session) { return session !== 'reference-session'; },
   runtimeStoredHistory(session, records) {
     const value = JSON.parse(records);
     if (value.session !== session) throw new Error('foreign session');
