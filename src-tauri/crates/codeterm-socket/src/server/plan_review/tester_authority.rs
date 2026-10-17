@@ -4,6 +4,12 @@ fn review_task_ref(plan_id: &str, task_id: &str) -> String {
     format!("{plan_id}/{task_id}")
 }
 
+pub(super) fn is_tester(svc: &ServiceContext, tab_id: &str) -> bool {
+    svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+        codeterm_types::agent::role_kind::can_close_review(tab.role, tab.role_profile.as_deref())
+    })
+}
+
 fn tester_review_actor(
     svc: &ServiceContext,
     plan_id: &str,
@@ -74,14 +80,9 @@ pub(super) fn authorized_review_actor(
 ) -> Result<AgentRef, JsonRpcError> {
     let caller = structural_caller(params);
     let candidate_tab_id = caller.tab_id.clone().or_else(|| actor(params).tab_id);
-    let is_tester = candidate_tab_id.as_deref().is_some_and(|tab_id| {
-        svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
-            codeterm_types::agent::role_kind::can_close_review(
-                tab.role,
-                tab.role_profile.as_deref(),
-            )
-        })
-    });
+    let is_tester = candidate_tab_id
+        .as_deref()
+        .is_some_and(|tab_id| is_tester(svc, tab_id));
     if is_tester {
         return tester_review_actor(svc, plan_id, task_id, params);
     }
