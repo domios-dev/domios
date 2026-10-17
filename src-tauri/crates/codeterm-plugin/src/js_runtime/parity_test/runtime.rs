@@ -503,12 +503,14 @@ async fn thread_history_capability_native_quickjs_parity() {
         method: "item".into(),
         params: json!({"usageEvent":event}),
     };
+    let mut revert_ctx = ctx.clone();
+    revert_ctx.thread_id = Some("source-thread".into());
     let native_reduction = native
-        .runtime_reduce(&ctx, &Value::Null, std::slice::from_ref(&frame))
+        .runtime_reduce(&revert_ctx, &Value::Null, std::slice::from_ref(&frame))
         .await
         .unwrap();
     let quickjs_reduction = js
-        .runtime_reduce(&ctx, &Value::Null, &[frame])
+        .runtime_reduce(&revert_ctx, &Value::Null, &[frame])
         .await
         .unwrap();
     assert_eq!(native_reduction, quickjs_reduction);
