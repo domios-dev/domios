@@ -560,6 +560,17 @@ instead.
 | `notificationsSchema()` | — | SettingField[] | `[]`. Cached with `settingsSchema`. |
 | `providerSelfUpdateCapability()` | — | capability object or `null` | native fallback; else `null`. |
 
+`providerSelfUpdateCapability()` returns `{npmPackage, standaloneDirectory, standaloneArgs}`.
+It composes with `cliBinary` and `checkForUpdate()` (`--version` and npm registry
+`/<encoded npmPackage>/latest`). The host verifies the resolved binary belongs
+to that npm package or the declared standalone directory. Npm updates preserve
+the owning global prefix; standalone updates invoke that binary with the declared
+arguments. Other installation methods refuse without changing installers. This
+pure declaration adds no sandbox host functions or plugin filesystem grants.
+Updates require an explicit action and run in a visible utility tab. Completion
+reports `provider`, `operation`, `success`, `old_version`, `new_version`, `tab_id`,
+`exit_code` and `summary`; success requires the requested installed version.
+
 ### Rule & integration
 
 `installBridgeRule`, `uninstallBridgeRule`, `installIntegration`,

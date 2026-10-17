@@ -43,6 +43,13 @@ impl ProviderUpdateHost for ServiceContext {
             }),
         );
     }
+
+    fn availability_changed(&self, provider: &str) {
+        self.ui.emit(
+            "provider-cli-update-available",
+            serde_json::json!({ "provider": provider }),
+        );
+    }
 }
 
 #[cfg(test)]
