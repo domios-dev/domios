@@ -2761,11 +2761,16 @@ function threadHistoryPlan(ctx, thread, value) {
   return request(
     "thread/turns/list",
     { threadId: thread, itemsView: "notLoaded", sortDirection: "asc", limit: 8 },
-    { stage: "threadHistoryTurns", action, turnId, cursor: null, targetFound: false }
+    { stage: "threadHistoryTurns", action, turnId, cursor: null, targetFound: false, ...action === "fork" ? { sourceThreadId: thread } : {} }
   );
 }
+function forkThreadPlan(ctx, op) {
+  if (ctx.threadId || ctx.activeTurnId || ctx.activeTurns.length) fail2("binding_mismatch", "Fork requires an unbound child runtime");
+  return threadHistoryPlan(ctx, op.sourceThreadId, { action: "fork", turnId: op.turnId });
+}
 function threadHistoryTurns(ctx, op, state, value) {
-  const thread = op.threadId ?? ctx.threadId;
+  const controlThread = op.kind === "control" ? op.threadId : void 0;
+  const thread = text(state.sourceThreadId) ?? controlThread ?? ctx.threadId;
   const action = text(state.action);
   const turnId = text(state.turnId);
   if (!thread || !action || !turnId || !Array.isArray(value.data) || value.data.length > 8) return refused("Invalid thread history page");
@@ -2783,7 +2788,7 @@ function threadHistoryTurns(ctx, op, state, value) {
     if (action === "fork") return continuation(request(
       "thread/fork",
       { threadId: thread, lastTurnId: turnId },
-      { stage: "thread/fork", turnId }
+      { stage: "thread/fork", turnId, sourceThreadId: thread }
     ));
     targetFound = true;
   }
@@ -2821,6 +2826,8 @@ function planOperation(ctx, op) {
       return request("initialize", { clientInfo: { name: "domios", version: ctx.hostVersion }, capabilities: { experimentalApi: true, optOutNotificationMethods: [] } });
     case "openThread":
       return request("thread/start", settingsParams(ctx, op.settings, op.instructions));
+    case "forkThread":
+      return forkThreadPlan(ctx, op);
     case "resumeThread":
       return request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true });
     case "readHistory":
@@ -2886,7 +2893,7 @@ function respondOperation(ctx, op, raw, reply) {
   if (op.kind === "backgroundProcesses") return backgroundResponse(op, reply);
   const state = object(raw);
   if (op.kind === "control" && op.action === "goal") return goalResponse(op.threadId ?? ctx.threadId, state, reply);
-  if (op.kind === "control" && op.action === "threadHistory" && state.stage === "threadHistoryTurns") {
+  if ((op.kind === "forkThread" || op.kind === "control" && op.action === "threadHistory") && state.stage === "threadHistoryTurns") {
     if (reply.kind === "error") return refused(reply.error.message);
     return threadHistoryTurns(ctx, op, state, object(reply.value));
   }
@@ -2952,6 +2959,12 @@ function respondOperation(ctx, op, raw, reply) {
       if (turns.length) return continuation(request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) }));
       return { kind: "complete", result: { kind: "done" } };
     }
+    case "forkThread": {
+      if (state.stage !== "thread/fork") return refused("Fork did not reach its provider boundary");
+      const threadId = userThread(reply.value);
+      if (!threadId || threadId === op.sourceThreadId || state.sourceThreadId !== op.sourceThreadId || state.turnId !== op.turnId) return refused("Forked thread identity unverified");
+      return { kind: "complete", result: { kind: "threadForked", sourceThreadId: op.sourceThreadId, threadId, turnId: op.turnId } };
+    }
     case "control": {
       if (op.action === "readResetCredits") return { kind: "complete", result: { kind: "done" }, events: rateLimitEvents(value.rateLimits, value.rate_limit_reset_credits) };
       if (op.action === "redeemResetCredit") {
@@ -2962,11 +2975,6 @@ function respondOperation(ctx, op, raw, reply) {
         return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: outcome2 } };
       }
       if (op.action === "login") return loginResponse(state, value);
-      if (op.action === "threadHistory" && state.stage === "thread/fork") {
-        const threadId = userThread(reply.value);
-        if (!threadId || threadId === op.threadId || !text(state.turnId)) return refused("Forked thread identity unverified");
-        return { kind: "complete", result: { kind: "threadForked", sourceThreadId: op.threadId ?? ctx.threadId, threadId, turnId: String(state.turnId) } };
-      }
       if (op.action === "threadHistory" && state.stage === "thread/revert") return { kind: "complete", result: { kind: "done" } };
       if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
       const awaitingTier = state.stage === "thread/settings/update" && object(state.settings).fastMode !== void 0 && codexReportedSettings(value).fastMode === void 0;

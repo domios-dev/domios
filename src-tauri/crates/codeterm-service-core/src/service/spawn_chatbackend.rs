@@ -456,6 +456,7 @@ impl ServiceContext {
 
         // Persisted as the JSONL `_meta` header so a restored tab can re-open from the same config.
         let history_meta = config.clone();
+        let runtime_fork = launch.and_then(|launch| launch.runtime_fork.clone());
 
         {
             let mut mux = self.mux.write();
@@ -486,7 +487,7 @@ impl ServiceContext {
                 spec.parent_tab_id.as_deref(),
                 launch.and_then(|metadata| metadata.params.plan_id.as_deref()),
                 can_spawn,
-                emit_state_change,
+                emit_state_change && runtime_fork.is_none(),
             );
             if let Err(e) = role_result {
                 self.rollback_provisional_tab_via_close(&tab_id);
@@ -496,7 +497,7 @@ impl ServiceContext {
                 return Err(e);
             }
         }
-        if role.is_none() && emit_state_change {
+        if role.is_none() && emit_state_change && runtime_fork.is_none() {
             self.emit_state_changed(MuxEmitCause::TabLifecycle);
         }
 
@@ -513,9 +514,14 @@ impl ServiceContext {
                 }
             }
         }
-        if let Err(error) = self.chatbackend_launch(plugin_id, tab_id.clone(), config, history_meta)
-        {
-            if !super::agent_runtime::requested_for_tab(self, &tab_id) {
+        if let Err(error) = self.chatbackend_launch_with_runtime_fork(
+            plugin_id,
+            tab_id.clone(),
+            config,
+            history_meta,
+            runtime_fork.clone(),
+        ) {
+            if runtime_fork.is_some() || !super::agent_runtime::requested_for_tab(self, &tab_id) {
                 self.rollback_provisional_tab(&ws_id, &tab_id);
                 let _ = self.revoke_agent_pad(&tab_id);
             }
@@ -585,7 +591,9 @@ impl ServiceContext {
             launch_options::authorize(self, &metadata.agent.provider, Some(&metadata.params))?;
         log::debug!(
             "[spawn.runtime] prepared tab={tab_id} plan={:?} task={:?} intent={:?} manifest_entries={}",
-            params.plan_id, params.task_id, params.execution_intent,
+            params.plan_id,
+            params.task_id,
+            params.execution_intent,
             params.plan_skill_manifest.as_ref().map_or(0, Vec::len)
         );
         self.ensure_agent_pad(tab_id)?;
@@ -670,6 +678,17 @@ impl ServiceContext {
         config: serde_json::Value,
         history_meta: serde_json::Value,
     ) -> Result<(), String> {
+        self.chatbackend_launch_with_runtime_fork(plugin_id, tab_id, config, history_meta, None)
+    }
+
+    fn chatbackend_launch_with_runtime_fork(
+        &self,
+        plugin_id: String,
+        tab_id: String,
+        config: serde_json::Value,
+        history_meta: serde_json::Value,
+        runtime_fork: Option<super::spawn::RuntimeForkLaunch>,
+    ) -> Result<(), String> {
         if super::agent_runtime::engine::requested(self, &plugin_id) {
             let args = self
                 .mux
@@ -704,7 +723,20 @@ impl ServiceContext {
                 .and_then(|provider| provider.extra.get("default_fast_mode"))
                 .and_then(toml::Value::as_bool);
             launch_options::apply_fast_mode_default(&mut config, supports_fast, default_fast_mode);
-            return super::agent_runtime::transport::launch(self, &plugin_id, &tab_id, config);
+            return match runtime_fork {
+                Some(fork) => super::agent_runtime::transport::launch_fork(
+                    self,
+                    &plugin_id,
+                    &tab_id,
+                    config,
+                    &fork.source_thread_id,
+                    &fork.turn_id,
+                ),
+                None => super::agent_runtime::transport::launch(self, &plugin_id, &tab_id, config),
+            };
+        }
+        if runtime_fork.is_some() {
+            return Err("Runtime fork requires an agent runtime capability".into());
         }
         let session_id = self
             .chatbackend_open_session(&plugin_id, &tab_id, config)

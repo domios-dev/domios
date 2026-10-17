@@ -207,6 +207,7 @@ fn launch(
     };
     let metadata = ChatBackendLaunchMetadata {
         owner_linkage: None,
+        runtime_fork: None,
         agent: AgentSpawnSpec {
             provider: provider.into(),
             existing_tab_id: Some(tab_id.clone()),
