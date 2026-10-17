@@ -1,4 +1,10 @@
 import type {UsageSnapshot, RuntimeUsageProjection} from "../../types/usage";
+import type {RuntimeAccountCredits} from "@codeterm/plugin-sdk";
+
+export function runtimeAccountCreditsLabel(credits:RuntimeAccountCredits|null|undefined): string|null {
+  if (!credits) return null;
+  return credits.kind === "unlimited" ? "Credits: Unlimited" : `Credits: ${credits.balance}`;
+}
 
 export function latestUsageSnapshot(snapshot: UsageSnapshot | null, tabId?: string, threadId?: string | null): UsageSnapshot | null {
   if (!snapshot) return null;
