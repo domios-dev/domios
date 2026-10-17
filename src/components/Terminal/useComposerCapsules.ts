@@ -224,5 +224,5 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
     return absorbed.text;
   }, [commit]);
 
-  return { registry, registryRef, clear, insert, insertContext, handlePaste, handleCopy, handleKeyDown, snapSelection, remove, toPortable, fromPortable, uploads };
+  return { registry, registryRef, clear, detach: () => commit(EMPTY_CAPSULES), insert, insertContext, handlePaste, handleCopy, handleKeyDown, snapSelection, remove, toPortable, fromPortable, uploads };
 }
