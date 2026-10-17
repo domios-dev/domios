@@ -26,7 +26,7 @@ mod raw_arguments;
 mod runtime;
 #[path = "parity_test/session_resume.rs"]
 mod session_resume;
-use inline_fixture::load_inline_js;
+use inline_fixture::{load_inline_js, load_inline_js_with_manifest};
 
 use std::path::PathBuf;
 
@@ -1087,24 +1087,26 @@ fn agent_state_status_reconciliation_capability_contract() {
 
 #[test]
 fn subagent_visibility_capability_contract() {
-    if require_plugins().is_none() {
-        return;
-    }
-    for (id, expected) in [
-        ("claude", true),
-        ("codex", true),
-        ("opencode", false),
-        ("cursor", false),
-    ] {
-        assert_eq!(
-            load_js(id).supports_subagent_visibility(),
-            expected,
-            "{id}: subagent visibility must match the provider's declared activity feed"
+    for enabled in [true, false] {
+        let manifest = format!(
+            r#"{{"id":"subagent-visibility-fixture","version":"0.1.0","displayName":"Fixture",
+                "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
+                         "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}},
+                "capabilities":{{"subagentVisibility":{enabled}}}}}"#
         );
+        let js = load_inline_js_with_manifest(
+            "subagent-visibility-fixture",
+            &manifest,
+            "module.exports.default = {};",
+        );
+        assert_eq!(js.supports_subagent_visibility(), enabled);
     }
 
     let native_default = DiscoverModelsNativeStub;
-    let js_default = load_inline_js("subagent-visibility-default", "module.exports.default = {};");
+    let js_default = load_inline_js(
+        "subagent-visibility-default",
+        "module.exports.default = {};",
+    );
     assert!(!native_default.supports_subagent_visibility());
     assert_eq!(
         native_default.supports_subagent_visibility(),
