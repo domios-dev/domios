@@ -29,7 +29,7 @@ use super::runtime::{
     SurfaceRuntime, SurfaceRuntimeFactory,
 };
 use codeterm_browser::process::CloseOutcome;
-use codeterm_browser::profile::{owner_profile, sanitize_profile_name, ProfileLayout};
+use codeterm_browser::profile::ProfileLayout;
 use codeterm_browser::viewport::ViewportRequest;
 use codeterm_browser::{BrowserHost, BrowserHostConfig, OpenOptions, PageChannel};
 
@@ -108,10 +108,7 @@ impl BrowserRuntime {
                 .as_deref()
                 .and_then(resume::resumable_profile),
         };
-        log::debug!(
-            "[browser] owner scope {owner_scope}, default profile {}",
-            owner_profile(owner_scope)
-        );
+        log::debug!("[browser] owner scope {owner_scope}, default temporary session");
         let shared = PageShared::new(owner);
         shared.seed_resume(resume.clone());
         Self {
@@ -119,7 +116,7 @@ impl BrowserRuntime {
             host: BrowserHost::new(config),
             swept,
             shared,
-            profile_request: Mutex::new(owner_profile(owner_scope)),
+            profile_request: Mutex::new(String::new()),
             resume_profile: tokio::sync::Mutex::new(resume.profile),
             resume_url: Mutex::new(resume.url),
             grabs: Mutex::new(GrabStore::default()),
@@ -140,7 +137,7 @@ impl BrowserRuntime {
             None => {
                 self.shared.remember_profile(&self.profile_request.lock());
                 self.shared.notice(SurfaceNotice::info(format!(
-                    "Profile {wanted} no longer exists; reopened with the owner profile."
+                    "Profile {wanted} no longer exists; reopened with a temporary session."
                 )));
             }
         }
@@ -289,21 +286,28 @@ impl BrowserRuntime {
 
     /// `""` or `"clean"` is the throwaway profile; a named one keeps logins across restarts.
     async fn use_profile(&self, raw: &str) -> Result<(), String> {
-        let wanted = if raw.trim().eq_ignore_ascii_case(CLEAN_PROFILE) {
+        let wanted = if raw.trim().is_empty() || raw.trim().eq_ignore_ascii_case(CLEAN_PROFILE) {
             String::new()
         } else {
-            sanitize_profile_name(raw)
+            codeterm_browser::profile::validate_named_profile(raw)?.to_string()
         };
         let label = if wanted.is_empty() {
             "a clean profile".to_string()
         } else {
             format!("profile {wanted}")
         };
+        if !wanted.is_empty() {
+            let layout = self.layout.clone();
+            let name = wanted.clone();
+            tokio::task::spawn_blocking(move || layout.require_named(&name))
+                .await
+                .map_err(|error| error.to_string())??;
+        }
         self.shared
             .notice(SurfaceNotice::info(format!("Switching to {label}…")));
         self.cancel_resume().await;
-        *self.profile_request.lock() = wanted.clone();
         let opened = self.host.use_profile(&wanted).await?;
+        *self.profile_request.lock() = wanted;
         if !opened.reused {
             self.shared.unbind();
         }
@@ -348,6 +352,10 @@ impl BrowserRuntime {
 
 #[async_trait::async_trait]
 impl SurfaceRuntime for BrowserRuntime {
+    fn view_only_methods(&self) -> &[&str] {
+        &["profiles.create", "profiles.delete"]
+    }
+
     fn set_owner_name(&self, name: &str) {
         self.shared.update(|state| state.owner = name.to_string());
     }
@@ -406,5 +414,30 @@ impl SurfaceRuntime for BrowserRuntime {
             self.host.shutdown_within(graceful).await,
             Some(CloseOutcome::Killed(_))
         )
+    }
+}
+
+#[cfg(test)]
+mod profile_policy_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn agent_browser_defaults_to_temporary_and_rejects_missing_profiles() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = BrowserRuntime::new(
+            BrowserHostConfig::under_data_dir(root.path()),
+            "Agent",
+            "tab-id",
+            Arc::new(tokio::sync::OnceCell::new()),
+            SurfaceResume::default(),
+        );
+        assert_eq!(*runtime.profile_request.lock(), "");
+        assert!(runtime.use_profile("Invented").await.is_err());
+        assert!(!runtime.layout.profiles_dir().exists());
+        assert_eq!(*runtime.profile_request.lock(), "");
+        assert_eq!(
+            runtime.view_only_methods(),
+            ["profiles.create", "profiles.delete"]
+        );
     }
 }

@@ -1,7 +1,9 @@
-import { Camera, ChevronLeft, ChevronRight, Crosshair, ExternalLink, Globe, Home, RotateCw, Square, X, type LucideIcon } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, ClipboardPaste, Copy, Crosshair, ExternalLink, Globe, Home, RotateCw, Square, X, type LucideIcon } from "lucide-react";
 
 const SURFACE_ICONS: Readonly<Record<string, LucideIcon>> = {
   camera: Camera,
+  copy: Copy,
+  "clipboard-paste": ClipboardPaste,
   "chevron-left": ChevronLeft,
   "chevron-right": ChevronRight,
   crosshair: Crosshair,

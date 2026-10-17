@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { TextPromptDialog } from "../shared/TextPromptDialog";
 import { useSurfaceTakeControl } from "../../lib/surfaceControlStore";
 import type { FrameDecoder } from "./frameFeed";
 import { createLatestWins, type LatestWins } from "./latestWins";
+import { createInputQueue } from "./inputQueue";
 import { PointAndAsk } from "./PointAndAsk";
 import { SnipFrame } from "./SnipOverlay";
 import { StreamCanvas } from "./StreamCanvas";
@@ -57,6 +58,7 @@ export interface StreamSurfaceViewProps {
   decode?: FrameDecoder;
   /** Opens the page in the user's own browser; the desktop host routes it through `open_url`. */
   openExternal?(url: string): void;
+  clipboard?: Pick<Clipboard, "readText" | "writeText">;
 }
 
 interface Picked {
@@ -81,7 +83,7 @@ interface ProfilesResult {
   current?: string | null;
 }
 
-export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTitle, initialState, ownerName, surfaceTabId, decode, openExternal = openInNewTab }: StreamSurfaceViewProps) {
+export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTitle, initialState, ownerName, surfaceTabId, decode, openExternal = openInNewTab, clipboard }: StreamSurfaceViewProps) {
   const stream = useSurfaceStream(transport, initialState, visible);
   const { notice, setNotice } = stream;
   const state = withOwner(stream.state, ownerName);
@@ -95,9 +97,11 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [sending, setSending] = useState(false);
   const [naming, setNaming] = useState<ToolbarItemSpec | null>(null);
+  const [deletingProfile, setDeletingProfile] = useState(false);
   const [dismissedNeed, setDismissedNeed] = useState<NeedsHumanKind | null>(null);
   const hover = useRef<LatestWins<PagePoint> | null>(null);
   const transportRef = useRef(transport);
+  const inputQueue = useRef<ReturnType<typeof createInputQueue> | null>(null);
   transportRef.current = transport;
   const needKind = isNeedsHuman(state.needsHuman) ? state.needsHuman : null;
 
@@ -120,6 +124,17 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
   const shownNotice: SurfaceNotice | null = notice ?? (needText ? { text: needText, tone: "warn" } : null);
   const items = resolveToolbar(chrome, { interactive, picking, snipping: snipping || snipped !== null || snipFrame !== null, state, busy });
   const report = (action: string, error: unknown) => setNotice({ text: failureNotice(action, error), tone: "error" });
+
+  // Bind each queue to its original target, including its final pointer release.
+  const invokeInput = useMemo(() => transport.invoke.bind(transport), [transport]);
+  useEffect(() => {
+    const queue = createInputQueue(
+      (input) => invokeInput(SURFACE_METHOD.input, inputArgs(input)),
+      (error) => setNotice({ text: failureNotice("Input", error), tone: "error" }),
+    );
+    inputQueue.current = queue;
+    return () => { queue.dispose(); inputQueue.current = null; };
+  }, [invokeInput, setNotice]);
 
   const markBusy = (id: string, on: boolean) => setBusy((current) => {
     const next = new Set(current);
@@ -172,6 +187,7 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
     if (!spec) return;
     const choice = selectChoice(spec, value);
     if (choice.kind === "new-profile") setNaming(spec);
+    else if (choice.kind === "delete-profile") setDeletingProfile(true);
     else applySelection(spec, choice.value);
   };
 
@@ -210,7 +226,9 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
   };
 
   const onButton = (id: string) => {
-    if (id !== CHROME_ITEM.openExternal) invokeDeclared(id);
+    if (id === CHROME_ITEM.copy) copySelection();
+    else if (id === CHROME_ITEM.paste) pasteText();
+    else if (id !== CHROME_ITEM.openExternal) invokeDeclared(id);
     else if (state.url && canOpenExternally(state.url)) openExternal(state.url);
   };
 
@@ -261,7 +279,26 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
   };
 
   const onInput = (input: StreamInput) => {
-    transport.invoke(SURFACE_METHOD.input, inputArgs(input)).catch((error: unknown) => report("Input", error));
+    inputQueue.current?.push(input);
+  };
+
+  const copySelection = () => {
+    const destination = clipboard ?? navigator.clipboard;
+    if (!destination) { report("Copy", new Error("Clipboard is unavailable")); return; }
+    void (async () => {
+      await inputQueue.current?.flush();
+      const result = await transport.invoke<{ text: string }>("selection.copy");
+      if (result.text) await destination.writeText(result.text);
+    })().catch((error: unknown) => report("Copy", error));
+  };
+
+  const pasteText = () => {
+    const source = clipboard ?? navigator.clipboard;
+    if (!source) { report("Paste", new Error("Clipboard is unavailable")); return; }
+    void source.readText().then((text) => {
+      if (text.length > 1_048_576) throw new Error("Clipboard text exceeds the browser's 1 MiB character limit");
+      if (text) inputQueue.current?.push({ kind: "text", text });
+    }).catch((error: unknown) => report("Paste", error));
   };
 
   const onRootKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -303,6 +340,8 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
         onViewport={stream.onViewport}
         onHidden={stream.onHidden}
         onInput={onInput}
+        onCopy={chrome.clipboard ? copySelection : undefined}
+        onPaste={chrome.clipboard ? pasteText : undefined}
         onPick={onPick}
         onHover={(point) => { if (!picked) hover.current?.push(point); }}
         onBlocked={() => setNotice({ text: blockedNotice(state.owner) })}
@@ -353,7 +392,26 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
           onCancel={() => setNaming(null)}
           onSubmit={(name) => {
             setNaming(null);
-            applySelection(naming, name);
+            const spec = naming;
+            void runBusy("profile", "profiles.create", { name }).then(() => {
+              applySelection(spec, name);
+            }).catch((error: unknown) => report("Create profile", error));
+          }}
+        />
+      )}
+      {deletingProfile && (
+        <TextPromptDialog
+          title="Delete profile"
+          label="Profile name"
+          description={`Delete saved logins and cookies permanently. Available profiles: ${(state.profiles ?? []).join(", ")}. Switch away from the profile and close other browsers using it first.`}
+          confirmLabel="Delete"
+          validate={(name) => !(state.profiles ?? []).includes(name) ? "Choose an existing profile name" : name === state.profile ? "Switch to another profile before deleting this one" : null}
+          onCancel={() => setDeletingProfile(false)}
+          onSubmit={(name) => {
+            setDeletingProfile(false);
+            void runBusy("profile", "profiles.delete", { name }).then(() => {
+              setNotice({ text: `Deleted profile ${name}` });
+            }).catch((error: unknown) => report("Delete profile", error));
           }}
         />
       )}

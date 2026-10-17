@@ -155,6 +155,9 @@ assert.equal(keyInput(key("F5", "F5")), null, "unmapped named keys are not forwa
 assert.equal(keyInput(key("ShiftLeft", "Shift", { shiftKey: true })), null, "bare modifiers are not forwarded");
 
 const interactive: KeyContext = { interactive: true, picking: false, origin: "surface" };
+assert.deepEqual(decideKey(key("KeyC", "c", { ctrlKey: true }), interactive), { action: "copy" });
+assert.deepEqual(decideKey(key("KeyV", "v", { metaKey: true }), interactive), { action: "paste" });
+assert.equal(keyInput(key("KeyA", "a", { ctrlKey: true }))?.kind, "key");
 const decisionCases: Array<[string, KeyLike, KeyContext, KeyDecision]> = [
   ["Shift+Esc exits interaction", key("Escape", "Escape", { shiftKey: true }), interactive, { action: "exit-interaction" }],
   ["Shift+Esc exits from the address field", key("Escape", "Escape", { shiftKey: true }), { ...interactive, origin: "editable" }, { action: "exit-interaction" }],

@@ -45,6 +45,7 @@ export interface StreamLayout {
 }
 
 export type StreamInput =
+  | { kind: "pointer"; phase: "down" | "move" | "up"; x: number; y: number; button: "left"; buttons: number; clickCount: number; modifiers: number }
   | { kind: "click"; x: number; y: number; button: "left"; clickCount: number }
   | { kind: "wheel"; x: number; y: number; deltaX: number; deltaY: number }
   | { kind: "text"; text: string }
@@ -72,6 +73,7 @@ export interface KeyContext {
 }
 
 export type KeyDecision =
+  | { action: "copy" | "paste" }
   | { action: "forward"; input: StreamInput }
   | { action: "exit-interaction" }
   | { action: "cancel-pick" }
@@ -262,6 +264,9 @@ export function keyInput(event: KeyLike): StreamInput | null {
     return key === "Enter" ? { ...input, text: "\r" } : input;
   }
   if (typesText(event)) return { kind: "text", text: event.key };
+  if ((event.ctrlKey || event.metaKey) && !event.altKey && ["a", "z", "y"].includes(event.key.toLowerCase())) {
+    return { kind: "key", key: event.key, code: event.code, windowsVirtualKeyCode: event.key.toUpperCase().charCodeAt(0), modifiers: modifierMask(event) };
+  }
   return null;
 }
 
@@ -269,6 +274,10 @@ export function decideKey(event: KeyLike, context: KeyContext): KeyDecision {
   if (isEscape(event) && event.shiftKey && context.interactive) return { action: "exit-interaction" };
   if (isEscape(event) && context.picking && context.origin === "surface") return { action: "cancel-pick" };
   if (context.origin === "editable" || !context.interactive || event.isComposing) return { action: "keep" };
+  if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+    if (event.key.toLowerCase() === "c") return { action: "copy" };
+    if (event.key.toLowerCase() === "v") return { action: "paste" };
+  }
   const input = keyInput(event);
   return input ? { action: "forward", input } : { action: "keep" };
 }

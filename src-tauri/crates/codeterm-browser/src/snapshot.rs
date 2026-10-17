@@ -3,8 +3,12 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
 pub const DEFAULT_MAX_LINES: usize = 200;
+pub const MAX_LINES: usize = 2000;
 const NAME_LIMIT: usize = 100;
 const VALUE_LIMIT: usize = 60;
+
+#[cfg(test)]
+mod agent_tests;
 
 const INTERACTIVE: &[&str] = &[
     "button",
@@ -124,7 +128,7 @@ fn truthy(value: &Value) -> bool {
         Value::Null => false,
         Value::Bool(flag) => *flag,
         Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0),
-        Value::String(text) => !text.is_empty(),
+        Value::String(text) => !text.is_empty() && text != "false",
         Value::Array(_) | Value::Object(_) => true,
     }
 }
@@ -145,6 +149,12 @@ fn collapse_whitespace(text: &str) -> String {
 }
 
 pub fn build_snapshot(nodes: &[AxNode], max_lines: usize) -> Snapshot {
+    build_snapshot_scoped(nodes, max_lines, "")
+}
+
+/// The caller supplies a new scope per capture so old refs cannot alias newly indexed elements.
+pub fn build_snapshot_scoped(nodes: &[AxNode], max_lines: usize, scope: &str) -> Snapshot {
+    let max_lines = max_lines.clamp(1, MAX_LINES);
     let by_id: HashMap<&str, &AxNode> = nodes.iter().map(|n| (n.node_id.as_str(), n)).collect();
     let root = nodes
         .iter()
@@ -154,10 +164,8 @@ pub fn build_snapshot(nodes: &[AxNode], max_lines: usize) -> Snapshot {
     let mut lines: Vec<String> = Vec::new();
     let mut visited: HashSet<&str> = HashSet::new();
     let mut stack: Vec<(&AxNode, usize)> = root.map(|node| vec![(node, 0)]).unwrap_or_default();
+    let mut truncated = false;
     while let Some((node, depth)) = stack.pop() {
-        if lines.len() >= max_lines {
-            break;
-        }
         if !visited.insert(node.node_id.as_str()) {
             continue;
         }
@@ -172,6 +180,10 @@ pub fn build_snapshot(nodes: &[AxNode], max_lines: usize) -> Snapshot {
                 || STRUCTURAL.contains(&role)
                 || (!name.is_empty() && role != "paragraph"))
         {
+            if lines.len() >= max_lines {
+                truncated = true;
+                break;
+            }
             let mut line = format!("{}- {role}", "  ".repeat(depth));
             if !name.is_empty() {
                 line.push_str(&format!(" \"{}\"", truncate_chars(&name, NAME_LIMIT)));
@@ -182,17 +194,30 @@ pub fn build_snapshot(nodes: &[AxNode], max_lines: usize) -> Snapshot {
                     line.push_str(&format!(": {}", truncate_chars(&shown, VALUE_LIMIT)));
                 }
             }
-            let disabled = node
-                .properties
-                .iter()
-                .find(|property| property.name == "disabled")
-                .and_then(|property| property.value.value.as_ref())
-                .is_some_and(truthy);
-            if disabled {
-                line.push_str(" [disabled]");
+            for property in &node.properties {
+                let Some(value) = property.value.value.as_ref() else {
+                    continue;
+                };
+                match property.name.as_str() {
+                    "disabled" | "required" | "readonly" | "focused" if truthy(value) => {
+                        line.push_str(&format!(" [{}]", property.name));
+                    }
+                    "checked" | "selected" | "expanded" => {
+                        let state = display_value(value);
+                        if matches!(state.as_str(), "true" | "false" | "mixed") {
+                            line.push_str(&format!(" [{}={state}]", property.name));
+                        }
+                    }
+                    "invalid" if truthy(value) => line.push_str(" [invalid]"),
+                    _ => {}
+                }
             }
             if let (true, Some(backend)) = (interactive, backend) {
-                let reference = format!("e{}", snapshot.index.len() + 1);
+                let reference = if scope.is_empty() {
+                    format!("e{}", snapshot.index.len() + 1)
+                } else {
+                    format!("{scope}-e{}", snapshot.index.len() + 1)
+                };
                 snapshot.refs.insert(reference.clone(), backend);
                 line.push_str(&format!(" [@{reference}]"));
                 snapshot.index.push(RefEntry {
@@ -211,7 +236,7 @@ pub fn build_snapshot(nodes: &[AxNode], max_lines: usize) -> Snapshot {
             }
         }
     }
-    if lines.len() >= max_lines {
+    if truncated {
         lines.push(format!(
             "… (truncated at {max_lines} lines; pass a larger limit)"
         ));
@@ -231,7 +256,15 @@ pub enum ResolveError {
     NoSnapshot,
     StaleRef(String),
     MissingTarget,
-    NotFound { role: String, name: String },
+    NotFound {
+        role: String,
+        name: String,
+    },
+    Ambiguous {
+        role: String,
+        name: String,
+        refs: Vec<String>,
+    },
 }
 
 impl std::fmt::Display for ResolveError {
@@ -245,6 +278,11 @@ impl std::fmt::Display for ResolveError {
             Self::NotFound { role, name } => write!(
                 f,
                 "no {role} named \"{name}\" in the last snapshot — run `snapshot` and use a ref"
+            ),
+            Self::Ambiguous { role, name, refs } => write!(
+                f,
+                "multiple {role} elements match \"{name}\" — use an exact ref from the snapshot: {}",
+                refs.join(", ")
             ),
         }
     }
@@ -273,17 +311,36 @@ pub fn resolve_target(
     let name = args.get(1).copied().unwrap_or("");
     let want = name.to_lowercase();
     let same_role = || snapshot.index.iter().filter(|entry| entry.role == first);
-    same_role()
-        .find(|entry| entry.name.to_lowercase() == want)
-        .or_else(|| same_role().find(|entry| entry.name.to_lowercase().contains(&want)))
-        .map(|entry| ResolvedTarget {
-            backend_node_id: entry.backend_node_id,
-            label: format!("{first} \"{}\"", entry.name),
-        })
-        .ok_or_else(|| ResolveError::NotFound {
-            role: first.to_string(),
-            name: name.to_string(),
-        })
+    let exact = same_role().any(|entry| entry.name.to_lowercase() == want);
+    let mut matches = same_role().filter(|entry| {
+        let actual = entry.name.to_lowercase();
+        if exact {
+            actual == want
+        } else {
+            actual.contains(&want)
+        }
+    });
+    let target = matches.next().ok_or_else(|| ResolveError::NotFound {
+        role: first.to_string(),
+        name: name.to_string(),
+    })?;
+    if let Some(other) = matches.next() {
+        let refs = std::iter::once(target)
+            .chain(std::iter::once(other))
+            .chain(matches)
+            .take(8)
+            .map(|entry| format!("@{}", entry.reference))
+            .collect();
+        return Err(ResolveError::Ambiguous {
+            role: first.into(),
+            name: name.into(),
+            refs,
+        });
+    }
+    Ok(ResolvedTarget {
+        backend_node_id: target.backend_node_id,
+        label: format!("{first} \"{}\"", target.name),
+    })
 }
 
 #[cfg(test)]
@@ -299,7 +356,7 @@ mod tests {
   - form
     - textbox \"Email\": andrey@example.com [@e3]
     - textbox \"Password\" [@e4]
-    - checkbox \"Remember me\" [@e5]
+    - checkbox \"Remember me\" [checked=false] [@e5]
     - slider \"Session length\": 30 [@e6]
     - button \"Sign in\" [@e7]
     - button \"Continue with SSO\" [disabled] [@e8]
