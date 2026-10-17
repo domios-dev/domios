@@ -944,3 +944,11 @@
   color: var(--ct-fg);
   font-size: 12px;
 }
+
+.ct-usage-account-credits {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--u-overlay-2);
+  color: var(--ct-fg);
+  font-size: 12px;
+}

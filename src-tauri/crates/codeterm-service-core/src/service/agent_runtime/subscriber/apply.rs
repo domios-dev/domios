@@ -70,6 +70,7 @@ pub(in crate::service::agent_runtime) async fn publish_events(
         if let RuntimeEvent::RateLimitsUpdated {
             rate_limits,
             resets,
+            account_credits,
             ..
         } = &runtime
         {
@@ -78,6 +79,7 @@ pub(in crate::service::agent_runtime) async fn publish_events(
                 session,
                 rate_limits.clone(),
                 resets.clone(),
+                account_credits.clone(),
                 at,
             )
             .await?;
