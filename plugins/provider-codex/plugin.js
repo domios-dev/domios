@@ -1826,7 +1826,15 @@ function rateLimitEvents(raw, rawResets) {
     }];
   });
   const resets = resetCredits(rawResets);
-  return windows.length || resets ? [{ kind: "rateLimits", rateLimits: windows, ...resets ? { resets } : {} }] : [];
+  const accountCredits = parseAccountCredits(limits.credits);
+  return windows.length || resets || accountCredits ? [{ kind: "rateLimits", rateLimits: windows, ...resets ? { resets } : {}, ...accountCredits ? { accountCredits } : {} }] : [];
+}
+function parseAccountCredits(raw) {
+  const value = object(raw);
+  const hasCredits = value.hasCredits ?? value.has_credits;
+  if (hasCredits !== true || typeof value.unlimited !== "boolean") return void 0;
+  if (value.unlimited) return { kind: "unlimited" };
+  return typeof value.balance === "string" && value.balance.trim() ? { kind: "balance", balance: value.balance } : void 0;
 }
 
 // plugins/provider-codex/src/runtimeAuth.ts

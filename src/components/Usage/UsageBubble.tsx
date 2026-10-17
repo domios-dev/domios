@@ -3,7 +3,7 @@ import {invoke} from "../../lib/bridge";
 import {resetCreditsForTab, type ResetResponse} from "./resetCreditsModel";
 import {ResetCreditsSection} from "./ResetCreditsSection";
 import {InlineErrorNotice} from "../shared/ErrorNotice";
-import { ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown } from "./runtimeUsage";
+import { ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown, runtimeAccountCreditsLabel } from "./runtimeUsage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { useProviderModelUsageState } from "../../hooks/useProviderModelUsage";
@@ -68,6 +68,7 @@ export function UsageBubble({
   const active = runtime || snapshot?.runtime_usage
     ? latestUsageSnapshot(snapshot, tabId, threadId)
     : groupSnapshot ?? snapshot;
+  const accountCreditsLabel = runtimeAccountCreditsLabel(runtime?.account_credits);
   const [, updateAge] = useState(0);
   const refreshAge = () => updateAge(value => value + 1);
   useEffect(() => {
@@ -208,6 +209,7 @@ export function UsageBubble({
       {open && !tokenSession && isSpend && (
         <UsageSpendDetail
           snapshot={active}
+          accountCreditsLabel={accountCreditsLabel}
           resetSection={tabId && runtime && resetModel ? <><ResetCreditsSection resets={active.resets} model={resetModel} />{resetReadError && active.resets && <InlineErrorNotice error={resetReadError} operation="reading the reset credits" />}</> : undefined}
           flipUp={flipUp}
           onRefresh={refreshUsage}
@@ -221,6 +223,7 @@ export function UsageBubble({
       {open && !tokenSession && !isSpend && (
         <UsageDetail
           snapshot={active}
+          accountCreditsLabel={accountCreditsLabel}
           resetSection={tabId && runtime && resetModel ? <><ResetCreditsSection resets={active.resets} model={resetModel} />{resetReadError && active.resets && <InlineErrorNotice error={resetReadError} operation="reading the reset credits" />}</> : undefined}
           flipUp={flipUp}
           onRefresh={refreshUsage}

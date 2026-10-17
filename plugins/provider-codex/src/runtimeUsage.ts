@@ -1,4 +1,4 @@
-import type {AgentEvent} from "@codeterm/plugin-sdk";
+import type {AgentEvent, RuntimeAccountCredits} from "@codeterm/plugin-sdk";
 import {resetCredits} from "./resetCredits";
 import {object} from "./runtimeProtocol";
 
@@ -13,5 +13,14 @@ export function rateLimitEvents(raw:unknown, rawResets?:unknown): AgentEvent[] {
       ...(typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? {windowMinutes:value.windowDurationMins} : {})}];
   });
   const resets = resetCredits(rawResets);
-  return windows.length || resets ? [{kind:"rateLimits",rateLimits:windows,...(resets ? {resets} : {})}] : [];
+  const accountCredits = parseAccountCredits(limits.credits);
+  return windows.length || resets || accountCredits ? [{kind:"rateLimits",rateLimits:windows,...(resets ? {resets} : {}),...(accountCredits ? {accountCredits} : {})}] : [];
+}
+
+function parseAccountCredits(raw:unknown): RuntimeAccountCredits | undefined {
+  const value = object(raw);
+  const hasCredits = value.hasCredits ?? value.has_credits;
+  if (hasCredits !== true || typeof value.unlimited !== "boolean") return undefined;
+  if (value.unlimited) return {kind:"unlimited"};
+  return typeof value.balance === "string" && value.balance.trim() ? {kind:"balance",balance:value.balance} : undefined;
 }
