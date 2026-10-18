@@ -1382,6 +1382,11 @@ the real crate check; a tiny fixture alone does not cover Windows argument limit
 
 ## Independent server process oracle
 
+If Windows refuses probe cleanup with `EBUSY`, retain the failed result and
+disposable data; a prior runtime milestone is not a successful full probe.
+Report success only after cleanup, remove the verified scratch alias before
+deleting data, and never follow that alias or use a broad process kill.
+
 If the probe CLI build reports E0061 at `generate_system_plugin_hashes`, its
 build-script caller still uses the old zero-argument API. Pass the CLI's
 `CARGO_MANIFEST_DIR` path to the shared bundler, whose parent resolves the same
