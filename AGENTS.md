@@ -2,7 +2,7 @@
 
 # Domios
 
-**Edit AGENTS.md only when a human explicitly requests it. Keep changes short, necessary, and free of duplicated procedures or incident history.**
+**Edit this repository's AGENTS.md only when a human explicitly requests it. Keep changes short and necessary; this restriction does not apply to other projects.**
 
 **OS for AI agents.** Cross-platform terminal multiplexer where AI agents live, work, and coordinate. Tauri v2 (Rust) + React/TypeScript + xterm.js. Full vision: `essences/vision.md`.
 
@@ -178,4 +178,4 @@ Read `essences/begin_here.md` before editing any doc. Bump the `<!-- revision: N
 - `prod-docs/` — exactly the docs embedded in the binary and read with `codeterm docs <NAME>`, one `prod-docs/<NAME>.md` per registry entry: for example `prod-docs/API.md`, `prod-docs/CONFIG.md`, `prod-docs/MESH.md`, `prod-docs/MEMORY.md`, `prod-docs/TAB-LIFECYCLE.md`. Its audience is a production agent using Domios; a doc about Domios's own source (prompt sources, detection internals, file layout) is useless there because that agent cannot edit the binary, so it lives in `.agents/skills/` or `essences/`.
 - `.agents/skills/` — step-by-step procedures (dev run, dev testing, gates, release, prompt evaluation, lane cleanup); not a docs area.
 
-<!-- revision: 42 -->
+<!-- revision: 43 -->
