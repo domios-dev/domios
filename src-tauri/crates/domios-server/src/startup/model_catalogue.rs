@@ -4,7 +4,7 @@ pub(crate) fn forward_changes(
     ui: std::sync::Arc<dyn codeterm_service_core::ports::host::UiEvents>,
 ) {
     let mut changes = agent::model_catalog::subscribe_changes();
-    tauri::async_runtime::spawn(async move {
+    codeterm_service_core::async_runtime::spawn(async move {
         loop {
             match changes.recv().await {
                 Ok(change) => ui.emit(
@@ -31,7 +31,7 @@ pub(crate) fn refresh_providers(registry: &agent::registry::AgentRegistry) {
         agent::model_catalog::prime_from_cache(provider.id());
         agent::model_binary_watch::install(provider.clone());
     }
-    tauri::async_runtime::spawn(async move {
+    codeterm_service_core::async_runtime::spawn(async move {
         for provider in providers {
             let _ = agent::model_catalog::refresh_models(provider, false).await;
         }

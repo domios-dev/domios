@@ -8,7 +8,7 @@ mod tests;
 
 const PROJECT_PROBE_PARALLELISM: usize = 8;
 
-pub(crate) fn restore(service: &ServiceContext) {
+pub fn restore(service: &ServiceContext) {
     service.kick_off_pollers_for_existing_agents();
 
     let mut workspace_cwds = workspace_cwds(&service.mux);

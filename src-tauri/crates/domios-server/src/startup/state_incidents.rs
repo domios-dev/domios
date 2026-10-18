@@ -8,7 +8,7 @@ pub(super) fn install_notifier(service: &ServiceState) {
     codeterm_service_core::persisted_state::set_incident_sink(move |incident| {
         let service = service.clone();
         let incident = incident.clone();
-        tauri::async_runtime::spawn(async move { notify(&service, &incident) });
+        codeterm_service_core::async_runtime::spawn(async move { notify(&service, &incident) });
     });
 }
 

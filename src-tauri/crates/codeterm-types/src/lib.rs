@@ -9,3 +9,4 @@ pub mod update;
 
 #[cfg(test)]
 mod test_support;
+pub mod server_bootstrap;
