@@ -14,6 +14,8 @@ import { ComposerBackgroundWorkProvider } from "./ComposerBackgroundWorkContext"
 import { ComposerContextHeader } from "./ComposerContextHeader";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
+import { AgentStateIndicator } from "./AgentStateIndicator";
+import { tabActivity } from "../../lib/tabActivity";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -46,7 +48,8 @@ function harness(messages: readonly NormalizedChatMessage[], onInspect: (threadI
   const render = () => root.render(
     <MuxStateStoreContext.Provider value={store}>
       <AgentInspectionProvider onInspect={onInspect}>
-        <ComposerBackgroundWorkProvider messages={messages}>
+        <ComposerBackgroundWorkProvider tabId="tab-a" messages={messages}>
+          <AgentStateIndicator activity={tabActivity({agent_session_id:"root",agent_state:{state:"working"}})} activeTool={messages.find(message=>message.type === "tool_call" && message.toolKind === "command")} providerName="fixture" model="fixture-model" renderIdentity={()=> <button type="button" aria-label="Choose fixture model" />} />
           <ComposerContextHeader
             tabId="tab-a" workspaceId={null} delayed={[]} adapter={adapter}
             onEditDelayed={() => undefined} onDeleteDelayed={() => undefined} onScheduleDelayed={() => undefined}
@@ -61,9 +64,10 @@ function harness(messages: readonly NormalizedChatMessage[], onInspect: (threadI
 it("opens the shared background panel and stops a terminal once", async () => {
   const process = { threadId: "root", processId: "process-1", itemId: "terminal-item", command: "node build.mjs", cwd: "C:/work", osPid: 42 };
   const terminalMessage: NormalizedChatMessage = {
-    id: "terminal-item", type: "tool_result", content: "build output", timestamp: new Date(Date.now() - 20_000).toISOString(), sourceSessionId: authority.rootThreadId,
+    id: "terminal-item", type: "tool_call", toolKind:"command", toolStatus:"running", toolInput:{command:process.command}, content: "build output", timestamp: new Date(Date.now() - 20_000).toISOString(), sourceSessionId: authority.rootThreadId,
   };
   const stopCalls: unknown[] = [];
+  let reads = 0;
   let processes = [process];
   configureOrchestrationTransport(orchestrationTestClient(async <T,>(method: string, path: string) => {
     expect(method).toBe("GET");
@@ -73,7 +77,7 @@ it("opens the shared background panel and stops a terminal once", async () => {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   __setListenForTest(async () => () => undefined);
   __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
-    if (command === "agent_runtime_background_processes") return snapshot(processes) as T;
+    if (command === "agent_runtime_background_processes") { reads++; return snapshot(processes) as T; }
     if (command === "agent_runtime_stop_background_process") {
       stopCalls.push(args);
       processes = [];
@@ -93,8 +97,18 @@ it("opens the shared background panel and stops a terminal once", async () => {
     await act(async () => { bubble?.click(); });
     const panel = view.host.querySelector('[role="group"][aria-label="Background work"]');
     expect(panel).not.toBeNull();
-    expect(panel?.textContent).toContain("build.mjs");
-    const stop = panel?.querySelector<HTMLButtonElement>('button[aria-label="Stop node"]');
+    expect(view.host.querySelectorAll('button[aria-label="Details for build.mjs"]')).toHaveLength(1);
+    expect(reads).toBe(1);
+    expect(panel?.querySelector("code,pre")).toBeNull();
+    expect(view.host.querySelector('button[aria-label="Choose fixture model"]')).not.toBeNull();
+    expect(view.host.querySelector('[data-testid="agent-state"]')?.textContent).not.toContain(process.command);
+    const details=panel!.querySelector<HTMLButtonElement>('button[aria-label="Details for build.mjs"]')!;
+    await act(async()=>details.click());
+    expect(details.getAttribute("aria-expanded")).toBe("true");
+    expect(panel?.querySelector('[role="region"] code')?.textContent).toBe(process.command);
+    await act(async()=>details.click());
+    expect(panel?.querySelector('[role="region"]')).toBeNull();
+    const stop = panel?.querySelector<HTMLButtonElement>('button[aria-label="Stop build.mjs"]');
     expect(stop).toBeDefined();
     await act(async () => { stop?.click(); stop?.click(); });
     expect(stopCalls).toHaveLength(1);
@@ -125,13 +139,12 @@ it("shows provider-declared internal subagents with elapsed time and transcript 
   const shown = harness([message], inspect);
   try {
     await act(async () => { shown.render(); });
-    const bubble = shown.host.querySelector<HTMLButtonElement>('button[aria-label="1 background work"]');
-    expect(bubble).toBeDefined();
-    await act(async () => { bubble?.click(); });
-    const panel = shown.host.querySelector('[role="group"][aria-label="Background work"]');
+    expect(shown.host.querySelector('button[aria-label="1 background work"]')).toBeNull();
+    const panel = shown.host.querySelector('[role="group"][aria-label="Subagents"]');
     expect(panel?.textContent).toContain("model-x");
     const transcript = Array.from(panel?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((button) => button.getAttribute("aria-label")?.startsWith("Open transcript for "));
     expect(transcript).toBeDefined();
+    expect(shown.host.querySelectorAll('button[aria-label^="Open transcript for "]')).toHaveLength(1);
     await act(async () => { transcript?.click(); });
     expect(inspect).toHaveBeenCalledExactlyOnceWith("child-thread");
   } finally {
