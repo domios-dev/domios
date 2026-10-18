@@ -402,21 +402,6 @@ fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
         &task,
     )
     .is_err());
-    assert!(
-        codeterm_service_core::service::task_lane_guard::refuse_taskless_canonical_mutation(
-            &plan,
-            &ExecutionIntent::Mutating,
-            Some(canonical),
-        )
-        .is_err()
-    );
-    codeterm_service_core::service::task_lane_guard::refuse_taskless_canonical_mutation(
-        &plan,
-        &ExecutionIntent::ReadOnly,
-        Some(canonical),
-    )
-    .expect("read-only Workers may verify canonical without an attempt");
-
     assert!(matches!(
         classify_mutating_lane(&plan, &task.id, "C:/repo/.worktrees/foreign"),
         Some(UnsafeMutatingLane::ForeignLane { owner, .. }) if owner == foreign_task.id
@@ -441,6 +426,9 @@ fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
                 role: Some("Worker".into()),
                 role_profile: Some(profile),
                 task_id: task_id.map(str::to_string),
+                plan_id: task_id.is_none().then(|| "plan-context".into()),
+                execution_intent: Some(ExecutionIntent::Mutating),
+                cwd: Some(canonical.into()),
                 ..Default::default()
             };
             params.normalize_role_profile().unwrap();

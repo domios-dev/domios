@@ -640,8 +640,7 @@ mod tests {
         let crate::Commands::Plan {
             action:
                 crate::PlanAction::Task {
-                    action:
-                        super::PlanTaskAction::Dispatch { worker_kind, .. },
+                    action: super::PlanTaskAction::Dispatch { worker_kind, .. },
                 },
         } = parsed.command
         else {

@@ -130,10 +130,12 @@ Worker kinds are prompt-only: they add role guidance, not machine access or exec
 For task-bound canonical mutation, the Orchestrator dispatches the task with
 `--execution-intent mutating --canonical-writer` and may add `--kind qa` or
 `--kind release_manager` to select the Worker prompt without changing the saved
-`executor_role`. The parent-authorized dispatch reserves the attempt and keeps
-the existing exclusive writer check. Direct `agent spawn --plan-task` and
-task-less kinds with Plan context cannot write in canonical; read-only
-verification remains allowed there.
+`executor_role`. For task-bound work, the parent-authorized dispatch reserves
+the attempt and keeps the existing exclusive writer check. Direct `agent spawn
+--plan-task` remains refused for task-bound canonical mutation. Task-less kinds
+with Plan context retain parent-directed placement behavior; they do not reserve
+task attempts or participate in canonical writer occupancy, so the parent
+coordinates those writes. Read-only verification remains allowed there.
 
 Bind `--plan-task <task>` with explicit `--execution-intent` for Worker ACK, lane and status lifecycle. Task-less kinds default to mutating intent, work for their parent and report without `--status`; Kinds grant no plan-state authority. QA review delegation is explicit. Publication and tags require owner GO. Neither kind spawns children.
 
@@ -174,4 +176,4 @@ A `[provider access lost]` notice means recover the login or respawn on another 
 
 Confined mutating Workers persist host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR/TEMP/TMP use lane-local `.codeterm-tmp`. Task-bound spawns require explicit read_only or mutating intent. Older task tabs without saved confinement retain their behavior.
 
-<!-- revision: 131 -->
+<!-- revision: 132 -->

@@ -59,30 +59,6 @@ pub fn classify_mutating_lane(
     })
 }
 
-pub fn refuse_taskless_canonical_mutation(
-    plan: &Plan,
-    intent: &ExecutionIntent,
-    spawn_cwd: Option<&str>,
-) -> Result<(), String> {
-    if intent != &ExecutionIntent::Mutating {
-        return Ok(());
-    }
-    let canonical = canonical_path_of(plan);
-    let Some(cwd) = spawn_cwd.map(str::trim).filter(|cwd| !cwd.is_empty()) else {
-        return Err(format!(
-            "spawn refused: a task-less mutating Worker cannot prove that its checkout is not \
-             canonical '{canonical}'. Bind a task and use parent-authorized canonical dispatch."
-        ));
-    };
-    if same_checkout(cwd, canonical) {
-        return Err(format!(
-            "spawn refused: a task-less mutating Worker cannot reserve canonical checkout \
-             '{canonical}'. Bind a task and use parent-authorized canonical dispatch."
-        ));
-    }
-    Ok(())
-}
-
 /// `(task_id, attempt_id)` of the live attempt holding canonical as its exclusive writer.
 pub fn live_canonical_writer(plan: &Plan) -> Option<(&str, &str)> {
     plan.tasks.iter().find_map(|task| {
@@ -104,6 +80,18 @@ fn task_bound_spawn_ref(params: &SpawnAgentParams) -> Option<&str> {
             .filter(|value| !value.is_empty())
     }
     named(&params.plan_task).or_else(|| named(&params.task_id))
+}
+
+fn task_bound_mutating_spawn_ref(params: &SpawnAgentParams) -> Option<&str> {
+    if params.execution_intent != Some(ExecutionIntent::Mutating) {
+        return None;
+    }
+    if params.task_launch_authority.is_some()
+        && crate::service::spawn_plan_task::worker_spawn_plan_task_ref(params).is_none()
+    {
+        return None;
+    }
+    task_bound_spawn_ref(params)
 }
 
 fn dispatch_remedy(plan_id: &str, task_id: &str) -> String {
@@ -186,41 +174,8 @@ impl ServiceContext {
         &self,
         params: &SpawnAgentParams,
     ) -> Result<(), String> {
-        if params.execution_intent != Some(ExecutionIntent::Mutating) {
+        let Some(task_ref) = task_bound_mutating_spawn_ref(params) else {
             return Ok(());
-        }
-        if params.task_launch_authority.is_some()
-            && crate::service::spawn_plan_task::worker_spawn_plan_task_ref(params).is_none()
-        {
-            return Ok(());
-        }
-        let Some(task_ref) = task_bound_spawn_ref(params) else {
-            let taskless_worker_kind = params.role.as_deref() == Some("Worker")
-                && params
-                    .role_profile
-                    .as_deref()
-                    .is_some_and(|profile| !profile.trim().is_empty());
-            if !taskless_worker_kind {
-                return Ok(());
-            }
-            let Some(plan_id) = params
-                .plan_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|plan_id| !plan_id.is_empty())
-            else {
-                return Ok(());
-            };
-            let plan = self
-                .plan_store
-                .get(plan_id)
-                .ok_or_else(|| "plan not found".to_string())?;
-            let cwd = self.task_bound_spawn_cwd(params);
-            return refuse_taskless_canonical_mutation(
-                &plan,
-                &ExecutionIntent::Mutating,
-                cwd.as_deref(),
-            );
         };
         let store = &self.plan_store;
         let resolved = store
@@ -259,7 +214,41 @@ impl ServiceContext {
 
 #[cfg(test)]
 mod tests {
-    use super::canonical_dispatch_remedy;
+    use super::{canonical_dispatch_remedy, task_bound_mutating_spawn_ref};
+    use crate::plan::ExecutionIntent;
+    use crate::service::orchestrator::SpawnAgentParams;
+
+    #[test]
+    fn taskless_builtin_worker_with_plan_context_skips_task_bound_guard() {
+        for kind in ["qa", "release_manager"] {
+            for intent in [ExecutionIntent::Mutating, ExecutionIntent::ReadOnly] {
+                let params = SpawnAgentParams {
+                    role: Some("Worker".into()),
+                    role_profile: Some(kind.into()),
+                    plan_id: Some("plan-bound-context".into()),
+                    execution_intent: Some(intent),
+                    cwd: Some("C:/repo".into()),
+                    ..Default::default()
+                };
+
+                assert_eq!(
+                    task_bound_mutating_spawn_ref(&params),
+                    None,
+                    "{kind} with Plan context stays on parent-directed task-less behavior"
+                );
+            }
+        }
+
+        let task_bound = SpawnAgentParams {
+            task_id: Some("task-bound".into()),
+            execution_intent: Some(ExecutionIntent::Mutating),
+            ..Default::default()
+        };
+        assert_eq!(
+            task_bound_mutating_spawn_ref(&task_bound),
+            Some("task-bound")
+        );
+    }
 
     #[test]
     fn canonical_dispatch_remedy_preserves_selected_builtin_worker_kind() {
