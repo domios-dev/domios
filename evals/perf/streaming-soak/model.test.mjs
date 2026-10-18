@@ -215,6 +215,7 @@ test('native split locator refuses stale client incarnation and view while prese
   assert.equal(admitted.available,true);
   const target={type:'page',id:'native-page',url:'http://127.0.0.1:7686/?__codeterm_client_view=4:2',webSocketDebuggerUrl:'ws://127.0.0.1:9223/devtools/page/native-page'};
   assert.doesNotThrow(()=>validateDevSurfaceTarget(admitted,target));
+  assert.doesNotThrow(()=>validateDevSurfaceTarget(admitted,{...target,url:'http://127.0.0.1:7686/'}));
   assert.throws(()=>validateDevSurfaceTarget(admitted,{...target,url:'http://127.0.0.1:7686/?__codeterm_client_view=3:2'}),/incarnation/);
   const process={pid:23,createdFiletime:'1234',executable:'C:/dev/codeterm.exe'};
   assert.equal(validateNativeLocatorEvidence(admitted.locator,process,snapshot).pid,23);
