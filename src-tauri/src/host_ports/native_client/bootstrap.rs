@@ -32,7 +32,10 @@ use tokio::{
 
 pub(super) const BOOTSTRAP_DEADLINE: Duration = Duration::from_secs(30);
 
-pub(super) async fn read_single_bounded_line<R>(reader: &mut R, limit: usize) -> io::Result<Vec<u8>>
+pub(in crate::host_ports) async fn read_single_bounded_line<R>(
+    reader: &mut R,
+    limit: usize,
+) -> io::Result<Vec<u8>>
 where
     R: AsyncBufRead + Unpin,
 {
@@ -79,7 +82,7 @@ where
     Ok(frame)
 }
 #[derive(Debug)]
-pub(super) enum HelperFailure {
+pub(in crate::host_ports) enum HelperFailure {
     PreDispatch(ExactServerShutdownRefusal),
     Deadline {
         request_forwarded: bool,
@@ -95,7 +98,7 @@ pub(super) enum HelperFailure {
 }
 
 impl HelperFailure {
-    pub(crate) fn request_forwarded(&self) -> bool {
+    pub(in crate::host_ports) fn request_forwarded(&self) -> bool {
         match self {
             Self::PreDispatch(_) => false,
             Self::Deadline { request_forwarded }
