@@ -96,23 +96,25 @@ it("updates one draft and scroll branch without cloning unrelated checkpoint dat
 });
 
 describe("frontend runtime integration", () => {
-  it("reconnects a clean generation end, waits for recovery after failure, and stops on disposal", async () => {
+  it("waits for event-stream recovery after EOF or failure and stops on disposal", async () => {
     const f = fixture();
     const runtime = await initializeFrontendUpdateRuntime(f.client, f.options);
     expect(runtime.snapshot().connection).toBe("connected");
     f.end("eof");
     await Promise.resolve();
-    expect(f.subscriptions()).toBe(2);
-    expect(runtime.snapshot().connection).toBe("reconnecting");
+    expect(f.subscriptions()).toBe(1);
+    expect(runtime.snapshot().connection).toBe("unavailable");
     expect(runtime.snapshot().revision).toBe(9);
+    f.options.events.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
+    expect(runtime.snapshot().connection).toBe("reconnecting");
+    expect(f.subscriptions()).toBe(2);
+    f.receive("frontend-status", { apiVersion: API, pending: null, quarantined: [] });
+    expect(runtime.snapshot().connection).toBe("connected");
     f.end("http");
-    await Promise.resolve();
     expect(runtime.snapshot().connection).toBe("unavailable");
     expect(f.subscriptions()).toBe(2);
     f.options.events.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
     expect(runtime.snapshot().connection).toBe("reconnecting");
-    f.receive("frontend-status", { apiVersion: API, pending: null, quarantined: [] });
-    expect(runtime.snapshot().connection).toBe("connected");
     expect(f.subscriptions()).toBe(3);
     runtime.dispose();
     f.end("eof");

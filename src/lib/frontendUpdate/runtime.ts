@@ -118,8 +118,7 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
       },
       onEnd: end => {
         const action = streamRecoveryAction(end.reason, disposed);
-        if (action === "reconnect") queueMicrotask(connect);
-        else if (action === "wait") {
+        if (action === "wait") {
           waitingForRecovery = true;
           setConnection("unavailable");
         }

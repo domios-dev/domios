@@ -1,9 +1,9 @@
 //! HTTP transport for peer-to-peer communication.
 //! All authenticated requests use Ed25519 signed JWTs.
 
-use std::error::Error;
+use std::{error::Error, sync::LazyLock};
 
-use super::types::{address_tier, PeerAddress};
+use super::types::{PeerAddress, address_tier};
 
 /// Outcome of one attempt against a peer address.
 ///
@@ -238,13 +238,29 @@ pub struct PeerClient {
     signed_token: Option<String>,
 }
 
+static PEER_HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .timeout(CLIENT_DEFAULT_TIMEOUT)
+        .build()
+        .unwrap_or_default()
+});
+
+static PEER_STREAM_HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap_or_default()
+});
+
+pub(super) fn shared_http_client() -> reqwest::Client {
+    PEER_HTTP_CLIENT.clone()
+}
+
 impl PeerClient {
     pub fn new_signed_url(base_url: String, signed_token: &str) -> Self {
         Self {
-            client: reqwest::Client::builder()
-                .timeout(CLIENT_DEFAULT_TIMEOUT)
-                .build()
-                .unwrap_or_default(),
+            client: shared_http_client(),
             base_url,
             signed_token: Some(signed_token.to_string()),
         }
@@ -258,10 +274,7 @@ impl PeerClient {
     /// Create a client without auth (for pairing requests only).
     pub fn new_unauthenticated(address: &str, port: u16) -> Self {
         Self {
-            client: reqwest::Client::builder()
-                .timeout(CLIENT_DEFAULT_TIMEOUT)
-                .build()
-                .unwrap_or_default(),
+            client: shared_http_client(),
             base_url: format!("http://{}:{}", address, port),
             signed_token: None,
         }
@@ -406,20 +419,12 @@ impl PeerClient {
     }
 
     /// Open a signed GET against the peer's real endpoint for byte-pipe relaying
-    /// (D2 §3). A dedicated client with NO total timeout — the 5s unary client
-    /// would kill a long-lived SSE stream; only a connect timeout guards a dead
-    /// peer. Returns the raw response verbatim (status NOT checked): the caller
-    /// is a dumb pipe and forwards whatever the peer sent. `path` MUST be
-    /// caller-validated (whitelist + SSRF guard) before calling.
+    /// (D2 §3). The shared stream client has no total timeout; only connection
+    /// setup is bounded so a long-lived SSE stream stays open. Returns the raw
+    /// response verbatim (status NOT checked). `path` MUST be caller-validated.
     pub async fn open_relay_stream(&self, path: &str) -> Result<reqwest::Response, String> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(10))
-            // off the whitelisted path — forward the redirect verbatim instead.
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .unwrap_or_default();
         let url = format!("{}{}", self.base_url, path);
-        let mut req = client.get(&url);
+        let mut req = PEER_STREAM_HTTP_CLIENT.get(&url);
         if let Some((k, v)) = self.auth_header() {
             req = req.header(&k, &v);
         }
