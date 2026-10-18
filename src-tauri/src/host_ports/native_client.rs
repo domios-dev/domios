@@ -612,7 +612,7 @@ impl NativeHostClient {
         {
             return;
         }
-        let status = self.diagnostics.inspect_view(generation, url).await;
+        let status = self.diagnostics.inspect_view(generation, url.clone()).await;
         if self.retired.load(Ordering::Acquire)
             || *self.root_generation.lock() != Some(generation)
             || self.view.lock().as_ref().map(|view| view.session_id) != Some(view.session_id)
@@ -620,6 +620,19 @@ impl NativeHostClient {
             return;
         }
         self.diagnostics.adopt_status(status.clone());
+        #[cfg(debug_assertions)]
+        if std::env::var("CODETERM_DEV").as_deref() == Ok("1") {
+            if let Some(snapshot) = self.diagnostics_snapshot() {
+                eprintln!(
+                    "DOMIOS_DEV_NATIVE_LOCATOR {}",
+                    serde_json::json!({
+                        "snapshot": snapshot,
+                        "navigation_generation": generation.navigation,
+                        "origin": url.origin().ascii_serialization(),
+                    })
+                );
+            }
+        }
         if self
             .try_send(Frame::DiagnosticsStatus(NativeWebviewDiagnosticsReport {
                 connection: self.connection.clone(),

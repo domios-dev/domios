@@ -39,7 +39,7 @@ export function request(endpoint,message,signal) {
 export function processInfo(pid) {
   requireValue(Number.isSafeInteger(pid) && pid > 0,'Invalid process ID');
   if (process.platform === 'win32') {
-    const code = `$p=Get-Process -Id ${pid} -ErrorAction Stop; [pscustomobject]@{pid=$p.Id;created=$p.StartTime.ToUniversalTime().ToString('o');privateBytes=$p.PrivateMemorySize64;workingSet=$p.WorkingSet64;cpuSeconds=$p.TotalProcessorTime.TotalSeconds}|ConvertTo-Json -Compress`;
+    const code = `$p=Get-Process -Id ${pid} -ErrorAction Stop; [pscustomobject]@{pid=$p.Id;created=$p.StartTime.ToUniversalTime().ToString('o');createdFiletime=$p.StartTime.ToUniversalTime().ToFileTimeUtc().ToString();executable=$p.Path;privateBytes=$p.PrivateMemorySize64;workingSet=$p.WorkingSet64;cpuSeconds=$p.TotalProcessorTime.TotalSeconds}|ConvertTo-Json -Compress`;
     return JSON.parse(execFileSync('powershell.exe',['-NoLogo','-NoProfile','-Command',code],{encoding:'utf8',timeout:15_000}));
   }
   const helper = fileURLToPath(new URL('../../restart-endurance/',import.meta.url));

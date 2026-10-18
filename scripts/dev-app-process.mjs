@@ -85,3 +85,24 @@ export function runDevApp({ app, args = [], log, cwd, env, interactiveDesktop = 
     } catch (error) { failed(error); }
   });
 }
+
+export function nativeLocatorRecord(line,record,app,attachment) {
+  if (!line.startsWith('DOMIOS_DEV_NATIVE_LOCATOR ')) return null;
+  const event=JSON.parse(line.slice('DOMIOS_DEV_NATIVE_LOCATOR '.length));
+  const snapshot=event.snapshot, process=snapshot?.client_process, status=snapshot?.status;
+  const image = value => typeof value === 'string' ? value.replaceAll('\\','/').replace(/^\/\/\?\//,'').toLowerCase() : null;
+  if (record.schema !== 3 || !attachment || attachment.client_pid !== process?.pid ||
+      attachment.epoch !== snapshot?.connection?.server_epoch ||
+      typeof process?.created !== 'string' || !/^[0-9]+$/.test(process.created) ||
+      image(process.executable) !== image(app) ||
+      !Number.isSafeInteger(event.navigation_generation) || event.navigation_generation < 1)
+    throw Error('Native DEV locator identity mismatch');
+  if (status?.status !== 'active') return {...record,nativeClient:null};
+  const origin=new URL(event.origin);
+  if (origin.protocol !== 'http:' || origin.hostname !== '127.0.0.1' || ![Number(record.instance.apiPort),Number(record.instance.vitePort)].includes(Number(origin.port)) || origin.origin !== event.origin) throw Error('Native DEV frontend origin mismatch');
+  const {port,view_generation}=status.payload;
+  if (port !== Number(record.instance.cdpPort) || port < 1024 || port > 65535 || port === 7685 || port === Number(record.instance.apiPort) ||
+      !Number.isSafeInteger(view_generation) || view_generation < 1)
+    throw Error('Native DEV locator endpoint mismatch');
+  return {...record,nativeClient:{platform:'windows',snapshot,navigationGeneration:event.navigation_generation,origin:event.origin}};
+}
