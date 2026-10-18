@@ -76,19 +76,6 @@ pub fn restore_role(role: Option<&str>, role_profile: Option<&str>) -> Option<Re
     }
 }
 
-pub fn restore_persisted_role(
-    role: Option<&str>,
-    role_profile: Option<&str>,
-) -> Option<RestoredRole> {
-    let profile = role_profile.map(str::trim);
-    let profile = if role.map(str::trim) == Some("Worker") {
-        profile.map(|profile| if profile == "tester" { "qa" } else { profile })
-    } else {
-        profile
-    };
-    restore_role(role, profile)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReportStatus {
@@ -192,19 +179,6 @@ mod tests {
         assert_eq!(
             restored("Worker", Some("rust-platform-dev")),
             Some((AgentRole::Worker, Some("rust-platform-dev".to_string())))
-        );
-    }
-
-    #[test]
-    fn persisted_tester_worker_restores_as_qa() {
-        assert_eq!(
-            restore_persisted_role(Some("Worker"), Some("tester"))
-                .map(|restored| (restored.role, restored.role_profile)),
-            Some((AgentRole::Worker, Some("qa".to_string())))
-        );
-        assert_eq!(
-            restored("Worker", Some("tester")),
-            Some((AgentRole::Worker, Some("tester".to_string())))
         );
     }
 
