@@ -470,6 +470,8 @@ fn valid_digest(digest: &str) -> bool {
 }
 
 fn sha256_file(path: &Path) -> io::Result<String> {
+    let started = std::time::Instant::now();
+    let mut bytes = 0u64;
     let mut file = File::open(path)?;
     let mut hash = Sha256::new();
     let mut buffer = [0u8; 16 * 1024];
@@ -478,9 +480,16 @@ fn sha256_file(path: &Path) -> io::Result<String> {
         if count == 0 {
             break;
         }
+        bytes += count as u64;
         hash.update(&buffer[..count]);
     }
-    Ok(format!("{:x}", hash.finalize()))
+    let digest = format!("{:x}", hash.finalize());
+    log::debug!(
+        "[boot-operation] native integrity hash bytes={} elapsed_ms={}",
+        bytes,
+        started.elapsed().as_millis()
+    );
+    Ok(digest)
 }
 
 fn process_image_path(provenance: &ProcessProvenance) -> std::path::PathBuf {

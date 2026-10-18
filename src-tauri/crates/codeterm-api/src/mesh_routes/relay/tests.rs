@@ -44,41 +44,33 @@ fn service_mesh_delayed_recurrence_refused_for_incapable_peer() {
             .and_then(serde_json::Value::as_bool)
             == Some(false)
     );
-    assert!(
-        refusal
-            .error
-            .as_deref()
-            .unwrap_or_default()
-            .contains("old-peer")
-    );
-    assert!(
-        refusal
-            .error
-            .as_deref()
-            .unwrap_or_default()
-            .contains("1.11.9")
-    );
-    assert!(
-        super::recurrence_capability_refusal_response(
-            "current-peer",
-            Some(&serde_json::json!({"features": ["delayed_recurrence"]})),
-            None,
-        )
-        .is_none()
-    );
+    assert!(refusal
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("old-peer"));
+    assert!(refusal
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("1.11.9"));
+    assert!(super::recurrence_capability_refusal_response(
+        "current-peer",
+        Some(&serde_json::json!({"features": ["delayed_recurrence"]})),
+        None,
+    )
+    .is_none());
     let no_identify = super::recurrence_capability_refusal_response(
         "offline-identify-peer",
         None,
         Some("1.11.8"),
     )
     .expect("failed identify must refuse with cached peer version");
-    assert!(
-        no_identify
-            .error
-            .as_deref()
-            .unwrap_or_default()
-            .contains("1.11.8")
-    );
+    assert!(no_identify
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("1.11.8"));
 }
 
 #[test]

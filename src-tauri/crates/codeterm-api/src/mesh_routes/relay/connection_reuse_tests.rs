@@ -3,7 +3,7 @@
 //! ORACLE: The server observes the same remote socket port for all 12 requests in each client pool.
 
 use super::*;
-use axum::{Json, Router, extract::ConnectInfo, routing::get};
+use axum::{extract::ConnectInfo, routing::get, Json, Router};
 use std::{net::SocketAddr, time::Duration};
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 

@@ -1,11 +1,11 @@
-use crate::routes::{AppState, check_auth};
-use crate::stream_census::{StreamGuard, StreamKind, track};
+use crate::routes::{check_auth, AppState};
+use crate::stream_census::{track, StreamGuard, StreamKind};
 use axum::{
-    Json,
     body::Body,
     extract::{Path as AxumPath, Query, State as AxumState},
-    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::Response,
+    Json,
 };
 use std::sync::LazyLock;
 
@@ -1136,12 +1136,12 @@ mod peer_authorization;
 mod peer_resolution;
 use path_guard::validate_relay_path;
 use peer_authorization::{
-    PeerRelayAuthorization, authorize_peer_relay, close_workspace_from_mesh_peer,
-    mesh_rpc_from_mesh_peer,
+    authorize_peer_relay, close_workspace_from_mesh_peer, mesh_rpc_from_mesh_peer,
+    PeerRelayAuthorization,
 };
 use peer_resolution::{
-    AnsweringPeer, PeerRelayResponse, peer_not_paired_error, peer_unroutable_error,
-    resolve_relay_peer,
+    peer_not_paired_error, peer_unroutable_error, resolve_relay_peer, AnsweringPeer,
+    PeerRelayResponse,
 };
 #[cfg(test)]
 use peer_resolution::{
