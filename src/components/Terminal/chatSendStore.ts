@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
-import type { ChatSend, SendEcho } from "@codeterm/chat-core";
+import type { ChatSend, MatchedRow, SendEcho } from "@codeterm/chat-core";
 import { applyDeliveryStatus, canDeleteChatSend, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { uid } from "../../lib/uid";
@@ -32,6 +32,22 @@ function isSendEcho(value: unknown): value is SendEcho {
     && (echo.timestampMs === null || Number.isFinite(echo.timestampMs));
 }
 
+function isMatchedRow(value: unknown): value is MatchedRow {
+  if (!value || typeof value !== "object") return false;
+  const matched = value as Record<string, unknown>;
+  const source = matched.source as Record<string, unknown> | undefined;
+  const record = source?.record as Record<string, unknown> | undefined;
+  if (!source || typeof source.source_session_id !== "string" || source.source_session_id.length === 0 || !record
+    || typeof matched.ordinal !== "number" || !Number.isSafeInteger(matched.ordinal) || matched.ordinal < 1) return false;
+  if (record.kind === "structured") {
+    return typeof record.thread_id === "string" && record.thread_id === source.source_session_id
+      && typeof record.item_id === "string" && record.item_id.length > 0;
+  }
+  return record.kind === "jsonl" && typeof record.incarnation === "string" && record.incarnation.length > 0
+    && typeof record.record_start === "number" && Number.isSafeInteger(record.record_start) && record.record_start >= 0
+    && typeof record.record_row === "number" && Number.isSafeInteger(record.record_row) && record.record_row >= 0;
+}
+
 function isStoredSend(value: unknown): value is ChatSend {
   if (!value || typeof value !== "object") return false;
   const send = value as Record<string, unknown>;
@@ -39,7 +55,8 @@ function isStoredSend(value: unknown): value is ChatSend {
     && typeof send.content === "string"
     && Number.isFinite(send.sentAtMs)
     && (send.correlationId === undefined || typeof send.correlationId === "string")
-    && (send.echo === undefined || isSendEcho(send.echo));
+    && (send.echo === undefined || isSendEcho(send.echo))
+    && (send.matchedRow === undefined || isMatchedRow(send.matchedRow));
 }
 
 function load(): void {
@@ -54,7 +71,7 @@ function load(): void {
       if (Array.isArray(list)) sendsByTab.set(tabId, list.filter(isStoredSend));
     }
   } catch {
-    // Unreadable storage only loses keys of reconciled sends; their echoes fall back to source time.
+    // Unreadable storage only loses the local send ledger.
   }
 }
 
@@ -145,7 +162,7 @@ export function beginChatSendRetry(tabId: string, id: string): DeliverySend | un
   const send = current.find((item) => item.id === id);
   if (!send || deleting.has(deletionKey(tabId, id)) || send.dismissed || send.status?.system_send || deliveryState(send) !== "failed") return;
   const next = { ...send, requestFailed: false, requestUncertain: false, requestHadResponse: undefined, status: undefined,
-    correlationId: uid() };
+    matchedRow: undefined, correlationId: uid() };
   publish(tabId, current.map((item) => item.id === id ? next : item));
   return next;
 }

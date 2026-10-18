@@ -11,6 +11,15 @@ export interface SendEchoBoundary {
   lastRowId: string | null;
 }
 
+export type MatchedRowRecord =
+  | { kind: "structured"; thread_id: string; item_id: string }
+  | { kind: "jsonl"; incarnation: string; record_start: number; record_row: number };
+
+export interface MatchedRow {
+  source: { source_session_id: string; record: MatchedRowRecord };
+  ordinal: number;
+}
+
 export function captureSendEchoBoundary(
   authority: TranscriptAuthority | null, rows: readonly NormalizedChatMessage[],
 ): SendEchoBoundary | undefined {
@@ -31,6 +40,7 @@ export interface ChatSend {
   sentAtMs: number;
   correlationId?: string;
   echo?: SendEcho;
+  matchedRow?: MatchedRow;
   echoEligible?: boolean;
   flowAtMs?: number;
   segments?: MessageSegment[];
@@ -39,6 +49,14 @@ export interface ChatSend {
 
 function isUserAuthored(row: NormalizedChatMessage): boolean {
   return row.inheritedFromSessionId == null && (row.type === "user" || row.type === "local_command");
+}
+
+export function matchesMatchedRow(row: NormalizedChatMessage, matchedRow: MatchedRow): boolean {
+  if (!isUserAuthored(row) || row.sourceSessionId !== matchedRow.source.source_session_id) return false;
+  const record = matchedRow.source.record;
+  return record.kind === "structured"
+    && record.thread_id === matchedRow.source.source_session_id
+    && (row.id === record.item_id || row.sourceMessageId === record.item_id);
 }
 
 function echoContent(content: string): string {
@@ -89,13 +107,56 @@ export function reconcileSends(
     return index > boundary && rows[index].sourceSessionId === authority?.sourceSessionId;
   };
   for (const send of sends) {
+    if (send.echoEligible === false) {
+      pending.push(send);
+      continue;
+    }
+    if (send.matchedRow) {
+      const matchedRow = send.matchedRow;
+      const sourceSessionId = matchedRow.source.source_session_id;
+      const record = matchedRow.source.record;
+      if (record.kind === "structured") {
+        if (send.echoBoundary
+          ? send.echoBoundary.sourceSessionId !== sourceSessionId
+          : sourceSessionId !== authority?.sourceSessionId) {
+          if (!send.echo) pending.push(send);
+          continue;
+        }
+        const index = users.find((candidate) => !recorded.has(candidate)
+          && matchesMatchedRow(rows[candidate], matchedRow));
+        if (index == null && !send.echo) pending.push(send);
+        else if (index != null) {
+          recorded.add(index);
+          claim(send, index);
+        }
+        continue;
+      }
+      if (send.echo) {
+        if (send.echoBoundary
+          ? send.echoBoundary.sourceSessionId !== sourceSessionId
+          : sourceSessionId !== authority?.sourceSessionId) continue;
+        const index = users.find((candidate) => !recorded.has(candidate)
+          && rows[candidate].sourceSessionId === sourceSessionId
+          && send.correlationId != null
+          && rows[candidate].correlationId === send.correlationId);
+        if (index != null) {
+          recorded.add(index);
+          claim(send, index);
+        }
+        continue;
+      }
+      const boundary = send.echoBoundary;
+      if (!boundary
+        || boundary.sourceSessionId !== sourceSessionId
+        || boundary.sourceSessionId !== authority?.sourceSessionId
+        || boundary.sessionBindingNonce !== authority?.sessionBindingNonce) {
+        pending.push(send);
+        continue;
+      }
+    }
     if (send.echoBoundary && (send.echoBoundary.sourceSessionId !== authority?.sourceSessionId
       || send.echoBoundary.sessionBindingNonce !== authority?.sessionBindingNonce)) {
       if (!send.echo) pending.push(send);
-      continue;
-    }
-    if (send.echoEligible === false) {
-      pending.push(send);
       continue;
     }
     if (!send.echo) {

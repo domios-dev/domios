@@ -57,6 +57,40 @@ test("unprepared attachment sends survive restart on their original bubble", () 
   assert.equal(deliveryState(readChatSends(tabId)[0]), "failed");
 });
 
+test("JSONL matched-row identity survives the persisted delivery ledger", () => {
+  const tabId = "matched-row-restart";
+  const matchedRow = {
+    source: { source_session_id: "source-session", record: {
+      kind: "jsonl" as const, incarnation: "incarnation", record_start: 40, record_row: 2,
+    } },
+    ordinal: 2,
+  };
+  addChatSend(tabId, { id: "bubble", correlationId: "token", content: "opaque", sentAtMs: 1700000000000 });
+  observeDeliveryStatus({ tab_id: tabId, send_id: "tx", correlationId: "token", state: "delivered",
+    error: null, ledger_id: "ledger", sequence: 1, retained_from: 1, matched_row: matchedRow });
+
+  forgetChatSendsInMemory();
+
+  assert.deepEqual(readChatSends(tabId)[0]?.matchedRow, matchedRow);
+  assert.equal(deliveryState(readChatSends(tabId)[0]), "delivered");
+});
+
+test("retry clears the prior row claim before creating a new send identity", () => {
+  const tabId = "matched-row-retry";
+  addChatSend(tabId, { id: "bubble", correlationId: "old-token", content: "opaque", sentAtMs: 1700000000000 });
+  const matchedRow = { source: { source_session_id: "source", record: {
+    kind: "structured" as const, thread_id: "source", item_id: "old-item",
+  } }, ordinal: 1 };
+  observeDeliveryStatus({ tab_id: tabId, send_id: "old-tx", correlationId: "old-token", state: "failed",
+    error: null, ledger_id: "ledger", sequence: 1, retained_from: 1, matched_row: matchedRow });
+
+  const retry = beginChatSendRetry(tabId, "bubble");
+
+  assert(retry);
+  assert.equal(retry.matchedRow, undefined);
+  assert.notEqual(retry.correlationId, "old-token");
+});
+
 test("a lost ledger failure cannot leave a stale Retry after reconnect", () => {
   const tabId = "lost-ledger";
   addChatSend(tabId, { id: "bubble", correlationId: "token", content: "opaque", sentAtMs: 1700000000000 });
