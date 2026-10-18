@@ -170,7 +170,7 @@ pub fn run(
             runtime.block_on(async { NativeServer::bind(ready.clone(), manifest, origins) })
         })
         .transpose();
-    let native_server = match native_server {
+    let native_server = match optional_native_listener(native_server) {
         Ok(server) => server,
         Err(error) => {
             if let Err(cleanup) = shutdown(&running) {
@@ -184,7 +184,58 @@ pub fn run(
         *native_events.write() = Some(server.endpoint());
     }
     let token = running.states.config.lock().api.token.clone();
-    if let Err(error) = acknowledge(&ready, token.as_deref()) {
+    let control_result = continue_after_ack(acknowledge(&ready, token.as_deref()), || {
+        runtime.block_on(async {
+            let control = channel::serve(listener, ready, token);
+            tokio::select! {
+                result = control => result.map(Some),
+                result = shutdown_signal() => result.map(|_| None),
+                result = serve_native(native_server, native_events) => result.map(|_| None),
+            }
+        })
+    });
+    let result = finish_server_control(
+        control_result,
+        || shutdown(&running),
+        |completion, cleanup| runtime.block_on(completion.complete(cleanup)),
+    );
+    runtime.shutdown_timeout(std::time::Duration::from_secs(6));
+    drop(process);
+    let _ = owner;
+    result
+}
+
+fn finish_server_control<T>(
+    control: io::Result<Option<T>>,
+    cleanup: impl FnOnce() -> io::Result<()>,
+    complete: impl FnOnce(T, io::Result<()>) -> io::Result<()>,
+) -> io::Result<()> {
+    let cleanup = cleanup();
+    match control {
+        Ok(Some(completion)) => complete(completion, cleanup),
+        Ok(None) => cleanup,
+        Err(error) => cleanup.and(Err(error)),
+    }
+}
+
+fn optional_native_listener<T>(
+    result: Result<Option<T>, crate::native_host::NativeHostBindError>,
+) -> io::Result<Option<T>> {
+    match result {
+        Ok(server) => Ok(server),
+        Err(crate::native_host::NativeHostBindError::InventoryRejected(error)) => Err(error),
+        Err(crate::native_host::NativeHostBindError::ListenerUnavailable(error)) => {
+            log::debug!("[native-host] listener unavailable; headless service retained: {error}");
+            Ok(None)
+        }
+    }
+}
+
+fn continue_after_ack<T>(
+    acknowledgement: io::Result<()>,
+    serve: impl FnOnce() -> io::Result<T>,
+) -> io::Result<T> {
+    if let Err(error) = acknowledgement {
         if !matches!(
             error.kind(),
             io::ErrorKind::BrokenPipe
@@ -195,19 +246,7 @@ pub fn run(
         }
         log::debug!("[bootstrap] launch observer disconnected after service readiness");
     }
-    let control_result = runtime.block_on(async {
-        let control = channel::serve(listener, ready, token);
-        tokio::select! {
-            result = control => result,
-            result = shutdown_signal() => result,
-            result = serve_native(native_server, native_events) => result,
-        }
-    });
-    let shutdown_result = shutdown(&running);
-    runtime.shutdown_timeout(std::time::Duration::from_secs(6));
-    drop(process);
-    let _ = owner;
-    control_result.and(shutdown_result)
+    serve()
 }
 
 async fn serve_native(server: Option<NativeServer>, events: NativeEventPort) -> io::Result<()> {
@@ -303,4 +342,58 @@ fn note(sink: &mut Option<std::fs::File>, phase: &str) -> io::Result<()> {
         file.sync_all()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn process_split_contract_native_listener_failure_is_distinct_from_inventory_rejection() {
+        use crate::native_host::NativeHostBindError;
+        for kind in [io::ErrorKind::PermissionDenied, io::ErrorKind::Other] {
+            let unavailable = optional_native_listener::<()>(Err(
+                NativeHostBindError::ListenerUnavailable(io::Error::from(kind)),
+            ));
+            assert!(unavailable.unwrap().is_none());
+            let rejected = optional_native_listener::<()>(Err(
+                NativeHostBindError::InventoryRejected(io::Error::from(kind)),
+            ));
+            assert!(rejected.is_err());
+        }
+    }
+
+    #[test]
+    fn process_split_contract_readiness_ack_failure_still_runs_cleanup_once() {
+        let controls = Cell::new(0);
+        let cleanups = Cell::new(0);
+        let control = continue_after_ack(Err(io::Error::from(io::ErrorKind::InvalidData)), || {
+            controls.set(controls.get() + 1);
+            Ok(None::<()>)
+        });
+        let result = finish_server_control(
+            control,
+            || {
+                cleanups.set(cleanups.get() + 1);
+                Ok(())
+            },
+            |_, _| panic!("No shutdown was admitted"),
+        );
+        assert!(result.is_err());
+        assert_eq!(controls.get(), 0);
+        assert_eq!(cleanups.get(), 1);
+    }
+
+    #[test]
+    fn process_split_contract_launcher_disconnect_keeps_service_control_independent() {
+        let controls = Cell::new(0);
+        let result = continue_after_ack(Err(io::Error::from(io::ErrorKind::BrokenPipe)), || {
+            controls.set(controls.get() + 1);
+            Ok(42)
+        })
+        .unwrap();
+        assert_eq!(result, 42);
+        assert_eq!(controls.get(), 1);
+    }
 }

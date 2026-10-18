@@ -1,5 +1,50 @@
 use super::*;
 
+#[tokio::test]
+async fn process_split_contract_shutdown_reply_follows_successful_cleanup_once() {
+    use super::super::channel::after_successful_cleanup;
+    use std::cell::Cell;
+    let replies = Cell::new(0);
+    let result = after_successful_cleanup(Ok(()), || async {
+        replies.set(replies.get() + 1);
+        Ok(42)
+    })
+    .await
+    .unwrap();
+    assert_eq!(result, 42);
+    assert_eq!(replies.get(), 1);
+}
+
+#[tokio::test]
+async fn process_split_contract_failed_cleanup_cannot_send_successful_shutdown_reply() {
+    use super::super::channel::after_successful_cleanup;
+    use std::cell::Cell;
+    let replies = Cell::new(0);
+    let result = after_successful_cleanup(
+        Err(io::Error::other("fixture persistence refusal")),
+        || async {
+            replies.set(replies.get() + 1);
+            Ok(42)
+        },
+    )
+    .await;
+    assert!(result.is_err());
+    assert_eq!(replies.get(), 0);
+}
+
+#[test]
+fn process_split_contract_protocol_one_is_not_cleanup_completion_evidence() {
+    let mut old = ready();
+    old.protocol = 1;
+    let mut request = request(&old);
+    assert!(validate_attach(&request, &old).is_err());
+    request.protocol = BOOTSTRAP_PROTOCOL;
+    assert!(validate_attach(&request, &old).is_err());
+    let current = ready();
+    request.protocol = 1;
+    assert!(validate_attach(&request, &current).is_err());
+}
+
 #[test]
 fn process_split_contract_only_absent_initial_inspect_authorizes_launch() {
     use super::super::channel::{classify_connect_error, helper_exit_code};

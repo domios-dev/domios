@@ -47,7 +47,7 @@ mod tests {
             "schema": 1, "server_build": "server-build",
             "server_executable": "domios-server/domios-server",
             "server_sha256": "a".repeat(64), "client_sha256": "b".repeat(64),
-            "api_version": 3, "bootstrap_protocol": 1,
+            "api_version": 3, "bootstrap_protocol": codeterm_types::server_bootstrap::BOOTSTRAP_PROTOCOL,
         })
     }
 
