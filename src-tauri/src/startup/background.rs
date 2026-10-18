@@ -1,27 +1,36 @@
 //! Background tasks: mesh health, update check, agent idle poll.
 
-use codeterm_service_core::keepawake;
+use tauri::Manager;
+
+use crate::keepawake;
 use codeterm_service_core::mesh;
 
 use codeterm_service_core::startup::AppStates;
 
 /// Start the persistence worker and background monitoring threads.
 pub(crate) fn start_background_tasks(
-    service: &codeterm_service_core::service::ServiceState,
+    app_handle: &codeterm_host_runtime::app_runtime::AppHandle,
     states: &AppStates,
-    bundles: Option<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>,
 ) {
-    if let Err(error) = codeterm_service_core::service::session_persist::start_worker(service) {
+    if let Err(error) = codeterm_service_core::service::session_persist::start_worker(
+        app_handle
+            .state::<codeterm_service_core::service::ServiceState>()
+            .inner(),
+    ) {
         log::error!("[session-persist] worker startup failed: {error}");
     }
-    keepawake::start_supervisor(states.keepawake.clone(), service.ui.clone());
+    keepawake::start_supervisor(states.keepawake.clone(), app_handle.clone());
 
     // Mesh loop runs continuously; `mesh.enabled` is re-read each tick.
     {
         let mesh = states.mesh.clone();
         let cfg = states.config.clone();
-        let ui = service.ui.clone();
+        let ui = app_handle
+            .state::<codeterm_service_core::service::ServiceState>()
+            .ui
+            .clone();
         codeterm_util::named_thread::spawn("mesh-health", move || {
+            std::thread::sleep(std::time::Duration::from_secs(10));
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -157,6 +166,7 @@ pub(crate) fn start_background_tasks(
         let mesh = states.mesh.clone();
         let cfg = states.config.clone();
         codeterm_util::named_thread::spawn("mesh-announce", move || {
+            std::thread::sleep(std::time::Duration::from_secs(10));
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -225,8 +235,16 @@ pub(crate) fn start_background_tasks(
 
     {
         let update_st = states.update.clone();
-        let update_ui = service.ui.clone();
-        codeterm_service_core::async_runtime::spawn(async move {
+        let update_ui = app_handle
+            .state::<codeterm_service_core::service::ServiceState>()
+            .ui
+            .clone();
+        let app_h = app_handle.clone();
+        use tauri::Manager;
+        let bundles = app_h
+            .try_state::<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>()
+            .map(|bundles| bundles.inner().clone());
+        tauri::async_runtime::spawn(async move {
             if let Err(error) =
                 codeterm_commands::update::discovery::check(&update_ui, &update_st, bundles, true)
                     .await
@@ -247,7 +265,7 @@ pub(crate) fn start_background_tasks(
             let cfg = states.config.lock();
             std::time::Duration::from_millis(cfg.agent.poll_interval_ms as u64)
         };
-        let service = service.clone();
+        let app_handle = app_handle.clone();
         codeterm_util::named_thread::spawn("agent-idle-poll", move || {
             loop {
                 std::thread::sleep(poll_interval);
@@ -288,6 +306,8 @@ pub(crate) fn start_background_tasks(
                             raw_now,
                             pid
                         );
+                        if let Some(service) =
+                            app_handle.try_state::<codeterm_service_core::service::ServiceState>()
                         {
                             let prev = service.reconciled_tab_status_for_id(&pid, raw_prev);
                             let now = service.reconciled_tab_status_for_id(&pid, raw_now);

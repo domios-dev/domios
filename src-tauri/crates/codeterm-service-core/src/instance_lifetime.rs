@@ -4,9 +4,6 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
-mod path_owner;
-pub use path_owner::{PathOwnership, ResolvedInstancePaths};
-
 const REGISTRATION: &str = "codeterm-instance-lifetime-v1";
 const PREDECESSOR_EXIT_DEADLINE: Duration = Duration::from_secs(30);
 

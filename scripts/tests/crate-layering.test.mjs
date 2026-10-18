@@ -101,7 +101,7 @@ for (const [name, dependency] of [
   });
 }
 
-for (const name of ["codeterm-service-core", "codeterm-events", "domios-server"]) {
+for (const name of ["codeterm-service-core", "codeterm-events"]) {
   test(`rejects host runtime dependency in ${name}`, (t) => {
     const { write, run } = fixture(t);
     write(name, "Cargo.toml", '[dependencies]\ncodeterm-host-runtime = { path = "../codeterm-host-runtime" }\n');
@@ -110,16 +110,6 @@ for (const name of ["codeterm-service-core", "codeterm-events", "domios-server"]
     assert.match(result.stderr, /core or leaf crate depends on codeterm-host-runtime/);
   });
 }
-
-test("server composition accepts core services and rejects GUI framework edges", (t) => {
-  const { write, run } = fixture(t);
-  write("domios-server", "Cargo.toml", '[dependencies]\ncodeterm-service-core = "0"\ncodeterm-api = "0"');
-  assert.equal(run().status, 0);
-  write("domios-server", "Cargo.toml", '[dependencies]\nalias = { package = "tauri", version = "2" }');
-  const result = run();
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /service core depends on tauri/);
-});
 
 test("allows the host runtime to own Tauri adapters", (t) => {
   const { write, run } = fixture(t);

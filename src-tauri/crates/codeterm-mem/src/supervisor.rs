@@ -15,8 +15,6 @@ use parking_lot::Mutex;
 use tokio::process::Command;
 use tokio::sync::watch;
 
-pub mod observation;
-
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -88,7 +86,6 @@ pub struct Supervisor {
     cli_path: PathBuf,
     db_path: PathBuf,
     spawn_busy_retries: watch::Sender<u64>,
-    observer: std::sync::OnceLock<std::sync::mpsc::SyncSender<observation::WorkerSpawn>>,
 }
 
 impl Supervisor {
@@ -98,15 +95,7 @@ impl Supervisor {
             cli_path,
             db_path,
             spawn_busy_retries: watch::channel(0).0,
-            observer: std::sync::OnceLock::new(),
         }
-    }
-
-    pub fn observe_spawns(
-        &self,
-        observer: std::sync::mpsc::SyncSender<observation::WorkerSpawn>,
-    ) -> bool {
-        self.observer.set(observer).is_ok()
     }
 
     /// Observable count of ETXTBSY spawn refusals, so a caller can wait on the
@@ -211,14 +200,8 @@ impl Supervisor {
             ]);
             cmd.kill_on_drop(true);
             no_window_tokio(&mut cmd);
-            cmd.stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped());
-            let child = cmd.spawn();
-            if let (Ok(child), Some(observer)) = (&child, self.observer.get()) {
-                observation::publish(observer, child, &self.cli_path);
-            }
-            let output = async { child?.wait_with_output().await };
-            match tokio::time::timeout(WORKER_TIMEOUT, output).await {
+
+            match tokio::time::timeout(WORKER_TIMEOUT, cmd.output()).await {
                 Ok(Ok(out)) => break out,
                 Ok(Err(e))
                     if e.kind() == std::io::ErrorKind::ExecutableFileBusy
@@ -386,53 +369,6 @@ mod tests {
         let report = sup.run(WorkerKind::DreamingLight).await.unwrap();
         assert_eq!(report.get("phase").and_then(|v| v.as_str()), Some("light"));
         assert_eq!(report.get("promoted").and_then(|v| v.as_u64()), Some(1));
-    }
-
-    #[tokio::test]
-    async fn process_split_contract_observer_success_failed_and_closed_delivery() {
-        let dir = tempfile::tempdir().unwrap();
-        let cli = fake_cli(&dir, r#"{"ok":true,"report":{"observed":true}}"#, 0);
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        let sup = make_supervisor(cli.clone());
-        assert!(sup.observe_spawns(sender));
-        assert_eq!(
-            sup.run(WorkerKind::LibrarianOnce).await.unwrap()["observed"],
-            true
-        );
-        let event = receiver.try_recv().unwrap();
-        assert_eq!(event.executable, cli);
-        assert!(event.pid > 0);
-        assert!(receiver.try_recv().is_err());
-        drop(event);
-        drop(receiver);
-        assert!(sup.run(WorkerKind::LibrarianOnce).await.is_ok());
-
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        let missing = make_supervisor(dir.path().join("missing"));
-        missing.observe_spawns(sender);
-        assert!(missing.run(WorkerKind::LibrarianOnce).await.is_err());
-        assert!(matches!(
-            receiver.try_recv(),
-            Err(std::sync::mpsc::TryRecvError::Empty)
-        ));
-    }
-
-    #[tokio::test]
-    async fn process_split_contract_full_observer_and_default_preserve_maintenance() {
-        let dir = tempfile::tempdir().unwrap();
-        let cli = fake_cli(&dir, r#"{"ok":true,"report":{"observed":true}}"#, 0);
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        let sup = make_supervisor(cli.clone());
-        sup.observe_spawns(sender);
-        for _ in 0..2 {
-            assert!(sup.run(WorkerKind::LibrarianOnce).await.is_ok());
-        }
-        assert!(receiver.try_recv().is_ok());
-        assert!(receiver.try_recv().is_err());
-        assert!(make_supervisor(cli)
-            .run(WorkerKind::LibrarianOnce)
-            .await
-            .is_ok());
     }
 
     /// The write descriptor is released only after the supervisor has been

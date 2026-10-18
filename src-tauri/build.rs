@@ -3,7 +3,7 @@ mod plugin_bundles;
 
 fn main() {
     embed_build_commit();
-    plugin_bundles::generate_system_plugin_hashes(std::path::Path::new(env!("CARGO_MANIFEST_DIR")));
+    plugin_bundles::generate_system_plugin_hashes();
 
     // Ensure all Windows targets (including test binaries) get the Common Controls v6 manifest.
     // tauri-winres misses test runners, so linker embedding uses /MANIFEST:EMBED + /MANIFESTINPUT.

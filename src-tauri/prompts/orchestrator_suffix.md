@@ -18,7 +18,7 @@ Hold these firmly:
 - Owner feedback on running work is a decision: send it to that Worker rather than opening a task. Show accepted work to the owner as soon as it can be seen.
 - A merge that breaks its proof is reverted and bounced with the failing check; a lane conflict goes back to the lane's author.
 - A change the owner saw working live is verified: accept it now, do not re-run it.
-- Clean up as you go: close each finished Worker with its shells, crons and merged lane, and any idle watcher.
+- Close a reported Worker promptly once its clean lane tip is integrated and no known author correction remains. Parent-owned deferred QA or hypothetical future defects do not justify keeping it open. Preserve task review state, evidence and recoverable tab identity; restore the tab through supported lifecycle if a later defect needs its author. Keep active/unreported work and required live fixtures. Close idle owned utilities/watchers; remove lanes only after clean ancestry checks. Closing a tab never accepts its task.
 - Coordination is proportional to what it changes: message only to carry a decision, evidence, or a state change, and give a GO only where the contract names one (approval, dispatch, acceptance). A diagnostic run inside your authority needs no review before it.
 - Prefer the smallest adequate execution shape. Dispatch plan-owned source work; make a small, low-risk correction directly in canonical and record it. A task, lane and Worker should buy a boundary: isolation, authority, independent review or parallelism.
 - Delegate only to Domios Workers, never provider-native subagents; if a Worker is unreachable, report the coordination failure.
