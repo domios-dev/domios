@@ -52,7 +52,7 @@ pub fn subscribe(
                     {
                         let error = format!("automation event history lost after {cursor}");
                         failed(&error);
-                        acknowledge.send_replace(Err(error));
+                        drop(acknowledge.send_replace(Err(error)));
                         return;
                     }
                     snapshot
@@ -68,7 +68,7 @@ pub fn subscribe(
                 }
                 apply(&event);
                 cursor = event.seq;
-                acknowledge.send_replace(Ok(cursor));
+                drop(acknowledge.send_replace(Ok(cursor)));
             }
         }
     });
