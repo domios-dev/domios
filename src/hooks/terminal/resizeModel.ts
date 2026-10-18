@@ -3,6 +3,12 @@ export interface ResizeGeometry {
   rows: number;
 }
 
+export type TerminalGeometryPolicy = "shared-pty" | "viewer-local";
+
+export function terminalGeometryPolicy(isRemote: boolean): TerminalGeometryPolicy {
+  return isRemote ? "viewer-local" : "shared-pty";
+}
+
 export interface ResizeAuthority {
   ptyId: string;
   clientId: string;
