@@ -301,7 +301,7 @@ fn restorable_identity(
     parent_is_live_orchestrator: impl Fn(&str) -> bool,
 ) -> Option<ResumableIdentity> {
     let mut identity = identity?;
-    let restored = codeterm_types::agent::restore_persisted_role(
+    let restored = codeterm_types::agent::restore_role(
         Some(identity.role.as_str()),
         identity.role_profile.as_deref(),
     )?;
