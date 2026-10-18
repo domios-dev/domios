@@ -392,7 +392,7 @@ fn codex_orchestrator_waits_for_owner_trust_then_lazy_readiness() {
 }
 
 #[test]
-fn restored_lazy_session_first_turn_is_delivered_once_and_binds() {
+fn lazy_session_first_turn_is_delivered_once_and_binds() {
     let mut driver = LaunchRegistry::default();
     let launch = driver.begin("lazy-first-turn", "lazy-first-turn-pty".into());
     bind(&mut driver, &launch, "lazy-first-turn-nonce");
@@ -408,7 +408,7 @@ fn restored_lazy_session_first_turn_is_delivered_once_and_binds() {
         )
     };
 
-    assert!(first_turn_binding_required(true, true, true));
+    assert!(!first_turn_binding_required(true, true, true));
     assert!(!first_turn_binding_required(false, true, true));
     assert!(deliver_first_turn());
     assert_eq!(payload_writes.get(), 1);

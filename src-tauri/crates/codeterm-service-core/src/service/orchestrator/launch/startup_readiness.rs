@@ -4,6 +4,7 @@ use crate::service::launch_readiness::LaunchSettlement;
 use crate::service::ServiceContext;
 use std::time::Duration;
 
+#[cfg(any(test, feature = "test-support"))]
 pub fn launch_waits_for_first_turn_binding(
     svc: &ServiceContext,
     tab_id: &str,
@@ -11,21 +12,34 @@ pub fn launch_waits_for_first_turn_binding(
     has_startup_task_turn: bool,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
 ) -> bool {
+    let resume_session_id = svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.agent_session_id.clone());
+    launch_waits_for_first_turn_binding_with_resume_session(
+        svc,
+        agent_cmd,
+        has_startup_task_turn,
+        origin,
+        resume_session_id.as_deref(),
+    )
+}
+
+pub(super) fn launch_waits_for_first_turn_binding_with_resume_session(
+    svc: &ServiceContext,
+    agent_cmd: &str,
+    has_startup_task_turn: bool,
+    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
+    resume_session_id: Option<&str>,
+) -> bool {
     let provider_starts_session_on_first_turn = svc
         .agent_registry
         .with_provider(agent_cmd, |provider| {
             provider.session_starts_on_first_user_turn()
         })
         .unwrap_or(false);
-    let restored_resume = matches!(
-        origin,
-        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot
-    ) && svc
-        .mux
-        .read()
-        .get_tab(tab_id)
-        .and_then(|tab| tab.agent_session_id.as_deref())
-        .is_some_and(|session_id| !session_id.trim().is_empty());
+    let restored_resume = restored_resume_has_session(origin, resume_session_id);
     first_turn_binding_required(
         provider_starts_session_on_first_turn,
         has_startup_task_turn,
@@ -33,12 +47,22 @@ pub fn launch_waits_for_first_turn_binding(
     )
 }
 
+pub(super) fn restored_resume_has_session(
+    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
+    resume_session_id: Option<&str>,
+) -> bool {
+    matches!(
+        origin,
+        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot
+    ) && resume_session_id.is_some_and(|session_id| !session_id.trim().is_empty())
+}
+
 pub(super) fn first_turn_binding_required(
     provider_starts_session_on_first_turn: bool,
     has_startup_task_turn: bool,
     restored_resume: bool,
 ) -> bool {
-    provider_starts_session_on_first_turn && (restored_resume || !has_startup_task_turn)
+    provider_starts_session_on_first_turn && !restored_resume && !has_startup_task_turn
 }
 
 pub(super) fn provider_ready_stage(
