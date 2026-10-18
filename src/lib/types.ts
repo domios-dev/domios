@@ -181,6 +181,12 @@ export interface TabBootStageEvent {
   agent_booting?: boolean;
   session_bound?: boolean;
   reason?: string | null;
+  launch_generation?: {
+    epoch: number;
+    operation_id: string | null;
+    pty_id: string | null;
+    binding_nonce: string | null;
+  };
 }
 
 export interface Tab {
