@@ -167,6 +167,7 @@ pub fn run(
             resources,
         })
     })?;
+    log::debug!("[bootstrap] native listener binding started");
     let native_server = native_inventory
         .map(|manifest| {
             let origins = codeterm_service_core::startup::frontend_shell_declared_frontend_origins(
@@ -188,11 +189,18 @@ pub fn run(
             return Err(error);
         }
     };
+    log::debug!("[bootstrap] native listener binding completed");
     if let Some(server) = &native_server {
         *native_events.write() = Some(server.endpoint());
     }
     let token = running.states.config.lock().api.token.clone();
-    let control_result = continue_after_ack(acknowledge(&ready, token.as_deref()), || {
+    log::debug!("[bootstrap] inherited ready acknowledgement started");
+    let acknowledgement = acknowledge(&ready, token.as_deref());
+    log::debug!(
+        "[bootstrap] inherited ready acknowledgement completed: {}",
+        acknowledgement.is_ok()
+    );
+    let control_result = continue_after_ack(acknowledgement, || {
         runtime.block_on(async {
             let control = channel::serve(listener, ready, token);
             tokio::select! {

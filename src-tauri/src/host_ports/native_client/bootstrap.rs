@@ -118,9 +118,21 @@ fn helper_diagnostic(stage: ClientStartupStage, error: &HelperFailure) {
 
 pub(super) const BOOTSTRAP_DEADLINE: Duration = Duration::from_secs(30);
 
+#[cfg(test)]
 pub(in crate::host_ports) async fn read_single_bounded_line<R>(
     reader: &mut R,
     limit: usize,
+) -> io::Result<Vec<u8>>
+where
+    R: AsyncBufRead + Unpin,
+{
+    read_single_bounded_line_observed(reader, limit, || {}).await
+}
+
+async fn read_single_bounded_line_observed<R>(
+    reader: &mut R,
+    limit: usize,
+    newline_received: impl FnOnce(),
 ) -> io::Result<Vec<u8>>
 where
     R: AsyncBufRead + Unpin,
@@ -158,6 +170,7 @@ where
             break;
         }
     }
+    newline_received();
     let mut trailing = [0; 1];
     if reader.read(&mut trailing).await? != 0 {
         return Err(io::Error::new(
@@ -607,8 +620,28 @@ where
         }
         drop(input);
         let mut reader = tokio::io::BufReader::new(stdout);
-        let line = read_single_bounded_line(&mut reader, MAX_NATIVE_HOST_FRAME_BYTES).await;
-        let status = child.wait().await.map_err(|error| {
+        let (line, status) = tokio::join!(
+            async {
+                let line = read_single_bounded_line_observed(
+                    &mut reader,
+                    MAX_NATIVE_HOST_FRAME_BYTES,
+                    || record_startup(stage, "response_newline", None, None, false),
+                )
+                .await;
+                if line.is_ok() {
+                    record_startup(stage, "response_eof", None, None, false);
+                }
+                line
+            },
+            async {
+                let status = child.wait().await;
+                if let Ok(status) = &status {
+                    record_startup(stage, "helper_exited", None, status.code(), false);
+                }
+                status
+            }
+        );
+        let status = status.map_err(|error| {
             startup_io_error(stage, &error);
             HelperFailure::Io {
                 message: error.to_string(),
@@ -841,5 +874,32 @@ impl super::NativeHostClient {
                 ExactServerShutdownUncertainty::ServerExitUnobserved,
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod framing_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn newline_observation_never_replaces_exact_eof_validation() {
+        let (mut writer, stream) = tokio::io::duplex(64);
+        let (observed, newline) = tokio::sync::oneshot::channel();
+        let read = tokio::spawn(async move {
+            let mut reader = tokio::io::BufReader::new(stream);
+            read_single_bounded_line_observed(&mut reader, 32, || {
+                let _ = observed.send(());
+            })
+            .await
+        });
+        writer.write_all(b"opaque\n").await.unwrap();
+        newline.await.unwrap();
+        assert!(!read.is_finished());
+        writer.write_all(b"trailing").await.unwrap();
+        writer.shutdown().await.unwrap();
+        assert_eq!(
+            read.await.unwrap().unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 }
