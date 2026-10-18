@@ -243,6 +243,42 @@ fn restored_runtime_identity_is_persisted_once_without_fabricating_kickoff() {
 }
 
 #[test]
+fn restored_manager_prompt_uses_its_live_team_instead_of_cached_identity() {
+    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.create_workspace("opaque-workspace".into(), None);
+    let tab_id = mux.create_tab(&workspace.id).unwrap();
+    let live_team = "team_live_7f3a";
+    let stale_team = "team_stale_91c2";
+    let target = mux.get_tab_mut(&tab_id).unwrap();
+    target.agent_type = Some("runtime-fixture".into());
+    target.role = Some(AgentRole::Manager);
+    target.role_profile = Some("orchestrator".into());
+    target.team_id = Some(live_team.into());
+    target.session_binding_nonce = Some("opaque-nonce".into());
+    target.agent_runtime_config = Some(serde_json::json!({
+        "systemPrompt": format!("{ROLE_AUTHORITY} {stale_team}"),
+    }));
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+    ensure_tab_runtime_prompt(&fixture.service, &tab_id).unwrap();
+
+    let prompt = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .agent_runtime_config
+        .as_ref()
+        .unwrap()["systemPrompt"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(prompt.contains(live_team));
+    assert!(!prompt.contains(stale_team));
+}
+
+#[test]
 fn restored_runtime_worker_keeps_its_saved_persona_once() {
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace = mux.create_workspace("opaque-workspace".into(), None);

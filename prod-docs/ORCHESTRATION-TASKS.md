@@ -80,6 +80,9 @@ it. Direct `agent spawn` still requires `--description`.
 `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, its chosen checkout, and a self-contained
 brief with exact acceptance and test commands; it ACKs first and reports last.
 
+Respawn uses the prior attempt's recorded task execution intent and keeps its
+lane. The recovery command does not require callers to restate that intent.
+
 For work on a paired peer, dispatch with `plan task dispatch <plan> <task>
 --mesh <peer-instance-id> --execution-intent mutating`. The origin owns the attempt and
 review trail; the peer provisions the lane and binds the Worker to the origin
@@ -108,4 +111,4 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
