@@ -1812,7 +1812,9 @@ name = "codeterm-process-identity"
 version = "0.0.0"
 dependencies = [
  "codeterm-types",
+ "core-foundation",
  "libc",
+ "security-framework",
  "windows-sys 0.61.2",
 ]
 
@@ -2246,8 +2248,10 @@ dependencies = [
  "codeterm-notify-types",
  "codeterm-provider-signals",
  "codeterm-wire",
+ "dirs 6.0.0",
  "serde",
  "serde_json",
+ "tempfile",
  "toml 0.8.2",
  "ts-rs",
  "uuid",

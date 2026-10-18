@@ -44,9 +44,9 @@ mod tests {
 
     fn manifest() -> serde_json::Value {
         serde_json::json!({
-            "schema": 1, "server_build": "server-build",
+            "schema": 2, "server_build": "server-build",
             "server_executable": "domios-server/domios-server",
-            "server_sha256": "a".repeat(64), "client_sha256": "b".repeat(64),
+            "server_sha256": "a".repeat(64), "client_identity": {"kind":"sha256", "sha256":"b".repeat(64)},
             "api_version": 3, "bootstrap_protocol": codeterm_types::server_bootstrap::BOOTSTRAP_PROTOCOL,
         })
     }
@@ -80,7 +80,7 @@ mod tests {
         unknown["fallback"] = true.into();
         assert!(parse(&serde_json::to_vec(&unknown).unwrap()).is_err());
         let mut missing = value;
-        missing.as_object_mut().unwrap().remove("client_sha256");
+        missing.as_object_mut().unwrap().remove("client_identity");
         assert!(parse(&serde_json::to_vec(&missing).unwrap()).is_err());
     }
 }
