@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cleanupStateComplete,installCleanupObserverPage} from './cleanup-observation.mjs';
+import {cleanupStateComplete,installCleanupObserverPage,createFunctionalCleanupObserver} from './cleanup-observation.mjs';
 import {ownedChatComposerMounted} from './readiness.mjs';
 
 test('composer readiness is the owned mounted DOM surface',() => {
@@ -72,4 +72,18 @@ test('cleanup observer refuses an event stream beyond its finite budget',async (
   } finally {
     if (prior) Object.defineProperty(globalThis,'window',prior); else delete globalThis.window;
   }
+});
+
+test('functional cleanup reads authenticated backend after commands and requires final exact absence',async () => {
+  let state={tabs:{owned:{}},workspaces:[{id:'workspace'}]},reads=0;
+  const observer=createFunctionalCleanupObserver(['owned'],'workspace',async()=>{reads++;return state;});
+  await observer.afterCommand();
+  await assert.rejects(observer.wait(),/resources remain/);
+  state={tabs:{foreign:{}},workspaces:[{id:'foreign'}]};
+  await observer.afterCommand();
+  assert.deepEqual(await observer.wait(),{commands:2,reads:4,tabsAbsent:true,workspaceAbsent:true,backendObservation:'authenticated_command_completion_reads',uiObservation:'unavailable'});
+  assert.equal(reads,4);
+  observer.dispose();
+  await assert.rejects(observer.wait(),/disposed/);
+  assert.throws(()=>createFunctionalCleanupObserver(['owned','owned'],'workspace',async()=>state),/Invalid/);
 });

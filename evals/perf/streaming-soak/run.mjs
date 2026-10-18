@@ -8,7 +8,7 @@ import {analyzeGraph,snapshotGraph,heapDiff} from './heap.mjs';
 import {declareControl,plateau} from './oracle.mjs';
 import {VERSION,requireValue,requireMeasurement,segmentSeconds,validateResume,cleanupPlan,sampleDue,acknowledge,validateFileOwnership,muxBindings} from './model.mjs';
 import {atomic,readJson,waitFile,request,shellCommand} from './io.mjs';
-import {attach,dcJson,visit,sample,beginCleanupObservation,waitCleanupObservation,disposeCleanupObservation} from './runtime.mjs';
+import {attach,dcJson,visit,sample,beginCleanupObservation,cleanupCommandCompleted,waitCleanupObservation,disposeCleanupObservation} from './runtime.mjs';
 import {prepareReplay,compareReplays,outsideRepository,REPLAY_LIMITS} from './replay-model.mjs';
 import {runReplay,repositoryRoot} from './replay.mjs';
 
@@ -126,11 +126,12 @@ async function execute() {
     await beginCleanupObservation(rt,tabs,cp.workspace.id);
     cp.cleanup = {status:'running',startedAt:Date.now(),tabs}; save();
     try {
-      for (const tab of tabs) { await dcJson(['tab','close','--tab',tab]); cp.cleanedTabs??=[]; cp.cleanedTabs.push(tab); save(); }
+      for (const tab of tabs) { await dcJson(['tab','close','--tab',tab]); await cleanupCommandCompleted(rt); cp.cleanedTabs??=[]; cp.cleanedTabs.push(tab); save(); }
       await dcJson(['workspace','close',cp.workspace.id]);
+      await cleanupCommandCompleted(rt);
       const confirmation = await waitCleanupObservation(rt);
       requireValue(confirmation?.tabsAbsent === true && confirmation.workspaceAbsent === true &&
-        Number.isSafeInteger(confirmation.events) && confirmation.events > 0 &&
+        (rt.identity.capabilities.purpose === 'functional' ? confirmation.commands === tabs.length + 1 : Number.isSafeInteger(confirmation.events) && confirmation.events > 0) &&
         Number.isSafeInteger(confirmation.reads) && confirmation.reads > 0,'Owned cleanup not observed');
       cp.cleanup.confirmation = confirmation;
       cp.cleanup.confirmedAt = Date.now(); save();
