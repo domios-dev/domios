@@ -68,6 +68,7 @@ jobs:
       # cargo from src-tauri, so a relative path lands in src-tauri/src-tauri/target.
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CODETERM_RELEASE_FEATURES: embeddings
+      CODETERM_RELEASE_COMMON_STAGE: '1'
       CARGO_INCREMENTAL: '0'
       # linuxdeploy is itself an AppImage; if FUSE is unavailable in the runner's
       # service context, extract-and-run avoids the FUSE mount.
@@ -168,7 +169,40 @@ jobs:
           # repo secrets — this evaluates to an empty string otherwise.
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pnpm tauri build --target "$TARGET" --features "$CODETERM_RELEASE_FEATURES" --bundles deb,appimage
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pnpm tauri build --no-bundle --target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"
+
+      - name: Stage final pair resources and bundle without compilation
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          node scripts/release-stage.mjs stage-full --target "$TARGET" --source-sha "$SOURCE_SHA" \
+            --cargo-log "release-artifacts/build-logs/$TARGET/server.jsonl" \
+            --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" \
+            --client-file "src-tauri/target/$TARGET/release/codeterm"
+          pnpm tauri bundle --target "$TARGET" --bundles deb,appimage
+
+      - name: Produce shared headless stage and package
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          mapfile -t debs < <(find "src-tauri/target/${TARGET}/release/bundle/deb" -maxdepth 1 -type f -name '*.deb')
+          [ "${#debs[@]}" -eq 1 ] || { echo "::error::Expected one full Debian package"; exit 1; }
+          node scripts/release-stage.mjs finalize --target "$TARGET" --tag "$TAG" \
+            --version "${TAG#v}" --source-sha "$SOURCE_SHA" \
+            --cargo-log "release-artifacts/build-logs/$TARGET/server.jsonl" \
+            --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" \
+            --bundle "${debs[0]}" --output-dir release-artifacts
+
+      - name: Verify independent headless assets and checksum
+        run: node scripts/release-headless-assets.mjs verify "${{ inputs.tag }}" linux-x86_64 release-artifacts "${{ inputs.source_ref }}"
+
+      - name: Smoke packaged client and isolated server pair
+        run: node scripts/release-pair-smoke.mjs "$TARGET" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "release-artifacts/common-stage/$TARGET" release-artifacts
 
       - name: Smoke built release bundle
         run: node scripts/release-bundle-smoke.mjs linux "src-tauri/target/${TARGET}/release/bundle" "${{ inputs.source_ref }}" x64
@@ -301,6 +335,18 @@ jobs:
           ASSETS=("$DEB" "$APPIMAGE")
           [ -n "$UPDATER_BUNDLE" ] && ASSETS+=("$UPDATER_BUNDLE")
           gh release upload "$TAG" "${ASSETS[@]}" --clobber --repo "$MIRROR_REPO"
+
+      - name: Publish and read back headless source assets
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/release-headless-assets.mjs publish "${{ inputs.tag }}" linux-x86_64 release-artifacts "${{ inputs.source_ref }}" "${{ github.repository }}"
+
+      - name: Publish and read back headless mirror assets
+        if: ${{ inputs.mirror && !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+        run: node scripts/release-headless-assets.mjs publish "${{ inputs.tag }}" linux-x86_64 release-artifacts "${{ inputs.source_ref }}" rollacode/codeterm-releases
 
       - uses: ./.github/actions/rust-warnings
         if: always()

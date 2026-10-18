@@ -72,7 +72,8 @@ bin before Tauri bundles the already-built graph. Each
 architecture still verifies Developer-ID + hardened-runtime + arch, notarizes + staples the DMG,
 packs the `.app.tar.gz` updater bundle, and minisign-signs it.
 x86_64 goes through `scripts/release-macos-x86_64.sh` with `CARGO_BUILD_TARGET`
-set for the target-correct CLI and application. CPU embeddings use candle on both
+set for the target-correct CLI and application. Release staging signs the Mac CLI and server
+before the one client build is bundled, then reads the paired package bytes back. CPU embeddings use candle on both
 architectures and require no bundled inference runtime dylibs.
 
 ---
@@ -272,7 +273,9 @@ docker build -t codeterm-build-linux-x64   -f Dockerfile.linux-x64   .
 ```
 
 Run: `build-linux.sh <tag> [bundles]` inside the image for arm64 release builds or ad-hoc
-cross-builds (clone tag → `pnpm install` → `tauri build` → collect). **Docker Desktop memory must
+cross-builds (clone tag → install → shared CLI/server/frontend stage → client build without bundling
+→ pair resource stage → bundle without recompilation → full/headless readback into `/work/out`).
+Release jobs pass `RELEASE_TAG` for tag/version receipt identity; the source SHA comes from the checkout. **Docker Desktop memory must
 be ≳20 GiB** — the `codeterm` lib crate needs ~8 GiB to compile and the OOM killer otherwise
 SIGKILLs `rustc`.
 
