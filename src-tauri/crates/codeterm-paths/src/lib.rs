@@ -99,9 +99,15 @@ pub fn socket_display_path() -> String {
     }
 }
 
-/// Get the CodeTerm data directory (`~/.codeterm` or `~/.codeterm-dev`).
-/// Creates the directory if it doesn't exist.
+/// Get the CodeTerm data directory, honoring an absolute explicit override.
+/// Creates the selected directory if it doesn't exist.
 pub fn data_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("CODETERM_DATA_DIR").map(PathBuf::from) {
+        if path.is_absolute() {
+            let _ = std::fs::create_dir_all(&path);
+            return path;
+        }
+    }
     let dir = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(dir_name());
@@ -109,8 +115,19 @@ pub fn data_dir() -> PathBuf {
     dir
 }
 
-/// Get the config file path.
+/// Get the config file path, honoring explicit config and data directory overrides.
 pub fn config_path() -> Result<PathBuf, String> {
+    if let Some(config_dir) = std::env::var_os("CODETERM_CONFIG_DIR").map(PathBuf::from) {
+        if !config_dir.is_absolute() {
+            return Err("CODETERM_CONFIG_DIR must be absolute".to_string());
+        }
+        return Ok(config_dir.join("config.toml"));
+    }
+    if let Some(data_dir) = std::env::var_os("CODETERM_DATA_DIR").map(PathBuf::from) {
+        if data_dir.is_absolute() {
+            return Ok(data_dir.join("config.toml"));
+        }
+    }
     let dir = dirs::home_dir().ok_or_else(|| "Could not determine home directory".to_string())?;
     Ok(dir.join(dir_name()).join("config.toml"))
 }

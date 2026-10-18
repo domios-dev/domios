@@ -203,16 +203,43 @@ pub fn scrub_inherited_api_env(config_state: &ConfigState) {
 pub fn init_states() -> AppStates {
     let mut storage = codeterm_service_core::startup::open_instance_storage();
     let mut app_config = config::load_config();
-    app_config.api.port = codeterm_service_core::paths::runtime_api_port(
-        app_config.api.port,
-        std::env::var("CODETERM_API_PORT").ok().as_deref(),
-        cfg!(debug_assertions),
-    )
-    .unwrap_or_else(|error| {
-        log::error!("[startup] refusing unsafe instance port: {error}");
-        eprintln!("Domios startup refused: {error}");
-        std::process::exit(2);
-    });
+    if std::env::var_os("CODETERM_VERIFY_ISOLATED").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        app_config.api.port = std::env::var("CODETERM_API_PORT")
+            .ok()
+            .and_then(|port| port.parse::<u16>().ok())
+            .filter(|port| !matches!(port, 0 | 7685 | 7686))
+            .unwrap_or_else(|| {
+                log::error!("[startup] isolated verification port is invalid");
+                eprintln!("Domios startup refused: isolated verification port is invalid");
+                std::process::exit(2);
+            });
+        if app_config
+            .api
+            .token
+            .as_deref()
+            .is_none_or(|token| token.trim().is_empty())
+        {
+            log::error!("[startup] isolated verification requires an API token");
+            eprintln!("Domios startup refused: isolated verification requires an API token");
+            std::process::exit(2);
+        }
+        app_config.api.enabled = true;
+        app_config.api.host = "127.0.0.1".to_string();
+        app_config.api.mesh_tailnet_host = None;
+        app_config.api.cors = false;
+        app_config.api.cors_allow_origins.clear();
+    } else {
+        app_config.api.port = codeterm_service_core::paths::runtime_api_port(
+            app_config.api.port,
+            std::env::var("CODETERM_API_PORT").ok().as_deref(),
+            cfg!(debug_assertions),
+        )
+        .unwrap_or_else(|error| {
+            log::error!("[startup] refusing unsafe instance port: {error}");
+            eprintln!("Domios startup refused: {error}");
+            std::process::exit(2);
+        });
+    }
     log::info!("Config loaded: theme={}", app_config.theme.name);
     let config_state: ConfigState = Arc::new(Mutex::new(app_config));
     scrub_inherited_api_env(&config_state);
