@@ -1,107 +1,186 @@
-import { useCallback, useSyncExternalStore } from "react";
-import type { ChatSend, MatchedRow, SendEcho } from "@codeterm/chat-core";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
+import type { ChatSend, SendEcho } from "@codeterm/chat-core";
 import { applyDeliveryStatus, canDeleteChatSend, deliveryState, reconcileDeliveryStatusesModel, reconcileAdmissionEvidence, type AdmissionEvidence, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { uid } from "../../lib/uid";
+import {
+  createChatSendRepository,
+  type ChatSendRepositoryPort,
+} from "./chatSendRepository";
+import {
+  decodeChatSend,
+  mergeChatSendRecord,
+  sameDurableSend,
+  type ChatSendDurableRecord,
+} from "./chatSendDurableModel";
 
-const STORAGE_KEY = "codeterm:chat-sends:v1";
 const MAX_SENDS_PER_TAB = 64;
 const MAX_TABS = 32;
 const EMPTY: readonly DeliverySend[] = [];
+export type ChatSendHydrationState = "pending" | "ready" | "error";
+export interface ChatSendSnapshot {
+  sends: readonly DeliverySend[];
+  hydration: ChatSendHydrationState;
+}
 
-/** Sends outlive the chat hook so away/back and remount keep each send's key; reconciled
- *  sends are also stored so the key their echo inherits survives a restart. */
+/** The ledger stays in memory for synchronous React reads; IndexedDB is record persistence only. */
 const sendsByTab = new Map<string, readonly DeliverySend[]>();
 const listeners = new Map<string, Set<() => void>>();
-let loaded = false;
+const attemptedHydrationTabs = new Set<string>();
+const hydrationStates = new Map<string, ChatSendHydrationState>();
+const hydrationTasks = new Map<string, Promise<void>>();
+const hydrationRemovedIds = new Map<string, Set<string>>();
+const snapshotsByTab = new Map<string, ChatSendSnapshot>();
 const deleting = new Set<string>();
 const deletionKey = (tabId: string, id: string) => JSON.stringify([tabId, id]);
+const repository = createChatSendRepository();
+let activeRepository: ChatSendRepositoryPort = repository;
+let unsubscribeRepository = activeRepository.subscribe(onRepositoryChange);
 
-function storage(): Storage | null {
-  try {
-    return typeof window === "undefined" ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
-function isSendEcho(value: unknown): value is SendEcho {
-  if (!value || typeof value !== "object") return false;
-  const echo = value as Record<string, unknown>;
-  return typeof echo.content === "string"
-    && (echo.timestampMs === null || Number.isFinite(echo.timestampMs));
-}
-
-function isMatchedRow(value: unknown): value is MatchedRow {
-  if (!value || typeof value !== "object") return false;
-  const matched = value as Record<string, unknown>;
-  const source = matched.source as Record<string, unknown> | undefined;
-  const record = source?.record as Record<string, unknown> | undefined;
-  if (!source || typeof source.source_session_id !== "string" || source.source_session_id.length === 0 || !record
-    || typeof matched.ordinal !== "number" || !Number.isSafeInteger(matched.ordinal) || matched.ordinal < 1) return false;
-  if (record.kind === "structured") {
-    return typeof record.thread_id === "string" && record.thread_id === source.source_session_id
-      && typeof record.item_id === "string" && record.item_id.length > 0;
-  }
-  return record.kind === "jsonl" && typeof record.incarnation === "string" && record.incarnation.length > 0
-    && typeof record.record_start === "number" && Number.isSafeInteger(record.record_start) && record.record_start >= 0
-    && typeof record.record_row === "number" && Number.isSafeInteger(record.record_row) && record.record_row >= 0;
-}
-
-function isStoredSend(value: unknown): value is ChatSend {
-  if (!value || typeof value !== "object") return false;
-  const send = value as Record<string, unknown>;
-  return typeof send.id === "string"
-    && typeof send.content === "string"
-    && Number.isFinite(send.sentAtMs)
-    && (send.correlationId === undefined || typeof send.correlationId === "string")
-    && (send.echo === undefined || isSendEcho(send.echo))
-    && (send.matchedRow === undefined || isMatchedRow(send.matchedRow));
-}
-
-function load(): void {
-  if (loaded) return;
-  loaded = true;
-  try {
-    const raw = storage()?.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return;
-    for (const [tabId, list] of Object.entries(parsed as Record<string, unknown>)) {
-      if (Array.isArray(list)) sendsByTab.set(tabId, list.filter(isStoredSend));
-    }
-  } catch {
-    // Unreadable storage only loses the local send ledger.
-  }
-}
-
-function save(): void {
-  const stored: Record<string, ChatSend[]> = {};
-  for (const [tabId, list] of sendsByTab) {
-    if (list.length > 0) stored[tabId] = [...list];
-  }
-  try {
-    storage()?.setItem(STORAGE_KEY, JSON.stringify(stored));
-  } catch {
-    // Quota or private mode never blocks a send.
-  }
-}
-
-function publish(tabId: string, next: readonly DeliverySend[]): void {
-  sendsByTab.delete(tabId);
-  sendsByTab.set(tabId, next);
-  while (sendsByTab.size > MAX_TABS) {
-    const oldest = sendsByTab.keys().next().value;
-    if (oldest == null || oldest === tabId) break;
-    sendsByTab.delete(oldest);
-  }
-  save();
+function notify(tabId: string): void {
   for (const listener of listeners.get(tabId) ?? []) listener();
 }
 
+function notifyIfLoadedSnapshotChanged(tabId: string): void {
+  const snapshot = snapshotsByTab.get(tabId);
+  if (snapshot && snapshot.sends !== (sendsByTab.get(tabId) ?? EMPTY)) notify(tabId);
+}
+
+function setTab(tabId: string, next: readonly DeliverySend[]): void {
+  if (next.length === 0) sendsByTab.delete(tabId);
+  else {
+    sendsByTab.delete(tabId);
+    sendsByTab.set(tabId, next);
+  }
+}
+
+function ensureTabHydrated(tabId: string): Promise<void> {
+  if (attemptedHydrationTabs.has(tabId)) return Promise.resolve();
+  const existingTask = hydrationTasks.get(tabId);
+  if (existingTask) return existingTask;
+  const baseline = new Map((sendsByTab.get(tabId) ?? EMPTY).map((send) => [send.id, send]));
+  hydrationStates.set(tabId, "pending");
+  hydrationRemovedIds.set(tabId, new Set());
+  notifyIfLoadedSnapshotChanged(tabId);
+  const task = activeRepository.hydrateTab(tabId).then(({ records, state }) => {
+    let current = [...(sendsByTab.get(tabId) ?? EMPTY)];
+    const byId = new Map(current.map((send) => [send.id, send]));
+    const removedIds = hydrationRemovedIds.get(tabId);
+    const rows = new Map(records.map((record) => [record.sendId, record]));
+    const persistedOrder: string[] = [];
+    for (const [sendId, record] of rows) {
+      const before = baseline.get(sendId);
+      const after = byId.get(sendId);
+      if (record.deleted) {
+        if (!after || after === before) byId.delete(sendId);
+        continue;
+      }
+      if (!after && removedIds?.has(sendId)) continue;
+      const persisted = decodeChatSend(record);
+      if (!persisted) continue;
+      persistedOrder.push(sendId);
+      const merged = after ? mergeChatSendRecord(persisted, before, after) : persisted;
+      byId.set(sendId, merged);
+    }
+    const orderedIds = new Set(persistedOrder);
+    const next = [
+      ...persistedOrder.flatMap((sendId) => {
+        const send = byId.get(sendId);
+        return send ? [send] : [];
+      }),
+      ...[...byId.values()].filter((send) => !orderedIds.has(send.id)),
+    ];
+    if (!sameList(current, next)) {
+      setTab(tabId, next);
+    }
+    hydrationStates.set(tabId, state === "ready" ? "ready" : "error");
+    notify(tabId);
+  }).catch(() => {
+    hydrationStates.set(tabId, "error");
+    notify(tabId);
+  }).finally(() => {
+    attemptedHydrationTabs.add(tabId);
+    hydrationTasks.delete(tabId);
+    hydrationRemovedIds.delete(tabId);
+  });
+  hydrationTasks.set(tabId, task);
+  return task;
+}
+
+function sameList(left: readonly DeliverySend[], right: readonly DeliverySend[]): boolean {
+  return left.length === right.length && left.every((send, index) => send === right[index]);
+}
+
+function persistDiff(tabId: string, previous: readonly DeliverySend[], next: readonly DeliverySend[]): void {
+  const before = new Map(previous.map((send) => [send.id, send]));
+  const after = new Map(next.map((send) => [send.id, send]));
+  for (const [sendId, current] of after) {
+    const prior = before.get(sendId);
+    if (prior === current || (prior && sameDurableSend(prior, current))) continue;
+    void activeRepository.persist(tabId, prior, current);
+  }
+  for (const [sendId, prior] of before) {
+    if (!after.has(sendId)) void activeRepository.remove(tabId, sendId, prior);
+  }
+}
+
+function applyPersistedRecord(tabId: string, sendId: string, record?: ChatSendDurableRecord): void {
+  const current = sendsByTab.get(tabId) ?? EMPTY;
+  const existing = current.find((send) => send.id === sendId);
+  if (record?.deleted) {
+    if (!existing) return;
+    setTab(tabId, current.filter((send) => send.id !== sendId));
+    notify(tabId);
+    return;
+  }
+  const persisted = record ? decodeChatSend(record) : null;
+  if (!persisted) return;
+  const merged = existing ? mergeChatSendRecord(existing, undefined, persisted) : persisted;
+  if (existing && sameDurableSend(existing, merged)) return;
+  setTab(tabId, existing ? current.map((send) => send.id === sendId ? merged : send) : [...current, merged]);
+  notify(tabId);
+}
+
+function onRepositoryChange(tabId: string, sendId: string): void {
+  void activeRepository.read(tabId, sendId).then((record) => applyPersistedRecord(tabId, sendId, record));
+}
+
 export function readChatSends(tabId: string): readonly DeliverySend[] {
-  load();
+  void ensureTabHydrated(tabId);
   return sendsByTab.get(tabId) ?? EMPTY;
+}
+
+function readChatSendSnapshot(tabId: string): ChatSendSnapshot {
+  const sends = sendsByTab.get(tabId) ?? EMPTY;
+  const hydration = hydrationStates.get(tabId) ?? "pending";
+  const current = snapshotsByTab.get(tabId);
+  if (current?.sends === sends && current.hydration === hydration) return current;
+  const next = { sends, hydration };
+  snapshotsByTab.set(tabId, next);
+  return next;
+}
+
+export function ensureChatSendTabHydrated(tabId: string): Promise<void> {
+  return ensureTabHydrated(tabId);
+}
+
+export function isChatSendTabHydrated(tabId: string): boolean {
+  return hydrationStates.get(tabId) === "ready";
+}
+
+export function chatSendTabHydrationState(tabId: string): ChatSendHydrationState {
+  return hydrationStates.get(tabId) ?? "pending";
+}
+
+export function chatSendPersistenceState(): ReturnType<ChatSendRepositoryPort["state"]> {
+  return activeRepository.state();
+}
+
+export function __setChatSendRepositoryForTest(next: ChatSendRepositoryPort | null): void {
+  unsubscribeRepository();
+  activeRepository = next ?? repository;
+  unsubscribeRepository = activeRepository.subscribe(onRepositoryChange);
+  forgetChatSendsInMemory();
 }
 
 export function addChatSend(tabId: string, send: ChatSend): void {
@@ -129,8 +208,10 @@ export function observeDeliveryStatus(status: ChatSendStatus): void {
 }
 
 export function failChatSendRequest(tabId: string, id: string): void {
-  publish(tabId, readChatSends(tabId).map((send) => (send.id === id || send.correlationId === id) && deliveryState(send) !== "delivered"
-    ? { ...send, requestFailed: true } : send));
+  const current = readChatSends(tabId);
+  const next = current.map((send) => (send.id === id || send.correlationId === id) && deliveryState(send) !== "delivered"
+    ? { ...send, requestFailed: true } : send);
+  if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
 
 export function reconcileChatSendAdmission(tabId: string, correlationId: string, evidence: AdmissionEvidence): void {
@@ -174,10 +255,16 @@ export function beginChatSendRetry(tabId: string, id: string): DeliverySend | un
 }
 
 export function setChatSendDraft(tabId: string, id: string, draft: DeliveryDraft | undefined): void {
-  publish(tabId, readChatSends(tabId).map((send) => send.id === id ? { ...send, draft } : send));
+  const current = readChatSends(tabId);
+  const next = current.map((send) => send.id === id && !sameDraft(send.draft, draft) ? { ...send, draft } : send);
+  if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
 
-/** Content may morph (a transcription placeholder); the send's key never does. */
+function sameDraft(left: DeliveryDraft | undefined, right: DeliveryDraft | undefined): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/** Content can morph (a transcription placeholder); the send's key never does. */
 export function updateChatSendContent(tabId: string, id: string, content: string): void {
   const current = readChatSends(tabId);
   if (!current.some((send) => send.id === id && send.content !== content)) return;
@@ -199,11 +286,33 @@ export function chatSendAt(tabId: string, id: string | undefined): number | null
   return readChatSends(tabId).find((send) => send.id === id || send.correlationId === id)?.sentAtMs ?? null;
 }
 
-/** Drops the in-memory copy exactly as a restart does; stored reconciled sends reload on next read. */
+/** Drops the in-memory copy as a restart does; callers await the tab hydration boundary. */
 export function forgetChatSendsInMemory(): void {
   sendsByTab.clear();
-  loaded = false;
+  attemptedHydrationTabs.clear();
+  hydrationStates.clear();
+  hydrationTasks.clear();
+  hydrationRemovedIds.clear();
+  snapshotsByTab.clear();
   for (const set of listeners.values()) for (const listener of set) listener();
+}
+
+function publish(tabId: string, next: readonly DeliverySend[]): void {
+  const previous = sendsByTab.get(tabId) ?? EMPTY;
+  if (hydrationStates.get(tabId) === "pending") {
+    const retainedIds = new Set(next.map((send) => send.id));
+    let removed = hydrationRemovedIds.get(tabId);
+    if (!removed) hydrationRemovedIds.set(tabId, (removed = new Set()));
+    for (const send of previous) if (!retainedIds.has(send.id)) removed.add(send.id);
+  }
+  setTab(tabId, next);
+  while (sendsByTab.size > MAX_TABS) {
+    const oldest = sendsByTab.keys().next().value;
+    if (oldest == null || oldest === tabId) break;
+    sendsByTab.delete(oldest);
+  }
+  persistDiff(tabId, previous, next);
+  notify(tabId);
 }
 
 function subscribe(tabId: string, onChange: () => void): () => void {
@@ -217,9 +326,15 @@ function subscribe(tabId: string, onChange: () => void): () => void {
 }
 
 export function useChatSends(tabId: string): readonly DeliverySend[] {
+  return useChatSendSnapshot(tabId).sends;
+}
+
+export function useChatSendSnapshot(tabId: string): ChatSendSnapshot {
   const subscribeToTab = useCallback((onChange: () => void) => subscribe(tabId, onChange), [tabId]);
-  const read = useCallback(() => readChatSends(tabId), [tabId]);
-  return useSyncExternalStore(subscribeToTab, read, read);
+  const read = useCallback(() => readChatSendSnapshot(tabId), [tabId]);
+  const snapshot = useSyncExternalStore(subscribeToTab, read, read);
+  useEffect(() => { void ensureTabHydrated(tabId); }, [tabId]);
+  return snapshot;
 }
 
 export type ChatSendDismissal = { send_id: string; send: ChatSend };
@@ -254,5 +369,8 @@ export function endChatSendDeletion(tabId: string, id: string): void {
 }
 
 export function setDroppedUploads(tabId: string, id: string, names: string[]): void {
-  publish(tabId, readChatSends(tabId).map(send => send.id === id ? { ...send, droppedUploads: names } : send));
+  const current = readChatSends(tabId);
+  const next = current.map((send) => send.id === id && JSON.stringify(send.droppedUploads) !== JSON.stringify(names)
+    ? { ...send, droppedUploads: names } : send);
+  if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
