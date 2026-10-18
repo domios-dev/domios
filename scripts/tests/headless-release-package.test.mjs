@@ -174,6 +174,66 @@ test('synthetic full and headless variants retain identical common server bytes'
   assert.deepEqual(await readFile(repeated.archivePath), archive);
 }));
 
+test('component manifest field order is flexible and its staged bytes are preserved', async t => withTemp(t, async root => {
+  const stage = await makeStage(root);
+  const componentPath = path.join(stage.stageDirectory, 'server-component.json');
+  const parsed = JSON.parse(await readFile(componentPath, 'utf8'));
+  const reordered = {
+    bootstrap_protocol: parsed.bootstrap_protocol,
+    client_sha256: parsed.client_sha256,
+    api_version: parsed.api_version,
+    server_sha256: parsed.server_sha256,
+    server_executable: parsed.server_executable,
+    schema: parsed.schema,
+    server_build: parsed.server_build,
+  };
+  const componentBytes = text(JSON.stringify(reordered, null, 2) + '\n');
+  await writeFile(componentPath, componentBytes);
+  await rewriteInventory(stage.stageDirectory, 'linux-x86_64', stage.metadata);
+
+  const validated = await validateHeadlessStage({
+    stageDirectory: stage.stageDirectory,
+    target: stage.metadata.target,
+    ...identity,
+  });
+  assert.deepEqual(validated.files.find(file => file.path === 'server-component.json').bytes, componentBytes);
+
+  const result = await packageHeadless({
+    stageDirectory: stage.stageDirectory,
+    outputDirectory: path.join(root, 'release-artifacts'),
+    target: stage.metadata.target,
+    ...identity,
+  });
+  const entry = readHeadlessArchive(await readFile(result.archivePath)).get('server-component.json');
+  assert.deepEqual(entry.bytes, componentBytes);
+}));
+
+test('invalid replacement stage preserves the previous complete output set', async t => withTemp(t, async root => {
+  const stage = await makeStage(root);
+  const outputDirectory = path.join(root, 'release-artifacts');
+  const first = await packageHeadless({
+    stageDirectory: stage.stageDirectory,
+    outputDirectory,
+    target: stage.metadata.target,
+    ...identity,
+  });
+  const outputPaths = [first.archivePath, first.checksumPath, first.manifestPath];
+  const previousBytes = await Promise.all(outputPaths.map(file => readFile(file)));
+
+  await writeFile(path.join(stage.stageDirectory, 'LICENSE'), 'invalid changed license');
+  await assert.rejects(packageHeadless({
+    stageDirectory: stage.stageDirectory,
+    outputDirectory,
+    target: stage.metadata.target,
+    ...identity,
+  }), /stage SHA-256 does not match payload bytes: LICENSE/);
+
+  for (let index = 0; index < outputPaths.length; index += 1) {
+    assert.deepEqual(await readFile(outputPaths[index]), previousBytes[index]);
+  }
+  assert.deepEqual((await readdir(outputDirectory)).sort(), outputPaths.map(file => path.basename(file)).sort());
+}));
+
 test('Windows arm64 package requires and carries only the target ConPTY pair', async t => withTemp(t, async root => {
   const stage = await makeStage(root, 'windows-aarch64');
   const validated = await validateHeadlessStage({
