@@ -109,7 +109,7 @@ function buildInitialState(): ExtendedState {
     teams: cached.teams ?? [],
     ...initialPageSelection(cached, loadClientPageSelection()),
     recently_closed: cached.recently_closed,
-    closed_structures: cached.closed_structures,
+    closed_structures: cached.closed_structures, tabStatuses: cached.tab_statuses ?? {},
     generation: HYDRATED_GENERATION,
   };
 }
@@ -222,13 +222,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [applyRemoteProjection]);
 
   const { generation, workspaces, tabs, teams, activeTabIds, active_workspace_id,
-    focused_tab_id, recently_closed, closed_structures } = state;
+    focused_tab_id, recently_closed, closed_structures, tabStatuses } = state;
   useEffect(() => {
     if (!IS_WEB || generation <= 0) return;
     void saveStateSnapshot({ generation, tabs, teams, active_workspace_id, focused_tab_id,
-      recently_closed, closed_structures, workspaces, activeTabIds });
+      recently_closed, closed_structures, workspaces, activeTabIds, tab_statuses: tabStatuses });
   }, [generation, workspaces, tabs, teams, activeTabIds, active_workspace_id,
-    focused_tab_id, recently_closed, closed_structures]);
+    focused_tab_id, recently_closed, closed_structures, tabStatuses]);
 
   const cachedBackendGenerationRef = useRef<number | undefined>(undefined);
   const acceptBackendState = useCallback((s: MultiplexerState) => {
