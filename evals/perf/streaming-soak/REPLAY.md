@@ -336,3 +336,13 @@ Pending and replay failure evidence remain unchanged; a separate abort record an
 aborted stage never count as replay success or permit replay/resume. An interrupted
 abort/cleanup needs owner review, never automatic repeat. Do not clear a pending
 journal, seed again, erase its checkpoint or create another run before teardown.
+
+
+Functional replay now visits each exact seed target before dispatch/visible-tail
+verification, returns to local before measured input, and selects each target for
+final restoration/read. Inactive mounted chat shells may contain no message DOM.
+Measured background-control evidence therefore uses only the public projection tail;
+its visible DOM/internal store/durable storage evidence remains explicitly unavailable.
+Selected local and final selected-tail checks still require the exact visible source ID.
+The actual tail signature is row id plus # plus JavaScript content length, matching
+paintTailSignature; no monitor snapshot is converted into invented DOM rows.
