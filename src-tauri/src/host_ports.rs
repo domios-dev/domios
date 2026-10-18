@@ -1,6 +1,10 @@
-use std::path::PathBuf;
 #[cfg(test)]
-use std::time::{Duration, Instant};
+use std::time::Instant;
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicU8, AtomicUsize, Ordering},
+    time::Duration,
+};
 
 use codeterm_service_core::ports::host::{Shell, ShellError, UiEvents, WebviewRequest};
 use serde_json::Value;
@@ -8,6 +12,33 @@ use tauri::{Emitter, Manager};
 
 #[cfg(test)]
 const MAX_PENDING_NATIVE_CALLS: usize = 64;
+
+const MAX_QUEUED_MAIN_THREAD_CALLS: usize = 64;
+const MAIN_THREAD_ACK_DEADLINE: Duration = Duration::from_secs(10);
+const MAIN_THREAD_QUEUED: u8 = 0;
+const MAIN_THREAD_RUNNING: u8 = 1;
+const MAIN_THREAD_CANCELLED: u8 = 2;
+const MAIN_THREAD_COMPLETED: u8 = 3;
+static QUEUED_MAIN_THREAD_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+struct MainThreadQueuePermit;
+
+impl MainThreadQueuePermit {
+    fn acquire() -> Result<Self, ShellError> {
+        QUEUED_MAIN_THREAD_CALLS
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
+                (pending < MAX_QUEUED_MAIN_THREAD_CALLS).then_some(pending + 1)
+            })
+            .map_err(|_| ShellError::Failed("Native main-thread queue is full".into()))?;
+        Ok(Self)
+    }
+}
+
+impl Drop for MainThreadQueuePermit {
+    fn drop(&mut self) {
+        QUEUED_MAIN_THREAD_CALLS.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -566,12 +597,71 @@ impl TauriShell {
     ) -> Result<T, ShellError> {
         let app = self.0.clone();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let phase = std::sync::Arc::new(AtomicU8::new(MAIN_THREAD_QUEUED));
+        let scheduled_phase = phase.clone();
+        let permit = MainThreadQueuePermit::acquire()?;
         self.0
             .run_on_main_thread(move || {
+                let _permit = permit;
+                if scheduled_phase
+                    .compare_exchange(
+                        MAIN_THREAD_QUEUED,
+                        MAIN_THREAD_RUNNING,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
+                    .is_err()
+                {
+                    return;
+                }
                 let _ = sender.send(action(app));
+                scheduled_phase.store(MAIN_THREAD_COMPLETED, Ordering::Release);
             })
             .map_err(failed)?;
-        receiver.recv().map_err(failed)?
+        match receiver.recv_timeout(MAIN_THREAD_ACK_DEADLINE) {
+            Ok(result) => result,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if phase
+                    .compare_exchange(
+                        MAIN_THREAD_QUEUED,
+                        MAIN_THREAD_CANCELLED,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
+                    .is_ok()
+                {
+                    Err(ShellError::Failed(
+                        "Main-thread action cancelled before execution at its acknowledgement deadline".into(),
+                    ))
+                } else {
+                    match receiver.try_recv() {
+                        Ok(result) => result,
+                        Err(_) => Err(ShellError::Failed(
+                            "Main-thread action acknowledgement deadline elapsed after execution began; outcome is uncertain".into(),
+                        )),
+                    }
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                if phase
+                    .compare_exchange(
+                        MAIN_THREAD_QUEUED,
+                        MAIN_THREAD_CANCELLED,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
+                    .is_ok()
+                {
+                    Err(ShellError::Failed(
+                        "Main-thread action cancelled before execution because its acknowledgement channel closed".into(),
+                    ))
+                } else {
+                    Err(ShellError::Failed(
+                        "Main-thread action acknowledgement channel closed after execution began; outcome is uncertain".into(),
+                    ))
+                }
+            }
+        }
     }
 }
 
