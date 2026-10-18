@@ -12,7 +12,7 @@ codeterm-decision = { path = "../codeterm-decision" }
 codeterm-mem = { path = "../codeterm-mem", default-features = false }
 codeterm-plugin = { path = "../codeterm-plugin" }
 codeterm-worker-services = { path = "../codeterm-worker-services" }
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 codeterm-util = { path = "../codeterm-util" }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-notification-core = { path = "../codeterm-notification-core" }
