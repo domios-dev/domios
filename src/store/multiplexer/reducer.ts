@@ -10,6 +10,7 @@ import type {
   Notification,
   TabStatus,
   BootStage,
+  TabBootStageEvent,
 } from "../../lib/types";
 import {
   highestTitleLevel,
@@ -49,7 +50,7 @@ export type Action =
   | { type: "SET_TAB_TITLE"; tabId: string; title: string; level?: TitleLevel }
   | { type: "SET_AGENT_TYPE"; tabId: string; agentType: string | null }
   | { type: "UPDATE_TAB_STATUS"; tabId: string; status: TabStatus }
-  | { type: "UPDATE_BOOT_STAGE"; tabId: string; stage: BootStage; reason?: string | null; agent_booting?: boolean; session_bound?: boolean }
+  | { type: "UPDATE_BOOT_STAGE"; tabId: string; stage: BootStage; reason?: string | null; agent_booting?: boolean; session_bound?: boolean; launchGeneration?: TabBootStageEvent["launch_generation"] }
   | { type: "REMOVE_PENDING_CLOSE"; tabIds: string[] }
   | { type: "RESET_PEER_CONTEXT" }
   | { type: "STORAGE_UNAVAILABLE" }
@@ -635,6 +636,10 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "UPDATE_BOOT_STAGE": {
       const tab = state.tabs[action.tabId];
       if (!tab) return state;
+      const launch = action.launchGeneration;
+      if ((launch?.pty_id && tab.pty_id && launch.pty_id !== tab.pty_id)
+        || (launch?.binding_nonce && tab.session_binding_nonce && launch.binding_nonce !== tab.session_binding_nonce)) return state;
+      const ready = action.stage === "agent_ready";
       return {
         ...state,
         tabs: {
@@ -644,6 +649,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             boot_stage: action.stage,
             agent_booting: action.agent_booting ?? tab.agent_booting,
             session_bound: action.session_bound ?? tab.session_bound,
+            frozen: ready ? false : tab.frozen,
+            slept_at_ms: ready ? null : tab.slept_at_ms,
             boot_failure_reason: STAGES_CARRYING_REASON.has(action.stage)
               ? (action.reason ?? null)
               : null,
