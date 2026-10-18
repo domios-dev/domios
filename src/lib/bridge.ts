@@ -226,8 +226,8 @@ function isCommandNotFoundError(err: unknown): boolean {
 
 /** Reopen a recently-closed tab in a workspace. `index` selects the ring
  *  entry (0 = most recent, the default). Works in both Tauri and web modes. */
-export function reopenClosedTab(workspaceId: string, index = 0): Promise<TabInfo> {
-  return invoke<TabInfo>("mux_reopen_closed_tab", { workspaceId, index });
+export function reopenClosedTab(workspaceId: string, index = 0): Promise<{ tab_id: string }> {
+  return invoke<{ tab_id: string }>("mux_reopen_closed_tab", { workspaceId, index });
 }
 
 /** Reopen a whole closed group (single / cascade subtree / workspace) by id.
