@@ -1,4 +1,5 @@
 import type { Tab } from "./types";
+import { frontendCacheRepository, frontendCacheScope, type FrontendCacheRecord } from "./frontendCacheRecords";
 
 export interface RemotePeerTabs {
   peer_id: string;
@@ -6,7 +7,80 @@ export interface RemotePeerTabs {
   tabs: Tab[];
 }
 
-const STORAGE_KEY = "codeterm.remote-tab-attachments.v1";
+const CACHE_SCOPE = "codeterm:remote-tab-attachments:v1";
+const CACHE_SCHEMA = 1;
+
+interface AttachmentCache {
+  tabs: Record<string, Tab>;
+  hydrated: boolean;
+  hydration?: Promise<Record<string, Tab>>;
+  pendingUpserts: Record<string, Tab>;
+  pendingDeletes: Set<string>;
+}
+
+const attachmentCaches = new Map<string, AttachmentCache>();
+
+function cacheScope(): string | null {
+  return frontendCacheScope(CACHE_SCOPE);
+}
+
+function cacheFor(scope: string): AttachmentCache {
+  let cache = attachmentCaches.get(scope);
+  if (!cache) {
+    cache = { tabs: {}, hydrated: false, pendingUpserts: {}, pendingDeletes: new Set() };
+    attachmentCaches.set(scope, cache);
+  }
+  return cache;
+}
+
+function validAttachments(records: FrontendCacheRecord[], schemaVersion: unknown): Record<string, Tab> | null {
+  if (schemaVersion !== CACHE_SCHEMA || records.some((record) => record.kind !== "attachment")) return null;
+  const tabs: Record<string, Tab> = {};
+  for (const record of records) {
+    if (record.kind !== "attachment") continue;
+    const tab = record.value as Tab | null;
+    if (!tab || typeof tab !== "object" || record.id !== tab.id || !record.id.startsWith("mesh:")) return null;
+    tabs[record.id] = tab;
+  }
+  return tabs;
+}
+
+function attachmentRecords(tabs: Record<string, Tab>): FrontendCacheRecord[] {
+  return Object.entries(tabs).map(([id, tab]) => ({ kind: "attachment", id, value: tab }));
+}
+
+async function persistAttachments(scope: string, cache: AttachmentCache): Promise<void> {
+  await frontendCacheRepository.write(scope, attachmentRecords(cache.tabs), { schemaVersion: CACHE_SCHEMA });
+}
+
+async function hydrateScope(scope: string): Promise<Record<string, Tab>> {
+  const cache = cacheFor(scope);
+  if (cache.hydrated) return cache.tabs;
+  if (cache.hydration) return cache.hydration;
+  const hydration = frontendCacheRepository.read(scope).then(async (snapshot) => {
+    const stored = snapshot
+      ? validAttachments(snapshot.records, snapshot.manifest.metadata.schemaVersion)
+      : {};
+    if (stored === null) {
+      if (snapshot) await frontendCacheRepository.clear(scope, snapshot.manifest.revision);
+      cache.tabs = {};
+    } else {
+      cache.tabs = { ...stored, ...cache.tabs };
+    }
+    for (const id of cache.pendingDeletes) delete cache.tabs[id];
+    Object.assign(cache.tabs, cache.pendingUpserts);
+    const changedBeforeHydration = cache.pendingDeletes.size > 0 || Object.keys(cache.pendingUpserts).length > 0;
+    cache.pendingDeletes.clear();
+    cache.pendingUpserts = {};
+    cache.hydrated = true;
+    if (changedBeforeHydration) await persistAttachments(scope, cache);
+    return cache.tabs;
+  }).catch(() => cache.tabs).finally(() => {
+    cache.hydration = undefined;
+  });
+  cache.hydration = hydration;
+  return hydration;
+}
 
 export function reconcileAttachedRemoteTabs(
   live: Record<string, Tab>,
@@ -20,20 +94,37 @@ export function reconcileAttachedRemoteTabs(
 }
 
 export function loadAttachedRemoteTabs(): Record<string, Tab> {
-  try {
-    const value = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, Tab>;
-    return Object.fromEntries(Object.entries(value).filter(([id, tab]) => id === tab.id && id.startsWith("mesh:")));
-  } catch {
-    return {};
-  }
+  const scope = cacheScope();
+  return scope ? cacheFor(scope).tabs : {};
+}
+
+export function hydrateAttachedRemoteTabs(): Promise<Record<string, Tab>> {
+  const scope = cacheScope();
+  return scope ? hydrateScope(scope) : Promise.resolve({});
 }
 
 export function saveAttachedRemoteTabs(tabs: Record<string, Tab>): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tabs));
-  } catch {
+  const scope = cacheScope();
+  if (!scope) return;
+  const cache = cacheFor(scope);
+  const valid = Object.fromEntries(Object.entries(tabs).filter(([id, tab]) => id === tab.id && id.startsWith("mesh:")));
+  const previousIds = Object.keys(cache.tabs);
+  cache.tabs = valid;
+  if (!cache.hydrated) {
+    for (const [id, tab] of Object.entries(valid)) {
+      cache.pendingUpserts[id] = tab;
+      cache.pendingDeletes.delete(id);
+    }
+    for (const id of previousIds) {
+      if (!Object.prototype.hasOwnProperty.call(valid, id)) {
+        delete cache.pendingUpserts[id];
+        cache.pendingDeletes.add(id);
+      }
+    }
+    void hydrateScope(scope);
     return;
   }
+  void persistAttachments(scope, cache).catch(() => undefined);
 }
 
 export function projectAttachedRemoteTab(
