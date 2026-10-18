@@ -543,80 +543,63 @@ fn team_close_does_not_rewrite_done_task_lane_for_a_closed_attempt() {
     assert_eq!(task.lane, lane_before);
 }
 
+#[derive(Default)]
+struct FakeTeamLaneCleanup {
+    worktrees: std::collections::HashSet<String>,
+    branches: std::collections::HashSet<String>,
+    hold_reasons: std::collections::HashMap<String, String>,
+    removed_branches: Vec<String>,
+}
+
+impl super::super::close::TeamLaneCleanupIo for FakeTeamLaneCleanup {
+    fn worktree_exists(&mut self, path: &str) -> bool {
+        self.worktrees.contains(path)
+    }
+
+    fn branch_exists(
+        &mut self,
+        _lane: &super::super::close::TeamCloseLane,
+        branch: &str,
+    ) -> Result<bool, String> {
+        Ok(self.branches.contains(branch))
+    }
+
+    fn hold_reason(&mut self, lane: &super::super::close::TeamCloseLane) -> Option<String> {
+        lane.branch
+            .as_ref()
+            .and_then(|branch| self.hold_reasons.get(branch))
+            .cloned()
+    }
+
+    fn remove_lane(&mut self, lane: &super::super::close::TeamCloseLane) -> Result<(), String> {
+        let branch = lane.branch.as_ref().unwrap().clone();
+        if let Some(path) = &lane.worktree_path {
+            self.worktrees.remove(path);
+        }
+        if self.branches.remove(&branch) {
+            self.removed_branches.push(branch.clone());
+        }
+        Ok(())
+    }
+}
+
 #[test]
 fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     let dir = tempfile::tempdir().unwrap();
     let root =
         std::path::PathBuf::from(codeterm_paths::canonical_cwd(&dir.path().to_string_lossy()));
-    let repo = root.join("repo");
-    fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init"]);
-    git(&repo, &["config", "user.name", "CodeTerm Tests"]);
-    git(&repo, &["config", "user.email", "tests@codeterm.invalid"]);
-    fs::write(repo.join("base.txt"), "base\n").unwrap();
-    git(&repo, &["add", "base.txt"]);
-    git(&repo, &["commit", "-m", "base"]);
-    git(&repo, &["branch", "-M", "main"]);
-    let base = git(&repo, &["rev-parse", "HEAD"]);
+    let project = root.join("repo");
     let clean_lane = root.join("clean-lane");
     let work_lane = root.join("work-lane");
     let dirty_lane = root.join("dirty-lane");
     let retained_lane = root.join("retained-lane");
-    git(
-        &repo,
-        &[
-            "worktree",
-            "add",
-            "-b",
-            "lane/clean",
-            clean_lane.to_str().unwrap(),
-            &base,
-        ],
-    );
-    git(
-        &repo,
-        &[
-            "worktree",
-            "add",
-            "-b",
-            "release/retained",
-            retained_lane.to_str().unwrap(),
-            &base,
-        ],
-    );
-    git(
-        &repo,
-        &[
-            "worktree",
-            "add",
-            "-b",
-            "lane/work",
-            work_lane.to_str().unwrap(),
-            &base,
-        ],
-    );
-    git(
-        &repo,
-        &[
-            "worktree",
-            "add",
-            "-b",
-            "lane/dirty",
-            dirty_lane.to_str().unwrap(),
-            &base,
-        ],
-    );
-    fs::write(work_lane.join("work.txt"), "work\n").unwrap();
-    git(&work_lane, &["add", "work.txt"]);
-    git(&work_lane, &["commit", "-m", "work"]);
-    fs::write(dirty_lane.join("uncommitted.txt"), "keep\n").unwrap();
-
+    let orphan_lane = root.join("missing-lane");
     let store = codeterm_service_core::service::plan::PlanStore::new_for_test(dir.path());
     let (mut mux, team_id, orchestrator, _, worker) = team_members();
     let plan = store
         .create_plan_for_team(
             "Team lanes".into(),
-            repo.display().to_string(),
+            project.display().to_string(),
             codeterm_service_core::plan::OrchestratorRef::from_tab(&orchestrator),
             team_id.clone(),
             vec![],
@@ -630,7 +613,7 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         &worker,
         &clean_lane,
         "lane/clean",
-        &base,
+        "main",
         2,
     );
     let work_task = add_team_lane_task(
@@ -640,7 +623,7 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         &worker,
         &work_lane,
         "lane/work",
-        &base,
+        "main",
         3,
     );
     let dirty_task = add_team_lane_task(
@@ -650,7 +633,7 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         &worker,
         &dirty_lane,
         "lane/dirty",
-        &base,
+        "main",
         4,
     );
     let orphan_task = add_team_lane_task(
@@ -658,12 +641,21 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         &plan.id,
         "lane branch without worktree",
         &worker,
-        &root.join("missing-lane"),
+        &orphan_lane,
         "lane/orphan",
-        &base,
+        "main",
         5,
     );
-    git(&repo, &["branch", "lane/orphan", &base]);
+    let retained_task = add_team_lane_task(
+        &store,
+        &plan.id,
+        "non-lane branch",
+        &worker,
+        &retained_lane,
+        "release/retained",
+        "main",
+        6,
+    );
     let mut plan_state = store.get(&plan.id).unwrap();
     let clean = plan_state
         .tasks
@@ -677,86 +669,85 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         .find(|task| task.id == work_task)
         .unwrap();
     unplanned.kind = "unplanned".into();
-    store.save(&mut plan_state, 5).unwrap();
-    let retained_task = add_team_lane_task(
-        &store,
-        &plan.id,
-        "non-lane branch",
-        &worker,
-        &retained_lane,
-        "release/retained",
-        &base,
-        6,
-    );
+    store.save(&mut plan_state, 7).unwrap();
+
+    let mut cleanup = FakeTeamLaneCleanup {
+        worktrees: [
+            clean_lane.display().to_string(),
+            work_lane.display().to_string(),
+            dirty_lane.display().to_string(),
+            retained_lane.display().to_string(),
+        ]
+        .into_iter()
+        .collect(),
+        branches: [
+            "lane/clean".into(),
+            "lane/work".into(),
+            "lane/dirty".into(),
+            "lane/orphan".into(),
+            "release/retained".into(),
+        ]
+        .into_iter()
+        .collect(),
+        hold_reasons: [
+            (
+                "lane/work".into(),
+                "branch has unmerged commits ahead of destination main".into(),
+            ),
+            (
+                "lane/dirty".into(),
+                format!("dirty worktree: {}", dirty_lane.display()),
+            ),
+            (
+                "release/retained".into(),
+                "branch release/retained is outside the lane/ namespace".into(),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+        removed_branches: Vec::new(),
+    };
     let events = codeterm_events::EventBroadcaster::new();
 
-    close_team_with_state_change(
+    super::super::close::close_team_with_state_change_using_lane_cleanup(
         &mut mux,
         &events,
         &store,
         &team_id,
         &TeamMutationCaller::AgentTab(orchestrator),
-        5,
+        8,
+        |mux, tab_id| mux.close_tab_for_team_close(tab_id),
+        &mut cleanup,
     )
     .unwrap();
 
-    let worktrees = git(&repo, &["worktree", "list", "--porcelain"]);
-    let normalized_worktrees = worktrees.replace('\\', "/");
-    let clean_lane_path = clean_lane.display().to_string().replace('\\', "/");
-    let work_lane_path = work_lane.display().to_string().replace('\\', "/");
-    let retained_lane_path = retained_lane.display().to_string().replace('\\', "/");
-    let dirty_lane_path = dirty_lane.display().to_string().replace('\\', "/");
-    assert!(!normalized_worktrees.contains(&clean_lane_path));
-    assert!(normalized_worktrees.contains(&work_lane_path));
-    assert!(normalized_worktrees.contains(&dirty_lane_path));
-    assert!(normalized_worktrees.contains(&retained_lane_path));
-    assert!(!git_status_success(
-        &repo,
-        &["show-ref", "--verify", "--quiet", "refs/heads/lane/clean"]
-    ));
-    assert!(!git_status_success(
-        &repo,
-        &["show-ref", "--verify", "--quiet", "refs/heads/lane/orphan"]
-    ));
-    assert!(git_status_success(
-        &repo,
-        &["show-ref", "--verify", "--quiet", "refs/heads/lane/work"]
-    ));
-    assert!(git_status_success(
-        &repo,
-        &["show-ref", "--verify", "--quiet", "refs/heads/lane/dirty"]
-    ));
-    assert!(git_status_success(
-        &repo,
-        &[
-            "show-ref",
-            "--verify",
-            "--quiet",
-            "refs/heads/release/retained"
-        ]
-    ));
+    assert_eq!(cleanup.removed_branches, ["lane/clean", "lane/orphan"]);
+    assert!(!cleanup
+        .worktrees
+        .contains(&clean_lane.display().to_string()));
+    assert!(!cleanup.branches.contains("lane/clean"));
+    assert!(!cleanup.branches.contains("lane/orphan"));
+    assert!(cleanup.worktrees.contains(&work_lane.display().to_string()));
+    assert!(cleanup
+        .worktrees
+        .contains(&dirty_lane.display().to_string()));
+    assert!(cleanup
+        .worktrees
+        .contains(&retained_lane.display().to_string()));
+    assert!(cleanup.branches.contains("lane/work"));
+    assert!(cleanup.branches.contains("lane/dirty"));
+    assert!(cleanup.branches.contains("release/retained"));
 
     let closed = store.get(&plan.id).unwrap();
-    let clean = closed
-        .tasks
-        .iter()
-        .find(|task| task.id == clean_task)
-        .unwrap();
+    let lane_for = |task_id: &str| closed.tasks.iter().find(|task| task.id == task_id).unwrap();
+    let clean = lane_for(&clean_task);
     assert_eq!(clean.lane.worktree_path, None);
     assert_eq!(clean.lane.cleanup_status.as_deref(), Some("done"));
-    let orphan = closed
-        .tasks
-        .iter()
-        .find(|task| task.id == orphan_task)
-        .unwrap();
+    let orphan = lane_for(&orphan_task);
     assert_eq!(orphan.lane.worktree_path, None);
     assert_eq!(orphan.lane.branch, None);
     assert_eq!(orphan.lane.cleanup_status.as_deref(), Some("done"));
-    let work = closed
-        .tasks
-        .iter()
-        .find(|task| task.id == work_task)
-        .unwrap();
+    let work = lane_for(&work_task);
     assert_eq!(
         work.status,
         codeterm_service_core::plan::TaskStatus::Pending
@@ -772,20 +763,12 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
             && hint.contains("lane/work")
             && hint.contains("unmerged commits ahead of destination main")
     }));
-    let dirty = closed
-        .tasks
-        .iter()
-        .find(|task| task.id == dirty_task)
-        .unwrap();
+    let dirty = lane_for(&dirty_task);
     assert_eq!(dirty.lane.cleanup_status.as_deref(), Some("cleanup_debt"));
     assert!(dirty.lane.cleanup_hints.iter().any(|hint| {
         hint.contains("dirty worktree") && hint.contains(dirty_lane.to_str().unwrap())
     }));
-    let retained = closed
-        .tasks
-        .iter()
-        .find(|task| task.id == retained_task)
-        .unwrap();
+    let retained = lane_for(&retained_task);
     assert_eq!(
         retained.lane.cleanup_status.as_deref(),
         Some("cleanup_debt")
@@ -800,7 +783,6 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         .iter()
         .any(|hint| hint.contains("outside the lane/ namespace")));
 }
-
 #[test]
 fn team_close_inventory_includes_terminal_unplanned_child_and_worktree_less_lanes() {
     let dir = tempfile::tempdir().unwrap();
@@ -1115,8 +1097,4 @@ fn git(cwd: &Path, args: &[&str]) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout).trim().to_string()
-}
-
-fn git_status_success(cwd: &Path, args: &[&str]) -> bool {
-    git_command(cwd, args).status().unwrap().success()
 }
