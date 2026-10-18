@@ -1553,6 +1553,7 @@ fi
 
 prepare_bundle_stubs() {
   node scripts/prepare-cli-stub.js
+  node scripts/prepare-bundle-resource-stubs.mjs prepare --target "${CARGO_BUILD_TARGET:-$(ct_host_triple)}"
 }
 
 prepare_dev_frontend_dist() {
@@ -2281,6 +2282,9 @@ prepare_release_bundle_inputs() {
       --features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol" \
       --bin codeterm
   fi
+  if [ "$mode" = "bundle" ] && [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" != 1 ]; then
+    node scripts/prepare-bundle-resource-stubs.mjs assert-package-ready
+  fi
 }
 
 enter_cargo_gateway() {
@@ -2622,10 +2626,12 @@ EOF
     pnpm build
     ;;
   ci-clippy)
+    prepare_bundle_stubs
     bash scripts/clippy-gate.sh
     ;;
   ci-tests)
     case "${2:-}" in full|platform|embeddings) ;; *) echo "Usage: ./build.sh ci-tests full|platform|embeddings" >&2; exit 2 ;; esac
+    prepare_bundle_stubs
     node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-tests.mjs "$2"
     ;;
   frontend-build)

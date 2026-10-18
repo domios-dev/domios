@@ -37,6 +37,7 @@ test("packaging prepares checked frontend and CLI inputs without compiling the a
     "pnpm <build>",
     "cargo <build> <--release> <--timings> <--manifest-path> <cli/Cargo.toml>",
     "node <scripts/bundle-cli.js>",
+    "node <scripts/prepare-bundle-resource-stubs.mjs> <assert-package-ready>",
   ]);
 });
 

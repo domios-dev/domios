@@ -573,7 +573,7 @@ Troubleshooting:
 - `peer routing: busy; X=unknown(not_setup)`: the peer has no `Buildpeer` tab (a peer reboot closes it); rerun `peer-setup`.
 - Windows peer, `outcome=busy exit=75` with `check-worktree git worktree failed (128): ... Filename too long` in the gateway log: provider fixture paths exceed MAX_PATH. `peer-setup` sets repo-local `core.longpaths=true`, which the gateway check worktree inherits; rerun it.
 - `Slow unit ratchet FAIL: added baseline: ...` on a peer nextest of a lane behind develop: the ratchet compares the checkout's baselines against `origin/develop`, so baselines develop has since dropped read as added. The tests themselves passed (see the `tests:` line); merge develop into the lane to clear it.
-- `resource path ../dist doesn't exist` from the `codeterm` build script on a fresh peer checkout: a nextest selection that reaches the app crate (for example `rdeps(...)`) needs the frontend dist placeholder and bundle stubs; `nextest` prepares both, so dispatch a SHA that contains that step.
+- `resource path ../target/domios-package/LICENSE doesn't exist` during app checks or CI Clippy: the Tauri pair resource map needs compile-only stubs. `prepare_bundle_stubs` creates marked missing resources before non-package compiles; the release stage replaces them, while ordinary packaging refuses a remaining marker. Run the focused stub fixture, then verify Clippy from a clean checkout on an eligible remote runner.
 - A job's runner comes from the dispatched SHA, so a lane SHA older than a runner fix behaves like the old runner (no `tests:` summary line in the event, lock released after the event, which makes the next dispatch report `busy` at `peer_lock`).
 
 ## Cache retention and troubleshooting
