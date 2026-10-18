@@ -566,6 +566,8 @@ async function launchPrebuilt(options) {
         else if (message?.type === "failed") fail(new Error(message.error));
         else if (message?.type === "phase" && Number.isInteger(message.phase) && message.phase === phase+1 && message.phase <= 2) {
           phase=message.phase;
+          clearTimeout(deadline);
+          armDeadline();
         }
       });
       child.once("error", fail);
@@ -574,7 +576,10 @@ async function launchPrebuilt(options) {
       );
       child.unref();
       console.log(`[dev-prebuilt] launched pid ${child.pid}, log ${log}`);
-      deadline = setTimeout(() => fail(new Error(`prebuilt app did not report readiness within ${deadlineMs}ms (phase=${['preparation','bootstrap','attachment'][phase]})`)), deadlineMs);
+      function armDeadline() {
+        deadline = setTimeout(() => fail(new Error(`prebuilt app did not report readiness within ${deadlineMs}ms (phase=${['preparation','bootstrap','attachment'][phase]})`)), deadlineMs);
+      }
+      armDeadline();
     }).then((signal) => console.log(`[dev-prebuilt] readiness signal: ${signal}`));
   } catch (error) {
     await terminateOwnedChild(child);
