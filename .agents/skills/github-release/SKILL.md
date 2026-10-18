@@ -337,13 +337,14 @@ CLI version checks where executable, and local updater signature verification. S
 an explicit bundle-only diagnostic. Dry runs skip draft creation, uploads, publication, public
 served-byte verification and promotion; they cannot prove write-token permissions or CDN behavior.
 
-For 1.14.7 smoke is structural: unpack the just-built artifact, require target machine types for
-app/CLI/embed, full source SHA, resources and embedded plugin bytes, and verify the CLI's exact
-release version without a daemon where executable. macOS also verifies deep strict codesigning
+The existing bundle smoke checks target machine types, source SHA, resources, plugin bytes and
+CLI version. The shared-stage finalize step extracts the full package and compares its exact
+manifest, server and CLI bytes with the staged inputs. The pair smoke unpacks the headless archive
+and runs its server with isolated temporary data/config roots, waits for its READY line, checks
+health build identity, runs the packaged CLI through authenticated loopback HTTP, and requires a
+clean shutdown. Its token stays in the child environment. macOS also verifies strict code signing
 and the stapled DMG. Windows records Authenticode status; it is not required until signing is
-provisioned. Windows arm64 checks PE/resources/version only on its x64 cross-builder. No app is
-launched: release builds currently have no isolated profile mode. Isolated execution smoke and a
-native Windows ARM64 VM runner are proposed post-release work.
+provisioned. Windows arm64 native execution remains unverified on its x64 cross-builder.
 
 Troubleshooting: `Bundle structural smoke failed` is a platform failure before upload; inspect the
 named missing file, machine type, plugin or version. Do not bypass it. A Linux Docker preflight
@@ -1074,9 +1075,12 @@ As of 2026-05-12 this skill is the canonical release procedure. No `.claude/agen
 ## Build timing and no-waste contract
 
 Release inputs and the Tauri build use the same `CARGO_TARGET_DIR`, target triple,
-`CARGO_INCREMENTAL=0`, and `embeddings` feature set. `release-inputs` prepares the
-`codeterm` application bin so Tauri can reuse
-the dependency graph. The reusable platform jobs do not use Rust target caches; clean
+`CARGO_INCREMENTAL=0`, and `embeddings` feature set. The paired release path builds the frontend,
+CLI, and server once per target, then runs `pnpm tauri build --no-bundle` once for the client.
+The release stage freezes the final executable bytes and writes schema-2 component inventory
+before `pnpm tauri bundle` packages the existing binaries. Full-package extraction must read back
+the same server and CLI bytes before the separate headless archive is produced from that stage.
+The reusable platform jobs do not use Rust target caches; clean
 checkouts therefore remain explicit and reproducible.
 
 The 1.10.22 baseline was captured from runs `35009190163` (Mac), `35009189838` (Windows),
@@ -1103,9 +1107,11 @@ gh api repos/rollacode/codeterm/actions/runs/<run-id>/jobs --paginate \
   --jq '.jobs[] | [.name, .started_at, .completed_at, .conclusion] | @tsv'
 ```
 
-The next run should show four parallel platform callers inside one caller run, one `release-inputs`
-and one Tauri build per target, no cache-save step, and the final manifest job waiting on every
-platform job. The release remains incomplete until six-platform updater verification passes.
+The next run should show four parallel platform callers inside one caller run, one `release-inputs`,
+one Tauri client build and one bundle-only step per target, no cache-save step, and the final
+manifest job waiting on every platform job. Each platform must report full/headless server and CLI
+digest equality, headless archive/checksum/metadata readback, and the packaged pair smoke.
+The release remains incomplete until six-platform updater verification passes.
 
 
 ## 7. Runner restoration boundaries

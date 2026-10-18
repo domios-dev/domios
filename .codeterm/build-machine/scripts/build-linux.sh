@@ -48,15 +48,33 @@ if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
   touch src-tauri/bundled-cli/codeterm
 fi
 pnpm install --frozen-lockfile
-./build.sh release-inputs
-pnpm tauri build ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} \
-  --features "$CODETERM_RELEASE_FEATURES" --bundles "$BUNDLES" \
+TARGET="${CARGO_BUILD_TARGET:-$(rustc -vV | awk '/^host:/ { print $2 }')}"
+CODETERM_RELEASE_COMMON_STAGE=1 ./build.sh release-inputs
+pnpm tauri build --no-bundle ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} \
+  --features "$CODETERM_RELEASE_FEATURES" \
   --config '{"bundle":{"createUpdaterArtifacts":false}}'
+CLIENT="src-tauri/target/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}release/codeterm"
+node scripts/release-stage.mjs stage-full --target "$TARGET" --source-sha "$(git rev-parse HEAD)" \
+  --cargo-log "release-artifacts/build-logs/$TARGET/server.jsonl" \
+  --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" --client-file "$CLIENT"
+pnpm tauri bundle ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} \
+  --bundles "$BUNDLES" --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
 mkdir -p /work/out
 SUB="${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}"
 find "src-tauri/target/${SUB}release/bundle" -maxdepth 2 -type f \
   \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp -v {} /work/out/ \;
+mapfile -t DEBS < <(find "src-tauri/target/${SUB}release/bundle/deb" -maxdepth 1 -type f -name '*.deb')
+[ "${#DEBS[@]}" -eq 1 ] || { echo "Expected exactly one full Debian package" >&2; exit 1; }
+: "${RELEASE_TAG:?Release tag is required for common-stage receipt}"
+node scripts/release-stage.mjs finalize --target "$TARGET" --tag "$RELEASE_TAG" \
+  --version "${RELEASE_TAG#v}" --source-sha "$(git rev-parse HEAD)" \
+  --cargo-log "release-artifacts/build-logs/$TARGET/server.jsonl" \
+  --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" \
+  --bundle "${DEBS[0]}" --output-dir /work/out
+cp "release-artifacts/common-stage/$TARGET/headless-stage.json" "/work/out/headless-stage-$TARGET.json"
+node scripts/release-pair-smoke.mjs "$TARGET" "$RELEASE_TAG" "$(git rev-parse HEAD)" \
+  "release-artifacts/common-stage/$TARGET" /work/out
 node scripts/release-bundle-smoke.mjs linux /work/out "$(git rev-parse HEAD)"
 ls -la /work/out/
 echo "BUILD_LINUX_DONE tag=$TAG"

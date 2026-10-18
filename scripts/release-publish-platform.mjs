@@ -3,11 +3,14 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, readdirSync, copyFileSync } from 'node:fs';
 import path from 'node:path';
+import { publishHeadlessAssets, verifyHeadlessAssets } from './release-headless-assets.mjs';
 
 const [tag, platform, directory] = process.argv.slice(2);
 if (!/^v\d+\.\d+\.\d+$/.test(tag ?? '') || !/^(darwin-(aarch64|x86_64)|linux-aarch64)$/.test(platform ?? '')) throw new Error('Invalid platform publication');
 const version = tag.slice(1);
 const entries = readdirSync(directory);
+const sourceSha = process.env.SOURCE_SHA;
+await verifyHeadlessAssets({ tag, platform, directory, sourceSha });
 let bundle;
 let assets;
 let deb;
@@ -45,4 +48,5 @@ if (deb) {
 if (process.env.RELEASE_VERIFY_ONLY !== 'true') for (const repo of ['rollacode/codeterm', ...(process.env.PUBLISH_PUBLIC_MIRROR === 'true' ? ['rollacode/codeterm-releases'] : [])]) {
   const env = { ...process.env, GH_TOKEN: repo.endsWith('-releases') ? process.env.MIRROR_TOKEN : process.env.GH_TOKEN };
   execFileSync('gh', ['release', 'upload', tag, ...assets.map(name => path.join(directory, name)), ...(repo.endsWith('-releases') ? [] : fragments), '--clobber', '--repo', repo], { env, stdio: 'inherit', timeout: 300000 });
+  await publishHeadlessAssets({ tag, platform, directory, sourceSha, repository: repo, env });
 }
