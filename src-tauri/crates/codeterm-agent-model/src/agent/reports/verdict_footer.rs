@@ -2,7 +2,6 @@ use super::ReportStatus;
 
 const VERDICT_COMMAND: &str = "Next: codeterm plan review accept|bounce";
 const IN_REVIEW_SINCE: &str = "in review since";
-const REPORTED_AT: &str = "reported at";
 
 pub(super) fn append(
     body: &str,
@@ -14,15 +13,13 @@ pub(super) fn append(
     let (Some(plan), Some(task)) = (plan_id, task_id) else {
         return body.to_string();
     };
+    if status != Some(ReportStatus::InReview) {
+        return body.to_string();
+    }
     let command = format!("{VERDICT_COMMAND} {plan} {task} --note \"...\"");
-    let since = if status == Some(ReportStatus::InReview) {
-        IN_REVIEW_SINCE
-    } else {
-        REPORTED_AT
-    };
     let hour = (timestamp / 3_600) % 24;
     let minute = (timestamp / 60) % 60;
-    let footer = format!("{command} ({since} {hour:02}:{minute:02} UTC)");
+    let footer = format!("{command} ({IN_REVIEW_SINCE} {hour:02}:{minute:02} UTC)");
     let mut content = body.trim_end();
     while let Some((previous, last)) = content.rsplit_once('\n') {
         if !last.starts_with(&command) {
@@ -102,12 +99,11 @@ mod tests {
     }
 
     #[test]
-    fn only_review_reports_label_the_timestamp_as_review_time() {
+    fn only_in_review_reports_receive_a_review_footer() {
         for status in [
             None,
             Some(ReportStatus::Partial),
             Some(ReportStatus::Blocked),
-            Some(ReportStatus::InReview),
         ] {
             let body = append(
                 "evidence",
@@ -116,12 +112,18 @@ mod tests {
                 status,
                 0,
             );
-            let label = if status == Some(ReportStatus::InReview) {
-                IN_REVIEW_SINCE
-            } else {
-                REPORTED_AT
-            };
-            assert!(body.ends_with(&format!("({label} 00:00 UTC)")));
+            assert_eq!(body, "evidence");
+            assert!(!body.contains(VERDICT_COMMAND));
         }
+
+        let body = append(
+            "evidence",
+            Some("pl_render"),
+            Some("task_render"),
+            Some(ReportStatus::InReview),
+            0,
+        );
+        assert!(body.ends_with(&format!("({IN_REVIEW_SINCE} 00:00 UTC)")));
+        assert_eq!(body.matches(VERDICT_COMMAND).count(), 1);
     }
 }
