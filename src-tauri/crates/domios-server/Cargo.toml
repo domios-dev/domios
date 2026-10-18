@@ -1,0 +1,55 @@
+[package]
+name = "domios-server"
+version = "1.14.9"
+edition = "2021"
+license = "PolyForm-Shield-1.0.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-api = { path = "../codeterm-api", default-features = false }
+codeterm-socket = { path = "../codeterm-socket", default-features = false }
+codeterm-commands = { path = "../codeterm-commands", default-features = false }
+codeterm-orchestration = { path = "../codeterm-orchestration", default-features = false }
+codeterm-sentinel-host = { path = "../codeterm-sentinel-host", default-features = false }
+codeterm-build-info = { path = "../codeterm-build-info" }
+codeterm-plan = { path = "../codeterm-plan" }
+codeterm-plugin = { path = "../codeterm-plugin" }
+codeterm-events = { path = "../codeterm-events" }
+codeterm-types = { path = "../codeterm-types" }
+codeterm-util = { path = "../codeterm-util" }
+codeterm-billing = { path = "../codeterm-billing" }
+codeterm-frontend-bundle = { path = "../codeterm-frontend-bundle" }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+parking_lot = "0.12"
+log = { version = "0.4", features = ["release_max_level_info"] }
+fern = "0.7"
+chrono = "0.4"
+url = "2"
+dirs = "6"
+uuid = { version = "1", features = ["v4", "serde"] }
+include_dir = "0.7"
+interprocess = { version = "2", features = ["tokio"] }
+sha2 = "0.10"
+tempfile = "3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+widestring = "1"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
+[build-dependencies]
+sha2 = "0.10"
+
+[dev-dependencies]
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
+
+[features]
+default = ["embeddings"]
+embeddings = ["codeterm-service-core/embeddings"]
