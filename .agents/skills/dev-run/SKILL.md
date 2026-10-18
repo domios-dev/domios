@@ -650,3 +650,22 @@ not that cosmetic query. Present stale queries still refuse. An absent query adm
 only a unique target candidate; the native command snapshot plus exact process
 incarnation must still match before inspection succeeds. No ambient selector is
 restored, no client credential is exposed and no new frontend/runtime hook is added.
+
+
+### DEV attach exits4, then the launcher deadline expires
+
+Attach exit4 is the finite ordinary unavailable-endpoint outcome and permits one
+initial launch; it is not an authentication/build failure. If launch starts but the
+outer prebuilt readiness deadline expires, preserve server bootstrap ACK timestamps
+and the client stream. The outer30-second guard (introduced in84a1083c8ea) begins
+before desktop spawn/artifact verification; the client's separate30-second bootstrap
+clock begins later. Progress now classifies preparation/bootstrap/attachment in the
+failure receipt without restarting or extending the original timer. Only exact native
+attachment is readiness. No larger cap, retry, public-health fallback or fabricated
+success is applied; long initialization needs an evidence-backed owning budget or
+performance correction before another launch can be expected to pass.
+
+Named-target script fixtures must load dev_built_app_path alongside dev_app_path.
+Windows uses the raw executable path; Unix keeps raw Cargo bytes and stages the native
+client under .domios-dev-runtime/bin. The old fixture missed this c8a851cdd extraction;
+its repair checks both platform layouts and wait modes, preserving the default artifact.
