@@ -473,7 +473,7 @@ export function ModelPickerPopover({
         </div>
       ) : (
         <div className="ct-model-picker__footer">
-          <p className="ct-model-picker__note">{gate.note}</p>
+          {gate.timing !== "next_turn" && <p className="ct-model-picker__note">{gate.note}</p>}
           <div className="ct-model-picker__actions">
             <button type="button" className={UI_BUTTON.ghost} onClick={onClose}>Cancel</button>
             <button type="button" className={UI_BUTTON.primary} disabled={busy || selectionPlan.action === "none"} onClick={commit}>Apply</button>
