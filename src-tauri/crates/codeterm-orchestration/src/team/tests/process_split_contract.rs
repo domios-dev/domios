@@ -22,8 +22,15 @@ fn process_split_contract_runtime_and_team_port_share_service_state() {
         assert_eq!(event.frame.event_type, "mux-state-changed");
     });
     assert_eq!(
-        fixture.service.mux.read().get_team(&team).unwrap().name,
-        "portable-team"
+        fixture
+            .service
+            .mux
+            .read()
+            .get_team(&team)
+            .unwrap()
+            .name
+            .as_deref(),
+        Some("portable-team")
     );
     codeterm_service_core::service::session_persist::stop_worker(&fixture.service).unwrap();
 }
