@@ -134,6 +134,18 @@ test("interrupted admissions leave sending without turning ambiguous responses i
   }
 });
 
+test("unchanged admission evidence reuses the same delivery record", () => {
+  const unknown = reconcileAdmissionEvidence(send(), "unknown");
+  assert.equal(unknown.requestUncertain, true);
+  assert.equal(reconcileAdmissionEvidence(unknown, "unknown"), unknown);
+
+  const withNoResponse = { ...unknown, requestHadResponse: false };
+  const failed = reconcileAdmissionEvidence(withNoResponse, "absent");
+  assert.equal(deliveryState(failed), "failed");
+  assert.notEqual(failed, withNoResponse);
+  assert.equal(reconcileAdmissionEvidence(failed, "absent"), failed);
+});
+
 test("two failed sends remain visible across reload alongside a similar new session turn", () => {
   const content = (token: string) => `shared alpha beta gamma delta ${token}`;
   const failed = ["first", "second"].map((token, index) => applyDeliveryStatus({

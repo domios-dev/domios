@@ -142,8 +142,14 @@ export function reconcileChatSendAdmission(tabId: string, correlationId: string,
 
 export function recordChatSendAdmissionFailure(tabId: string, correlationId: string, hadResponse: boolean): void {
   const current = readChatSends(tabId);
-  publish(tabId, current.map((send) => send.correlationId === correlationId
-    ? reconcileAdmissionEvidence({ ...send, requestHadResponse: hadResponse }, "unknown") : send));
+  const next = current.map((send) => {
+    if (send.correlationId !== correlationId) return send;
+    const withResponse = send.requestHadResponse === hadResponse
+      ? send
+      : { ...send, requestHadResponse: hadResponse };
+    return reconcileAdmissionEvidence(withResponse, "unknown");
+  });
+  if (next.some((send, index) => send !== current[index])) publish(tabId, next);
 }
 
 export function reconcileDeliveryStatuses(
@@ -221,7 +227,15 @@ export type ChatSendDismissal = { send_id: string; send: ChatSend };
 export function observeChatSendDismissal(tabId: string, receipt: ChatSendDismissal): void {
   const current = readChatSends(tabId);
   const matches = (send: DeliverySend) => send.correlationId === receipt.send.correlationId;
-  const next = current.some(matches)
+  let found = false;
+  let needsDismissal = false;
+  for (const send of current) {
+    if (!matches(send)) continue;
+    found = true;
+    needsDismissal ||= send.dismissed !== true;
+  }
+  if (found && !needsDismissal) return;
+  const next = found
     ? current.map((send) => matches(send) ? { ...send, dismissed: true } : send)
     : [...current, { ...receipt.send, dismissed: true }];
   publish(tabId, next);

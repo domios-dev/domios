@@ -1,9 +1,12 @@
 import "./ChatComposer.composition.harness";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import {
   addChatSend, beginChatSendRetry, failChatSendRequest, forgetChatSendsInMemory, removeChatSend,
-  observeDeliveryStatus, readChatSends, reconcileDeliveryStatuses, setChatSendDraft,
+  observeChatSendDismissal, observeDeliveryStatus, readChatSends, reconcileChatSendAdmission,
+  reconcileDeliveryStatuses, recordChatSendAdmissionFailure, setChatSendDraft, useChatSends,
 } from "./chatSendStore";
 import { deliveryState } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
@@ -26,6 +29,154 @@ test("Retry preserves the row, guards repeated clicks, and accepts only the fres
   assert.equal(readChatSends(tabId).length, 1);
   assert.equal(deliveryState(readChatSends(tabId)[0]), "delivered");
   assert.equal(beginChatSendRetry(tabId, "bubble"), undefined);
+});
+
+async function withStoreProbe(
+  tabId: string,
+  run: (probe: { writes: string[]; serializedBytes: number[]; renderCount: () => number }) => Promise<void>,
+): Promise<void> {
+  const storage = window.localStorage;
+  const originalSetItem = storage.setItem.bind(storage);
+  const writes: string[] = [];
+  const serializedBytes: number[] = [];
+  Object.defineProperty(storage, "setItem", {
+    configurable: true,
+    value: (key: string, value: string) => {
+      writes.push(key);
+      serializedBytes.push(Buffer.byteLength(value, "utf8"));
+      originalSetItem(key, value);
+    },
+  });
+
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  let renders = 0;
+  function Probe() {
+    useChatSends(tabId);
+    renders += 1;
+    return null;
+  }
+
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    await run({ writes, serializedBytes, renderCount: () => renders });
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    Object.defineProperty(storage, "setItem", { configurable: true, value: originalSetItem });
+  }
+}
+
+test("replayed dismissal receipts do not republish and dismissal survives reload", async () => {
+  const tabId = "idempotent-dismissal";
+  const dismissed = { id: "dismissed", correlationId: "dismiss-token", content: "opaque", sentAtMs: 10 };
+  const receipt = { send_id: "receipt-1", send: dismissed };
+  await withStoreProbe(tabId, async ({ writes, renderCount }) => {
+    await act(async () => addChatSend(tabId, dismissed));
+
+    const beforeDismissal = { writes: writes.length, renders: renderCount() };
+    await act(async () => observeChatSendDismissal(tabId, receipt));
+    assert.equal(writes.length, beforeDismissal.writes + 1);
+    assert.equal(renderCount(), beforeDismissal.renders + 1);
+
+    const afterFirstDismissal = { writes: writes.length, renders: renderCount() };
+    for (let index = 0; index < 4; index += 1) {
+      await act(async () => observeChatSendDismissal(tabId, receipt));
+    }
+    assert.equal(writes.length, afterFirstDismissal.writes);
+    assert.equal(renderCount(), afterFirstDismissal.renders);
+
+    await act(async () => forgetChatSendsInMemory());
+    assert.equal(readChatSends(tabId).find((send) => send.id === dismissed.id)?.dismissed, true);
+  });
+});
+
+test("unchanged admission evidence does not republish while changed evidence survives reload", async () => {
+  const tabId = "idempotent-admission";
+  const admission = { id: "admission", correlationId: "admission-token", content: "opaque", sentAtMs: 11 };
+  await withStoreProbe(tabId, async ({ writes, renderCount }) => {
+    await act(async () => addChatSend(tabId, admission));
+
+    const beforeUnknown = { writes: writes.length, renders: renderCount() };
+    await act(async () => reconcileChatSendAdmission(tabId, admission.correlationId, "unknown"));
+    assert.equal(writes.length, beforeUnknown.writes + 1);
+    assert.equal(renderCount(), beforeUnknown.renders + 1);
+
+    const afterFirstUnknown = { writes: writes.length, renders: renderCount() };
+    for (let index = 0; index < 4; index += 1) {
+      await act(async () => reconcileChatSendAdmission(tabId, admission.correlationId, "unknown"));
+    }
+    assert.equal(writes.length, afterFirstUnknown.writes);
+    assert.equal(renderCount(), afterFirstUnknown.renders);
+
+    const beforeFailureEvidence = { writes: writes.length, renders: renderCount() };
+    await act(async () => recordChatSendAdmissionFailure(tabId, admission.correlationId, false));
+    assert.equal(writes.length, beforeFailureEvidence.writes + 1);
+    assert.equal(renderCount(), beforeFailureEvidence.renders + 1);
+
+    const afterFailureEvidence = { writes: writes.length, renders: renderCount() };
+    for (let index = 0; index < 4; index += 1) {
+      await act(async () => recordChatSendAdmissionFailure(tabId, admission.correlationId, false));
+    }
+    assert.equal(writes.length, afterFailureEvidence.writes);
+    assert.equal(renderCount(), afterFailureEvidence.renders);
+
+    const beforeAbsent = { writes: writes.length, renders: renderCount() };
+    await act(async () => reconcileChatSendAdmission(tabId, admission.correlationId, "absent"));
+    assert.equal(writes.length, beforeAbsent.writes + 1);
+    assert.equal(renderCount(), beforeAbsent.renders + 1);
+
+    await act(async () => forgetChatSendsInMemory());
+    const restored = readChatSends(tabId).find((send) => send.id === admission.id);
+    assert.equal(deliveryState(restored!), "failed");
+  });
+});
+
+test("synthetic multi-tab ledger records one bounded write size for a changed dismissal", async (t) => {
+  const rawSends = Object.fromEntries(Array.from({ length: 32 }, (_, tabIndex) => {
+    const tabId = `synthetic-tab-${tabIndex}`;
+    return [tabId, Array.from({ length: 32 }, (_, sendIndex) => {
+      const payload = `synthetic-${tabIndex}-${sendIndex}`.padEnd(512, "x");
+      return {
+        id: `synthetic-send-${sendIndex}`,
+        correlationId: `synthetic-token-${sendIndex}`,
+        content: payload,
+        sentAtMs: 100 + sendIndex,
+        echo: { content: payload, timestampMs: 100 + sendIndex },
+        status: { state: "written", system_send: { content: payload, sent_at_ms: 100 + sendIndex } },
+        draft: { text: payload, attachments: [], recordedVoiceAttachments: [], capsules: {}, reply: null },
+      };
+    })];
+  }));
+  const storage = window.localStorage;
+  storage.setItem("codeterm:chat-sends:v1", JSON.stringify(rawSends));
+  forgetChatSendsInMemory();
+
+  const tabId = "synthetic-tab-0";
+  const receipt = {
+    send_id: "synthetic-receipt",
+    send: { id: "synthetic-send-0", correlationId: "synthetic-token-0", content: "opaque", sentAtMs: 100 },
+  };
+  try {
+    await withStoreProbe(tabId, async ({ writes, serializedBytes, renderCount }) => {
+      const before = renderCount();
+      await act(async () => observeChatSendDismissal(tabId, receipt));
+      assert.equal(writes.length, 1);
+      assert.equal(renderCount(), before + 1);
+      assert(serializedBytes[0] > 1_000_000);
+
+      for (let index = 0; index < 4; index += 1) {
+        await act(async () => observeChatSendDismissal(tabId, receipt));
+      }
+      assert.equal(writes.length, 1);
+      assert.equal(renderCount(), before + 1);
+      t.diagnostic(`synthetic multi-tab ledger: 32 tabs, 1,024 records; writes=1; serialized UTF-8 bytes=${serializedBytes[0]}`);
+    });
+  } finally {
+    forgetChatSendsInMemory();
+    storage.removeItem("codeterm:chat-sends:v1");
+  }
 });
 
 test("voice cancellation removes only its exact optimistic row", () => {
