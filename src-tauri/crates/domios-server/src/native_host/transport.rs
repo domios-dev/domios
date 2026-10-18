@@ -45,6 +45,12 @@ pub struct NativeHostServer<UpdateRequest, UpdateResult> {
     allowed_view_origins: HashSet<String>,
 }
 
+#[derive(Debug)]
+pub enum NativeHostBindError {
+    InventoryRejected(io::Error),
+    ListenerUnavailable(io::Error),
+}
+
 pub struct NativeHostEndpoint<UpdateRequest, UpdateResult> {
     pub(super) active: Arc<RwLock<Option<Arc<Session<UpdateRequest, UpdateResult>>>>>,
     pub(super) active_generation: Arc<AtomicU64>,
@@ -117,28 +123,10 @@ where
         ready: ServerReady,
         manifest: ServerComponentManifest,
         allowed_view_origins: HashSet<String>,
-    ) -> io::Result<Self> {
-        verify_component(&manifest, &ready, &ready.resources)?;
-        let address =
-            codeterm_types::native_host::native_host_socket_address(&ready.bootstrap_address)
-                .ok_or_else(|| io::Error::other("Invalid native host bootstrap address"))?;
-        let name = address.to_ns_name::<GenericNamespaced>()?;
-        let options = ListenerOptions::new().name(name);
-        #[cfg(unix)]
-        let options = {
-            use interprocess::os::unix::local_socket::ListenerOptionsExt;
-            options.mode(0o600)
-        };
-        #[cfg(windows)]
-        let options = {
-            use interprocess::os::windows::{
-                local_socket::ListenerOptionsExt, security_descriptor::SecurityDescriptor,
-            };
-            let sddl =
-                widestring::U16CString::from_str("D:P(A;;GA;;;OW)").map_err(io::Error::other)?;
-            options.security_descriptor(SecurityDescriptor::deserialize(&sddl)?)
-        };
-        let listener = options.create_tokio()?;
+    ) -> Result<Self, NativeHostBindError> {
+        verify_component(&manifest, &ready, &ready.resources)
+            .map_err(NativeHostBindError::InventoryRejected)?;
+        let listener = create_listener(&ready).map_err(NativeHostBindError::ListenerUnavailable)?;
         Ok(Self {
             listener,
             endpoint: NativeHostEndpoint {
@@ -191,6 +179,27 @@ where
             });
         }
     }
+}
+
+fn create_listener(ready: &ServerReady) -> io::Result<Listener> {
+    let address = codeterm_types::native_host::native_host_socket_address(&ready.bootstrap_address)
+        .ok_or_else(|| io::Error::other("Invalid native host bootstrap address"))?;
+    let name = address.to_ns_name::<GenericNamespaced>()?;
+    let options = ListenerOptions::new().name(name);
+    #[cfg(unix)]
+    let options = {
+        use interprocess::os::unix::local_socket::ListenerOptionsExt;
+        options.mode(0o600)
+    };
+    #[cfg(windows)]
+    let options = {
+        use interprocess::os::windows::{
+            local_socket::ListenerOptionsExt, security_descriptor::SecurityDescriptor,
+        };
+        let sddl = widestring::U16CString::from_str("D:P(A;;GA;;;OW)").map_err(io::Error::other)?;
+        options.security_descriptor(SecurityDescriptor::deserialize(&sddl)?)
+    };
+    options.create_tokio()
 }
 
 impl NativeHostEndpoint<NativeUpdateRequest, NativeUpdateResult> {
@@ -419,8 +428,8 @@ where
         let (event_tx, event_rx) = mpsc::channel(MAX_PENDING_NATIVE_HOST_REQUESTS);
         let (shutdown, _) = watch::channel(false);
         let session = Arc::new(Session {
-            connection,
-            client_process: enrollment.client_process,
+            connection: connection.clone(),
+            client_process: enrollment.client_process.clone(),
             process,
             active_generation: self.endpoint.active_generation.clone(),
             allowed_view_origins: self.allowed_view_origins.clone(),
@@ -456,9 +465,10 @@ where
             previous.retire(NativeHostUncertainty::DisconnectedAfterDispatch);
         }
         let endpoint = self.endpoint.clone();
+        let session_for_detach = session.clone();
         tokio::spawn(async move {
             session.run(stream, control_rx, event_rx).await;
-            endpoint.detach_if_current(&session);
+            endpoint.detach_if_current(&session_for_detach);
         });
         Ok(())
     }
