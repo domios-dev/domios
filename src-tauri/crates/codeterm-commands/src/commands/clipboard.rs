@@ -21,6 +21,7 @@ pub fn save_clipboard_file_core(bytes: Vec<u8>, filename: String) -> Result<Stri
     Ok(path.to_string_lossy().to_string())
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn materialize_dropped_files(paths: Vec<String>) -> Result<Vec<String>, String> {
     tokio::task::spawn_blocking(move || {
@@ -38,6 +39,7 @@ pub async fn materialize_dropped_files(paths: Vec<String>) -> Result<Vec<String>
     .map_err(|e| format!("materialize dropped files task failed: {}", e))?
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
     // off the async runtime so it can't stall IPC (mirrors materialize_dropped_files).
