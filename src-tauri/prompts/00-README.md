@@ -4,7 +4,7 @@ How Domios ships instructions to LLM agents: where prompt files live, how they a
 This README is source documentation, not an injected prompt. The table below identifies each prompt, its audience, placeholders and injection point.
 
 ## Overview
-Every system-level prompt in Domios is compiled into the binary via `include_str!()`. There is no runtime prompt store and no hot-reload — **editing a prompt requires a rebuild**. Prompt fragments live under `src-tauri/prompts/`; the complete Orchestrator and Planner manuals remain canonical in `prod-docs/ORCHESTRATION.md` and `prod-docs/PLANNER.md` and are embedded into their startup contracts. Loaders are split by ownership: the app catalog is `src-tauri/src/prompts.rs`, plan worker fragments are in `codeterm-plan`, memory prompts and private seed constants are in `codeterm-mem`, and the provider bridge rule is also loaded by `codeterm-plugin`.
+Every system-level prompt in Domios is compiled into the binary via `include_str!()`. There is no runtime prompt store and no hot-reload — **editing a prompt requires a rebuild**. Prompt fragments live under `src-tauri/prompts/`; the complete Orchestrator and Planner manuals remain canonical in `prod-docs/ORCHESTRATION.md` and `prod-docs/PLANNER.md` and are embedded into their startup contracts. Loaders are split by ownership: the app catalog is in `src-tauri/src/prompts.rs`, shared runtime fragments in `codeterm-service-core`, plan worker fragments in `codeterm-plan`, memory prompts and private seed constants in `codeterm-mem`, and the provider bridge rule is also loaded by `codeterm-plugin`.
 
 **One in-binary prompt location.** Every prompt the project owns and ships with Domios lives here:
 
@@ -15,14 +15,14 @@ Provider-specific prompt wrappers and synced skill copies may exist under user h
 Prompts reach the model through these pathways:
 
 1. **System prompt of the General Agent** — composed from `general_agent.md`, the bounded L0/L1 wake-up snapshot, `codeterm_rule.md`, and `bridge_mem.md`. Native PTY providers load the generated `CLAUDE.md`/`AGENTS.md` startup channel exactly once; providers declaring `External` receive the identical text through durable confirmed fallback.
-2. **System prompt of spawned agents** — `agent_codeterm_primer.md` is prepended once, followed by the assignment and applicable Worker, Planner, or Orchestrator contract. Native providers use their declared system-prompt capability; `External` providers use durable confirmed fallback. ChatBackend sessions receive the same composition through `openSession.systemPrompt`.
+2. **System prompt of spawned agents** — `agent_codeterm_primer.md` and `agent_routing_contract.md` lead the shared launch fragments, followed by the assignment and applicable Worker, Planner, or Orchestrator contract. Native providers use their declared system-prompt capability; `External` providers use durable confirmed fallback. ChatBackend sessions receive the same composition through `openSession.systemPrompt`.
 3. **Bridge rules installed per provider** — `codeterm_rule.md` and `bridge_mem.md` are copied into `~/.claude/rules/` (Claude) or inlined into `AGENTS.md` (Codex) so the provider auto-injects them on every session.
 4. **Headless memory workers** — extraction and REM dreaming spawn a hidden agent with a wrapped task. `worker_task_preamble.md` is the wrapper, the inner task body comes from `mem_extraction.md` or `dreaming_rem.md`.
 5. **Plugin-spawned agents** — plugins that spawn agents wrap their task with `plugin_agent_task_preamble.md`, so they act through plugin verbs instead of the memory-worker protocol.
 6. **Direct API calls** — `mem_rerank.md` is sent via raw HTTPS to `api.anthropic.com` / OpenAI from `mem/rerank.rs`. The only place in the codebase that talks to a model API without going through the agent provider abstraction.
 
 ## Prompt files
-All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constants are split across `src-tauri/src/prompts.rs`, `codeterm-plan/src/service_plan/prompts_plan.rs`, `codeterm-mem/src/prompt_text.rs`, `codeterm-mem/src/seed.rs`, and `codeterm-plugin/src/prompts.rs` according to ownership. Seed constants are private; they are not part of a shared prompt catalog.
+All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constants are split across `src-tauri/src/prompts.rs`, `codeterm-service-core/src/prompts.rs`, `codeterm-plan/src/service_plan/prompts_plan.rs`, `codeterm-mem/src/prompt_text.rs`, `codeterm-mem/src/seed.rs`, and `codeterm-plugin/src/prompts.rs` according to ownership. Seed constants are private; they are not part of a shared prompt catalog.
 
 | File | Const | Category | Placeholders | Injection point |
 |---|---|---|---|---|
@@ -32,6 +32,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `plan_task_flags.md` | `PLAN_TASK_FLAGS` | Task lifecycle flags | — | `prompts.rs` — composed into plan task guidance |
 | `plugin_discovery_rule.md` | `PLUGIN_DISCOVERY_RULE` | Capability discovery pointer | — | `prompts.rs` — composed into agent control guidance |
 | `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer, including the task test/QA lifecycle boundary | — | `service/orchestrator/prompt_compose.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
+| `agent_routing_contract.md` | `AGENT_ROUTING_CONTRACT` | Shared routed-message trust and reply policy | — | `codeterm-service-core/src/prompts.rs`; composed after the Agent primer for spawned launches in `service/orchestrator/prompt_compose.rs` and `service/orchestrator/spawn/runtime_prompt.rs` |
 | `utility_tab_guidance.md` | `UTILITY_TAB_GUIDANCE` | Three-line utility lifecycle and repeated-monitoring guidance | — | `service/orchestrator/prompt_compose.rs` — non-Worker launches only |
 | `worker_codeterm_context.md` | `WORKER_CODETERM_CONTEXT` | Worker Domios context | — | `service/orchestrator/prompt_compose.rs` — injected once into Worker launches before assignment work |
 | `read_only_worker_guidance.md` | `READ_ONLY_WORKER_GUIDANCE` | Sandbox limits, explicit owner-run gates and stdin reports | — | Worker launch composition replaces the writable-pad fragment for read-only execution |
