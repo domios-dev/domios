@@ -108,6 +108,51 @@ test("a structured matched row reconciles without content or timestamp matching"
   assert.equal(result.echoes.size, 1);
 });
 
+test("JSONL status enrichment preserves an already reconciled echo", () => {
+  const state = append(history, [user("jsonl-user")]);
+  const request: ChatSend = {
+    ...send("send-a"),
+    echo: { content: content.toLowerCase(), timestampMs: serverAt },
+    matchedRow: { source: { source_session_id: "own-session", record: {
+      kind: "jsonl", incarnation: "file-generation", record_start: 40, record_row: 0,
+    } }, ordinal: 1 },
+  };
+
+  const result = projectTranscript(state, [request]);
+
+  assert.deepEqual(result.rows.map((row) => row.id), ["history", "jsonl-user"]);
+  assert.equal(result.pending.length, 0);
+});
+
+test("a JSONL claim joins by exact correlation only inside its source session", () => {
+  const matchedRow = { source: { source_session_id: "own-session", record: {
+    kind: "jsonl" as const, incarnation: "file-generation", record_start: 40, record_row: 0,
+  } }, ordinal: 1 };
+  const request = { ...send("send-a"), matchedRow };
+  const own = projectTranscript(append(history, [{ ...user("jsonl-own"), correlationId: "send-a" }]), [request]);
+  const foreign = projectTranscript(append(history, [{ ...user("jsonl-foreign"), sourceSessionId: "other-session", correlationId: "send-a" }]), [request]);
+
+  assert.equal(own.pending.length, 0);
+  assert.equal(own.echoes.size, 1);
+  assert.deepEqual(foreign.pending.map((send) => send.id), ["send-a"]);
+  assert.equal(foreign.echoes.size, 0);
+});
+
+test("a structured matched row stays settled after its committed row leaves the loaded window", () => {
+  const request: ChatSend = {
+    ...send("send-a"),
+    echo: { content: content.toLowerCase(), timestampMs: serverAt },
+    matchedRow: { source: { source_session_id: "own-session", record: {
+      kind: "structured", thread_id: "own-session", item_id: "evicted-item",
+    } }, ordinal: 1 },
+  };
+
+  const result = projectTranscript(history, [request]);
+
+  assert.deepEqual(result.rows.map((row) => row.id), ["history"]);
+  assert.equal(result.pending.length, 0);
+});
+
 test("a persisted structured claim reconciles after the same session is rebound", () => {
   const rebound = append(history, [user("native-item")]);
   const state = { ...rebound, authority: { ...authority, sessionBindingNonce: "rebound-launch" } };
