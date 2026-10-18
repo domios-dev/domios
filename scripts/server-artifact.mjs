@@ -74,14 +74,34 @@ function copyResource(source, destination) {
     copyFileSync(source, destination);
   } else throw new Error(`Resource is not a regular file or directory: ${source}`);
 }
+export function resolveDevResourceRoot(resourceRoot, expectedRoot, {
+  paths = path, stat = lstatSync, canonical = realpathSync.native, prepare = ensureDirectory,
+} = {}) {
+  function resolveDirectory(directory) {
+    const parent = paths.dirname(directory);
+    const resolvedParent = parent === directory ? undefined : resolveDirectory(parent);
+    try {
+      const entry = stat(directory);
+      if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error('DEV resource directory must not be a symlink or junction');
+      return canonical(directory);
+    } catch (error) {
+      if (error.code !== 'ENOENT' || resolvedParent === undefined) throw error;
+      return paths.join(resolvedParent, paths.basename(directory));
+    }
+  }
+  if (resolveDirectory(paths.resolve(resourceRoot)) !== expectedRoot) {
+    throw new Error('DEV resource root must derive from the native client artifact directory');
+  }
+  prepare(expectedRoot);
+  if (canonical(expectedRoot) !== expectedRoot) throw new Error('DEV resource root identity changed during staging');
+  return expectedRoot;
+}
+
 export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resourceRoot, client, build }) {
   if (!/^[a-f0-9]{40}$/.test(build)) throw new Error('Expected exact DEV source build identity');
   const builtClient = regular(client);
   const expectedRoot = process.platform === 'win32' ? path.dirname(builtClient) : path.join(path.dirname(builtClient), '.domios-dev-runtime/lib/codeterm');
-  if (path.resolve(resourceRoot) !== expectedRoot) throw new Error('DEV resource root must derive from the native client artifact directory');
-  ensureDirectory(resourceRoot);
-  const root = realpathSync.native(resourceRoot);
-  if (root !== expectedRoot) throw new Error('DEV resource root must not redirect through an alias');
+  const root = resolveDevResourceRoot(resourceRoot, expectedRoot);
   const clientFile = process.platform === 'win32' ? builtClient : path.resolve(root, '../../bin', path.basename(builtClient));
   const server = artifactReceipt({ cargoLog, treeLog, build, resources: root });
   if (path.dirname(server.executable) !== path.dirname(builtClient)) throw new Error('DEV server and client must share the exact Cargo artifact directory');
