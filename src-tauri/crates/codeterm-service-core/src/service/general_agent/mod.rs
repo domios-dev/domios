@@ -32,6 +32,9 @@ mod workspace;
 use std::path::PathBuf;
 
 pub(crate) use lifecycle::restart_general_agent_fresh_after_exit;
+pub(crate) fn persist_switched_session(provider: &str, session: &str) {
+    state::persist_session_id(provider, session);
+}
 
 pub use first_run::{
     complete_first_run_core, ensure_first_run_tab, needs_first_run_picker, purge_snapshot_ghosts,

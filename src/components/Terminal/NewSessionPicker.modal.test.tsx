@@ -323,3 +323,29 @@ it("offers folder relocation instead of session or team start for a missing work
   expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
   expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
 });
+
+it("offers Remote only through declared capability and spawns the selected environment without local model controls", async () => {
+  Object.assign(fixture.providers.providers.find((provider: {id: string}) => provider.id === "opencode")!, {remote_task: {
+    backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"},
+    environments: [{id: "env-fixture", label: "Fixture environment", accountRef: "account-fixture"}], followUp: false, cancel: false, applyDiff: false,
+  }} as never);
+  await renderPicker({fullAccess: false});
+  await act(async () => dialog().querySelector<HTMLInputElement>('input[value="cloud"]')!.click());
+  const picker = dialog().querySelector<HTMLSelectElement>('select[aria-label="Cloud environment"]');
+  expect(picker).not.toBeNull();
+  await act(async () => {picker!.value = "env-fixture"; picker!.dispatchEvent(new window.Event("change", {bubbles: true}));});
+  expect(buttonNamed("Agent model")).toBeNull();
+  await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
+  expect(fixture.actions.spawnAgentTab).toHaveBeenCalledExactlyOnceWith("workspace", "opencode", "/workspace", undefined, undefined, "env-fixture", undefined, "cloud");
+});
+
+it("keeps an empty remote environment list actionable and refuses spawn", async () => {
+  Object.assign(fixture.providers.providers.find((provider: {id: string}) => provider.id === "opencode")!, {remote_task: {
+    backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"}, environments: [], followUp: false, cancel: false, applyDiff: false,
+  }} as never);
+  await renderPicker({fullAccess: false});
+  await act(async () => dialog().querySelector<HTMLInputElement>('input[value="cloud"]')!.click());
+  expect(Array.from(dialog().querySelectorAll("button")).find(button => button.textContent === "Refresh providers")).toBeDefined();
+  expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')?.disabled).toBe(true);
+  expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
+});

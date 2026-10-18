@@ -159,6 +159,74 @@
           "subcommands": []
         },
         {
+          "name": "child-history",
+          "about": "Read one recorded child's transcript under the exact parent binding",
+          "aliases": [],
+          "args": [
+            {
+              "name": "binding-nonce",
+              "positional": false,
+              "required": true,
+              "value_name": "BINDING_NONCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Current parent binding nonce",
+              "aliases": []
+            },
+            {
+              "name": "cursor",
+              "positional": false,
+              "required": false,
+              "value_name": "CURSOR",
+              "possible_values": [],
+              "default": null,
+              "help": "Opaque continuation cursor from the prior response",
+              "aliases": []
+            },
+            {
+              "name": "epoch",
+              "positional": false,
+              "required": true,
+              "value_name": "EPOCH",
+              "possible_values": [],
+              "default": null,
+              "help": "Current parent runtime epoch",
+              "aliases": []
+            },
+            {
+              "name": "root-thread-id",
+              "positional": false,
+              "required": true,
+              "value_name": "ROOT_THREAD_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Current parent thread id from its runtime binding",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Parent agent tab id",
+              "aliases": []
+            },
+            {
+              "name": "thread",
+              "positional": false,
+              "required": true,
+              "value_name": "THREAD",
+              "possible_values": [],
+              "default": null,
+              "help": "Recorded child thread id",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "cli",
           "about": "Inspect or manage a provider's CLI using its manifest commands",
           "aliases": [],
@@ -366,13 +434,33 @@
               "aliases": []
             },
             {
+              "name": "list-speeds",
+              "positional": false,
+              "required": false,
+              "value_name": "LIST_SPEEDS",
+              "possible_values": [],
+              "default": null,
+              "help": "List this tab's currently available service tiers",
+              "aliases": []
+            },
+            {
               "name": "name",
               "positional": true,
-              "required": true,
+              "required": false,
               "value_name": "NAME",
               "possible_values": [],
               "default": null,
-              "help": "Model id. Run `agent models PROVIDER` to list",
+              "help": "Model id. Run `agent models PROVIDER` to list. Model id. Omit when changing only the service tier",
+              "aliases": []
+            },
+            {
+              "name": "speed",
+              "positional": false,
+              "required": false,
+              "value_name": "TIER",
+              "possible_values": [],
+              "default": null,
+              "help": "Service tier id or `default` to clear the selection",
               "aliases": []
             },
             {
@@ -778,6 +866,16 @@
               "aliases": []
             },
             {
+              "name": "environment",
+              "positional": false,
+              "required": false,
+              "value_name": "ENVIRONMENT",
+              "possible_values": [],
+              "default": null,
+              "help": "Remote environment ID or unambiguous label; never inferred",
+              "aliases": []
+            },
+            {
               "name": "execution-intent",
               "positional": false,
               "required": false,
@@ -787,7 +885,7 @@
                 "mutating"
               ],
               "default": null,
-              "help": "Declared execution intent. `mutating` requires a task binding; `read_only` is also the task-less verification-Worker shape",
+              "help": "Declared execution intent. Plain mutating Workers require a task binding; Worker kinds may mutate task-less and default to `mutating`",
               "aliases": []
             },
             {
@@ -798,6 +896,29 @@
               "possible_values": [],
               "default": null,
               "help": "Watcher tick interval, e.g. 90s, 5m, 1h",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "required": false,
+              "value_name": "KIND",
+              "possible_values": [],
+              "default": null,
+              "help": "Worker prompt kind/profile, with or without a task: qa or release_manager",
+              "aliases": []
+            },
+            {
+              "name": "location",
+              "positional": false,
+              "required": false,
+              "value_name": "LOCATION",
+              "possible_values": [
+                "local",
+                "cloud"
+              ],
+              "default": null,
+              "help": "Execution location declared by the provider. Remote tasks are one-shot tabs",
               "aliases": []
             },
             {
@@ -937,6 +1058,19 @@
               "aliases": []
             },
             {
+              "name": "sandbox",
+              "positional": false,
+              "required": false,
+              "value_name": "SANDBOX",
+              "possible_values": [
+                "read-only",
+                "workspace-write"
+              ],
+              "default": null,
+              "help": "Explicit OS confinement for this launch; Workers default to full access",
+              "aliases": []
+            },
+            {
               "name": "system",
               "positional": false,
               "required": false,
@@ -1055,6 +1189,92 @@
           "subcommands": []
         },
         {
+          "name": "switch-provider",
+          "about": "Continue this tab on another provider through a bounded handoff produced by the target",
+          "aliases": [],
+          "args": [
+            {
+              "name": "force",
+              "positional": false,
+              "required": false,
+              "value_name": "FORCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Stop the current turn before switching. Otherwise a busy tab refuses",
+              "aliases": []
+            },
+            {
+              "name": "model",
+              "positional": false,
+              "required": false,
+              "value_name": "MODEL",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": true,
+              "required": true,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "reasoning-effort",
+              "positional": false,
+              "required": false,
+              "value_name": "REASONING_EFFORT",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "switch-provider-status",
+          "about": "Read a daemon-owned provider switch operation, including self-switch results",
+          "aliases": [],
+          "args": [
+            {
+              "name": "operation",
+              "positional": true,
+              "required": true,
+              "value_name": "OPERATION",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "turns",
           "about": "Read completed turns from a tool-less agent's exact bound session",
           "aliases": [],
@@ -1109,6 +1329,60 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "usage",
+          "about": "Read usage or consume a confirmed reset credit for an exact tab",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "read",
+              "about": "Read this exact tab's provider usage snapshot",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "TAB",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "reset",
+              "about": "Consume one available reset credit on this exact tab's account",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "confirm",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "CONFIRM",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Confirm spending one reset credit",
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "TAB",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
         }
       ]
     },
@@ -10848,6 +11122,44 @@
               "subcommands": []
             },
             {
+              "name": "delegate",
+              "about": "Hand one in-review task to a direct child QA for accept/bounce review",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": false,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "qa-tab",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "QA_TAB_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "hold",
               "about": "HOLD: records a review hold without releasing the task assignment or lane",
               "aliases": [],
@@ -12405,6 +12717,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "kind",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "WORKER_KIND",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Select a built-in Worker prompt kind without changing the task's executor_role",
+                  "aliases": []
+                },
+                {
                   "name": "model",
                   "positional": false,
                   "required": false,
@@ -12452,6 +12774,19 @@
                   "possible_values": [],
                   "default": null,
                   "help": "Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)",
+                  "aliases": []
+                },
+                {
+                  "name": "sandbox",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "SANDBOX",
+                  "possible_values": [
+                    "read-only",
+                    "workspace-write"
+                  ],
+                  "default": null,
+                  "help": "Explicit OS confinement for this launch; Workers default to full access",
                   "aliases": []
                 },
                 {

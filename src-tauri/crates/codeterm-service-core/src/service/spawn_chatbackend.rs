@@ -134,7 +134,8 @@ impl ServiceContext {
             _ => return Err("spawn_chatbackend_impl called without ChatBackend command".into()),
         };
 
-        if super::agent_runtime::engine::requested(self, &plugin_id) {
+        let cloud = self.remote_execution(&plugin_id, &config)?;
+        if !cloud && super::agent_runtime::engine::requested(self, &plugin_id) {
             if let Some(metadata) = spec.chatbackend_launch.as_ref() {
                 super::spawn_capability::validate_runtime_launch_arguments(
                     &plugin_id,
@@ -246,6 +247,11 @@ impl ServiceContext {
                     session_id: String::new(),
                 };
                 tab.chat_view = true;
+                tab.restorable_launch.execution_mode = config
+                    .get("executionMode")
+                    .and_then(|value| value.as_str())
+                    .filter(|mode| *mode != "local")
+                    .map(str::to_owned);
                 tab.hidden = spec.visibility == super::spawn::TabVisibility::Hidden;
                 tab.show_in_tabbar = !tab.hidden;
                 if let Some(launch) = launch {
@@ -286,7 +292,14 @@ impl ServiceContext {
             self.rollback_provisional_tab(&ws_id, &tab_id);
         })?;
 
-        if super::agent_runtime::engine::requested(self, &plugin_id) {
+        if cloud {
+            if let Err(error) = self.persist_remote_launch() {
+                self.rollback_provisional_tab(&ws_id, &tab_id);
+                let _ = self.revoke_agent_pad(&tab_id);
+                return Err(error);
+            }
+        }
+        if !cloud && super::agent_runtime::engine::requested(self, &plugin_id) {
             if let Some(launch) = launch {
                 if let Err(error) = self.prepare_chatbackend_runtime_launch(&tab_id, launch) {
                     self.rollback_provisional_tab(&ws_id, &tab_id);
@@ -470,7 +483,8 @@ impl ServiceContext {
         history_meta: serde_json::Value,
         runtime_fork: Option<super::spawn::RuntimeForkLaunch>,
     ) -> Result<(), String> {
-        if super::agent_runtime::engine::requested(self, &plugin_id) {
+        let cloud = self.remote_execution(&plugin_id, &config)?;
+        if !cloud && super::agent_runtime::engine::requested(self, &plugin_id) {
             let args = self
                 .mux
                 .read()

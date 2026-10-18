@@ -132,6 +132,7 @@ pub struct SpawnAgentParams {
     #[serde(default)]
     pub authorized_gates: Vec<String>,
     pub execution_intent: Option<crate::plan::ExecutionIntent>,
+    pub sandbox: Option<String>,
     pub provider_reserve_pct: Option<f32>,
     pub workspace_id: Option<String>,
     /// Force creation as a new tab instead of split tab (even with parent).
@@ -150,7 +151,7 @@ pub struct SpawnAgentParams {
     /// authenticated relay sender) when `agent spawn --mesh PEER` lands here, so
     /// the spawned worker reports back across the mesh.
     pub report_target_mesh_peer: Option<String>,
-    /// Host-resolved global access choice. Wire input cannot override it.
+    /// Host-resolved access choice. Wire input cannot override it.
     #[serde(default, skip_deserializing)]
     pub skip_permissions: Option<bool>,
     /// Host-only proof that the selected bypass passed centralized policy.
@@ -185,6 +186,7 @@ pub struct SpawnAgentParams {
     #[serde(default, skip)]
     pub manager_bootstrap: Option<crate::service::role_identity::ManagerBootstrapInputs>,
     pub preset: Option<String>,
+    pub execution_mode: Option<String>,
     pub resume_session_id: Option<String>,
     #[serde(default, skip_deserializing)]
     pub fork_session: bool,
@@ -206,10 +208,8 @@ pub struct SpawnAgentParams {
 
 impl SpawnAgentParams {
     pub(crate) fn permission_bypass_requested(&self, provider_id: &str) -> bool {
-        !matches!(
-            self.execution_intent,
-            Some(crate::plan::ExecutionIntent::ReadOnly | crate::plan::ExecutionIntent::Mutating)
-        ) && self.skip_permissions == Some(true)
+        self.sandbox.is_none()
+            && self.skip_permissions == Some(true)
             && self
                 .permission_bypass_authorization
                 .as_ref()

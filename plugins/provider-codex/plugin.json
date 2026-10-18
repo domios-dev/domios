@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.36",
+  "version": "1.14.45",
   "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Codex",
@@ -123,7 +123,7 @@
         "terminalCommand": "codex login"
       },
       "usage": true,
-      "resetCreditsMinVersion": "0.162.1",
+      "resetCreditsMinVersion": "0.163.0",
       "backgroundProcesses": true,
       "goals": {
         "actions": [
@@ -235,7 +235,21 @@
           ]
         }
       }
-    }
+    },
+    "remoteTask": {
+      "mode": "cloud",
+      "displayName": "Cloud",
+      "backend": "chatgpt-cloud-tasks",
+      "availability": {
+        "status": "unavailable",
+        "reason": "Live Cloud access has not been verified. Connect the account that owns your Cloud environments."
+      },
+      "environments": [],
+      "followUp": false,
+      "cancel": false,
+      "applyDiff": false
+    },
+    "view": true
   },
   "iconColor": "var(--ct-fg)",
   "entry": "plugin.js",
@@ -368,6 +382,23 @@
         ],
         "runtimeMode": "read-only"
       },
+      "forbiddenArgumentPrefixes": [
+        "-c",
+        "--config",
+        "--sandbox",
+        "-s",
+        "-a",
+        "--ask-for-approval",
+        "--danger",
+        "--yolo",
+        "--full-auto",
+        "--add-dir",
+        "--cd",
+        "-C",
+        "--profile",
+        "-p",
+        "--"
+      ],
       "mutating": {
         "launchArgs": [
           "--sandbox",
@@ -386,24 +417,7 @@
           "sandbox_workspace_write.network_access=false"
         ],
         "runtimeMode": "workspace-write"
-      },
-      "forbiddenArgumentPrefixes": [
-        "-c",
-        "--config",
-        "--sandbox",
-        "-s",
-        "-a",
-        "--ask-for-approval",
-        "--danger",
-        "--yolo",
-        "--full-auto",
-        "--add-dir",
-        "--cd",
-        "-C",
-        "--profile",
-        "-p",
-        "--"
-      ]
+      }
     }
   },
   "models": [
@@ -536,5 +550,8 @@
       "=0.160.0"
     ],
     "breaking": []
-  }
+  },
+  "dataPaths": [
+    "~/.codeterm/codex/tasks"
+  ]
 }

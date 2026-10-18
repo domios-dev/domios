@@ -1,44 +1,54 @@
-use codeterm_service_core::service::account::deep_links;
+use crate::host_ports::ServerApiAttachmentSlot;
+use tauri::Manager;
 
 pub fn register_deep_links(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
-    service: codeterm_service_core::service::ServiceState,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use tauri_plugin_deep_link::DeepLinkExt;
+    if !production_instance(
+        cfg!(debug_assertions),
+        std::env::var("CODETERM_DEV").ok().as_deref(),
+        std::env::var("CODETERM_INSTANCE").ok().as_deref(),
+        std::env::var("CODETERM_API_PORT").ok().as_deref(),
+        &app.config().identifier,
+    ) {
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    let registered = app.deep_link().is_registered("domios")?;
+    #[cfg(target_os = "linux")]
+    let registered = linux_registration_matches(app)?;
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    app.deep_link().register_all()?;
+    if registration_needs_repair(true, registered) {
+        app.deep_link().register("domios")?;
+    }
+    #[cfg(target_os = "macos")]
+    macos::repair_registration()?;
     let callback_app = app.clone();
     let dispatch = move |urls: Vec<url::Url>| {
         let app = callback_app.clone();
-        let service = service.clone();
-        codeterm_service_core::async_runtime::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             for url in urls {
-                match deep_links::deep_link_action(&url) {
-                    Some(deep_links::DeepLinkAction::BillingReturn { status }) => {
-                        log::debug!(
-                            "[billing] return received, status flag present: {}",
-                            status.is_some()
-                        );
-                        let _ = service
-                            .refresh_billing(codeterm_billing::RefreshEvent::CheckoutReturned)
-                            .await;
-                        let app = app.clone();
-                        let _ = tokio::task::spawn_blocking(move || {
-                            use tauri::Manager;
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.unminimize();
-                                let _ = window.set_focus();
-                            }
-                        })
-                        .await;
+                let attachment = app
+                    .try_state::<ServerApiAttachmentSlot>()
+                    .and_then(|slot| slot.current());
+                if let (Some(attachment), Some(status)) =
+                    (attachment.as_ref(), billing_return_status(&url))
+                {
+                    log::debug!(
+                        "[billing] return received, status flag present: {}",
+                        status.is_some()
+                    );
+                    let _ = attachment.refresh_plan().await;
+                    crate::startup::desktop_lifecycle::activate(&app);
+                } else if let Some(attachment) = attachment.filter(|_| is_account_callback(&url)) {
+                    if attachment
+                        .post_account_callback(url.as_str())
+                        .await
+                        .is_err()
+                    {
+                        log::debug!("[account] callback forwarding failed");
                     }
-                    Some(deep_links::DeepLinkAction::AccountCallback(callback)) => {
-                        if let Ok(account) = service.account().await {
-                            let _ = account.complete(callback).await;
-                        }
-                    }
-                    None => {}
                 }
             }
         });
@@ -49,4 +59,158 @@ pub fn register_deep_links(
     app.deep_link()
         .on_open_url(move |event| dispatch(event.urls()));
     Ok(())
+}
+
+fn is_account_callback(url: &url::Url) -> bool {
+    url.scheme() == "domios" && url.host_str() == Some("auth") && url.path() == "/callback"
+}
+
+fn billing_return_status(url: &url::Url) -> Option<Option<String>> {
+    if url.scheme() != "domios"
+        || url.host_str() != Some("billing")
+        || url.path() != "/return"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    let mut status = None;
+    for (key, value) in url.query_pairs() {
+        if key != "status"
+            || status.is_some()
+            || value.is_empty()
+            || value.len() > 64
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+        {
+            return None;
+        }
+        status = Some(value.into_owned());
+    }
+    Some(status)
+}
+
+fn production_instance(
+    debug: bool,
+    dev: Option<&str>,
+    instance: Option<&str>,
+    port: Option<&str>,
+    identifier: &str,
+) -> bool {
+    !debug
+        && dev != Some("1")
+        && instance.is_none_or(|value| value.trim().is_empty())
+        && port.is_none_or(|port| port == "7685")
+        && identifier == "com.codeterm.app"
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
+fn registration_needs_repair(production: bool, matches_executable: bool) -> bool {
+    production && !matches_executable
+}
+
+#[cfg(target_os = "macos")]
+mod macos;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registration_repair_requires_production_and_a_mismatched_handler() {
+        assert!(registration_needs_repair(true, false));
+        assert!(!registration_needs_repair(true, true));
+        assert!(!registration_needs_repair(false, false));
+        assert!(!registration_needs_repair(false, true));
+    }
+
+    #[test]
+    fn only_default_production_instance_can_register_or_handle_production_links() {
+        assert!(production_instance(
+            false,
+            None,
+            None,
+            None,
+            "com.codeterm.app"
+        ));
+        for (debug, dev, instance, port, identifier) in [
+            (true, None, None, None, "com.codeterm.app"),
+            (false, Some("1"), None, None, "com.codeterm.app"),
+            (false, None, Some("alternate"), None, "com.codeterm.app"),
+            (false, None, None, Some("7686"), "com.codeterm.app"),
+            (false, None, None, None, "com.codeterm.dev"),
+        ] {
+            assert!(!production_instance(debug, dev, instance, port, identifier));
+        }
+    }
+
+    #[test]
+    fn account_callback_candidates_are_forwarded_without_client_validation() {
+        let url = url::Url::parse("domios://auth/callback?code=invalid&state=short").unwrap();
+
+        assert!(is_account_callback(&url));
+        assert_eq!(billing_return_status(&url), None);
+    }
+
+    #[test]
+    fn billing_return_requires_the_original_confined_shape() {
+        let accepted = url::Url::parse("domios://billing/return?status=success").unwrap();
+        let rejected =
+            url::Url::parse("domios://billing/return?status=success&status=again").unwrap();
+
+        assert_eq!(
+            billing_return_status(&accepted),
+            Some(Some("success".into()))
+        );
+        assert_eq!(billing_return_status(&rejected), None);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_registration_matches(
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    use tauri::Manager;
+    let output = std::process::Command::new("xdg-mime")
+        .args(["query", "default", "x-scheme-handler/domios"])
+        .output()?;
+    let name = String::from_utf8_lossy(&output.stdout);
+    let name = name.trim();
+    if !output.status.success() || name.is_empty() || name.contains(['/', '\\']) {
+        return Ok(false);
+    }
+    let mut roots = vec![app.path().data_dir()?];
+    roots.extend(std::env::split_paths(
+        &std::env::var_os("XDG_DATA_DIRS").unwrap_or_else(|| "/usr/local/share:/usr/share".into()),
+    ));
+    let desktop = roots
+        .into_iter()
+        .find_map(|root| std::fs::read_to_string(root.join("applications").join(name)).ok());
+    let Some(desktop) = desktop else {
+        return Ok(false);
+    };
+    let Some(command) = desktop.lines().find_map(|line| line.strip_prefix("Exec=")) else {
+        return Ok(false);
+    };
+    let args = shell_words::split(command)?;
+    let Some(command) = args.first() else {
+        return Ok(false);
+    };
+    let bin = tauri::utils::platform::current_exe()?;
+    let expected =
+        std::path::PathBuf::from(app.env().appimage.unwrap_or_else(|| bin.into_os_string()));
+    let executable = std::path::PathBuf::from(command);
+    let executable = if executable.is_absolute() {
+        Some(executable)
+    } else {
+        std::env::var_os("PATH").and_then(|paths| {
+            std::env::split_paths(&paths)
+                .map(|root| root.join(command))
+                .find(|candidate| candidate.is_file())
+        })
+    };
+    Ok(executable.and_then(|path| path.canonicalize().ok()) == Some(expected.canonicalize()?))
 }

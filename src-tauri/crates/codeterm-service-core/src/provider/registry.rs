@@ -85,7 +85,8 @@ impl ProviderRegistry {
         (
             crate::agent::model_catalog::current_version(id),
             codeterm_plugin::provider_version::revision(),
-            crate::service::provider_update::revision(),
+            crate::service::provider_update::revision()
+                .wrapping_add(crate::service::provider_cli_actions::update_revision()),
         )
     }
 
@@ -135,6 +136,38 @@ impl ProviderRegistry {
                     compatibility.as_ref(),
                 );
                 status.update_summary = crate::service::provider_update::status_summary(id);
+                status.display_name = self
+                    .agents
+                    .provider_arc(id)
+                    .map(|p| p.display_name().to_owned());
+                status.update_job = crate::service::provider_cli_actions::update_job(id);
+                status.latest_version = crate::service::provider_update::newer_target(
+                    crate::service::provider_update::available_version(id),
+                )
+                .map(|version| version.latest_version);
+                if let Some(capability) = self
+                    .agents
+                    .provider_arc(id)
+                    .and_then(|provider| provider.provider_self_update_capability())
+                {
+                    status.updater = status.resolved_path.as_ref().and_then(|path| {
+                        let installation =
+                            codeterm_plugin::provider_self_update::detect_installation(
+                                &capability,
+                                path,
+                                platform,
+                            )?;
+                        codeterm_plugin::provider_self_update::update_command(
+                            &capability,
+                            path,
+                            &installation,
+                            platform,
+                        )
+                    });
+                    if status.installed == Some(true) && status.updater.is_none() {
+                        status.update_refusal = Some("Installation method is unknown or unsupported. Update with the installer that owns this binary.".into());
+                    }
+                }
                 Ok(status)
             }
             None => Err(format!("Unknown provider: {id}")),
@@ -144,6 +177,17 @@ impl ProviderRegistry {
     /// Transport routing for a spawn target. `None` ⇒ id is neither a known
     /// agent nor a registered chat backend.
     pub fn transport_of(&self, id: &str) -> Option<ProviderTransport> {
+        if let Some(provider) = self
+            .agents
+            .provider_arc(id)
+            .filter(|provider| provider.remote_task_capability().is_some())
+        {
+            return Some(if provider.agent_runtime().is_some() {
+                ProviderTransport::ChatBackend
+            } else {
+                ProviderTransport::Pty
+            });
+        }
         if self.chat_backends.get(id).is_some() {
             return Some(ProviderTransport::ChatBackend);
         }

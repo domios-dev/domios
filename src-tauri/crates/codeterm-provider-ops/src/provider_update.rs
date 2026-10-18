@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 
 use codeterm_plugin::provider::{AgentProvider, ProviderUpdateAvailability};
@@ -14,11 +14,14 @@ pub trait ProviderUpdateHost: Clone + Send + Sync + 'static {
     fn matches_own_session(&self, snapshot: &TabStateSnapshot) -> bool;
     fn provider_busy(&self, provider: &str) -> bool;
     fn completed(&self, provider: &str, summary: &str);
+    fn availability_changed(&self, _provider: &str) {}
 }
 use state::Admission;
 
 mod boot;
 mod command;
+mod discovery;
+pub use discovery::refresh_available;
 mod idle;
 mod policy;
 use policy::command_for_target;
@@ -36,7 +39,28 @@ struct Update {
 static ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub fn revision() -> u64 {
-    storage::revision()
+    storage::revision().wrapping_add(AVAILABILITY_REVISION.load(Ordering::Acquire))
+}
+static AVAILABILITY: LazyLock<Mutex<HashMap<String, ProviderUpdateAvailability>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static AVAILABILITY_REVISION: AtomicU64 = AtomicU64::new(0);
+
+pub fn available_version(provider: &str) -> Option<ProviderUpdateAvailability> {
+    AVAILABILITY.lock().get(provider).cloned()
+}
+
+pub fn publish_available(
+    service: &impl ProviderUpdateHost,
+    provider: &str,
+    version: Option<ProviderUpdateAvailability>,
+) {
+    if let Some(version) = version {
+        AVAILABILITY.lock().insert(provider.to_owned(), version);
+    } else {
+        AVAILABILITY.lock().remove(provider);
+    }
+    AVAILABILITY_REVISION.fetch_add(1, Ordering::Release);
+    service.availability_changed(provider);
 }
 static WAITING: LazyLock<Mutex<HashMap<String, Update>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -50,15 +74,21 @@ pub fn check_available(service: Arc<impl ProviderUpdateHost>, api_port: u16, all
         watch::start(service.as_ref());
         idle::schedule_async(service.as_ref(), None);
     }
-    // The gate runs this on the opener's thread (the restore worker), so it must only spawn.
-    boot::RESTORE_GATE.defer(Box::new(move || {
+    schedule_checks(service, allowed, &boot::RESTORE_GATE);
+    if codeterm_agent_model::restore_report::wave_is_settled() {
+        restore_completed();
+    }
+}
+
+fn schedule_checks(service: Arc<impl ProviderUpdateHost>, allowed: bool, gate: &boot::RestoreGate) {
+    for provider in service.providers() {
+        refresh_available(service.as_ref(), provider.id());
+    }
+    gate.defer(Box::new(move || {
         spawn_utility("provider-update-check", move || {
             check_providers(service.as_ref(), allowed)
         });
     }));
-    if codeterm_agent_model::restore_report::wave_is_settled() {
-        restore_completed();
-    }
 }
 
 /// The restore wave settled; the deferred startup availability check may run now.
@@ -69,6 +99,9 @@ pub fn restore_completed() {
 fn check_providers(service: &impl ProviderUpdateHost, allowed: bool) {
     for provider in service.providers() {
         if !provider.supports_update_check() {
+            continue;
+        }
+        if provider.provider_self_update_capability().is_some() {
             continue;
         }
         let Some(command) = provider.update_command(command::platform_key()) else {
@@ -197,6 +230,10 @@ pub fn manual_prompt_observed(
     let screen = snapshot.screen_text.clone();
     let service = service.clone();
     spawn_utility("provider-update-prompt", move || {
+        if provider.provider_self_update_capability().is_some() {
+            publish_available(&service, provider.id(), provider.check_for_update());
+            return;
+        }
         if let Some(version) = newer_target(provider.check_for_update())
             .or_else(|| provider.update_prompt_availability(&screen))
         {

@@ -11,7 +11,7 @@ const compatibility = {
 const metadata = { versions: { "1.18.35": {}, "1.19.0": {}, "1.19.8": {}, "1.20.0": {}, "2.0.0": {}, "1.19.9-beta": {} } };
 type Await = { __ctAwait__: { job: string; k: string } };
 
-function asyncHost(exec: () => unknown, fetch: () => unknown) {
+function asyncHost(exec: (opts: string) => unknown, fetch: (opts: string) => unknown) {
   const jobs = new Map<string, () => unknown>();
   const awaiting = new Map<string, (result: unknown) => unknown>();
   const host = {
@@ -41,7 +41,12 @@ function asyncHost(exec: () => unknown, fetch: () => unknown) {
 const makeHost = (binary = "opencode", code = 0, body: unknown = metadata) => {
   const { host, drive } = asyncHost(
     () => ({ done: true, code, stdout: `${binary} 1.18.35` }),
-    () => ({ status: 200, body: JSON.stringify(body) }),
+    (raw: string) => {
+      const request = JSON.parse(raw) as { url: string; headers: { Accept: string } };
+      return request.url.endsWith("/latest") && request.headers.Accept !== "application/json"
+        ? { status: 406, body: "" }
+        : { status: 200, body: JSON.stringify(body) };
+    },
   );
   return { ...host, drive };
 };
@@ -49,6 +54,17 @@ const check = (host: ReturnType<typeof makeHost>, binary: string, url: string, c
   host.drive(checkProviderUpdate(host, binary, url, compat));
 
 describe("provider update selection", () => {
+  it("publishes the stable version from npm's JSON-only latest resource", () => {
+    const host = makeHost("codex", 0, { version: "0.163.0" });
+    host.exec.mockReturnValue({ done: true, code: 0, stdout: "codex-cli 0.162.1" });
+    expect(check(host, "codex", "https://registry.npmjs.org/%40openai%2Fcodex/latest"))
+      .toEqual({ currentVersion: "0.162.1", latestVersion: "0.163.0" });
+  });
+  it("retains abbreviated metadata for compatibility packuments", () => {
+    const host = makeHost();
+    check(host, "opencode", "https://registry.npmjs.org/opencode-ai", compatibility);
+    expect(JSON.parse(host.fetchStart.mock.calls[0][0]).headers.Accept).toBe("application/vnd.npm.install-v1+json");
+  });
   it("selects the newest supported release below the breaking range", () => {
     expect(newestSupportedVersion(Object.keys(metadata.versions), compatibility)).toBe("1.19.8");
   });

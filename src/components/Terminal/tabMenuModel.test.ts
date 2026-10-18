@@ -132,6 +132,7 @@ describe("tab menu model", () => {
       "rename",
       "make-orchestrator",
       "make-planner",
+      "provider",
       "reconnect",
       "restart",
       "plugins",
@@ -139,7 +140,7 @@ describe("tab menu model", () => {
     ]);
   });
 
-  it("offers model and provider switching only on the General agent", () => {
+  it("offers model switching on General and provider handoff on every managed agent", () => {
     for (const surface of SURFACES) {
       const general = buildTabMenu(input(surface, { tab: tab({ role: "Manager", role_profile: "general_agent" } as never) }));
       const ids = general.map((entry) => entry.id);

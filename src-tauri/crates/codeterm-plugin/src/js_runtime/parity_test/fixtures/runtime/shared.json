@@ -16,7 +16,7 @@
       },
       "reply": {
         "kind": "success",
-        "value": null
+        "value": {"binaryVersion": "7.8.9"}
       },
       "plan": {
         "action": {
@@ -33,7 +33,8 @@
       "step": {
         "kind": "complete",
         "result": {
-          "kind": "initialized"
+          "kind": "initialized",
+          "binaryVersion": "7.8.9"
         }
       }
     },

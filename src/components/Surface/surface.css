@@ -137,6 +137,8 @@
 }
 
 .ct-surface-canvas[data-mode="interactive"] {
+  touch-action: none;
+  user-select: none;
   outline: 1px solid var(--ct-accent);
   outline-offset: -1px;
 }

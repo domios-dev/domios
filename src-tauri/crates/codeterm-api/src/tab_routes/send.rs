@@ -865,16 +865,25 @@ pub async fn send_text(
         let svc = state.svc.clone();
         let target = tab_id.clone();
         let payload = raw_text.clone();
-        let (_delivery, pad_file) = run_programmatic_delivery(&tab_id, move || {
+        let (delivery, pad_file) = run_programmatic_delivery(&tab_id, move || {
             codeterm_service_core::service::messenger::Messenger::deliver_with_pad_file(
                 &svc, &target, envelope, &payload,
             )
         })
         .await?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
+        use codeterm_service_core::service::messenger::Delivery;
+        let (delivery_state, send_id, bytes_written) = match delivery {
+            Delivery::Pending { delivery_id } => ("pending", Some(delivery_id), false),
+            Delivery::Unconfirmed { delivery_id } => ("pending", Some(delivery_id), true),
+            Delivery::ChatBackend { message_id } => ("sent", Some(message_id), true),
+            Delivery::Pty { .. } => ("sent", None, true),
+        };
         let mut response = serde_json::json!({
             "ok": true,
-            "delivery": "pending",
+            "delivery": delivery_state,
+            "send_id": send_id,
+            "bytes_written": bytes_written,
             "pad_file": pad_file.map(|path| path.display().to_string())
         });
         if transport == TabInputTransport::Pty
@@ -951,7 +960,7 @@ pub async fn send_text(
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
         return Ok(Json(serde_json::json!({
             "ok": true,
-            "delivery": if matches!(delivery, codeterm_service_core::service::messenger::Delivery::Pending { .. }) { "pending" } else { "sent" },
+            "delivery": if matches!(delivery, codeterm_service_core::service::messenger::Delivery::Pending { .. } | codeterm_service_core::service::messenger::Delivery::Unconfirmed { .. }) { "pending" } else { "sent" },
             "pad_file": pad_file.map(|path| path.display().to_string())
         })));
     }

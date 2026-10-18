@@ -213,6 +213,8 @@ struct PtySubmitTransport<'a> {
     submit_generation: u64,
     paste_capability: PasteEncodingCapability,
     evidence_anchor: RefCell<Option<crate::service::chat_send_transaction::SendEvidenceAnchor>>,
+    first_materialization:
+        RefCell<Option<crate::service::chat_send_evidence::FirstMaterialization>>,
     evidence_tab_id: RefCell<Option<String>>,
     evidence_binding_nonce: RefCell<Option<String>>,
     evidence_pty_generation: Cell<Option<u64>>,
@@ -286,6 +288,9 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         }
         *self.evidence_tab_id.borrow_mut() = tab_id;
         *self.evidence_anchor.borrow_mut() = anchor.clone();
+        *self.first_materialization.borrow_mut() = evidence
+            .as_ref()
+            .and_then(|evidence| evidence.first_materialization.clone());
         *self.evidence_binding_nonce.borrow_mut() = binding_nonce;
         self.evidence_pty_generation
             .set(self.svc.screen_state.lock().pty_generation(self.pty_id));
@@ -305,7 +310,12 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .then(|| {
                 watch_session_evidence(
                     &self.svc.agent_registry,
-                    anchor.as_ref(),
+                    anchor.as_ref().or_else(|| {
+                        evidence
+                            .as_ref()
+                            .and_then(|evidence| evidence.first_materialization.as_ref())
+                            .map(|first| &first.watch_anchor)
+                    }),
                     self.wake_tx.clone(),
                 )
             })
@@ -349,12 +359,16 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         if !self.require_exact_session_turn {
             return false;
         }
-        let Some(anchor) = self.evidence_anchor.borrow().clone() else {
-            return false;
-        };
         let Some(tab_id) = self.evidence_tab_id.borrow().clone() else {
             return false;
         };
+        let anchor = self.evidence_anchor.borrow().clone().or_else(|| {
+            self.first_materialization
+                .borrow()
+                .as_ref()
+                .and_then(|first| first.resolve(&self.svc.chat_registry.jsonl_source(&tab_id)))
+        });
+        let Some(anchor) = anchor else { return false };
         let evidence_binding_nonce = self.evidence_binding_nonce.borrow().clone();
         let current_binding = self.svc.mux.read().get_tab(&tab_id).is_some_and(|tab| {
             tab.agent_session_id.as_deref() == Some(anchor.session_id.as_str())
@@ -398,7 +412,9 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     fn has_exact_user_turn_evidence(&self) -> bool {
         exact_session_turn_source_available(
             self.require_exact_session_turn,
-            self.evidence_anchor.borrow().is_some() || self.max_submit_keys == 1,
+            self.evidence_anchor.borrow().is_some()
+                || self.first_materialization.borrow().is_some()
+                || self.max_submit_keys == 1,
         )
     }
 
@@ -952,6 +968,7 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
         submit_generation,
         paste_capability,
         evidence_anchor: RefCell::new(None),
+        first_materialization: RefCell::new(None),
         evidence_tab_id: RefCell::new(None),
         evidence_binding_nonce: RefCell::new(None),
         evidence_pty_generation: Cell::new(None),

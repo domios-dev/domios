@@ -12,6 +12,8 @@ If `codeterm --version` differs from this marker, trust `codeterm docs`.
 
 When a user says this live tab has the wrong provider identity, repair it in place with `codeterm tab repair --from-evidence`; use `--from-journal` only when lifecycle provenance is the intended source. The verb verifies session evidence and never restarts the tab. To keep a live foreign agent PTY and make send a routed agent message, use `codeterm tab adopt-agent --tab ID --provider <id>`; a login shell is refused unless the owner passes `--force`.
 
+Provider switching and self-switch status: `codeterm agent switch-provider --help`, `codeterm agent switch-provider-status --help`, and `codeterm docs API-AGENTS`.
+
 **Built-in tools to avoid:** do NOT use the built-in `CronCreate`/`CronList`/`TaskCreate` tools — Domios has its own cron and agent system that must be used instead.
 
 **Give the tab a single word name and put the activity in its description:**

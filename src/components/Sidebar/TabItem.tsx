@@ -1,4 +1,3 @@
-import { confirmedTabServiceTier, serviceTierLabel, tabMetaParts } from "../../lib/tabMetaLabel";
 import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
@@ -13,6 +12,7 @@ import { getAgentDescriptor, listAgentDescriptors } from "../../lib/agentDescrip
 import { TabMenu } from "../Terminal/TabMenu";
 import { buildTabMenu, type TabMenuAction } from "../Terminal/tabMenuModel";
 import { performTabMenuAction } from "../Terminal/tabMenuActions";
+import { useProviderSwitchDialog } from "./ProviderSwitchDialog";
 import { useTelegramThreadMenu } from "../Terminal/useTelegramThreadMenu";
 import { ActivityDots } from "../shared/ActivityDots";
 import { RowMenuButton } from "../shared/RowMenuButton";
@@ -25,7 +25,7 @@ import { agentModelForBadge } from "../../lib/agentLabel";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
-import { managedByLabel, remoteIdentity, meshBadgeLabel } from "./remoteOwnership";
+import { managedByLabel, meshBadgeLabel } from "./remoteOwnership";
 import { managedTabPresentation } from "../../lib/managedTab";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
@@ -38,6 +38,7 @@ import { TabAttentionMark } from "./TabAttentionMark";
 import {
   tabAttention, type TabAttention,
 } from "./tabAttention";
+import { tabRowText } from "./tabRowModel";
 
 interface TabItemProps {
   tab: Tab;
@@ -200,51 +201,6 @@ function TabDescriptionSubtitle({ description }: { description: string | null })
   );
 }
 
-function StartedByLine({ origin }: { origin: TabStartedBy }) {
-  const open = origin.onOpen;
-  return (
-    <span data-testid="tab-started-by" className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)] opacity-[0.49]">
-      started by{" "}
-      {open ? (
-        <span
-          role="link"
-          tabIndex={-1}
-          className="sidebar-tab-origin-link"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            open();
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter") return;
-            event.stopPropagation();
-            open();
-          }}
-        >
-          {origin.label}
-        </span>
-      ) : (
-        <span title={origin.id ? `Tab ${origin.id}` : undefined}>{origin.label}</span>
-      )}
-    </span>
-  );
-}
-
-function RemoteIdentityLine({ tab }: { tab: Tab }) {
-  const identity = remoteIdentity(tab);
-  if (!identity) return null;
-  return (
-    <span
-      data-testid="remote-tab-identity"
-      className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
-    >
-      {identity.role ? <RoleBadge label={identity.role} className="shrink-0" /> : null}
-      {identity.role ? <span aria-hidden="true">·</span> : null}
-      <span className="truncate">{identity.peer}</span>
-    </span>
-  );
-}
-
 function MeshDot({ label }: { label: string | null }) {
   if (!label) return null;
   return (
@@ -282,7 +238,6 @@ function TabItemInner({
   insetPx,
   ownerBadgeTab = null,
   attachmentToggle = null,
-  startedBy = null,
 }: TabItemProps) {
   const attachment = variant === "attachment";
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
@@ -341,12 +296,7 @@ function TabItemInner({
     : null;
   const managedBy = managedTabPresentation(tab.managed).label ?? managedByLabel(tab);
   const meshLabel = meshBadgeLabel(tab);
-  const localMetaParts = tab.remote_peer_id ? [] : tabMetaParts(
-    restoreFailure.showIdentityBadges ? tabModel : null,
-    restoreFailure.showIdentityBadges ? serviceTierLabel(descriptor, confirmedTabServiceTier(tab, descriptor)) : undefined,
-    roleShield,
-    hasAgent ? tabState.status.toLowerCase() : null,
-  );
+  const rowText = tabRowText({ title: displayTitle, description, typeLabel: roleShield });
   const isSubTab =
     !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
@@ -366,6 +316,7 @@ function TabItemInner({
     }
   }, [isClosing, closePhase]);
 
+  const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(tab);
   const pluginTabMenu = usePluginTabMenu();
   const telegramThread = useTelegramThreadMenu(tab.id, !tab.remote_peer_id);
   const menuEntries = useMemo(() => buildTabMenu({
@@ -385,6 +336,7 @@ function TabItemInner({
   const runMenuAction = (action: TabMenuAction) => {
     performTabMenuAction(tab.id, action, {
       sessionBindingNonce: tab.session_binding_nonce,
+      switchProvider: openProviderSwitch,
       rename: () => { setEditName(canonicalTitle); setEditing(true); },
       close: onClose,
     }).catch((error) => console.warn("Tab action failed:", error));
@@ -507,7 +459,7 @@ function TabItemInner({
               setEditing(true);
             }}
           >
-            {displayTitle}
+            {rowText.title}
           </span>
           {hasAgent && (
             <TabWorkingActivity activity={tabState} />
@@ -551,11 +503,8 @@ function TabItemInner({
           </span>
         ) : attachment ? null : (
           <span className="sidebar-tab-body__sub">
-            <TabSubline parts={localMetaParts} role={roleShield} generalAgent={isGeneralAgent} />
-            <RemoteIdentityLine tab={tab} />
-            <TabDescriptionSubtitle description={description} />
-            {startedBy && <StartedByLine origin={startedBy} />}
-            {!tab.remote_peer_id && managedByLabel(tab) && <span className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">{managedByLabel(tab)}</span>}
+            <TabSubline parts={rowText.typeLabel ? [rowText.typeLabel] : []} role={rowText.typeLabel} generalAgent={isGeneralAgent} />
+            <TabDescriptionSubtitle description={rowText.description} />
           </span>
         )}
       </div>
@@ -586,6 +535,7 @@ function TabItemInner({
         {touchMode && tabMenu}
       </div>
       {!touchMode && tabMenu}
+      {providerSwitchDialog}
     </div>
   );
 }

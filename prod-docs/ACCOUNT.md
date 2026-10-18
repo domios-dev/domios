@@ -12,6 +12,8 @@ codeterm account status
 codeterm account logout
 ```
 
+Account status includes `last_sign_in_failure`: `null`, or a safe `{stage, error}` record for the last completed unsuccessful sign-in. Stages are `preparation`, `browser`, `callback`, `redemption`, `credential_save`, and `publication`; redemption includes provider token exchange and profile retrieval. Errors are closed account error categories, never provider response bodies, URLs, identifiers or credentials. The record stays available across status reads and client remounts, and clears when an explicit sign-in starts or a session succeeds. Account surfaces show a plain-language message from this record. It describes only attempts completed by this running app; it cannot diagnose a past attempt made before this instrumentation.
+
 ## Subscription
 
 ```bash
@@ -80,4 +82,4 @@ Local callers only.
 | POST | `/api/account/upgrade` | `{plan}` | Open checkout in the system browser |
 | POST | `/api/account/portal` | — | Open subscription management in the system browser |
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

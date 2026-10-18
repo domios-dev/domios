@@ -16,6 +16,7 @@ pub use service_adapter::delete::SentinelDeleteExt;
 pub use service_adapter::graph::{AutomationFilesExt, AutomationGraphExt};
 pub use service_adapter::SentinelExt;
 pub(crate) mod classify;
+pub mod event_subscription;
 pub mod graph;
 mod pipeline;
 mod probe_env;

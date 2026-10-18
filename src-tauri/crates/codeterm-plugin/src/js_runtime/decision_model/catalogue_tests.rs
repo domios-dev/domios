@@ -28,10 +28,11 @@ fn cold_catalogue_shares_one_discovery_without_blocking_cheap_vm_calls() {
         let source = std::fs::read_to_string(directory.path().join(&manifest.entry)).unwrap();
         let prefix = format!(
             r#"
-            let starts = 0;
+            let starts = {{}};
             host.exec = function () {{ throw new Error('synchronous discovery'); }};
-            host.execStart = function () {{
-                starts++;
+            host.execStart = function (text) {{
+                const key = JSON.stringify(JSON.parse(text).args);
+                starts[key] = (starts[key] || 0) + 1;
                 const jobId = host.testGateStart({release:?});
                 host.testGateOpen({entered:?});
                 return JSON.stringify({{ jobId }});
@@ -89,8 +90,10 @@ fn cold_catalogue_shares_one_discovery_without_blocking_cheap_vm_calls() {
         );
         assert_eq!(models, second.join().unwrap());
         assert_eq!(models, model.models());
-        let starts: u32 = call_json(&vm, "discoveryCount", &[]).unwrap();
-        assert_eq!(starts, 1);
+        let starts: std::collections::HashMap<String, u32> =
+            call_json(&vm, "discoveryCount", &[]).unwrap();
+        assert!(!starts.is_empty());
+        assert!(starts.values().all(|count| *count == 1));
     }
     assert!(
         exercised > 0,

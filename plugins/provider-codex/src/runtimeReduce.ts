@@ -12,7 +12,8 @@ import { codexReportedSettings } from "./runtimeSettings";
 import { abandonOpenTurn, interruptPendingCalls, runningCallStatus, stampToolLifecycle, type RuntimeItem } from "./runtimeAbandonedTurns";
 import { reduceRuntimeAgents, type RuntimeAgents } from "./runtimeAgents";
 import { threadStatus, turnOutcome, requestDetail, withDetail } from "./runtimeTurnStatus";
-import { capEvents, compactState, isRetired, markClosed, markOpen } from "./runtimeStateBudget";
+import { compactState, isRetired, markClosed, markOpen } from "./runtimeStateBudget";
+import { budgetReduction } from "./runtimeBatchBudget";
 
 interface ReduceState {
   epoch: number;
@@ -90,6 +91,9 @@ function stamp(state: ReduceState, row: RuntimeItem, params: Record<string,unkno
   else if (typeof ms === "number" && Number.isFinite(ms)) row.timestamp = new Date(ms).toISOString();
   const turnId = text(params.turnId) ?? text(object(params.turn).id);
   if (turnId && !row.toolFlowId) row.toolFlowId = turnId;
+  if (row.toolKind === "agent" && row.toolName === "agent_activity") {
+    row.toolInput = json({...object(row.toolInput), agent_binding_nonce: state.bindingNonce, agent_runtime_epoch: state.epoch});
+  }
   state.items[row.id] = row;
   return row;
 }
@@ -167,7 +171,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       const limits = object(params.rateLimits);
       if (limits.limitId && limits.limitId !== "codex") continue;
       state.rateLimitSnapshot = {...state.rateLimitSnapshot,...limits};
-      events.push(...rateLimitEvents(state.rateLimitSnapshot,params.rate_limit_reset_credits));
+      events.push(...rateLimitEvents(state.rateLimitSnapshot,params.rateLimitResetCredits));
       continue;
     }
     const descendant = typeof params.threadId === "string" && ctx.threadParents.some(parent => parent.threadId === params.threadId);
@@ -340,7 +344,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
     }
   }
   compactState(state);
-  return {state:json(state),events:capEvents(events)};
+  return budgetReduction(json(state),events);
 }
 
 function pendingStatus(state: ReduceState, threadId: string): AgentEvent | undefined {

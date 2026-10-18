@@ -7,6 +7,19 @@ pub(super) fn dispatch(
     params: Option<Value>,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
+    let (harness, request) = prepare(method, params)?;
+    svc.model_provider_command(harness.as_deref(), request)
+        .map_err(|error| JsonRpcError {
+            code: -32000,
+            message: error.to_string(),
+            data: Some(json!({ "kind": error })),
+        })
+}
+
+fn prepare(
+    method: &str,
+    params: Option<Value>,
+) -> Result<(Option<String>, ModelProviderRequest), JsonRpcError> {
     let action = match method {
         "model_provider.preset.add" => "preset_add",
         "model_provider.preset.remove" => "preset_remove",
@@ -28,20 +41,26 @@ pub(super) fn dispatch(
     };
     let mut params = params.unwrap_or_else(|| json!({}));
     let object = params.as_object_mut().ok_or_else(invalid)?;
-    let provider = match object.remove("provider") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(id)) => Some(id),
-        Some(_) => return Err(invalid()),
+    let harness = match object.remove("harness") {
+        None => None,
+        Some(value) => {
+            let id: String = serde_json::from_value(value).map_err(|_| invalid())?;
+            if id.is_empty() || id.trim() != id {
+                return Err(invalid());
+            }
+            Some(id)
+        }
     };
+    if object.contains_key("action") {
+        return Err(invalid());
+    }
     object.insert("action".into(), json!(action));
     let request: ModelProviderRequest = serde_json::from_value(params).map_err(|_| invalid())?;
-    svc.model_provider_command(provider.as_deref(), request)
-        .map_err(|error| JsonRpcError {
-            code: -32000,
-            message: error.to_string(),
-            data: Some(json!({ "kind": error })),
-        })
+    Ok((harness, request))
 }
+
+#[cfg(test)]
+mod tests;
 
 fn invalid() -> JsonRpcError {
     JsonRpcError {

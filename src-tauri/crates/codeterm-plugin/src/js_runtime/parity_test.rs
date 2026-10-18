@@ -22,6 +22,8 @@ mod parsed_record_fixtures;
 mod parsed_records;
 #[path = "parity_test/raw_arguments.rs"]
 mod raw_arguments;
+#[path = "parity_test/remote_tasks.rs"]
+mod remote_tasks;
 #[path = "parity_test/runtime.rs"]
 mod runtime;
 #[path = "parity_test/session_resume.rs"]
@@ -401,6 +403,7 @@ impl ChatBackendProvider for ModelCapabilityNativeStub {
             authority: crate::provider::ModelCatalogueAuthority::Authoritative,
             live_discovery_required: true,
             config_files: vec!["/tmp/chatbackend-model-parity-config.json".into()],
+            config_file_environments: Vec::new(),
         }
     }
 

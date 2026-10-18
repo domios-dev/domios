@@ -5,9 +5,10 @@ import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvent
 import { onResync } from "../../lib/resync";
 import { createDelayedMessageFeed } from "./delayedMessageFeed";
 import {ProviderCapabilityBadge} from "./ProviderCapabilityBadge";
-import {cachedSlashCommands} from "../../lib/providerCapabilities";
+import { cachedSlashCommands, slashCommandsEqual } from "../../lib/providerCapabilities";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
 import { ComposerBubbleRow } from "./ComposerBubbles";
+import { ComposerUploadNotices } from "./ComposerUploadNotices";
 import { ComposerDock } from "./ComposerDock";
 import { useComposerLayout } from "./useComposerLayout";
 import { evaluateWhen } from "../../lib/evaluateWhen";
@@ -52,16 +53,16 @@ import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { ComposerTextInput } from "./ComposerTextInput";
-import { capsuleSpans, hasCapsuleTokens } from "./composerCapsules";
+import { hasCapsuleTokens } from "./composerCapsules";
 import { replaceTextareaRange, useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
-import { draftHasPendingUploads } from "./composerUploadModel";
+import { composerSendPlan, resolveComposerSend } from "./composerSendPlan";
+import { recordDroppedUploads } from "./DroppedUploadNotice";
 import { classifyAttachmentPaths } from "./composerFiles";
 import { ComposerMentionPicker, useComposerMentions } from "./ComposerMentionPicker";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { ReplyQuote } from "@codeterm/chat-ui";
 import type { ComposerReply } from "./composerReply";
 import { useComposerReply } from "./useComposerReply";
-import { usePublishComposerIssues } from "./ComposerIssuesContext";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
@@ -192,6 +193,7 @@ function ChatComposerImpl({
   pluginError,
   sessionIntent,
   contextSlot = null,
+  attachSlot = null,
   chatBackend = false,
   isActive = true,
 }: {
@@ -225,6 +227,7 @@ function ChatComposerImpl({
   sessionIntent?: ChatSessionIntent | null;
   /** Element above the status line that hosts the context header. */
   contextSlot?: HTMLElement | null;
+  attachSlot?: HTMLElement | null;
 }) {
   recordComposerRender(tabId);
   const isActiveRef = useRef(isActive);
@@ -261,24 +264,14 @@ function ChatComposerImpl({
     [showComposerError],
   );
   const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError });
-  usePublishComposerIssues(capsules.uploads.uploads, {
-    retry: capsules.uploads.retry,
-    remove: id => {
-      const upload = capsules.uploads.uploads.find(item => item.id === id);
-      const span = capsuleSpans(textareaRef.current?.value ?? input).find(item => item.label === upload?.label);
-      if (span) capsules.remove(span);
-      capsules.uploads.remove(id);
-    },
-  });
   const [composing, setComposing] = useState(false);
   const capsulesActive = !composing && hasCapsuleTokens(input);
-  const pendingUploads = draftHasPendingUploads(input, capsules.registry);
   const attachInline = async (paths: string[]) => capsules.insert(await classifyAttachmentPaths(paths));
-  const capabilities = useMuxSelector(useLatestCallback(state => state.tabs[tabId]?.provider_signals?.capabilities, [tabId]));
+  const commands = useMuxSelector(useLatestCallback(state => cachedSlashCommands(state.tabs[tabId]?.provider_signals?.capabilities), [tabId]), slashCommandsEqual);
   const firstLine = input.split("\n")[0] || "";
   const suggestions = useMemo(
-    () => filterSlashCommands(firstLine, cachedSlashCommands(capabilities)),
-    [firstLine, capabilities],
+    () => filterSlashCommands(firstLine, commands),
+    [firstLine, commands],
   );
 
   const refocusComposer = useLatestCallback(() => {
@@ -363,7 +356,6 @@ function ChatComposerImpl({
   }
 
   function buildDraft(extraAttachments: string[] = []) {
-    if (draftHasPendingUploads(textareaRef.current?.value ?? input, capsules.registryRef.current)) return;
     const text = input.trim();
     const cleanExtraAttachments = extraAttachments
       .map((p) => p.trim())
@@ -406,7 +398,9 @@ function ChatComposerImpl({
     setInput("");
     if (textareaRef.current) textareaRef.current.value = "";
     clearAttachments();
-    capsules.clear();
+    const plan = composerSendPlan(text, registry, capsules.uploads.uploads);
+    const capturedUploads = duplicate ? [] : capsules.uploads.take(plan.uploadIds);
+    capsules.detach();
     reply.clearIfSent(quoted);
     if (duplicate) return;
     lastSendRef.current = { text: dupKey, at: Date.now() };
@@ -422,7 +416,17 @@ function ChatComposerImpl({
     try {
       const send = readChatSends(tabId).find((item) => item.id === optimisticId)
         ?? { id: optimisticId, content: portable, sentAtMs: Date.now(), draft: deliveryDraft };
-      composed = await prepareChatDelivery(tabId, send, expandDsTasks);
+      const results = await Promise.all(capturedUploads.map(async item => ({ ...item, path: await item.result })));
+      const resolved = resolveComposerSend(text, registry, new Map(results.map(item => [item.upload.id, item.path])));
+      recordDroppedUploads(tabId, optimisticId, results.filter(item => !item.path).map(item => item.upload));
+      const readyDraft = { ...deliveryDraft, ...resolved };
+      setChatSendDraft(tabId, optimisticId, readyDraft);
+      composed = await prepareChatDelivery(tabId, { ...send, draft: readyDraft }, expandDsTasks);
+      if (!composed.trim()) {
+        failChatSendRequest(tabId, optimisticId);
+        pendingDraftsRef.current.delete(dupKey);
+        return;
+      }
       updateOptimistic(optimisticId, composed);
     } catch {
       failChatSendRequest(tabId, optimisticId);
@@ -561,13 +565,14 @@ function ChatComposerImpl({
       <div data-testid="composer-row" className="relative">
         <ComposerActions
           tabId={tabId}
+          attachSlot={attachSlot}
           onAttach={(paths) => void attachInline(paths)}
           uploadFiles={capsules.uploads.addFiles}
           onSend={() => void send()}
           onSchedule={openScheduleModal}
           onSendWithAttachments={(paths) => void send(paths)}
           onError={flagComposerError}
-          sendDisabled={pendingUploads || (!input.trim() && attachments.length === 0 && !reply.reply)}
+          sendDisabled={(!input.trim() && attachments.length === 0 && !reply.reply)}
           hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
           cardHeader={(reply.reply || attachments.length > 0) && <>
             {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}
@@ -718,6 +723,7 @@ function ChatComposerImpl({
             />
           </ComposerCapsuleField>
         </ComposerActions>
+        <ComposerUploadNotices value={input} registry={capsules.registry} uploads={capsules.uploads.uploads} onRemove={capsules.remove} />
       </div>
     </ComposerDock>
   );
@@ -745,6 +751,7 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.pluginError === b.pluginError
   && a.sessionIntent === b.sessionIntent
   && a.contextSlot === b.contextSlot
+  && a.attachSlot === b.attachSlot
   && a.chatBackend === b.chatBackend
   && a.isActive === b.isActive
 );

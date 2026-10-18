@@ -1,3 +1,4 @@
+import modelRejections from "./modelRejections.json";
 import { modelMetadata, modelUnavailable, rejectedModelIds } from "./turnErrors";
 import type { FetchOpts, Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
 import { parseModelVariants } from "./modelVariants";
@@ -280,56 +281,84 @@ export function isQuestionMenuFooter(line: string): boolean {
 declare const host: Host;
 
 const MODEL_CATALOGUE_TTL_MS = 10 * 60 * 1000;
-let modelCatalogue: { stamp: string; since: number; models: ModelInfo[] | null } | null = null;
-let modelDiscoveryInFlight = false;
+interface CatalogueAttempt {
+  stamp: string;
+  since: number;
+  pending: boolean;
+  models: ModelInfo[] | null;
+}
+let modelCatalogue: CatalogueAttempt | null = null;
+let lastGoodCatalogue: ModelInfo[] | null = null;
 
 export function cachedOpencodeModels(): ModelInfo[] | null {
-  return modelCatalogue?.models ?? null;
+  return lastGoodCatalogue;
 }
 
-export function discoverOpencodeModels(binaryFingerprint?: string | null): ModelInfo[] | null {
-  return withOpencodeModels(binaryFingerprint, (models) => models);
+export function discoverOpencodeModels(inputFingerprint?: string | null): ModelInfo[] | null {
+  return withOpencodeModels(inputFingerprint, (models) => models);
 }
 
-export function withOpencodeModels<T>(binaryFingerprint: string | null | undefined, then: (models: ModelInfo[] | null) => T): T {
+export function withOpencodeModels<T>(inputFingerprint: string | null | undefined, then: (models: ModelInfo[] | null) => T): T {
   const now = host.unixNowMs();
-  if (modelDiscoveryInFlight && modelCatalogue && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) return then(cachedOpencodeModels());
-  const stamp = binaryFingerprint ?? "unresolved";
-  if (modelCatalogue && modelCatalogue.stamp === stamp && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) {
-    return then(modelCatalogue.models);
+  if (inputFingerprint === undefined && modelCatalogue?.pending) return then(null);
+  const stamp = inputFingerprint ?? "unresolved";
+  if (modelCatalogue && modelCatalogue.stamp === stamp && now >= modelCatalogue.since && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) {
+    return then(modelCatalogue.pending ? null : modelCatalogue.models);
   }
-  const previous = cachedOpencodeModels();
-  modelCatalogue = { stamp, since: now, models: previous };
-  const started = safeJson(host.execStart(JSON.stringify({
-    bin: "opencode",
-    args: ["models", "--verbose"],
-    timeoutMs: 3000,
-  }))) as { jobId?: string } | null;
-  if (!started?.jobId) return then(previous);
-  modelDiscoveryInFlight = true;
-  return host.awaitJob(started.jobId, (result) => {
-    try {
-      const models = discoveredOpencodeModels(result);
-      modelCatalogue = { stamp, since: host.unixNowMs(), models: models ?? previous };
-      return then(models);
-    } finally {
-      modelDiscoveryInFlight = false;
-    }
+  const attempt: CatalogueAttempt = { stamp, since: now, pending: true, models: null };
+  modelCatalogue = attempt;
+  const finish = (models: ModelInfo[] | null): T => {
+    if (modelCatalogue !== attempt) return then(null);
+    attempt.pending = false;
+    attempt.models = models;
+    attempt.since = host.unixNowMs();
+    if (models !== null) lastGoodCatalogue = models;
+    return then(models);
+  };
+  return probeModels(false, (result) => {
+    if (modelCatalogue !== attempt) return then(null);
+    if (!completeModelOutput(result)) return finish(null);
+    const identities = parseOpencodeModels(result.stdout);
+    if (identities === null) return finish(null);
+    return probeModels(true, (metadataResult) => {
+      if (modelCatalogue !== attempt) return then(null);
+      const verbose = metadataResult?.code === 0 && !metadataResult.error && typeof metadataResult.stdout === "string"
+        ? metadataResult.stdout : "";
+      const metadata = modelMetadata(verbose);
+      const enriched = new Map((parseOpencodeModels(verbose) ?? []).map((model) => [model.id, model]));
+      const models = identities.filter((model) => !modelUnavailable(metadata.get(model.id)))
+        .map((model) => enriched.get(model.id) ?? model);
+      return finish(filterRejectedModels(models));
+    });
   });
 }
 
-function discoveredOpencodeModels(result: { code?: number; stdout?: string } | null): ModelInfo[] | null {
-  if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
-  const models = parseOpencodeModels(result.stdout);
+interface ModelCommandResult {
+  code?: number;
+  stdout?: string;
+  error?: string;
+  truncated?: boolean;
+}
+
+function completeModelOutput(result: ModelCommandResult | null): result is ModelCommandResult & { stdout: string } {
+  return result?.code === 0 && !result.error && !result.truncated && typeof result.stdout === "string";
+}
+
+function probeModels<T>(verbose: boolean, then: (result: ModelCommandResult | null) => T): T {
+  const started = safeJson(host.execStart(JSON.stringify({
+    bin: "opencode",
+    args: verbose ? ["models", "--verbose"] : ["models"],
+    timeoutMs: 3000,
+  }))) as { jobId?: string } | null;
+  return started?.jobId ? host.awaitJob(started.jobId, then) : then(null);
+}
+
+export const MODEL_REJECTION_QUERY = modelRejections.query;
+
+function filterRejectedModels(models: ModelInfo[]): ModelInfo[] {
   const db = opencodeDbPath();
-  if (!models || !db || !host.fs.fileExists(db)) return models;
-  const rows = host.fs.sqliteQuery<{ data: string }>(db,
-    "SELECT data FROM (SELECT data, time_updated FROM message ORDER BY time_updated DESC LIMIT 200) " +
-    "WHERE octet_length(data) <= ?1 AND json_valid(data) " +
-    "AND json_extract(data, '$.role') = 'assistant' " +
-    "AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) " +
-    "ORDER BY time_updated DESC LIMIT 200",
-    [ASSISTANT_MESSAGE_MAX_BYTES]);
+  if (!db || !host.fs.fileExists(db)) return models;
+  const rows = host.fs.sqliteQuery<{ data: string }>(db, MODEL_REJECTION_QUERY, [ASSISTANT_MESSAGE_MAX_BYTES]);
   const rejected = rejectedModelIds(rows.map((row) => {
     const message = safeJson(row.data);
     return { model: sessionModelIdentity(message), message };
@@ -701,10 +730,14 @@ export function opencodeSessionRecord(row: OpencodeSessionRow, db: string): unkn
 export function opencodeConfigDir(): string | null {
   const override = host.envGet("OPENCODE_CONFIG_DIR");
   if (override) return override;
+  const xdg = host.envGet("XDG_CONFIG_HOME");
+  if (xdg) return xdg + (host.platform() === "windows" ? "\\" : "/") + "opencode";
   return host.expandHome("~/.config/opencode");
 }
 
 export function opencodeConfigPath(): string | null {
+  const override = host.envGet("OPENCODE_CONFIG");
+  if (override) return override;
   const dir = opencodeConfigDir();
   if (!dir) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";

@@ -105,7 +105,9 @@ pub(super) fn start_main(
             provider,
             permission_bypass,
             ownership: LaunchOwnership::Main,
-            selection: Default::default(),
+            selection: super::super::session_contract::default_selection(
+                &svc.configuration().general_agent,
+            ),
         },
     );
 }

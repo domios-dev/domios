@@ -648,6 +648,8 @@ export interface GeneralAgentConfig {
   capability_hints?: boolean;
   enabled: boolean;
   agent_provider: string;
+  model?: string | null;
+  reasoning_effort?: string | null;
   auto_restart: boolean;
   max_restart_attempts: number;
   restart_delay_s: number;
@@ -1069,6 +1071,7 @@ export interface ModelCatalogueCapability {
 export type ModelSwitchMode = "live" | "live_command" | "next_turn" | "restart_resume" | "unsupported";
 
 export interface ProviderDescriptor {
+  remote_task?: import("../../packages/plugin-sdk/src/remoteTasks").RemoteTaskCapability;
   agent_runtime?: {
     serviceTiers?: readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[];
     usage?: boolean;

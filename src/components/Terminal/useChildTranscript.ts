@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { invoke } from "../../lib/bridge";
 import { acceptChildPage, prependChildPage, type ChildTranscriptAuthority, type ChildTranscriptPage, type ChildMetadata } from "../../lib/childTranscript";
@@ -11,6 +11,7 @@ export function useChildTranscript(tabId: string, threadId: string, authority: C
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const pageAuthority = useRef<ChildTranscriptAuthority | null>(null);
   const {cursor, revision} = request;
   useEffect(() => {
     const controller = new AbortController();
@@ -18,11 +19,17 @@ export function useChildTranscript(tabId: string, threadId: string, authority: C
     setLoading(true);
     setError(null);
     if (!cursor) { setItems([]); setChild(null); }
-    void invoke<ChildTranscriptPage>("agent_runtime_child_history", {
-      tabId, threadId, request:{...binding,...(cursor ? {cursor} : {})}, signal:controller.signal,
-    }).then(page => {
+    void invoke<ChildTranscriptAuthority>("agent_runtime_child_authority", { tabId, signal: controller.signal }).then(async current => {
       if (controller.signal.aborted) return;
-      if (!acceptChildPage(binding, threadId, page)) throw new Error("Subagent transcript binding changed");
+      if (current.rootThreadId !== binding.rootThreadId) throw new Error("Parent session changed");
+      const sameBinding = current.bindingNonce === pageAuthority.current?.bindingNonce && current.epoch === pageAuthority.current?.epoch;
+      if (cursor && !sameBinding) throw new Error("Parent runtime changed; refresh the transcript");
+      const page = await invoke<ChildTranscriptPage>("agent_runtime_child_history", {
+        tabId, threadId, request:{...current,...(cursor ? {cursor} : {})}, signal:controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      if (!acceptChildPage(current, threadId, page)) throw new Error("Subagent transcript binding changed");
+      pageAuthority.current = current;
       setChild(page.child);
       setItems(current => cursor ? prependChildPage(current,page.items) : page.items);
       setNextCursor(page.nextCursor);

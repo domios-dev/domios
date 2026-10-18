@@ -15,8 +15,8 @@ const row:NormalizedChatMessage={id:"spawn",type:"tool_call",content:"",toolKind
 const item=reduceToolEvents([row])[0];
 if(item.kind!=="tool")throw new Error("Expected an agent card");
 const event=item.event;
-function Parent({epoch=4}:{epoch?:number}) {
-  return <ChildTranscriptScope tabId="owned" authority={{...authority,epoch}}>
+function Parent({epoch=4,tabId="owned"}:{epoch?:number;tabId?:string}) {
+  return <ChildTranscriptScope tabId={tabId} authority={{...authority,epoch}}>
     <AgentActivityCard event={event} expanded onToggle={()=>{}} renderAction={()=>null} />
     <textarea aria-label="Parent composer" />
   </ChildTranscriptScope>;
@@ -30,7 +30,7 @@ async function mount() {
 }
 
 it("opens the provider child in the parent tab with only a history read and no child composer",async()=>{
-  bridge.invoke.mockReset();bridge.invoke.mockResolvedValue(page);
+  bridge.invoke.mockReset();bridge.invoke.mockImplementation(async command=>command === "agent_runtime_child_authority" ? authority : page);
   const view=await mount();
   try {
     await act(async()=>view.inspect().click());
@@ -38,18 +38,18 @@ it("opens the provider child in the parent tab with only a history read and no c
     expect(transcript).not.toBeNull();
     expect(transcript.textContent).toContain("Persisted child answer");
     expect(transcript.querySelector("textarea,input,[contenteditable=true]")).toBeNull();
-    expect(bridge.invoke).toHaveBeenCalledTimes(1);
-    expect(bridge.invoke.mock.calls[0][0]).toBe("agent_runtime_child_history");
-    expect(bridge.invoke.mock.calls[0][1]).toMatchObject({tabId:"owned",threadId:"child",request:authority});
-    const back=[...transcript.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.textContent==="Back to parent")!;
+    expect(bridge.invoke).toHaveBeenCalledTimes(2);
+    expect(bridge.invoke.mock.calls[1][0]).toBe("agent_runtime_child_history");
+    expect(bridge.invoke.mock.calls[1][1]).toMatchObject({tabId:"owned",threadId:"child",request:authority});
+    const back=[...transcript.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.getAttribute("aria-label")==="Back to parent")!;
     await act(async()=>back.click());
     expect(view.host.querySelector('[aria-label="Subagent transcript"]')).toBeNull();
-    expect(bridge.invoke).toHaveBeenCalledTimes(1);
+    expect(bridge.invoke).toHaveBeenCalledTimes(2);
   }finally{await view.close();}
 });
 
 it("rejects foreign response rows and discards an in-flight read on root epoch change",async()=>{
-  bridge.invoke.mockReset();bridge.invoke.mockResolvedValue({...page,child:{...page.child,threadId:"foreign"}});
+  bridge.invoke.mockReset();bridge.invoke.mockImplementation(async command=>command === "agent_runtime_child_authority" ? authority : {...page,child:{...page.child,threadId:"foreign"}});
   const view=await mount();
   try {
     await act(async()=>view.inspect().click());
@@ -57,6 +57,7 @@ it("rejects foreign response rows and discards an in-flight read on root epoch c
     expect(view.host.textContent).not.toContain("Persisted child answer");
     await act(async()=>view.root.render(<Parent epoch={5} />));
     let resolve!:(value:ChildTranscriptPage)=>void;
+    bridge.invoke.mockImplementationOnce(async()=>({...authority,epoch:5}));
     bridge.invoke.mockImplementationOnce(()=>new Promise<ChildTranscriptPage>(done=>{resolve=done;}));
     await act(async()=>view.inspect().click());
     await act(async()=>view.root.render(<Parent epoch={6} />));
@@ -64,4 +65,100 @@ it("rejects foreign response rows and discards an in-flight read on root epoch c
     expect(view.host.querySelector('[aria-label="Subagent transcript"]')).toBeNull();
     expect(view.host.textContent).not.toContain("Persisted child answer");
   }finally{await view.close();}
+});
+
+it("opens a restored child using the current parent binding instead of cached authority", async()=>{
+  const restored={...authority,bindingNonce:"restored",epoch:9};
+  bridge.invoke.mockReset();
+  bridge.invoke.mockImplementation(async command=>command === "agent_runtime_child_authority" ? restored : {...page,...restored});
+  const view=await mount();
+  try {
+    await act(async()=>view.inspect().click());
+    expect(bridge.invoke.mock.calls[1][1]).toMatchObject({request:restored});
+    expect(view.host.querySelector('[role="alert"]')).toBeNull();
+    expect(view.host.textContent).toContain("Persisted child answer");
+  } finally { await view.close(); }
+});
+
+it("refuses history when the parent now owns a different session", async()=>{
+  bridge.invoke.mockReset();
+  bridge.invoke.mockResolvedValue({...authority,rootThreadId:"foreign"});
+  const view=await mount();
+  try {
+    await act(async()=>view.inspect().click());
+    expect(bridge.invoke).toHaveBeenCalledTimes(1);
+    expect(view.host.querySelector('[role="alert"]')).not.toBeNull();
+  } finally { await view.close(); }
+});
+
+it("pages restored history under the authority that supplied its cursor", async()=>{
+  const restored={...authority,bindingNonce:"restored",epoch:9};
+  bridge.invoke.mockReset();
+  bridge.invoke.mockImplementation(async command=>command === "agent_runtime_child_authority" ? restored : {...page,...restored,nextCursor:"older"});
+  const view=await mount();
+  try {
+    await act(async()=>view.inspect().click());
+    const older=[...view.host.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.textContent === "Load older messages")!;
+    await act(async()=>older.click());
+    expect(bridge.invoke.mock.calls[3][1]).toMatchObject({request:{...restored,cursor:"older"}});
+    expect(view.host.querySelector('[role="alert"]')).toBeNull();
+  } finally { await view.close(); }
+});
+
+it("returns from an unknown child with Escape and restores the parent trigger", async()=>{
+  bridge.invoke.mockReset();
+  bridge.invoke.mockRejectedValue(new Error("Unknown child"));
+  const view=await mount();
+  try {
+    const trigger=view.inspect();
+    trigger.focus();
+    await act(async()=>trigger.click());
+    expect(view.host.querySelector('[role="alert"]')).not.toBeNull();
+    expect(view.host.querySelector('button[aria-label="Back to parent"]')).not.toBeNull();
+    await act(async()=>document.dispatchEvent(new KeyboardEvent("keydown",{code:"Escape",bubbles:true})));
+    expect(view.host.querySelector('[aria-label="Subagent transcript"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(view.host.querySelector('textarea[aria-label="Parent composer"]')?.closest('[hidden]')).toBeNull();
+  } finally { await view.close(); }
+});
+
+it("automatically loads older history on scroll to the top", async()=>{
+  bridge.invoke.mockReset();
+  bridge.invoke.mockImplementation(async command=>command === "agent_runtime_child_authority" ? authority : {...page,nextCursor:"older"});
+  const view=await mount();
+  try {
+    await act(async()=>view.inspect().click());
+    const log=view.host.querySelector('[role="log"][aria-label="Subagent messages"]')!;
+    await act(async()=>log.dispatchEvent(new Event("scroll",{bubbles:true})));
+    expect(bridge.invoke.mock.calls[3][1]).toMatchObject({request:{...authority,cursor:"older"}});
+  } finally { await view.close(); }
+});
+
+it("shows an empty result with an available back control", async()=>{
+  bridge.invoke.mockReset();
+  bridge.invoke.mockImplementation(async command=>command === "agent_runtime_child_authority" ? authority : {...page,items:[]});
+  const view=await mount();
+  try {
+    await act(async()=>view.inspect().click());
+    expect(view.host.querySelector('[role="log"] [role="status"]')).not.toBeNull();
+    const back=view.host.querySelector<HTMLButtonElement>('button[aria-label="Back to parent"]')!;
+    await act(async()=>back.click());
+    expect(view.host.querySelector('[aria-label="Subagent transcript"]')).toBeNull();
+  } finally { await view.close(); }
+});
+
+it("discards inspection when the parent tab changes and does not reopen it on return", async()=>{
+  bridge.invoke.mockReset();
+  bridge.invoke.mockImplementation(async command=>command === "agent_runtime_child_authority" ? authority : page);
+  const view=await mount();
+  try {
+    await act(async()=>view.inspect().click());
+    await act(async()=>view.root.render(<Parent tabId="another-parent" />));
+    expect(view.host.querySelector('[aria-label="Subagent transcript"]')).toBeNull();
+    await act(async()=>view.root.render(<Parent />));
+    expect(view.host.querySelector('[aria-label="Subagent transcript"]')).toBeNull();
+    await act(async()=>view.inspect().click());
+    await act(async()=>view.host.querySelector<HTMLButtonElement>('button[aria-label="Back to parent"]')!.click());
+    expect(view.host.querySelector('textarea[aria-label="Parent composer"]')?.closest('[hidden]')).toBeNull();
+  } finally { await view.close(); }
 });

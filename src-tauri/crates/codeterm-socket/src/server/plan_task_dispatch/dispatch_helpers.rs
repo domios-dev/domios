@@ -60,6 +60,7 @@ pub(in crate::server) fn respawn_worker_params(
         description: Some(task_tab_description(task_name, None)),
         task_description_managed: true,
         role: Some("Worker".into()),
+        execution_intent: Some(draft.execution_intent.clone()),
         parent_tab_id: Some(parent_tab_id.to_string()),
         task: Some(draft.task_prompt.clone()),
         workspace_id: draft.workspace_id.clone(),
@@ -75,5 +76,44 @@ pub(in crate::server) fn respawn_worker_params(
         }),
         spawned_by_tab_id: Some(parent_tab_id.to_string()),
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use codeterm_service_core::plan::ExecutionIntent;
+    use codeterm_service_core::service::plan::task_attempts::TaskRespawnDraft;
+
+    #[test]
+    fn respawn_launch_inherits_task_execution_intent() {
+        let draft = TaskRespawnDraft {
+            plan_id: "pl_opaque".into(),
+            task_id: "task_opaque".into(),
+            execution_intent: ExecutionIntent::Mutating,
+            attempt_id: "attempt_new".into(),
+            source_attempt: Default::default(),
+            provider: "codex".into(),
+            planned_model: None,
+            model: None,
+            reasoning_effort: None,
+            parent_tab_id: None,
+            workspace_id: None,
+            title: None,
+            explicit_title: false,
+            cwd: ".".into(),
+            task_prompt: "opaque-task".into(),
+            report_command: "opaque-report".into(),
+            plan_skill_manifest: vec![],
+            authorized_gates: None,
+        };
+
+        let params = respawn_worker_params(&draft, "opaque task", None, "tab_parent");
+
+        assert_eq!(params.execution_intent, Some(ExecutionIntent::Mutating));
+        assert_eq!(
+            params.task_launch_authority.unwrap().attempt_id,
+            "attempt_new"
+        );
     }
 }

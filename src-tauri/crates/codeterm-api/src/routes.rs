@@ -75,7 +75,7 @@ fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) -> Cor
 
 #[derive(Clone)]
 pub struct AppState {
-    pub app: codeterm_host_runtime::app_runtime::AppHandle,
+    pub frontend_dev_url: Option<url::Url>,
     pub svc: codeterm_service_core::service::ServiceState,
     pub cron: codeterm_service_core::CronState,
     pub cron_wake: codeterm_service_core::CronWake,
@@ -589,34 +589,10 @@ pub(super) fn create_router_with_preview_admission(
             "/api/mesh/peers/{id}/crons/{cron_id}/history",
             get(web_routes::peer_cron_history),
         )
-        .route(
-            "/api/tabs/{id}/agent/runtime/goal",
-            post(super::runtime_login::goal),
-        )
-        .route(
-            "/api/tabs/{id}/agent/runtime/thread-history",
-            post(super::runtime_login::thread_history),
-        )
-        .route(
-            "/api/tabs/{id}/agent/runtime/reset-credits",
-            post(super::runtime_login::reset_credits),
-        )
-        .route(
-            "/api/tabs/{id}/agent/runtime/login",
-            post(super::runtime_login::login),
-        )
+        .merge(super::runtime_login::router())
         .route(
             "/api/tabs/{id}/agent/runtime/retry",
             post(web_routes::agent_runtime_retry),
-        )
-        .route(
-            "/api/tabs/{id}/agent/runtime/children/{thread}/history",
-            get(super::runtime_login::child_history),
-        )
-        .route(
-            "/api/tabs/{id}/agent/runtime/background-processes",
-            get(super::runtime_login::background_processes)
-                .post(super::runtime_login::stop_background_process),
         )
         .route(
             "/api/tabs/{id}/agent/runtime/questions/{item}/answer",
@@ -753,6 +729,12 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/account/status", get(super::account_routes::status))
         .route("/api/account/login", post(super::account_routes::login))
+        .route(
+            "/api/account/callback",
+            post(super::account_routes::callback).layer(axum::extract::DefaultBodyLimit::max(
+                super::account_routes::MAX_CALLBACK_REQUEST_BYTES,
+            )),
+        )
         .route("/api/account/logout", post(super::account_routes::logout))
         .route("/api/update/check", get(updater_routes::check_update))
         .route(
@@ -1083,7 +1065,7 @@ pub(super) fn create_router_with_preview_admission(
 pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Router {
     let frontend_origins = codeterm_service_core::startup::frontend_shell_declared_frontend_origins(
         &state.config.lock().api,
-        state.app.config().build.dev_url.as_ref(),
+        state.frontend_dev_url.as_ref(),
     );
     let router = router.layer(middleware::from_fn_with_state(
         state.clone(),

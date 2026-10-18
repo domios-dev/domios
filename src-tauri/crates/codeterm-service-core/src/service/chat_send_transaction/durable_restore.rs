@@ -124,6 +124,10 @@ impl ChatSendLedger {
     pub(crate) fn restore_user_receipt(&self, receipt: &UserSendReceipt) {
         let mut state = self.state.lock();
         if let Some(current) = state.by_id.get(&receipt.send_id) {
+            if receipt.state == ReceiptState::Delivered {
+                Self::mark_sent(&mut state, &receipt.send_id);
+                return;
+            }
             let active = state
                 .owned
                 .get(&receipt.send_id)
@@ -132,6 +136,7 @@ impl ChatSendLedger {
                 current.state,
                 ChatSendState::Written | ChatSendState::Pending
             ) && receipt.state == ReceiptState::Uncertain
+                && !state.rpc_by_id.contains_key(&receipt.send_id)
             {
                 if let Some(status) = state.by_id.get_mut(&receipt.send_id) {
                     status.state = ChatSendState::Unknown;

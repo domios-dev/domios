@@ -18,7 +18,7 @@
   ],
   "entries": [
     {
-      "file": "crates/codeterm-paths/src/lib.rs",
+      "file": "src-tauri/crates/codeterm-paths/src/lib.rs",
       "token": "claude",
       "count": 2,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
@@ -12355,13 +12355,6 @@
       "file": "src-tauri/crates/codeterm-service-core/src/service/permission_policy.rs",
       "token": "ClaudeProvider",
       "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/permission_policy.rs",
-      "token": "registry_with_claude",
-      "count": 3,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },

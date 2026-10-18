@@ -71,6 +71,16 @@ reports keep no base, so they require the reported commit to match canonical `HE
 with `--acknowledge-dirty`. `task.lane` stays empty, so lane cleanup never touches canonical. The dispatch response
 echoes `placement`.
 
+For local dispatch, `worker_kind: "qa"` or `"release_manager"` explicitly selects the
+built-in Worker prompt kind for that attempt without changing `task.executor_role`. When
+omitted, an exact built-in leaf in `executor_role` selects the prompt kind. A kind affects
+prompt composition only; the live Plan owner still authorizes dispatch and the attempt
+reservation still controls task-bound canonical occupancy. Direct `agent spawn --plan-task`
+does not reserve that attempt and remains refused for task-bound canonical mutation. Task-less
+kinds with Plan context retain parent-directed placement behavior and do not reserve task
+attempts or participate in canonical writer occupancy, so the parent coordinates those writes.
+Read-only verification may still run there.
+
 While such an attempt is live, `plan.review.accept` on another task that records a lane is refused with code `-32015`,
 `data.type = "canonical_writer_holds_checkout"`, `violation_id =
 "lane.integration_while_canonical_writer_holds_checkout"`, and the holder task and attempt ids. Gate claims stay bound
@@ -168,26 +178,15 @@ the recovery command.
 
 ### Review credit repair and evidence reporters
 
-The live Plan owner can hand an `in_review` task to a direct child Tester:
+`codeterm plan review delegate <plan> <task> --qa-tab <tab>` hands an
+`in_review` task to a direct child QA: only that bound session may accept or
+bounce it, with a non-empty evidence note; the verdict consumes the grant, which
+never authorizes hold, dispatch or other transitions.
 
-```bash
-codeterm plan review delegate <plan> <task> --tester-tab <tab>
-```
-
-The daemon checks the owner session, direct Worker hierarchy, Tester kind, and
-current task status, then records that exact plan/task grant on the live Tester
-tab. Only that bound Tester session may accept or bounce the handed task, and
-each verdict requires a non-empty evidence note. The grant is consumed by the
-verdict and does not authorize hold, dispatch, or any other task transition.
-
-Historical review credit leaked by older builds is repaired auditably with:
-
-```bash
-codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
-```
-
-Credit repair and capacity classification require the live bound Orchestrator
-session and record an immutable plan stride. For task-less review or canonical-QA
+`codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"`
+auditably repairs review credit leaked by older builds. Credit repair and capacity
+classification require the live bound Orchestrator session and record an immutable
+plan stride. For task-less review or canonical-QA
 evidence, the live Plan owner runs `codeterm plan review authorize-reporter <plan>
 <tab> --class review|canonical_qa`; that exact session gains evidence-only
 authority and reports with `codeterm agent report --plan <plan>` and no
@@ -197,9 +196,8 @@ before persistence or delivery. A fresh shell may omit `CODETERM_SESSION_ID`:
 evidence reporting resolves the registered tab session only with a matching
 stored and hook-reported nonce; never inject another tab's session.
 
-Planner spawns through CLI, REST, and synchronous service callers resolve an
-omitted `--parent-tab` from the Plan owner before provisioning; a missing owner
-refuses with the Plan identity and creates no tab, and an explicit parent wins.
+Planner spawns (CLI, REST, service) resolve an omitted `--parent-tab` from the
+Plan owner before provisioning; a missing owner refuses with no tab created.
 
 ### Task-bound plan skill reads
 
@@ -249,4 +247,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 31 -->
+<!-- revision: 35 -->

@@ -17,7 +17,7 @@ codeterm-plugin = { path = "../codeterm-plugin" }
 codeterm-plan = { path = "../codeterm-plan" }
 codeterm-repowatch = { path = "../codeterm-repowatch" }
 codeterm-util = { path = "../codeterm-util" }
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 serde_json = { version = "1", features = ["raw_value"] }
 log = { version = "0.4", features = ["release_max_level_info"] }
 wait-timeout = "0.2"

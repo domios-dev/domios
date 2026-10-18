@@ -1,5 +1,9 @@
 use super::plan_warning::PlanBindingFailure;
-use crate::{multiplexer::types::TaskBinding, plan::TaskExecutionAttempt, service::ServiceContext};
+use crate::{
+    multiplexer::types::{Tab, TaskBinding},
+    plan::TaskExecutionAttempt,
+    service::ServiceContext,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 enum AttemptResolutionRefusal {
@@ -59,13 +63,28 @@ impl ServiceContext {
         &self,
         tab_id: &str,
     ) -> Result<(), PlanBindingFailure> {
+        self.restore_attempt_binding(tab_id, false)
+    }
+
+    pub(crate) fn restore_restart_attempt_binding(
+        &self,
+        tab_id: &str,
+    ) -> Result<(), PlanBindingFailure> {
+        self.restore_attempt_binding(tab_id, true)
+    }
+
+    fn restore_attempt_binding(
+        &self,
+        tab_id: &str,
+        for_restart: bool,
+    ) -> Result<(), PlanBindingFailure> {
         let target = self
             .mux
             .read()
             .get_tab(tab_id)
             .cloned()
             .ok_or("Runtime tab disappeared")?;
-        if !target.restored_from_snapshot {
+        if !target.restored_from_snapshot && !for_restart {
             return Ok(());
         }
         let Some(binding) = target
@@ -90,16 +109,27 @@ impl ServiceContext {
         }
         let attempt = resolve_open_attempt(task, tab_id, &detail.task.execution_attempts)
             .map_err(|reason| PlanBindingFailure::from(reason.to_string()))?;
+        if for_restart
+            && !detail
+                .task
+                .execution_attempts
+                .iter()
+                .any(|entry| entry.id == attempt && restart_attempt_matches(&target, entry))
+        {
+            return Err("Restart attempt does not match the acknowledged source session".into());
+        }
         let mut mux = self.mux.write();
         let current = mux.get_tab_mut(tab_id).ok_or("Runtime tab disappeared")?;
         let resolved = TaskBinding {
             attempt_id: Some(attempt.into()),
             ..binding.clone()
         };
-        if !current.restored_from_snapshot
+        if (!current.restored_from_snapshot && !for_restart)
             || current.agent_type != target.agent_type
             || current.agent_session_id != target.agent_session_id
             || current.session_binding_nonce != target.session_binding_nonce
+            || (for_restart
+                && current.reported_session_binding_nonce != target.reported_session_binding_nonce)
             || (current.task_binding.as_ref() != Some(binding)
                 && current.task_binding.as_ref() != Some(&resolved))
         {
@@ -110,9 +140,60 @@ impl ServiceContext {
     }
 }
 
+fn restart_attempt_matches(tab: &Tab, attempt: &TaskExecutionAttempt) -> bool {
+    attempt.acknowledged_at.is_some()
+        && tab.agent_type.is_some()
+        && attempt.provider == tab.agent_type
+        && tab.agent_session_id.is_some()
+        && attempt.session_id == tab.agent_session_id
+        && tab.session_binding_nonce.is_some()
+        && attempt.session_binding_nonce == tab.session_binding_nonce
+        && tab.reported_session_binding_nonce == tab.session_binding_nonce
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restart_resolution_requires_acknowledged_exact_provider_session_and_nonce() {
+        let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.agent_type = Some("provider-token".into());
+        tab.agent_session_id = Some("session-token".into());
+        tab.session_binding_nonce = Some("nonce-token".into());
+        tab.reported_session_binding_nonce = Some("nonce-token".into());
+        let valid = TaskExecutionAttempt {
+            provider: tab.agent_type.clone(),
+            session_id: tab.agent_session_id.clone(),
+            session_binding_nonce: tab.session_binding_nonce.clone(),
+            acknowledged_at: Some(1),
+            ..Default::default()
+        };
+        assert!(restart_attempt_matches(tab, &valid));
+        for stale in [
+            TaskExecutionAttempt {
+                provider: Some("foreign".into()),
+                ..valid.clone()
+            },
+            TaskExecutionAttempt {
+                session_id: Some("foreign".into()),
+                ..valid.clone()
+            },
+            TaskExecutionAttempt {
+                session_binding_nonce: Some("foreign".into()),
+                ..valid.clone()
+            },
+            TaskExecutionAttempt {
+                acknowledged_at: None,
+                ..valid.clone()
+            },
+        ] {
+            assert!(!restart_attempt_matches(tab, &stale));
+        }
+        tab.reported_session_binding_nonce = None;
+        assert!(!restart_attempt_matches(tab, &valid));
+    }
 
     fn attempt(id: &str, tab: &str) -> TaskExecutionAttempt {
         TaskExecutionAttempt {

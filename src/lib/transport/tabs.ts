@@ -1,5 +1,5 @@
 import { parseCompositeTabId } from "../remoteTabTransport";
-import { childHistorySuffix, type ChildTranscriptAuthority } from "../childTranscript";
+import { childHistorySuffix, currentChildAuthority, type ChildTranscriptAuthority } from "../childTranscript";
 import { backgroundProcessesSuffix, type BackgroundProcessAuthority } from "../backgroundProcesses";
 import type { ShellCommandSnapshot } from "@codeterm/chat-core";
 import type { ChatStartResult, ChatBackfillResult } from "../../components/Terminal/chatSessionAuthority";
@@ -30,6 +30,10 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
     return {
         wake_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/wake`),
         mux_get_state: (a: Args = {}) => clientFor(a).json<MultiplexerState>("GET", "/api/mux/state"),
+        agent_runtime_child_authority: async (a: Args) => {
+            const state = await clientFor(a).json<MultiplexerState>("GET", "/api/mux/state");
+            return currentChildAuthority(state.tabs[s(a, "tabId")]);
+        },
         agent_runtime_answer_question: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/questions/${enc(s(a, "itemId"))}/answer`, { answers: a.answers }),
         agent_runtime_goal: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/goal`, a.request),
         agent_runtime_thread_history: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent/runtime/thread-history`, a.request),
@@ -193,7 +197,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
                     body: a.body ?? null,
                 }));
             }
-            let path = suffix === "/inspect"
+            let path = suffix === "/runtime-authority" ? "/api/mux/state" : suffix === "/inspect"
                 ? `/api/tabs/inspect?tab_ids=${enc(remoteTab)}`
                 : `/api/tabs/${enc(remoteTab)}${suffix}`;
             if (suffix.startsWith("/pty/")) {
@@ -285,6 +289,9 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         save_session: (a: Args = {}) => clientFor(a).json("POST", "/api/session/save"),
         restart_general_agent: (a: Args = {}) => clientFor(a).json("POST", "/api/agents/general/restart"),
         spawn_general_agent_session: (a: Args) => clientFor(a).json<AtomicSpawn>("POST", "/api/agents/general/sessions", a.params),
+        provider_switch_status: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/switch-provider/${enc(s(a, "operationId"))}?wait=${a.wait === true}`),
+        read_provider_history: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/provider-history?file=${enc(s(a, "file"))}`),
+        switch_agent_provider: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/switch-provider`, { provider: a.providerId, model: a.model, reasoning_effort: a.reasoningEffort, force: a.force === true }),
         restart_agent_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/restart`, { fresh: a.fresh === true, ...(a.providerId ? { provider: a.providerId } : {}) }),
         refresh_provider_capabilities: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/capabilities/refresh`),
         fork_agent_tab: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId", "tab_id"))}/agent/fork`),

@@ -1,6 +1,6 @@
 use codeterm_types::team::staffing as team_codes;
 
-use crate::args::agent::{AgentAction, SpawnRole};
+use crate::args::agent::{AgentAction, SpawnLocation, SpawnRole};
 use crate::client::SocketClient;
 
 /// The flag combination an `agent spawn` was invoked with, as the validator
@@ -88,7 +88,12 @@ pub(super) fn validate_spawn_context(ctx: &SpawnContext<'_>) -> Result<(), Strin
     }
     // Read-only intent is the exit both refusals below name, so it has to be
     // the exit both of them honour.
-    if ctx.is_worker() && !ctx.task_bound() && !ctx.read_only() && !ctx.unplanned {
+    if ctx.is_worker()
+        && !ctx.task_bound()
+        && !ctx.read_only()
+        && !ctx.unplanned
+        && ctx.kind.is_none()
+    {
         if ctx.execution_intent == Some(MUTATING) {
             return Err(format!(
                 "--execution-intent mutating requires a task binding: {WORKER_SHAPES}"
@@ -155,12 +160,18 @@ pub(super) fn unsupported_team_orchestrator_flags(
 }
 
 fn resolved_execution_intent(kind: Option<&str>, intent: Option<String>) -> Option<String> {
-    intent.or_else(|| kind.is_some().then(|| READ_ONLY.to_string()))
+    intent.or_else(|| kind.is_some().then(|| MUTATING.to_string()))
 }
 
 /// The `agent spawn` verb: validate the flag combination, resolve file-backed
 /// inputs, and build the `agent.spawn` request.
-pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction) {
+pub(super) fn handle(
+    client: &mut SocketClient,
+    local_http: &crate::local_api::LocalApiClient,
+    base: &str,
+    json: bool,
+    action: AgentAction,
+) {
     let AgentAction::Spawn {
         agent,
         title,
@@ -180,6 +191,8 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         reasoning_effort,
         system_prompt,
         preset,
+        location,
+        environment,
         charter,
         charter_file,
         interval,
@@ -191,12 +204,51 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         reason,
         team,
         execution_intent,
+        sandbox,
         authorized_gates,
         provider_reserve_pct,
         non_user_facing,
     } = action
     else {
         unreachable!("agent_spawn::handle received a non-spawn action")
+    };
+    if environment.is_some() && location != Some(SpawnLocation::Cloud) {
+        crate::cmd::print::fail(1, "--environment requires --location cloud");
+    }
+    let (agent, preset, execution_mode) = if location == Some(SpawnLocation::Cloud) {
+        if role.is_some()
+            || unplanned
+            || bound_task.is_some()
+            || plan_task.is_some()
+            || model.is_some()
+            || reasoning_effort.is_some()
+            || system_prompt.is_some()
+        {
+            crate::cmd::print::fail(
+                1,
+                "Remote task tabs do not support roles, worker bindings, or local model/system controls",
+            );
+        }
+        let requested = agent.as_deref().unwrap_or_else(|| {
+            crate::cmd::print::fail(1, "Remote execution requires an explicit provider")
+        });
+        let descriptors: serde_json::Value = local_http
+            .get(format!("{base}/api/agents/providers"))
+            .send()
+            .and_then(|response| response.error_for_status())
+            .and_then(|response| response.json())
+            .unwrap_or_else(|error| {
+                crate::cmd::print::fail(1, format!("Could not read provider capabilities: {error}"))
+            });
+        let (provider, preset, mode) = super::agent::agent_remote::resolve_remote_spawn(
+            &descriptors,
+            requested,
+            environment.as_deref().unwrap_or_default(),
+        )
+        .unwrap_or_else(|error| crate::cmd::print::fail(1, error));
+        (Some(provider), Some(preset), Some(mode))
+    } else {
+        (agent, preset, None)
     };
     let execution_intent = resolved_execution_intent(kind.as_deref(), execution_intent);
     let context = SpawnContext {
@@ -246,6 +298,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         .filter(|team_id| routes_to_team_staffing(role.as_ref(), Some(*team_id)));
     if let Some(team_id) = team_orchestrator {
         let unsupported = unsupported_team_orchestrator_flags(&[
+            ("--sandbox", sandbox.is_some()),
             ("--description", description.is_some()),
             ("--cwd", cwd.is_some()),
             ("--parent", parent.is_some()),
@@ -318,6 +371,9 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             "session_id": std::env::var("CODETERM_SESSION_ID").ok(),
             "session_binding_nonce": std::env::var("CODETERM_SESSION_BINDING_NONCE").ok(),
         });
+        if let Some(sandbox) = sandbox {
+            params["sandbox"] = serde_json::json!(sandbox);
+        }
         if let Some(plan) = plan.or_else(|| std::env::var("CODETERM_PLAN_ID").ok()) {
             params["plan_id"] = serde_json::json!(plan);
         }
@@ -436,6 +492,9 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
     if let Some(t) = task {
         body["task"] = serde_json::json!(t);
     }
+    if let Some(sandbox) = sandbox {
+        body["sandbox"] = serde_json::json!(sandbox);
+    }
     if let Some(a) = args {
         body["args"] = serde_json::json!(a);
     }
@@ -450,6 +509,9 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
     }
     if let Some(system_prompt) = system_prompt {
         body["system_prompt"] = serde_json::json!(system_prompt);
+    }
+    if let Some(mode) = execution_mode {
+        body["execution_mode"] = serde_json::json!(mode);
     }
     if let Some(preset) = preset {
         body["preset"] = serde_json::json!(preset);
@@ -613,16 +675,31 @@ mod tests {
     }
 
     #[test]
-    fn taskless_kinds_default_to_read_only_and_stay_under_their_parent() {
+    fn worker_kinds_default_to_mutating_and_support_task_bindings() {
         assert_eq!(
-            resolved_execution_intent(Some("tester"), None).as_deref(),
-            Some(READ_ONLY)
+            resolved_execution_intent(Some("qa"), None).as_deref(),
+            Some(MUTATING)
         );
         assert_eq!(
             resolved_execution_intent(Some("release_manager"), None).as_deref(),
-            Some(READ_ONLY)
+            Some(MUTATING)
         );
-        for kind in ["tester", "release_manager"] {
+        for kind in ["qa", "release_manager"] {
+            for has_plan_task in [false, true] {
+                assert!(
+                    validate_spawn_context(&SpawnContext {
+                        role: Some(&SpawnRole::Worker),
+                        kind: Some(kind),
+                        has_parent: true,
+                        has_plan: true,
+                        has_plan_task,
+                        execution_intent: Some(MUTATING),
+                        ..Default::default()
+                    })
+                    .is_ok(),
+                    "{kind} task={has_plan_task}"
+                );
+            }
             assert!(
                 validate_spawn_context(&SpawnContext {
                     role: Some(&SpawnRole::Worker),
@@ -654,7 +731,7 @@ mod tests {
                     execution_intent: Some(READ_ONLY),
                     ..Default::default()
                 })
-                .is_err(),
+                .is_ok(),
                 "{kind} with task"
             );
         }

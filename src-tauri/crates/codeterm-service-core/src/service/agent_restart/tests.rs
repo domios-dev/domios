@@ -918,3 +918,23 @@ fn settle_restored_binding_still_refuses_a_genuinely_foreign_session() {
         "a genuinely foreign session must still fail"
     );
 }
+
+#[test]
+fn only_plan_task_bindings_require_restart_task_authority() {
+    use crate::multiplexer::types::TaskBinding;
+    let launch_only = TaskBinding {
+        spawn_handle: Some("brief".into()),
+        bound_at: 1,
+        ..Default::default()
+    };
+    let task = TaskBinding {
+        plan_id: Some("pl".into()),
+        task_id: Some("task".into()),
+        attempt_id: Some("attempt".into()),
+        bound_at: 1,
+        ..Default::default()
+    };
+    assert!(!super::restart_carries_task_attempt(None));
+    assert!(!super::restart_carries_task_attempt(Some(&launch_only)));
+    assert!(super::restart_carries_task_attempt(Some(&task)));
+}

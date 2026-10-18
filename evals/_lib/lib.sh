@@ -124,10 +124,6 @@ dev_resolution_error() {
 dev_bootstrap_cli() {
   local candidate data_dir
   data_dir="$(dev_requested_data_dir)"
-  if [ -n "${CODETERM_CLI_PATH:-}" ] && [ -x "$CODETERM_CLI_PATH" ]; then
-    printf '%s\n' "$CODETERM_CLI_PATH"
-    return
-  fi
   for candidate in \
     "$data_dir/bin/codeterm" \
     "$data_dir/bin/codeterm.exe"; do
@@ -332,6 +328,10 @@ dev_run() {
   fi
   dev_resolve || return 7
   local -a dev_vars=(
+    "CODETERM_DEV_API_PORT=$EVAL_LIB_DEV_API_PORT"
+    "CODETERM_DEV_INSTANCE=$EVAL_LIB_RESOLVED_INSTANCE"
+    "CODETERM_DEV_VITE_PORT=$EVAL_LIB_DEV_VITE_PORT"
+    "CODETERM_DEV_CDP_PORT=$EVAL_LIB_DEV_CDP_PORT"
     "CODETERM_API_PORT=$EVAL_LIB_DEV_API_PORT"
     "CODETERM_API_URL=http://$EVAL_LIB_DEV_HOST:$EVAL_LIB_DEV_API_PORT"
     "CODETERM_VITE_PORT=$EVAL_LIB_DEV_VITE_PORT"
@@ -354,35 +354,39 @@ dev_api_url() {
 }
 
 dev_assert_target() {
-  local health actual_instance actual_port actual_vite_port actual_cdp_port
+  local health
   if ! health="$(curl -sS --max-time 5 "$(dev_api_url)/api/health")"; then
     dev_resolution_error "${EVAL_LIB_RESOLVED_DATA_DIR:-<unresolved>}" \
       "${EVAL_LIB_RESOLVED_DATA_DIR:-$(dev_default_data_dir)}"
     return 7
   fi
-  actual_instance="$(printf '%s\n' "$health" | python3 -c '
-import json, sys
-print((json.load(sys.stdin).get("instance", {}).get("name", "") or "").strip())
-')"
-  actual_port="$(printf '%s\n' "$health" | python3 -c '
-import json, sys
-print(json.load(sys.stdin).get("instance", {}).get("api_port", ""))
-')"
-  actual_vite_port="$(printf '%s\n' "$health" | python3 -c '
-import json, sys
-print(json.load(sys.stdin).get("instance", {}).get("vite_port", ""))
-')"
-  actual_cdp_port="$(printf '%s\n' "$health" | python3 -c '
-import json, sys
-print(json.load(sys.stdin).get("instance", {}).get("cdp_port", ""))
-')"
-  if [ "$actual_instance" != "$EVAL_LIB_TARGET_INSTANCE" ] ||
-     [ "$actual_port" != "$EVAL_LIB_TARGET_API_PORT" ] ||
-     [ "$actual_vite_port" != "$EVAL_LIB_TARGET_VITE_PORT" ] ||
-     [ "$actual_cdp_port" != "$EVAL_LIB_TARGET_CDP_PORT" ]; then
+  if ! printf '%s\n' "$health" | python3 -c '
+import json, pathlib, re, sys
+health = json.load(sys.stdin)
+name, port, vite, cdp, record_path = sys.argv[1:]
+instance = health.get("instance", {})
+valid = (health.get("status") == "ok" and
+         re.fullmatch("[a-f0-9]{40}", health.get("build_sha", "")) is not None and
+         (instance.get("name") or "").strip() == name and str(instance.get("api_port", "")) == port)
+actual_vite, actual_cdp = str(instance.get("vite_port") or ""), str(instance.get("cdp_port") or "")
+if actual_vite or actual_cdp:
+    valid = valid and actual_vite == vite and actual_cdp == cdp
+record = pathlib.Path(record_path)
+if not actual_vite and not actual_cdp or record.exists():
+    if not record.is_file() or record.is_symlink():
+        valid = False
+    else:
+        provenance = json.loads(record.read_text())
+        selected = provenance.get("instance", {})
+        valid = valid and provenance.get("schema") == 3 and provenance.get("buildSha") == health.get("build_sha")
+        valid = valid and selected.get("name") == name and str(selected.get("apiPort")) == port
+        valid = valid and str(selected.get("vitePort")) == vite and str(selected.get("cdpPort")) == cdp
+sys.exit(0 if valid else 7)
+' "$EVAL_LIB_TARGET_INSTANCE" "$EVAL_LIB_TARGET_API_PORT" "$EVAL_LIB_TARGET_VITE_PORT" \
+    "$EVAL_LIB_TARGET_CDP_PORT" "$EVAL_LIB_TARGET_DATA_DIR/dev-build-provenance.json"; then
     dev_resolution_error "${EVAL_LIB_RESOLVED_DATA_DIR:-<unresolved>}" \
       "${EVAL_LIB_TARGET_DATA_DIR:-$(dev_default_data_dir)}"
-    echo "ERROR [dev-target]: health listeners do not match the resolved instance." >&2
+    echo "ERROR [dev-target]: server identity does not match the resolved DEV target/provenance." >&2
     return 7
   fi
 }

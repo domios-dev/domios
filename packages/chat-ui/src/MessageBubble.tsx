@@ -391,7 +391,6 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
         {userProgress ?? (message.segments
         ? <EnvelopeContent segments={dsTasks ? [{ type: "text", text: userContent }, ...message.segments.filter((segment) => segment.type === "attachment")] : message.segments} attachments={attachments} renderText={renderUserText} onJumpToMessage={onJumpToMessage} />
           : <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} />)}
-        {userFooter}
       </>
     );
 
@@ -403,12 +402,15 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           <div className="group flex w-full min-w-0">
             <div className="relative min-w-0 w-full">
               {originHeader}
-              {showUserBubble && <div
-                role="group"
-                aria-label="User message"
-                className={`ct-user-bubble${effectiveOrigin ? " ct-user-bubble--relayed" : ""} min-w-0 ${userText} select-text cursor-text ${TEXT_WRAP_CLASS}`}
-              >
-                {userBubbleInner}
+              {showUserBubble && <div data-testid="user-bubble-row" className="relative ml-auto w-fit max-w-full min-w-0">
+                <div
+                  role="group"
+                  aria-label="User message"
+                  className={`ct-user-bubble${effectiveOrigin ? " ct-user-bubble--relayed" : ""} min-w-0 ${userText} select-text cursor-text ${TEXT_WRAP_CLASS}`}
+                >
+                  {userBubbleInner}
+                </div>
+                {userFooter}
               </div>}
             </div>
           </div>

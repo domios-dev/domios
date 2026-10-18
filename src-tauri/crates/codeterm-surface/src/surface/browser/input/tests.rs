@@ -2,6 +2,28 @@ use serde_json::json;
 
 use super::*;
 
+#[test]
+fn browser_pointer_drag_preserves_the_button_until_release() {
+    for (phase, buttons, event) in [
+        ("down", 1, "mousePressed"),
+        ("move", 1, "mouseMoved"),
+        ("up", 0, "mouseReleased"),
+    ] {
+        let input = InputArgs {
+            kind: "pointer".into(),
+            phase: Some(phase.into()),
+            buttons: Some(buttons),
+            x: Some(10.0),
+            y: Some(20.0),
+            ..Default::default()
+        };
+        let commands = input_commands(&input).unwrap();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].1["type"], event);
+        assert_eq!(commands[0].1["buttons"], buttons);
+    }
+}
+
 fn parse(value: Value) -> InputArgs {
     serde_json::from_value(value).expect("input args")
 }

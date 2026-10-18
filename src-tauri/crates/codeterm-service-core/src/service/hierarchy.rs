@@ -15,7 +15,6 @@ mod report_event;
 mod report_persistence;
 pub mod report_plan_ctx;
 mod report_target;
-pub(crate) mod stalled_team;
 mod status;
 pub mod team_plan_creation;
 mod worker_handoff;
@@ -846,7 +845,10 @@ impl ServiceContext {
                     &report.inject_body(),
                     crate::service::message_gateway::DeliveryClass::AgentTraffic,
                 ) {
-                    Ok(crate::service::messenger::Delivery::Pending { delivery_id }) => {
+                    Ok(
+                        crate::service::messenger::Delivery::Pending { delivery_id }
+                        | crate::service::messenger::Delivery::Unconfirmed { delivery_id },
+                    ) => {
                         log::warn!(
                             "[report] target={} outcome=pending delivery={}",
                             target_id,

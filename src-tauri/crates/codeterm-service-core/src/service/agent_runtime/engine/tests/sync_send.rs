@@ -77,6 +77,8 @@ module.exports = {
     let epoch = state.begin();
     assert!(state.load(epoch, "own-thread"));
     let session = Arc::new(Session {
+        update_generation: std::sync::atomic::AtomicU64::new(0),
+        update_recovery_available: std::sync::atomic::AtomicBool::new(false),
         provider: PROVIDER.into(),
         adapter: Mutex::new(Some(adapter)),
         context: Mutex::new(RuntimeContext {
@@ -581,6 +583,119 @@ fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc()
     let mut context = Context::from_waker(waker);
     assert!(matches!(
         Pin::new(&mut peer).poll_fill_buf(&mut context),
+        Poll::Pending
+    ));
+}
+
+#[test]
+fn consecutive_distinct_runtime_envelopes_keep_independent_write_once_receipts() {
+    use crate::service::messenger::Delivery;
+    let (fixture, tab_id, peer, _cleanup) = runtime_fixture();
+    let peer = crate::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        let mut ids = Vec::new();
+        for expected in ["first opaque envelope", "second opaque envelope"] {
+            let mut line = String::new();
+            tokio::time::timeout(Duration::from_secs(2), peer.read_line(&mut line))
+                .await
+                .unwrap()
+                .unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["method"], "fixture/submit");
+            assert_eq!(request["params"]["threadId"], "own-thread");
+            assert_eq!(request["params"]["input"]["text"], expected);
+            ids.push(request["params"]["sendId"].as_str().unwrap().to_owned());
+            let response = json!({"id":request["id"],"result":{"turnId":"accepted-turn"}});
+            peer.get_mut()
+                .write_all(format!("{response}\n").as_bytes())
+                .await
+                .unwrap();
+        }
+        (peer, ids)
+    });
+    let mut ids = Vec::new();
+    for (token, text) in [
+        ("first-token", "first opaque envelope"),
+        ("second-token", "second opaque envelope"),
+    ] {
+        let delivery = super::super::super::transport::send_envelope(
+            &fixture.service,
+            &tab_id,
+            text,
+            token,
+            None,
+        )
+        .unwrap();
+        let Delivery::ChatBackend { message_id } = delivery else {
+            panic!("accepted RPC must be written")
+        };
+        ids.push(message_id.clone());
+        fixture
+            .service
+            .restore_durable_user_statuses(&tab_id)
+            .unwrap();
+        assert_eq!(
+            fixture
+                .service
+                .chat_send_ledger
+                .status(&message_id)
+                .unwrap()
+                .state,
+            ChatSendState::Written
+        );
+        assert_eq!(
+            super::super::super::transport::send_envelope(
+                &fixture.service,
+                &tab_id,
+                text,
+                token,
+                None
+            )
+            .unwrap(),
+            Delivery::ChatBackend { message_id }
+        );
+    }
+    assert_ne!(ids[0], ids[1]);
+    let (mut peer, observed) = crate::async_runtime::block_on(peer).unwrap();
+    assert_eq!(observed, ids);
+    let nonce = for_tab(&tab_id)
+        .unwrap()
+        .context
+        .lock()
+        .binding_nonce
+        .clone();
+    for (index, id) in ids.iter().enumerate() {
+        assert!(fixture
+            .service
+            .chat_send_ledger
+            .confirm_rpc_send(&tab_id, "foreign-thread", &nonce, id, Some("foreign-item"))
+            .is_none());
+        fixture
+            .service
+            .chat_send_ledger
+            .confirm_rpc_send(
+                &tab_id,
+                "own-thread",
+                &nonce,
+                id,
+                Some(&format!("own-item-{index}")),
+            )
+            .unwrap();
+    }
+    fixture
+        .service
+        .restore_durable_user_statuses(&tab_id)
+        .unwrap();
+    assert!(ids.iter().all(
+        |id| fixture.service.chat_send_ledger.status(id).unwrap().state == ChatSendState::Sent
+    ));
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::AsyncBufRead;
+    assert!(matches!(
+        Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
         Poll::Pending
     ));
 }

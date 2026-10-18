@@ -21,6 +21,59 @@ const reopenedRecords = JSON.parse(fs.readFileSync(new URL("./fixtures/reopened-
 const reopenedText = reopenedRecords.map(record => JSON.stringify(record)).join("\n");
 const reopenedInput = recordInput(reopenedText);
 const bundle = loadRecordPlugin(fileURLToPath(new URL("..", import.meta.url)));
+const restored = JSON.parse(fs.readFileSync(new URL("./fixtures/restore-child-history.json",import.meta.url),"utf8")) as {
+  sessionId:string;childId:string;records:JsonValue[];
+};
+const restoredText=restored.records.map(record=>JSON.stringify(record)).join("\n");
+for (const project of [runtimeStoredHistory,bundle.runtimeStoredHistory]) {
+  const rows=project(restored.sessionId,restoredText) as ChatMsg[];
+  assert.equal(rows.length,1);
+  const input=object(rows[0].toolInput);
+  assert.equal(input.agent_parent_thread_id,restored.sessionId);
+  assert.equal(input.agent_id,restored.childId);
+  assert.equal(input.agent_ordinal,1);
+  assert.equal(input.agent_binding_nonce,undefined);
+  assert.equal((project("foreign",JSON.stringify(restored.records[1])) as ChatMsg[]).length,0);
+  const payload=object(object(restored.records[1]).payload);
+  const terminal={...object(restored.records[1]),payload:{...payload,item:{...object(payload.item),kind:"completed"}}};
+  const terminalRows=project(restored.sessionId,JSON.stringify(terminal)) as ChatMsg[];
+  assert.equal(object(terminalRows[0].toolInput).agent_parent_thread_id,undefined);
+}
+const startedRecord=object(object(restored.records[1]).payload);
+const startedItem=Object.fromEntries(Object.entries(object(startedRecord.item)).map(([key,value])=>[
+  key.replace(/_([a-z])/g,(_match,letter:string)=>letter.toUpperCase()),key === "type" ? "subAgentActivity" : value,
+]));
+for (const hooks of [{runtimePlan,runtimeResponse},bundle]) {
+  const context={...ctx,threadId:restored.sessionId};
+  const op={kind:"readHistory" as const,threadId:restored.sessionId,order:"desc" as const};
+  const plan=hooks.runtimePlan!(context,op);
+  const turn=hooks.runtimeResponse!(context,op,plan.state,{kind:"success",value:{data:[{id:startedRecord.turn_id,status:"completed",startedAt:1792257565}],nextCursor:null} as JsonValue});
+  assert.equal(turn.kind,"continue");
+  if(turn.kind !== "continue")throw new Error("Expected item page request");
+  const page=hooks.runtimeResponse!(context,op,turn.plan.state,{kind:"success",value:{data:[{item:startedItem,startedAtMs:startedRecord.started_at_ms,completedAtMs:startedRecord.completed_at_ms}],nextCursor:null} as JsonValue});
+  assert.equal(page.kind,"complete");
+  if(page.kind !== "complete" || page.result.kind !== "historyPage")throw new Error("Expected restored history page");
+  const input=object(page.result.items[0].toolInput);
+  assert.equal(input.agent_parent_thread_id,restored.sessionId);
+  assert.equal(input.agent_id,restored.childId);
+  assert.equal(input.agent_ordinal,1);
+  assert.equal(input.agent_runtime_epoch,undefined);
+}
+const spawnRecords=[
+  {type:"session_meta",payload:{id:"parent"}},
+  {type:"event_msg",payload:{type:"item_completed",thread_id:"parent",turn_id:"turn",item:{id:"spawn",type:"CollabAgentToolCall",tool:"spawnAgent",sender_thread_id:"parent",receiver_thread_ids:["child"],agents_states:{child:{status:"pendingInit"}}}}},
+];
+for (const project of [runtimeStoredHistory, bundle.runtimeStoredHistory]) {
+  const rows=project("parent",spawnRecords.map(record=>JSON.stringify(record)).join("\n")) as ChatMsg[];
+  assert.equal(object(rows[0].toolInput).agent_parent_thread_id,"parent");
+  assert.equal(object(rows[0].toolInput).agent_ordinal,1);
+  assert.equal(object(rows[0].toolInput).agent_binding_nonce,undefined);
+  assert.equal((project("foreign",spawnRecords.slice(1).map(record=>JSON.stringify(record)).join("\n")) as ChatMsg[]).length,0);
+  const inherited=structuredClone(spawnRecords);
+  inherited[1].payload.item!.sender_thread_id="foreign";
+  const foreign=project("parent",inherited.map(record=>JSON.stringify(record)).join("\n")) as ChatMsg[];
+  assert.equal(object(foreign[0].toolInput).agent_parent_thread_id,undefined);
+}
 const reference = JSON.parse(fs.readFileSync(new URL("./fixtures/reference-runtime-history.json", import.meta.url), "utf8")) as {
   sessionId:string; records:JsonValue[];
 };

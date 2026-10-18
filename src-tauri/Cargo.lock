@@ -1078,21 +1078,27 @@ dependencies = [
  "codeterm-bridge",
  "codeterm-build-info",
  "codeterm-commands",
+ "codeterm-crash",
  "codeterm-decision",
  "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-host-runtime",
  "codeterm-orchestration",
+ "codeterm-paths",
  "codeterm-plan",
  "codeterm-plugin",
+ "codeterm-process-identity",
  "codeterm-sentinel-host",
  "codeterm-service-core",
  "codeterm-socket",
  "codeterm-types",
  "codeterm-util",
+ "core-foundation",
  "dirs 6.0.0",
+ "domios-server",
  "fern",
  "include_dir",
+ "interprocess",
  "log",
  "objc2",
  "objc2-app-kit",
@@ -1102,6 +1108,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "shell-words",
  "tauri",
  "tauri-build",
  "tauri-plugin-deep-link",
@@ -1113,6 +1120,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
+ "uuid",
  "vt100",
  "windows-sys 0.61.2",
 ]
@@ -1123,13 +1131,16 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "log",
  "rand 0.8.5",
  "reqwest 0.12.28",
+ "security-framework",
  "serde",
  "serde_json",
  "sha2",
  "tokio",
  "url",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 
@@ -1215,7 +1226,6 @@ dependencies = [
  "codeterm-decision",
  "codeterm-events",
  "codeterm-frontend-bundle",
- "codeterm-host-runtime",
  "codeterm-mem",
  "codeterm-mesh",
  "codeterm-notification-core",
@@ -1246,7 +1256,6 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "tauri",
  "tempfile",
  "tokio",
  "toml 0.8.2",
@@ -1583,6 +1592,7 @@ dependencies = [
  "codeterm-util",
  "hf-hub",
  "hnsw_rs",
+ "libc",
  "log",
  "ndarray",
  "parking_lot",
@@ -1691,7 +1701,6 @@ version = "0.0.0"
 dependencies = [
  "codeterm-analytics",
  "codeterm-events",
- "codeterm-host-runtime",
  "codeterm-paths",
  "codeterm-sentinel",
  "codeterm-service-core",
@@ -1700,7 +1709,6 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
- "tauri",
  "tempfile",
  "tokio",
 ]
@@ -1710,6 +1718,7 @@ name = "codeterm-paths"
 version = "0.1.0"
 dependencies = [
  "dirs 6.0.0",
+ "tempfile",
 ]
 
 [[package]]
@@ -1796,6 +1805,15 @@ dependencies = [
  "sha2",
  "tempfile",
  "uuid",
+]
+
+[[package]]
+name = "codeterm-process-identity"
+version = "0.0.0"
+dependencies = [
+ "codeterm-types",
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1969,7 +1987,6 @@ dependencies = [
  "codeterm-cron",
  "codeterm-decision",
  "codeterm-events",
- "codeterm-host-runtime",
  "codeterm-plugin",
  "codeterm-pty",
  "codeterm-sentinel",
@@ -1986,7 +2003,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "tauri",
  "tempfile",
  "tokio",
  "uuid",
@@ -2134,7 +2150,6 @@ dependencies = [
  "codeterm-bridge",
  "codeterm-build-info",
  "codeterm-events",
- "codeterm-host-runtime",
  "codeterm-mem",
  "codeterm-notification-core",
  "codeterm-orchestration",
@@ -2154,7 +2169,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "tauri",
  "tempfile",
  "tokio",
  "tower",
@@ -3020,6 +3034,44 @@ dependencies = [
  "precomputed-hash",
  "selectors 0.36.1",
  "tendril 0.5.0",
+]
+
+[[package]]
+name = "domios-server"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "codeterm-api",
+ "codeterm-billing",
+ "codeterm-build-info",
+ "codeterm-commands",
+ "codeterm-events",
+ "codeterm-frontend-bundle",
+ "codeterm-orchestration",
+ "codeterm-plan",
+ "codeterm-plugin",
+ "codeterm-process-identity",
+ "codeterm-sentinel-host",
+ "codeterm-service-core",
+ "codeterm-socket",
+ "codeterm-types",
+ "codeterm-util",
+ "dirs 6.0.0",
+ "fern",
+ "include_dir",
+ "interprocess",
+ "libc",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+ "widestring",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4674,8 +4726,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "069323743400cb7ab06a8fe5c1ed911d36b6919ec531661d034c89083629595b"
 dependencies = [
  "doctest-file",
+ "futures-core",
  "libc",
  "recvmsg",
+ "tokio",
  "widestring",
  "windows-sys 0.61.2",
 ]

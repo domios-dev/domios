@@ -1,12 +1,17 @@
 # Steady-state streaming soak (slices 1–3)
 
-Fixture-only bench for the shared DEV daemon on 7686. It never starts a provider
+Fixture-only bench for the shared DEV runtime on 7686. It never starts a provider
 or sends provider input. The terminal receives bounded synthetic batches over a
 run-owned local pipe; the chat receives `fixtureRecord` JSONL in a fresh
 provisioned workspace. Requires Node with WebSocket support, the existing bench
 lib prerequisites, and a running native DEV with CDP and exactly one renderer.
 Keel owns live execution. Blueprint scheduling and an actual hours-long run are
 slice 4, outside this change.
+
+The cumulative saved-response/input extension is documented in
+[REPLAY.md](REPLAY.md). It reuses this runner's DEV identity, owned fixtures,
+checkpoint, samples and cleanup. Its finite input/graph measurements are separate
+from the 40-minute memory plateau oracle below.
 
 ## Commands
 
@@ -20,13 +25,16 @@ bash evals/perf/streaming-soak/run.sh inspect --out /absolute/evidence/identity
 ```
 
 Inspect writes `identity.json`: full build SHA, served HTML plus entry-script
-SHA-256, boot/page IDs, renderer and daemon PID/creation. Copy its `build` and
-`entryHash` into the setup flags. Every subsequent live invocation recomputes
-and compares the complete identity before operating. HMR, restart, rebind, PID
-reuse, PROD identifiers, ambiguous renderer attribution, or a foreign resource
-cause refusal. The daemon PID comes from the actual 7686 listener; renderer PID
-comes from the DEV browser's CDP process inventory. A checkpoint lock refuses
-concurrent invocations instead of queueing.
+SHA-256, boot/page IDs, renderer and API-listener-owner PID/creation. Copy its
+`build` and `entryHash` into the setup flags. Every subsequent live invocation
+recomputes and compares the complete identity before operating. Entry-script
+drift, restart, rebind, PID reuse, PROD identifiers, ambiguous renderer
+attribution, or a foreign resource cause refusal. The `daemon` identity field is
+the process owning the actual 7686 listener; renderer PID comes from the DEV
+browser's CDP process inventory. The listener-owner sample does not identify
+native-client CPU or lock work. A checkpoint lock refuses concurrent
+invocations instead of queueing. The entry hash does not cover every HMR
+dependency; parent must freeze sources during a run.
 
 First collect an idle control on this same build, frontend entry and process
 lifetimes. The idle workload uses the same two mounted surfaces and focus
@@ -82,16 +90,22 @@ the refusal. A stale `runner.lock` likewise needs an operator to verify its PID
 has exited before removing that one lock. Interrupted setup/cleanup can leave
 registered resources; review the checkpoint's resource journal rather than
 deleting a workspace without matching its current contents. An interrupted stop
-can resume from the supervisor's exact exit receipt.
+can resume from the supervisor's exact exit receipt. Cleanup listens for mux
+changes and reads state after each event; it records `cleaned` only after a
+snapshot proves the owned tabs and workspace are absent. Its 20-second
+observation deadline is a failure bound. An interrupted cleanup remains
+journaled for parent review and must not be retried.
 
 ## Sampling and verdicts
 
 `samples.jsonl` records post-GC JS bytes, DOM nodes/listeners/documents, mounted
 chats/xterms/canvases, transcript rows/windows, xterm retained lines/columns,
-Tauri subscriptions/callbacks, and renderer/daemon private bytes and working set
-with PID/creation. During a pulse the next acknowledged cycle takes a sample
-once 60 seconds have elapsed; setup and segment boundaries also sample. External
-segment gaps remain visible; they are never filled with zeroes or interpolated.
+Tauri subscriptions/callbacks, and renderer/API-listener-owner private bytes
+and working set with PID/creation. The legacy `daemonPrivateBytes` field names
+the API listener owner, not native-client memory. During a pulse the next
+acknowledged cycle takes a sample once 60 seconds have elapsed; setup and
+segment boundaries also sample. External segment gaps remain visible; they are
+never filled with zeroes or interpolated.
 
 Current production modules expose no bench-safe census for markdown cache,
 diagnostic rings, backend transcript retention or backend output retention.
@@ -102,7 +116,7 @@ available on Windows; other platforms preserve working set and report private
 bytes unknown, so a complete primary plateau verdict cannot pass there yet.
 
 The plateau oracle reports each primary metric (post-GC JS, renderer private,
-daemon private) as flat/rising/unknown. It requires at least 41 samples spanning
+API-listener-owner private) as flat/rising/unknown. It requires at least 41 samples spanning
 40 minutes, strictly increasing times, no gaps over 90 seconds, finite nonnegative
 counters and post-GC evidence. Reports include linear bytes/hour slope, early
 and late 20-minute medians, their bytes/hour slope, and the idle allowance. A

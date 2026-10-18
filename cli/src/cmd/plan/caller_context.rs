@@ -57,4 +57,31 @@ impl CallerContext {
             obj.insert("session_binding_nonce".into(), json!(nonce));
         }
     }
+
+    pub(crate) fn report_body(&self, tab_id: &str, message: String) -> Value {
+        let mut body = json!({
+            "tab_id": tab_id,
+            "caller_tab_id": tab_id,
+            "message": message,
+        });
+        if let Some(session) = &self.session_id {
+            body["caller_session_id"] = json!(session);
+        }
+        if let Some(nonce) = &self.session_binding_nonce {
+            body["session_binding_nonce"] = json!(nonce);
+        }
+        body
+    }
+}
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+pub(super) fn test_utility_caller() -> CallerContext {
+    CallerContext {
+        tab_id: Some("utility".into()),
+        session_binding_nonce: Some("utility-nonce".into()),
+        ..Default::default()
+    }
 }

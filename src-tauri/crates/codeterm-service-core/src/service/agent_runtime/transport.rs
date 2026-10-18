@@ -77,11 +77,55 @@ pub fn send(
         &session,
         &process,
         &pending.send_id,
-        TurnInput {
-            text: text.into(),
-            attachments: Vec::new(),
-        },
+        turn_input(text),
     ))
+}
+
+fn turn_input(text: &str) -> TurnInput {
+    use codeterm_types::agent::chat_types::ChatAttachment;
+    use codeterm_wire::envelope::{parse_envelope, MessageSegment};
+
+    fn collect(segments: Vec<MessageSegment>, attachments: &mut Vec<ChatAttachment>) {
+        for segment in segments {
+            match segment {
+                MessageSegment::Attachment { kind, path, .. }
+                    if kind == "image" && !path.is_empty() =>
+                {
+                    if attachments
+                        .iter()
+                        .any(|image| image.path.as_ref() == Some(&path))
+                    {
+                        continue;
+                    }
+                    let extension = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+                    let mime_type = match extension.as_str() {
+                        "jpg" | "jpeg" => "image/jpeg",
+                        "gif" => "image/gif",
+                        "webp" => "image/webp",
+                        "bmp" => "image/bmp",
+                        "avif" => "image/avif",
+                        "svg" => "image/svg+xml",
+                        _ => "image/png",
+                    };
+                    attachments.push(ChatAttachment {
+                        id: format!("attachment:{path}"),
+                        mime_type: mime_type.into(),
+                        path: Some(path),
+                        ..Default::default()
+                    });
+                }
+                MessageSegment::Frame { segments, .. } => collect(segments, attachments),
+                _ => {}
+            }
+        }
+    }
+
+    let mut attachments = Vec::new();
+    collect(parse_envelope(text), &mut attachments);
+    TurnInput {
+        text: text.into(),
+        attachments,
+    }
 }
 
 pub(crate) async fn submit_loaded(

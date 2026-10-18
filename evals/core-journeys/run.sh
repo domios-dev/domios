@@ -68,7 +68,8 @@ if [ "$MODE" = upgrade ]; then
   [ -n "$FROM" ] && [ -x "$FROM/build.sh" ] || { echo "FAIL --from-checkout must name the build N-1 checkout" >&2; exit 2; }
   FROM="$(cd "$FROM" && pwd)"
   # The disposable instance has no CLI before its first build, so build N-1 starts before the lib resolves it.
-  (cd "$FROM" && bash ./build.sh dev --wait --wait-build) || { echo "FAIL build N-1 did not start" >&2; exit 1; }
+  (cd "$FROM" && CODETERM_DEV_INSTANCE="$REQUESTED_INSTANCE" CODETERM_DEV_API_PORT="$EVAL_LIB_REQUESTED_API_PORT" \
+    bash ./build.sh dev --wait --wait-build) || { echo "FAIL build N-1 did not start" >&2; exit 1; }
 fi
 dev_resolve || { echo "FAIL dev connection unresolved" >&2; exit 7; }
 case "$EVAL_LIB_DEV_API_PORT" in

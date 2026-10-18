@@ -2,7 +2,7 @@ import type { Tab } from "../../lib/types";
 import {
   ORCHESTRATOR_KIND,
   RELEASE_MANAGER_KIND,
-  TESTER_KIND,
+  QA_KIND,
   WORKER_KIND,
   roleKind,
   roleKindLabel,
@@ -29,7 +29,7 @@ export function sectionForRole(
   if (
     key !== "" &&
     key !== WORKER_KIND &&
-    key !== TESTER_KIND &&
+    key !== QA_KIND &&
     key !== RELEASE_MANAGER_KIND &&
     role === "Worker"
   ) {
@@ -54,7 +54,7 @@ export function roleShieldLabel(
   if (!tab?.role) return null;
   const kind = roleKind(tab);
   if (tab.role === "Manager") return kind?.toUpperCase() ?? null;
-  return kind === TESTER_KIND || kind === RELEASE_MANAGER_KIND
+  return kind === QA_KIND || kind === RELEASE_MANAGER_KIND
     ? roleKindLabel(tab)?.toUpperCase() ?? null
     : null;
 }

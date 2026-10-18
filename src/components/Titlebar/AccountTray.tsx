@@ -34,6 +34,9 @@ export function AccountTray() {
     { label: "Continue with Facebook", icon: <BrandIcon source={facebookIcon} />, disabled: pending, onClick: () => void account.signIn({provider:"facebook",mode:"signin"}) },
     { label: "Continue with email", icon: <Mail size={16} />, disabled: pending, onClick: () => void account.signIn({provider:"email",mode:"signin"}) },
   ];
+  if (account.model.kind === "signed_in" && account.model.sessionOnly) {
+    items.unshift({label: "Signed in for this session only", description: "Secure storage is unavailable. Sign in again after restarting Domios.", disabled: true});
+  }
   items.push({separator:true,key:"community"},communityMenu());
   const error = model.kind === "signed_in" ? billing.error : model.error;
   return <div className="flex items-center">

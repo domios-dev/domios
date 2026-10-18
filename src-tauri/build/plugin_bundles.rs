@@ -3,8 +3,7 @@ mod bundle_hash;
 #[path = "../crates/codeterm-util/src/bundled_plugin_dirs.rs"]
 mod bundled_plugin_dirs;
 
-pub fn generate_system_plugin_hashes() {
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+pub fn generate_system_plugin_hashes(manifest_dir: &std::path::Path) {
     let plugins_root = manifest_dir
         .parent()
         .expect("CARGO_MANIFEST_DIR has no parent")
@@ -25,7 +24,7 @@ pub fn generate_system_plugin_hashes() {
     for child in std::fs::read_dir(&plugins_root).expect("read plugins dir") {
         let child = child.expect("read plugins entry");
         let path = child.path();
-        if !path.is_dir() {
+        if !path.is_dir() || !path.join("plugin.json").is_file() {
             continue;
         }
         let dir_name = path

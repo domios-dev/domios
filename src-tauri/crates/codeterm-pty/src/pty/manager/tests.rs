@@ -888,3 +888,27 @@ fn task_launch_env_survives_gui_and_normal_paths_without_ambient_authority() {
         }
     }
 }
+
+#[test]
+fn shell_job_policy_requires_team_dev_and_excludes_agents() {
+    use crate::multiplexer::types::ShellPurpose;
+    for purpose in ShellPurpose::ALL {
+        for team_member in [false, true] {
+            for agent in [false, true] {
+                let expected = if team_member && !agent && purpose == ShellPurpose::Dev {
+                    WindowsJobPolicy::AllowExplicitServerBreakaway
+                } else {
+                    WindowsJobPolicy::Contained
+                };
+                assert_eq!(shell_job_policy(team_member, agent, purpose), expected);
+            }
+        }
+    }
+    let mut command = CommandBuilder::new("fixture");
+    assert_eq!(command.windows_job_policy(), WindowsJobPolicy::Contained);
+    command.set_windows_job_policy(WindowsJobPolicy::AllowExplicitServerBreakaway);
+    assert_eq!(
+        command.windows_job_policy(),
+        WindowsJobPolicy::AllowExplicitServerBreakaway
+    );
+}

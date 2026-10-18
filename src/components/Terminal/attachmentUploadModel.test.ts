@@ -117,3 +117,23 @@ test("failed upload cards stay hidden, hover reveals only pending uploads", () =
   assert.equal(uploadCardPresence({ state: "uploading" }, true), "hover");
   assert.equal(uploadCardPresence({ state: "uploading" }, false), "announce");
 });
+
+test("a send takes pending and failed uploads without cancelling or attaching to the next draft", async () => {
+  let resolve!: (path: string) => void;
+  let published: AttachmentUpload[] = [];
+  const attached: string[][] = [];
+  const controller = createAttachmentUploads({
+    store: (_blob, name) => name === "bad" ? Promise.reject(new TypeError("offline"))
+      : new Promise<string>(done => { resolve = done; }),
+    publish: next => { published = next; }, attach: paths => attached.push(paths),
+  });
+  const pending = controller.add(new Blob(["pixels"]), "good");
+  await controller.add(new Blob(["pixels"]), "bad");
+  const taken = controller.take(published.map(upload => upload.id));
+  assert.deepEqual(published, []);
+  controller.dispose();
+  resolve("/image.png");
+  assert.deepEqual(await Promise.all(taken.map(item => item.result)), ["/image.png", null]);
+  await pending;
+  assert.deepEqual(attached, []);
+});

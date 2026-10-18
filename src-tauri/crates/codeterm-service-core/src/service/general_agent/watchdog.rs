@@ -81,6 +81,9 @@ impl ServiceContext {
         if !super::session_contract::owns_main(&self.mux.read(), tab) {
             return;
         }
+        if super::launch_lock::launch_in_progress() {
+            return;
+        }
         if crate::service::agent_runtime::requested_for_tab(self, &tab.id) {
             return;
         }

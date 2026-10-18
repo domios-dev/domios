@@ -1,4 +1,3 @@
-import { editComposerDraft } from "./drafts";
 import type { ClientCheckpoint } from "./checkpoint";
 import { createFrontendSignals } from "./signals";
 import type { Safety } from "./model";
@@ -12,15 +11,11 @@ export const frontendSignals = createFrontendSignals(empty, {
 export function setCheckpointRestorer(restore: typeof restoreCheckpoint): void { restoreCheckpoint = restore; }
 
 export function editFrontendDraft(scope: string, text: string): void {
-  const checkpoint = frontendSignals.checkpoint();
-  editComposerDraft(checkpoint.drafts, scope, text);
-  frontendSignals.edit(checkpoint);
+  frontendSignals.editDraft(scope, text);
 }
 
 export function editFrontendScroll(key: string, surface: "chat" | "terminal", value: string): void {
-  const checkpoint = frontendSignals.checkpoint();
-  checkpoint.scroll[key] = { ...(checkpoint.scroll[key] ?? { terminal: null, chat: null }), [surface]: value };
-  frontendSignals.edit(checkpoint);
+  frontendSignals.editScroll(key, surface, value);
 }
 
 const uploads = new Map<object, number>();

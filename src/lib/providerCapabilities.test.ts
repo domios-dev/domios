@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
-import {cachedSlashCommands,capabilityBadge,type InitializeCapabilities} from "./providerCapabilities";
+import {cachedSlashCommands,capabilityBadge,slashCommandsEqual,type InitializeCapabilities} from "./providerCapabilities";
 import {filterSlashCommands} from "./slashCommands";
 const data:InitializeCapabilities={commands:[{name:"fixture",description:"opaque",argument_hint:"<input>"}],models:null,agents:null,account:{subscription_type:"fixture-plan",api_provider:"fixture-provider"},current_permission_mode:"plan",fast_mode_state:"on",output_style:null};
 test("cached initialize commands carry argument hints and filter locally",()=>{
@@ -18,4 +18,15 @@ test("badge exposes cached subscription and modes and typed failure",()=>{
   for (const value of ["fixture-plan","fixture-provider","plan","on"]) assert.ok(badge?.includes(value));
   assert.ok(capabilityBadge({status:"unavailable",reason:"deadline"})?.includes("deadline"));
   assert.equal(capabilityBadge(null),null);
+});
+test("composer commands compare by consumed values while every command change propagates", () => {
+  const commands = cachedSlashCommands({ status: "ready", data });
+  assert(slashCommandsEqual(commands, structuredClone(commands)));
+  assert(slashCommandsEqual(commands, cachedSlashCommands({ status: "ready", data: { ...data, models: [] } })));
+  for (const change of [{ name: "/changed" }, { description: "changed" }, { argumentHint: "changed" }]) {
+    assert(!slashCommandsEqual(commands, [{ ...commands[0], ...change }]));
+  }
+  assert(!slashCommandsEqual(commands, []));
+  assert(!slashCommandsEqual(commands, [...commands, { name: "/other", description: "" }]));
+  assert(slashCommandsEqual(cachedSlashCommands({ status: "pending" }), cachedSlashCommands({ status: "unavailable", reason: "opaque" })));
 });

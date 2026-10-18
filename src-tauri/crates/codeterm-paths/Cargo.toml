@@ -1,0 +1,11 @@
+[package]
+license = "AGPL-3.0-only"
+name = "codeterm-paths"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dirs = "6"
+
+[dev-dependencies]
+tempfile = "3"

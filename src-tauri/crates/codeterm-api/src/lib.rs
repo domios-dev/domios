@@ -17,6 +17,7 @@ pub mod agent_done_routes;
 pub mod agent_fork_routes;
 pub mod agent_model_catalog_routes;
 pub mod agent_model_routes;
+pub(crate) mod agent_provider_switch_routes;
 pub(crate) mod agent_restart_routes;
 pub mod agent_routes;
 pub mod ai_helper_routes;
@@ -91,3 +92,8 @@ mod core_contract_tests;
 
 #[cfg(test)]
 mod rest_liveness_tests;
+
+#[cfg(test)]
+mod process_split_contract;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;

@@ -22,7 +22,8 @@ function observe(directory, predicate) {
       try { const value = predicate(); if (value) finish(null, value); }
       catch (error) { if (error.code !== 'ENOENT') finish(error); }
     };
-    const watcher = fs.watch(directory, { recursive: true }, check);
+    const watcher = fs.watch(directory, check);
+    watcher.on('error', finish);
     timer = setTimeout(() => finish(new Error('Fixture transition deadline exceeded')), 60000);
     check();
   });
@@ -136,4 +137,42 @@ test('unchanged slot reaches a bounded failure deadline', async () => {
   fs.mkdirSync(path.join(directory, 'queue'));
   try { await assert.rejects(waitForSlotChange(directory, slotSnapshot(directory), Date.now()), /Timed out waiting/); }
   finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('slot wait watches state directories without traversing artifact subtrees', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-slot-'));
+  const artifacts = path.join(directory, 'targets');
+  fs.mkdirSync(path.join(directory, 'queue'));
+  fs.mkdirSync(artifacts);
+  const watched = [];
+  const watch = (location, callback) => {
+    assert.equal(typeof callback, 'function', 'slot subscriptions must be non-recursive');
+    assert.ok(!location.startsWith(artifacts));
+    watched.push(location);
+    return fs.watch(location, callback);
+  };
+  try {
+    const changed = waitForSlotChange(directory, slotSnapshot(directory), Date.now() + 2000, { watch });
+    fs.mkdirSync(path.join(directory, 'queue', 'ticket'));
+    await changed;
+    assert.ok(watched.includes(directory));
+    assert.ok(watched.includes(path.join(directory, 'queue')));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('slot wait observes owner metadata without a queue change', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-slot-'));
+  fs.mkdirSync(path.join(directory, 'queue'));
+  fs.mkdirSync(path.join(directory, 'lock'));
+  const owner = path.join(directory, 'lock', 'job_id');
+  fs.writeFileSync(owner, 'before');
+  try {
+    const changed = waitForSlotChange(directory, slotSnapshot(directory), Date.now() + 2000);
+    fs.writeFileSync(owner, 'after');
+    await changed;
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

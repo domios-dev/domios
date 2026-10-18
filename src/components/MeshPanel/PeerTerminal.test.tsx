@@ -3,6 +3,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
+import { peerInventoryModel } from "./peerInventoryModel";
+import { daemon, schedule } from "../General/generalOverview.testdata";
 import { PeerTerminal } from "./PeerTerminal";
 
 type TestFn = () => void | Promise<void>;
@@ -48,6 +50,27 @@ test("machine cards select the peer without a duplicate web action", async () =>
   assert(host.querySelectorAll("button").length === 0, "no duplicate web action");
   await act(async () => (host.firstElementChild as HTMLElement).click());
   assert(selected === 1, "peer selected once");
+  await act(async () => root.unmount());
+});
+
+test("machine cards expose real service and cron summaries", async () => {
+  const inventory = peerInventoryModel([daemon, schedule], { instance_id: daemon.source_peer_id!, name: daemon.machine_name!, online: true, services_loaded: true });
+  const { host, root } = await render({ ...base, inventory });
+  assert(host.querySelector('section[aria-label="Services"] ul')?.textContent?.includes(daemon.name), "map Services wires the daemon name");
+  assert(host.querySelector('section[aria-label="Crons"] ul')?.textContent?.includes(schedule.name), "map Crons wires the schedule name");
+  assert(host.querySelector('[role="button"]')?.getAttribute("aria-label") === `Open ${base.name}`, "peer is keyboard accessible");
+  await act(async () => root.unmount());
+});
+
+test("stale map capsules expose names and state without error announcements", async () => {
+  const inventory = peerInventoryModel([daemon, schedule], { instance_id: daemon.source_peer_id!, name: daemon.machine_name!, online: false, services_loaded: true }, false, false, "failed request");
+  let selected = 0;
+  const { host, root } = await render({ ...base, inventory, offline: true, onClick: () => { selected++; } });
+  assert(host.querySelector(`[role="img"][aria-label="${daemon.name}: ${inventory.services[0].stateLabel}"]`), "daemon capsule exposes name and state");
+  assert(host.querySelector(`[role="img"][aria-label="${schedule.name}: ${inventory.crons[0].stateLabel}"]`), "cron capsule exposes name and state");
+  assert(!host.querySelector('[role="status"], [role="alert"]'), "map inventory has no error announcement");
+  await act(async () => (host.querySelector('[role="button"][aria-label="Open rollacode-bot"]') as HTMLElement).click());
+  assert(selected === 1, "open action fires once");
   await act(async () => root.unmount());
 });
 

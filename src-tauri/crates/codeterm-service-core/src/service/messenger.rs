@@ -94,6 +94,7 @@ pub enum Delivery {
     Pty { text: String },
     ChatBackend { message_id: String },
     Pending { delivery_id: String },
+    Unconfirmed { delivery_id: String },
 }
 
 impl Delivery {
@@ -367,6 +368,9 @@ impl Messenger {
         if let Some(id) = trace_id.as_deref() {
             let (outcome, related) = match &result {
                 Ok((Delivery::Pending { delivery_id }, _)) => ("held", Some(delivery_id.as_str())),
+                Ok((Delivery::Unconfirmed { delivery_id }, _)) => {
+                    ("unconfirmed", Some(delivery_id.as_str()))
+                }
                 Ok(_) => ("written", None),
                 Err(_) => ("refused", None),
             };

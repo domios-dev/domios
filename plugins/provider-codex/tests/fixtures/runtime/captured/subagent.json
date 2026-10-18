@@ -277,7 +277,9 @@
             "agent_reasoning_effort": "medium",
             "agent_ordinal": 1,
             "agent_result": null,
-            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4"
+            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "agent_binding_nonce": "nonce-fixture",
+            "agent_runtime_epoch": 1
           },
           "toolId": "exec-27515368-be3b-4e14-bf8d-65276ab48c93:01a0d617-4ebf-7b11-aa51-01f6319c42aa",
           "toolArgs": "01a0d617-4ebf-7b11-aa51-01f6319c42aa",
@@ -307,7 +309,9 @@
             "agent_reasoning_effort": "medium",
             "agent_ordinal": 2,
             "agent_result": null,
-            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4"
+            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "agent_binding_nonce": "nonce-fixture",
+            "agent_runtime_epoch": 1
           },
           "toolId": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
           "toolArgs": "01a0d617-4f5c-7f91-ae63-640360c8f198",
@@ -337,7 +341,9 @@
             "agent_reasoning_effort": "medium",
             "agent_ordinal": 1,
             "agent_result": null,
-            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4"
+            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "agent_binding_nonce": "nonce-fixture",
+            "agent_runtime_epoch": 1
           },
           "toolId": "exec-27515368-be3b-4e14-bf8d-65276ab48c93:01a0d617-4ebf-7b11-aa51-01f6319c42aa",
           "toolArgs": "01a0d617-4ebf-7b11-aa51-01f6319c42aa",
@@ -367,7 +373,9 @@
             "agent_reasoning_effort": "medium",
             "agent_ordinal": 2,
             "agent_result": null,
-            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4"
+            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "agent_binding_nonce": "nonce-fixture",
+            "agent_runtime_epoch": 1
           },
           "toolId": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
           "toolArgs": "01a0d617-4f5c-7f91-ae63-640360c8f198",
@@ -397,7 +405,9 @@
             "agent_reasoning_effort": "medium",
             "agent_ordinal": 1,
             "agent_result": "`package.json` summary:\n\n- **Name:** `codex-app-server-client`\n- **Private package:** yes\n- **Module type:** ESM (`\"type\": \"module\"`)\n- **Exports:** TypeScript source entry points for:\n  - `client`\n  - `schema`\n  - `rpc`\n  - `protocol`\n  - `replay`\n  - `errors`\n\nScripts:\n\n- `typecheck`: `tsc --noEmit`\n- `test`: `vp test run`\n- `generate`: `node scripts/generate.ts`\n- `probe`: `node test/examples/codex-app-server-probe.ts`\n\nDependencies:\n\n- **Runtime:** `effect`\n- **Development:**\n  - `@effect/openapi-generator`\n  - `@effect/platform-node`\n  - `@effect/vitest`\n  - `@types/node`\n  - `vite-plus`\n\nAll dependencies use the workspace catalog (`\"catalog:\"`). No files were modified.",
-            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4"
+            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "agent_binding_nonce": "nonce-fixture",
+            "agent_runtime_epoch": 1
           },
           "toolId": "exec-27515368-be3b-4e14-bf8d-65276ab48c93:01a0d617-4ebf-7b11-aa51-01f6319c42aa",
           "toolArgs": "01a0d617-4ebf-7b11-aa51-01f6319c42aa",
@@ -427,7 +437,9 @@
             "agent_reasoning_effort": "medium",
             "agent_ordinal": 2,
             "agent_result": null,
-            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4"
+            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "agent_binding_nonce": "nonce-fixture",
+            "agent_runtime_epoch": 1
           },
           "toolId": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
           "toolArgs": "01a0d617-4f5c-7f91-ae63-640360c8f198",
@@ -457,7 +469,9 @@
             "agent_reasoning_effort": "medium",
             "agent_ordinal": 2,
             "agent_result": "`tsconfig.json` contains:\n\n- Extends [../../tsconfig.base.json](/home/replay-user/sample-app/tsconfig.base.json)\n- Adds Node typings: `\"types\": [\"node\"]`\n- Includes TypeScript files under:\n  - `src`\n  - `scripts`\n  - `test`\n\nInherited compiler settings include:\n\n- `target: \"ESNext\"`\n- `module` and `moduleResolution`: `\"NodeNext\"`\n- `noEmit: true`\n- `strict: true`\n- `noUncheckedIndexedAccess: true`\n- `exactOptionalPropertyTypes: true`\n- `verbatimModuleSyntax: true`\n- `erasableSyntaxOnly: true`\n- `resolveJsonModule: true`\n- `skipLibCheck: true`\n- Effect language-service plugin enabled with several diagnostics configured as errors.",
-            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4"
+            "agent_parent_thread_id": "01a0d617-2920-75e0-8957-ee5a48afefc4",
+            "agent_binding_nonce": "nonce-fixture",
+            "agent_runtime_epoch": 1
           },
           "toolId": "exec-9f999071-8180-4493-8d6d-bbdf44be5b91:01a0d617-4f5c-7f91-ae63-640360c8f198",
           "toolArgs": "01a0d617-4f5c-7f91-ae63-640360c8f198",

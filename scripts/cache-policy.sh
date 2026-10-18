@@ -306,6 +306,13 @@ ct_configure_sccache() {
   ct_sccache_with_lock ct_configure_sccache_locked
 }
 
+ct_select_compiler_cache_wrapper() {
+  [ "${CODETERM_PORTABLE_COMPILER_CACHE:-0}" = 1 ] || return 0
+  local wrapper
+  wrapper="$(node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/cache-rustc-wrapper.mjs")" || return $?
+  export RUSTC_WRAPPER="$wrapper"
+}
+
 ct_configure_sccache_locked() {
   export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
   if [ "${CODETERM_USE_SCCACHE:-1}" = 0 ] && [ "${CODETERM_SCCACHE_VERIFY_ONLY:-0}" != 1 ]; then return 0; fi
@@ -321,6 +328,7 @@ ct_configure_sccache_locked() {
   ct_forbid_mutable_cache_dir "${SCCACHE_DIR:-}" || return $?
   ct_reject_basedir_rewriting || return $?
   export RUSTC_WRAPPER=sccache
+  ct_select_compiler_cache_wrapper || return $?
   echo "[cache-policy] sccache verified before build server start"
   echo "[cache-policy] RUSTC_WRAPPER=$RUSTC_WRAPPER"
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"
@@ -378,6 +386,7 @@ ct_require_prestarted_sccache_locked() {
   fi
   ct_reject_basedir_rewriting || return $?
   export RUSTC_WRAPPER=sccache
+  ct_select_compiler_cache_wrapper || return $?
   echo "[cache-policy] prestarted shared sccache verified"
   echo "[cache-policy] RUSTC_WRAPPER=$RUSTC_WRAPPER"
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"

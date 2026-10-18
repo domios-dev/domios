@@ -3,7 +3,12 @@ pub const IDLE: &str = "idle";
 
 /// Whether the page needs a human before an agent can continue; ids match the frontend capsule.
 pub fn needs_human(url: &str, title: &str, dialog_open: bool) -> &'static str {
-    let url = url.to_ascii_lowercase();
+    // Query keys such as PKCE `code_challenge` must not read as a CAPTCHA page.
+    let url = url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(url)
+        .to_ascii_lowercase();
     let title = title.to_ascii_lowercase();
     let url_has = |needles: &[&str]| needles.iter().any(|needle| url.contains(needle));
     let title_has = |needles: &[&str]| needles.iter().any(|needle| title.contains(needle));
@@ -64,6 +69,18 @@ mod tests {
 
     fn args(items: &[&str]) -> Vec<String> {
         items.iter().map(|item| item.to_string()).collect()
+    }
+
+    #[test]
+    fn browser_needs_human_ignores_query_parameters() {
+        assert_eq!(
+            needs_human(
+                "https://domios.example/signin/?state=a&code_challenge=b&redirect_uri=c",
+                "Sign in",
+                false
+            ),
+            "login"
+        );
     }
 
     #[test]
