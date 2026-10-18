@@ -200,6 +200,8 @@ test("model command hold shows queued, then sending and delivered on the same bu
 
 test("Delete persists a dismissal with one RPC and never submits or retries its payload", async () => {
   const { deleteTrackedChatMessage } = await import("./chatSendStatus");
+  const repository = new MemoryChatSendRepository();
+  __setChatSendRepositoryForTest(repository);
   const tabId = "delete-rpc";
   const original = { id: "delete-bubble", correlationId: "delete-token", content: "opaque", sentAtMs: 1700000000000 };
   addChatSend(tabId, original);
@@ -218,7 +220,12 @@ test("Delete persists a dismissal with one RPC and never submits or retries its 
   await deleting;
   forgetChatSendsInMemory();
   await ensureChatSendTabHydrated(tabId);
-  assert.equal(readChatSends(tabId)[0].dismissed, true);
+  assert.deepEqual(readChatSends(tabId), []);
+  const marker = await repository.readDismissal(tabId, original.id);
+  assert(marker);
+  assert.equal(marker.sendId, original.id);
+  assert.equal(marker.correlationId, original.correlationId);
+  assert.equal("content" in marker, false);
   assert.deepEqual(calls, ["chat_send_delete"]);
   assert.equal(beginChatSendRetry(tabId, original.id), undefined);
   __setInvokeForTest(null);
