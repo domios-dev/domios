@@ -1,3 +1,4 @@
+use crate::multiplexer::types::TaskBinding;
 use crate::service::agent_runtime::plan_warning::PlanBindingFailure;
 use crate::service::{
     plan::task_attempts::{RuntimeRestartBinding, RuntimeRestartMode},
@@ -32,22 +33,121 @@ impl ServiceContext {
         target: &str,
         nonce: &str,
     ) -> Result<Option<RestartBindingAuthority>, String> {
-        let has_task = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
-            super::super::restart_carries_task_attempt(tab.task_binding.as_ref())
-        });
-        if !has_task {
+        if !self.restore_provider_switch_task_binding(tab_id, source, nonce)? {
             return Ok(None);
         }
-        let mut authority = self.authorize_restart_binding_mode(
-            tab_id,
-            source,
-            nonce,
-            RuntimeRestartMode::ProviderSwitch,
-        )?;
-        if let Some(authority) = &mut authority {
-            authority.request.target_provider = Some(target.into());
+        let mut authority = self
+            .authorize_restart_binding_mode(
+                tab_id,
+                source,
+                nonce,
+                RuntimeRestartMode::ProviderSwitch,
+            )?
+            .ok_or_else(|| "provider_switch_binding_refused: task attempt cannot be carried")?;
+        authority.request.target_provider = Some(target.into());
+        Ok(Some(authority))
+    }
+
+    fn restore_provider_switch_task_binding(
+        &self,
+        tab_id: &str,
+        source: &str,
+        nonce: &str,
+    ) -> Result<bool, String> {
+        let tab = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .cloned()
+            .ok_or("provider_switch_binding_refused: tab not found")?;
+        let live_attempts = self
+            .plan_store
+            .live_task_attempts_for_tab(tab_id)
+            .into_iter()
+            .filter(|candidate| candidate.attempt.retired_at.is_none())
+            .collect::<Vec<_>>();
+        let task_binding_present = tab.task_binding.as_ref().is_some_and(|binding| {
+            binding.plan_id.is_some() || binding.task_id.is_some() || binding.attempt_id.is_some()
+        });
+        if live_attempts.is_empty() && !task_binding_present {
+            return Ok(false);
         }
-        Ok(authority)
+        if tab.agent_type.as_deref() != Some(source)
+            || tab.session_binding_nonce.as_deref() != Some(nonce)
+        {
+            return Err("provider_switch_binding_refused: source session changed".into());
+        }
+        let current = tab.agent_session_id.as_deref().and_then(|session_id| {
+            self.plan_store
+                .open_attempt_task_for_effort_for_tab(tab_id, session_id, nonce)
+        });
+        let Some((plan_id, task_id, attempt_id)) = current else {
+            return Err(
+                "provider_switch_binding_refused: current task attempt cannot be carried".into(),
+            );
+        };
+        if tab.agent_session_id.is_none()
+            || tab.reported_session_binding_nonce.as_deref() != Some(nonce)
+            || live_attempts.len() != 1
+            || live_attempts[0].plan_id != plan_id
+            || live_attempts[0].task_id != task_id
+            || live_attempts[0].attempt.id != attempt_id
+        {
+            return Err(
+                "provider_switch_binding_refused: current task attempt is ambiguous or unverified"
+                    .into(),
+            );
+        }
+        let prior = tab.task_binding.clone().unwrap_or_default();
+        if prior
+            .plan_id
+            .as_deref()
+            .is_some_and(|bound| bound != plan_id)
+            || prior
+                .task_id
+                .as_deref()
+                .is_some_and(|bound| bound != task_id)
+            || prior
+                .attempt_id
+                .as_deref()
+                .is_some_and(|bound| bound != attempt_id)
+        {
+            return Err(
+                "provider_switch_binding_refused: tab task binding conflicts with its attempt"
+                    .into(),
+            );
+        }
+        let bound_at = if prior.bound_at == 0 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis() as u64)
+                .unwrap_or_default()
+        } else {
+            prior.bound_at
+        };
+        let restored = TaskBinding {
+            plan_id: Some(plan_id),
+            task_id: Some(task_id),
+            attempt_id: Some(attempt_id),
+            spawn_handle: prior.spawn_handle,
+            bound_at,
+        };
+        if tab.task_binding.as_ref() != Some(&restored) {
+            let mut mux = self.mux.write();
+            let current = mux
+                .get_tab_mut(tab_id)
+                .ok_or("provider_switch_binding_refused: tab disappeared")?;
+            if current.agent_type != tab.agent_type
+                || current.agent_session_id != tab.agent_session_id
+                || current.session_binding_nonce != tab.session_binding_nonce
+                || current.reported_session_binding_nonce != tab.reported_session_binding_nonce
+                || current.task_binding != tab.task_binding
+            {
+                return Err("provider_switch_binding_refused: source task binding changed".into());
+            }
+            current.task_binding = Some(restored);
+        }
+        Ok(true)
     }
 
     pub(crate) fn authorize_runtime_restart_binding(
