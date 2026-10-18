@@ -106,7 +106,6 @@ fn policy(
 }
 
 fn request(
-    policy: &EnrollmentPolicy,
     connection: NativeHostConnection,
     challenge: String,
     view: Option<NativeViewBinding>,
@@ -136,6 +135,7 @@ fn session(view: Option<NativeViewBinding>) -> Arc<Session<String, String>> {
         events,
         state: Mutex::new(SessionState {
             view,
+            diagnostics: None,
             pending: HashMap::new(),
         }),
         shutdown,
@@ -411,26 +411,19 @@ fn enrollment_binds_server_generation_challenge_and_allowed_origin() {
     );
     let view = NativeViewBinding::observed(origin).unwrap();
     let exact = request(
-        &policy,
         policy.challenge.connection.clone(),
         policy.challenge.challenge.clone(),
         Some(view),
     );
     assert!(enroll(&policy, exact, verified_client(&policy)).is_ok());
 
-    let stale_generation = request(
-        &policy,
-        connection(6),
-        policy.challenge.challenge.clone(),
-        None,
-    );
+    let stale_generation = request(connection(6), policy.challenge.challenge.clone(), None);
     assert_eq!(
         enroll(&policy, stale_generation, verified_client(&policy)),
         Err(NativeHostRejection::Unauthorized)
     );
 
     let stale_challenge = request(
-        &policy,
         policy.challenge.connection.clone(),
         "stale-challenge".into(),
         None,
@@ -442,7 +435,6 @@ fn enrollment_binds_server_generation_challenge_and_allowed_origin() {
 
     let foreign_view = NativeViewBinding::observed("https://untrusted.example".into()).unwrap();
     let foreign_origin = request(
-        &policy,
         policy.challenge.connection.clone(),
         policy.challenge.challenge.clone(),
         Some(foreign_view),
