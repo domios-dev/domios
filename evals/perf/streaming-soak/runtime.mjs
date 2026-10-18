@@ -9,7 +9,7 @@ import {processInfo} from './io.mjs';
 import {requireValue,validateIdentity} from './model.mjs';
 
 export {dcJson};
-export async function attach(signal) {
+export async function attach(signal,options={}) {
   requireValue(process.env.CODETERM_API_PORT === '7686' && Boolean(process.env.CODETERM_DEV_DATA_DIR), 'Use run.sh dev_run; shared DEV only');
   const headers = {Authorization:`Bearer ${process.env.CODETERM_API_TOKEN}`};
   const api = async route => {
@@ -19,9 +19,18 @@ export async function attach(signal) {
   const health = await api('/api/health');
   requireValue(Number(health.instance?.api_port) === 7686,'DEV listener mismatch');
   requireValue(/^com\.codeterm\.dev(?:\.|$)/.test(health.instance.identifier??''),'PROD build identifier refused');
-  const cdpPort = Number(health.instance.cdp_port), vitePort = Number(health.instance.vite_port);
+  const nativePort = Number(health.instance.cdp_port), vitePort = Number(health.instance.vite_port);
+  const surface = options.surface??'native';
+  requireValue(['native','chrome'].includes(surface),'Expected native or chrome surface');
+  const cdpPort = surface === 'chrome'?Number(options.cdp):nativePort;
+  requireValue(surface !== 'chrome' || cdpPort !== nativePort && Boolean(options.target),'Chrome requires a separate explicit CDP port and target ID');
   requireValue(cdpPort > 0 && cdpPort !== 7685 && vitePort > 0 && vitePort !== 7685,'Invalid DEV frontend ports');
-  const target = await pageTarget(cdpPort,vitePort);
+  let target;
+  if (surface === 'chrome') {
+    const targets = await (await fetch(`http://127.0.0.1:${cdpPort}/json/list`,{signal})).json();
+    target = targets.find(t => t.id === options.target && t.type === 'page');
+    requireValue(target && new URL(target.url).origin === `http://127.0.0.1:${vitePort}`,'Explicit Chrome target must serve this DEV entry');
+  } else target = await pageTarget(cdpPort,vitePort);
   const cdp = await connect(target.webSocketDebuggerUrl);
   signal.addEventListener('abort',() => cdp.close(),{once:true});
   let browser;
@@ -33,6 +42,7 @@ export async function attach(signal) {
     requireValue(renderers.length === 1,'Exactly one DEV renderer required; refuse ambiguous PID attribution');
     const renderer = processInfo(renderers[0].id), daemon = processInfo(listenerIdentity(7686).pid);
     const native = await evaluate(cdp,'Boolean(window.__TAURI_INTERNALS__)');
+    requireValue(native === (surface === 'native'),'Requested surface does not match native bridge presence');
     const origin = `http://127.0.0.1:${vitePort}`;
     const htmlResponse = await fetch(target.url,{signal}); requireValue(htmlResponse.ok,'Entry HTML unavailable');
     const html = await htmlResponse.text();
@@ -44,7 +54,8 @@ export async function attach(signal) {
       const response = await fetch(url,{signal}); requireValue(response.ok,'Entry script unavailable');
       hash.update(src).update(await response.text());
     }
-    const identity = validateIdentity({port:7686,dev:native,build:health.build_sha,entryHash:hash.digest('hex'),
+    const identity = validateIdentity({port:7686,dev:true,surface,browser:{product:version.Browser??null,protocol:version['Protocol-Version']??null,userAgent:version['User-Agent']??null,v8:version['V8-Version']??null},
+      page:{origin:new URL(target.url).origin,path:new URL(target.url).pathname,testMode:new URL(target.url).searchParams.has('e2e')},build:health.build_sha,entryHash:hash.digest('hex'),
       target:target.id,boot:health.boot_id,renderer:{pid:renderer.pid,created:renderer.created},daemon:{pid:daemon.pid,created:daemon.created}});
     return {identity,cdp,api,signal,close:() => cdp.close()};
   } catch (error) { cdp.close(); throw error; }
