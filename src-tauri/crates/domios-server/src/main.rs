@@ -3,7 +3,9 @@ use domios_server::{
         channel,
         protocol::{with_observation_preflight, AttachReply, AttachRequest, FAILURE_DEADLINE},
     },
-    launch::{spawn_detached, LaunchOptions},
+    launch::{
+        human_start_options, launch_service, write_human_ready, LaunchOptions, HUMAN_START_USAGE,
+    },
 };
 use std::io::{self, BufRead, Read, Write};
 
@@ -19,6 +21,19 @@ fn main() {
 }
 
 fn execute() -> io::Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if matches!(args.as_slice(), [arg] if arg == "--help" || arg == "help")
+        || matches!(args.as_slice(), [command, arg] if command == "start" && arg == "--help")
+    {
+        println!("{HUMAN_START_USAGE}");
+        return Ok(());
+    }
+    if args.first().map(String::as_str) == Some("start") {
+        let executable = std::env::current_exe()?.canonicalize()?;
+        let start = human_start_options(&args[1..], &executable, cfg!(debug_assertions))?;
+        let reply = launch_service(&executable, &start.options)?;
+        return write_human_ready(&mut io::stdout().lock(), &reply.ready, start.json);
+    }
     if !private_stdio()? {
         return Err(io::Error::other(
             "Bootstrap requires inherited private input/output pipes",
@@ -70,55 +85,8 @@ fn execute() -> io::Result<()> {
             })
         }),
         "launch" => {
-            let mut child = spawn_detached(&std::env::current_exe()?)?;
-            let mut stdin = child
-                .stdin
-                .take()
-                .ok_or_else(|| io::Error::other("Child bootstrap pipe unavailable"))?;
-            serde_json::to_writer(&mut stdin, &options).map_err(io::Error::other)?;
-            stdin.write_all(b"\n")?;
-            drop(stdin);
-            let stdout = child
-                .stdout
-                .take()
-                .ok_or_else(|| io::Error::other("Child readiness pipe unavailable"))?;
-            let (sender, receiver) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
-                let mut line = String::new();
-                let result = io::BufReader::new(stdout)
-                    .take(32769)
-                    .read_line(&mut line)
-                    .map(|_| line);
-                let _ = sender.send(result);
-            });
-            let mut initialized = false;
-            let result = (|| -> io::Result<()> {
-                match receiver.recv_timeout(FAILURE_DEADLINE) {
-                    Ok(Ok(line)) if !line.is_empty() && line.len() <= 32768 => {
-                        let reply: AttachReply =
-                            serde_json::from_str(&line).map_err(io::Error::other)?;
-                        let pin =
-                            domios_server::bootstrap::process::PinnedProcess::open(child.id())?;
-                        let observed = pin.provenance()?;
-                        if reply.ready.process != observed
-                            || observed.executable != std::env::current_exe()?.canonicalize()?
-                        {
-                            Err(io::Error::other("Launcher/server provenance mismatch"))
-                        } else {
-                            initialized = true;
-                            write_reply(&reply)
-                        }
-                    }
-                    _ => Err(io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        "Server launch failed before readiness",
-                    )),
-                }
-            })();
-            if result.is_err() && !initialized && child.try_wait()?.is_none() {
-                child.kill()?;
-                child.wait()?;
-            }
+            let reply = launch_service(&std::env::current_exe()?, &options)?;
+            let result = write_reply(&reply);
             if result.is_ok() && std::env::args().nth(2).as_deref() == Some("--hold") {
                 let mut discarded = [0u8; 1];
                 let _ = io::stdin().read(&mut discarded)?;

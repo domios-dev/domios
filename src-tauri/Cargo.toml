@@ -40,7 +40,9 @@ tokio = { version = "1", features = ["full", "test-util"] }
 interprocess = { version = "2", features = ["tokio"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.10"
 codeterm-types = { path = "crates/codeterm-types" }
+codeterm-paths = { path = "crates/codeterm-paths" }
 codeterm-decision = { path = "crates/codeterm-decision" }
 codeterm-bridge = { path = "crates/codeterm-bridge" }
 axum = { version = "0.8", features = ["multipart"] }
