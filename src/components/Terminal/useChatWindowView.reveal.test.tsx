@@ -7,8 +7,10 @@ import { Window } from "happy-dom";
 import { createTranscriptState, reduceTranscript, type TranscriptState } from "@codeterm/chat-core";
 import { useChatWindowView } from "./useChatWindowView";
 import { clearTranscriptWindows, useTranscriptWindow } from "./transcriptStore";
-import { __setChatSendRepositoryForTest, ensureChatSendTabHydrated, chatSendTabHydrationState } from "./chatSendStore";
-import { encodeChatSend } from "./chatSendDurableModel";
+import { __setChatSendRepositoryForTest, ensureChatSendTabHydrated, chatSendTabHydrationState,
+  requestChatSendDismissalMarkers } from "./chatSendStore";
+import { encodeChatSend, encodeChatSendDismissalMarker, encodeChatSendTombstone,
+  mergeChatSendDismissalMarker } from "./chatSendDurableModel";
 import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 
 const authority = { sourceSessionId: "session", sessionBindingNonce: "nonce" };
@@ -144,6 +146,73 @@ test("failed send hydration leaves the authoritative transcript projection intac
     assert.equal(host.textContent, "still-authoritative", "storage failure is not interpreted as an empty dismissal ledger");
   } finally {
     finishHydration();
+    await act(async () => root.unmount());
+    clearTranscriptWindows();
+    __setChatSendRepositoryForTest(null);
+    await browser.happyDOM.abort();
+  }
+});
+
+test("compacted dismissal marker still hides a historical matched echo", async () => {
+  const browser = new Window();
+  Object.defineProperties(globalThis, {
+    window: { configurable: true, value: browser }, document: { configurable: true, value: browser.document },
+    navigator: { configurable: true, value: browser.navigator }, IS_REACT_ACT_ENVIRONMENT: { configurable: true, value: true },
+  });
+  const tabId = "reveal-compacted-dismissal";
+  const repository = new MemoryChatSendRepository();
+  const matchedRow = { source: { source_session_id: "session", record: {
+    kind: "structured" as const, thread_id: "session", item_id: "provider-item",
+  } }, ordinal: 4 };
+  const dismissed = { id: "old-send", correlationId: "old-correlation", content: "large historical payload",
+    sentAtMs: 10, dismissed: true, matchedRow, echo: { content: "historical message", timestampMs: 10_000 } };
+  repository.records.set(JSON.stringify([tabId, dismissed.id]), encodeChatSendTombstone(tabId, dismissed.id, 2, 4));
+  const priorMarker = encodeChatSendDismissalMarker(tabId, {
+    id: dismissed.id, correlationId: dismissed.correlationId, content: dismissed.content,
+    sentAtMs: dismissed.sentAtMs, dismissed: true, echo: dismissed.echo,
+  }, 0, 4);
+  repository.dismissals.set(JSON.stringify([tabId, dismissed.id]), mergeChatSendDismissalMarker(
+    priorMarker, encodeChatSendDismissalMarker(tabId, dismissed, 1, 4),
+  ));
+  const echoOnly = { id: "echo-send", content: "echo text", sentAtMs: 22, dismissed: true,
+    echo: { content: "echo text", timestampMs: 22_000 } };
+  repository.records.set(JSON.stringify([tabId, echoOnly.id]), encodeChatSendTombstone(tabId, echoOnly.id, 2, 5));
+  repository.dismissals.set(JSON.stringify([tabId, echoOnly.id]),
+    encodeChatSendDismissalMarker(tabId, echoOnly, 1, 5));
+  __setChatSendRepositoryForTest(repository);
+  const transcript = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority, range: { start: 0, end: 3, unit: "items" },
+    rows: [
+      { id: "history-row", sourceMessageId: "provider-item", sourceSessionId: "session",
+        type: "user", content: "historical message", timestamp: "10" },
+      { id: "echo-row", type: "user", content: "echo   text", timestamp: "22" },
+      { id: "echo-decoy", sourceMessageId: "different-provider-item", sourceSessionId: "session",
+        type: "user", content: "historical message", timestamp: "10" },
+    ],
+  }).state;
+  let view: ReturnType<typeof useChatWindowView> | undefined;
+  function Harness() {
+    const followTailRef = useRef(true);
+    const { anchorKey } = useTranscriptWindow(`${tabId}:session`);
+    view = useChatWindowView({ tabId, windowKey: `${tabId}:session`, transcript, anchorKey, followTailRef,
+      loadOlderPage: async () => null,
+    });
+    return createElement("output", null, view.allMessages.map((message) => message.id).join(","));
+  }
+  const host = document.createElement("main");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(Harness)));
+    await act(async () => {
+      await ensureChatSendTabHydrated(tabId);
+      await requestChatSendDismissalMarkers(tabId, view!.committedRows);
+    });
+
+    assert.equal(chatSendTabHydrationState(tabId), "ready");
+    assert.deepEqual(view?.allMessages.map((message) => message.id), ["echo-decoy"]);
+    assert.equal(host.textContent, "echo-decoy");
+    assert.equal(JSON.stringify(repository.dismissals.get(JSON.stringify([tabId, dismissed.id]))).includes("large historical payload"), false);
+  } finally {
     await act(async () => root.unmount());
     clearTranscriptWindows();
     __setChatSendRepositoryForTest(null);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decodeChatSend, durableRecordByteLength, encodeChatSend, mergeChatSendRecord,
+import { chatSendDismissalIdentity, chatSendDismissalMatchesIdentity, decodeChatSend, durableRecordByteLength,
+  encodeChatSend, encodeChatSendDismissalMarker, mergeChatSendDismissalMarker, mergeChatSendRecord,
   orderChatSendRecords, sameDurableSend } from "./chatSendDurableModel";
 import type { DeliverySend } from "./chatDeliveryModel";
 
@@ -97,6 +98,70 @@ test("tab records restore in their persisted append order", () => {
   const later = encodeChatSend("tab", { id: "later", content: "later", sentAtMs: 2 }, 0, 7);
   const earlier = encodeChatSend("tab", { id: "earlier", content: "earlier", sentAtMs: 1 }, 0, 4);
   assert.deepEqual(orderChatSendRecords([later, earlier]).map((record) => record.sendId), ["earlier", "later"]);
+});
+
+test("dismissal markers retain only exact echo identities needed after payload compaction", () => {
+  const matchedRow = { source: { source_session_id: "source-session", record: {
+    kind: "structured" as const, thread_id: "source-session", item_id: "provider-item",
+  } }, ordinal: 4 };
+  const marker = encodeChatSendDismissalMarker("tab", {
+    id: "send-id", correlationId: "correlation", content: "large private payload", sentAtMs: 7,
+    dismissed: true, matchedRow,
+    echo: { content: "large private payload", timestampMs: 9 },
+    draft: { text: "large private payload", attachments: ["/private/path"], recordedVoiceAttachments: [], capsules: {}, reply: null },
+  });
+  const row = { id: "transcript-row", sourceMessageId: "provider-item", sourceSessionId: "source-session",
+    type: "user" as const, content: "row text", timestamp: "9" };
+  const identity = chatSendDismissalIdentity(row)!;
+
+  assert.equal(marker.matchedRowKey, JSON.stringify(["source-session", "provider-item"]));
+  assert.equal(marker.echoKey, undefined, "structured match identity keeps echo payload out of the marker");
+  assert.equal(chatSendDismissalMatchesIdentity(marker, identity), true);
+  assert.equal("content" in marker, false);
+  assert.equal("echo" in marker, false);
+  assert.equal("matchedRow" in marker, false);
+  assert.equal("draft" in marker, false);
+  assert.equal(JSON.stringify(marker).includes("large private payload"), false);
+  assert.equal(JSON.stringify(marker).includes("/private/path"), false);
+});
+
+test("dismissal echo fallback uses the transcript row identity without retaining a full send", () => {
+  const marker = encodeChatSendDismissalMarker("tab", {
+    id: "send-id", content: "message", sentAtMs: 10, dismissed: true,
+    echo: { content: "HELLO   world", timestampMs: 42 },
+  });
+  const identity = chatSendDismissalIdentity({ id: "row", type: "user", content: "hello world",
+    timestamp: "1970-01-01T00:00:00.042Z" })!;
+
+  assert.equal(marker.echoKey, identity.echoKey);
+  assert(marker.echoKey!.length < 100);
+  assert.equal(chatSendDismissalMatchesIdentity(marker, identity), true);
+  assert.equal("content" in marker, false);
+  assert.equal(JSON.stringify(marker).includes("HELLO"), false);
+});
+
+test("a precise matched row replaces the compact echo fallback", () => {
+  const prior = encodeChatSendDismissalMarker("tab", {
+    id: "send-id", content: "message", sentAtMs: 10, dismissed: true,
+    echo: { content: "same text", timestampMs: 42 },
+  });
+  const matchedRow = { source: { source_session_id: "session", record: {
+    kind: "structured" as const, thread_id: "session", item_id: "provider-item",
+  } }, ordinal: 3 };
+  const current = encodeChatSendDismissalMarker("tab", {
+    id: "send-id", content: "message", sentAtMs: 10, dismissed: true, matchedRow,
+    echo: { content: "same text", timestampMs: 42 },
+  }, 1);
+  const marker = mergeChatSendDismissalMarker(prior, current);
+  const exact = chatSendDismissalIdentity({ id: "row", sourceMessageId: "provider-item", sourceSessionId: "session",
+    type: "user", content: "different", timestamp: "50" })!;
+  const decoy = chatSendDismissalIdentity({ id: "decoy", type: "user", content: "same text",
+    timestamp: "1970-01-01T00:00:00.042Z" })!;
+
+  assert.equal(marker.matchedRowKey, JSON.stringify(["session", "provider-item"]));
+  assert.equal(marker.echoKey, undefined);
+  assert.equal(chatSendDismissalMatchesIdentity(marker, exact), true);
+  assert.equal(chatSendDismissalMatchesIdentity(marker, decoy), false);
 });
 
 test("synthetic multi-tab records serialize a changed send independently", (t) => {

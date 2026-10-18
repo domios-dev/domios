@@ -8,13 +8,14 @@ import {
   observeChatSendDismissal, observeDeliveryStatus, readChatSends, reconcileChatSendAdmission,
   reconcileDeliveryStatuses, recordChatSendAdmissionFailure, setChatSendDraft, useChatSends,
   __setChatSendRepositoryForTest, ensureChatSendTabHydrated, chatSendTabHydrationState, isChatSendTabHydrated,
+  retryChatSendTabHydration,
   useChatSendSnapshot,
 } from "./chatSendStore";
 import { deliveryState } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
-import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
+import { MemoryChatSendDatabase, MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 import { encodeChatSend, encodeChatSendTombstone } from "./chatSendDurableModel";
-import type { ChatSendRepositoryPort } from "./chatSendRepository";
+import { createChatSendRepository, type ChatSendRepositoryPort } from "./chatSendRepository";
 
 test("cold hydration is explicitly pending while local sends remain synchronous", async () => {
   const tabId = "cold-hydration";
@@ -22,9 +23,12 @@ test("cold hydration is explicitly pending while local sends remain synchronous"
   let completeHydration!: (result: Awaited<ReturnType<ChatSendRepositoryPort["hydrateTab"]>>) => void;
   const repository: ChatSendRepositoryPort = {
     hydrateTab: () => new Promise((resolve) => { completeHydration = resolve; }),
+    loadDismissals: async () => [],
+    persistDismissal: async () => {},
     persist: async () => {},
     remove: async () => {},
     read: async () => undefined,
+    readDismissal: async () => undefined,
     subscribe: () => () => {},
     state: () => "pending",
     close: () => {},
@@ -37,7 +41,7 @@ test("cold hydration is explicitly pending while local sends remain synchronous"
     addChatSend(tabId, { id: "local", content: "immediate", sentAtMs: 2 });
     assert.deepEqual(readChatSends(tabId).map((send) => send.id), ["local"]);
 
-    completeHydration({ records: [persisted], state: "ready" });
+    completeHydration({ records: [persisted], state: "ready", rowsRead: 1 });
     await ensureChatSendTabHydrated(tabId);
 
     assert.deepEqual(readChatSends(tabId).map((send) => send.id).sort(), ["local", "restored"]);
@@ -58,9 +62,12 @@ test("snapshot hydration state is stable, changes after load, and local edits su
       hydrateCalls += 1;
       return new Promise((resolve) => { completeHydration = resolve; });
     },
+    loadDismissals: async () => [],
+    persistDismissal: async () => {},
     persist: async () => {},
     remove: async () => {},
     read: async () => undefined,
+    readDismissal: async () => undefined,
     subscribe: () => () => {},
     state: () => "pending",
     close: () => {},
@@ -92,7 +99,7 @@ test("snapshot hydration state is stable, changes after load, and local edits su
     assert.equal(snapshot.hydration, "pending");
 
     await act(async () => {
-      completeHydration({ records: [persisted], state: "ready" });
+      completeHydration({ records: [persisted], state: "ready", rowsRead: 1 });
       await ensureChatSendTabHydrated(tabId);
     });
     assert.equal(snapshot.hydration, "ready");
@@ -156,6 +163,129 @@ test("hydration failure is visible without disabling local sends or inventing de
   }
 });
 
+test("an evicted tab rehydrates bounded cache metadata and retains unresolved send evidence", async () => {
+  const tabId = "lru-written-tab";
+  const repository = new MemoryChatSendRepository();
+  __setChatSendRepositoryForTest(repository);
+  try {
+    addChatSend(tabId, { id: "written", correlationId: "written-token", content: "written", sentAtMs: 1 });
+    addChatSend(tabId, { id: "uncertain", correlationId: "uncertain-token", content: "uncertain", sentAtMs: 2 });
+    observeDeliveryStatus({ tab_id: tabId, send_id: "written-tx", state: "written", error: null,
+      ledger_id: "ledger", sequence: 1, retained_from: 1, correlationId: "written-token" });
+    observeDeliveryStatus({ tab_id: tabId, send_id: "uncertain-tx", state: "submit_unconfirmed", error: null,
+      ledger_id: "ledger", sequence: 2, retained_from: 1, correlationId: "uncertain-token" });
+    await ensureChatSendTabHydrated(tabId);
+    assert.deepEqual(readChatSends(tabId).map((send) => send.status?.state), ["written", "submit_unconfirmed"]);
+
+    for (let index = 0; index < 32; index += 1) {
+      const otherTab = `lru-other-${index}`;
+      readChatSends(otherTab);
+      await ensureChatSendTabHydrated(otherTab);
+    }
+
+    readChatSends(tabId);
+    await ensureChatSendTabHydrated(tabId);
+    assert.deepEqual(readChatSends(tabId).map((send) => [send.id, send.status?.state]), [
+      ["written", "written"], ["uncertain", "submit_unconfirmed"],
+    ]);
+    assert.equal(chatSendTabHydrationState(tabId), "ready");
+  } finally {
+    __setChatSendRepositoryForTest(null);
+  }
+});
+
+test("explicit hydration retry recovers after a transient storage failure without replacing live edits", async () => {
+  const tabId = "explicit-hydration-retry";
+  const repository = new MemoryChatSendRepository();
+  repository.failHydration = true;
+  __setChatSendRepositoryForTest(repository);
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  let snapshot!: ReturnType<typeof useChatSendSnapshot>;
+  function Probe() {
+    snapshot = useChatSendSnapshot(tabId);
+    return createElement("output", null, snapshot.hydration);
+  }
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    await act(async () => addChatSend(tabId,
+      { id: "live", correlationId: "live-token", content: "live draft", sentAtMs: 1 }));
+    await ensureChatSendTabHydrated(tabId);
+    assert.equal(snapshot.hydration, "error");
+    assert.equal(readChatSends(tabId)[0]?.content, "live draft");
+
+    repository.failHydration = false;
+    let finishRead!: () => void;
+    repository.hydrationGate = new Promise<void>((resolve) => { finishRead = resolve; });
+    let retry!: Promise<void>;
+    await act(async () => { retry = retryChatSendTabHydration(tabId); });
+    assert.equal(snapshot.hydration, "pending");
+
+    finishRead();
+    await act(async () => retry);
+
+    assert.equal(snapshot.hydration, "ready");
+    assert.deepEqual(readChatSends(tabId).map((send) => [send.id, send.content]), [["live", "live draft"]]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setChatSendRepositoryForTest(null);
+  }
+});
+
+test("a peer commit notifies the store, rereads the latest record, and merges delivery evidence", { timeout: 5000 }, async () => {
+  const tabId = "peer-ledger-reconcile";
+  const database = new MemoryChatSendDatabase();
+  const channels: Array<{ listener?: (event: MessageEvent<unknown>) => void }> = [];
+  const createChannel = () => {
+    const channel: { listener?: (event: MessageEvent<unknown>) => void } = {};
+    channels.push(channel);
+    return {
+      postMessage(value: unknown) {
+        for (const peer of channels) if (peer !== channel) peer.listener?.({ data: value } as MessageEvent<unknown>);
+      },
+      close() { channel.listener = undefined; },
+      addEventListener(_type: string, listener: EventListenerOrEventListenerObject) {
+        channel.listener = (event) => typeof listener === "function" ? listener(event) : listener.handleEvent(event);
+      },
+    };
+  };
+  const receiver = createChatSendRepository({ openDatabase: async () => database, createChannel });
+  const peer = createChatSendRepository({ openDatabase: async () => database, createChannel });
+  const pending = { id: "bubble", correlationId: "token", content: "payload", sentAtMs: 1 };
+  const delivered = { ...pending, status: { send_id: "tx", tab_id: tabId, state: "delivered" as const, error: null,
+    ledger_id: "ledger", sequence: 2, retained_from: 1, correlationId: "token" } };
+  await peer.persist(tabId, undefined, pending);
+  __setChatSendRepositoryForTest(receiver);
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  let sawDelivered!: () => void;
+  const deliveredRender = new Promise<void>((resolve) => { sawDelivered = resolve; });
+  function Probe() {
+    const snapshot = useChatSendSnapshot(tabId);
+    if (snapshot.sends.some((send) => send.id === pending.id && send.status?.state === "delivered")) sawDelivered();
+    return createElement("output", null, snapshot.sends[0]?.status?.state ?? "pending");
+  }
+
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    await act(async () => ensureChatSendTabHydrated(tabId));
+    assert.equal(host.textContent, "pending");
+    await act(async () => {
+      await peer.persist(tabId, pending, delivered);
+      await deliveredRender;
+    });
+    assert.equal(host.textContent, "delivered");
+    assert.equal(readChatSends(tabId)[0]?.status?.state, "delivered");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    receiver.close();
+    peer.close();
+    __setChatSendRepositoryForTest(null);
+  }
+});
+
 test("Retry preserves the row, guards repeated clicks, and accepts only the fresh transaction", () => {
   const tabId = "retry-store";
   addChatSend(tabId, { id: "bubble", correlationId: "original-token", content: "opaque", sentAtMs: 1700000000000 });
@@ -178,7 +308,8 @@ test("Retry preserves the row, guards repeated clicks, and accepts only the fres
 
 async function withStoreProbe(
   tabId: string,
-  run: (probe: { writes: Array<{ tabId: string; sendId: string; bytes: number }>; renderCount: () => number }) => Promise<void>,
+  run: (probe: { repository: MemoryChatSendRepository; writes: Array<{ tabId: string; sendId: string; bytes: number }>;
+    renderCount: () => number }) => Promise<void>,
 ): Promise<void> {
   const repository = new MemoryChatSendRepository();
   __setChatSendRepositoryForTest(repository);
@@ -195,7 +326,8 @@ async function withStoreProbe(
 
   try {
     await act(async () => root.render(createElement(Probe)));
-    await run({ writes: repository.writes, renderCount: () => renders });
+    await act(async () => ensureChatSendTabHydrated(tabId));
+    await run({ repository, writes: repository.writes, renderCount: () => renders });
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -203,11 +335,11 @@ async function withStoreProbe(
   }
 }
 
-test("replayed dismissal receipts do not republish and dismissal survives reload", async () => {
+test("replayed dismissal receipts do not republish and compact suppression survives reload", async () => {
   const tabId = "idempotent-dismissal";
   const dismissed = { id: "dismissed", correlationId: "dismiss-token", content: "opaque", sentAtMs: 10 };
   const receipt = { send_id: "receipt-1", send: dismissed };
-  await withStoreProbe(tabId, async ({ writes, renderCount }) => {
+  await withStoreProbe(tabId, async ({ repository, writes, renderCount }) => {
     await act(async () => addChatSend(tabId, dismissed));
 
     const beforeDismissal = { writes: writes.length, renders: renderCount() };
@@ -224,7 +356,9 @@ test("replayed dismissal receipts do not republish and dismissal survives reload
 
     await act(async () => forgetChatSendsInMemory());
     await act(async () => ensureChatSendTabHydrated(tabId));
-    assert.equal(readChatSends(tabId).find((send) => send.id === dismissed.id)?.dismissed, true);
+    assert.equal(readChatSends(tabId).some((send) => send.id === dismissed.id), false);
+    assert.equal(repository.dismissals.has(JSON.stringify([tabId, dismissed.id])), true);
+    assert.equal(repository.records.get(JSON.stringify([tabId, dismissed.id]))?.deleted, true);
   });
 });
 
@@ -267,6 +401,10 @@ test("unchanged admission evidence does not republish while changed evidence sur
     await act(async () => ensureChatSendTabHydrated(tabId));
     const restored = readChatSends(tabId).find((send) => send.id === admission.id);
     assert.equal(deliveryState(restored!), "failed");
+    let retry: ReturnType<typeof beginChatSendRetry>;
+    await act(async () => { retry = beginChatSendRetry(tabId, admission.id); });
+    assert.equal(retry?.content, admission.content);
+    assert.notEqual(retry?.correlationId, admission.correlationId);
   });
 });
 

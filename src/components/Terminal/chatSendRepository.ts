@@ -1,19 +1,29 @@
 import {
+  chatSendRetention,
+  chatSendDismissalMatchedRowKeys,
   decodeChatSend,
+  encodeChatSendDismissalMarker,
   encodeChatSend,
   encodeChatSendTombstone,
+  isChatSendDismissalMarker,
   isDurableRecord,
+  mergeChatSendDismissalMarker,
   mergeChatSendRecord,
   orderChatSendRecords,
+  sameChatSendDismissalMarker,
   sameDurableRecord,
+  type ChatSendDismissalIdentity,
+  type ChatSendDismissalMarker,
   type ChatSendDurableRecord,
 } from "./chatSendDurableModel";
 import type { DeliverySend } from "./chatDeliveryModel";
 
 const DATABASE_NAME = "codeterm-chat-send-records";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 const RECORDS = "records";
 const TAB_STATE = "tabs";
+const DISMISSALS = "dismissals";
+const MAX_SETTLED_RECORDS = 64;
 const OPEN_DEADLINE_MS = 4_000;
 const TRANSACTION_DEADLINE_MS = 5_000;
 const CHANNEL_NAME = "codeterm-chat-send-record-changes";
@@ -23,10 +33,19 @@ export type ChatSendPersistenceState = "pending" | "ready" | "unavailable" | "er
 export interface ChatSendHydration {
   records: readonly ChatSendDurableRecord[];
   state: ChatSendPersistenceState;
+  rowsRead: number;
+}
+
+export interface ChatSendRecordLoad {
+  records: ChatSendDurableRecord[];
+  rowsRead: number;
 }
 
 export interface ChatSendRecordDatabase {
-  loadTab(tabId: string): Promise<ChatSendDurableRecord[]>;
+  loadTab(tabId: string): Promise<ChatSendRecordLoad>;
+  loadDismissals(tabId: string, identities: readonly ChatSendDismissalIdentity[]): Promise<ChatSendDismissalMarker[]>;
+  readDismissal(tabId: string, sendId: string): Promise<ChatSendDismissalMarker | undefined>;
+  dismiss(tabId: string, send: DeliverySend): Promise<boolean>;
   read(tabId: string, sendId: string): Promise<ChatSendDurableRecord | undefined>;
   write(tabId: string, previous: DeliverySend | undefined, next: DeliverySend): Promise<ChatSendRecordWrite>;
   remove(tabId: string, sendId: string, previous: DeliverySend | undefined): Promise<ChatSendRecordWrite>;
@@ -41,9 +60,12 @@ export interface ChatSendRecordWrite {
 
 export interface ChatSendRepositoryPort {
   hydrateTab(tabId: string): Promise<ChatSendHydration>;
+  loadDismissals(tabId: string, identities: readonly ChatSendDismissalIdentity[]): Promise<ChatSendDismissalMarker[]>;
+  persistDismissal(tabId: string, send: DeliverySend): Promise<void>;
   persist(tabId: string, previous: DeliverySend | undefined, next: DeliverySend): Promise<void>;
   remove(tabId: string, sendId: string, previous: DeliverySend | undefined): Promise<void>;
   read(tabId: string, sendId: string): Promise<ChatSendDurableRecord | undefined>;
+  readDismissal(tabId: string, sendId: string): Promise<ChatSendDismissalMarker | undefined>;
   subscribe(listener: (tabId: string, sendId: string) => void): () => void;
   state(): ChatSendPersistenceState;
   close(): void;
@@ -89,15 +111,44 @@ export function createChatSendRepository(dependencies: ChatSendRepositoryDepende
       const db = await connection();
       if (!db) {
         persistenceState = "unavailable";
-        return { records: [], state: persistenceState };
+        return { records: [], state: persistenceState, rowsRead: 0 };
       }
       try {
-        const records = await db.loadTab(tabId);
+        const { records, rowsRead } = await db.loadTab(tabId);
         persistenceState = "ready";
-        return { records, state: persistenceState };
+        return { records, state: persistenceState, rowsRead };
       } catch {
         persistenceState = "error";
-        return { records: [], state: persistenceState };
+        return { records: [], state: persistenceState, rowsRead: 0 };
+      }
+    },
+    async loadDismissals(tabId, identities) {
+      const db = await connection();
+      if (!db) {
+        persistenceState = "unavailable";
+        return [];
+      }
+      try {
+        const markers = await db.loadDismissals(tabId, identities);
+        persistenceState = "ready";
+        return markers;
+      } catch {
+        persistenceState = "error";
+        return [];
+      }
+    },
+    async persistDismissal(tabId, send) {
+      const db = await connection();
+      if (!db) {
+        persistenceState = "unavailable";
+        return;
+      }
+      try {
+        const changed = await db.dismiss(tabId, send);
+        persistenceState = "ready";
+        if (changed) channel?.postMessage({ tabId, sendId: send.id });
+      } catch {
+        persistenceState = "error";
       }
     },
     async persist(tabId, previous, next) {
@@ -137,6 +188,15 @@ export function createChatSendRepository(dependencies: ChatSendRepositoryDepende
         persistenceState = "error";
       }
     },
+    async readDismissal(tabId, sendId) {
+      const db = await connection();
+      if (!db) return;
+      try {
+        return await db.readDismissal(tabId, sendId);
+      } catch {
+        persistenceState = "error";
+      }
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -158,48 +218,221 @@ class IndexedDbChatSendDatabase implements ChatSendRecordDatabase {
     database.onversionchange = () => this.close();
   }
 
-  loadTab(tabId: string): Promise<ChatSendDurableRecord[]> {
-    return this.run("readonly", (store, _tabs, complete) => {
-      const request = store.index("byTab").getAll(tabId);
-      request.onsuccess = () => complete(orderChatSendRecords((request.result as unknown[]).filter(isDurableRecord)));
+  loadTab(tabId: string): Promise<ChatSendRecordLoad> {
+    return this.run("readonly", (store, _tabs, _dismissals, complete, fail) => {
+      const index = store.index("byTabRetentionOrder");
+      const activeRange = IDBKeyRange.bound([tabId, "active", 0], [tabId, "active", Number.MAX_SAFE_INTEGER]);
+      const settledRange = IDBKeyRange.bound([tabId, "settled", 0], [tabId, "settled", Number.MAX_SAFE_INTEGER]);
+      const records: ChatSendDurableRecord[] = [];
+      let rowsRead = 0;
+      let settledRead = 0;
+      let pending = 2;
+      const finishOne = () => {
+        pending -= 1;
+        if (pending === 0) complete({ records: orderChatSendRecords(records), rowsRead });
+      };
+      const activeRequest = index.getAll(activeRange);
+      activeRequest.onsuccess = () => {
+        const loaded = activeRequest.result as unknown[];
+        const active = loaded.filter(isDurableRecord);
+        rowsRead += loaded.length;
+        records.push(...active);
+        finishOne();
+      };
+      activeRequest.onerror = () => fail(activeRequest.error ?? new Error("chat send active load failed"));
+      const settledRequest = index.openCursor(settledRange, "prev");
+      settledRequest.onsuccess = () => {
+        const cursor = settledRequest.result;
+        if (!cursor) {
+          finishOne();
+          return;
+        }
+        rowsRead += 1;
+        if (isDurableRecord(cursor.value)) records.push(cursor.value);
+        settledRead += 1;
+        if (settledRead >= MAX_SETTLED_RECORDS) {
+          finishOne();
+          return;
+        }
+        cursor.continue();
+      };
+      settledRequest.onerror = () => fail(settledRequest.error ?? new Error("chat send settled load failed"));
     });
   }
 
+  loadDismissals(tabId: string, identities: readonly ChatSendDismissalIdentity[]): Promise<ChatSendDismissalMarker[]> {
+    return this.run("readonly", (_store, _tabs, dismissals, complete, fail) => {
+      if (!dismissals) {
+        fail(new Error("chat send dismissal store unavailable"));
+        return;
+      }
+      const found = new Map<string, ChatSendDismissalMarker>();
+      let pending = 0;
+      const queued = new Set<string>();
+      const collect = (key: string, request: IDBRequest<unknown>) => {
+        if (queued.has(key)) return;
+        queued.add(key);
+        pending += 1;
+        request.onsuccess = () => {
+          const value = request.result;
+          if (isChatSendDismissalMarker(value)) found.set(value.sendId, value);
+          pending -= 1;
+          if (pending === 0) complete([...found.values()]);
+        };
+        request.onerror = () => fail(request.error ?? new Error("chat send dismissal lookup failed"));
+      };
+      for (const identity of identities) {
+        collect(JSON.stringify(["id", tabId, identity.id]), dismissals.get([tabId, identity.id]));
+        if (identity.correlationId) collect(JSON.stringify(["correlation", tabId, identity.correlationId]),
+          dismissals.index("byTabCorrelation").get([tabId, identity.correlationId]));
+        if (identity.echoKey) collect(JSON.stringify(["echo", tabId, identity.echoKey]),
+          dismissals.index("byTabEcho").get([tabId, identity.echoKey]));
+        for (const key of chatSendDismissalMatchedRowKeys(identity)) {
+          collect(JSON.stringify(["matched", tabId, key]), dismissals.index("byTabMatchedRow").get([tabId, key]));
+        }
+      }
+      if (pending === 0) complete([]);
+    }, false, true);
+  }
+
+  readDismissal(tabId: string, sendId: string): Promise<ChatSendDismissalMarker | undefined> {
+    return this.run("readonly", (_store, _tabs, dismissals, complete, fail) => {
+      if (!dismissals) {
+        fail(new Error("chat send dismissal store unavailable"));
+        return;
+      }
+      const request = dismissals.get([tabId, sendId]);
+      request.onsuccess = () => complete(isChatSendDismissalMarker(request.result) ? request.result : undefined);
+      request.onerror = () => fail(request.error ?? new Error("chat send dismissal read failed"));
+    }, false, true);
+  }
+
   read(tabId: string, sendId: string): Promise<ChatSendDurableRecord | undefined> {
-    return this.run("readonly", (store, _tabs, complete) => {
+    return this.run("readonly", (store, _tabs, _dismissals, complete) => {
       const request = store.get([tabId, sendId]);
       request.onsuccess = () => complete(isDurableRecord(request.result) ? request.result : undefined);
     });
   }
 
   write(tabId: string, previous: DeliverySend | undefined, next: DeliverySend): Promise<ChatSendRecordWrite> {
-    return this.run("readwrite", (store, tabs, complete, fail) => {
+    return this.run("readwrite", (store, tabs, dismissals, complete, fail) => {
       const request = store.get([tabId, next.id]);
       request.onsuccess = () => {
         const prior = isDurableRecord(request.result) ? request.result : undefined;
         if (prior?.deleted) {
-          complete({ record: prior, changed: false });
-          return;
-        }
-        this.allocateOrder(tabs, tabId, prior?.order, undefined, (order) => {
-          const current = prior ? decodeChatSend(prior) ?? undefined : undefined;
-          const merged = mergeChatSendRecord(current, previous, next);
-          const record = encodeChatSend(tabId, merged, (prior?.revision ?? -1) + 1, order);
-          if (prior && sameDurableRecord(prior, record)) {
+          if (!dismissals) {
             complete({ record: prior, changed: false });
             return;
           }
-          const put = store.put(record);
-          put.onsuccess = () => complete({ record, changed: true });
-          put.onerror = () => fail(put.error ?? new Error("chat send record write failed"));
-        }, fail);
+          const markerRead = dismissals.get([tabId, next.id]);
+          markerRead.onsuccess = () => {
+            if (!isChatSendDismissalMarker(markerRead.result)) {
+              complete({ record: prior, changed: false });
+              return;
+            }
+            const marker = encodeChatSendDismissalMarker(tabId, { ...next, dismissed: true },
+              prior.revision + 1, prior.order);
+            this.putDismissalMarkerIfChanged(dismissals, marker, (changed) => {
+              complete({ record: prior, changed });
+            }, fail);
+          };
+          markerRead.onerror = () => fail(markerRead.error ?? new Error("chat send dismissal read failed"));
+          return;
+        }
+        const writeWithOrder = (order: number) => {
+          const current = prior ? decodeChatSend(prior) ?? undefined : undefined;
+          const merged = mergeChatSendRecord(current, previous, next);
+          const revision = (prior?.revision ?? -1) + 1;
+          const compact = merged.dismissed && chatSendRetention(merged) === "settled";
+          const durable = compact
+            ? encodeChatSendTombstone(tabId, next.id, revision, order)
+            : encodeChatSend(tabId, merged, revision, order);
+          const recordChanged = !prior || !sameDurableRecord(prior, durable);
+          const finish = (markerChanged: boolean) => {
+            const changed = recordChanged || markerChanged;
+            const putRecord = recordChanged ? store.put(durable) : undefined;
+            const afterRecord = () => {
+              const compactIfNeeded = () => {
+                if (!recordChanged || durable.retention !== "settled") {
+                  complete({ record: recordChanged ? durable : prior!, changed });
+                  return;
+                }
+                this.compactSettledOverflow(store, dismissals, tabId,
+                  () => complete({ record: recordChanged ? durable : prior!, changed }), fail);
+              };
+              compactIfNeeded();
+            };
+            if (!putRecord) {
+              afterRecord();
+              return;
+            }
+            putRecord.onsuccess = afterRecord;
+            putRecord.onerror = () => fail(putRecord.error ?? new Error("chat send record write failed"));
+          };
+          if (merged.dismissed) {
+            if (!dismissals) {
+              fail(new Error("chat send dismissal store unavailable"));
+              return;
+            }
+            const marker = encodeChatSendDismissalMarker(tabId, merged, revision, order);
+            this.putDismissalMarkerIfChanged(dismissals, marker, finish, fail);
+            return;
+          }
+          finish(false);
+        };
+        if (prior?.order !== undefined) writeWithOrder(prior.order);
+        else this.allocateOrder(tabs, tabId, undefined, undefined, writeWithOrder, fail);
       };
       request.onerror = () => fail(request.error ?? new Error("chat send record read failed"));
-    }, true);
+    }, true, true);
+  }
+
+  dismiss(tabId: string, send: DeliverySend): Promise<boolean> {
+    return this.run("readwrite", (store, tabs, dismissals, complete, fail) => {
+      if (!dismissals) {
+        fail(new Error("chat send dismissal store unavailable"));
+        return;
+      }
+      const request = store.get([tabId, send.id]);
+      request.onsuccess = () => {
+        const prior = isDurableRecord(request.result) ? request.result : undefined;
+        const current = prior && !prior.deleted ? decodeChatSend(prior) ?? undefined : undefined;
+        const mergedSend = { ...current, ...send, dismissed: true,
+          echo: send.echo ?? current?.echo,
+          matchedRow: send.matchedRow ?? current?.matchedRow ?? current?.status?.matched_row } as DeliverySend;
+        const persistWithOrder = (order: number) => {
+          const revision = (prior?.revision ?? -1) + 1;
+          const active = chatSendRetention(mergedSend) === "active";
+          const nextRecord = active
+            ? encodeChatSend(tabId, mergedSend, revision, order)
+            : encodeChatSendTombstone(tabId, send.id, revision, order);
+          const recordChanged = !prior || !sameDurableRecord(prior, nextRecord);
+          const marker = encodeChatSendDismissalMarker(tabId, mergedSend, revision, order);
+          this.putDismissalMarkerIfChanged(dismissals, marker, (markerChanged) => {
+            if (!recordChanged) {
+              complete(markerChanged);
+              return;
+            }
+            const put = store.put(nextRecord);
+            put.onsuccess = () => complete(true);
+            put.onerror = () => fail(put.error ?? new Error("chat send dismissal record write failed"));
+          }, fail);
+        };
+        if (prior?.deleted) {
+          const order = prior.order;
+          const revision = prior.revision;
+          this.putDismissalMarkerIfChanged(dismissals,
+            encodeChatSendDismissalMarker(tabId, mergedSend, revision, order),
+            (changed) => complete(changed), fail);
+        } else if (prior?.order !== undefined) persistWithOrder(prior.order);
+        else this.allocateOrder(tabs, tabId, undefined, undefined, persistWithOrder, fail);
+      };
+      request.onerror = () => fail(request.error ?? new Error("chat send dismissal evidence read failed"));
+    }, true, true);
   }
 
   remove(tabId: string, sendId: string, _previous: DeliverySend | undefined): Promise<ChatSendRecordWrite> {
-    return this.run("readwrite", (store, tabs, complete, fail) => {
+    return this.run("readwrite", (store, tabs, _dismissals, complete, fail) => {
       const request = store.get([tabId, sendId]);
       request.onsuccess = () => {
         const prior = isDurableRecord(request.result) ? request.result : undefined;
@@ -212,15 +445,17 @@ class IndexedDbChatSendDatabase implements ChatSendRecordDatabase {
           complete({ record: prior!, changed: false });
           return;
         }
-        this.allocateOrder(tabs, tabId, prior?.order, undefined, (order) => {
+        const writeTombstone = (order: number) => {
           const tombstone = encodeChatSendTombstone(tabId, sendId, (prior?.revision ?? -1) + 1, order);
           const put = store.put(tombstone);
           put.onsuccess = () => complete({ record: tombstone, changed: true });
           put.onerror = () => fail(put.error ?? new Error("chat send tombstone write failed"));
-        }, fail);
+        };
+        if (prior?.order !== undefined) writeTombstone(prior.order);
+        else this.allocateOrder(tabs, tabId, undefined, undefined, writeTombstone, fail);
       };
       request.onerror = () => fail(request.error ?? new Error("chat send record read failed"));
-    }, true);
+    }, true, true);
   }
 
   close(): void {
@@ -234,9 +469,10 @@ class IndexedDbChatSendDatabase implements ChatSendRecordDatabase {
 
   private run<T>(
     mode: IDBTransactionMode,
-    queue: (store: IDBObjectStore, tabs: IDBObjectStore | undefined,
+    queue: (store: IDBObjectStore, tabs: IDBObjectStore | undefined, dismissals: IDBObjectStore | undefined,
       complete: (value: T) => void, fail: (error: Error) => void) => void,
     withTabState = false,
+    withDismissals = false,
   ): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       let transaction!: IDBTransaction;
@@ -255,11 +491,13 @@ class IndexedDbChatSendDatabase implements ChatSendRecordDatabase {
         try { transaction.abort(); } catch { finish(new Error("chat send transaction deadline exceeded")); }
       }, TRANSACTION_DEADLINE_MS);
       try {
-        transaction = this.database.transaction(withTabState ? [RECORDS, TAB_STATE] : RECORDS, mode);
+        const stores = [RECORDS, ...(withTabState ? [TAB_STATE] : []), ...(withDismissals ? [DISMISSALS] : [])];
+        transaction = this.database.transaction(stores, mode);
         transaction.oncomplete = () => finish();
         transaction.onerror = () => finish(transaction.error ?? new Error("chat send transaction failed"));
         transaction.onabort = () => finish(transaction.error ?? new Error("chat send transaction aborted"));
         queue(transaction.objectStore(RECORDS), withTabState ? transaction.objectStore(TAB_STATE) : undefined,
+          withDismissals ? transaction.objectStore(DISMISSALS) : undefined,
           (next) => { value = next; hasValue = true; }, (error) => {
           try { transaction.abort(); } catch { finish(error); }
         });
@@ -267,6 +505,86 @@ class IndexedDbChatSendDatabase implements ChatSendRecordDatabase {
         finish(error instanceof Error ? error : new Error(String(error)));
       }
     });
+  }
+
+  private compactSettledOverflow(
+    store: IDBObjectStore,
+    dismissals: IDBObjectStore | undefined,
+    tabId: string,
+    complete: () => void,
+    fail: (error: Error) => void,
+  ): void {
+    const index = store.index("byTabRetentionOrder");
+    const range = IDBKeyRange.bound([tabId, "settled", 0], [tabId, "settled", Number.MAX_SAFE_INTEGER]);
+    const count = index.count(range);
+    count.onsuccess = () => {
+      if (count.result <= MAX_SETTLED_RECORDS) {
+        complete();
+        return;
+      }
+      let retained = 0;
+      const cursorRequest = index.openCursor(range, "prev");
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) {
+          complete();
+          return;
+        }
+        const prior = cursor.value as ChatSendDurableRecord;
+        if (!isDurableRecord(prior) || prior.retention !== "settled") {
+          cursor.continue();
+          return;
+        }
+        if (retained < MAX_SETTLED_RECORDS) {
+          retained += 1;
+          cursor.continue();
+          return;
+        }
+        const send = decodeChatSend(prior);
+        const tombstone = encodeChatSendTombstone(tabId, prior.sendId, prior.revision + 1, prior.order);
+        const compact = () => {
+          const update = cursor.update(tombstone);
+          update.onsuccess = () => cursor.continue();
+          update.onerror = () => fail(update.error ?? new Error("chat send settled compaction failed"));
+        };
+        if (!send?.dismissed || !dismissals) {
+          compact();
+          return;
+        }
+        const marker = encodeChatSendDismissalMarker(tabId, send, prior.revision + 1, prior.order);
+        const markerRead = dismissals.get([tabId, prior.sendId]);
+        markerRead.onsuccess = () => {
+          const existing = isChatSendDismissalMarker(markerRead.result) ? markerRead.result : undefined;
+          const markerPut = dismissals.put(mergeChatSendDismissalMarker(existing, marker));
+          markerPut.onsuccess = compact;
+          markerPut.onerror = () => fail(markerPut.error ?? new Error("chat send marker compaction failed"));
+        };
+        markerRead.onerror = () => fail(markerRead.error ?? new Error("chat send marker read failed"));
+      };
+      cursorRequest.onerror = () => fail(cursorRequest.error ?? new Error("chat send settled scan failed"));
+    };
+    count.onerror = () => fail(count.error ?? new Error("chat send settled count failed"));
+  }
+
+  private putDismissalMarkerIfChanged(
+    dismissals: IDBObjectStore,
+    next: ChatSendDismissalMarker,
+    complete: (changed: boolean) => void,
+    fail: (error: Error) => void,
+  ): void {
+    const request = dismissals.get([next.tabId, next.sendId]);
+    request.onsuccess = () => {
+      const current = isChatSendDismissalMarker(request.result) ? request.result : undefined;
+      const merged = mergeChatSendDismissalMarker(current, next);
+      if (current && sameChatSendDismissalMarker(current, merged)) {
+        complete(false);
+        return;
+      }
+      const put = dismissals.put(merged);
+      put.onsuccess = () => complete(true);
+      put.onerror = () => fail(put.error ?? new Error("chat send dismissal marker write failed"));
+    };
+    request.onerror = () => fail(request.error ?? new Error("chat send dismissal marker read failed"));
   }
 
   private allocateOrder(
@@ -320,18 +638,97 @@ function openIndexedDb(): Promise<ChatSendRecordDatabase | null> {
       resolve(value);
     };
     const deadline = setTimeout(() => finish(null), OPEN_DEADLINE_MS);
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const database = request.result;
+      let records: IDBObjectStore;
       if (!database.objectStoreNames.contains(RECORDS)) {
-        const store = database.createObjectStore(RECORDS, { keyPath: ["tabId", "sendId"] });
-        store.createIndex("byTab", "tabId", { unique: false });
+        records = database.createObjectStore(RECORDS, { keyPath: ["tabId", "sendId"] });
+      } else records = request.transaction!.objectStore(RECORDS);
+      if (!records.indexNames.contains("byTab")) records.createIndex("byTab", "tabId", { unique: false });
+      if (!records.indexNames.contains("byTabRetentionOrder")) {
+        records.createIndex("byTabRetentionOrder", ["tabId", "retention", "order"], { unique: false });
       }
-      if (!database.objectStoreNames.contains(TAB_STATE)) database.createObjectStore(TAB_STATE, { keyPath: "tabId" });
+      const tabs = database.objectStoreNames.contains(TAB_STATE)
+        ? request.transaction!.objectStore(TAB_STATE)
+        : database.createObjectStore(TAB_STATE, { keyPath: "tabId" });
+      let dismissals: IDBObjectStore;
+      if (!database.objectStoreNames.contains(DISMISSALS)) {
+        dismissals = database.createObjectStore(DISMISSALS, { keyPath: ["tabId", "sendId"] });
+      } else dismissals = request.transaction!.objectStore(DISMISSALS);
+      if (!dismissals.indexNames.contains("byTabCorrelation")) {
+        dismissals.createIndex("byTabCorrelation", ["tabId", "correlationId"], { unique: false });
+      }
+      if (!dismissals.indexNames.contains("byTabMatchedRow")) {
+        dismissals.createIndex("byTabMatchedRow", ["tabId", "matchedRowKey"], { unique: false });
+      }
+      if (!dismissals.indexNames.contains("byTabEcho")) {
+        dismissals.createIndex("byTabEcho", ["tabId", "echoKey"], { unique: false });
+      }
+      if (event.oldVersion < 2) migrateExistingRecords(records, dismissals, tabs);
     };
     request.onblocked = () => finish(null);
     request.onerror = () => finish(null);
     request.onsuccess = () => finish(new IndexedDbChatSendDatabase(request.result));
   });
+}
+
+function migrateExistingRecords(records: IDBObjectStore, dismissals: IDBObjectStore, tabs: IDBObjectStore): void {
+  const cursorRequest = records.openCursor();
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result;
+    if (!cursor) {
+      compactMigratedSettledRecords(records, dismissals);
+      return;
+    }
+    if (!isDurableRecord(cursor.value)) {
+      cursor.continue();
+      return;
+    }
+    const record = cursor.value;
+    const send = decodeChatSend(record);
+    const retention = record.deleted ? "tombstone" : send ? chatSendRetention(send) : "active";
+    const readTab = tabs.get(record.tabId);
+    readTab.onsuccess = () => {
+      const existing = readTab.result as { nextOrder?: unknown } | undefined;
+      const nextOrder = typeof existing?.nextOrder === "number" && Number.isSafeInteger(existing.nextOrder)
+        ? Math.max(existing.nextOrder, record.order + 1)
+        : record.order + 1;
+      const tabWrite = tabs.put({ tabId: record.tabId, nextOrder });
+      tabWrite.onsuccess = () => cursor.continue();
+    };
+    if (send?.dismissed && retention === "settled") {
+      const marker = encodeChatSendDismissalMarker(record.tabId, send, record.revision, record.order);
+      dismissals.put(marker);
+      cursor.update(encodeChatSendTombstone(record.tabId, record.sendId, record.revision + 1, record.order));
+    } else cursor.update({ ...record, retention });
+  };
+}
+
+function compactMigratedSettledRecords(records: IDBObjectStore, dismissals: IDBObjectStore): void {
+  const cursorRequest = records.index("byTabRetentionOrder").openCursor(null, "prev");
+  let tabId: string | undefined;
+  let retention: string | undefined;
+  let kept = 0;
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result;
+    if (!cursor) return;
+    const record = cursor.value as ChatSendDurableRecord;
+    if (record.tabId !== tabId || record.retention !== retention) {
+      tabId = record.tabId;
+      retention = record.retention;
+      kept = 0;
+    }
+    if (record.retention !== "settled" || kept++ < MAX_SETTLED_RECORDS) {
+      cursor.continue();
+      return;
+    }
+    const send = decodeChatSend(record);
+    if (send?.dismissed) {
+      dismissals.put(encodeChatSendDismissalMarker(record.tabId, send, record.revision + 1, record.order));
+    }
+    cursor.update(encodeChatSendTombstone(record.tabId, record.sendId, record.revision + 1, record.order));
+    cursor.continue();
+  };
 }
 
 function createChangeChannel(factory?: ChatSendRepositoryDependencies["createChannel"]): ChangeChannel | null {
