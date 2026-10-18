@@ -71,8 +71,14 @@ fn host_handoff_carries_identity_and_archive_reference_as_data() {
         .service
         .provider_switch_input(&tab, &[], std::path::Path::new("archive-token"))
         .unwrap();
+    let frame = codeterm_wire::message_markers::parse_host_injected(&input).unwrap();
+    assert_eq!(frame.kind, "system");
+    assert_eq!(
+        frame.attrs.get("context").map(String::as_str),
+        Some(provider_handoff::input::HANDOFF_CONTEXT)
+    );
     let context: serde_json::Value =
-        serde_json::from_str(input.split("\n\n").nth(1).unwrap()).unwrap();
+        serde_json::from_str(frame.payload.split("\n\n").nth(1).unwrap()).unwrap();
     assert_eq!(context["tab_id"], id);
     assert_eq!(context["title"], tab.title);
     assert_eq!(context["description"], "description-token");

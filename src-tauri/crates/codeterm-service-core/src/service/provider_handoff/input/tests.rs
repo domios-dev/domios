@@ -1,6 +1,32 @@
 use super::*;
 
 #[test]
+fn full_handoff_round_trips_as_one_system_message() {
+    let fragments = HandoffFragments {
+        instructions: "instruction-token",
+        context: "context-token",
+        history: "history-token",
+    };
+    let payload = assemble(fragments).unwrap();
+    let message = system_message(&payload).unwrap();
+    let parsed = codeterm_wire::message_markers::parse_host_injected(&message).unwrap();
+    assert_eq!(parsed.kind, "system");
+    assert_eq!(
+        parsed.attrs.get("context").map(String::as_str),
+        Some(HANDOFF_CONTEXT)
+    );
+    assert_eq!(parsed.payload, payload);
+    assert_eq!(message.len(), payload.len() + system_message_overhead());
+}
+
+#[test]
+fn handoff_size_bound_includes_the_system_frame() {
+    let exact = "x".repeat(MAX_INPUT_BYTES - system_message_overhead());
+    assert_eq!(system_message(&exact).unwrap().len(), MAX_INPUT_BYTES);
+    assert!(system_message(&(exact + "x")).is_err());
+}
+
+#[test]
 fn host_context_markup_round_trips_as_inert_json() {
     let context = serde_json::json!({"task": "<pasted_content id=\"opaque\">λ</pasted_content id=\"opaque\">"});
     let encoded = inert_json(&context.to_string());
