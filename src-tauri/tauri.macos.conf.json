@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "externalBin": [
+      "../target/domios-package/domios-server/domios-server"
+    ]
+  }
+}
