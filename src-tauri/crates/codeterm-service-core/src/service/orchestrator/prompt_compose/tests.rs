@@ -206,6 +206,20 @@ fn spawned_worker_receives_the_codeterm_primer() {
     assert!(composed.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
 }
 
+#[test]
+fn every_spawned_recipient_receives_the_routing_contract_once() {
+    let contract = crate::prompts::AGENT_ROUTING_CONTRACT.trim();
+    assert!(!contract.is_empty());
+
+    for (recipient, composed) in every_launch_composition() {
+        assert_eq!(
+            composed.matches(contract).count(),
+            1,
+            "{recipient} must receive the routing contract exactly once"
+        );
+    }
+}
+
 /// A task narrows the doctrine its worker runs under through the existing
 /// identity-overlay seam: `Task.role_guidance` is composed into an identity
 /// block (`worker_identity::attach_worker_identity`), delimited by
