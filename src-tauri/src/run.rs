@@ -170,15 +170,48 @@ fn client_exit_confirmed() -> bool {
         .is_some_and(|status| status.phase == crash::exit::ClientExitPhase::Confirmed)
 }
 
-fn request_client_quit(_: &codeterm_host_runtime::app_runtime::AppHandle) {
+fn request_client_quit(app: &codeterm_host_runtime::app_runtime::AppHandle) {
+    use crate::host_ports::{
+        native_client::{ExactServerShutdownResult, NativeHostClientSlot},
+        ServerApiAttachmentSlot,
+    };
     let Ok(ticket) = crash::exit::begin_client_exit(crash::exit::ClientExitReason::ExplicitQuit)
     else {
         return;
     };
-    log::debug!(
-        "[client] quit refused before dispatch: exact server shutdown transport unavailable"
-    );
-    crash::exit::refuse_client_exit_before_dispatch(ticket);
+    let native = app
+        .try_state::<NativeHostClientSlot>()
+        .map(|slot| slot.inner().clone());
+    let api = app
+        .try_state::<ServerApiAttachmentSlot>()
+        .map(|slot| slot.inner().clone());
+    let (Some(native), Some(api)) = (native, api) else {
+        crash::exit::refuse_client_exit_before_dispatch(ticket);
+        log::debug!("[client] quit refused before dispatch: authenticated attachment unavailable");
+        return;
+    };
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match native.request_exact_server_shutdown(&api).await {
+            ExactServerShutdownResult::Confirmed {
+                server,
+                client_generation,
+            } => {
+                log::debug!("[client] exact server exit observed; epoch={} client_generation={client_generation}", server.epoch);
+                if crash::exit::confirm_client_exit(ticket) {
+                    app.exit(0);
+                }
+            }
+            ExactServerShutdownResult::RefusedBeforeDispatch(reason) => {
+                crash::exit::refuse_client_exit_before_dispatch(ticket);
+                log::debug!("[client] quit refused before dispatch: {reason:?}");
+            }
+            ExactServerShutdownResult::UncertainAfterDispatch(reason) => {
+                crash::exit::mark_client_exit_uncertain(ticket);
+                log::debug!("[client] exact server exit remains uncertain: {reason:?}");
+            }
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]
