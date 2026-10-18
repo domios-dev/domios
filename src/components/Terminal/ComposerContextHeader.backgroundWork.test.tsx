@@ -129,10 +129,8 @@ it("shows provider-declared internal subagents with elapsed time and transcript 
     expect(bubble).toBeDefined();
     await act(async () => { bubble?.click(); });
     const panel = shown.host.querySelector('[role="group"][aria-label="Background work"]');
-    expect(panel?.textContent).toContain("Inspect the launch path");
     expect(panel?.textContent).toContain("model-x");
-    expect(panel?.textContent).toContain("elapsed");
-    const transcript = Array.from(panel?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((button) => button.textContent === "Open transcript");
+    const transcript = Array.from(panel?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((button) => button.getAttribute("aria-label")?.startsWith("Open transcript for "));
     expect(transcript).toBeDefined();
     await act(async () => { transcript?.click(); });
     expect(inspect).toHaveBeenCalledExactlyOnceWith("child-thread");

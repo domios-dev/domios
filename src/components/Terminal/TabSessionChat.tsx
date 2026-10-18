@@ -1049,7 +1049,7 @@ function TabSessionChatBody({
         </div>
       )}
       </div>
-      <ChatComposerSurface view={setupView}>
+      <ChatComposerSurface view={setupView} providerId={tabProvider ?? undefined} tabId={tabId}>
       {isWatcherTab && watcherSpec ? (
         runtimeReplacement ?? <WatcherReadOnlyBar
           watcher={watcherSpec}
