@@ -4,6 +4,7 @@ pub use composition::{compose, ComposedService};
 pub mod bootstrap;
 mod bundle;
 pub mod launch;
+pub mod native_update;
 mod runtime;
 pub use runtime::{ownership_registry, run};
 mod resources;
