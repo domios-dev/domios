@@ -75,9 +75,11 @@ For local dispatch, `worker_kind: "qa"` or `"release_manager"` explicitly select
 built-in Worker prompt kind for that attempt without changing `task.executor_role`. When
 omitted, an exact built-in leaf in `executor_role` selects the prompt kind. A kind affects
 prompt composition only; the live Plan owner still authorizes dispatch and the attempt
-reservation still controls canonical occupancy. Direct `agent spawn --plan-task` does not
-reserve canonical, and a task-less kind with a Plan binding cannot write in that Plan's
-canonical checkout. Read-only verification may still run there.
+reservation still controls task-bound canonical occupancy. Direct `agent spawn --plan-task`
+does not reserve that attempt and remains refused for task-bound canonical mutation. Task-less
+kinds with Plan context retain parent-directed placement behavior and do not reserve task
+attempts or participate in canonical writer occupancy, so the parent coordinates those writes.
+Read-only verification may still run there.
 
 While such an attempt is live, `plan.review.accept` on another task that records a lane is refused with code `-32015`,
 `data.type = "canonical_writer_holds_checkout"`, `violation_id =
@@ -245,4 +247,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->
