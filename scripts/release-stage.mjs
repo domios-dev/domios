@@ -53,7 +53,10 @@ function macSigningTeam(binary) {
   if (result.status !== 0) fail('approved macOS code signature could not be inspected');
   const details = `${result.stdout}\n${result.stderr}`;
   const team = /^TeamIdentifier=([A-Z0-9]{10})$/m.exec(details)?.[1];
-  if (!team || !details.includes('Authority=Developer ID Application')) fail('macOS server lacks an approved Developer ID team');
+  if (!team || !details.includes('Authority=Developer ID Application') ||
+      !process.env.APPLE_TEAM_ID || team !== process.env.APPLE_TEAM_ID) {
+    fail('macOS code signature differs from the approved Developer ID team');
+  }
   return team;
 }
 
