@@ -60,6 +60,7 @@ fn frontend_shell_contract_uses_only_loopback_http_origins() {
 #[test]
 fn frontend_shell_contract_refuses_missing_credentials_or_disabled_listener() {
     let mut config = codeterm_service_core::config::schema::ApiConfig::default();
+    config.port = 18886;
     config.enabled = true;
     config.token = None;
     assert!(bootstrap(&config).is_err());
