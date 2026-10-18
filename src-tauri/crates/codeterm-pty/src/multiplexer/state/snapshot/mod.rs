@@ -737,7 +737,7 @@ fn install_leaf(
             chat_view: chat_view.unwrap_or(false),
             pending_prompt: None,
             pending_prompt_kind: None,
-            agent_state: restored_identity.and_then(|identity| identity.agent_state.clone()),
+            agent_state: None,
             turn_resume: agent_identity
                 .as_ref()
                 .and_then(|identity| identity.turn_resume.clone()),
