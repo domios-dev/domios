@@ -9,11 +9,29 @@ pub fn clean_lanes(
     confirm: bool,
     fetch: bool,
 ) -> Result<Option<Value>, String> {
+    clean_lanes_as(
+        client,
+        json,
+        plan_id,
+        confirm,
+        fetch,
+        CallerContext::from_env(),
+    )
+}
+
+fn clean_lanes_as(
+    client: &mut dyn RpcClient,
+    json: bool,
+    plan_id: Option<String>,
+    confirm: bool,
+    fetch: bool,
+    caller: CallerContext,
+) -> Result<Option<Value>, String> {
     let mut params = json!({"confirm": confirm, "fetch": fetch});
     if let Some(id) = plan_id {
         params["plan_id"] = json!(id);
     }
-    CallerContext::from_env().apply_trusted_session(&mut params);
+    caller.apply_trusted_session(&mut params);
     let val = call(client, "plan.lanes_clean", params)?;
     if json {
         return Ok(Some(val));

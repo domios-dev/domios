@@ -5,6 +5,12 @@ description: Safely audit and remove completed or abandoned Domios lane worktree
 
 # Lane Cleanup
 
+For Plan-wide cleanup, preview with `codeterm plan lanes <plan> --clean`, then
+execute with `--confirm`. The live Plan Orchestrator may run this from a Team
+utility shell it created. Keep the shell's own tab id and launch nonce; never
+copy the parent's session or binding. The daemon checks recorded ownership and
+the live Plan owner. Dirty, unmerged and occupied lanes remain protected.
+
 Use the bundled PowerShell script from the canonical checkout:
 
 ```powershell
