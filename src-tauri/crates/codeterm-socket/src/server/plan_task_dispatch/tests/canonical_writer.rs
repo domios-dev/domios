@@ -11,10 +11,13 @@ use super::super::lane_safety::{
 };
 use super::super::{plan_dispatch_lane_placement, preflight_dispatch_placement};
 use codeterm_service_core::plan::{
-    ExecutionIntent, OrchestratorRef, Plan, TaskLaneMetadata, WorkerPlacement,
+    ExecutionIntent, OrchestratorRef, Plan, TaskExecutionAttempt, TaskLaneMetadata, WorkerPlacement,
 };
 use codeterm_service_core::service::plan::{NewTask, PlanError, PlanStore};
-use codeterm_service_core::service::{canonical_path_of, LaneProtection, WorkerLaneProvenance};
+use codeterm_service_core::service::{
+    canonical_path_of, classify_mutating_lane, live_canonical_writer, LaneProtection,
+    UnsafeMutatingLane, WorkerLaneProvenance,
+};
 
 fn store_with_tasks(names: &[&str]) -> (tempfile::TempDir, PlanStore, String, Vec<String>) {
     let root = tempfile::tempdir().unwrap();
@@ -362,6 +365,113 @@ fn canonical_writer_brief_section_rides_only_the_opt_in() {
     let canonical = compose_dispatch_brief(base.clone(), WorkerPlacement::CanonicalWriter);
     assert!(canonical.starts_with(&base));
     assert_eq!(canonical.matches(CANONICAL_WRITER_BRIEF).count(), 1);
+}
+
+#[test]
+fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
+    let canonical = "C:/repo";
+    let mut task = repository_task();
+    task.executor_role = Some("repository-integrator".into());
+    let mut foreign_task = repository_task();
+    foreign_task.id = "task_foreign".into();
+    foreign_task.lane.worktree_path = Some("C:/repo/.worktrees/foreign".into());
+    let mut plan = Plan::new(
+        "Canonical placement".into(),
+        canonical.into(),
+        OrchestratorRef::from_tab("orch"),
+    );
+    plan.canonical_project_path = canonical.into();
+    plan.tasks = vec![task.clone(), foreign_task.clone()];
+
+    assert_eq!(
+        dispatch_worker_placement(
+            Some(&json!({ "placement": "canonical_writer" })),
+            &ExecutionIntent::Mutating,
+            &task,
+        )
+        .unwrap(),
+        WorkerPlacement::CanonicalWriter
+    );
+    assert_eq!(
+        dispatch_worker_placement(None, &ExecutionIntent::ReadOnly, &task).unwrap(),
+        WorkerPlacement::IsolatedLane
+    );
+    assert!(dispatch_worker_placement(
+        Some(&json!({ "placement": "canonical_writer" })),
+        &ExecutionIntent::ReadOnly,
+        &task,
+    )
+    .is_err());
+    assert!(matches!(
+        classify_mutating_lane(&plan, &task.id, "C:/repo/.worktrees/foreign"),
+        Some(UnsafeMutatingLane::ForeignLane { owner, .. }) if owner == foreign_task.id
+    ));
+    assert!(refuse_unsafe_mutating_write(
+        &plan,
+        &task.id,
+        "C:/repo/.worktrees/foreign",
+        ExecutionIntent::Mutating,
+    )
+    .is_err());
+
+    for kind in ["qa", "release_manager"] {
+        for task_id in [None, Some(task.id.as_str())] {
+            let profile = codeterm_service_core::service::role_profile::dispatch_worker_profile(
+                task.executor_role.as_deref(),
+                Some(kind),
+            )
+            .unwrap()
+            .unwrap();
+            let mut params = codeterm_service_core::service::SpawnAgentParams {
+                role: Some("Worker".into()),
+                role_profile: Some(profile),
+                task_id: task_id.map(str::to_string),
+                plan_id: task_id.is_none().then(|| "plan-context".into()),
+                execution_intent: Some(ExecutionIntent::Mutating),
+                cwd: Some(canonical.into()),
+                ..Default::default()
+            };
+            params.normalize_role_profile().unwrap();
+            let preset = codeterm_service_core::service::role_preset::resolve(
+                Some(codeterm_service_core::multiplexer::types::AgentRole::Worker),
+                params.role_profile.as_deref(),
+                None,
+            )
+            .unwrap();
+            let guidance =
+                codeterm_service_core::service::role_preset::builtin_guidance(kind).unwrap();
+
+            assert_eq!(params.task_id.as_deref(), task_id);
+            assert_eq!(preset.kind_id, kind);
+            assert!(preset.fragments.iter().any(|fragment| {
+                fragment.source
+                    == codeterm_service_core::service::role_preset::FragmentSource::Builtin
+                    && fragment.text == guidance
+            }));
+        }
+    }
+
+    plan.tasks[0].execution_attempts.push(TaskExecutionAttempt {
+        id: "attempt-canonical".into(),
+        executor_tab_id: "writer-tab".into(),
+        placement: WorkerPlacement::CanonicalWriter,
+        ..Default::default()
+    });
+    assert_eq!(
+        live_canonical_writer(&plan),
+        Some((task.id.as_str(), "attempt-canonical"))
+    );
+    let occupied = preflight_dispatch_placement(
+        &plan,
+        &foreign_task.id,
+        canonical,
+        LaneProtection::Enforced,
+        false,
+        &Default::default(),
+    )
+    .unwrap_err();
+    assert_eq!(occupied.code, -32011);
+    assert_eq!(occupied.data.unwrap()["occupying_task_id"], task.id);
 }
 
 #[test]
