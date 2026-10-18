@@ -89,8 +89,6 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::CronState>();
         self.insert_late::<crate::CronWake>();
         self.insert_late::<crate::ports::sentinel::SentinelPorts>();
-        self.insert_late::<crate::ports::rest::LocalApiRouter>();
-        self.insert_late::<crate::startup::RestApiControlState>();
         self.insert_late::<crate::session::SessionState>();
         self.insert_late::<crate::startup::StorageAuthority>();
         self.insert_late::<std::sync::Weak<crate::service::ServiceContext>>();

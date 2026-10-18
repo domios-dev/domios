@@ -112,6 +112,7 @@ fn local_rpc_cannot_claim_authenticated_mesh_peer_for_remote_ack() {
         "plan.task.remote_ack",
         params,
         &std::sync::Arc::new(fixture.service.clone()),
+        None,
     )
     .expect_err("local RPC must not impersonate signed mesh transport");
     assert!(

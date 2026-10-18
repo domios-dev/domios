@@ -1,6 +1,6 @@
 use super::*;
+use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
-use codeterm_service_core::service::test_fixture::ServiceFixture;
 use std::sync::Arc;
 
 fn register_file_provider(fixture: &ServiceFixture, runtime: bool) {

@@ -463,42 +463,16 @@ fn pipeline_journals(
         .map_err(|error| error.to_string())
 }
 
-pub(crate) fn invalidate(
-    event: &str,
-    store: &std::sync::Arc<parking_lot::Mutex<Store>>,
-    ui: &dyn codeterm_service_core::ports::host::UiEvents,
+pub fn install_invalidations(
+    svc: &ServiceContext,
+    store: std::sync::Arc<parking_lot::Mutex<Store>>,
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) {
-    if !INVALIDATION_EVENTS.contains(&event) {
-        return;
-    }
-    let changes = {
-        let store = store.lock();
-        let scopes: BTreeSet<_> = store
-            .list()
-            .iter()
-            .filter(|job| job.is_scenario_root())
-            .map(|job| (job.workspace_id.clone(), job.team_id.clone()))
-            .collect();
-        scopes
-            .into_iter()
-            .filter_map(|(workspace_id, team_id)| {
-                let revision = store.committed_revision(&workspace_id, team_id.as_deref())?;
-                Some(json!({"workspace_id":workspace_id,"team_id":team_id,"revision":revision}))
-            })
-            .collect::<Vec<_>>()
-    };
-    for change in changes {
-        ui.emit("automation-graph-changed", change);
-    }
+    use tauri::Listener;
+    install_invalidation_listeners(svc, store, |event, callback| {
+        app.listen_any(event, move |_| callback());
+    });
 }
-
-const INVALIDATION_EVENTS: [&str; 5] = [
-    "cron-fired",
-    "cron-run-finished",
-    "mux-state-changed",
-    "tab-status-changed",
-    "config-changed",
-];
 
 #[cfg(any(test, feature = "test-support"))]
 pub fn install_fixture_invalidations(
@@ -506,9 +480,48 @@ pub fn install_fixture_invalidations(
     store: std::sync::Arc<parking_lot::Mutex<Store>>,
     ui: &codeterm_service_core::service::test_fixture::RecordedUiEvents,
 ) {
-    for event in INVALIDATION_EVENTS {
+    install_invalidation_listeners(svc, store, |event, callback| {
+        ui.listen(event, move |_| callback());
+    });
+}
+
+fn install_invalidation_listeners(
+    svc: &ServiceContext,
+    store: std::sync::Arc<parking_lot::Mutex<Store>>,
+    listen: impl Fn(&str, Box<dyn Fn() + Send + Sync>),
+) {
+    for event in [
+        "cron-fired",
+        "cron-run-finished",
+        "mux-state-changed",
+        "tab-status-changed",
+        "config-changed",
+    ] {
         let store = store.clone();
-        let sink = svc.ui.clone();
-        ui.listen(event, move |_| invalidate(event, &store, sink.as_ref()));
+        let ui = svc.ui.clone();
+        listen(
+            event,
+            Box::new(move || {
+                let changes = {
+                    let store = store.lock();
+                    let scopes: BTreeSet<_> = store
+                        .list()
+                        .iter()
+                        .filter(|j| j.is_scenario_root())
+                        .map(|j| (j.workspace_id.clone(), j.team_id.clone()))
+                        .collect();
+                    scopes
+                    .into_iter()
+                    .filter_map(|(workspace_id, team_id)| {
+                        let revision = store.committed_revision(&workspace_id, team_id.as_deref())?;
+                        Some(json!({"workspace_id":workspace_id,"team_id":team_id,"revision":revision}))
+                    })
+                    .collect::<Vec<_>>()
+                };
+                for change in changes {
+                    ui.emit("automation-graph-changed", change);
+                }
+            }),
+        );
     }
 }

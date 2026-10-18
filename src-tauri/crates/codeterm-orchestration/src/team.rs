@@ -179,13 +179,12 @@ pub async fn add_team_member(
     attach_manager_bootstrap(svc, team_id, caller_tab_id, &mut spawn_params)?;
     let lane_label = format!("team-{team_id}");
     let service = svc.clone();
-    let (spawn_params, mut lane) =
-        codeterm_service_core::async_runtime::spawn_blocking(move || {
-            let lane = service.provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)?;
-            Ok::<_, String>((spawn_params, lane))
-        })
-        .await
-        .map_err(|error| format!("worker lane provisioning failed: {error}"))??;
+    let (spawn_params, mut lane) = tauri::async_runtime::spawn_blocking(move || {
+        let lane = service.provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)?;
+        Ok::<_, String>((spawn_params, lane))
+    })
+    .await
+    .map_err(|error| format!("worker lane provisioning failed: {error}"))??;
     let spawn = svc
         .spawn_agent_with_state_change(spawn_params, None, false)
         .await;
@@ -193,9 +192,7 @@ pub async fn add_team_member(
         Ok(spawn) => (spawn.tab_id, spawn.warning),
         Err(error) => {
             if let Some(lane) = lane.take() {
-                let _ =
-                    codeterm_service_core::async_runtime::spawn_blocking(move || lane.cleanup())
-                        .await;
+                let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
             }
             return Err(error);
         }
@@ -220,7 +217,7 @@ pub async fn add_team_member(
         (result, mux.take_closed_history_batch())
     };
     if let Some(batch) = history_batch {
-        codeterm_service_core::async_runtime::spawn_blocking(move || batch.persist())
+        tauri::async_runtime::spawn_blocking(move || batch.persist())
             .await
             .map_err(|error| format!("closed history persistence task failed: {error}"))?;
     }
@@ -231,9 +228,7 @@ pub async fn add_team_member(
             // the mux-level transaction; persist at the nearest &self.
             codeterm_service_core::service::session_persist::persist_session_after_close(svc);
             if let Some(lane) = lane.take() {
-                let _ =
-                    codeterm_service_core::async_runtime::spawn_blocking(move || lane.cleanup())
-                        .await;
+                let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
             }
             return Err(error);
         }
