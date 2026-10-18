@@ -180,6 +180,7 @@ fn seed_models() -> Vec<ModelInfo> {
 struct ConfigFileStub {
     id: String,
     catalogue: crate::provider::ModelCatalogueCapability,
+    during_discovery: Option<Box<dyn Fn() + Send + Sync>>,
 }
 
 #[async_trait::async_trait]
@@ -223,6 +224,9 @@ impl AgentProvider for ConfigFileStub {
         self.catalogue.fingerprint_files(Vec::new())
     }
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
+        if let Some(change) = &self.during_discovery {
+            change();
+        }
         Some(discovered_models())
     }
 }
@@ -230,11 +234,30 @@ impl AgentProvider for ConfigFileStub {
 fn config_stub(id: &str, config: &std::path::Path) -> ConfigFileStub {
     ConfigFileStub {
         id: id.to_string(),
+        during_discovery: None,
         catalogue: crate::provider::ModelCatalogueCapability {
             config_files: vec![config.to_string_lossy().into_owned()],
             ..Default::default()
         },
     }
+}
+
+#[tokio::test]
+async fn config_generation_rejects_an_old_in_flight_discovery_without_replacing_last_good() {
+    let id = "in-flight-catalogue-config-fixture";
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.json");
+    std::fs::write(&config, b"opaque").unwrap();
+    let mut provider = config_stub(id, &config);
+    let first = discovery_stamp(&provider);
+    assert_eq!(discovery_stamp(&provider), first);
+    invalidate_inputs(id);
+    assert_ne!(discovery_stamp(&provider), first);
+    put_live(id, vec![model("last/good", "Fixture")], None);
+    provider.during_discovery = Some(Box::new(move || invalidate_inputs(id)));
+    assert!(refresh_models(Arc::new(provider), true).await.is_none());
+    assert_eq!(resolve_models(id)[0].id, "last/good");
+    cleanup(id);
 }
 
 /// The live listing keeps every custom-provider model the probe reported: the

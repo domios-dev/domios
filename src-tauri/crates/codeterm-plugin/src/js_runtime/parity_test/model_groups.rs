@@ -145,6 +145,9 @@ fn model_groups_usage_and_credentials_match_native_and_js() {
             PathBuf::from("/tmp/model-group-fixture-config.json"),
             PathBuf::from("/tmp/model-group-fixture-config.jsonc"),
         ]
+        .into_iter()
+        .map(|path| std::path::absolute(path).unwrap())
+        .collect::<Vec<_>>()
     );
     assert_eq!(js.model_credential_files(), native.model_credential_files());
     assert_eq!(js.reports_group_usage(), native.reports_group_usage());

@@ -403,6 +403,7 @@ impl ChatBackendProvider for ModelCapabilityNativeStub {
             authority: crate::provider::ModelCatalogueAuthority::Authoritative,
             live_discovery_required: true,
             config_files: vec!["/tmp/chatbackend-model-parity-config.json".into()],
+            config_file_environments: Vec::new(),
         }
     }
 

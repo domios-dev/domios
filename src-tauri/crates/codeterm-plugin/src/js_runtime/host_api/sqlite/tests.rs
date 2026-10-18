@@ -3,6 +3,34 @@ use super::*;
 use std::sync::atomic::Ordering;
 
 #[test]
+fn catalogue_rejection_query_never_materializes_oversized_transcript_rows() {
+    let (_dir, db) = fixture_db("CREATE TABLE message(data TEXT, time_updated INTEGER);
+        INSERT INTO message VALUES(json_object('role', 'user', 'content', printf('%016384d', 0)), 3);
+        INSERT INTO message VALUES(json_object('role', 'assistant', 'providerID', 'fixture', 'modelID', 'current', 'time', json_object('completed', 1)), 2);
+        INSERT INTO message VALUES(json_object('role', 'assistant', 'providerID', 'fixture', 'modelID', 'old', 'error', json_object('name', 'APIError', 'data', json_object('statusCode', 410, 'isRetryable', json('false')))), 1);");
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../plugins/provider-opencode/src/modelRejections.json"
+    )))
+    .unwrap();
+    let result = rows(
+        query_all_json(
+            &db,
+            fixture["query"].as_str().unwrap(),
+            Some("[1024]"),
+            4096,
+        )
+        .unwrap(),
+    );
+    assert_eq!(result.len(), 2);
+    let current: serde_json::Value =
+        serde_json::from_str(result[0]["data"].as_str().unwrap()).unwrap();
+    let old: serde_json::Value = serde_json::from_str(result[1]["data"].as_str().unwrap()).unwrap();
+    assert_eq!(current["modelID"], "current");
+    assert_eq!(old["error"]["data"]["isRetryable"], false);
+}
+
+#[test]
 fn provider_compat_sqlite_gate_covers_raw_and_convenience_host_calls() {
     use crate::js_runtime::{call_json, PluginManifest, PluginVm};
     let (_directory, db) =

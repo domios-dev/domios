@@ -251,6 +251,12 @@ derived from the manifest command's leading executable or explicit shell
 availability checks. This diagnostic does not parse arbitrary shell programs or
 install prerequisites; conditional installers can use an available alternative.
 
+## Catalogue inputs
+
+Declare model configuration paths in `modelCatalogue.configFiles` and environment-selected paths in `modelCatalogue.configFileEnvironments` as `{variable, subdir?}`. These are metadata-only watcher/fingerprint inputs; they grant no file reads. Declare native account files through `credentials.file` and its existing `fileEnvironment` selector. A discovery receives an opaque input fingerprint covering the CLI, declared files and invalidation generation. Cache by that complete fingerprint, reject late results from a previous input, and return null on failure rather than presenting the previous snapshot as a fresh result.
+
+Keep authoritative identity discovery complete within the existing exec capture bound. Optional verbose metadata can decorate identities; a partial identity list cannot become authoritative. Derive the model set from the provider's effective configuration/discovery, without a second manually maintained list.
+
 ## Minimal vs full: pick your tier
 
 The contract supports a thin provider; nothing forces codex-grade depth.

@@ -59,7 +59,24 @@ impl AgentProvider for RequiredLiveNativeStub {
             config_files: vec![
                 "~/.config/opencode/opencode.json".into(),
                 "~/.config/opencode/opencode.jsonc".into(),
+                "opencode.json".into(),
+                "opencode.jsonc".into(),
             ],
+            config_file_environments: vec![
+                ("OPENCODE_CONFIG", ""),
+                ("OPENCODE_CONFIG_DIR", "opencode.json"),
+                ("OPENCODE_CONFIG_DIR", "opencode.jsonc"),
+                ("XDG_CONFIG_HOME", "opencode/opencode.json"),
+                ("XDG_CONFIG_HOME", "opencode/opencode.jsonc"),
+            ]
+            .into_iter()
+            .map(
+                |(variable, subdir)| crate::js_runtime::manifest::ReadRootEnvironment {
+                    variable: variable.into(),
+                    subdir: subdir.into(),
+                },
+            )
+            .collect(),
             ..crate::provider::ModelCatalogueCapability::authoritative_live()
         }
     }

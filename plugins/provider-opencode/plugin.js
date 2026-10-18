@@ -260,6 +260,11 @@ function providerKeyEnvName(id) {
   return `DOMIOS_PROVIDER_${snake}_KEY`;
 }
 
+// plugins/provider-opencode/src/modelRejections.json
+var modelRejections_default = {
+  query: "SELECT json_object('role', 'assistant', 'providerID', substr(json_extract(data, '$.providerID'), 1, 1024), 'modelID', substr(json_extract(data, '$.modelID'), 1, 1024), 'time', json_object('completed', CASE WHEN json_extract(data, '$.time.completed') IS NOT NULL THEN 1 END), 'error', json_object('name', substr(json_extract(data, '$.error.name'), 1, 64), 'data', json_object('message', substr(json_extract(data, '$.error.data.message'), 1, 4096), 'statusCode', CAST(json_extract(data, '$.error.data.statusCode') AS INTEGER), 'isRetryable', json(CASE json_type(data, '$.error.data.isRetryable') WHEN 'false' THEN 'false' WHEN 'true' THEN 'true' ELSE 'null' END)))) AS data FROM message WHERE CASE WHEN octet_length(data) > ?1 THEN 0 WHEN NOT json_valid(data) THEN 0 ELSE json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) END ORDER BY time_updated DESC LIMIT 200"
+};
+
 // plugins/provider-opencode/src/modelVariants.ts
 function variantLaunch(args) {
   const retained = [];
@@ -644,49 +649,61 @@ function isQuestionMenuFooter(line) {
 }
 var MODEL_CATALOGUE_TTL_MS = 10 * 60 * 1e3;
 var modelCatalogue = null;
-var modelDiscoveryInFlight = false;
+var lastGoodCatalogue = null;
 function cachedOpencodeModels() {
-  return modelCatalogue?.models ?? null;
+  return lastGoodCatalogue;
 }
-function discoverOpencodeModels(binaryFingerprint) {
-  return withOpencodeModels(binaryFingerprint, (models2) => models2);
+function discoverOpencodeModels(inputFingerprint) {
+  return withOpencodeModels(inputFingerprint, (models2) => models2);
 }
-function withOpencodeModels(binaryFingerprint, then) {
+function withOpencodeModels(inputFingerprint, then) {
   const now = host.unixNowMs();
-  if (modelDiscoveryInFlight && modelCatalogue && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) return then(cachedOpencodeModels());
-  const stamp = binaryFingerprint ?? "unresolved";
-  if (modelCatalogue && modelCatalogue.stamp === stamp && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) {
-    return then(modelCatalogue.models);
+  if (inputFingerprint === void 0 && modelCatalogue?.pending) return then(null);
+  const stamp = inputFingerprint ?? "unresolved";
+  if (modelCatalogue && modelCatalogue.stamp === stamp && now >= modelCatalogue.since && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) {
+    return then(modelCatalogue.pending ? null : modelCatalogue.models);
   }
-  const previous = cachedOpencodeModels();
-  modelCatalogue = { stamp, since: now, models: previous };
-  const started = safeJson(host.execStart(JSON.stringify({
-    bin: "opencode",
-    args: ["models", "--verbose"],
-    timeoutMs: 3e3
-  })));
-  if (!started?.jobId) return then(previous);
-  modelDiscoveryInFlight = true;
-  return host.awaitJob(started.jobId, (result) => {
-    try {
-      const models2 = discoveredOpencodeModels(result);
-      modelCatalogue = { stamp, since: host.unixNowMs(), models: models2 ?? previous };
-      return then(models2);
-    } finally {
-      modelDiscoveryInFlight = false;
-    }
+  const attempt = { stamp, since: now, pending: true, models: null };
+  modelCatalogue = attempt;
+  const finish = (models2) => {
+    if (modelCatalogue !== attempt) return then(null);
+    attempt.pending = false;
+    attempt.models = models2;
+    attempt.since = host.unixNowMs();
+    if (models2 !== null) lastGoodCatalogue = models2;
+    return then(models2);
+  };
+  return probeModels(false, (result) => {
+    if (modelCatalogue !== attempt) return then(null);
+    if (!completeModelOutput(result)) return finish(null);
+    const identities = parseOpencodeModels(result.stdout);
+    if (identities === null) return finish(null);
+    return probeModels(true, (metadataResult) => {
+      if (modelCatalogue !== attempt) return then(null);
+      const verbose = metadataResult?.code === 0 && !metadataResult.error && typeof metadataResult.stdout === "string" ? metadataResult.stdout : "";
+      const metadata = modelMetadata(verbose);
+      const enriched = new Map((parseOpencodeModels(verbose) ?? []).map((model) => [model.id, model]));
+      const models2 = identities.filter((model) => !modelUnavailable(metadata.get(model.id))).map((model) => enriched.get(model.id) ?? model);
+      return finish(filterRejectedModels(models2));
+    });
   });
 }
-function discoveredOpencodeModels(result) {
-  if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
-  const models2 = parseOpencodeModels(result.stdout);
+function completeModelOutput(result) {
+  return result?.code === 0 && !result.error && !result.truncated && typeof result.stdout === "string";
+}
+function probeModels(verbose, then) {
+  const started = safeJson(host.execStart(JSON.stringify({
+    bin: "opencode",
+    args: verbose ? ["models", "--verbose"] : ["models"],
+    timeoutMs: 3e3
+  })));
+  return started?.jobId ? host.awaitJob(started.jobId, then) : then(null);
+}
+var MODEL_REJECTION_QUERY = modelRejections_default.query;
+function filterRejectedModels(models2) {
   const db = opencodeDbPath();
-  if (!models2 || !db || !host.fs.fileExists(db)) return models2;
-  const rows = host.fs.sqliteQuery(
-    db,
-    "SELECT data FROM (SELECT data, time_updated FROM message ORDER BY time_updated DESC LIMIT 200) WHERE octet_length(data) <= ?1 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY time_updated DESC LIMIT 200",
-    [ASSISTANT_MESSAGE_MAX_BYTES]
-  );
+  if (!db || !host.fs.fileExists(db)) return models2;
+  const rows = host.fs.sqliteQuery(db, MODEL_REJECTION_QUERY, [ASSISTANT_MESSAGE_MAX_BYTES]);
   const rejected = rejectedModelIds(rows.map((row) => {
     const message = safeJson(row.data);
     return { model: sessionModelIdentity(message), message };
@@ -1021,9 +1038,13 @@ function opencodeSessionRecord(row, db) {
 function opencodeConfigDir() {
   const override = host.envGet("OPENCODE_CONFIG_DIR");
   if (override) return override;
+  const xdg = host.envGet("XDG_CONFIG_HOME");
+  if (xdg) return xdg + (host.platform() === "windows" ? "\\" : "/") + "opencode";
   return host.expandHome("~/.config/opencode");
 }
 function opencodeConfigPath() {
+  const override = host.envGet("OPENCODE_CONFIG");
+  if (override) return override;
   const dir = opencodeConfigDir();
   if (!dir) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";

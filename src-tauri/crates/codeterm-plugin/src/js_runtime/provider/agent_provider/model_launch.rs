@@ -7,7 +7,7 @@ impl JsProvider {
             return None;
         }
         let _catalogue = self.vm.catalogue_gate.lock();
-        let fingerprint = self.vm.binary_fingerprint();
+        let fingerprint = crate::model_catalog::discovery_stamp(self);
         // `null` is the plugin's honest "no genuine discovery" signal — it must
         // not deserialize-fail into warn noise, and never falls back to a seed.
         self.try_call::<Option<Vec<SerdeModelInfo>>>("discoverModels", &[json!(fingerprint)])
