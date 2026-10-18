@@ -8,6 +8,46 @@ use axum::{
 use tower::ServiceExt;
 
 #[tokio::test]
+async fn process_split_contract_internal_cron_is_excluded_from_sse_replay_and_live() {
+    use axum::response::IntoResponse;
+    use futures_util::StreamExt;
+    for tab_id in [None, Some("bound"), Some("other")] {
+        let events = std::sync::Arc::new(crate::events::EventBroadcaster::new());
+        let payload = serde_json::json!({"run_id":"private", "tab_id":tab_id.unwrap_or("bound")});
+        let mut internal = events.subscribe();
+        events.publish_internal("cron-fired", payload.clone());
+        assert!(!internal.try_recv().unwrap().public);
+        events.publish_generic("fixture-visible", payload.clone());
+        let census = crate::stream_census::StreamCensus::default();
+        let sse = super::events_sse(
+            events.clone(),
+            super::EventsStreamQuery {
+                since: Some(format!("{}:0", events.boot_id())),
+                tab_id: tab_id.map(str::to_owned),
+            },
+            &census,
+        );
+        let mut body = sse.into_response().into_body().into_data_stream();
+        for expected_seq in [2, 4] {
+            if expected_seq == 4 {
+                events.publish_internal("cron-fired", payload.clone());
+                events.publish_generic("fixture-visible", payload.clone());
+            }
+            let frame = tokio::time::timeout(std::time::Duration::from_secs(2), body.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let frame = std::str::from_utf8(&frame).unwrap();
+            let payload: serde_json::Value =
+                serde_json::from_str(frame.trim().strip_prefix("data: ").unwrap()).unwrap();
+            assert_eq!(payload["seq"], expected_seq);
+            assert_eq!(payload["event_type"], "fixture-visible");
+        }
+    }
+}
+
+#[tokio::test]
 async fn encoded_replay_pins_existing_sse_wire_bytes() {
     use axum::response::IntoResponse;
     use futures_util::StreamExt;
@@ -319,14 +359,14 @@ fn generation_validator_accepts_weak_strong_lists_and_wildcard() {
 
 #[tokio::test]
 async fn registered_snapshot_routes_compress_and_revalidate() {
-    use codeterm_host_runtime::test_fixture::HostFixture;
     use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
     let (mut mux, _) = MultiplexerState::new();
     let workspace = mux.snapshot().workspaces[0].id.clone();
     for _ in 0..12 {
         mux.create_tab(&workspace).unwrap();
     }
-    let fixture = HostFixture::new(mux);
+    let fixture = ServiceFixture::new(mux);
     let app = crate::routes::create_router(crate::transport_tabs::fixture::app_state(&fixture));
     for path in ["/api/mux/state", "/api/tabs?local_only=true"] {
         let response = app

@@ -152,7 +152,7 @@ async fn transport_bootstrap_contract_auth_status_and_stale_readiness() {
     };
     use tower::ServiceExt;
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(mux);
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
     let state = fixture::app_state(&fixture);
     let router = crate::routes::create_router(state.clone());
     for (method, path) in [
@@ -296,7 +296,7 @@ async fn frontend_diagnostic_identity_route_accepts_and_bounds_metadata() {
     use axum::http::Request;
     use tower::ServiceExt;
     let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(mux);
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
     let router = crate::routes::create_router(fixture::app_state(&fixture));
     let valid = json!({"stage":"module-entry", "native":false,"injected":true,"mounted":false,
         "buildSha":"abcdef123", "device":{"entryAsset":"index-AbCd.js", "userAgentFamily":"safari",

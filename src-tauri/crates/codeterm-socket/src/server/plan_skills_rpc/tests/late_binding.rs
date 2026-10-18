@@ -43,7 +43,6 @@ impl LateLaunch {
                 "tab_id": tab, "session_binding_nonce": CALLER_NONCE,
             })),
             &caller.svc,
-            None,
         )
         .unwrap();
         caller.show(caller.production_params()).unwrap();
@@ -142,13 +141,8 @@ impl LateLaunch {
             });
             params[field] = json!(claim);
             assert!(
-                crate::server::dispatch_service_rpc(
-                    "agent.ack",
-                    Some(params),
-                    &launch.caller.svc,
-                    None,
-                )
-                .is_err(),
+                crate::server::dispatch_service_rpc("agent.ack", Some(params), &launch.caller.svc,)
+                    .is_err(),
                 "{field}"
             );
             assert_eq!(launch.task(), before, "{field}");
@@ -166,7 +160,6 @@ impl LateLaunch {
                 "tab_id": self.tab, "session_binding_nonce": CALLER_NONCE,
             })),
             &self.caller.svc,
-            None,
         )
     }
 
@@ -299,7 +292,7 @@ fn retained_launch_refuses_missing_replaced_finalized_and_foreign_live_authority
             } else {
                 "attempt_id"
             }] = json!("foreign-claim");
-            crate::server::dispatch_service_rpc("agent.ack", Some(params), &launch.caller.svc, None)
+            crate::server::dispatch_service_rpc("agent.ack", Some(params), &launch.caller.svc)
         } else {
             launch.ack()
         };
