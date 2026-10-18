@@ -19,7 +19,7 @@ fn process_split_contract_manual_and_scheduled_cron_publish_exact_internal_run()
                 serde_json::from_value(serde_json::json!({
                     "name":"disposable", "workspace_id":workspace, "schedule":"in 1h",
                     "task":"opaque-fixture", "agent":"portable-cron-fixture", "model":"fixture",
-                    "cwd":fixture.temp.path(), "enabled":false, "jitter_max_ms":0
+                    "cwd":fixture.temp.path(), "enabled":false, "oneshot":true, "jitter_max_ms":0
                 }))
                 .unwrap(),
             )
