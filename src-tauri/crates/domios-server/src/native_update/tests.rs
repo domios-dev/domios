@@ -20,9 +20,9 @@ use std::{
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
-fn global_gate_test_lock() -> std::sync::MutexGuard<'static, ()> {
-    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner())
+async fn global_gate_test_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    TEST_LOCK.lock().await
 }
 
 fn components(client_digest: &str) -> ServerComponentManifest {
@@ -334,7 +334,7 @@ fn server_handoff_refuses_without_a_durable_continuation_owner() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn invalid_immediate_observation_holds_once_without_retrying_cursor() {
-    let _gate_lock = global_gate_test_lock();
+    let _gate_lock = global_gate_test_lock().await;
     let request = request();
     let wrong = result(
         &request,
@@ -388,7 +388,7 @@ async fn invalid_immediate_observation_holds_once_without_retrying_cursor() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn wrong_epoch_observation_is_post_dispatch_uncertain() {
-    let _gate_lock = global_gate_test_lock();
+    let _gate_lock = global_gate_test_lock().await;
     let request = request();
     let mut wrong = in_progress(&request);
     wrong.sequence = 2;
@@ -431,7 +431,7 @@ async fn wrong_epoch_observation_is_post_dispatch_uncertain() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn no_new_observation_evidence_holds_until_exact_reconciliation() {
-    let _gate_lock = global_gate_test_lock();
+    let _gate_lock = global_gate_test_lock().await;
     let request = request();
     let executor = Arc::new(FakeExecutor::new(
         in_progress(&request),
@@ -486,7 +486,7 @@ async fn no_new_observation_evidence_holds_until_exact_reconciliation() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn unavailable_observation_holds_the_captured_transaction() {
-    let _gate_lock = global_gate_test_lock();
+    let _gate_lock = global_gate_test_lock().await;
     let request = request();
     let executor = Arc::new(FakeExecutor::new(
         in_progress(&request),
@@ -529,9 +529,9 @@ async fn unavailable_observation_holds_the_captured_transaction() {
     assert!(global().is_in_flight());
 }
 
-#[test]
-fn missing_authenticated_attachment_refuses_before_admission_or_status_change() {
-    let _gate_lock = global_gate_test_lock();
+#[tokio::test(flavor = "current_thread")]
+async fn missing_authenticated_attachment_refuses_before_admission_or_status_change() {
+    let _gate_lock = global_gate_test_lock().await;
     let request = request();
     let state = state_handle();
     let coordinator = NativeUpdateCoordinator::new();
@@ -559,7 +559,7 @@ fn missing_authenticated_attachment_refuses_before_admission_or_status_change() 
 
 #[tokio::test(flavor = "current_thread")]
 async fn pre_dispatch_detach_refuses_without_fabricating_an_event() {
-    let _gate_lock = global_gate_test_lock();
+    let _gate_lock = global_gate_test_lock().await;
     let request = request();
     let mut executor = FakeExecutor::new(in_progress(&request), Vec::new());
     executor.dispatch_outcome = Some(NativeUpdateDispatchOutcome::RefusedBeforeExecution {
@@ -598,7 +598,7 @@ async fn pre_dispatch_detach_refuses_without_fabricating_an_event() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn uncertain_dispatch_keeps_the_captured_attachment_and_shared_lease() {
-    let _gate_lock = global_gate_test_lock();
+    let _gate_lock = global_gate_test_lock().await;
     let request = request();
     let mut executor = FakeExecutor::new(in_progress(&request), Vec::new());
     executor.dispatch_outcome = Some(NativeUpdateDispatchOutcome::UncertainAfterExecution {
@@ -637,7 +637,7 @@ async fn uncertain_dispatch_keeps_the_captured_attachment_and_shared_lease() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn caller_disconnect_and_observation_cancel_keep_uncertain_lease_reachable() {
-    let _gate_lock = global_gate_test_lock();
+    let _gate_lock = global_gate_test_lock().await;
     let request = request();
     let uncertain = result(
         &request,
@@ -693,7 +693,7 @@ async fn caller_disconnect_and_observation_cancel_keep_uncertain_lease_reachable
 
 #[tokio::test(flavor = "current_thread")]
 async fn interrupted_coordinator_reconciles_exact_completion_without_redispatch() {
-    let _gate_lock = global_gate_test_lock();
+    let _gate_lock = global_gate_test_lock().await;
     let request = request();
     let mut executor = FakeExecutor::new(
         in_progress(&request),
@@ -736,7 +736,7 @@ async fn interrupted_coordinator_reconciles_exact_completion_without_redispatch(
 
 #[tokio::test(flavor = "current_thread")]
 async fn completed_reconciliation_stays_reachable_until_verified_without_redispatch() {
-    let _gate_lock = global_gate_test_lock();
+    let _gate_lock = global_gate_test_lock().await;
     let request = request();
     let mut executor = FakeExecutor::new(
         in_progress(&request),
@@ -790,9 +790,9 @@ async fn completed_reconciliation_stays_reachable_until_verified_without_redispa
     assert!(!global().is_in_flight());
 }
 
-#[test]
-fn existing_http_lease_refuses_native_admission_without_status_mutation() {
-    let _gate_lock = global_gate_test_lock();
+#[tokio::test(flavor = "current_thread")]
+async fn existing_http_lease_refuses_native_admission_without_status_mutation() {
+    let _gate_lock = global_gate_test_lock().await;
     let lease = global().try_acquire().expect("the shared gate is idle");
     let request = request();
     let executor = Arc::new(FakeExecutor::new(in_progress(&request), Vec::new()));

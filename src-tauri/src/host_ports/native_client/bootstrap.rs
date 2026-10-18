@@ -1,6 +1,6 @@
 use super::{
     ExactServerShutdownRefusal, ExactServerShutdownResult, ExactServerShutdownUncertainty,
-    NativeHostClient, NativeHostClientSlot,
+    NativeHostClientSlot,
 };
 use codeterm_process_identity::PinnedProcess;
 use codeterm_types::{
@@ -449,7 +449,6 @@ where
         .kill_on_drop(true);
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
         child_command.creation_flags(CREATE_NO_WINDOW);
     }

@@ -88,11 +88,11 @@ pub(super) struct Session<UpdateRequest, UpdateResult> {
     pub(super) client_process: ProcessProvenance,
     pub(super) process: PinnedProcess,
     pub(super) active_generation: Arc<AtomicU64>,
-    allowed_view_origins: HashSet<String>,
-    control: mpsc::Sender<Frame<UpdateRequest, UpdateResult>>,
-    events: mpsc::Sender<NativeHostEvent>,
+    pub(super) allowed_view_origins: HashSet<String>,
+    pub(super) control: mpsc::Sender<Frame<UpdateRequest, UpdateResult>>,
+    pub(super) events: mpsc::Sender<NativeHostEvent>,
     pub(super) state: Mutex<SessionState<UpdateResult>>,
-    shutdown: watch::Sender<bool>,
+    pub(super) shutdown: watch::Sender<bool>,
     pub(super) retired: AtomicBool,
 }
 

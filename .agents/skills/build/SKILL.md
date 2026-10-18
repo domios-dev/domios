@@ -1411,6 +1411,14 @@ Taking the parent of a literal trailing `..` selects `src-tauri/crates/plugins`
 instead of the repository `plugins/` directory. Source review caught and fixed
 this extraction path error; no native build failure was executed in that lane.
 
+If the crate-version guard flags the independent server's release version, do
+not carry the app version in its shared library package or exempt it from the
+guard. Keep its Cargo version at `0.0.0`; the server build script injects
+`DOMIOS_VERSION` from the existing `src-tauri/tauri.conf.json` release source,
+tracks that input, and installs it through `codeterm_build_info` at startup.
+Parent canonical refreshes lockfiles and verifies the shipped version; a source
+guard pass alone is not built artifact identity proof.
+
 Parent canonical Team QA owns all Rust and native execution for this slice:
 
 ```bash

@@ -26,11 +26,13 @@ pub fn application_context(
     context
 }
 
+#[cfg(test)]
+use crate::host_ports::webview_diagnostics::CLIENT_VIEW_QUERY;
+use crate::host_ports::ClientViewGeneration;
 use crate::host_ports::{
     webview_diagnostics::{root_generation_from_url, with_root_generation},
     ClientRootRenderLatch, ClientRootRenderWait, ServerApiAttachment, ServerApiAttachmentSlot,
 };
-use crate::host_ports::{ClientViewGeneration, CLIENT_VIEW_QUERY};
 use codeterm_service_core::startup::{
     frontend_shell_fallback_origin as fallback_origin,
     frontend_shell_loopback_origin as loopback_origin,
@@ -432,7 +434,7 @@ fn show_unavailable(window: &WebviewWindow) {
 
 fn next_generation(generation: &AtomicU64) -> Option<u64> {
     generation
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
             current.checked_add(1)
         })
         .ok()?
@@ -779,10 +781,11 @@ pub(crate) async fn recover_for_attachment(
     crate::deep_links::register_deep_links(&app).map_err(|error| error.to_string())?;
     let (old_view, old_navigation, before, mut windows) = {
         let supervisor = app.state::<ShellSupervisor>();
+        let before = *supervisor.windows.borrow();
         (
             supervisor.active_view_generation.load(Ordering::Acquire),
             supervisor.navigation.load(Ordering::Acquire),
-            *supervisor.windows.borrow(),
+            before,
             supervisor.windows.subscribe(),
         )
     };
@@ -875,7 +878,7 @@ async fn run_on_main_thread<T: Send + 'static>(
         let _ = sender.send(result);
     })
     .map_err(|error| error.to_string())?;
-    match tokio::time::timeout(Duration::from_secs(10), receiver).await {
+    match tokio::time::timeout(Duration::from_secs(10), &mut receiver).await {
         Ok(Ok(result)) => result,
         Ok(Err(_)) => {
             if phase
