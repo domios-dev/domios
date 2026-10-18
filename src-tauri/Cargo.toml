@@ -18,6 +18,7 @@ warnings = "deny"
 workspace = true
 
 [dependencies]
+uuid = { version = "1", features = ["v4", "serde"] }
 domios-server = { path = "crates/domios-server", default-features = false }
 codeterm-host-runtime = { path = "crates/codeterm-host-runtime" }
 include_dir = "0.7"

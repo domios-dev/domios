@@ -5,12 +5,13 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 use codeterm_service_core::ports::host::UiEvents;
 use codeterm_types::server_bootstrap::{ServerIdentity, ServerReady};
 use reqwest::redirect::Policy;
+use serde_json::Value;
 use tauri::{Emitter, Manager};
 pub(crate) mod native_client;
 pub(crate) mod native_shell;
 pub(crate) use native_shell::{NativeShellFailure, TauriShell};
 pub(crate) mod webview_diagnostics;
-pub(crate) use webview_diagnostics::{ClientViewGeneration, CLIENT_VIEW_QUERY};
+pub(crate) use webview_diagnostics::ClientViewGeneration;
 
 #[cfg(test)]
 const MAX_PENDING_NATIVE_CALLS: usize = 64;

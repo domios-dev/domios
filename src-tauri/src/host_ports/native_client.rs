@@ -16,16 +16,13 @@ use codeterm_types::{
         MAX_PENDING_NATIVE_HOST_REQUESTS, NATIVE_HOST_PROTOCOL,
     },
     native_update::{NativeUpdateObservationOutcome, NativeUpdateRequest, NativeUpdateResult},
-    server_bootstrap::{
-        LaunchOptions, ProcessProvenance, ServerComponentManifest, ServerIdentity, ServerReady,
-    },
+    server_bootstrap::{LaunchOptions, ProcessProvenance, ServerComponentManifest, ServerReady},
 };
 use interprocess::local_socket::{
     tokio::{prelude::*, Stream},
     GenericNamespaced,
 };
 use parking_lot::{Mutex, RwLock};
-use serde::{de::DeserializeOwned, Serialize};
 #[cfg(test)]
 use std::path::Path;
 use std::{
@@ -995,7 +992,7 @@ impl NativeHostClient {
             || event.event_id == 0
             || self
                 .last_event_id
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                     (event.event_id > current).then_some(event.event_id)
                 })
                 .is_err()

@@ -94,6 +94,7 @@ impl DiagnosticsSession {
     }
 }
 
+#[cfg(any(windows, test))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ProcessIdentity {
     pid: u32,
@@ -101,6 +102,7 @@ struct ProcessIdentity {
     image: String,
 }
 
+#[cfg(any(windows, test))]
 fn is_owned_webview_listener(
     listener_pid: u32,
     client_pid: u32,
@@ -347,6 +349,7 @@ pub(crate) async fn inspect_main_webview_diagnostics(
 
 #[cfg(windows)]
 mod windows_listener {
+    use super::{is_owned_webview_listener, ProcessIdentity};
     use std::{
         ffi::c_void,
         mem::{size_of, zeroed},

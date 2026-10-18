@@ -79,7 +79,7 @@ pub fn run(
     });
     let worker_cli = crate::resources::pin_worker_cli(shell.as_ref(), env!("SERVER_CLI_SHA256"))?;
     codeterm_build_info::install(env!("BUILD_SHA"), env!("BUILD_HASH"));
-    codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
+    codeterm_build_info::install_version(env!("DOMIOS_VERSION"));
     crate::bundle::install();
     codeterm_orchestration::register_orchestration();
     let runtime = tokio::runtime::Builder::new_multi_thread()
