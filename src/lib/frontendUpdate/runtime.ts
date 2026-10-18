@@ -5,7 +5,13 @@ import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../terminalViewerEvents";
 import type { TransportClient } from "../transportClient";
 import { createFrontendUpdateClient, createSwapController, preparePageReload, type BootContext } from "./client";
 import type { ClientCheckpoint } from "./checkpoint";
-import { initialSwapState, type Release, type Safety, type SwapState } from "./model";
+import {
+  initialSwapState,
+  type FrontendUpdateConnection,
+  type Release,
+  type Safety,
+  type SwapState,
+} from "./model";
 
 export const ROOT_RENDERED_EVENT = "codeterm:frontend-root-rendered";
 export const BOOT_CONTEXT_KEY = "codeterm.frontend.boot";
@@ -60,37 +66,58 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
     preparePageReload({ apiOrigin: client.origin(), token, clientId: options.clientId, ticket,
       attempted: options.boot?.attempted ?? [], bundled: options.bundled }, options.storage, options.navigate);
   }, state => options.onOffer?.(updateOffer(state)));
+  const setConnection = (connection: FrontendUpdateConnection) => controller.dispatch({ type: "connection", status: connection });
   controller.dispatch({ type: "hold", held: options.held?.() === true });
   const stopSignals = options.signals.subscribe(change => {
     if (change === "checkpoint") controller.dispatch({ type: "edited", checkpoint: options.signals.checkpoint() });
     else controller.dispatch({ type: "safety", safety: options.signals.safety() });
   });
   const updateStatus = (next: FrontendStatus) => {
+    if (!frontendApiCompatible(next.apiVersion)) {
+      setConnection("unavailable");
+      options.onError(new FrontendUpdateError("api-incompatible"));
+      return;
+    }
+    setConnection("reconnecting");
     for (const releaseId of next.quarantined) controller.dispatch({ type: "rolledBack", releaseId });
+    setConnection("connected");
     if (next.pending) controller.dispatch({ type: "ready", release: next.pending });
   };
   let disposed = false;
   let streamObserved = false;
   const reconcile = () => {
-    void client.localJson<FrontendStatus>("GET", "/api/frontend/status").then(next => { if (!disposed) updateStatus(next); }, options.onError);
+    void client.localJson<FrontendStatus>("GET", "/api/frontend/status").then(next => {
+      if (!disposed) updateStatus(next);
+    }, error => {
+      if (!disposed) {
+        setConnection("unavailable");
+        options.onError(error);
+      }
+    });
   };
   let stopStream = () => {};
   let waitingForRecovery = false;
   const connect = () => {
     if (disposed) return;
+    setConnection("reconnecting");
     waitingForRecovery = false;
     streamObserved = false;
     stopStream = client.subscribe("/api/events/stream", (name, data) => {
-    if (name === "frontend-update-ready") controller.dispatch({ type: "ready", release: data as Release });
-    else if (name === "frontend-status") updateStatus(data as FrontendStatus);
-    else if (name === "overflow") reconcile();
-  }, {
-    onActivity: () => { if (!streamObserved) { streamObserved = true; reconcile(); } },
-    onEnd: end => {
-      const action = streamRecoveryAction(end.reason, disposed);
-      if (action === "reconnect") queueMicrotask(connect);
-      else if (action === "wait") waitingForRecovery = true;
-    },
+      if (name === "frontend-update-ready") controller.dispatch({ type: "ready", release: data as Release });
+      else if (name === "frontend-status") updateStatus(data as FrontendStatus);
+      else if (name === "overflow") reconcile();
+    }, {
+      onActivity: () => {
+        if (!streamObserved) { streamObserved = true; reconcile(); }
+      },
+      onEnd: end => {
+        const action = streamRecoveryAction(end.reason, disposed);
+        if (action === "reconnect") queueMicrotask(connect);
+        else if (action === "wait") {
+          waitingForRecovery = true;
+          setConnection("unavailable");
+        }
+      },
     });
   };
   const recovered = () => { if (waitingForRecovery) connect(); };
