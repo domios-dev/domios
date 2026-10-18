@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
+import { ChevronDown, Square, SquareTerminal } from "lucide-react";
 import { useAgentInspection } from "@codeterm/chat-ui";
 import type { ComposerBackgroundWorkItem } from "./composerBackgroundWorkModel";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
@@ -28,6 +29,8 @@ function WorkDetails({ item, onStop }: {
   onStop: (item: ComposerBackgroundWorkItem) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const detailsId = useId();
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const stop = async () => {
@@ -45,11 +48,20 @@ function WorkDetails({ item, onStop }: {
     }
   };
 
-  return <li className="min-w-0 py-1.5">
-      <code className="block whitespace-pre-wrap break-all text-xs text-[var(--ct-fg)]">{item.command}</code>
-      <p className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{item.elapsed} elapsed</p>
-      {item.outputTail && <pre className="m-0 mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words text-[11px] text-[var(--ct-muted-fg)]">{item.outputTail}</pre>}
-      <button type="button" className="mt-1 underline" aria-label={`Stop ${item.name}`} disabled={busy} onClick={() => void stop()}>{busy ? "Stopping" : "Stop"}</button>
+  return <li className="ct-background-command">
+      <span className="ct-ctx-bubble" data-tone="active">
+        <button type="button" className="ct-ctx-bubble__open" aria-label={`Details for ${item.name}`} aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)}>
+          <SquareTerminal size={13} aria-hidden="true" />
+          <span className="ct-ctx-bubble__title">{item.name}</span>
+          <span className="ct-ctx-bubble__meta">{busy ? "Stopping" : item.status} · {item.elapsed}</span>
+          <ChevronDown size={11} aria-hidden="true" />
+        </button>
+        <button type="button" className="ct-ctx-bubble__dismiss" aria-label={`Stop ${item.name}`} title={`Stop ${item.name}`} disabled={busy} aria-busy={busy || undefined} onClick={() => void stop()}><Square size={10} fill="currentColor" aria-hidden="true" /></button>
+      </span>
+      {expanded && <div id={detailsId} role="region" aria-label={`Command details for ${item.name}`} className="ct-background-command__details">
+        <code>{item.command}</code>
+        {item.outputTail && <pre>{item.outputTail}</pre>}
+      </div>}
       {error && <div role="alert" className="mt-1"><InlineErrorNotice error={error} operation="stopping the background terminal" /></div>}
   </li>;
 }
@@ -60,7 +72,7 @@ export function ComposerBackgroundWorkPanel({ items, onStop }: {
 }) {
   return <div>
     <SubagentCapsules items={items.filter(item => item.kind === "agent")} />
-    <ul className="m-0 list-none divide-y divide-[var(--ct-border)] p-0">
+    <ul className="ct-background-commands">
       {items.filter(item => item.kind === "terminal").map(item => <WorkDetails key={item.id} item={item} onStop={onStop} />)}
     </ul>
   </div>;
