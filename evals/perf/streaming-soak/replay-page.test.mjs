@@ -145,3 +145,30 @@ test('owned Browser selection clicks only exact workspace and tab and gates moun
   assert.equal(tabClicks,1);
   assert.throws(()=>ownedBrowserSelection(document,'foreign-workspace','owned-tab','workspace'),/missing or ambiguous/);
 });
+
+test('owned Browser overflow reveals once and waits exact control without arbitrary clicks',() => {
+  let expanded=false, present=false, expansions=0, selections=0, duplicates=false;
+  const visible = {closest:()=>null,getClientRects:()=>[{}]};
+  const activation={...visible,getAttribute:()=> 'Select workspace fixture',click:()=>{selections++;}};
+  const row={...visible,dataset:{workspaceId:'owned'},querySelectorAll:()=>[activation]};
+  const overflow={...visible,getAttribute:()=>expanded?'true':'false',click:()=>{expanded=true;expansions++;}};
+  const document={querySelectorAll:selector=>selector.includes('workspace-card-more')?[overflow]:selector.includes('workspace-card')&&present?(duplicates?[row,row]:[row]):[]};
+  ownedBrowserSelection(document,'owned','tab','workspace-reveal');
+  assert.equal(expansions,1);
+  assert.equal(selections,0);
+  assert.equal(ownedBrowserSelection(document,'owned','tab','workspace-ready'),false);
+  assert.throws(()=>ownedBrowserSelection(document,'owned','tab','workspace-reveal'),/missing after expansion/);
+  assert.throws(()=>ownedBrowserSelection(document,'owned','tab','workspace'),/missing or ambiguous/);
+  assert.equal(expansions,1);
+  present=true;
+  assert.equal(ownedBrowserSelection(document,'owned','tab','workspace-ready'),true);
+  ownedBrowserSelection(document,'owned','tab','workspace-reveal');
+  assert.equal(expansions,1);
+  ownedBrowserSelection(document,'owned','tab','workspace');
+  assert.equal(selections,1);
+  duplicates=true;
+  assert.throws(()=>ownedBrowserSelection(document,'owned','tab','workspace-ready'),/ambiguous/);
+  assert.throws(()=>ownedBrowserSelection(document,'owned','tab','workspace-reveal'),/ambiguous/);
+  assert.equal(expansions,1);
+  assert.equal(selections,1);
+});
