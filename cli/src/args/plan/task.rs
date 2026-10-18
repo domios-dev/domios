@@ -458,7 +458,7 @@ pub enum PlanTaskAction {
         #[arg(value_name = "PATH")]
         file: String,
     },
-    /// Respawn a worker from one prior execution attempt
+    /// Respawn a worker from one prior execution attempt, inheriting its task's execution intent
     Respawn {
         plan_id: String,
         task_id: String,
