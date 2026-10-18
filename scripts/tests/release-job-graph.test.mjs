@@ -108,7 +108,7 @@ test('Mac jobs provision secret material before building and always clean up', (
   }
   assert.match(read('scripts/check-release-credentials-mac.sh'), /release-signing-material\.py check-identity/);
   const releasePreparation = read('build.sh');
-  assert.match(releasePreparation, /--keychain "\$RELEASE_KEYCHAIN"\s+--sign "\$APPLE_SIGNING_IDENTITY" src-tauri\/bundled-cli\/codeterm/);
+  assert.match(releasePreparation, /--keychain "\$RELEASE_KEYCHAIN"[\s\\]+--sign "\$APPLE_SIGNING_IDENTITY" src-tauri\/bundled-cli\/codeterm/);
   assert.ok(releasePreparation.indexOf('--sign "$APPLE_SIGNING_IDENTITY" src-tauri/bundled-cli/codeterm') <
     releasePreparation.indexOf('cargo build --release --manifest-path src-tauri/Cargo.toml -p domios-server'));
   assert.match(read('scripts/release-macos-x86_64.sh'), /CODETERM_RELEASE_COMMON_STAGE=1/);
