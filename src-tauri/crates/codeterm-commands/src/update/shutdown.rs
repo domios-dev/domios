@@ -1,8 +1,11 @@
+#[cfg(feature = "desktop")]
 use tauri::Manager;
+#[cfg(feature = "desktop")]
 use tokio::task::JoinSet;
 
 use codeterm_service_core::service::ServiceState;
 
+#[cfg(feature = "desktop")]
 const SPAWN_QUIESCE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Steps 2-9 of the auto-update sequence. Step 1 (user confirmation) and
@@ -10,6 +13,7 @@ const SPAWN_QUIESCE_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 /// happen outside. Steps 7-9 (relaunch + session restore + per-tab resume)
 /// happen in the NEW process via `lib.rs::init_states` (snapshot reload) and
 /// `commands::spawn_pty` (auto-resume by `agent_session_id`).
+#[cfg(feature = "desktop")]
 pub async fn graceful_shutdown(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
     _initiating_tab_id: Option<&str>,
@@ -66,6 +70,7 @@ pub async fn graceful_shutdown(
     Ok(swept)
 }
 
+#[cfg(feature = "desktop")]
 async fn shutdown_storage_off_runtime(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<(), String> {
@@ -82,6 +87,7 @@ async fn shutdown_storage_off_runtime(
     .map_err(|error| format!("Storage shutdown task failed: {error}"))?
 }
 
+#[cfg(feature = "desktop")]
 fn collect_owned_pty_tabs(svc: &ServiceState) -> Vec<String> {
     let snapshot = svc.mux.read().snapshot();
     select_owned_pty_tabs(
@@ -92,6 +98,7 @@ fn collect_owned_pty_tabs(svc: &ServiceState) -> Vec<String> {
     )
 }
 
+#[cfg(any(test, feature = "desktop"))]
 fn select_owned_pty_tabs<'a>(
     tabs: impl Iterator<Item = (&'a str, Option<&'a str>)>,
 ) -> Vec<String> {
@@ -99,6 +106,7 @@ fn select_owned_pty_tabs<'a>(
         .collect()
 }
 
+#[cfg(feature = "desktop")]
 async fn quiesce_pty_spawns(svc: &ServiceState) -> Result<(), String> {
     let svc = svc.clone();
     tokio::task::spawn_blocking(move || {
@@ -110,6 +118,7 @@ async fn quiesce_pty_spawns(svc: &ServiceState) -> Result<(), String> {
     .map_err(|error| format!("PTY spawn quiesce task failed: {error}"))?
 }
 
+#[cfg(feature = "desktop")]
 async fn reap_owned_ptys(svc: &ServiceState) -> Result<usize, String> {
     let owner = svc.clone();
     let (reapers, blockers) = tokio::task::spawn_blocking(move || {
@@ -161,6 +170,7 @@ async fn reap_owned_ptys(svc: &ServiceState) -> Result<usize, String> {
     pty_shutdown_disposition(count, failures)
 }
 
+#[cfg(any(test, feature = "desktop"))]
 fn pty_shutdown_disposition(count: usize, failures: Vec<String>) -> Result<usize, String> {
     if failures.is_empty() {
         Ok(count)
@@ -206,6 +216,7 @@ fn shutdown_save_disposition(
 
 /// Snapshot the desk before polling `teardown` (futures are lazy), so teardown-time
 /// tab mutations can never shrink what later gets persisted.
+#[cfg(any(test, feature = "desktop"))]
 async fn capture_desk_before<T>(
     svc: &codeterm_service_core::service::ServiceContext,
     teardown: impl std::future::Future<Output = Result<T, String>>,
@@ -219,6 +230,7 @@ async fn capture_desk_before<T>(
 }
 
 /// Saves the pre-teardown desk and refreshes live tab identities before committing.
+#[cfg(any(test, feature = "desktop"))]
 async fn persist_desk_off_runtime(
     svc: &codeterm_service_core::service::ServiceContext,
     mux: &codeterm_service_core::multiplexer::commands::MuxState,

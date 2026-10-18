@@ -25,7 +25,7 @@ async fn local_and_mesh_rpc_delivery_resolve_target_and_write_once() {
         let result = run_programmatic_delivery(&tab, move || {
             let provider = mux.get_tab(&target).unwrap().agent_type.clone().unwrap();
             route_or_pty(
-                Some(tauri::async_runtime::block_on(async move {
+                Some(codeterm_service_core::async_runtime::block_on(async move {
                     captured.lock().push((provider, body.text.unwrap()));
                     Ok::<_, String>(())
                 })),
