@@ -5,6 +5,17 @@ const TAB_SCOPED_CHANNELS = ["tab-session-chat", "tab-session-chat-capsules", "t
 
 type StorageLike = Pick<Storage, "length" | "key" | "getItem" | "removeItem">;
 
+export function createComposerDraftPruner(storage: StorageLike): (liveTabIds: ReadonlySet<string>) => string[] {
+  let previous: ReadonlySet<string> | undefined;
+  return liveTabIds => {
+    const last = previous;
+    if (liveTabIds.size === 0 || (last?.size === liveTabIds.size && [...liveTabIds].every(id => last.has(id)))) return [];
+    const removed = pruneOrphanComposerDrafts(storage, liveTabIds);
+    previous = new Set(liveTabIds);
+    return removed;
+  };
+}
+
 /** Tab id owning a composer-draft key, or null if the key is not a known
  *  tab-scoped draft. Tab ids are colon-free short ids, so the channel is the
  *  segment before the first colon and the tab id is the remainder. */

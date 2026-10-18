@@ -11,7 +11,7 @@ import { buildTeamActions } from "./lib/teamActions";
 import { selectAiHelperTab } from "./lib/aiHelperFocus";
 import { getCurrentTabUiMode, resolveInitialTabUiMode } from "./lib/clientTabUiMode";
 import { tabChatCapable } from "./lib/chatUiMode";
-import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
+import { useComposerDraftGc } from "./lib/useComposerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { SidebarDrawer } from "./components/Sidebar/SidebarDrawer";
@@ -305,16 +305,7 @@ function AppInner() {
     [],
   );
 
-  // Reclaim composer drafts left behind by closed tabs so a reused/colliding
-  // tab id can never inherit a dead tab's unsent text.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      pruneOrphanComposerDrafts(window.localStorage, new Set(Object.keys(state.tabs)));
-    } catch {
-      // Best-effort: draft GC must never break the app.
-    }
-  }, [state.tabs]);
+  useComposerDraftGc(state.tabs);
   const configRef = useRef(config);
   configRef.current = config;
 
