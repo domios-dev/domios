@@ -406,6 +406,19 @@ function readinessSignal(line, apiPort) {
   } catch { return false; }
 }
 
+function startupFailureSignal(line) {
+  const prefix = "ERROR: DOMIOS_DEV_FAILURE ";
+  if (!line.startsWith(prefix)) return null;
+  try {
+    const value = JSON.parse(line.slice(prefix.length));
+    const stages = ["resource_root", "inventory", "install", "resource_verification", "server_artifact", "client_artifact", "identity_resolution", "attach", "launch", "reply_validation", "api_attachment", "native_enrollment", "frontend", "startup"];
+    if (Object.keys(value).sort().join(",") !== "exit_code,io_kind,os_error,stage,status"
+      || !stages.includes(value.stage) || value.status !== "refused"
+      || value.io_kind !== null || value.os_error !== null || value.exit_code !== null) return null;
+    return `Native client startup refused at ${value.stage}`;
+  } catch { return null; }
+}
+
 function checkAttachment(options) {
   const log = resolve(option(options, "--log"));
   const stat = lstatSync(log);
@@ -425,12 +438,19 @@ async function supervisePrebuilt(options) {
   const decoder = new StringDecoder("utf8");
   let partial = "";
   let ready = false;
+  let startupFailed = false;
   try {
     const { code, signal } = await runDevApp({ app, log, cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
       const lines = `${partial}${decoder.write(chunk)}`.split(/\r?\n/);
       partial = lines.pop() ?? "";
+      const failure = lines.map(startupFailureSignal).find(Boolean);
+      if (!ready && failure && process.connected) {
+        startupFailed = true;
+        process.send({ type: "failed", error: failure });
+        disconnectSupervisor();
+      }
       const signal = lines.find(line => readinessSignal(line, apiPort));
-      if (!ready && signal) {
+      if (!ready && !startupFailed && signal) {
         ready = true;
         if (process.connected) process.send({ type: "ready", signal });
         disconnectSupervisor();
@@ -439,7 +459,7 @@ async function supervisePrebuilt(options) {
     if (!ready && process.connected) {
       process.send({ type: "failed", error: `prebuilt app exited before readiness (code=${code}, signal=${signal})` });
     }
-    process.exitCode = code ?? (signal ? 1 : 0);
+    process.exitCode = startupFailed ? 1 : code ?? (signal ? 1 : 0);
   } catch (error) {
     if (process.connected) process.send({ type: "failed", error: error.message });
     process.exitCode = 1;

@@ -30,6 +30,92 @@ use tokio::{
     time::{timeout_at, Instant as TokioInstant},
 };
 
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ClientStartupStage {
+    ResourceRoot,
+    Inventory,
+    Install,
+    ResourceVerification,
+    ServerArtifact,
+    ClientArtifact,
+    IdentityResolution,
+    Attach,
+    Launch,
+    ReplyValidation,
+    ApiAttachment,
+    NativeEnrollment,
+    Frontend,
+    Startup,
+}
+
+#[cfg(any(debug_assertions, test))]
+pub(super) fn diagnostic_payload(
+    stage: ClientStartupStage,
+    status: &'static str,
+    error: Option<&io::Error>,
+    exit_code: Option<i32>,
+) -> serde_json::Value {
+    serde_json::json!({ "stage": stage, "status": status,
+        "io_kind": error.map(|error| format!("{:?}", error.kind())),
+        "os_error": error.and_then(io::Error::raw_os_error), "exit_code": exit_code })
+}
+
+fn record_startup(
+    stage: ClientStartupStage,
+    status: &'static str,
+    error: Option<&io::Error>,
+    exit_code: Option<i32>,
+    terminal: bool,
+) {
+    #[cfg(debug_assertions)]
+    {
+        use std::io::Write;
+        use std::sync::atomic::AtomicUsize;
+        static RECORDS: AtomicUsize = AtomicUsize::new(0);
+        if RECORDS
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                (count < 64).then_some(count + 1)
+            })
+            .is_err()
+        {
+            return;
+        }
+        let prefix = if terminal {
+            "ERROR: DOMIOS_DEV_FAILURE"
+        } else {
+            "DOMIOS_CLIENT_DIAGNOSTIC"
+        };
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "{prefix} {}",
+            diagnostic_payload(stage, status, error, exit_code)
+        );
+    }
+    #[cfg(not(debug_assertions))]
+    let _ = (stage, status, error, exit_code, terminal);
+}
+
+pub(crate) fn startup_started(stage: ClientStartupStage) {
+    record_startup(stage, "started", None, None, false);
+}
+pub(crate) fn startup_refused(stage: ClientStartupStage) {
+    record_startup(stage, "refused", None, None, true);
+}
+pub(crate) fn startup_io_error(stage: ClientStartupStage, error: &io::Error) {
+    record_startup(stage, "io_error", Some(error), None, false);
+}
+
+fn helper_diagnostic(stage: ClientStartupStage, error: &HelperFailure) {
+    let (status, code) = match error {
+        HelperFailure::PreDispatch(_) => ("predispatch_refusal", None),
+        HelperFailure::Deadline { .. } => ("deadline", None),
+        HelperFailure::Exit { code, .. } => ("helper_exit", *code),
+        HelperFailure::Io { .. } => ("io_error", None),
+    };
+    record_startup(stage, status, None, code, false);
+}
+
 pub(super) const BOOTSTRAP_DEADLINE: Duration = Duration::from_secs(30);
 
 pub(in crate::host_ports) async fn read_single_bounded_line<R>(
@@ -159,6 +245,7 @@ pub(super) fn verify_install(
     trusted_resource_root: PathBuf,
     launch_options: LaunchOptions,
 ) -> io::Result<VerifiedClientInstall> {
+    startup_started(ClientStartupStage::Install);
     if manifest.schema != SERVER_COMPONENT_SCHEMA
         || manifest.api_version != API_VERSION
         || manifest.bootstrap_protocol != BOOTSTRAP_PROTOCOL
@@ -179,6 +266,7 @@ pub(super) fn verify_install(
     }
     launch_options.validate(cfg!(debug_assertions))?;
 
+    startup_started(ClientStartupStage::ResourceVerification);
     let resource_root = trusted_resource_root.canonicalize()?;
     if !resource_root.is_dir() || launch_options.resources.canonicalize()? != resource_root {
         return Err(io::Error::new(
@@ -200,6 +288,7 @@ pub(super) fn verify_install(
             "Server executable escaped the verified resource root",
         ));
     }
+    startup_started(ClientStartupStage::ServerArtifact);
     if file_sha256(&server_executable)? != manifest.server_sha256 {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
@@ -207,6 +296,7 @@ pub(super) fn verify_install(
         ));
     }
 
+    startup_started(ClientStartupStage::ClientArtifact);
     let client_executable = std::env::current_exe()?.canonicalize()?;
     if client_executable == server_executable
         || file_sha256(&client_executable)? != manifest.client_sha256
@@ -217,6 +307,7 @@ pub(super) fn verify_install(
         ));
     }
 
+    startup_started(ClientStartupStage::IdentityResolution);
     let paths = codeterm_paths::instance_identity::ResolvedInstancePaths::current()?;
     Ok(VerifiedClientInstall {
         manifest,
@@ -322,6 +413,7 @@ pub(super) async fn attach_or_launch(
 ) -> Result<AttachReply, String> {
     let deadline = TokioInstant::now() + BOOTSTRAP_DEADLINE;
     let inspect = attach_request(install);
+    startup_started(ClientStartupStage::Attach);
     match invoke_helper_until(
         &install.server_executable,
         "attach",
@@ -334,11 +426,16 @@ pub(super) async fn attach_or_launch(
         Ok(line) => validate_attach_reply(
             install,
             &inspect,
-            parse_line(&line).map_err(|error| error.to_string())?,
+            parse_line(&line).map_err(|error| {
+                startup_io_error(ClientStartupStage::ReplyValidation, &error);
+                error.to_string()
+            })?,
             true,
         )
         .map_err(|error| error.to_string()),
         Err(error) if error.allows_initial_server_launch() => {
+            helper_diagnostic(ClientStartupStage::Attach, &error);
+            startup_started(ClientStartupStage::Launch);
             match invoke_helper_until(
                 &install.server_executable,
                 "launch",
@@ -351,14 +448,23 @@ pub(super) async fn attach_or_launch(
                 Ok(line) => validate_attach_reply(
                     install,
                     &inspect,
-                    parse_line(&line).map_err(|error| error.to_string())?,
+                    parse_line(&line).map_err(|error| {
+                        startup_io_error(ClientStartupStage::ReplyValidation, &error);
+                        error.to_string()
+                    })?,
                     false,
                 )
                 .map_err(|error| error.to_string()),
-                Err(error) => Err(error.to_string()),
+                Err(error) => {
+                    helper_diagnostic(ClientStartupStage::Launch, &error);
+                    Err(error.to_string())
+                }
             }
         }
-        Err(error) => Err(error.to_string()),
+        Err(error) => {
+            helper_diagnostic(ClientStartupStage::Attach, &error);
+            Err(error.to_string())
+        }
     }
 }
 
@@ -387,7 +493,10 @@ fn validate_attach_reply(
             "Server helper challenge does not match its bootstrap operation",
         ));
     }
-    validate_ready(install, &reply.ready)?;
+    startup_started(ClientStartupStage::ReplyValidation);
+    validate_ready(install, &reply.ready).inspect_err(|error| {
+        startup_io_error(ClientStartupStage::ReplyValidation, error);
+    })?;
     Ok(reply)
 }
 
@@ -430,6 +539,11 @@ where
     T: Serialize,
     F: FnOnce() -> Result<(), HelperFailure> + Send,
 {
+    let stage = if command_name == "launch" {
+        ClientStartupStage::Launch
+    } else {
+        ClientStartupStage::Attach
+    };
     let bytes = serde_json::to_vec(request).map_err(|error| HelperFailure::Io {
         message: error.to_string(),
         request_forwarded: false,
@@ -452,9 +566,12 @@ where
         use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
         child_command.creation_flags(CREATE_NO_WINDOW);
     }
-    let mut child = child_command.spawn().map_err(|error| HelperFailure::Io {
-        message: format!("Server helper could not start: {error}"),
-        request_forwarded: false,
+    let mut child = child_command.spawn().map_err(|error| {
+        startup_io_error(stage, &error);
+        HelperFailure::Io {
+            message: format!("Server helper could not start: {error}"),
+            request_forwarded: false,
+        }
     })?;
     let Some(mut input) = child.stdin.take() else {
         stop_and_reap(&mut child, deadline).await;
@@ -482,6 +599,7 @@ where
         }
         .await;
         if let Err(error) = stream_result {
+            startup_io_error(stage, &error);
             return Err(HelperFailure::Io {
                 message: error.to_string(),
                 request_forwarded: forwarded.load(Ordering::Acquire),
@@ -490,9 +608,12 @@ where
         drop(input);
         let mut reader = tokio::io::BufReader::new(stdout);
         let line = read_single_bounded_line(&mut reader, MAX_NATIVE_HOST_FRAME_BYTES).await;
-        let status = child.wait().await.map_err(|error| HelperFailure::Io {
-            message: error.to_string(),
-            request_forwarded: forwarded.load(Ordering::Acquire),
+        let status = child.wait().await.map_err(|error| {
+            startup_io_error(stage, &error);
+            HelperFailure::Io {
+                message: error.to_string(),
+                request_forwarded: forwarded.load(Ordering::Acquire),
+            }
         })?;
         if !status.success() {
             return Err(HelperFailure::Exit {
@@ -500,9 +621,12 @@ where
                 request_forwarded: forwarded.load(Ordering::Acquire),
             });
         }
-        line.map_err(|error| HelperFailure::Io {
-            message: error.to_string(),
-            request_forwarded: forwarded.load(Ordering::Acquire),
+        line.map_err(|error| {
+            startup_io_error(stage, &error);
+            HelperFailure::Io {
+                message: error.to_string(),
+                request_forwarded: forwarded.load(Ordering::Acquire),
+            }
         })
     })
     .await;

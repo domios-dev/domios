@@ -74,12 +74,29 @@ pub fn run(
             }
             #[cfg(unix)]
             install_client_signal_handlers(app_handle.clone());
-            let root = client_resource_root(&app_handle)?;
+            let root = client_resource_root(&app_handle).inspect_err(|error| {
+                crate::host_ports::native_client::startup_io_error(
+                    crate::host_ports::native_client::ClientStartupStage::ResourceRoot,
+                    error,
+                );
+                crate::host_ports::native_client::startup_refused(
+                    crate::host_ports::native_client::ClientStartupStage::ResourceRoot,
+                );
+            })?;
             let instance = selector.clone();
             tauri::async_runtime::spawn(async move {
-                let inputs =
-                    tokio::task::spawn_blocking(move || load_client_components(root, instance))
-                        .await;
+                let inputs = tokio::task::spawn_blocking(move || {
+                    crate::host_ports::native_client::startup_started(
+                        crate::host_ports::native_client::ClientStartupStage::Inventory,
+                    );
+                    load_client_components(root, instance).inspect_err(|error| {
+                        crate::host_ports::native_client::startup_io_error(
+                            crate::host_ports::native_client::ClientStartupStage::Inventory,
+                            error,
+                        );
+                    })
+                })
+                .await;
                 let result = match inputs {
                     Ok(Ok((manifest, resources, options))) => {
                         crate::host_ports::native_client::initialize_client(
@@ -101,33 +118,45 @@ pub fn run(
                             attached.native
                         );
                         #[cfg(debug_assertions)]
-                        if matches!(
+                        let readiness = matches!(
                             attached.native,
                             crate::host_ports::native_client::NativeClientStatus::Attached
-                        ) {
-                            eprintln!(
-                                "DOMIOS_DEV_ATTACHMENT {}",
-                                serde_json::json!({
-                                    "protocol": attached.ready.protocol,
-                                    "client_pid": std::process::id(),
-                                    "server_pid": attached.ready.process.pid,
-                                    "epoch": attached.ready.epoch,
-                                    "api_address": attached.ready.api_address.to_string(),
-                                })
-                            );
-                        }
+                        )
+                        .then(|| {
+                            serde_json::json!({
+                                "protocol": attached.ready.protocol,
+                                "client_pid": std::process::id(),
+                                "server_pid": attached.ready.process.pid,
+                                "epoch": attached.ready.epoch,
+                                "api_address": attached.ready.api_address.to_string(),
+                            })
+                        });
                         let handle = app_handle.clone();
                         if let Err(error) = app_handle.run_on_main_thread(move || {
                             if let Err(error) = start_attached_frontend(&handle) {
+                                crate::host_ports::native_client::startup_refused(
+                                    crate::host_ports::native_client::ClientStartupStage::Frontend,
+                                );
                                 log::error!("[client] frontend initialization refused: {error}");
                                 handle.exit(1);
+                                return;
+                            }
+                            #[cfg(debug_assertions)]
+                            if let Some(readiness) = readiness {
+                                eprintln!("DOMIOS_DEV_ATTACHMENT {readiness}");
                             }
                         }) {
+                            crate::host_ports::native_client::startup_refused(
+                                crate::host_ports::native_client::ClientStartupStage::Frontend,
+                            );
                             log::error!("[client] frontend scheduling refused: {error}");
                             app_handle.exit(1);
                         }
                     }
                     Err(error) => {
+                        crate::host_ports::native_client::startup_refused(
+                            crate::host_ports::native_client::ClientStartupStage::Startup,
+                        );
                         log::error!("[client] server attachment refused: {error}");
                         let handle = app_handle.clone();
                         if let Err(error) = app_handle.run_on_main_thread(move || {
