@@ -1,7 +1,7 @@
 use domios_server::{
     bootstrap::{
         channel,
-        protocol::{AttachReply, AttachRequest, FAILURE_DEADLINE},
+        protocol::{with_observation_preflight, AttachReply, AttachRequest, FAILURE_DEADLINE},
     },
     launch::{spawn_detached, LaunchOptions},
 };
@@ -34,17 +34,18 @@ fn execute() -> io::Result<()> {
     }
     if command == "attach" || command == "observe" {
         let request: AttachRequest = serde_json::from_str(&input).map_err(io::Error::other)?;
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        let (reply, pin) =
-            runtime.block_on(channel::attach(&request, &std::env::current_exe()?))?;
+        let attach = || -> io::Result<_> {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            runtime.block_on(channel::attach(&request, &std::env::current_exe()?))
+        };
+        let (reply, pin) = if command == "observe" {
+            with_observation_preflight(&request, attach)?
+        } else {
+            attach()
+        }?;
         if command == "observe" {
-            if request.expected.is_none() {
-                return Err(io::Error::other(
-                    "Observation requires exact expected incarnation",
-                ));
-            }
             let mut stdout = io::stdout().lock();
             writeln!(
                 stdout,

@@ -36,6 +36,40 @@ fn request(ready: &ServerReady) -> AttachRequest {
 }
 
 #[test]
+fn process_split_contract_observe_preflight_refuses_effects_before_attach_executor() {
+    use codeterm_types::server_bootstrap::ServerExpectation;
+    use std::cell::Cell;
+
+    let ready = ready();
+    let mut request = request(&ready);
+    request.expected = Some(ServerExpectation {
+        process: ready.process.clone(),
+        epoch: ready.epoch.clone(),
+    });
+    request.operation = BootstrapOperation::Shutdown;
+    assert!(validate_attach(&request, &ready).is_ok());
+    let executions = Cell::new(0);
+    let attach = || {
+        executions.set(executions.get() + 1);
+        42
+    };
+    assert!(with_observation_preflight(&request, attach).is_err());
+    assert_eq!(executions.get(), 0);
+
+    request.operation = BootstrapOperation::Inspect;
+    request.expected = None;
+    assert!(with_observation_preflight(&request, attach).is_err());
+    assert_eq!(executions.get(), 0);
+
+    request.expected = Some(ServerExpectation {
+        process: ready.process.clone(),
+        epoch: ready.epoch.clone(),
+    });
+    assert_eq!(with_observation_preflight(&request, attach).unwrap(), 42);
+    assert_eq!(executions.get(), 1);
+}
+
+#[test]
 fn process_split_contract_attach_requires_exact_identity_build_and_protocol() {
     let ready = ready();
     let mut request = request(&ready);
