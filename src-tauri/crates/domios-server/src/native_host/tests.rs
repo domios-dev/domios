@@ -1,19 +1,25 @@
 use super::enrollment::{
     enroll, verify_client_process, verify_component, EnrollmentPolicy, VerifiedClientProcess,
 };
+use super::transport::{NativeHostEndpoint, Pending, Session, SessionState};
 use crate::bootstrap::process::PinnedProcess;
 use codeterm_types::{
     native_host::{
-        NativeHostChallenge, NativeHostCompletion, NativeHostConnection, NativeHostEnrollmentRequest,
-        NativeHostRejection, NativeHostReply, NativeHostRequestId, NativeHostResult,
-        NativeHostScope, NativeHostUncertainty, NativeViewBinding, NATIVE_HOST_PROTOCOL,
+        NativeHostChallenge, NativeHostCompletion, NativeHostConnection,
+        NativeHostEnrollmentRequest, NativeHostFrame, NativeHostRejection, NativeHostReply,
+        NativeHostRequestId, NativeHostResult, NativeHostScope, NativeHostUncertainty,
+        NativeViewBinding, NATIVE_HOST_PROTOCOL,
+    },
+    native_update::{
+        ExpectedServer, NativeUpdateAction, NativeUpdateObservationOutcome,
+        NativeUpdateOperationId, NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult,
+        NativeUpdateStage, NativeUpdateState, NativeUpdateUncertainty,
     },
     server_bootstrap::{
-        ProcessProvenance, ServerComponentManifest, ServerIdentity, ServerReady,
-        API_VERSION, BOOTSTRAP_PROTOCOL, SERVER_COMPONENT_SCHEMA,
+        ProcessProvenance, ServerComponentManifest, ServerIdentity, ServerReady, API_VERSION,
+        BOOTSTRAP_PROTOCOL, SERVER_COMPONENT_SCHEMA,
     },
 };
-use super::transport::{NativeHostEndpoint, Pending, Session, SessionState};
 use parking_lot::{Mutex, RwLock};
 use sha2::{Digest, Sha256};
 use std::{
@@ -46,6 +52,7 @@ fn connection(generation: u64) -> NativeHostConnection {
 fn server_fixture(path: PathBuf, bytes: &[u8]) -> (ServerComponentManifest, ServerReady) {
     fs::write(&path, bytes).unwrap();
     let executable = path.canonicalize().unwrap();
+    let resource_root = path.parent().unwrap().canonicalize().unwrap();
     let identity = connection(1).identity;
     let process = ProcessProvenance {
         pid: 42,
@@ -55,7 +62,7 @@ fn server_fixture(path: PathBuf, bytes: &[u8]) -> (ServerComponentManifest, Serv
     let manifest = ServerComponentManifest {
         schema: SERVER_COMPONENT_SCHEMA,
         server_build: "server-build-a".into(),
-        server_executable: executable.clone(),
+        server_executable: path.file_name().unwrap().into(),
         server_sha256: digest(bytes),
         client_sha256: "a".repeat(64),
         api_version: API_VERSION,
@@ -72,7 +79,7 @@ fn server_fixture(path: PathBuf, bytes: &[u8]) -> (ServerComponentManifest, Serv
         api_address: "127.0.0.1:7686".parse().unwrap(),
         socket_address: "socket".into(),
         bootstrap_address: "bootstrap".into(),
-        resources: PathBuf::from("resources"),
+        resources: resource_root,
     };
     (manifest, ready)
 }
@@ -166,16 +173,221 @@ fn component_manifest_pins_server_protocol_build_path_and_bytes() {
     let path = directory.path().join("server-fixture.bin");
     let bytes = b"server fixture image";
     let (manifest, ready) = server_fixture(path, bytes);
+    let valid_manifest = manifest.clone();
 
-    assert!(verify_component(&manifest, &ready).is_ok());
+    assert!(verify_component(&manifest, &ready, &ready.resources).is_ok());
 
     let mut wrong_digest = manifest.clone();
     wrong_digest.server_sha256 = "b".repeat(64);
-    assert!(verify_component(&wrong_digest, &ready).is_err());
+    assert!(verify_component(&wrong_digest, &ready, &ready.resources).is_err());
 
-    let mut wrong_build = manifest;
+    let mut wrong_build = manifest.clone();
     wrong_build.server_build = "other-build".into();
-    assert!(verify_component(&wrong_build, &ready).is_err());
+    assert!(verify_component(&wrong_build, &ready, &ready.resources).is_err());
+
+    let mut absolute_path = manifest.clone();
+    absolute_path.server_executable = ready.process.executable.clone();
+    assert!(verify_component(&absolute_path, &ready, &ready.resources).is_err());
+
+    let mut escaping_path = manifest;
+    escaping_path.server_executable = PathBuf::from("../server-fixture.bin");
+    assert!(verify_component(&escaping_path, &ready, &ready.resources).is_err());
+    assert!(verify_component(&valid_manifest, &ready, ready.resources.parent().unwrap()).is_err());
+}
+
+fn update_request_and_connection() -> (NativeUpdateRequest, NativeHostConnection) {
+    let manifest_executable = PathBuf::from("domios-server");
+    let process_executable = std::env::current_dir()
+        .unwrap()
+        .join("resources")
+        .join(&manifest_executable);
+    let components = ServerComponentManifest {
+        schema: SERVER_COMPONENT_SCHEMA,
+        server_build: "server-build-a".into(),
+        server_executable: manifest_executable,
+        server_sha256: "a".repeat(64),
+        client_sha256: "b".repeat(64),
+        api_version: API_VERSION,
+        bootstrap_protocol: BOOTSTRAP_PROTOCOL,
+    };
+    let identity = ServerIdentity {
+        data: PathBuf::from("/tmp/domios-data"),
+        config: PathBuf::from("/tmp/domios-config"),
+    };
+    let request = NativeUpdateRequest {
+        operation_id: NativeUpdateOperationId::new(uuid::Uuid::from_u128(101)).unwrap(),
+        action: NativeUpdateAction::ClientOnly,
+        expected_server: ExpectedServer {
+            components: components.clone(),
+            identity: identity.clone(),
+            incarnation: codeterm_types::server_bootstrap::ServerExpectation {
+                process: ProcessProvenance {
+                    pid: 41,
+                    created: "server-created".into(),
+                    executable: process_executable,
+                },
+                epoch: "server-epoch".into(),
+            },
+        },
+        staged_components: ServerComponentManifest {
+            client_sha256: "c".repeat(64),
+            ..components
+        },
+        restart_authorized: false,
+    };
+    let connection = NativeHostConnection {
+        instance_id: "instance-a".into(),
+        identity,
+        server_epoch: "server-epoch".into(),
+        generation: 7,
+    };
+    (request, connection)
+}
+
+#[test]
+fn native_update_dispatch_maps_only_exact_native_results() {
+    let (request, connection) = update_request_and_connection();
+    let reply = NativeUpdateResult {
+        operation_id: request.operation_id,
+        sequence: 1,
+        connection: connection.clone(),
+        state: NativeUpdateState::InProgress {
+            stage: NativeUpdateStage::Applying,
+        },
+    };
+    assert_eq!(
+        super::enrollment::map_dispatch_completion(
+            &connection,
+            &request,
+            NativeHostCompletion::Completed(NativeHostResult::NativeUpdate(reply.clone()))
+        ),
+        codeterm_types::native_update::NativeUpdateDispatchOutcome::Reply(reply)
+    );
+    assert_eq!(
+        super::enrollment::map_dispatch_completion(
+            &connection,
+            &request,
+            NativeHostCompletion::Rejected(NativeHostRejection::Unsupported)
+        ),
+        codeterm_types::native_update::NativeUpdateDispatchOutcome::RefusedBeforeExecution {
+            reason: NativeUpdateRefusal::NativeHostUnavailable,
+        }
+    );
+    assert_eq!(
+        super::enrollment::map_dispatch_completion(
+            &connection,
+            &request,
+            NativeHostCompletion::Uncertain(NativeHostUncertainty::DeadlineAfterDispatch)
+        ),
+        codeterm_types::native_update::NativeUpdateDispatchOutcome::UncertainAfterExecution {
+            reason: NativeUpdateUncertainty::DeadlineAfterDispatch,
+        }
+    );
+}
+
+#[test]
+fn native_update_observation_preserves_exact_evidence_and_failures() {
+    let (request, connection) = update_request_and_connection();
+    let no_evidence = super::enrollment::map_observation_completion(
+        &connection,
+        &request,
+        NativeHostCompletion::Completed(NativeHostResult::NativeUpdateObservation(
+            NativeUpdateObservationOutcome::NoNewEvidence,
+        )),
+        None,
+        0,
+    );
+    assert_eq!(no_evidence, NativeUpdateObservationOutcome::NoNewEvidence);
+
+    let unavailable = NativeUpdateObservationOutcome::Unavailable {
+        reason: NativeUpdateUncertainty::DisconnectedAfterDispatch,
+    };
+    assert_eq!(
+        super::enrollment::map_observation_completion(
+            &connection,
+            &request,
+            NativeHostCompletion::Completed(NativeHostResult::NativeUpdateObservation(
+                unavailable.clone(),
+            )),
+            None,
+            0,
+        ),
+        unavailable
+    );
+
+    let reply = NativeUpdateResult {
+        operation_id: request.operation_id,
+        sequence: 3,
+        connection: connection.clone(),
+        state: NativeUpdateState::InProgress {
+            stage: NativeUpdateStage::Applying,
+        },
+    };
+    assert_eq!(
+        super::enrollment::map_observation_completion(
+            &connection,
+            &request,
+            NativeHostCompletion::Completed(NativeHostResult::NativeUpdateObservation(
+                NativeUpdateObservationOutcome::Reply(reply.clone()),
+            )),
+            None,
+            2,
+        ),
+        NativeUpdateObservationOutcome::Reply(reply.clone())
+    );
+
+    let stale = NativeUpdateResult {
+        sequence: 2,
+        ..reply.clone()
+    };
+    assert_eq!(
+        super::enrollment::map_observation_completion(
+            &connection,
+            &request,
+            NativeHostCompletion::Completed(NativeHostResult::NativeUpdateObservation(
+                NativeUpdateObservationOutcome::Reply(stale),
+            )),
+            None,
+            2,
+        ),
+        NativeUpdateObservationOutcome::Unavailable {
+            reason: NativeUpdateUncertainty::InvalidReplyAfterDispatch,
+        }
+    );
+}
+
+#[test]
+fn native_host_frame_round_trips_typed_observation_variants() {
+    let (request, connection) = update_request_and_connection();
+    let result = NativeUpdateResult {
+        operation_id: request.operation_id,
+        sequence: 1,
+        connection: connection.clone(),
+        state: NativeUpdateState::InProgress {
+            stage: NativeUpdateStage::Applying,
+        },
+    };
+    for observation in [
+        NativeUpdateObservationOutcome::Reply(result),
+        NativeUpdateObservationOutcome::NoNewEvidence,
+        NativeUpdateObservationOutcome::Unavailable {
+            reason: NativeUpdateUncertainty::InvalidReplyAfterDispatch,
+        },
+    ] {
+        let frame =
+            NativeHostFrame::<NativeUpdateRequest, NativeUpdateResult>::Reply(NativeHostReply {
+                request_id: NativeHostRequestId(8),
+                connection: connection.clone(),
+                scope: NativeHostScope::Client,
+                completion: NativeHostCompletion::Completed(
+                    NativeHostResult::NativeUpdateObservation(observation),
+                ),
+            });
+        let bytes = serde_json::to_vec(&frame).unwrap();
+        let decoded: NativeHostFrame<NativeUpdateRequest, NativeUpdateResult> =
+            serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(decoded, frame);
+    }
 }
 
 #[test]
@@ -279,7 +491,9 @@ async fn replaced_connection_generation_cannot_dispatch_queued_work() {
             dispatched: false,
         },
     );
-    session.active_generation.store(10, std::sync::atomic::Ordering::Release);
+    session
+        .active_generation
+        .store(10, std::sync::atomic::Ordering::Release);
 
     assert!(!session.mark_dispatched(request_id));
     assert!(!session.state.lock().pending[&request_id].dispatched);

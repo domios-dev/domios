@@ -1,3 +1,8 @@
+mod bootstrap;
+use bootstrap::VerifiedClientInstall;
+pub(super) use bootstrap::{read_single_bounded_line, HelperFailure};
+
+use codeterm_process_identity::PinnedProcess;
 use codeterm_types::{
     native_host::{
         NativeHostChallenge, NativeHostCompletion, NativeHostConnection, NativeHostEvent,
@@ -9,9 +14,7 @@ use codeterm_types::{
     },
     native_update::{NativeUpdateObservationOutcome, NativeUpdateRequest, NativeUpdateResult},
     server_bootstrap::{
-        AttachReply, AttachRequest, BootstrapOperation, InstanceSelector, LaunchOptions,
-        ProcessProvenance, ServerComponentManifest, ServerExpectation, ServerIdentity, ServerReady,
-        API_VERSION, BOOTSTRAP_PROTOCOL, SERVER_COMPONENT_SCHEMA,
+        LaunchOptions, ProcessProvenance, ServerComponentManifest, ServerIdentity, ServerReady,
     },
 };
 use interprocess::local_socket::{
@@ -20,13 +23,12 @@ use interprocess::local_socket::{
 };
 use parking_lot::{Mutex, RwLock};
 use serde::{de::DeserializeOwned, Serialize};
-use sha2::{Digest, Sha256};
+#[cfg(test)]
+use std::path::Path;
 use std::{
     collections::{HashSet, VecDeque},
-    fs::File,
-    io::{self, Read},
-    path::{Component, Path, PathBuf},
-    process::Stdio,
+    io,
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
@@ -36,7 +38,6 @@ use std::{
 use tauri::{Emitter, Manager};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    process::Command,
     sync::{mpsc, oneshot, watch, Semaphore},
     time::timeout,
 };
@@ -45,7 +46,6 @@ use url::Url;
 type AppHandle = codeterm_host_runtime::app_runtime::AppHandle;
 type Frame = NativeHostFrame<NativeUpdateRequest, NativeUpdateResult>;
 
-const BOOTSTRAP_DEADLINE: Duration = Duration::from_secs(30);
 const REQUEST_DEADLINE: Duration = Duration::from_secs(10);
 
 enum NativeLocalOutcome {
@@ -76,10 +76,98 @@ pub(crate) struct NativeClientInitialization {
     pub(crate) native: NativeClientStatus,
 }
 
+#[derive(Clone)]
+struct NativeClientInstallInputs {
+    manifest: ServerComponentManifest,
+    trusted_resource_root: PathBuf,
+    launch_options: LaunchOptions,
+}
+
+#[derive(Clone)]
+struct NativeClientInitializationGate {
+    inputs: Arc<NativeClientInstallInputs>,
+    running: Arc<AtomicBool>,
+}
+
+impl NativeClientInitializationGate {
+    fn acquire(&self) -> Option<NativeClientInitializationPermit> {
+        self.running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()?;
+        Some(NativeClientInitializationPermit(self.running.clone()))
+    }
+}
+
+struct NativeClientInitializationPermit(Arc<AtomicBool>);
+
+impl Drop for NativeClientInitializationPermit {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ExactServerShutdownResult {
+    Confirmed {
+        server: ServerReady,
+        client_generation: u64,
+    },
+    RefusedBeforeDispatch(ExactServerShutdownRefusal),
+    UncertainAfterDispatch(ExactServerShutdownUncertainty),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExactServerShutdownRefusal {
+    ApiAttachmentUnavailable,
+    NativeHostUnavailable,
+    StaleIncarnation,
+    ProcessInspectionFailed,
+    HelperArtifactInvalid,
+    VerificationIoFailure,
+    VerificationDeadline,
+    VerificationInterrupted,
+    HelperDeadlineBeforeDispatch,
+    HelperUnavailable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExactServerShutdownUncertainty {
+    HelperOutcomeUnknown,
+    HelperDeadlineAfterDispatch,
+    InvalidReply,
+    ServerExitUnobserved,
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct NativeHostClientSlot(Arc<RwLock<Option<Arc<NativeHostClient>>>>);
 
 impl NativeHostClientSlot {
+    pub(crate) async fn request_exact_server_shutdown(
+        &self,
+        api: &super::ServerApiAttachmentSlot,
+    ) -> ExactServerShutdownResult {
+        let Some(server_api) = api.current() else {
+            return ExactServerShutdownResult::RefusedBeforeDispatch(
+                ExactServerShutdownRefusal::ApiAttachmentUnavailable,
+            );
+        };
+        let Some(client) = self.0.read().clone() else {
+            return ExactServerShutdownResult::RefusedBeforeDispatch(
+                ExactServerShutdownRefusal::NativeHostUnavailable,
+            );
+        };
+        client
+            .request_exact_server_shutdown(server_api.ready().clone(), api, self)
+            .await
+    }
+
+    fn is_current(&self, client: &Arc<NativeHostClient>) -> bool {
+        self.0
+            .read()
+            .as_ref()
+            .is_some_and(|active| Arc::ptr_eq(active, client))
+    }
+
     pub(crate) fn bind_observed_view(
         &self,
         url: &Url,
@@ -135,30 +223,64 @@ impl NativeHostClientSlot {
     }
 }
 
-struct VerifiedClientInstall {
-    manifest: ServerComponentManifest,
-    resource_root: PathBuf,
-    server_executable: PathBuf,
-    client_process: ProcessProvenance,
-    identity: ServerIdentity,
-    launch_options: LaunchOptions,
-}
-
 pub(crate) async fn initialize_client(
     app: AppHandle,
     manifest: ServerComponentManifest,
     trusted_resource_root: PathBuf,
     launch_options: LaunchOptions,
 ) -> Result<NativeClientInitialization, String> {
+    let inputs = Arc::new(NativeClientInstallInputs {
+        manifest,
+        trusted_resource_root,
+        launch_options,
+    });
+    if app.try_state::<NativeClientInitializationGate>().is_some() {
+        return Err("Native client initialization inputs are already installed".into());
+    }
+    let gate = NativeClientInitializationGate {
+        inputs: inputs.clone(),
+        running: Arc::new(AtomicBool::new(false)),
+    };
+    if !app.manage(gate.clone()) {
+        return Err("Native client initialization inputs could not be retained".into());
+    }
+    let _permit = gate
+        .acquire()
+        .ok_or_else(|| "Native client initialization is already active".to_string())?;
+    initialize_client_once(app, inputs).await
+}
+
+pub(crate) async fn retry_initialize_client(
+    app: AppHandle,
+) -> Result<NativeClientInitialization, String> {
+    let gate = app
+        .try_state::<NativeClientInitializationGate>()
+        .map(|state| state.inner().clone())
+        .ok_or_else(|| "Verified native client installation inputs are unavailable".to_string())?;
+    let _permit = gate
+        .acquire()
+        .ok_or_else(|| "Native client initialization is already active".to_string())?;
+    initialize_client_once(app, gate.inputs.clone()).await
+}
+
+async fn initialize_client_once(
+    app: AppHandle,
+    inputs: Arc<NativeClientInstallInputs>,
+) -> Result<NativeClientInitialization, String> {
+    let NativeClientInstallInputs {
+        manifest,
+        trusted_resource_root,
+        launch_options,
+    } = inputs.as_ref().clone();
     let verified = tokio::task::spawn_blocking(move || {
-        verify_install(manifest, trusted_resource_root, launch_options)
+        bootstrap::verify_install(manifest, trusted_resource_root, launch_options)
     })
     .await
     .map_err(|error| format!("Client install verification task failed: {error}"))?
     .map_err(|error| error.to_string())?;
 
-    let reply = attach_or_launch(&verified).await?;
-    validate_ready(&verified, &reply.ready).map_err(|error| error.to_string())?;
+    let reply = bootstrap::attach_or_launch(&verified).await?;
+    bootstrap::validate_ready(&verified, &reply.ready).map_err(|error| error.to_string())?;
     let token = reply
         .api_token
         .filter(|token| !token.trim().is_empty())
@@ -212,277 +334,6 @@ pub(crate) async fn initialize_client(
     })
 }
 
-fn verify_install(
-    manifest: ServerComponentManifest,
-    trusted_resource_root: PathBuf,
-    launch_options: LaunchOptions,
-) -> io::Result<VerifiedClientInstall> {
-    if manifest.schema != SERVER_COMPONENT_SCHEMA
-        || manifest.api_version != API_VERSION
-        || manifest.bootstrap_protocol != BOOTSTRAP_PROTOCOL
-        || manifest.server_build.trim().is_empty()
-        || !valid_digest(&manifest.server_sha256)
-        || !valid_digest(&manifest.client_sha256)
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Installed component manifest is invalid",
-        ));
-    }
-    if launch_options.probe_sink.is_some() || launch_options.probe_identity_alias.is_some() {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Native client cannot forward process-probe identities",
-        ));
-    }
-    launch_options.validate(cfg!(debug_assertions))?;
-
-    let resource_root = trusted_resource_root.canonicalize()?;
-    if !resource_root.is_dir() || launch_options.resources.canonicalize()? != resource_root {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Server resources differ from the verified component root",
-        ));
-    }
-    let server_relative = &manifest.server_executable;
-    if !valid_server_relative_path(server_relative) {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Server executable must be a confined resource-relative path",
-        ));
-    }
-    let server_executable = resource_root.join(server_relative).canonicalize()?;
-    if !server_executable.starts_with(&resource_root) || !server_executable.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Server executable escaped the verified resource root",
-        ));
-    }
-    if file_sha256(&server_executable)? != manifest.server_sha256 {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Server executable digest does not match the installed manifest",
-        ));
-    }
-
-    let client_executable = std::env::current_exe()?.canonicalize()?;
-    if client_executable == server_executable
-        || file_sha256(&client_executable)? != manifest.client_sha256
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Client executable differs from the installed component manifest",
-        ));
-    }
-
-    let paths = codeterm_paths::instance_identity::ResolvedInstancePaths::current()?;
-    Ok(VerifiedClientInstall {
-        manifest,
-        resource_root,
-        server_executable,
-        client_process: ProcessProvenance {
-            pid: std::process::id(),
-            created: String::new(),
-            executable: client_executable,
-        },
-        identity: ServerIdentity {
-            data: paths.data().to_path_buf(),
-            config: paths.config().to_path_buf(),
-        },
-        launch_options,
-    })
-}
-
-fn valid_digest(digest: &str) -> bool {
-    digest.len() == 64
-        && digest
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-}
-
-fn valid_server_relative_path(path: &Path) -> bool {
-    !path.as_os_str().is_empty()
-        && path
-            .components()
-            .all(|component| matches!(component, Component::Normal(_)))
-}
-
-fn file_sha256(path: &Path) -> io::Result<String> {
-    let mut file = File::open(path)?;
-    let mut digest = Sha256::new();
-    let mut buffer = [0; 32 * 1024];
-    loop {
-        let read = file.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        digest.update(&buffer[..read]);
-    }
-    Ok(format!("{:x}", digest.finalize()))
-}
-
-async fn attach_or_launch(install: &VerifiedClientInstall) -> Result<AttachReply, String> {
-    let inspect = attach_request(install);
-    match invoke_helper(&install.server_executable, "attach", &inspect).await {
-        Ok(line) => validate_attach_reply(
-            install,
-            &inspect,
-            parse_line(&line).map_err(|error| error.to_string())?,
-            true,
-        )
-        .map_err(|error| error.to_string()),
-        Err(_) => {
-            match invoke_helper(
-                &install.server_executable,
-                "launch",
-                &install.launch_options,
-            )
-            .await
-            {
-                Ok(line) => validate_attach_reply(
-                    install,
-                    &inspect,
-                    parse_line(&line).map_err(|error| error.to_string())?,
-                    false,
-                )
-                .map_err(|error| error.to_string()),
-                Err(_) => {
-                    let retry = attach_request(install);
-                    let line = invoke_helper(&install.server_executable, "attach", &retry).await?;
-                    validate_attach_reply(
-                        install,
-                        &retry,
-                        parse_line(&line).map_err(|error| error.to_string())?,
-                        true,
-                    )
-                    .map_err(|error| error.to_string())
-                }
-            }
-        }
-    }
-}
-
-fn attach_request(install: &VerifiedClientInstall) -> AttachRequest {
-    AttachRequest {
-        protocol: install.manifest.bootstrap_protocol,
-        api_version: install.manifest.api_version,
-        build: install.manifest.server_build.clone(),
-        identity: install.identity.clone(),
-        challenge: uuid::Uuid::new_v4().to_string(),
-        operation: BootstrapOperation::Inspect,
-        expected: None,
-    }
-}
-
-fn validate_attach_reply(
-    install: &VerifiedClientInstall,
-    request: &AttachRequest,
-    reply: AttachReply,
-    attached: bool,
-) -> io::Result<AttachReply> {
-    if attached && reply.challenge != request.challenge || !attached && !reply.challenge.is_empty()
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Server helper challenge does not match its bootstrap operation",
-        ));
-    }
-    validate_ready(install, &reply.ready)?;
-    Ok(reply)
-}
-
-fn validate_ready(install: &VerifiedClientInstall, ready: &ServerReady) -> io::Result<()> {
-    let process_executable = ready.process.executable.canonicalize()?;
-    let resources = ready.resources.canonicalize()?;
-    if ready.protocol != install.manifest.bootstrap_protocol
-        || ready.api_version != install.manifest.api_version
-        || ready.build != install.manifest.server_build
-        || ready.identity != install.identity
-        || ready.epoch.trim().is_empty()
-        || ready.instance_id.trim().is_empty()
-        || ready.process.pid == 0
-        || ready.process.created.trim().is_empty()
-        || process_executable != install.server_executable
-        || resources != install.resource_root
-        || !ready.api_address.ip().is_loopback()
-        || codeterm_types::native_host::native_host_socket_address(&ready.bootstrap_address)
-            .is_none()
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Server readiness differs from the trusted installed identity",
-        ));
-    }
-    Ok(())
-}
-
-async fn invoke_helper<T: Serialize>(
-    executable: &Path,
-    command_name: &str,
-    request: &T,
-) -> Result<String, String> {
-    let mut child_command = Command::new(executable);
-    child_command
-        .arg(command_name)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
-        child_command.creation_flags(CREATE_NO_WINDOW);
-    }
-    let mut child = child_command
-        .spawn()
-        .map_err(|error| format!("Server helper could not start: {error}"))?;
-    let mut input = child
-        .stdin
-        .take()
-        .ok_or_else(|| "Server helper input pipe is unavailable".to_string())?;
-    let bytes = serde_json::to_vec(request).map_err(|error| error.to_string())?;
-    if bytes.is_empty() || bytes.len() >= MAX_NATIVE_HOST_FRAME_BYTES {
-        return Err("Server helper request exceeds its bound".into());
-    }
-    timeout(BOOTSTRAP_DEADLINE, async {
-        input.write_all(&bytes).await?;
-        input.write_all(b"\n").await?;
-        input.flush().await
-    })
-    .await
-    .map_err(|_| "Server helper request write deadline elapsed".to_string())?
-    .map_err(|error| error.to_string())?;
-    drop(input);
-
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "Server helper output pipe is unavailable".to_string())?;
-    let mut reader = tokio::io::BufReader::new(stdout);
-    let mut line = Vec::new();
-    let count = timeout(BOOTSTRAP_DEADLINE, reader.read_until(b'\n', &mut line))
-        .await
-        .map_err(|_| "Server helper readiness deadline elapsed".to_string())?
-        .map_err(|error| error.to_string())?;
-    if count == 0 || count > MAX_NATIVE_HOST_FRAME_BYTES || line.last() != Some(&b'\n') {
-        let _ = child.kill().await;
-        return Err("Server helper returned no bounded readiness frame".into());
-    }
-    let status = timeout(BOOTSTRAP_DEADLINE, child.wait())
-        .await
-        .map_err(|_| "Server helper exit deadline elapsed".to_string())?
-        .map_err(|error| error.to_string())?;
-    if !status.success() {
-        return Err("Server helper refused the requested operation".into());
-    }
-    String::from_utf8(line).map_err(|error| error.to_string())
-}
-
-fn parse_line<T: serde::de::DeserializeOwned>(line: &str) -> io::Result<T> {
-    serde_json::from_str(line.trim_end()).map_err(io::Error::other)
-}
-
 async fn connect_native_host(
     app: AppHandle,
     install: &VerifiedClientInstall,
@@ -499,7 +350,8 @@ async fn connect_native_host(
         .await
         .map_err(|_| "Native-host socket connection deadline elapsed".to_string())?
         .map_err(|error| error.to_string())?;
-    verify_native_peer(&stream, ready).map_err(|error| error.to_string())?;
+    let server_process =
+        Arc::new(verify_native_peer(&stream, ready).map_err(|error| error.to_string())?);
 
     let challenge_frame: Frame = timeout(REQUEST_DEADLINE, read_frame(&mut stream))
         .await
@@ -534,15 +386,16 @@ async fn connect_native_host(
     let NativeHostFrame::Enrolled(enrollment) = enrollment_frame else {
         return Err("Native host did not acknowledge enrollment".into());
     };
+    server_process
+        .ensure_alive()
+        .map_err(|error| error.to_string())?;
     let own_process = &install.client_process;
     if enrollment.protocol != NATIVE_HOST_PROTOCOL
         || enrollment.challenge != challenge.challenge
         || enrollment.connection != challenge.connection
         || enrollment.view.is_some()
         || enrollment.client_process.pid != own_process.pid
-        || enrollment.client_process.executable.canonicalize().ok()
-            != Some(own_process.executable.clone())
-        || enrollment.client_process.created.trim().is_empty()
+        || enrollment.client_process != *own_process
     {
         return Err("Native-host enrollment does not match this client process".into());
     }
@@ -552,6 +405,11 @@ async fn connect_native_host(
     let client = Arc::new(NativeHostClient {
         app,
         connection: challenge.connection,
+        server_process,
+        ready: ready.clone(),
+        manifest: install.manifest.clone(),
+        resource_root: install.resource_root.clone(),
+        server_executable: install.server_executable.clone(),
         client_process: enrollment.client_process,
         allowed_view_origins,
         outbound,
@@ -582,7 +440,7 @@ fn validate_challenge(challenge: &NativeHostChallenge, ready: &ServerReady) -> R
     Ok(())
 }
 
-fn verify_native_peer(stream: &Stream, ready: &ServerReady) -> io::Result<()> {
+fn verify_native_peer(stream: &Stream, ready: &ServerReady) -> io::Result<PinnedProcess> {
     let credentials = stream.peer_creds()?;
     #[cfg(unix)]
     if credentials.euid() != Some(unsafe { native_effective_uid() }) {
@@ -592,13 +450,15 @@ fn verify_native_peer(stream: &Stream, ready: &ServerReady) -> io::Result<()> {
         ));
     }
     let pid = native_peer_pid(stream)?;
-    if pid != ready.process.pid {
+    let process = PinnedProcess::open(pid)?;
+    if process.provenance()? != ready.process {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            "Native-host socket peer differs from the inspected server process",
+            "Native-host socket peer differs from the authenticated server process",
         ));
     }
-    Ok(())
+    process.ensure_alive()?;
+    Ok(process)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -665,6 +525,11 @@ unsafe fn native_effective_uid() -> u32 {
 struct NativeHostClient {
     app: AppHandle,
     connection: NativeHostConnection,
+    server_process: Arc<PinnedProcess>,
+    ready: ServerReady,
+    manifest: ServerComponentManifest,
+    resource_root: PathBuf,
+    server_executable: PathBuf,
     client_process: ProcessProvenance,
     allowed_view_origins: HashSet<String>,
     outbound: mpsc::Sender<Frame>,
@@ -759,7 +624,8 @@ impl NativeHostClient {
     }
 
     fn try_send(&self, frame: Frame) -> Result<(), NativeHostRejection> {
-        if self.retired.load(Ordering::Acquire) {
+        if self.retired.load(Ordering::Acquire) || self.server_process.ensure_alive().is_err() {
+            self.retire();
             return Err(NativeHostRejection::NotAttached);
         }
         self.outbound
@@ -845,6 +711,9 @@ impl NativeHostClient {
                     Err(_) => break,
                 },
             };
+            if self.server_process.ensure_alive().is_err() {
+                break;
+            }
             match frame {
                 NativeHostFrame::Request(request) => {
                     self.accept_request(request, limit.clone());
@@ -866,6 +735,10 @@ impl NativeHostClient {
         request: NativeHostRequest<NativeUpdateRequest>,
         limit: Arc<Semaphore>,
     ) {
+        if self.server_process.ensure_alive().is_err() {
+            self.retire();
+            return;
+        }
         if request.connection != self.connection {
             self.retire();
             return;
@@ -1178,15 +1051,19 @@ mod tests {
 
     #[test]
     fn component_manifest_rejects_absolute_and_parent_server_paths() {
-        assert!(!valid_server_relative_path(Path::new("/server")));
-        assert!(!valid_server_relative_path(Path::new("../server")));
-        assert!(valid_server_relative_path(Path::new("bin/domios-server")));
+        assert!(!bootstrap::valid_server_relative_path(Path::new("/server")));
+        assert!(!bootstrap::valid_server_relative_path(Path::new(
+            "../server"
+        )));
+        assert!(bootstrap::valid_server_relative_path(Path::new(
+            "bin/domios-server"
+        )));
     }
 
     #[test]
     fn digest_format_requires_exact_lowercase_sha256() {
-        assert!(valid_digest(&"a".repeat(64)));
-        assert!(!valid_digest(&"A".repeat(64)));
-        assert!(!valid_digest(&"a".repeat(63)));
+        assert!(bootstrap::valid_digest(&"a".repeat(64)));
+        assert!(!bootstrap::valid_digest(&"A".repeat(64)));
+        assert!(!bootstrap::valid_digest(&"a".repeat(63)));
     }
 }
