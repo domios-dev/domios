@@ -1092,7 +1092,6 @@ dependencies = [
  "codeterm-util",
  "core-foundation",
  "dirs 6.0.0",
- "domios-server",
  "fern",
  "include_dir",
  "log",
@@ -1587,7 +1586,6 @@ dependencies = [
  "codeterm-util",
  "hf-hub",
  "hnsw_rs",
- "libc",
  "log",
  "ndarray",
  "parking_lot",
@@ -3019,43 +3017,6 @@ dependencies = [
  "precomputed-hash",
  "selectors 0.36.1",
  "tendril 0.5.0",
-]
-
-[[package]]
-name = "domios-server"
-version = "1.14.9"
-dependencies = [
- "chrono",
- "codeterm-api",
- "codeterm-billing",
- "codeterm-build-info",
- "codeterm-commands",
- "codeterm-events",
- "codeterm-frontend-bundle",
- "codeterm-orchestration",
- "codeterm-plan",
- "codeterm-plugin",
- "codeterm-sentinel-host",
- "codeterm-service-core",
- "codeterm-socket",
- "codeterm-types",
- "codeterm-util",
- "dirs 6.0.0",
- "fern",
- "include_dir",
- "interprocess",
- "libc",
- "log",
- "parking_lot",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "url",
- "uuid",
- "widestring",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4710,10 +4671,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "069323743400cb7ab06a8fe5c1ed911d36b6919ec531661d034c89083629595b"
 dependencies = [
  "doctest-file",
- "futures-core",
  "libc",
  "recvmsg",
- "tokio",
  "widestring",
  "windows-sys 0.61.2",
 ]

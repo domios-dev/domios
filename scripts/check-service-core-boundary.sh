@@ -29,7 +29,7 @@ fi
 node scripts/check-crate-layering.mjs || status=1
 for leaf in src-tauri/crates/*; do
   case "${leaf##*/}" in
-    domios-server|codeterm-service-core|codeterm-api|codeterm-commands|codeterm-host-runtime|codeterm-orchestration|codeterm-sentinel-host|codeterm-socket) continue ;;
+    codeterm-service-core|codeterm-api|codeterm-commands|codeterm-host-runtime|codeterm-orchestration|codeterm-sentinel-host|codeterm-socket) continue ;;
   esac
   context_refs="$(grep -rnE --include='*.rs' '\bServiceContext\b' "$leaf/src" "$leaf/tests" 2>/dev/null | grep -vE ':[0-9]+:[[:space:]]*//' || true)"
   if [ -n "$context_refs" ]; then

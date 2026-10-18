@@ -4,6 +4,7 @@ use codeterm_service_core::service::MuxEmitCause;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use tauri::Manager;
 
 use codeterm_service_core::multiplexer::types::TabBacking;
 use codeterm_service_core::service::ServiceState;
@@ -25,20 +26,23 @@ fn should_materialize_restored_backend(
         && pty_id.is_none()
 }
 
-fn start_restored_pty_backends(
-    service_state: ServiceState,
-    initialized: std::sync::mpsc::Receiver<()>,
-) {
+use codeterm_service_core::startup::FRONTEND_READINESS_DEADLINE_ELAPSED;
+
+fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_generation: u64) {
     codeterm_service_core::startup::boot_timing::mark("-", None, "restore_scheduled");
     codeterm_util::named_thread::spawn("restore-pty-backends", move || {
-        if !service_initialized(initialized) {
-            log::error!("[startup-pty] service initialization acknowledgement unavailable");
-            return;
-        }
-        let queued = restored_backend_tab_ids(&service_state);
-        for tab_id in &queued {
-            codeterm_service_core::startup::boot_timing::mark(tab_id, None, "wave_queued");
-        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let mut queued = Vec::new();
+        materialize_restored_backends(
+            || super::wait_for_frontend_ready_until(frontend_readiness_generation, deadline),
+            || note_frontend_deadline(&service_state),
+            || restored_backend_tab_ids(&service_state),
+            |tab_id| {
+                codeterm_service_core::startup::boot_timing::mark(tab_id, None, "wave_queued");
+                queued.push(tab_id.to_string());
+                Ok(())
+            },
+        );
         let started = std::time::Instant::now();
         log::debug!(
             "[startup-pty] wave started tabs={} pty_reserved={} pty_shared={} chat_reserved={} chat_shared={}",
@@ -130,8 +134,33 @@ fn publish_backend_materialization_failure(service: &ServiceState, tab_id: &str,
     service.emit_state_changed(MuxEmitCause::Startup);
 }
 
-fn service_initialized(initialized: std::sync::mpsc::Receiver<()>) -> bool {
-    initialized.recv().is_ok()
+/// A missed frontend deadline never abandons restored agents: the backend claims
+/// their PTYs, and a later frontend mount reuses them through the same tab claim.
+fn materialize_restored_backends<W, D, T, M>(
+    wait_frontend: W,
+    on_deadline: D,
+    tab_ids: T,
+    mut materialize: M,
+) -> Vec<String>
+where
+    W: FnOnce() -> bool,
+    D: FnOnce(),
+    T: FnOnce() -> Vec<String>,
+    M: FnMut(&str) -> Result<(), String>,
+{
+    if !wait_frontend() {
+        log::warn!(
+            "[startup-pty] frontend readiness deadline elapsed; materializing restored backends without the frontend"
+        );
+        on_deadline();
+    }
+    let tab_ids = tab_ids();
+    for tab_id in &tab_ids {
+        if let Err(error) = materialize(tab_id) {
+            log::error!("[startup-pty] tab={tab_id} materialization failed: {error}");
+        }
+    }
+    tab_ids
 }
 
 fn restored_backend_tab_ids(service_state: &ServiceState) -> Vec<String> {
@@ -177,14 +206,51 @@ fn restored_backend_tab_ids(service_state: &ServiceState) -> Vec<String> {
     super::restored_backends::ordered_ids(candidates)
 }
 
+fn note_frontend_deadline(service_state: &ServiceState) {
+    let restored_ids: std::collections::BTreeSet<String> = service_state
+        .mux
+        .read()
+        .snapshot()
+        .tabs
+        .values()
+        .filter(|tab| tab.role.is_some() || tab.agent_type.is_some())
+        .map(|tab| tab.id.clone())
+        .collect();
+    codeterm_service_core::crash::restore_report::note_backend_materialization(
+        FRONTEND_READINESS_DEADLINE_ELAPSED,
+        &restored_ids,
+    );
+}
+
+const GENERAL_AGENT_FRONTEND_DEADLINE_REASON: &str =
+    "frontend did not report readiness before the launch deadline";
+
+fn report_general_agent_frontend_deadline(
+    service: &codeterm_service_core::service::ServiceContext,
+) {
+    log::error!("[general-agent] {GENERAL_AGENT_FRONTEND_DEADLINE_REASON}");
+    // emit_boot_stage re-locks mux; a scrutinee guard would live through the call.
+    let general_tab_id = service
+        .mux
+        .read()
+        .resolve_tab_id(codeterm_service_core::service::general_agent::GENERAL_ALIAS);
+    if let Some(tab_id) = general_tab_id {
+        service.emit_boot_stage(
+            &tab_id,
+            codeterm_types::pty::BootStage::SpawnFailed,
+            Some(GENERAL_AGENT_FRONTEND_DEADLINE_REASON),
+        );
+    }
+}
+
 /// Start socket server, REST API server, and cron scheduler.
 pub(crate) fn start_servers(
+    app: &codeterm_host_runtime::app_runtime::App,
     states: &AppStates,
     service_state: &ServiceState,
-    frontend_dev_url: Option<url::Url>,
-    resources: Option<std::path::PathBuf>,
-) -> Result<Option<Arc<codeterm_frontend_bundle::FrontendBundles>>, String> {
+) {
     codeterm_commands::update::bind_status_emitter(service_state.ui.clone());
+    let app_handle = app.handle().clone();
     super::state_incidents::install_notifier(service_state);
     if let Some(reason) = states.storage.unavailable_reason() {
         super::state_incidents::notify_storage_unavailable(
@@ -223,6 +289,7 @@ pub(crate) fn start_servers(
             log::error!("[restore] Storage desk boot resync failed: {error}");
         }
     }
+    let frontend_readiness_generation = super::arm_frontend_readiness();
 
     // e2e suite can time-travel; release builds never do.
     let test_clock: Option<Arc<cron::clock::MockClock>> =
@@ -325,6 +392,8 @@ pub(crate) fn start_servers(
 
     assert!(service_state.set_ext(cron_state.clone()).is_ok());
     assert!(service_state.set_ext(cron_wake.clone()).is_ok());
+    app.manage(cron_state.clone());
+    app.manage(cron_wake.clone());
     let fence_wake = cron_wake.clone();
     cron_state
         .lock()
@@ -345,7 +414,7 @@ pub(crate) fn start_servers(
         );
     }
 
-    codeterm_service_core::async_runtime::block_on(async {
+    tauri::async_runtime::block_on(async {
         let init_started = std::time::Instant::now();
         if let Err(error) = service_state.secrets.read().await.init().await {
             log::warn!("[secrets] init failed: {error}");
@@ -375,16 +444,27 @@ pub(crate) fn start_servers(
         });
     }
 
-    let bundles = {
+    {
         let api_config = states.config.lock().api.clone();
         let bundles =
             codeterm_service_core::startup::frontend_bundles_open(&states.event_broadcaster);
         if let Some(bundles) = &bundles {
+            app.manage(bundles.clone());
             codeterm_service_core::startup::frontend_bundles_check(bundles.clone());
         }
+        assert!(service_state
+            .register_host_extension(Arc::new(
+                codeterm_commands::application_host::ApplicationHostState(Arc::new(
+                    codeterm_commands::application_host::DesktopApplicationHost {
+                        app: app_handle.clone(),
+                        update_state: states.update.clone()
+                    }
+                ))
+            ))
+            .is_ok());
         assert!(service_state.set_ext(states.rest_api.clone()).is_ok());
         let rest_inputs = codeterm_api::routes::AppState {
-            frontend_dev_url,
+            frontend_dev_url: app.config().build.dev_url.clone(),
             svc: service_state.clone(),
             cron: cron_state.clone(),
             cron_wake: cron_wake.clone(),
@@ -397,22 +477,23 @@ pub(crate) fn start_servers(
             rest_api: states.rest_api.clone(),
             test_clock: test_clock.clone(),
             events: states.event_broadcaster.clone(),
-            web_dist: resolve_web_dist(resources),
+            web_dist: resolve_web_dist(app.path().resource_dir().ok()),
         };
-        let router =
-            codeterm_api::routes::create_router_with_frontend(rest_inputs, bundles.clone());
+        let router = codeterm_api::routes::create_router_with_frontend(rest_inputs, bundles);
         assert!(service_state
             .set_ext(codeterm_service_core::ports::rest::LocalApiRouter(
                 router.clone(),
             ))
             .is_ok());
-        codeterm_socket::server::SocketServer::start(
+        if let Err(e) = codeterm_socket::server::SocketServer::start(
             states.mux.clone(),
             states.pty.clone(),
             states.notif.clone(),
             states.output_buffer.clone(),
             service_state.clone(),
-        )?;
+        ) {
+            log::error!("Failed to start socket server: {}", e);
+        }
         let remote_bind = codeterm_service_core::startup::rest_api_additional_bind(
             &api_config,
             cfg!(debug_assertions),
@@ -443,7 +524,7 @@ pub(crate) fn start_servers(
                         if changed {
                             codeterm_service_core::mesh::discovery::stop_broadcast(&mesh);
                             if mesh_config.lock().mesh.enabled {
-                                codeterm_service_core::async_runtime::spawn(async move {
+                                tauri::async_runtime::spawn(async move {
                                     let report = codeterm_service_core::mesh::broadcast_announce(
                                         &mesh, None,
                                     )
@@ -483,11 +564,8 @@ pub(crate) fn start_servers(
             let control = states.rest_api.clone();
             codeterm_service_core::startup::rest_api::spawn(control, bind_addr.to_string(), router);
         }
-        bundles
-    };
+    }
 
-    let (general_ready, general_initialized) = std::sync::mpsc::channel();
-    let (restore_ready, restore_initialized) = std::sync::mpsc::channel();
     // Start General Agent PTY + launch agent (workspace/tab already created in init_states)
     if states.storage.storage().is_some() {
         let config = states.config.lock().general_agent.clone();
@@ -497,11 +575,15 @@ pub(crate) fn start_servers(
             let pty = states.pty.clone();
             let screen_state = states.screen_state.clone();
             let config_state = states.config.clone();
+            let frontend_ready_deadline =
+                std::time::Instant::now() + std::time::Duration::from_secs(30);
+
             codeterm_util::named_thread::spawn("general-agent-startup", move || {
-                if !service_initialized(general_initialized) {
-                    log::error!(
-                        "[general-agent] service initialization acknowledgement unavailable"
-                    );
+                if !super::wait_for_frontend_ready_until(
+                    frontend_readiness_generation,
+                    frontend_ready_deadline,
+                ) {
+                    report_general_agent_frontend_deadline(&svc);
                     return;
                 }
                 log::info!("[general-agent] Startup beginning...");
@@ -517,7 +599,7 @@ pub(crate) fn start_servers(
     }
     if states.storage.storage().is_some() {
         service::turn_resume::arm(&service_state);
-        start_restored_pty_backends(service_state.clone(), restore_initialized);
+        start_restored_pty_backends(service_state.clone(), frontend_readiness_generation);
     }
 
     // Start mesh listeners if enabled (no broadcasting — user triggers that manually)
@@ -537,9 +619,6 @@ pub(crate) fn start_servers(
     if integrations.telegram_enabled {
         codeterm_service_core::startup::spawn_telegram_bridge(service_state.clone());
     }
-    let _ = general_ready.send(());
-    let _ = restore_ready.send(());
-    Ok(bundles)
 }
 
 /// Locate the built React bundle for the browser mirror.
@@ -569,4 +648,239 @@ fn select_web_dist(
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::{
+        materialize_restored_backends, publish_backend_materialization_failure,
+        report_general_agent_frontend_deadline, restored_backend_tab_ids, select_web_dist,
+        should_materialize_restored_backend,
+    };
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::multiplexer::types::TabBacking;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+    use codeterm_types::pty::BootStage;
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    #[test]
+    fn restored_backend_spawn_failure_publishes_reason_and_preserves_session() {
+        let (mut mux, _) = MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let id = mux.create_tab(&workspace_id).unwrap();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.agent_session_id = Some("saved-session".into());
+        tab.cwd = Some("missing-lane".into());
+        tab.agent_booting = true;
+        tab.boot_stage = Some(BootStage::PtyStarting);
+        let fixture = ServiceFixture::new(mux);
+        let service = Arc::new(fixture.service.clone());
+
+        publish_backend_materialization_failure(&service, &id, "opaque-spawn-error");
+
+        let mux = service.mux.read();
+        let tab = mux.get_tab(&id).unwrap();
+        assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
+        assert_eq!(
+            tab.boot_failure_reason.as_deref(),
+            Some("opaque-spawn-error")
+        );
+        assert!(!tab.agent_booting);
+        assert_eq!(tab.agent_session_id.as_deref(), Some("saved-session"));
+        assert_eq!(tab.cwd.as_deref(), Some("missing-lane"));
+        assert!(tab.pty_id.is_none());
+    }
+
+    #[test]
+    fn general_agent_frontend_deadline_releases_mux_for_restored_backends() {
+        let (mut mux, general_tab_id) = MultiplexerState::new();
+        mux.register_alias(
+            codeterm_service_core::service::general_agent::GENERAL_ALIAS,
+            &general_tab_id,
+        );
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let restored_tab_id = mux.create_tab(&workspace_id).unwrap();
+        mux.get_tab_mut(&restored_tab_id)
+            .unwrap()
+            .restored_from_snapshot = true;
+        let fixture = ServiceFixture::new(mux);
+        let service = Arc::new(fixture.service.clone());
+
+        let (general_tx, general_rx) = mpsc::channel();
+        let general_service = service.clone();
+        std::thread::spawn(move || {
+            report_general_agent_frontend_deadline(&general_service);
+            general_tx.send(()).unwrap();
+        });
+        let (restore_tx, restore_rx) = mpsc::channel();
+        let restore_service = service.clone();
+        std::thread::spawn(move || {
+            let attempted = materialize_restored_backends(
+                || false,
+                || {},
+                || restored_backend_tab_ids(&restore_service),
+                |_| Ok(()),
+            );
+            restore_tx.send(attempted).unwrap();
+        });
+
+        general_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the General Agent deadline path must not self-deadlock on mux");
+        let attempted = restore_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("restored backends must materialize after a missed frontend deadline");
+
+        assert_eq!(attempted, vec![restored_tab_id]);
+        let general = service
+            .mux
+            .read()
+            .get_tab(&general_tab_id)
+            .cloned()
+            .unwrap();
+        assert_eq!(general.boot_stage, Some(BootStage::SpawnFailed));
+    }
+
+    #[test]
+    fn restore_contract_missed_frontend_deadline_still_materializes_restored_agent_panes() {
+        let mut deadline_noted = false;
+        let mut materialized = Vec::new();
+        let attempted = materialize_restored_backends(
+            || false,
+            || deadline_noted = true,
+            || {
+                ["orchestrator", "codex-worker", "planner"]
+                    .map(String::from)
+                    .to_vec()
+            },
+            |tab_id| {
+                materialized.push(tab_id.to_string());
+                if tab_id == "codex-worker" {
+                    Err("provider launch refused".to_string())
+                } else {
+                    Ok(())
+                }
+            },
+        );
+
+        assert!(
+            deadline_noted,
+            "a missed deadline is surfaced, never silent"
+        );
+        assert_eq!(
+            materialized,
+            vec!["orchestrator", "codex-worker", "planner"]
+        );
+        assert_eq!(
+            attempted, materialized,
+            "one failed pane never stops the rest"
+        );
+    }
+
+    #[test]
+    fn restore_contract_ready_frontend_materializes_without_a_deadline_note() {
+        let mut deadline_noted = false;
+        let mut materialized = Vec::new();
+        materialize_restored_backends(
+            || true,
+            || deadline_noted = true,
+            || vec!["worker".to_string()],
+            |tab_id| {
+                materialized.push(tab_id.to_string());
+                Ok(())
+            },
+        );
+
+        assert!(!deadline_noted);
+        assert_eq!(materialized, vec!["worker"]);
+    }
+
+    fn web_bundle(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
+        let dist = parent.join(name);
+        std::fs::create_dir_all(&dist).unwrap();
+        std::fs::write(dist.join("index.html"), name).unwrap();
+        dist
+    }
+
+    #[test]
+    fn packaged_web_bundle_is_selected_without_an_explicit_override() {
+        let root = tempfile::tempdir().unwrap();
+        let packaged = web_bundle(root.path(), "packaged");
+        let source_tree = web_bundle(root.path(), "mutable-source-tree");
+        let selected = select_web_dist(false, None, [packaged.clone()]);
+
+        assert_eq!(selected, Some(packaged));
+        assert_ne!(selected, Some(source_tree));
+    }
+
+    #[test]
+    fn explicit_dev_bundle_overrides_packaged_assets() {
+        let root = tempfile::tempdir().unwrap();
+        let packaged = web_bundle(root.path(), "packaged");
+        let dev = web_bundle(root.path(), "dev");
+
+        assert_eq!(
+            select_web_dist(true, Some(dev.clone()), [packaged]),
+            Some(dev)
+        );
+    }
+
+    #[test]
+    fn production_ignores_an_inherited_mutable_override() {
+        let root = tempfile::tempdir().unwrap();
+        let packaged = web_bundle(root.path(), "packaged");
+        let inherited = web_bundle(root.path(), "inherited-dev");
+
+        assert_eq!(
+            select_web_dist(false, Some(inherited), [packaged.clone()]),
+            Some(packaged),
+        );
+    }
+
+    #[test]
+    fn startup_materializes_only_unprotected_restored_pty_backends() {
+        assert!(!should_materialize_restored_backend(
+            true,
+            false,
+            &TabBacking::Pty,
+            None,
+            true
+        ));
+        assert!(should_materialize_restored_backend(
+            true,
+            false,
+            &TabBacking::Pty,
+            None,
+            false,
+        ));
+        assert!(!should_materialize_restored_backend(
+            false,
+            false,
+            &TabBacking::Pty,
+            None,
+            false,
+        ));
+        assert!(!should_materialize_restored_backend(
+            true,
+            true,
+            &TabBacking::Pty,
+            None,
+            false,
+        ));
+        assert!(should_materialize_restored_backend(
+            true,
+            false,
+            &TabBacking::ChatBackend {
+                plugin_id: "test".into(),
+                session_id: "session".into(),
+            },
+            None,
+            false,
+        ));
+        assert!(!should_materialize_restored_backend(
+            true,
+            false,
+            &TabBacking::Pty,
+            Some("live"),
+            false,
+        ));
+    }
+}

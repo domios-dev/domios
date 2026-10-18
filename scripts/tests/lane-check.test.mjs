@@ -135,24 +135,6 @@ test('lane checks cap Cargo jobs, propagate errors and request tests only when n
   ]);
 });
 
-test('server lane routing admits only the explicit server package without real Cargo', () => {
-  const result = spawnSync(bash, ['-c', `
-    set -eu
-    source scripts/lane-check.sh
-    configure_lane_build_dir() { :; }
-    configure_lane_cache() { :; }
-    configure_lane_workspace_wrapper() { :; }
-    prepare_dev_frontend_dist() { :; }
-    prepare_bundle_stubs() { :; }
-    cargo() { printf 'jobs=%s %s\\n' "$CARGO_BUILD_JOBS" "$*"; }
-    lane_check domios-server --tests
-    lane_check unrelated-package && exit 1 || [ "$?" = 2 ]
-    lane_check domios-other && exit 1 || [ "$?" = 2 ]
-  `], { cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), 'jobs=4 check --manifest-path src-tauri/Cargo.toml -p domios-server --lib --tests');
-});
-
 
 test('two worktrees use their own exported items while registry metadata stays shared', { timeout: 120_000 }, () => {
   verifyLaneMetadata();
