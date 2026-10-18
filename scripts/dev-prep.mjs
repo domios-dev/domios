@@ -2,7 +2,7 @@
 // Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/dev-prebuilt; scripts tests/release-input-reuse.test.mjs
 import crypto from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
-import { runDevApp, nativeLocatorRecord } from "./dev-app-process.mjs";
+import { runDevApp, nativeLocatorRecord, prebuiltReadinessPhase } from "./dev-app-process.mjs";
 import { devRuntimeEnvironment } from "./dev-runtime-environment.mjs";
 import {
   accessSync,
@@ -487,12 +487,20 @@ async function supervisePrebuilt(options) {
   let partial = "";
   let ready = false;
   let startupFailed = false;
+  let readinessPhase=0;
   const locator = options.has("--record") ? nativeLocatorSink(options) : () => {};
   try {
     const { code, signal } = await runDevApp({ app, log, interactiveDesktop: true, cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
       locator(chunk);
       const lines = `${partial}${decoder.write(chunk)}`.split(/\r?\n/);
       partial = lines.pop() ?? "";
+      for (const line of lines) {
+        const next=prebuiltReadinessPhase(readinessPhase,line);
+        if (next !== readinessPhase && !ready && !startupFailed && process.connected) {
+          readinessPhase=next;
+          process.send({type:"phase",phase:next});
+        }
+      }
       const failure = lines.map(startupFailureSignal).find(Boolean);
       if (!ready && failure && process.connected) {
         startupFailed = true;
@@ -538,6 +546,7 @@ async function launchPrebuilt(options) {
   if (!existsSync(app) || !statSync(app).isFile()) throw new Error(`prebuilt app is absent: ${app}`);
   let child;
   let deadline;
+  let phase=0;
   try {
     await new Promise((resolveReady, rejectReady) => {
       const fail = (error) => rejectReady(error instanceof Error ? error : new Error(String(error)));
@@ -552,9 +561,12 @@ async function launchPrebuilt(options) {
           windowsHide: true,
         },
       );
-      child.once("message", (message) => {
+      child.on("message", (message) => {
         if (message?.type === "ready") resolveReady(message.signal);
         else if (message?.type === "failed") fail(new Error(message.error));
+        else if (message?.type === "phase" && Number.isInteger(message.phase) && message.phase === phase+1 && message.phase <= 2) {
+          phase=message.phase;
+        }
       });
       child.once("error", fail);
       child.once("exit", (code, signal) =>
@@ -562,7 +574,7 @@ async function launchPrebuilt(options) {
       );
       child.unref();
       console.log(`[dev-prebuilt] launched pid ${child.pid}, log ${log}`);
-      deadline = setTimeout(() => fail(new Error(`prebuilt app did not report readiness within ${deadlineMs}ms`)), deadlineMs);
+      deadline = setTimeout(() => fail(new Error(`prebuilt app did not report readiness within ${deadlineMs}ms (phase=${['preparation','bootstrap','attachment'][phase]})`)), deadlineMs);
     }).then((signal) => console.log(`[dev-prebuilt] readiness signal: ${signal}`));
   } catch (error) {
     await terminateOwnedChild(child);

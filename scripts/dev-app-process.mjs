@@ -106,3 +106,14 @@ export function nativeLocatorRecord(line,record,app,attachment) {
     throw Error('Native DEV locator endpoint mismatch');
   return {...record,nativeClient:{platform:'windows',snapshot,navigationGeneration:event.navigation_generation,origin:event.origin}};
 }
+
+export function prebuiltReadinessPhase(phase,line) {
+  if (!Number.isInteger(phase) || phase < 0 || phase > 2) throw Error('Invalid DEV readiness phase');
+  if (!line.startsWith('DOMIOS_CLIENT_DIAGNOSTIC ')) return phase;
+  let event;
+  try { event=JSON.parse(line.slice('DOMIOS_CLIENT_DIAGNOSTIC '.length)); } catch { return phase; }
+  if (event.status !== 'started' || event.exit_code !== null || event.io_kind !== null || event.os_error !== null) return phase;
+  if (phase === 0 && event.stage === 'attach') return 1;
+  if (phase === 1 && event.stage === 'reply_validation') return 2;
+  return phase;
+}
