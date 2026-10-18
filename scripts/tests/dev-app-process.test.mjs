@@ -1,10 +1,11 @@
 import test from 'node:test';
+import {EventEmitter} from 'node:events';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
-import { runDevApp, windowsDevArguments, nativeLocatorRecord } from '../dev-app-process.mjs';
+import { runDevApp, windowsDevArguments, nativeLocatorRecord, prebuiltReadinessPhase } from '../dev-app-process.mjs';
 import { devRuntimeEnvironment } from '../dev-runtime-environment.mjs';
 
 for (const code of [0, 17]) {
@@ -45,7 +46,7 @@ test('DEV supervisor still sends READY from file output and disconnects exactly 
   const fakeProcess = { env: {}, connected: true, send: value => messages.push(value) };
   const signal = 'DOMIOS_DEV_ATTACHMENT ' + JSON.stringify({ protocol: 2, client_pid: 10, server_pid: 20, epoch: '00000000-0000-0000-0000-000000000001', api_address: '127.0.0.1:7786' });
   const script = `const fs=require('node:fs'); if (process.platform !== 'win32' && ![1,2].every(fd => fs.fstatSync(fd).isFile())) process.exit(91); fs.writeSync(2, ${JSON.stringify(signal + '\n')});`;
-  const execute = new Function('runDevApp', 'process', 'disconnectSupervisor', 'StringDecoder', 'resolve', 'option', 'repo', 'devRuntimeEnvironment',
+  const execute = new Function('runDevApp', 'process', 'disconnectSupervisor', 'StringDecoder', 'resolve', 'option', 'repo', 'devRuntimeEnvironment', 'prebuiltReadinessPhase',
     `${readiness}\n${supervisor}\nreturn supervisePrebuilt;`)(
       options => {
         assert.equal(options.env.CODETERM_DEV_WORKSPACE_ROOT, directory);
@@ -53,7 +54,7 @@ test('DEV supervisor still sends READY from file output and disconnects exactly 
         return runDevApp({ ...options, interactiveDesktop: false, args: ['-e', script] });
       }, fakeProcess,
       () => { if (fakeProcess.connected) { fakeProcess.connected = false; disconnected++; } }, StringDecoder, path.resolve,
-      (options, key) => options.get(key), directory, devRuntimeEnvironment);
+      (options, key) => options.get(key), directory, devRuntimeEnvironment, prebuiltReadinessPhase);
   try {
     await execute(new Map([['--app', process.execPath], ['--log', path.join(directory, 'app.log')], ['--api-port', '7786']]));
     assert.deepEqual(messages, [{ type: 'ready', signal }]);
@@ -180,9 +181,9 @@ test('DEV supervisor reports terminal refusal immediately and cannot turn it int
   const state = { env: {}, connected: true, send: value => messages.push(value) };
   const error = { stage: 'startup', status: 'refused', io_kind: null, os_error: null, exit_code: null };
   const ready = { protocol: 2, client_pid: 1, server_pid: 2, epoch: '00000000-0000-0000-0000-000000000001', api_address: '127.0.0.1:7786' };
-  const execute = new Function('runDevApp', 'process', 'disconnectSupervisor', 'StringDecoder', 'resolve', 'option', 'repo', 'devRuntimeEnvironment', `${definitions}\n${supervisor}\nreturn supervisePrebuilt;`)(
+  const execute = new Function('runDevApp', 'process', 'disconnectSupervisor', 'StringDecoder', 'resolve', 'option', 'repo', 'devRuntimeEnvironment', 'prebuiltReadinessPhase', `${definitions}\n${supervisor}\nreturn supervisePrebuilt;`)(
     async ({ onData }) => { onData(Buffer.from('ERROR: DOMIOS_DEV_FAILURE ' + JSON.stringify(error) + '\nDOMIOS_DEV_ATTACHMENT ' + JSON.stringify(ready) + '\n')); return { code: 0, signal: null }; },
-    state, () => { state.connected = false; }, StringDecoder, path.resolve, (options, key) => options.get(key), process.cwd(), env => env);
+    state, () => { state.connected = false; }, StringDecoder, path.resolve, (options, key) => options.get(key), process.cwd(), env => env, prebuiltReadinessPhase);
   await execute(new Map([['--app', process.execPath], ['--log', 'fixture.log'], ['--api-port', '7786']]));
   assert.deepEqual(messages, [{ type: 'failed', error: 'Native client startup refused at startup' }]);
   assert.equal(state.exitCode, 1);
@@ -249,4 +250,33 @@ test('native locator provenance clears previous launch and waits exact attachmen
     assert.deepEqual(JSON.parse(fs.readFileSync(record)).nativeClient.snapshot,event.snapshot);
     assert.deepEqual(fs.readdirSync(directory).sort(),['codeterm.exe','provenance.json']);
   } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});
+
+test('prebuilt readiness phases classify absent attach then launch without treating progress as readiness',()=>{
+  const line=stage=>'DOMIOS_CLIENT_DIAGNOSTIC '+JSON.stringify({stage,status:'started',exit_code:null,io_kind:null,os_error:null});
+  let phase=0;
+  assert.equal(prebuiltReadinessPhase(phase,line('reply_validation')),0);
+  phase=prebuiltReadinessPhase(phase,line('attach')); assert.equal(phase,1);
+  for (const stage of ['attach','launch','inventory']) assert.equal(prebuiltReadinessPhase(phase,line(stage)),1);
+  phase=prebuiltReadinessPhase(phase,line('reply_validation')); assert.equal(phase,2);
+  assert.equal(prebuiltReadinessPhase(phase,line('reply_validation')),2);
+  assert.equal(prebuiltReadinessPhase(phase,'DOMIOS_DEV_ATTACHMENT malformed'),2);
+});
+
+test('prebuilt launch progress cannot rearm or increase the original readiness deadline',async()=>{
+  const source=fs.readFileSync(new URL('../dev-prep.mjs',import.meta.url),'utf8').replaceAll('\r\n','\n');
+  const definition=source.match(/^async function launchPrebuilt\(options\) \{[\s\S]*?^\}/m)[0].replaceAll('import.meta.url',JSON.stringify(import.meta.url));
+  const timers=[],cleared=[];
+  let stopped=0;
+  const launch=new Function('resolve','option','process','existsSync','statSync','spawn','node','fileURLToPath','repo','console','setTimeout','clearTimeout','terminateOwnedChild',`${definition}\nreturn launchPrebuilt;`)(path.resolve,(options,key)=>options.get(key),{env:{}},()=>true,()=>({isFile:()=>true}),()=>{
+    const child=new EventEmitter();child.pid=123;child.unref=()=>{};
+    queueMicrotask(()=>{
+      for (const phase of [2,1,1,2,2]) child.emit('message',{type:'phase',phase});
+      child.emit('message',{type:'ready',signal:'validated attachment'});
+    });
+    return child;
+  },'node',()=>'/fixture/dev-prep.mjs','/fixture',{log(){}},(callback,ms)=>{const timer={callback,ms};timers.push(timer);return timer;},timer=>cleared.push(timer),async()=>{stopped++;});
+  await launch(new Map([['--app','/fixture/codeterm.exe'],['--log','/fixture/log'],['--api-port','7686']]));
+  assert.equal(timers.length,1);assert.equal(timers[0].ms,30000);
+  assert.deepEqual(cleared,timers);assert.equal(stopped,0);
 });
