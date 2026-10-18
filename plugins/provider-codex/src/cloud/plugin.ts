@@ -3,10 +3,12 @@ import {RemoteTaskFileStorage, type RemoteTaskCapability} from "@codeterm/plugin
 import {cloudTaskBackend} from "./backend";
 import {remoteChatBackend} from "./chatBackend";
 
-export function cloudExports(host: Host): Pick<PluginModule, "openSession" | "sendMessage" | "poll" | "closeSession" | "viewCall"> {
+// The host global is injected after module evaluation in test harnesses, so it is resolved on first use.
+export function cloudExports(hostRef: () => Host): Pick<PluginModule, "openSession" | "sendMessage" | "poll" | "closeSession" | "viewCall"> {
   let backend: ReturnType<typeof remoteChatBackend> | undefined;
   const get = () => {
     if (backend) return backend;
+    const host = hostRef();
     const manifest = JSON.parse(host.manifestJson() ?? "{}") as {id: string; capabilities: {remoteTask: RemoteTaskCapability}};
     const root = host.fs.expandHome("~/.codeterm/codex/tasks");
     if (!root) throw new Error("Cloud task storage is unavailable");

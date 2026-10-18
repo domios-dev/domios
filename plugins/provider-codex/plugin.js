@@ -851,10 +851,11 @@ function remoteChatBackend(storage, backend, providerId) {
 }
 
 // plugins/provider-codex/src/cloud/plugin.ts
-function cloudExports(host2) {
+function cloudExports(hostRef) {
   let backend;
   const get = () => {
     if (backend) return backend;
+    const host2 = hostRef();
     const manifest = JSON.parse(host2.manifestJson() ?? "{}");
     const root = host2.fs.expandHome("~/.codeterm/codex/tasks");
     if (!root) throw new Error("Cloud task storage is unavailable");
@@ -6313,7 +6314,7 @@ function hasPromptAndStatusFooter(screen) {
   });
 }
 var plugin = {
-  ...cloudExports(host),
+  ...cloudExports(() => host),
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimeStoredRecords,
