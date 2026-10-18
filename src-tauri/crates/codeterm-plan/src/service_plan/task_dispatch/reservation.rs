@@ -26,6 +26,51 @@ impl Drop for TaskDispatchReservation<'_> {
 }
 
 impl PlanStore {
+    pub fn reserve_task_respawn_startup(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        source_attempt_id: &str,
+        attempt_id: &str,
+    ) -> Result<TaskDispatchReservation<'_>, PlanError> {
+        let _writer_turn = self.mutation_writer.enter();
+        let task = self
+            .get(plan_id)
+            .and_then(|plan| crate::plan::task_key::find_task(&plan.tasks, task_id).cloned())
+            .ok_or(PlanError::TaskNotFound)?;
+        if let Some(attempt) =
+            super::super::task_attempts::newer_live_respawn_attempt(&task, source_attempt_id)
+        {
+            return Err(PlanError::DispatchInFlight {
+                attempt_id: attempt.id.clone(),
+                tab_id: attempt.executor_tab_id.clone(),
+            });
+        }
+
+        let key = (plan_id.to_string(), task_id.to_string());
+        let mut reservations = self.dispatch_reservations.lock();
+        if let Some(owner) = reservations.get(&key) {
+            return Err(PlanError::DispatchInFlight {
+                attempt_id: owner.attempt_id.clone(),
+                tab_id: owner.tab_id.clone(),
+            });
+        }
+        reservations.insert(
+            key.clone(),
+            DispatchReservationOwner {
+                attempt_id: attempt_id.to_string(),
+                tab_id: format!("respawn-pending:{attempt_id}"),
+            },
+        );
+        drop(reservations);
+        drop(_writer_turn);
+        Ok(TaskDispatchReservation {
+            store: self,
+            key,
+            attempt_id: attempt_id.to_string(),
+        })
+    }
+
     pub fn task_dispatch_startup_reservation_owns(
         &self,
         plan_id: &str,
