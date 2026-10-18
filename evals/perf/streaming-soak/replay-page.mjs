@@ -25,7 +25,7 @@ export async function installReplayPage({tab,session,nonce,run,other,muxTab,prob
     ({chatProjectionMonitor:monitor} = await loadModule('/src/components/Terminal/chatProjectionDiagnostics.ts'));
   }
   const root = document.querySelector(`[data-testid="tab-session-chat"][data-tab-id="${tab}"]`);
-  const textarea = root?.querySelector('textarea[aria-label="Message composer"]');
+  let textarea = root?.querySelector('textarea[aria-label="Message composer"]');
   const graph = document.querySelector('[role="toolbar"][aria-label="Mesh graph controls"]')?.parentElement;
   if (!root || probe === 'composer' && (!textarea || textarea.value !== '')) throw Error('Owned composer mount required');
   if (probe === 'mesh' && (!graph || graph.getBoundingClientRect().width <= 0)) throw Error('Parent must open the visible Mesh machines graph before replay');
@@ -63,8 +63,8 @@ export async function installReplayPage({tab,session,nonce,run,other,muxTab,prob
     if (id === tab || id === other.tab) paintEvents.dispatchEvent(new CustomEvent('tail',{detail:{tab:id,tail}}));
   }
   monitor.recordPaint = recordPaint;
-  function painted(tail,targetTab=tab,sourceId=tail.slice(0,tail.lastIndexOf('#'))) {
-    const observed = () => monitor.snapshot(targetTab)?.paintedTail === tail && (!functional ||
+  function painted(tail,targetTab=tab,sourceId=tail.slice(0,tail.lastIndexOf('#')),requireDom=true) {
+    const observed = () => monitor.snapshot(targetTab)?.paintedTail === tail && (!functional || !requireDom ||
       read({tab:targetTab}).visibleSourceIds.includes(sourceId));
     if (observed()) return Promise.resolve();
     return new Promise((resolve,reject) => {
@@ -80,7 +80,7 @@ export async function installReplayPage({tab,session,nonce,run,other,muxTab,prob
     const start = performance.now(), messages = JSON.parse(wire), parsed = performance.now();
     if (!messages.every(row => row.id.startsWith('soak-'+run+'-') && row.sourceSessionId === target.session)) throw Error('Foreign replay row');
     const tail = messages.at(-1), signature = tail.id+'#'+tail.content.length;
-    const done = functional?painted(signature,target.tab,tail.sourceMessageId??tail.id):probe === 'composer' && target.tab === tab?painted(signature):frames();
+    const done = functional?painted(signature,target.tab,tail.sourceMessageId??tail.id,!active || target.tab === tab):probe === 'composer' && target.tab === tab?painted(signature):frames();
     window.dispatchEvent(new CustomEvent('codeterm:test-chat-reply',{detail:{tabId:target.tab,messages,sourceSessionId:target.session,sessionBindingNonce:target.nonce}}));
     const returnedAt = performance.now();
     add('parse',parsed-start); add(functional?'dispatchReturn':'dispatchToStoreReturn',returnedAt-parsed);
@@ -148,6 +148,8 @@ export async function installReplayPage({tab,session,nonce,run,other,muxTab,prob
     async seed(wire,targetOther=false) {
       if (active) throw Error('Cannot seed during measured segment');
       if (probe === 'composer' && !targetOther) {
+        if (functional) textarea = document.querySelector(`[data-testid="tab-session-chat"][data-tab-id="${tab}"]`)?.querySelector('textarea[aria-label="Message composer"]');
+        if (!textarea) throw Error('Selected owned composer unavailable');
         const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;
         setter.call(textarea,''); textarea.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'deleteContentBackward'}));
         expectedDraft = ''; textarea.focus(); textarea.setSelectionRange(0,0);
@@ -156,6 +158,11 @@ export async function installReplayPage({tab,session,nonce,run,other,muxTab,prob
       if (probe === 'composer' && !targetOther && textarea.value !== '') throw Error('Owned draft reset did not commit');
     },
     begin() {
+      if (functional && probe === 'composer') {
+        textarea = document.querySelector(`[data-testid="tab-session-chat"][data-tab-id="${tab}"]`)?.querySelector('textarea[aria-label="Message composer"]');
+        if (!textarea || textarea.value !== expectedDraft) throw Error('Selected owned composer drift');
+        textarea.focus();
+      }
       values = Object.fromEntries(['parse','dispatchReturn','dispatchToStoreReturn','muxTestDispatch','frameInterval','eventTimestampToCapture','captureToDocumentBubble','inputToFirstFrame','inputToSecondFrame','eventTimingQueue','eventTimingHandler','eventTimingDuration','longTask'].map(name => [name,[]]));
       longTasks.length = 0; timeline = []; mutationCounts = {attributes:0,childList:0,characterData:0}; overflow = false; active = true;
       const epoch = ++frameEpoch; let previous = null;
