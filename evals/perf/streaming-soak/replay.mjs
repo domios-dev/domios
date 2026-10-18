@@ -24,7 +24,7 @@ export async function runReplay(rt,cp,out,flags,save) {
   if (profile !== 'none') requireMeasurement(rt.identity,profile === 'cpu'?'cpu':'trace');
   requireValue(segments*replay.ends.length <= REPLAY_LIMITS.events && segments*(replay.wireBytes+Buffer.byteLength(JSON.stringify(replay.rows))) <= REPLAY_LIMITS.wireBytes,'Total replay event/byte budget exceeded');
   const [f,otherFixture] = cp.fixtures;
-  if (probe === 'composer') { await visit(rt,cp,otherFixture); await visit(rt,cp,f); }
+  if (probe === 'composer') { await visit(rt,cp,otherFixture,{phase:'setup'}); await visit(rt,cp,f,{phase:'setup'}); }
   const bindings = muxBindings(await rt.api('/api/mux/state')), live = bindings[f.tab], otherLive = bindings[otherFixture.tab];
   requireValue(live.agent_session_id === f.session && typeof live.session_binding_nonce === 'string' && live.session_binding_nonce.length > 0,'Exact owned session nonce required');
   requireValue(otherLive.agent_session_id === otherFixture.session && typeof otherLive.session_binding_nonce === 'string','Owned unrelated fixture nonce required');
@@ -76,7 +76,7 @@ export async function runReplay(rt,cp,out,flags,save) {
       await call('seed',JSON.stringify(otherRows),true);
       const completeness = functional?functionalTailEvidence(rows,await call('read')):assertComplete(rows,await call('read'),authority);
       completeness.other = functional?functionalTailEvidence(otherRows,await call('readOther')):assertComplete(otherRows,await call('readOther'),other);
-      if (functional) await visit(rt,cp,f);
+      if (functional) await visit(rt,cp,f,{phase:'replay'});
       const after = await sample(rt,cp,out,`replay-${segment}-after`); save();
       const values = Object.fromEntries(Object.entries(page.values).map(([key,value]) => [key,distribution(value)]));
       requireValue(values.inputToSecondFrame.count === replay.ends.length && values.captureToDocumentBubble.count === replay.ends.length,'Every owned edit must have handler and frame evidence');
@@ -96,7 +96,7 @@ export async function runReplay(rt,cp,out,flags,save) {
 
   async function call(method,...args) {
     const target = functional ? functionalVisitTarget(method,args[1] === true) : null;
-    if (target) await visit(rt,cp,target === 'other'?otherFixture:f);
+    if (target) await visit(rt,cp,target === 'other'?otherFixture:f,{phase:'replay'});
     if (functional && ['seed','step'].includes(method)) {
       const bindings = muxBindings(await rt.api('/api/mux/state'));
       for (const fixture of cp.fixtures) {

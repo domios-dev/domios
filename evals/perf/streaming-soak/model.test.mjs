@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {VERSION,functionalVisitTarget,functionalTailEvidence,measurementCapabilities,requireMeasurement,rendererMetrics,admitDevSurface,validateDevSurfaceTarget,segmentSeconds,validateIdentity,validateResume,cleanupPlan,abortReplayPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
+import {VERSION,chatVisitEvidence,functionalVisitTarget,functionalTailEvidence,measurementCapabilities,requireMeasurement,rendererMetrics,admitDevSurface,validateDevSurfaceTarget,segmentSeconds,validateIdentity,validateResume,cleanupPlan,abortReplayPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
 const run = '11111111-1111-1111-1111-111111111111';
 const identity = () => ({port:7686,dev:true,page:{origin:'http://127.0.0.1:7686',path:'/'},capabilities:measurementCapabilities('profile',1),build:'a'.repeat(40),entryHash:'b'.repeat(64),target:'page',boot:'boot',renderer:{pid:1,created:'r'},daemon:{pid:2,created:'d'}});
 const fixture = (tab,session) => ({run,tab,session,pty:'pty-'+tab});
@@ -189,4 +189,20 @@ test('functional seed and final reads select their target and return local befor
   const boundary={internalStore:'unavailable',authority:'backend_binding_only'};
   assert.throws(()=>functionalTailEvidence(expected,{...boundary,projection,visibleSourceIds:[]}),/./);
   assert.doesNotThrow(()=>functionalTailEvidence(expected,{...boundary,projection,visibleSourceIds:['source']}));
+});
+
+test('chat visit phases retain setup marker but accept reseeded owned mounts without stale marker',() => {
+  assert.equal(chatVisitEvidence('setup',true,true,true),true);
+  assert.equal(chatVisitEvidence('setup',true,false,true),false);
+  assert.equal(chatVisitEvidence('replay',true,false,true),true);
+  for (const phase of ['setup','replay']) {
+    assert.equal(chatVisitEvidence(phase,false,true,true),false);
+    assert.equal(chatVisitEvidence(phase,false,false,false),false);
+  }
+  assert.equal(chatVisitEvidence('setup',true,false,false),true);
+  assert.throws(()=>chatVisitEvidence('unknown',true,true,true),/phase/);
+  const expected=[{id:'owned-tail',content:'new tail',sourceMessageId:'owned-source'}];
+  const observed={internalStore:'unavailable',authority:'backend_binding_only',projection:{paintedTail:'owned-tail#8'},visibleSourceIds:['owned-source']};
+  assert.doesNotThrow(()=>functionalTailEvidence(expected,observed));
+  assert.throws(()=>functionalTailEvidence(expected,{...observed,visibleSourceIds:[]}),/tail evidence/);
 });

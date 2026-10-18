@@ -161,3 +161,8 @@ export function functionalVisitTarget(method,targetOther=false) {
   if (['read','begin'].includes(method)) return 'local';
   return null;
 }
+
+export function chatVisitEvidence(phase,mounted,markerPresent,hasMarker) {
+  if (!['setup','replay'].includes(phase)) throw Error('Invalid chat visit phase');
+  return mounted === true && (phase === 'replay' || !hasMarker || markerPresent === true);
+}
