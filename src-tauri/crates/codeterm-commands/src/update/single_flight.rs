@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::apply::{ApplyOptions, ApplyResult};
 #[cfg(test)]
 use super::UpdatePhase;
+#[cfg(test)]
 use super::UpdateState;
 
 /// Wire discriminants. A refused second request must never read as "nothing to
@@ -121,39 +122,31 @@ where
 
 pub async fn apply_with_lease(
     lease: UpdateLease<'_>,
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &dyn crate::application_host::ApplicationHost,
     opts: ApplyOptions,
-    update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<ApplyResult, String> {
-    run_holding_lease(lease, || {
-        super::apply::check_and_apply(app, opts, update_state)
-    })
-    .await
+    run_holding_lease(lease, || app.check_and_apply(opts)).await
 }
 
 pub async fn install_staged_deb_with_lease(
     lease: UpdateLease<'_>,
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &dyn crate::application_host::ApplicationHost,
     version: String,
     path: std::path::PathBuf,
     initiating_tab_id: Option<&str>,
 ) -> Result<(), String> {
     run_holding_lease(lease, || {
-        super::apply::install_staged_deb_and_restart(app, version, path, initiating_tab_id)
+        app.install_staged_deb(version, path, initiating_tab_id.map(str::to_owned))
     })
     .await
 }
 
 pub async fn request_apply(
     gate: &UpdateGate,
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &dyn crate::application_host::ApplicationHost,
     opts: ApplyOptions,
-    update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<UpdateRequestOutcome, String> {
-    run_single_flight(gate, || {
-        super::apply::check_and_apply(app, opts, update_state)
-    })
-    .await
+    run_single_flight(gate, || app.check_and_apply(opts)).await
 }
 
 #[cfg(test)]

@@ -71,14 +71,16 @@ pub async fn install_app_update(
     let handle: UpdateStateHandle = update_state.inner().clone();
     let outcome = crate::update::single_flight::request_apply(
         crate::update::single_flight::global(),
-        &app,
+        &crate::application_host::DesktopApplicationHost {
+            app,
+            update_state: handle,
+        },
         crate::update::apply::ApplyOptions {
             channel,
             manifest_url: None,
             install_method,
             initiating_tab_id: None,
         },
-        handle,
     )
     .await?;
     Ok(serde_json::json!({ "status": outcome.discriminant() }))

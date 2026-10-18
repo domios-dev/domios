@@ -10,7 +10,7 @@ struct RuntimeCancellation(AtomicUsize);
 
 impl ExtractionCancelSink for RuntimeCancellation {
     fn cancel(&self, revoked: &[RevokedGeneration]) {
-        tauri::async_runtime::block_on(async {
+        codeterm_service_core::async_runtime::block_on(async {
             self.0.fetch_add(revoked.len(), Ordering::SeqCst);
         });
     }

@@ -1,6 +1,7 @@
 pub mod apply;
 pub mod channel;
 pub mod checker;
+#[cfg(any(test, feature = "desktop"))]
 mod debian_verify;
 pub mod discovery;
 pub mod failure_report;

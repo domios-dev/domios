@@ -154,13 +154,16 @@ pub async fn restart_app(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let app = state.app.clone();
+    let app = codeterm_commands::application_host::require(&state.svc)
+        .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error.to_string()))?;
     tokio::task::spawn_blocking(move || {
         codeterm_service_core::crash::shutdown::mark_shutting_down_for(
             codeterm_service_core::crash::lifecycle::ShutdownReason::Restart,
         );
         codeterm_service_core::startup::restart_stdio_detach_for_restart();
-        app.restart();
+        if let Err(error) = app.restart() {
+            log::error!("[restart] {error}");
+        }
     });
     Ok(Json(serde_json::json!({ "ok": true })))
 }
