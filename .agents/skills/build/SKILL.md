@@ -1382,6 +1382,11 @@ the real crate check; a tiny fixture alone does not cover Windows argument limit
 
 ## Independent server process oracle
 
+If the probe CLI build reports E0061 at `generate_system_plugin_hashes`, its
+build-script caller still uses the old zero-argument API. Pass the CLI's
+`CARGO_MANIFEST_DIR` path to the shared bundler, whose parent resolves the same
+repository plugin directory; then rerun the process oracle.
+
 If `lane-check domios-server --tests` refuses with `lane-check requires a
 codeterm package` before Cargo, the package router predates the independent
 server name. Admit exactly `domios-server` alongside `codeterm|codeterm-*` in
