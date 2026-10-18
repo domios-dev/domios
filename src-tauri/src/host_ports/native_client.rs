@@ -4,6 +4,9 @@ pub(super) use bootstrap::read_single_bounded_line;
 #[cfg(test)]
 pub(super) use bootstrap::HelperFailure;
 use bootstrap::VerifiedClientInstall;
+pub(crate) use bootstrap::{
+    startup_io_error, startup_refused, startup_started, ClientStartupStage,
+};
 
 use codeterm_process_identity::PinnedProcess;
 use codeterm_types::{
@@ -285,7 +288,10 @@ async fn initialize_client_once(
     })
     .await
     .map_err(|error| format!("Client install verification task failed: {error}"))?
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| {
+        startup_io_error(ClientStartupStage::Install, &error);
+        error.to_string()
+    })?;
 
     let reply = bootstrap::attach_or_launch(&verified).await?;
     bootstrap::validate_ready(&verified, &reply.ready).map_err(|error| error.to_string())?;
@@ -301,6 +307,7 @@ async fn initialize_client_once(
         .state::<super::ServerApiAttachmentSlot>()
         .inner()
         .clone();
+    startup_started(ClientStartupStage::ApiAttachment);
     api.install(reply.ready.clone(), token)?;
 
     if app.try_state::<NativeHostClientSlot>().is_none() {
@@ -313,6 +320,7 @@ async fn initialize_client_once(
         .map(|options| options.local_webview_diagnostics)
         .unwrap_or_default();
 
+    startup_started(ClientStartupStage::NativeEnrollment);
     let native = match connect_native_host(
         app.clone(),
         &verified,
@@ -331,6 +339,7 @@ async fn initialize_client_once(
             NativeClientStatus::Attached
         }
         Err(error) => {
+            startup_refused(ClientStartupStage::NativeEnrollment);
             log::debug!("[native-client] optional host attachment unavailable: {error}");
             NativeClientStatus::NativeHostUnavailable
         }
@@ -1057,6 +1066,26 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_diagnostic_never_serializes_error_text_or_request_data() {
+        let error = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "secret callback-url bearer-token request-body",
+        );
+        let value = bootstrap::diagnostic_payload(
+            ClientStartupStage::Install,
+            "io_error",
+            Some(&error),
+            None,
+        );
+        let encoded = value.to_string();
+        assert!(!encoded.contains("secret"));
+        assert!(!encoded.contains("callback-url"));
+        assert_eq!(value["io_kind"], "PermissionDenied");
+        assert_eq!(value["stage"], "install");
+        assert!(encoded.len() < 256);
+    }
 
     #[test]
     fn component_manifest_rejects_absolute_and_parent_server_paths() {
