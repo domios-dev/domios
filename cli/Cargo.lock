@@ -504,6 +504,7 @@ dependencies = [
  "codeterm-notify-types",
  "codeterm-provider-signals",
  "codeterm-wire",
+ "dirs 6.0.0",
  "serde",
  "serde_json",
  "toml",
