@@ -2,6 +2,8 @@ mod account;
 pub mod adapters;
 mod build_config;
 mod flow;
+mod sign_in_diagnostic;
+pub use sign_in_diagnostic::{SignInFailure, SignInStage};
 mod installation;
 mod loopback;
 pub mod protected_credentials;
@@ -47,7 +49,8 @@ pub struct Tokens {
     pub refresh_token: Secret,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Error {
     Configuration,
     InvalidCallback,

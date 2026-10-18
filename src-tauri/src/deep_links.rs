@@ -1,8 +1,8 @@
-use codeterm_service_core::service::account::deep_links;
+use crate::host_ports::ServerApiAttachmentSlot;
+use tauri::Manager;
 
 pub fn register_deep_links(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
-    service: codeterm_service_core::service::ServiceState,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use tauri_plugin_deep_link::DeepLinkExt;
     if !production_instance(
@@ -27,35 +27,28 @@ pub fn register_deep_links(
     let callback_app = app.clone();
     let dispatch = move |urls: Vec<url::Url>| {
         let app = callback_app.clone();
-        let service = service.clone();
-        codeterm_service_core::async_runtime::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             for url in urls {
-                match deep_links::deep_link_action(&url) {
-                    Some(deep_links::DeepLinkAction::BillingReturn { status }) => {
-                        log::debug!(
-                            "[billing] return received, status flag present: {}",
-                            status.is_some()
-                        );
-                        let _ = service
-                            .refresh_billing(codeterm_billing::RefreshEvent::CheckoutReturned)
-                            .await;
-                        let app = app.clone();
-                        let _ = tokio::task::spawn_blocking(move || {
-                            use tauri::Manager;
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.unminimize();
-                                let _ = window.set_focus();
-                            }
-                        })
-                        .await;
+                let attachment = app
+                    .try_state::<ServerApiAttachmentSlot>()
+                    .and_then(|slot| slot.current());
+                if let (Some(attachment), Some(status)) =
+                    (attachment.as_ref(), billing_return_status(&url))
+                {
+                    log::debug!(
+                        "[billing] return received, status flag present: {}",
+                        status.is_some()
+                    );
+                    let _ = attachment.refresh_plan().await;
+                    crate::startup::desktop_lifecycle::activate(&app);
+                } else if let Some(attachment) = attachment.filter(|_| is_account_callback(&url)) {
+                    if attachment
+                        .post_account_callback(url.as_str())
+                        .await
+                        .is_err()
+                    {
+                        log::debug!("[account] callback forwarding failed");
                     }
-                    Some(deep_links::DeepLinkAction::AccountCallback(callback)) => {
-                        if let Ok(account) = service.account().await {
-                            let _ = account.complete(callback).await;
-                        }
-                    }
-                    None => {}
                 }
             }
         });
@@ -66,6 +59,38 @@ pub fn register_deep_links(
     app.deep_link()
         .on_open_url(move |event| dispatch(event.urls()));
     Ok(())
+}
+
+fn is_account_callback(url: &url::Url) -> bool {
+    url.scheme() == "domios" && url.host_str() == Some("auth") && url.path() == "/callback"
+}
+
+fn billing_return_status(url: &url::Url) -> Option<Option<String>> {
+    if url.scheme() != "domios"
+        || url.host_str() != Some("billing")
+        || url.path() != "/return"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    let mut status = None;
+    for (key, value) in url.query_pairs() {
+        if key != "status"
+            || status.is_some()
+            || value.is_empty()
+            || value.len() > 64
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+        {
+            return None;
+        }
+        status = Some(value.into_owned());
+    }
+    Some(status)
 }
 
 fn production_instance(
@@ -120,6 +145,27 @@ mod tests {
         ] {
             assert!(!production_instance(debug, dev, instance, port, identifier));
         }
+    }
+
+    #[test]
+    fn account_callback_candidates_are_forwarded_without_client_validation() {
+        let url = url::Url::parse("domios://auth/callback?code=invalid&state=short").unwrap();
+
+        assert!(is_account_callback(&url));
+        assert_eq!(billing_return_status(&url), None);
+    }
+
+    #[test]
+    fn billing_return_requires_the_original_confined_shape() {
+        let accepted = url::Url::parse("domios://billing/return?status=success").unwrap();
+        let rejected =
+            url::Url::parse("domios://billing/return?status=success&status=again").unwrap();
+
+        assert_eq!(
+            billing_return_status(&accepted),
+            Some(Some("success".into()))
+        );
+        assert_eq!(billing_return_status(&rejected), None);
     }
 }
 

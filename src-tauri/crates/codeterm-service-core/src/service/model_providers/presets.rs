@@ -104,6 +104,13 @@ impl ServiceContext {
         provider: &str,
         params: &mut super::super::SpawnAgentParams,
     ) -> Result<(), String> {
+        if params
+            .execution_mode
+            .as_deref()
+            .is_some_and(|mode| mode != "local")
+        {
+            return Ok(());
+        }
         let Some(name) = params.preset.as_deref() else {
             return Ok(());
         };

@@ -4,6 +4,7 @@ import path from "node:path";
 
 const root = path.resolve(process.argv[2] ?? path.join(import.meta.dirname, ".."));
 const hosts = new Set([
+  "domios-server",
   "codeterm-service-core", "codeterm-api", "codeterm-commands", "codeterm-host-runtime",
   "codeterm-orchestration", "codeterm-sentinel-host", "codeterm-socket",
 ]);
@@ -62,11 +63,11 @@ for (const base of ["src-tauri/crates", "crates"]) {
     const manifest = path.join(crate, "Cargo.toml");
     if (!fs.existsSync(manifest)) continue;
     const dependencies = cargoDependencies(fs.readFileSync(manifest, "utf8"));
-    if ((!hosts.has(entry.name) || entry.name === "codeterm-service-core")
+    if ((!hosts.has(entry.name) || ["codeterm-service-core", "domios-server"].includes(entry.name))
         && dependencies.includes("codeterm-host-runtime")) {
       violations.push(`${path.relative(root, manifest).replaceAll("\\", "/")}: core or leaf crate depends on codeterm-host-runtime`);
     }
-    if (entry.name === "codeterm-service-core") {
+    if (["codeterm-service-core", "domios-server"].includes(entry.name)) {
       for (const dependency of dependencies.filter((name) => /^tauri(?:-|$)/.test(name))) {
         violations.push(`${path.relative(root, manifest).replaceAll("\\", "/")}: service core depends on ${dependency}`);
       }
@@ -83,12 +84,13 @@ for (const base of ["src-tauri/crates", "crates"]) {
       const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
       lines.forEach((raw, index) => {
         const line = raw.replace(isManifest ? /#.*$/ : /\/\/.*$/, "");
+        const tokens = isManifest ? line.replace(/\bpath\s*=\s*(?:"(?:\\.|[^"\\])*"|'[^']*')/g, 'path = ""') : line;
         const core = isManifest ? /\bcodeterm[-_]service[-_]core\b/ : /\bcodeterm_service_core\b/;
         const tauri = isManifest ? /\btauri(?:[-_]\w+)?\b/ : /\btauri(?:_\w+)?\s*::|\b(?:use|extern\s+crate)\s+tauri\b/;
         const location = `${path.relative(root, file).replaceAll("\\", "/")}:${index + 1}`;
         if (!isManifest && /\bServiceContext\b/.test(line)) violations.push(`${location}: leaf crate names ServiceContext`);
-        if (core.test(line)) violations.push(`${location}: leaf crate names codeterm-service-core`);
-        if (tauri.test(line)) {
+        if (core.test(tokens)) violations.push(`${location}: leaf crate names codeterm-service-core`);
+        if (tauri.test(tokens)) {
           seenTauri.add(entry.name);
           if (!knownTauriViolations.has(entry.name)) violations.push(`${location}: leaf crate names tauri`);
         }

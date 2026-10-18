@@ -523,7 +523,6 @@ fn chat_backend_round_trips_symmetrically() {
     assert_eq!(v, serde_json::json!(false));
 
     let spawnable = ChatBackendCap {
-        remote_task: None,
         enabled: true,
         spawnable: true,
         watcher: false,
@@ -537,7 +536,6 @@ fn chat_backend_round_trips_symmetrically() {
     assert!(back.enabled() && back.spawnable() && !back.watcher());
 
     let watcher = ChatBackendCap {
-        remote_task: None,
         enabled: true,
         spawnable: false,
         watcher: true,
@@ -551,7 +549,6 @@ fn chat_backend_round_trips_symmetrically() {
     assert!(back.enabled() && !back.spawnable() && back.watcher());
 
     let session_config = ChatBackendCap {
-        remote_task: None,
         enabled: true,
         spawnable: false,
         watcher: false,
@@ -565,7 +562,6 @@ fn chat_backend_round_trips_symmetrically() {
     assert!(back.enabled() && back.session_config());
 
     let host_context = ChatBackendCap {
-        remote_task: None,
         enabled: true,
         spawnable: false,
         watcher: false,
@@ -635,7 +631,7 @@ fn context_owner_absent_manifest_parses_byte_equivalent_to_today() {
         let manifest: PluginManifest = serde_json::from_str(&raw)
             .unwrap_or_else(|e| panic!("parse {}: {e}", manifest_path.display()));
         // The legacy serializer predates `remoteTask`, so it cannot describe those manifests.
-        if manifest.capabilities.chat_backend.remote_task.is_some() {
+        if manifest.capabilities.remote_task.is_some() {
             continue;
         }
         assert_context_owner_absent_is_byte_equivalent(

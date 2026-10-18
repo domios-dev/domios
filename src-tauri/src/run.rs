@@ -1,9 +1,7 @@
+use crate::crash;
 use crate::startup;
-use crate::{crash, keepawake};
-use codeterm_service_core::service::ServiceState;
-use codeterm_service_core::{agent, bridge, mem, plugin, pty, service};
-use parking_lot::Mutex;
-use std::sync::Arc;
+use codeterm_types::server_bootstrap::{InstanceSelector, LaunchOptions, ServerComponentManifest};
+use std::{io, io::Read, path::PathBuf};
 use tauri::Manager;
 
 pub fn run(
@@ -12,56 +10,38 @@ pub fn run(
         tauri::Builder<codeterm_host_runtime::app_runtime::Runtime>,
     ) -> tauri::Builder<codeterm_host_runtime::app_runtime::Runtime>,
 ) {
-    codeterm_service_core::async_runtime::install(tauri::async_runtime::handle().inner().clone());
-    // Never automatic: only an explicit `repair-user-path` argv reaches it.
-    startup::run_user_path_repair_if_invoked();
-
-    // Forward CLI-shaped argv to the bundled CLI before Tauri/logging init, otherwise GUI single-instance silently swallows the args (issue #51).
-    startup::forward_to_cli_if_invoked();
-
-    // crash originates (tokio worker, Tauri main, FFI thread, signal handler).
-    crash::install();
-
-    startup::setup_logging();
-
-    log::info!("CodeTerm starting...");
-    let _instance_lifetime = match codeterm_service_core::acquire_instance_lifetime() {
-        Ok(lifetime) => lifetime,
+    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    let startup_options = match crate::preflight_client_arguments(&arguments) {
+        Ok(crate::ClientArgumentPreflight::ExistingDispatch) => {
+            startup::run_user_path_repair_if_invoked();
+            startup::forward_to_cli_if_invoked();
+            crate::ClientStartupOptions::default()
+        }
+        Ok(crate::ClientArgumentPreflight::Native(options)) => options,
         Err(error) => {
-            log::error!("[startup] could not acquire instance lifetime lock: {error}");
+            eprintln!("Domios client arguments refused: {error:?}");
             return;
         }
     };
-    let startup_recovery = crash::record_startup();
-    if let Some(record) = &startup_recovery.last_crash {
-        log::warn!(
-            "[recovery] previous process classified as {:?}; old_pid={} old_epoch={} new_epoch={} last_healthy_at={} backoff_ms={} loop_protected={}",
-            record.classification,
-            record.previous.pid,
-            record.previous.epoch,
-            record.new_epoch,
-            record.previous.last_healthy_at,
-            record.supervisor_action.backoff_ms,
-            record.supervisor_action.loop_protected
-        );
+    let selector = match client_instance_selector() {
+        Ok(selector) => selector,
+        Err(error) => {
+            eprintln!("Domios client selector refused: {error}");
+            return;
+        }
+    };
+    install_client_selector(&selector);
+    let mut builder = codeterm_host_runtime::app_runtime::builder();
+    if startup::desktop_lifecycle::single_instance_enabled(
+        cfg!(debug_assertions),
+        &context.config().identifier,
+    ) {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            startup::desktop_lifecycle::activate(app);
+        }));
     }
 
-    // Lift the open-file soft limit before anything opens fds (#186).
-    codeterm_service_core::raise_fd_limit();
-
-    // Reap msedgewebview2.exe orphaned by a prior hard GUI crash, before window init (GH #183).
-    codeterm_service_core::reap_orphaned_webview2();
-
-    // Write shell integration scripts (OSC 7 CWD tracking)
-    pty::shell_integration::ensure_scripts();
-
-    let states = startup::init_states();
-
-    // Seed canonical ~/.codeterm/skills/, then mirror into provider dirs agents load from (#178).
-    codeterm_service_core::service::seed_bundled_skills();
-    codeterm_service_core::service::mirror_skills_to_providers();
-
-    let mut builder = codeterm_host_runtime::app_runtime::builder()
+    let builder = builder
         .plugin(tauri_plugin_shell::init())
         .plugin(startup::native_notification())
         .plugin(tauri_plugin_dialog::init())
@@ -79,689 +59,555 @@ pub fn run(
             updater.build()
         });
 
-    if !cfg!(debug_assertions) {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
-        }));
-    }
-
-    let builder = builder
-        .plugin(tauri_plugin_deep_link::init())
-        .manage(states.storage.clone())
-        .manage(states.config.clone())
-        .manage(states.pty.clone())
-        .manage(states.mux.clone())
-        .manage(states.notif.clone())
-        .manage(states.session.clone())
-        .manage(states.output_buffer.clone())
-        .manage(states.screen_state.clone())
-        .manage(states.agent_tracker.clone())
-        .manage(states.report_store.clone())
-        .manage(states.event_broadcaster.clone())
-        .manage(states.update.clone())
-        .manage(states.mesh.clone())
-        .manage(states.keepawake.clone())
-        .manage(states.resize_owner.clone())
-        .manage(states.rest_api.clone());
+    let builder = builder.plugin(tauri_plugin_deep_link::init());
     register_commands(builder)
         .setup(move |app| {
-            #[cfg(debug_assertions)]
-            tauri::async_runtime::spawn(codeterm_service_core::startup::runtime_diagnostics::watch("main"));
-            {
-                let api_config = states.config.lock().api.clone();
-                let window = startup::frontend_shell_create_window(app, &api_config)?;
-                startup::setup_window_styling(&window);
-                #[cfg(windows)]
-                crate::native_resize::install(&window)?;
-                crate::webview_watchdog::spawn(window);
-            }
-
-            // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
-            codeterm_socket::register_socket(app_handle.clone());
-
-            // remainder; timed + already expired → drop the snapshot.
-            keepawake::reap_orphaned_children_on_startup();
-            keepawake::resume_from_disk(&states.keepawake, &app_handle);
-
-            agent::model_catalog::ensure_readme_installed();
-            // The retired native backend's master-password drop has no reader.
-            match codeterm_service_core::secrets::purge_legacy_master_password_file() {
-                codeterm_service_core::secrets::LegacyPurge::Absent => {}
-                codeterm_service_core::secrets::LegacyPurge::SecurelyErased => {
-                    log::info!("[secrets] securely erased the retired master-password drop")
-                }
-                codeterm_service_core::secrets::LegacyPurge::RemovedWithoutOverwrite => log::warn!(
-                    "[secrets] removed the retired master-password drop WITHOUT overwriting it; the old secret may still be recoverable from disk — rotate it"
-                ),
-                codeterm_service_core::secrets::LegacyPurge::RemovalFailed { overwritten } => log::warn!(
-                    "[secrets] the retired master-password drop is still on disk (overwritten={overwritten}); it may still be recoverable — remove and rotate it"
-                ),
-                codeterm_service_core::secrets::LegacyPurge::InspectionFailed => log::warn!(
-                    "[secrets] could not inspect the retired master-password drop; assume it is present and recoverable until checked"
-                ),
-            }
-            // Carry a pre-existing native Bitwarden setup into the plugin's namespace (native Bitwarden is retired).
-            {
-                let mut cfg = states.config.lock();
-                if codeterm_service_core::secrets::migrate_native_bitwarden_to_plugin(&mut cfg) {
-                    let snapshot = cfg.clone();
-                    drop(cfg);
-                    let _ = codeterm_service_core::config::save_config_pub(&snapshot);
-                }
-            }
-
-            let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
-            // Capability registries — populated as JS plugins load, then handed to ServiceContext.
-            let secret_registry = Arc::new(codeterm_service_core::secrets::SecretRegistry::new());
-            let transcribe_registry = Arc::new(codeterm_service_core::transcribe::TranscribeRegistry::new());
-            let converter_registry = Arc::new(codeterm_plugin::converter::ConverterRegistry::new());
-            let graph_node_registry = Arc::new(codeterm_plugin::graph_nodes::GraphNodeRegistry::default());
-            let event_source_registry = Arc::new(codeterm_plugin::event_source::EventSourceRegistry::default());
-            let graph_event_subscriptions = codeterm_plugin::graph_events::SubscriptionTable::new();
-            let decision_model_registry = codeterm_service_core::service::supporter::registry::default_registry();
-            let glance_registry: codeterm_service_core::glance::GlanceRegistryHandle =
-                Arc::new(codeterm_service_core::glance::GlanceRegistry::new());
-            let bubble_registry: codeterm_service_core::bubble::BubbleRegistryHandle =
-                Arc::new(codeterm_service_core::bubble::BubbleRegistry::new());
-            let ui: Arc<dyn codeterm_service_core::ports::host::UiEvents> =
-                Arc::new(crate::host_ports::TauriUiEvents(app_handle.clone()));
-            let repo_sink = Arc::new(codeterm_service_core::repowatch::TauriRepoEventSink::new(ui.clone()));
-            let repo_watch: codeterm_service_core::repowatch::RepoWatchRegistryHandle =
-                Arc::new(codeterm_service_core::repowatch::RepoWatchRegistry::new(repo_sink.clone()));
-            let view_registry: codeterm_service_core::view_host::ViewRegistryHandle =
-                Arc::new(codeterm_service_core::view_host::ViewRegistry::new());
-            let chatbackend_registry: codeterm_service_core::chatbackend::ChatBackendRegistryHandle =
-                Arc::new(codeterm_service_core::chatbackend::ChatBackendRegistry::new());
-            let chat_preprocessor_registry: codeterm_service_core::chatpreprocessor::ChatPreprocessorRegistryHandle =
-                Arc::new(codeterm_service_core::chatpreprocessor::ChatPreprocessorRegistry::new());
-            let agent_command_registry: codeterm_service_core::agent_commands::AgentCommandRegistryHandle =
-                Arc::new(codeterm_service_core::agent_commands::AgentCommandRegistry::new());
-            let webhook_registry: codeterm_plugin::WebhookRegistryHandle =
-                Arc::new(codeterm_plugin::WebhookRegistry::new());
-            let tab_menu_registry: codeterm_plugin::tab_menu::TabMenuRegistryHandle =
-                Arc::new(codeterm_plugin::tab_menu::TabMenuRegistry::new());
-            let surface_registry: codeterm_plugin::surfaces::SurfaceRegistryHandle =
-                Arc::new(codeterm_plugin::surfaces::SurfaceRegistry::new());
-            // One bundle of registry handles, shared by the startup loop and the hot-reload watcher (same register_plugin path, no drift).
-            let cap_registries = plugin::js_runtime::CapabilityRegistries {
-                decision_model: decision_model_registry.clone(),
-                secret: Some(std::sync::Arc::new(
-                    codeterm_service_core::secrets::js_backend::AppSecretBackendRegistrar::new(secret_registry.clone())
-                )),
-                transcribe: transcribe_registry.clone(),
-                converter: converter_registry.clone(),
-                graph_nodes: graph_node_registry.clone(),
-                event_source: event_source_registry.clone(),
-                glance: glance_registry.clone(),
-                bubble: bubble_registry.clone(),
-                view: view_registry.clone(),
-                chatbackend: chatbackend_registry.clone(),
-                chat_preprocessor: chat_preprocessor_registry.clone(),
-                agent_command: agent_command_registry.clone(),
-                webhook_receiver: webhook_registry.clone(),
-                local_recording: Arc::new(codeterm_plugin::local_recording::LocalRecordingRegistry::default()),
-                tab_menu: tab_menu_registry.clone(),
-                surfaces: surface_registry.clone(),
-            };
-            // VMs collected as they load, so the `ServiceContext` can be late-bound into each sandbox once it's built below.
-            let mut plugin_vms: Vec<Arc<plugin::js_runtime::PluginVm>> = Vec::new();
-            let mut plugin_manager = plugin::PluginManager::new();
-            plugin_manager.set_registrar(agent_registry.clone());
-            plugin_manager.set_event_sink(states.event_broadcaster.clone());
-
-            startup::model_catalogue::forward_changes(ui.clone());
-
-            // Bridge ContributionsChanged → frontend event + mem bridge rule refresh.
-            {
-                use tauri::Emitter;
-                let mut sub = states.event_broadcaster.subscribe();
-                let bridge_handle = app_handle.clone();
-                let bridge_registry = agent_registry.clone();
-                let bridge_chatbackend_registry = chatbackend_registry.clone();
-                tauri::async_runtime::spawn(async move {
-                    while let Ok(ev) = sub.recv().await {
-                        if let codeterm_events::SystemEvent::ContributionsChanged { kind } =
-                            &ev.event
-                        {
-                            let _ = bridge_handle.emit(
-                                "contributions-changed",
-                                serde_json::json!({ "kind": kind }),
-                            );
-                            if kind == "agent_provider" {
-                                codeterm_service_core::service::sync_watcher::install_bridge_rules_for_all(
-                                    &bridge_registry,
-                                );
-                                codeterm_service_core::service::mirror_skills_to_providers();
-                                for provider in bridge_registry.all_provider_arcs() {
-                                    codeterm_service_core::agent::model_binary_watch::install(provider);
-                                }
-                                for provider in bridge_chatbackend_registry.active() {
-                                    codeterm_service_core::agent::model_binary_watch::install_chatbackend(
-                                        provider,
-                                        bridge_chatbackend_registry.clone(),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-
-            {
-                use plugin::agent_claude::AgentClaudePlugin;
-                let manifest = AgentClaudePlugin::manifest();
-                plugin_manager.register(manifest);
-                plugin_manager.attach_native(Box::new(AgentClaudePlugin::new()))
-                    .expect("agent-claude plugin attach failed");
-                plugin_manager.activate(plugin::agent_claude::PLUGIN_ID)
-                    .expect("agent-claude plugin activation failed");
-            }
-            // codex + opencode are JS plugins now (no native bundled providers).
-            log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
-
-            // Fan SystemEvents to active plugins' on_event; keep the manager alive in the subscriber task. Exits on bus close.
-            {
-                let plugin_manager = std::sync::Arc::new(plugin_manager);
-                let pm = plugin_manager.clone();
-                let mut sub = states.event_broadcaster.subscribe();
-                tauri::async_runtime::spawn(async move {
-                    loop {
-                        match sub.recv().await {
-                            Ok(ev) => pm.dispatch_event_type(ev.event.type_name()),
-                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                        }
-                    }
-                });
-            }
-
-            {
-                let user_plugins = codeterm_service_core::paths::data_dir().join("plugins");
-                match plugin::embedded::bootstrap_into(&user_plugins) {
-                    Ok(written) if !written.is_empty() => {
-                        log::info!(
-                            "[plugin/bootstrap] extracted embedded plugins {written:?} → {}",
-                            user_plugins.display()
-                        );
-                    }
-                    Ok(_) => {
-                        log::debug!(
-                            "[plugin/bootstrap] {} already has all system plugins",
-                            user_plugins.display()
-                        );
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "[plugin/bootstrap] failed to extract embedded plugins to {}: {e}",
-                            user_plugins.display()
-                        );
-                    }
-                }
-            }
-
-            // Register JS plugins from workspace and user drop-in dirs.
-            // JS provider defaults to authoritative on collision; set CODETERM_NATIVE_PROVIDERS to pin native.
-            {
-                use codeterm_service_core::agent::provider::AgentProvider;
-                use std::collections::HashSet;
-                #[cfg(debug_assertions)]
-                use std::path::PathBuf;
-                agent_registry.begin_startup_provider_loading(
-                    codeterm_service_core::plugin::system_plugins::hashes()
-                        .iter()
-                        .map(|(id, _)| *id),
-                );
-                #[cfg(debug_assertions)]
-                let workspace_root = Some(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")));
-                #[cfg(not(debug_assertions))]
-                let workspace_root: Option<std::path::PathBuf> = None;
-                let roots = plugin::js_runtime::default_roots(workspace_root.as_deref());
-                let (providers, report) = plugin::js_runtime::scan_roots(&roots);
-                for outcome in &report {
-                    match outcome {
-                        plugin::js_runtime::LoadOutcome::Loaded { plugin_id, manifest_path } => {
-                            log::info!(
-                                "[js-plugin] loaded {plugin_id} from {}",
-                                manifest_path.display()
-                            );
-                        }
-                        plugin::js_runtime::LoadOutcome::Skipped { path, reason } => {
-                            log::warn!(
-                                "[js-plugin] skipped {}: {reason}",
-                                path.display()
-                            );
-                        }
-                    }
-                }
-                let keep_native: HashSet<String> = std::env::var("CODETERM_NATIVE_PROVIDERS")
-                    .unwrap_or_default()
-                    .split(',')
-                    .map(|s| s.trim().to_lowercase())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                let keep_all_native = keep_native.contains("all");
-                for mut p in providers {
-                    let id = p.id().to_string();
-                    let version = p.manifest().version.clone();
-                    let trust = p.trust();
-                    let caps = p.manifest().capabilities.clone();
-                    // Hold a VM handle so the ServiceContext can be late-bound into its sandbox after service init.
-                    plugin_vms.push(p.vm().clone());
-                    log::info!(
-                        "[js-plugin] {id} version={version} trust={:?} caps(agent={} secret={} transcribe={})",
-                        trust,
-                        caps.agent_provider,
-                        caps.secret_backend.enabled(),
-                        caps.transcriber
-                    );
-
-                    // Same register_plugin seam as the hot-reload watcher; a capability-only plugin is NOT registered as an agent.
-                    let core = plugin::js_runtime::loader::is_core_plugin(p.manifest(), trust);
-                    cap_registries.register_plugin_with_core(p.manifest(), p.vm(), core);
-                    if !caps.agent_provider {
-                        plugin::audit::append_daemon_reloaded(&id, &version);
-                        continue;
-                    }
-
-                    if keep_all_native || keep_native.contains(&id) {
-                        if !agent_registry.register_provider_if_absent(Box::new(p)) {
-                            log::info!(
-                                "[js-plugin] {id} held back — \
-                                CODETERM_NATIVE_PROVIDERS pins the native impl"
-                            );
-                        } else {
-                            plugin::audit::append_daemon_reloaded(&id, &version);
-                        }
-                    } else {
-                        // JS takes authority; the displaced native impl is preserved as a fallback for unexported methods.
-                        p.set_registrar(agent_registry.clone());
-                        log::info!(
-                            "[js-plugin] {id} registered as authoritative \
-                            (set CODETERM_NATIVE_PROVIDERS={id} to rollback)"
-                        );
-                        agent_registry.register_provider(Box::new(p));
-                        plugin::audit::append_daemon_reloaded(&id, &version);
-                    }
-                }
-                agent_registry.finish_startup_provider_loading();
-
-                // Hot-reload keeps plugin VMs in sync: reload existing plugins and drop vanished plugin dirs.
-                let watcher = plugin::js_runtime::HotReloadRegistry::new(
-                    roots.clone(),
-                    agent_registry.clone(),
-                    cap_registries.clone(),
-                );
-                // Seed tracked-state + mark already-registered plugins activated-at-startup, so the first tick doesn't re-register them.
-                watcher.seed();
-                // Track each plugin's live VM so a later config-only edit re-stamps settings in place instead of rebuilding.
-                for vm in &plugin_vms {
-                    watcher.register_vm(vm.plugin_id(), vm);
-                }
-                watcher.start();
-                log::info!(
-                    "[js-plugin] hot-reload watcher started on {} roots",
-                    roots.len()
-                );
-            }
-
-            agent::model_catalog::refresh_example_files();
-
-            startup::model_catalogue::refresh_providers(&agent_registry);
-
-            let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
-            let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
-
-            let startup_step = startup::StartupStep::logged("memory initialization");
-            let mem = mem::MemManager::open(&codeterm_service_core::paths::data_dir())
-                .expect("mem manager init failed");
-            match mem.seed_bundled_if_needed() {
-                Ok(outcome) if outcome.written() > 0 || !outcome.skipped.is_empty() => {
-                    log::info!(
-                        "[mem] bundled seed: {} written ({} created, {} bootstrapped, {} refreshed), {} skipped",
-                        outcome.written(),
-                        outcome.created,
-                        outcome.bootstrapped,
-                        outcome.refreshed,
-                        outcome.skipped.len()
-                    );
-                    for (title, reason) in &outcome.skipped {
-                        log::info!("[mem] bundled seed skip: {title} ({reason:?})");
-                    }
-                }
-                Ok(_) => log::info!("[mem] starter items already seeded"),
-                Err(e) => log::warn!("[mem] seed failed: {}", e),
-            }
-
-            codeterm_service_core::service::general_agent::sync_identity_to_mem(&mem);
-
-            // Re-index any items missing vectors (catches failed bg indexing)
-            mem.reindex_missing();
-            drop(startup_step);
-
-            let startup_step = startup::StartupStep::logged("service state construction");
-            let svc_ctx = codeterm_service_core::service::build_service_context(
-                &states,
-                ui.clone(),
-                Arc::new(crate::host_ports::TauriShell(app_handle.clone())),
-                codeterm_service_core::async_runtime::handle().clone(),
-                agent_registry,
-                &chatbackend_registry,
-                mem,
-                prompt_detector,
-                bridge_outbound_tx,
-                bridge_outbound_rx,
-                &secret_registry,
-                &transcribe_registry,
-                &converter_registry,
-                &graph_node_registry,
-                &event_source_registry,
-                &graph_event_subscriptions,
-                decision_model_registry,
-                &glance_registry,
-                &bubble_registry,
-                repo_watch,
-                &view_registry,
-                &chat_preprocessor_registry,
-                &agent_command_registry,
-                &webhook_registry,
-                &tab_menu_registry,
-                surface_registry,
-                &cap_registries,
-            );
-            codeterm_service_core::service::supporter::runtime_with_notifications(&svc_ctx);
-            let service_state: ServiceState = svc_ctx;
-            codeterm_service_core::ports::orchestration::install(&service_state);
-            repo_sink.bind_service(Arc::downgrade(&service_state));
-            service_state.chat_send_ledger.bind_settlement_owner(&service_state);
-            {
-                let service = service_state.clone();
-                tauri::async_runtime::spawn(async move {
-                    if service.analytics_worker().await.is_err() {
-                        log::debug!("[analytics] initialization unavailable");
-                    }
-                });
-            }
-            service_state.plan_store.bind_task_key_port(Arc::new(
-                codeterm_service_core::service::plan::task_key_port_impl::MuxTaskKeyPort::new(
-                    service_state.mux.clone(),
-                    Arc::downgrade(&service_state),
-                ),
-            ));
-            service_state
-                .mem
-                .extraction_authority()
-                .set_cancel_sink(Arc::new(codeterm_service_core::mem_host::WorkerCancelSink(
-                    service_state.clone(),
-                )));
-            {
-                let config = states.config.lock().clone();
-                if config.general_agent.enabled && config.general_agent.first_run_complete {
-                    let default_chat_view =
-                        codeterm_service_core::service::general_agent::default_chat_view_for_provider(
-                            &config,
-                            &service_state.agent_registry,
-                            &config.general_agent.agent_provider,
-                        );
-                    codeterm_service_core::service::general_agent::apply_general_chat_view_default(
-                        &mut service_state.mux.write(),
-                        default_chat_view,
-                    );
-                }
-            }
-            // Late-bind the ServiceContext into every loaded plugin's sandbox. Weak so VMs never keep the service alive past teardown.
-            {
-                let host: Arc<dyn codeterm_plugin::PluginHostCtx> = service_state.clone();
-                for vm in &plugin_vms {
-                    vm.set_service(Arc::downgrade(&host));
-                }
-                plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
-                codeterm_service_core::service::plugin_prompt::refresh(service_state.ext::<codeterm_service_core::agent_commands::AgentCommandRegistryHandle>());
-                codeterm_service_core::service::plugin_skills::spawn_sync(service_state.mem.clone());
-                for provider in chatbackend_registry.active() {
-                    codeterm_service_core::agent::model_binary_watch::install_chatbackend(
-                        provider,
-                        chatbackend_registry.clone(),
-                    );
-                }
-                let _ = chatbackend_registry.start_discovery();
-            }
-            codeterm_service_core::service::agent_runtime::restore_all(&service_state);
-            codeterm_service_core::service::lazy_restore::initialize(&service_state, states.config.lock().restore.active_window_hours);
-            app.manage(service_state.clone());
-            crate::deep_links::register_deep_links(&app_handle, service_state.clone())?;
-            {
-                let service = service_state.clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = service.refresh_billing(codeterm_billing::RefreshEvent::SignIn).await;
-                });
-            }
-            startup::model_catalogue::reconcile_defaults(&service_state);
-            let lane_watch_service = service_state.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                lane_watch_service.restore_lane_watches();
-            });
-            codeterm_service_core::delayed_send::start_scheduler(service_state.clone());
-            codeterm_service_core::service::start_plan_reminder_scheduler(service_state.clone());
-            drop(startup_step);
-
-            let startup_step = startup::StartupStep::logged("restored plan loading");
-            startup::restore_plans(&service_state);
-            drop(startup_step);
-
-            let startup_step = startup::StartupStep::logged("background service initialization");
-            {
-                let store = service_state.services_store.clone();
-                let activity = codeterm_service_core::service::activity::ActivityWriter::new(store.conn());
-                codeterm_service_core::service::health::scheduler::start(store, activity, service_state.ui.clone());
-            }
-
-            // Secrets init happens before API listener binds to avoid auth calls hitting uninitialized state.
-
-            // Librarian: hourly file-sync + skill-folder scan, run as a subprocess via the supervisor so a panic / OOM cannot take the daemon down. First fire after a 30s warm-up.
-            {
-                let supervisor = service_state.ext::<Arc<codeterm_service_core::mem::supervisor::Supervisor>>().clone();
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-                    loop {
-                        match supervisor.run(codeterm_service_core::mem::supervisor::WorkerKind::LibrarianOnce).await {
-                            Ok(report) => log::info!("[librarian] {}", report),
-                            Err(e) => log::warn!("[librarian] {}", e),
-                        }
-                        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
-                    }
-                });
-            }
-
-            {
-                let mem = service_state.mem.clone();
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(45)).await;
-                    let mem_for_build = mem.clone();
-                    let _ = tauri::async_runtime::spawn_blocking(move || {
-                        if mem_for_build.layout_needs_rebuild() {
-                            match mem_for_build.run_full_layout() {
-                                Ok(v) => log::info!("[graph_layout] startup build v{v}"),
-                                Err(e) => log::warn!("[graph_layout] startup build: {e}"),
-                            }
-                        }
-                    })
-                    .await;
-                    loop {
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                        mem.layout_flush_if_due();
-                    }
-                });
-            }
-
-            // Resume unfinished extraction only when auto-extract is on; `mem extract-pending` stays the manual path.
-            if codeterm_service_core::config::memory_config().auto_extract {
-                let svc_for_extract = service_state.clone();
-                let queued = codeterm_service_core::mem_host::resume_extract_pending(
-                    svc_for_extract,
-                    usize::MAX,
-                );
-                if queued > 0 {
-                    log::info!(
-                        "[mem] startup: resuming extraction for {} pending item(s)",
-                        queued
-                    );
-                }
-            }
-
-            {
-                let log_store = codeterm_service_core::logs::LogStore::open(&codeterm_service_core::paths::data_dir())
-                    .expect("app_logs.db init");
-                log_store.attach_ui(service_state.ui.clone());
-                codeterm_service_core::logs::set_global(log_store.clone());
-                log_store.start_flush_loop();
-            }
-
-            {
-                let poller = codeterm_service_core::usage::UsagePoller::new(
-                    (*service_state).clone(),
-                    service_state.usage_store.clone(),
-                    service_state.ext::<codeterm_service_core::usage::TabActivity>().clone(),
-                );
-                *service_state.ext::<codeterm_service_core::usage::poller::UsagePollerSlot>().0.lock() = Some(poller.clone());
-                poller.spawn();
-            }
-            drop(startup_step);
-
-            let startup_step = startup::StartupStep::logged("platform and server initialization");
-            startup::setup_conpty_host(app);
-            startup::install_bundled_cli(service_state.shell.as_ref());
-            drop(startup::restore_complete(&service_state));
-            startup::start_servers(app, &states, &service_state);
-            startup::frontend_shell_start(app_handle.clone(), states.rest_api.clone());
-            service_state.schedule_restored_agent_delivery_reconciliation();
-            codeterm_service_core::service::provider_hooks::ensure_integrations_for_all(
-                &service_state.agent_registry,
-                &states.config,
-                service_state.clone(),
-            );
-            let (api_port, allow_non_prod_updates) = {
-                let config = states.config.lock();
-                (
-                    config.api.port,
-                    config.updater.allow_provider_updates_in_non_prod,
-                )
-            };
-            service::check_provider_update_available(
-                service_state.clone(),
-                api_port,
-                allow_non_prod_updates,
-            );
-            if states.config.lock().api.enabled {
-                codeterm_service_core::start_api_liveness_watchdog(
-                    service_state.ui.clone(),
-                    states.mesh.clone(),
-                    states.rest_api.clone(),
-                    states.config.lock().api.port,
-                );
-            }
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                    if let Err(error) = tokio::task::spawn_blocking(codeterm_service_core::crash::lifecycle::heartbeat).await {
-                        log::warn!("[recovery] heartbeat task failed: {error}");
-                    }
-                }
-            });
+            crate::install_client_startup_options(&app_handle, startup_options)?;
+            startup::frontend_shell_initialize(&app_handle)?;
+            app.manage(startup::desktop_lifecycle::DesktopLifecycle::default());
             startup::build_system_tray(app)?;
-
-            // macOS quits never emit ExitRequested; observe AppKit's terminate instead.
             #[cfg(target_os = "macos")]
-            crash::macos_quit::install_quit_hook();
-
-            // Catch SIGTERM/SIGINT: run the same graceful cleanup as a Tauri Exit, then exit cleanly. (Windows is covered above.)
+            {
+                let _ = MAC_CLIENT_APP.set(app_handle.clone());
+                codeterm_crash::crash::macos_quit::install_quit_hook_with(mac_client_quit);
+            }
             #[cfg(unix)]
-            {
-                let signal_app = app_handle.clone();
-                crash::shutdown::install_unix_signal_handlers(move || {
-                    crash::exit::graceful_exit_cleanup(&signal_app);
-                });
-            }
-
-            // the React side has time to attach the listener.
-            {
-                let ui = service_state.ui.clone();
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                    let new_reports = codeterm_service_core::crash::check_previous_crashes();
-                    if !new_reports.is_empty() {
-                        let dir = codeterm_service_core::crash::report::crashes_dir();
-                        let files: Vec<String> = new_reports
-                            .iter()
-                            .filter_map(|p| p.file_name())
-                            .filter_map(|n| n.to_str())
-                            .map(|s| s.to_string())
-                            .collect();
-                        log::warn!(
-                            "[crash] previous-session reports found: {} (dir={})",
-                            files.len(),
-                            dir.display()
-                        );
-                        ui.emit(
-                            "crash_report_available",
-                            serde_json::json!({
-                                "dir": dir.to_string_lossy(),
-                                "files": files,
-                                "recovery": codeterm_service_core::crash::lifecycle::recovery_state(),
-                            }),
-                        );
-                    }
-                });
-            }
-
-            let overlays = service::persona::overlay::reload();
-            for rejection in overlays.rejected() {
-                log::warn!(
-                    "[role-preset] refused {} [{}] {}",
-                    rejection.path,
-                    rejection.reason.code(),
-                    rejection.reason.detail()
+            install_client_signal_handlers(app_handle.clone());
+            let root = client_resource_root(&app_handle).inspect_err(|error| {
+                crate::host_ports::native_client::startup_io_error(
+                    crate::host_ports::native_client::ClientStartupStage::ResourceRoot,
+                    error,
                 );
-            }
-            service::sync_watcher::start(codeterm_service_core::paths::data_dir(), service_state.agent_registry.clone());
-            startup::start_background_tasks(&app_handle, &states);
-            // Tab-state reactor: classify parked tabs and auto-advance via the provider's recommendation.
-            agent::state_reactor::start(service_state.clone());
-            // working→idle edge (no output to ride on when a turn settles).
-            agent::live_state::start(service_state.clone());
-            drop(startup_step);
-
-            // PTY read loops are started by spawn_pty command (initiated by frontend)
+                crate::host_ports::native_client::startup_refused(
+                    crate::host_ports::native_client::ClientStartupStage::ResourceRoot,
+                );
+            })?;
+            let instance = selector.clone();
+            tauri::async_runtime::spawn(async move {
+                let inputs = tokio::task::spawn_blocking(move || {
+                    crate::host_ports::native_client::startup_started(
+                        crate::host_ports::native_client::ClientStartupStage::Inventory,
+                    );
+                    load_client_components(root, instance).inspect_err(|error| {
+                        crate::host_ports::native_client::startup_io_error(
+                            crate::host_ports::native_client::ClientStartupStage::Inventory,
+                            error,
+                        );
+                    })
+                })
+                .await;
+                let result = match inputs {
+                    Ok(Ok((manifest, resources, options))) => {
+                        crate::host_ports::native_client::initialize_client(
+                            app_handle.clone(),
+                            manifest,
+                            resources,
+                            options,
+                        )
+                        .await
+                    }
+                    Ok(Err(error)) => Err(format!("Installed client resources refused: {error}")),
+                    Err(_) => Err("Installed client resource verification was interrupted".into()),
+                };
+                match result {
+                    Ok(attached) => {
+                        log::debug!(
+                            "[client] server attachment ready; epoch={} native={:?}",
+                            attached.ready.epoch,
+                            attached.native
+                        );
+                        #[cfg(debug_assertions)]
+                        let readiness = matches!(
+                            attached.native,
+                            crate::host_ports::native_client::NativeClientStatus::Attached
+                        )
+                        .then(|| {
+                            serde_json::json!({
+                                "protocol": attached.ready.protocol,
+                                "client_pid": std::process::id(),
+                                "server_pid": attached.ready.process.pid,
+                                "epoch": attached.ready.epoch,
+                                "api_address": attached.ready.api_address.to_string(),
+                            })
+                        });
+                        let handle = app_handle.clone();
+                        if let Err(error) = app_handle.run_on_main_thread(move || {
+                            if let Err(error) = start_attached_frontend(&handle) {
+                                crate::host_ports::native_client::startup_refused(
+                                    crate::host_ports::native_client::ClientStartupStage::Frontend,
+                                );
+                                log::error!("[client] frontend initialization refused: {error}");
+                                handle.exit(1);
+                                return;
+                            }
+                            #[cfg(debug_assertions)]
+                            if let Some(readiness) = readiness {
+                                eprintln!("DOMIOS_DEV_ATTACHMENT {readiness}");
+                            }
+                        }) {
+                            crate::host_ports::native_client::startup_refused(
+                                crate::host_ports::native_client::ClientStartupStage::Frontend,
+                            );
+                            log::error!("[client] frontend scheduling refused: {error}");
+                            app_handle.exit(1);
+                        }
+                    }
+                    Err(error) => {
+                        crate::host_ports::native_client::startup_refused(
+                            crate::host_ports::native_client::ClientStartupStage::Startup,
+                        );
+                        log::error!("[client] server attachment refused: {error}");
+                        let handle = app_handle.clone();
+                        if let Err(error) = app_handle.run_on_main_thread(move || {
+                            if let Err(error) = startup::desktop_lifecycle::show_or_create(&handle)
+                            {
+                                log::error!("[client] unavailable frontend refused: {error}");
+                            }
+                        }) {
+                            log::error!(
+                                "[client] unavailable frontend scheduling refused: {error}"
+                            );
+                        }
+                    }
+                }
+            });
             Ok(())
         })
         .on_window_event(startup::handle_window_event)
         .build(startup::frontend_shell_application_context(context))
         .expect("error while building tauri application")
-        .run(|_app, _event| {
+        .run(|app, event| {
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = _event {
-                if !has_visible_windows {
-                    if let Some(w) = _app.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
+            if let tauri::RunEvent::Reopen { .. } = event {
+                startup::desktop_lifecycle::activate(app);
+            }
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } = &event
+            {
+                if label == "main" {
+                    startup::desktop_lifecycle::destroyed(app);
                 }
             }
-
-            // Mark shutting down the moment exit is requested, so the liveness watchdog doesn't read the imminent API-down as a crash.
-            if let tauri::RunEvent::ExitRequested { .. } = _event {
-                log::info!("[shutdown] RunEvent::ExitRequested received");
-                crash::shutdown::mark_shutting_down();
-            }
-
-            // log doesn't survive into the next run. The updater's graceful_shutdown already does this on the in-place upgrade path; this catches every other shutdown route.
-            if let tauri::RunEvent::Exit = _event {
-                crash::exit::handle_run_exit(_app);
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = &event {
+                if client_exit_confirmed() || code.is_some_and(|code| code != 0) {
+                    return;
+                }
+                api.prevent_exit();
+                if code.is_none()
+                    && !crash::shutdown::is_shutting_down()
+                    && startup::desktop_lifecycle::retain_daemon(app, *code)
+                {
+                    log::debug!("[desktop] retained client after implicit last-window exit");
+                } else {
+                    request_client_quit(app);
+                }
             }
         });
     log::info!("[shutdown] Tauri event loop returned");
+}
+
+fn client_exit_confirmed() -> bool {
+    crash::exit::client_exit_status()
+        .is_some_and(|status| status.phase == crash::exit::ClientExitPhase::Confirmed)
+}
+
+fn request_client_quit(app: &codeterm_host_runtime::app_runtime::AppHandle) {
+    use crate::host_ports::{
+        native_client::{ExactServerShutdownResult, NativeHostClientSlot},
+        ServerApiAttachmentSlot,
+    };
+    let ticket = match crash::exit::begin_client_exit(crash::exit::ClientExitReason::ExplicitQuit) {
+        Ok(ticket) => ticket,
+        Err(_) => {
+            let feedback = if crash::exit::client_exit_status()
+                .is_some_and(|status| status.phase == crash::exit::ClientExitPhase::Uncertain)
+            {
+                QuitFeedback::Uncertain
+            } else {
+                QuitFeedback::Waiting
+            };
+            show_quit_feedback(app, feedback);
+            return;
+        }
+    };
+    let native = app
+        .try_state::<NativeHostClientSlot>()
+        .map(|slot| slot.inner().clone());
+    let api = app
+        .try_state::<ServerApiAttachmentSlot>()
+        .map(|slot| slot.inner().clone());
+    let (Some(native), Some(api)) = (native, api) else {
+        crash::exit::refuse_client_exit_before_dispatch(ticket);
+        log::debug!("[client] quit refused before dispatch: authenticated attachment unavailable");
+        show_quit_feedback(app, QuitFeedback::Refused);
+        return;
+    };
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match native.request_exact_server_shutdown(&api).await {
+            ExactServerShutdownResult::Confirmed {
+                server,
+                client_generation,
+            } => {
+                log::debug!("[client] exact server exit observed; epoch={} client_generation={client_generation}", server.epoch);
+                if crash::exit::confirm_client_exit(ticket) {
+                    app.exit(0);
+                }
+            }
+            ExactServerShutdownResult::RefusedBeforeDispatch(reason) => {
+                crash::exit::refuse_client_exit_before_dispatch(ticket);
+                log::debug!("[client] quit refused before dispatch: {reason:?}");
+                show_quit_feedback(&app, QuitFeedback::Refused);
+            }
+            ExactServerShutdownResult::UncertainAfterDispatch(reason) => {
+                crash::exit::mark_client_exit_uncertain(ticket);
+                log::debug!("[client] exact server exit remains uncertain: {reason:?}");
+                show_quit_feedback(&app, QuitFeedback::Uncertain);
+            }
+        }
+    });
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QuitFeedback {
+    Waiting,
+    Refused,
+    Uncertain,
+}
+
+#[derive(Default)]
+struct QuitFeedbackState {
+    generation: u64,
+    current: Option<(u64, QuitFeedback)>,
+}
+
+static LAST_QUIT_FEEDBACK: std::sync::Mutex<QuitFeedbackState> =
+    std::sync::Mutex::new(QuitFeedbackState {
+        generation: 0,
+        current: None,
+    });
+
+fn new_quit_feedback(state: &mut QuitFeedbackState, next: QuitFeedback) -> Option<u64> {
+    if state.current.is_some_and(|(_, feedback)| feedback == next) {
+        return None;
+    }
+    state.generation = state.generation.checked_add(1)?;
+    state.current = Some((state.generation, next));
+    Some(state.generation)
+}
+
+fn finish_quit_feedback(state: &mut QuitFeedbackState, generation: u64) {
+    if state
+        .current
+        .is_some_and(|(current, _)| current == generation)
+    {
+        state.current = None;
+    }
+}
+
+fn complete_quit_dialog(generation: u64) {
+    let mut state = LAST_QUIT_FEEDBACK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    finish_quit_feedback(&mut state, generation);
+}
+
+fn show_quit_feedback(app: &codeterm_host_runtime::app_runtime::AppHandle, feedback: QuitFeedback) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    let generation = {
+        let mut previous = LAST_QUIT_FEEDBACK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        new_quit_feedback(&mut previous, feedback)
+    };
+    let Some(generation) = generation else {
+        return;
+    };
+    let message = match feedback {
+        QuitFeedback::Waiting => "Domios is waiting for the current exit operation. The app remains open until completion is confirmed.",
+        QuitFeedback::Refused => "This quit request was refused before being sent. The app remains open. Reconnect to the server before trying again.",
+        QuitFeedback::Uncertain => "Domios could not confirm that the server finished saving and shutting down. The app remains open. Do not repeat shutdown while its outcome is uncertain.",
+    };
+    let handle = app.clone();
+    if let Err(error) = app.run_on_main_thread(move || {
+        handle
+            .dialog()
+            .message(message)
+            .title("Domios shutdown")
+            .kind(MessageDialogKind::Warning)
+            .show(move |_| complete_quit_dialog(generation));
+    }) {
+        complete_quit_dialog(generation);
+        log::error!("[client] shutdown feedback could not be shown: {error}");
+    }
+}
+
+#[cfg(target_os = "macos")]
+static MAC_CLIENT_APP: std::sync::OnceLock<codeterm_host_runtime::app_runtime::AppHandle> =
+    std::sync::OnceLock::new();
+
+#[cfg(target_os = "macos")]
+fn mac_client_quit() -> codeterm_crash::crash::macos_quit::QuitDecision {
+    use codeterm_crash::crash::macos_quit::QuitDecision;
+    if client_exit_confirmed() {
+        QuitDecision::Proceed
+    } else {
+        if let Some(app) = MAC_CLIENT_APP.get() {
+            request_client_quit(app);
+        }
+        QuitDecision::Cancel
+    }
+}
+
+#[cfg(unix)]
+fn install_client_signal_handlers(app: codeterm_host_runtime::app_runtime::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let result = async {
+            let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            tokio::select! {
+                result = tokio::signal::ctrl_c() => result,
+                received = term.recv() => received.ok_or_else(|| io::Error::other("Client signal channel closed")),
+            }
+        }.await;
+        if let Err(error) = result {
+            log::error!("[client] signal observation failed: {error}");
+            return;
+        }
+        let Ok(ticket) = crash::exit::begin_client_exit(crash::exit::ClientExitReason::UnixSignal)
+        else {
+            return;
+        };
+        if crash::exit::confirm_client_exit(ticket) {
+            app.exit(0);
+        }
+    });
+}
+
+fn start_attached_frontend(
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
+) -> Result<(), Box<dyn std::error::Error>> {
+    crate::deep_links::register_deep_links(app)?;
+    startup::desktop_lifecycle::show_or_create(app)?;
+    startup::frontend_shell_start(app.clone());
+    Ok(())
+}
+
+fn client_resource_root(
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
+) -> io::Result<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Authenticated macOS wrapper component locator is unavailable",
+        ))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        app.path().resource_dir().map_err(io::Error::other)
+    }
+}
+
+fn load_client_components(
+    resources: PathBuf,
+    instance: InstanceSelector,
+) -> io::Result<(ServerComponentManifest, PathBuf, LaunchOptions)> {
+    let resources = resources.canonicalize()?;
+    let manifest_file = resources.join("server-component.json");
+    if !manifest_file.symlink_metadata()?.file_type().is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Installed component inventory must be a regular file",
+        ));
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(manifest_file)?
+        .take(8193)
+        .read_to_end(&mut bytes)?;
+    let manifest = parse_client_components(&bytes)?;
+    let options = LaunchOptions {
+        instance,
+        resources: resources.clone(),
+        probe_sink: None,
+        probe_identity_alias: None,
+    };
+    options.validate(cfg!(debug_assertions))?;
+    Ok((manifest, resources, options))
+}
+
+fn parse_client_components(bytes: &[u8]) -> io::Result<ServerComponentManifest> {
+    if bytes.is_empty() || bytes.len() > 8192 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Component inventory exceeds bound",
+        ));
+    }
+    serde_json::from_slice(bytes).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid installed component inventory",
+        )
+    })
+}
+
+fn client_instance_selector() -> io::Result<InstanceSelector> {
+    let instance = std::env::var_os("CODETERM_DEV_INSTANCE");
+    let port = std::env::var_os("CODETERM_DEV_API_PORT");
+    select_client_instance(cfg!(debug_assertions), instance.as_deref(), port.as_deref())
+}
+
+fn select_client_instance(
+    development: bool,
+    instance: Option<&std::ffi::OsStr>,
+    port: Option<&std::ffi::OsStr>,
+) -> io::Result<InstanceSelector> {
+    if !development {
+        return Ok(InstanceSelector::Production);
+    }
+    let instance = match instance {
+        None => None,
+        Some(value) => match value.to_str() {
+            Some("") => None,
+            Some(value) => Some(value.to_owned()),
+            None => return Err(io::Error::other("Invalid explicit development instance")),
+        },
+    };
+    let port = port
+        .and_then(std::ffi::OsStr::to_str)
+        .ok_or_else(|| {
+            io::Error::other("Development client requires explicit CODETERM_DEV_API_PORT")
+        })?
+        .parse::<u16>()
+        .map_err(|_| io::Error::other("Invalid explicit development port"))?;
+    let instance = InstanceSelector::Development { instance, port };
+    LaunchOptions {
+        instance: instance.clone(),
+        resources: PathBuf::new(),
+        probe_sink: None,
+        probe_identity_alias: None,
+    }
+    .validate(true)?;
+    Ok(instance)
+}
+
+fn install_client_selector(selector: &InstanceSelector) {
+    for key in [
+        "CODETERM_API_URL",
+        "CODETERM_API_PORT",
+        "CODETERM_API_TOKEN",
+        "CODETERM_SOCKET_PATH",
+        "CODETERM_INSTANCE",
+        "CODETERM_DATA_DIR",
+        "CODETERM_DEV",
+        "CODETERM_DEV_INSTANCE",
+        "CODETERM_DEV_API_PORT",
+    ] {
+        std::env::remove_var(key);
+    }
+    if let InstanceSelector::Development {
+        instance: Some(instance),
+        ..
+    } = selector
+    {
+        std::env::set_var("CODETERM_INSTANCE", instance);
+    }
+}
+
+#[cfg(test)]
+mod process_split_contract_client_composition {
+    use super::*;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn quit_feedback_only_repeats_for_a_new_state_transition() {
+        let mut previous = QuitFeedbackState::default();
+        for state in [
+            QuitFeedback::Refused,
+            QuitFeedback::Waiting,
+            QuitFeedback::Uncertain,
+        ] {
+            assert!(new_quit_feedback(&mut previous, state).is_some());
+            assert!(new_quit_feedback(&mut previous, state).is_none());
+        }
+        assert!(new_quit_feedback(&mut previous, QuitFeedback::Refused).is_some());
+    }
+
+    #[test]
+    fn distinct_quit_dialog_attempts_repeat_feedback_without_stale_completion() {
+        let mut state = QuitFeedbackState::default();
+        let first = new_quit_feedback(&mut state, QuitFeedback::Refused).unwrap();
+        assert!(new_quit_feedback(&mut state, QuitFeedback::Refused).is_none());
+        finish_quit_feedback(&mut state, first);
+        let second = new_quit_feedback(&mut state, QuitFeedback::Refused).unwrap();
+        assert_ne!(first, second);
+        finish_quit_feedback(&mut state, first);
+        assert!(new_quit_feedback(&mut state, QuitFeedback::Refused).is_none());
+        finish_quit_feedback(&mut state, second);
+        assert!(new_quit_feedback(&mut state, QuitFeedback::Refused).is_some());
+    }
+
+    fn manifest() -> serde_json::Value {
+        serde_json::json!({
+            "schema": 1, "server_build": "independent-server-build",
+            "server_executable": "domios-server/domios-server",
+            "server_sha256": "a".repeat(64), "client_sha256": "b".repeat(64),
+            "api_version": 3, "bootstrap_protocol": codeterm_types::server_bootstrap::BOOTSTRAP_PROTOCOL,
+        })
+    }
+
+    #[test]
+    fn strict_bounded_inventory_retains_independent_server_build() {
+        let value = manifest();
+        let bytes = serde_json::to_vec(&value).unwrap();
+        let parsed = parse_client_components(&bytes).unwrap();
+        assert_eq!(parsed.server_build, value["server_build"].as_str().unwrap());
+        assert_eq!(serde_json::to_value(parsed).unwrap(), value);
+        assert!(parse_client_components(&[]).is_err());
+        assert!(parse_client_components(&vec![b' '; 8193]).is_err());
+        let mut unknown = value.clone();
+        unknown["fallback"] = true.into();
+        assert!(parse_client_components(&serde_json::to_vec(&unknown).unwrap()).is_err());
+        let mut missing = value;
+        missing.as_object_mut().unwrap().remove("client_sha256");
+        assert!(parse_client_components(&serde_json::to_vec(&missing).unwrap()).is_err());
+    }
+
+    #[test]
+    fn production_selection_ignores_inherited_launch_selectors() {
+        assert!(matches!(
+            select_client_instance(false, Some(OsStr::new("foreign")), Some(OsStr::new("7686")))
+                .unwrap(),
+            InstanceSelector::Production
+        ));
+    }
+
+    #[test]
+    fn development_requires_explicit_valid_nonproduction_port_and_name() {
+        assert!(select_client_instance(true, None, None).is_err());
+        for port in ["0", "7685", "65536", "invalid"] {
+            assert!(select_client_instance(true, None, Some(OsStr::new(port))).is_err());
+        }
+        assert!(select_client_instance(
+            true,
+            Some(OsStr::new("../foreign")),
+            Some(OsStr::new("7880"))
+        )
+        .is_err());
+        assert!(matches!(
+            select_client_instance(true, Some(OsStr::new("")), Some(OsStr::new("7686"))).unwrap(),
+            InstanceSelector::Development {
+                instance: None,
+                port: 7686
+            }
+        ));
+        assert!(matches!(
+            select_client_instance(true, Some(OsStr::new("split-oracle-client")), Some(OsStr::new("7880"))).unwrap(),
+            InstanceSelector::Development { instance: Some(name), port: 7880 } if name == "split-oracle-client"
+        ));
+    }
 }

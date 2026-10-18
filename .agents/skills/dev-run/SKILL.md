@@ -19,12 +19,21 @@ the `github-release` skill. Do not use `dev` output as an installer artifact.
 ./build.sh dev
 ```
 
-Builds the CLI in its existing dev profile and the app, then launches the window through `dev-prebuilt`.
+Builds the CLI, independent `domios-server`, and native client once each in the
+existing dev profile, then launches the client through `dev-prebuilt`. The client
+uses protected launch/attach to the detached server; it creates no ServiceState.
+Windows resources live beside the actual native executable: `server-component.json`,
+`domios-server/domios-server.exe`, exact paired CLI bytes, `dist/`, `skills/`,
+licenses and ConPTY. The existing generator produces schema1/protocol2 inventory
+after the final client bytes exist. This DEV layout is not a signed release layout.
+macOS's authenticated installed wrapper locator remains unavailable; do not claim
+a successful Windows DEV run proves other platforms or installer behavior.
 DEV installs and bundles that exact debug CLI artifact. Production builds and
 standalone `cli` retain their release profile. The CLI's existing package-only
 opt-level 1 is unchanged; dependencies keep their existing profile settings.
 
-Vite `build --watch` refreshes the production-mode frontend bundle; Rust edits need another `dev`.
+Vite `build --watch` refreshes the staged resource `dist/` consumed by both the
+server browser surface and the native DEV static origin; Rust edits need another `dev`.
 For browser UI/provider development, `pnpm dev` uses Vite HMR. Its watcher
 excludes Rust `src-tauri/target`, `cli/target` and `target-check` trees so native
 compiler outputs do not inflate the frontend watch set. The loader accepts
@@ -121,7 +130,8 @@ The hash only changes when you commit. During iterative development it stays the
 ## Waiting for readiness
 
 Use `./build.sh dev --wait` for an automation run that exits after health is
-proven. It waits on the launcher's process and output events, then validates
+proven. It waits for the client's finite nonsecret `DOMIOS_DEV_ATTACHMENT` event after
+exact authenticated server bootstrap and native enrollment, then validates
 `/api/health`; a bounded deadline is a failure condition. Do not add a polling
 loop or fixed sleep. For an interactive run, use one visible foreground dev
 tab; its stream reader reports health readiness to the resolved Domios target.
@@ -401,3 +411,228 @@ Cargo builds with a physical cwd, including one call after gateway release.
 DEV now stages the CLI already built by `build.sh`; prebuilt launch performs no
 Cargo preparation. Main app and sidecar compilation stay at `X:` until build
 completion, then the mapping is released before launching the app.
+
+### Independent DEV launch troubleshooting
+
+A missing `server-component.json`, wrong CLI binding, or stale server executable
+must refuse before client launch. Use the supported `dev` build/stage sequence;
+never manufacture hashes or reuse the process-probe resource directory. The
+schema3 prebuilt provenance pins server, inventory and runtime-resource bytes in
+addition to client/CLI/frontend bytes. A monolithic REST log cannot satisfy its
+attachment readiness event. Optional native enrollment failure may leave the
+headless service alive but does not emit successful native DEV readiness.
+
+The server's compiled debug DEV frontend origin is the selected loopback static
+port; production selectors ignore it. There is no frontend paint prerequisite
+for service readiness. Titlebar close must preserve the exact server/session;
+explicit Quit requires the protected protocol2 cleanup reply plus pinned exit.
+Those are parent-owned native proof rows, not implied by staging unit tests.
+
+If the native client shows the unavailable document with no server/listener, a
+pre-split server log is not current client evidence. Debug client stderr writes
+at most 64 sanitized `DOMIOS_CLIENT_DIAGNOSTIC` records (fixed stages, IO kind,
+numeric OS/helper exit codes only). `ERROR: DOMIOS_DEV_FAILURE` is a finite
+terminal launch report; the supervisor rejects it immediately without extending
+the deadline or trying another launch. Inspect the last install/attach/launch
+boundary and exact nonsecret code, never helper stdout or API credentials.
+Helper stderr remains hidden; this diagnostic does not authorize another retry
+or imply that a previously timed-out server/client launch became ready.
+
+### Windows detached server refused by an older utility job
+
+Symptom: verified DEV artifacts reach launch, then human start reports Access denied
+(os error 5). A PTY job without explicit breakaway permission can reject the server's
+CREATE_BREAKAWAY_FROM_JOB request. Confirm the actual spawn boundary before attributing
+an arbitrary permission failure to jobs.
+
+The host admits explicit breakaway only for persisted Team Dev utility shells. Their
+job retains KILL_ON_JOB_CLOSE; ordinary descendants remain contained. Default, agent,
+non-Team and other-purpose shells cannot request that policy. No silent breakaway or
+runtime environment switch exists. The server still refuses residual ancestor-job
+membership through ensure_detached.
+
+Activation requires a reviewed host carrying this policy to create a NEW utility PTY.
+A newly built DEV client cannot retrofit jobs created by the older installed host.
+Do not mutate a live PROD job, restart/install PROD automatically, or relax containment.
+An outside-job parent can separately verify exact staged artifacts, but cannot pass the
+Team utility activation oracle. Parent QA must observe default/agent/ordinary Dev
+children die on job close and only the explicit server survive with its retained
+process pin, authenticated epoch and existing session unchanged.
+
+### Unix DEV raw artifact/resource directory collision
+
+Cargo produces a regular `target[/<triple>]/debug/domios-server` file. Placing paired
+`domios-server/` resources in that directory fails with ENOTDIR. DEV stages one exact
+copy of the built client under `.domios-dev-runtime/bin/codeterm` and paired resources
+under `.domios-dev-runtime/lib/codeterm`, retaining raw Cargo outputs. Linux Tauri's
+existing `exe_dir/../lib/<package-name>` lookup resolves that resource root; no fake
+Cargo lock, CWD or environment resource override is used. Windows layout is unchanged.
+The provenance record, watcher and static server use that same derived resource root.
+macOS authenticated installed inventory location remains Unsupported; staging is not
+proof of macOS startup. Parent native Linux proof must verify actual resource lookup,
+exact staged hashes and authenticated attachment for host and target-qualified output.
+
+### Automatic Windows DEV launch from an older host job
+
+`build.ps1 dev` uses the existing `build.sh` build/stage operation once, then its
+Windows DEV launcher asks the current user's Explorer desktop automation object to
+start a finite hidden execution helper. This is DEV-only; no host install/restart,
+elevation, scheduled task, global job edit or general broker is involved. An absent
+interactive desktop, wrong user/session, remaining helper job membership, invalid
+staged client or failed private pipe refuses launch. COM return is never readiness.
+
+The operation pipe permits only the current user, has bounded input/output frames,
+and transmits only whitelisted nonsecret DEV settings. Client bootstrap/API credentials
+never enter launcher argv/log/files. The native client still verifies component bytes,
+authenticates and pins its server; existing authenticated attachment supplies readiness.
+The helper owns the native client handle. Controller cancellation/disconnect terminates
+that client only; supported scoped `build.sh kill` remains the DEV server cleanup path.
+Titlebar close/tray lifetime differs from explicit controller cancellation. Parent QA
+must verify actual desktop launch, exact pair/renderer ownership, titlebar/session
+survival and protocol2 Quit cleanup. Source fixtures do not prove those native rows.
+
+### Gateway drive spelling refused during DEV staging
+
+Symptom: all builds finish, then `stageDevResources` refuses the derived resource
+root before desktop launch. The gateway's SUBST drive can spell the same artifact
+root differently from the canonical client path. Staging resolves the existing
+root (or nearest existing parent for missing Unix layout directories) before comparing
+it to the exact canonical client-derived root. Symlink/junction and foreign-root
+candidates still refuse. Only the verified physical root is created/staged; no global
+drive mapping is changed. Rebuild through the supported DEV operation after this
+source correction; COM/client/server startup remains a separate native proof.
+
+### Independent server is live but native helper reaches its deadline
+
+Public health alone cannot complete native attachment. If launch has started but the
+caller still refuses, inspect sanitized `response_newline`, `response_eof` and
+`helper_exited` phases. Newline plus helper exit without EOF identifies an open writer;
+server debug logs bracket native listener binding and inherited readiness ACK. No
+payload, token or reply contents are recorded. Do not increase deadlines or retry attach.
+
+Windows launcher standard handles are made non-inheritable before spawning the server,
+which retains its explicit private stdin/stdout. This prevents those original helper
+handles from extending the caller pipe lifetime. Exact bounded one-line plus EOF and
+successful helper exit remain mandatory. The prior deadline is not reclassified as
+success; parent native execution must establish the actual handle/ACK outcome.
+
+### Authenticated split attachment succeeds but the reporter refuses health
+
+The independent server owns full build SHA, instance name and API port. Client Vite,
+CDP and window identifier values are not server health identity. Split reporting
+requires exact server health plus the fresh native attachment event, matching API
+listener PID and observed live client/server. The event comes from the verified
+client's authenticated retained attachment; supplemental PID liveness is not a new
+process-provenance verifier. Legacy combined-role health checks stay strict.
+
+Launch configuration and staged client/frontend bytes remain pinned by DEV provenance.
+Bench target checks accept empty server GUI fields only with the selected schema3
+DEV provenance/build/instance record; existing CLI/data/config/socket isolation remains.
+Neither launch reporting nor bench identity claims renderer paint, browser login or an
+active CDP endpoint. Those require observations on their own selected client surface.
+
+### Streaming replay inspection rejects blank server GUI properties
+
+The streaming-soak consumer previously required server identifier/Vite/CDP fields and
+forced external Browser targets onto Vite. Split DEV inspection now reads the selected
+schema3 provenance and pins full server build/name/API identity, then admits only the
+explicit Browser target at the API-served DEV origin. It hashes actual served HTML and
+entry script bytes. Target/socket/renderer PID/incarnation/native-bridge refusals remain.
+Legacy combined-role target checks stay strict. Split native inspection uses the
+checked Windows debug locator described below; without it inspection remains unavailable
+rather than inventing CDP from client configuration or blank server fields.
+Parent Browser authentication and live fixture work remain separate authorized steps.
+
+### Browser-wide renderer count blocks functional replay
+
+The streaming-soak runner defaults to strict profiling attribution. For finite
+input/storage correctness on an existing multi-renderer Browser, use its explicit
+`--purpose functional` on inspect/setup/replay/finish/cleanup; follow REPLAY.md.
+The same page/entry/build/boot/daemon and fixture journal remain pinned. Renderer
+PID/private bytes/trace attribution are explicitly unavailable, never guessed.
+Functional reports retain DOM/input/storage and page-CDP metrics, refuse profiling,
+heap snapshots and memory/plateau comparisons, and cannot resume across capability
+or page drift. No other Browser page/profile is changed to obtain a renderer PID.
+
+### Bundled functional replay cannot import TypeScript source paths
+
+The API-served dist returns HTML for `/src` imports. Functional replay now preflights
+the same owned page at existing local DEV `?e2e` and requires the shipped test-chat
+and projection handles BEFORE setup fixtures. Re-inspect/re-pin that changed page;
+restore its saved URL only after exact cleanup. No source module copies/app hooks or
+Vite/HMR switch are used. Backend fixture identity remains checked, while public
+projection/DOM tail observations explicitly do not prove internal rows/authority or
+durable storage. Use the bounded procedure in streaming-soak/REPLAY.md; unavailable
+handles or unmounted synthetic projections refuse rather than fabricating completion.
+
+
+Bundled functional replay selects the exact owned workspace and tab on the selected
+Browser page through sidebar controls; daemon focus is only used for the native
+surface. Backend focus acknowledgement alone does not prove a mounted composer.
+Functional cleanup uses authenticated mux reads after each successful close and a
+final all-owned-IDs-absent read before unlinking fixture files. UI absence remains
+unavailable; profile mode retains its source bridge event observer.
+For a pre-close cleanup failure with pending null and cleanup null, run only the
+original checkpoint's `cleanup` with its original purpose/surface/CDP/target flags.
+Do not rerun setup or replay that checkpoint. After exact cleanup, use a fresh
+output directory for inspect/setup/replay/finish/cleanup and restore the saved URL.
+
+
+A bundled replay workspace may be outside the collapsed sidebar card subset.
+The harness expands the unique visible overflow control once only when the exact
+owned workspace control is absent, then observes that exact control before clicking.
+Missing-after-expansion times out/refuses; duplicate controls refuse. This is not
+proof that overflow caused a prior refusal when fixture membership was not captured.
+Tab activation uses the actual TabItem aria-current="page" contract plus a visible
+owned mounted composer/terminal; backend focus alone remains insufficient.
+
+
+### Unfinished replay: explicit teardown only
+
+Ordinary finish/cleanup/resume refuse a pending replay. After owner approval use
+`bash evals/perf/streaming-soak/run.sh abort-replay --out ORIGINAL_RUN --purpose functional --surface chrome --cdp EXACT_CDP --target EXACT_PAGE`.
+Keep the original page/e2e/build/entry/daemon identity. This operation validates
+exact session/nonce/PTY/workspace and fixture files, admits one abort, authenticates
+the existing emitter stop and requires its exact child-exit receipt. It then closes
+only owned tabs/workspace, proves backend absence, and unlinks owned fixture files.
+Pending and replay failure evidence remain unchanged; a separate abort record and
+aborted stage never count as replay success or permit replay/resume. An interrupted
+abort/cleanup needs owner review, never automatic repeat. Do not clear a pending
+journal, seed again, erase its checkpoint or create another run before teardown.
+
+
+Functional replay now visits each exact seed target before dispatch/visible-tail
+verification, returns to local before measured input, and selects each target for
+final restoration/read. Inactive mounted chat shells may contain no message DOM.
+Measured background-control evidence therefore uses only the public projection tail;
+its visible DOM/internal store/durable storage evidence remains explicitly unavailable.
+Selected local and final selected-tail checks still require the exact visible source ID.
+The actual tail signature is row id plus # plus JavaScript content length, matching
+paintTailSignature; no monitor snapshot is converted into invented DOM rows.
+
+
+Replay visits explicitly distinguish setup from replay phase. Initial authority
+mount retains the original synthetic history marker. Seed routing, begin/local
+return, final reads and after-return use replay phase: exact selected owned mount
+remains required, while dispatch/final-read retain exact replay tail evidence.
+The setup marker may disappear after normalized reseed/virtualization; requiring it
+then caused a pre-input readiness refusal, not proof of app storage failure.
+
+
+### Windows split native inspection locator
+
+Supported dev/dev-prebuilt selects the existing instance-specific CDP port and
+passes the finite local diagnostics option only to the Windows debug native client.
+WebView2 binds loopback; release builds do not enable it through this path. No
+server/CLI/PTY argument or credentials are forwarded. The existing client verifier
+checks exact main-view generation and WebView process lineage before Active.
+The launcher records the checked snapshot, origin, client PID/kernel creation identity
+and view/navigation generation in schema3 provenance nativeClient after authenticated
+attachment. Each new launch clears the old locator. Inspect refuses process creation,
+executable, current native snapshot or view-target generation mismatch. The native
+renderer attribution rules stay strict; functional mode still makes no memory claim.
+macOS WKWebView and Linux WebKitGTK do not expose this Windows WebView2 CDP seam;
+no locator is published there. Their native inspection remains unavailable.
+Use the existing streaming-soak inspect --surface native after the parent rebuild;
+no external Browser endpoint or guessed native renderer is substituted. The frozen
+58a pair has no new locator and must remain untouched until coordinated rebuild.

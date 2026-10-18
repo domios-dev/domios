@@ -1210,7 +1210,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 48 -->
+<!-- revision: 49 -->
 
 ### Lane and batch scopes
 
@@ -1309,9 +1309,13 @@ the lane check. Committed check-queue also includes CLI test targets.
 
 `test-one paths tests::strip_verbatim_prefix` and `nextest paths` select
 `codeterm-paths` through the app manifest without feature-selection flags.
-The same applies to `mem-store` and both `codeterm-*` aliases: these packages
-are external path dependencies, and neither declares Cargo features. Passing
-`--no-default-features` while selecting only one external package fails with
+`codeterm-paths` lives in `src-tauri/crates/codeterm-paths` as an app workspace
+member. Selecting it with test-only dev dependencies while it lived outside
+the workspace refused before test execution; adding a non-hierarchical member
+also refused. Move the one package into the workspace and update its path
+consumers; retain the same selector and require nonzero executed tests.
+`mem-store` and its `codeterm-*` alias remain external path dependencies without
+Cargo features. Passing `--no-default-features` for that external package fails with
 "cannot specify features for packages outside of workspace" before any test runs.
 Release archives select these alongside workspace packages; focused routing
 retains the app workspace profiles and target cache without that invalid flag.
@@ -1379,3 +1383,125 @@ Run this opt-in regression from a lane: it includes the two-worktree E0425
 reproduction, a 12000-character Unicode/quotes/exit-code forwarding check, and
 real `./build.sh lane-check codeterm-service-core --tests`. Require exit 0 from
 the real crate check; a tiny fixture alone does not cover Windows argument limits.
+
+## Independent server process oracle
+
+If Windows refuses probe cleanup with `EBUSY`, retain the failed result and
+disposable data; a prior runtime milestone is not a successful full probe.
+Report success only after cleanup, remove the verified scratch alias before
+deleting data, and never follow that alias or use a broad process kill.
+
+If the probe CLI build reports E0061 at `generate_system_plugin_hashes`, its
+build-script caller still uses the old zero-argument API. Pass the CLI's
+`CARGO_MANIFEST_DIR` path to the shared bundler, whose parent resolves the same
+repository plugin directory; then rerun the process oracle.
+
+If `lane-check domios-server --tests` refuses with `lane-check requires a
+codeterm package` before Cargo, the package router predates the independent
+server name. Admit exactly `domios-server` alongside `codeterm|codeterm-*` in
+`scripts/lane-check.sh`; keep all other refusals and lane resources unchanged.
+Verify with `node --test --test-name-pattern='server lane routing'
+scripts/tests/lane-check.test.mjs` (stubbed Cargo), then run the authorized
+focused lane check. Never broaden the allowlist to a `domios-*` wildcard.
+
+If the extracted server build reports `bundled plugins directory is missing`,
+check the server build script's app-manifest input before rebuilding: it must
+canonicalize `CARGO_MANIFEST_DIR/../..` before the shared bundler takes `parent()`.
+Taking the parent of a literal trailing `..` selects `src-tauri/crates/plugins`
+instead of the repository `plugins/` directory. Source review caught and fixed
+this extraction path error; no native build failure was executed in that lane.
+
+If the crate-version guard flags the independent server's release version, do
+not carry the app version in its shared library package or exempt it from the
+guard. Keep its Cargo version at `0.0.0`; the server build script injects
+`DOMIOS_VERSION` from the existing `src-tauri/tauri.conf.json` release source,
+tracks that input, and installs it through `codeterm_build_info` at startup.
+Parent canonical refreshes lockfiles and verifies the shipped version; a source
+guard pass alone is not built artifact identity proof.
+
+Parent canonical Team QA owns all Rust and native execution for this slice:
+
+```bash
+./build.sh test-one domios-server process_split_contract
+./build.sh process-probe --case server-only --instance split-oracle
+./build.sh process-probe --case arbitration --instance split-oracle
+```
+
+On Windows use the same arguments through `build.ps1`. `test-one domios-server`
+selects only the server library, disables default test features, and the existing
+capped runner refuses zero selected tests. Moved startup preservation selectors
+are `./build.sh test-one domios-server startup::` and core path arbitration is
+`./build.sh test-one app instance_lifetime::path_owner::`.
+
+`process-probe` first builds the exact CLI artifact, stages it at
+`resources/cli/codeterm[.exe]`, hashes its bytes, and passes
+`CODETERM_SERVER_CLI_SHA256` to the server build. It then builds only
+`domios-server --bin domios-server` with
+`--no-default-features --features domios-server/embeddings` and the explicit host
+target. Its Cargo artifact receipt pins the actual executable and digest; the
+matching normal/build dependency closure must exclude Tauri, Wry, WebView and
+codeterm-host-runtime. Packaging must record the shipped release artifact's
+own feature/target closure too. Workspace/test feature unions do not establish
+this proof. A server built without the CLI digest refuses actual service startup.
+The resource is copied and reverified into a private lifetime lease before memory
+initialization; process-local CLI selection never falls back to a GUI executable.
+The probe starts a unique disposable named DEV identity beneath split-oracle,
+scrubs inherited connection/display selectors, and never connects to PROD.
+It waits on protected broker replies, listener-ready events and pinned OS exit
+handles, then verifies API/socket and a real disposable PTY after its launcher
+exits. A missing CLI resource must refuse before data initialization. The probe
+also requires the actual existing maintenance spawn, transferred kernel witness
+and separately verified executable/creation provenance; early exit or unavailable
+witness fails that row without spawning a substitute. Focused observer checks:
+`./build.sh test-one mem process_split_contract`.
+The arbitration case races a missing identity and an explicit junction/symlink
+path alias (probe-only DTO, both canonical roots must equal normal roots),
+requires one initialization audit, and rejects identity/build/protocol/epoch/PID
+skew and foreign executable/listener cases. Cleanup requires exact server exit;
+uncertain cleanup retains disposable data and fails.
+
+A Windows breakaway refusal means the launching job forbids server detachment.
+Record the returned infrastructure failure; never disable the PTY kill-on-close
+job or retry behind a deadline. The client launch must originate from a context
+that can create the independent server. Report Windows, Linux and macOS native
+rows separately. An unrun probe, successful source check or fake fixture is never
+a native process PASS. Probe receipts contain no API credential; the credential
+travels only over private inherited pipes or authenticated local IPC.
+
+### Human headless start
+
+The server's `start` entry uses the same detached child, protected bootstrap pipes,
+readiness acknowledgement and process-provenance check as private `launch`:
+
+```bash
+./domios-server/domios-server start --production --json
+# Windows: .\domios-server\domios-server.exe start --production --json
+```
+
+The common resource root defaults to the executable's parent-parent directory;
+`--resources PATH` selects an explicit resource root. The packaged layout contains
+`domios-server/`, `cli/`, `dist/`, `skills/` and target runtime resources together.
+The CLI digest must already be bound into the server build. A missing or mismatched
+resource refuses startup; the entry does not install, relocate data or launch a
+native client. Final release staging/signing and actual packaged-start proof remain
+required before this source entry establishes a supported release artifact.
+
+A debug artifact instead requires `start --development --port PORT`, optionally
+`--instance NAME`. Production and debug selectors cannot cross; inherited launch
+selectors are scrubbed by the server before resolving its instance. There is no
+implicit selector, credential option, probe option or production test command.
+`--json` emits only `ServerReady`; ordinary output shows the token-free frontend
+address and process/instance identity. Private `launch`, `serve`, `attach` and
+`observe` still require inherited pipes and retain their protected DTOs.
+
+Open the reported address and authenticate through the existing WebGate with the
+API credential obtained privately from the server's protected local configuration.
+Never copy a credential into an argv, URL, build receipt or console log. WebGate
+checks authenticated workspace access; `/manifest-bootstrap` already requires a
+bearer and is not first-use pairing. No tokenless remote/browser pairing is provided.
+Native enrollment remains the authenticated client attachment contract, independently
+pinned to the intended server artifact; human status does not authorize native powers.
+
+Focused pure coverage is `./build.sh test-one domios-server process_split_contract_headless`.
+Actual production/debug start, refusal and frontend-authentication proofs are
+parent-owned platform rows; source fixtures and compilation do not execute them.

@@ -60,6 +60,7 @@ pub(crate) fn capture_tab_launch_parameters(
         )
     });
     let launch = RestorableLaunchParameters {
+        execution_mode: None,
         execution_sandbox: mux
             .read()
             .get_tab(tab_id)

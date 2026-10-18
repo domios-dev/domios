@@ -5,6 +5,32 @@ use super::ServiceContext;
 use crate::service::MuxEmitCause;
 
 impl ServiceContext {
+    pub(crate) fn shell_job_policy_for_tab(
+        &self,
+        tab_id: &str,
+    ) -> crate::pty::manager::WindowsJobPolicy {
+        shell_job_policy_for_mux(&self.mux.read(), tab_id)
+    }
+}
+
+fn shell_job_policy_for_mux(
+    mux: &crate::multiplexer::state::MultiplexerState,
+    tab_id: &str,
+) -> crate::pty::manager::WindowsJobPolicy {
+    let Some(tab) = mux.get_tab(tab_id) else {
+        return crate::pty::manager::WindowsJobPolicy::Contained;
+    };
+    let team_member = tab.team_id.as_deref().is_some_and(|team_id| {
+        mux.team_workspace(team_id).is_some()
+            && mux
+                .team_member_tab_ids(team_id)
+                .iter()
+                .any(|id| id == tab_id)
+    });
+    crate::pty::manager::shell_job_policy(team_member, tab.agent_type.is_some(), tab.purpose)
+}
+
+impl ServiceContext {
     pub(crate) fn resolve_shell_profile(
         &self,
         requested: Option<&str>,
@@ -203,6 +229,13 @@ impl ServiceContext {
                 .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
                 .ok_or("No workspace for hidden shell")?
         };
+        let team_membership = super::team_membership::resolve_inherited_team_attachment(
+            &self.mux.read(),
+            spec.team_id.as_deref(),
+            spec.creator_tab_id.as_deref(),
+            &ws_id,
+            spec.detach_from_team,
+        )?;
         let ws_cwd = {
             let mux = self.mux.read();
             mux.get_workspace(&ws_id).and_then(|ws| ws.cwd.clone())
@@ -245,13 +278,22 @@ impl ServiceContext {
                     tab.cwd = Some(dir.clone());
                 }
             }
+            if let Some(attachment) = &team_membership {
+                super::team_membership::apply_team_attachment_under(
+                    &mut mux,
+                    attachment,
+                    &result,
+                    super::team_membership::utility_shell_parent(Some(&attachment.caller_tab_id)),
+                )?;
+            }
             result
         };
 
+        let job_policy = self.shell_job_policy_for_tab(&tab_id);
         let env_vars = self.tab_env(&tab_id);
 
         let pty_id = match self.link_hidden_shell_pty_with_builder(&tab_id, |gate| {
-            crate::pty::manager::build_session_with_profile(
+            crate::pty::manager::build_shell_session_with_policy(
                 gate,
                 None,
                 resolved_cwd,
@@ -259,6 +301,7 @@ impl ServiceContext {
                 40,
                 env_vars,
                 profile.as_ref(),
+                job_policy,
             )
         }) {
             Ok(id) => id,

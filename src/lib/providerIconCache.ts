@@ -18,6 +18,14 @@ function cacheKey(): string {
   return `codeterm-provider-icons:${apiHost()}:${relayTarget()?.id ?? "self"}`;
 }
 
+function sameIcons(left: ProviderIconDescriptor[], right: ProviderIconDescriptor[]): boolean {
+  return left.length === right.length && left.every((icon, index) => {
+    const next = right[index];
+    return icon.id === next.id && icon.display_name === next.display_name && icon.icon_svg === next.icon_svg &&
+      icon.icon_hint === next.icon_hint && icon.icon_color === next.icon_color;
+  });
+}
+
 export function cachedProviderIcon(id: string | null | undefined): ProviderIconDescriptor | undefined {
   try {
     const key = cacheKey();
@@ -31,11 +39,21 @@ export function cachedProviderIcon(id: string | null | undefined): ProviderIconD
 }
 
 export function persistProviderIcons(providers: ProviderIconDescriptor[]): void {
+  const next = providers.map(({ id, display_name, icon_svg, icon_hint, icon_color }) =>
+    ({ id, display_name, icon_svg, icon_hint, icon_color }));
+  let nextScope: string | undefined;
   try {
-    scope = cacheKey();
-    icons = providers.map(({ id, display_name, icon_svg, icon_hint, icon_color }) =>
-      ({ id, display_name, icon_svg, icon_hint, icon_color }));
-    localStorage.setItem(scope, JSON.stringify(icons));
-  } catch { /* The live catalogue remains usable without storage. */ }
-  for (const fn of subscribers) fn();
+    nextScope = cacheKey();
+  } catch {
+    nextScope = undefined;
+  }
+  const changed = !sameIcons(icons, next);
+  const scopeChanged = scope !== nextScope;
+  if (!changed && !scopeChanged) return;
+  scope = nextScope;
+  icons = next;
+  if (scope) {
+    try { localStorage.setItem(scope, JSON.stringify(icons)); } catch {}
+  }
+  if (changed) for (const fn of subscribers) fn();
 }

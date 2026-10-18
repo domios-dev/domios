@@ -101,6 +101,7 @@ pub(crate) fn agent_system_prompt(assignment: Option<&str>) -> String {
 fn primer_sections(built_in_plugins: Option<&str>) -> Vec<String> {
     let mut sections = vec![crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string()];
     sections.extend(built_in_plugins.map(str::to_string));
+    sections.push(crate::prompts::AGENT_ROUTING_CONTRACT.trim().to_string());
     sections
 }
 

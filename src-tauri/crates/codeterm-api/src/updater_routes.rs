@@ -7,8 +7,7 @@ use serde::Deserialize;
 
 use crate::routes::{check_auth, AppState};
 use codeterm_commands::update::apply::{
-    check_stage_deb_update, debian_preflight_status, gate_staged_deb_async, ApplyOptions,
-    ApplyResult, DebianElevationStatus, DebianStageGate,
+    gate_staged_deb_async, ApplyOptions, ApplyResult, DebianElevationStatus, DebianStageGate,
 };
 use codeterm_commands::update::single_flight;
 use codeterm_commands::update::InstallMethod;
@@ -132,6 +131,18 @@ pub async fn install_update(
         validate_initiating_tab(caller_tab_id.as_deref(), q.continue_tab.as_deref())
             .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
     }
+    let application_host = if q.method.as_deref() == Some("auto") {
+        Some(
+            codeterm_commands::application_host::require(&state.svc).map_err(|_| {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "native_capability_unavailable",
+                )
+            })?,
+        )
+    } else {
+        None
+    };
 
     // Persist before restart — the next boot folds it into the General Agent's resume claim.
     if let Some(text) = q.after_update.as_deref() {
@@ -166,14 +177,13 @@ pub async fn install_update(
 
     // Auto update checks bypass the daemon's short-check cache to avoid stale "up_to_date" right after release.
     // Keep cache useful for polling badge and manual browser fallback paths.
-    if q.method.as_deref() == Some("auto") {
+    if let Some(app) = application_host {
         let Some(lease) = single_flight::global().try_acquire() else {
             return Ok(Json(serde_json::json!({
                 "status": single_flight::ALREADY_IN_FLIGHT,
                 "message": "An update is already being applied."
             })));
         };
-        let app = state.app.clone();
         let (channel, install_method) = {
             let us = state.update_state.lock();
             (us.channel, us.install_method.clone())
@@ -189,7 +199,7 @@ pub async fn install_update(
                 install_method,
                 initiating_tab_id: continue_tab.clone(),
             };
-            let plan = match check_stage_deb_update(&app, &opts, update_state.clone()).await {
+            let plan = match app.check_stage_deb_update(&opts).await {
                 Ok(plan) => plan,
                 Err(e) => {
                     update_state.lock().set_error(e.clone());
@@ -201,7 +211,10 @@ pub async fn install_update(
                 }
             };
 
-            let gate = match gate_staged_deb_async(plan, debian_preflight_status).await {
+            let preflight_host = app.clone();
+            let gate = match gate_staged_deb_async(plan, move || preflight_host.debian_preflight())
+                .await
+            {
                 Ok(gate) => gate,
                 Err(e) => {
                     update_state.lock().set_error(e.clone());
@@ -268,7 +281,7 @@ pub async fn install_update(
                 rt.block_on(async move {
                     match single_flight::install_staged_deb_with_lease(
                         lease,
-                        &app,
+                        app.as_ref(),
                         version.clone(),
                         path,
                         continue_tab.as_deref(),
@@ -314,13 +327,8 @@ pub async fn install_update(
                     install_method,
                     initiating_tab_id: continue_tab,
                 };
-                let outcome = single_flight::apply_with_lease(
-                    lease,
-                    &app,
-                    opts.clone(),
-                    update_state.clone(),
-                )
-                .await;
+                let outcome =
+                    single_flight::apply_with_lease(lease, app.as_ref(), opts.clone()).await;
                 match outcome {
                     Ok(result) => match result {
                         ApplyResult::Restarting => {

@@ -13,7 +13,7 @@ async fn account_routes_local_journey_persists_and_deletes_credential() {
         http::Request,
     };
     use tower::ServiceExt;
-    let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
     );
     *fixture.service.secrets.write().await =
@@ -83,7 +83,7 @@ async fn account_plan_routes_local_journey() {
     };
     use std::sync::Arc;
     use tower::ServiceExt;
-    let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
     );
     *fixture.service.secrets.write().await =
@@ -139,4 +139,198 @@ async fn account_plan_routes_local_journey() {
         .has("domios-account-local-refresh")
         .await
         .unwrap());
+}
+
+fn callback_request(state: &str) -> Json<AccountCallback> {
+    Json(AccountCallback {
+        url: format!(
+            "domios://auth/callback?code={}&state={state}",
+            "c".repeat(43)
+        ),
+    })
+}
+
+#[tokio::test]
+async fn account_callback_refuses_nonlocal_before_completion() {
+    let calls = std::cell::Cell::new(0);
+    for caller in [
+        None,
+        Some(Extension(CallerIdentity::ServicePush {
+            service_id: "fixture".into(),
+        })),
+        Some(Extension(CallerIdentity::Peer {
+            instance_id: "fixture".into(),
+            access_level: codeterm_service_core::mesh::types::AccessLevel::Full,
+            relay_protocol_version: 0,
+        })),
+    ] {
+        let error = dispatch_callback(
+            caller.as_ref(),
+            Ok(callback_request("fixture-pending-state")),
+            |_| {
+                calls.set(calls.get() + 1);
+                std::future::ready(Ok(()))
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.0, StatusCode::FORBIDDEN);
+    }
+    assert_eq!(calls.get(), 0);
+}
+
+#[tokio::test]
+async fn account_callback_refuses_invalid_or_oversized_url_before_completion() {
+    let local = Extension(CallerIdentity::Local);
+    let calls = std::cell::Cell::new(0);
+    for (url, status) in [
+        ("secret-malformed-callback".into(), StatusCode::BAD_REQUEST),
+        (
+            "https://foreign.invalid/callback?secret=sentinel".into(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "x".repeat(MAX_CALLBACK_URL_BYTES + 1),
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+    ] {
+        let error = dispatch_callback(Some(&local), Ok(Json(AccountCallback { url })), |_| {
+            calls.set(calls.get() + 1);
+            std::future::ready(Ok(()))
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(error.0, status);
+        assert!(!error.1.contains("secret"));
+    }
+    assert_eq!(calls.get(), 0);
+}
+
+#[tokio::test]
+async fn account_callback_forwards_once_and_only_acknowledges() {
+    let local = Extension(CallerIdentity::Local);
+    let calls = std::cell::Cell::new(0);
+    let status = dispatch_callback(
+        Some(&local),
+        Ok(callback_request("fixture-pending-state")),
+        |callback| {
+            calls.set(calls.get() + 1);
+            assert_eq!(callback.code, "c".repeat(43));
+            assert_eq!(callback.state, "fixture-pending-state");
+            std::future::ready(Ok(()))
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(calls.get(), 1);
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn account_callback_preserves_pending_state_pkce_and_single_consumption() {
+    let local = Extension(CallerIdentity::Local);
+    let mut flow = codeterm_account::LoginFlow::from_parts(
+        "fixture-current-state".into(),
+        codeterm_account::Secret::new("fixture-verifier"),
+        "domios://auth/callback".into(),
+    );
+    let accepted = std::cell::Cell::new(0);
+    for (state, expected) in [
+        ("fixture-wrong-state", StatusCode::CONFLICT),
+        ("fixture-stale-state", StatusCode::CONFLICT),
+        ("fixture-current-state", StatusCode::NO_CONTENT),
+        ("fixture-current-state", StatusCode::CONFLICT),
+    ] {
+        let result = dispatch_callback(Some(&local), Ok(callback_request(state)), |callback| {
+            std::future::ready(
+                flow.complete(callback)
+                    .map(|redemption| {
+                        accepted.set(accepted.get() + 1);
+                        assert_eq!(redemption.verifier.expose(), "fixture-verifier");
+                        assert_eq!(redemption.redirect, "domios://auth/callback");
+                    })
+                    .map_err(callback_failure),
+            )
+        })
+        .await;
+        assert_eq!(result.unwrap_or_else(|error| error.0), expected);
+    }
+    assert_eq!(accepted.get(), 1);
+}
+
+#[tokio::test]
+async fn account_callback_http_rejects_before_initializing_account() {
+    use axum::{
+        body::{to_bytes, Body},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+        codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
+    );
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    state.config.lock().api.token = Some("callback-fixture-token".into());
+    let router = crate::routes::create_router(state);
+    let valid_body = serde_json::json!({"url": format!("domios://auth/callback?code={}&state=fixture-pending-state", "c".repeat(43))}).to_string();
+    for (method, token, body, expected) in [
+        ("POST", None, valid_body.clone(), StatusCode::UNAUTHORIZED),
+        (
+            "POST",
+            Some("wrong-token"),
+            valid_body.clone(),
+            StatusCode::UNAUTHORIZED,
+        ),
+        (
+            "GET",
+            Some("callback-fixture-token"),
+            valid_body,
+            StatusCode::METHOD_NOT_ALLOWED,
+        ),
+        (
+            "POST",
+            Some("callback-fixture-token"),
+            "{secret-malformed-json".into(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "POST",
+            Some("callback-fixture-token"),
+            r#"{"url":"secret-malformed-url","extra":"secret-extra"}"#.into(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "POST",
+            Some("callback-fixture-token"),
+            r#"{"url":"secret-malformed-url"}"#.into(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "POST",
+            Some("callback-fixture-token"),
+            serde_json::json!({"url": "x".repeat(MAX_CALLBACK_REQUEST_BYTES)}).to_string(),
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+    ] {
+        let mut request = Request::builder()
+            .method(method)
+            .uri("/api/account/callback")
+            .header("content-type", "application/json");
+        if let Some(token) = token {
+            request = request.header("authorization", format!("Bearer {token}"));
+        }
+        let response = router
+            .clone()
+            .oneshot(request.body(Body::from(body)).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+        let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+        assert!(!String::from_utf8_lossy(&bytes).contains("secret"));
+        assert!(fixture
+            .service
+            .ext::<codeterm_service_core::service::account::AccountCell>()
+            .0
+            .get()
+            .is_none());
+    }
 }

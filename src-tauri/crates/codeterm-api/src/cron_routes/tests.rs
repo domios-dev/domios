@@ -6,8 +6,8 @@ use axum::http::HeaderMap;
 
 use super::off_runtime_gate::StorageCron;
 use crate::routes::AppState;
-use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
+use codeterm_service_core::service::test_fixture::ServiceFixture;
 
 fn app_state(fixture: &ServiceFixture, cron: &StorageCron) -> AppState {
     let config = codeterm_service_core::config::schema::AppConfig::default();
@@ -15,7 +15,7 @@ fn app_state(fixture: &ServiceFixture, cron: &StorageCron) -> AppState {
         codeterm_service_core::mesh::MeshManager::new("cron-entry-off-runtime".into(), 0);
     mesh.disk_persist = false;
     AppState {
-        app: fixture.app.handle().clone(),
+        frontend_dev_url: None,
         svc: Arc::new(fixture.service.clone()),
         cron: cron.cron.clone(),
         cron_wake: cron.wake.clone(),

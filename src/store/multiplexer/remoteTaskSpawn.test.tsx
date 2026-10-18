@@ -13,7 +13,7 @@ test("remote environment reaches chat-backend config rather than local model-pre
   const provider: ProviderDescriptor = {
     schema_version: 1, id: "remote-fixture", display_name: "Remote fixture", transport: "chat_backend", system_prompt_delivery: "external",
     available_models: [], settings_schema: [], notifications_schema: [], supports_lazy_skills: false, has_hooks: false,
-    remote_task: {backend: "fixture", localProviderId: "local-fixture", environments: [], availability: {status: "available"}, followUp: false, cancel: false, applyDiff: false},
+    remote_task: {backend: "fixture", mode: "cloud", displayName: "Cloud", environments: [], availability: {status: "available"}, followUp: false, cancel: false, applyDiff: false},
   };
   const snapshot = {workspaces: [{id: "workspace", name: "Fixture", tabs: [], active_tab_id: null, cwd: "/repo"}], tabs: {}, teams: [], active_workspace_id: "workspace", focused_tab_id: null, generation: 1};
   const requests: unknown[] = [];
@@ -35,8 +35,8 @@ test("remote environment reaches chat-backend config rather than local model-pre
   try {
     await act(async () => root.render(<MultiplexerProvider><Capture /></MultiplexerProvider>));
     setAgentDescriptors([provider], false);
-    await act(async () => {await actions.spawnAgentTab("workspace", "remote-fixture", "/repo", undefined, undefined, "env-fixture");});
-    assert.deepEqual(requests, [{params: {agentId: "remote-fixture", workspaceId: "workspace", cwd: "/repo", model: undefined, reasoningEffort: undefined, config: {preset: "env-fixture"}}}]);
+    await act(async () => {await actions.spawnAgentTab("workspace", "remote-fixture", "/repo", undefined, undefined, "env-fixture", undefined, "cloud");});
+    assert.deepEqual(requests, [{params: {agentId: "remote-fixture", workspaceId: "workspace", cwd: "/repo", model: undefined, reasoningEffort: undefined, config: {preset: "env-fixture", executionMode: "cloud"}}}]);
   } finally {
     await act(async () => root.unmount());
     setAgentDescriptors([], false);

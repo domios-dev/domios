@@ -16,6 +16,9 @@ use crate::repositories::{from_sql_u64, to_sql_u64};
 use rusqlite::{params, Connection, OptionalExtension};
 
 mod activation;
+mod eviction;
+
+pub(super) use eviction::create_evicting;
 
 pub(super) fn activate_target(
     cx: &mut WriteCx<'_>,
@@ -558,6 +561,13 @@ fn check_batch(
 }
 
 pub(super) fn create(
+    cx: &mut WriteCx<'_>,
+    create: SentinelCreate,
+) -> Result<SentinelCommit, StorageError> {
+    create_inner(cx, create)
+}
+
+fn create_inner(
     cx: &mut WriteCx<'_>,
     create: SentinelCreate,
 ) -> Result<SentinelCommit, StorageError> {

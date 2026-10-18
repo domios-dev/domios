@@ -44,6 +44,10 @@ registerRoute(
 );
 
 self.addEventListener("message", (event) => {
+  if (event.data?.type === "GET_BUILD_IDENTITY") {
+    event.ports[0]?.postMessage({ type: "BUILD_IDENTITY", build: __BUILD_HASH__ });
+    return;
+  }
   if (event.data?.type === "SKIP_WAITING") {
     void self.skipWaiting();
   }

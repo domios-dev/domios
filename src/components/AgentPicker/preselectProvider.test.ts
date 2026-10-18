@@ -83,10 +83,17 @@ test("General agent eligibility follows PTY or agent runtime capabilities", () =
   const pty = mkProvider("terminal-agent", "terminal-cli", "available");
   const missingPty = mkProvider("missing-terminal", "terminal-cli", "unavailable");
   const plainChat = { ...mkProvider("plain-chat", null, "available"), transport: "chat_backend" as const };
-  const eligible = generalAgentProviders([missingPty, runtime, pty, missingRuntime, plainChat]);
+  const remote = {
+    ...runtime, id: "remote-task",
+    remote_task: {
+      backend: "remote", mode: "cloud", displayName: "Cloud", environments: [],
+      availability: {status: "available" as const}, followUp: false, cancel: false, applyDiff: false,
+    },
+  };
+  const eligible = generalAgentProviders([missingPty, runtime, pty, missingRuntime, plainChat, remote]);
   assert(
-    eligible.map((provider) => provider.id).join(",") === "missing-terminal,runtime-agent,terminal-agent,missing-runtime",
-    "PTY and runtime providers remain in order; plain chat cannot host General",
+    eligible.map((provider) => provider.id).join(",") === "missing-terminal,runtime-agent,terminal-agent,missing-runtime,remote-task",
+    "Local runtime eligibility remains valid when the provider also offers remote tasks",
   );
   assert(!isProviderSelectable(missingPty), "missing PTY remains install-only");
   assert(!isProviderSelectable(missingRuntime), "missing runtime remains install-only");

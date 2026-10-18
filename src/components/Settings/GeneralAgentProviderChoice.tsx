@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { ProviderCard } from "../AgentPicker/ProviderCard";
+import { generalAgentProviders } from "../AgentPicker/preselectProvider";
 import { ConfirmDialog } from "../Extensions/ConfirmDialog";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import type { HelpSectionId } from "../../help/types";
@@ -31,7 +32,7 @@ export function GeneralAgentProviderChoice({ current, enabled, onSwitch, onOpenG
       {onOpenGuide && <GuideInfoButton label="General Agent" section="agents" onOpen={onOpenGuide} />}
     </div>
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-      {providers.map((provider) => <ProviderCard key={provider.id} provider={provider} selected={provider.id === current}
+      {generalAgentProviders(providers).map((provider) => <ProviderCard key={provider.id} provider={provider} selected={provider.id === current}
         onSelect={() => { if (!busy && provider.id !== current) { setError(null); setPending(provider.id); } }} />)}
     </div>
     {error != null && <InlineErrorNotice error={error} operation="changing the General Agent" />}
