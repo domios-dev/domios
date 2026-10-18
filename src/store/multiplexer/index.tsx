@@ -880,7 +880,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     if (spawnInFlight.current.has(guardKey)) return null;
     spawnInFlight.current.add(guardKey);
     try {
-      // activate + focus, picking the transport (PTY vs chat) on the backend.
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_tab", {
         params: { agentId, workspaceId, cwd, model, reasoningEffort, ...atomicSpawnPreset(getAgentDescriptor(agentId), preset, executionMode) },
       });
