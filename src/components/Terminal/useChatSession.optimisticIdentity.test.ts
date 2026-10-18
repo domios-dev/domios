@@ -4,6 +4,7 @@ import type { ChatSendStatus } from "./chatSendStatus";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { test } from "vitest";
+import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 
 function assert(condition: unknown, label: string): asserts condition {
   if (!condition) throw new Error(label);
@@ -28,7 +29,10 @@ interface HookView {
 test("optimistic chat session preserves committed send identity across stream updates", async () => {
   setupHookDom();
   const bridge = await import("../../lib/bridge");
+  const sendStore = await import("./chatSendStore");
   const { useChatSession } = await import("./useChatSession");
+  sendStore.__setChatSendRepositoryForTest(new MemoryChatSendRepository());
+  await sendStore.ensureChatSendTabHydrated("tab");
 
   const listeners = new Map<string, Set<Handler>>();
   let confirmedStatuses: ChatSendStatus[] = [];
@@ -208,6 +212,10 @@ test("optimistic chat session preserves committed send identity across stream up
     "two pending sends project in send order",
   );
 
-  await act(async () => root.unmount());
-  host.remove();
+  try {
+    await act(async () => root.unmount());
+  } finally {
+    host.remove();
+    sendStore.__setChatSendRepositoryForTest(null);
+  }
 });

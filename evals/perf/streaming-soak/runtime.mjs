@@ -7,6 +7,8 @@ import {connect,evaluate,pageTarget,takeHeapSnapshot} from '../renderer-memory/c
 import {FIND_TERMINALS} from '../renderer-memory/terminals.mjs';
 import {processInfo} from './io.mjs';
 import {requireValue,validateIdentity} from './model.mjs';
+import {ownedChatComposerMounted} from './readiness.mjs';
+import {cleanupStateComplete,installCleanupObserverPage} from './cleanup-observation.mjs';
 
 export {dcJson};
 export async function attach(signal,options={}) {
@@ -62,22 +64,31 @@ export async function attach(signal,options={}) {
   finally { browser?.close(); }
 }
 
-export async function observe(rt,expression) {
+export async function observe(rt,expression,evidence='DOM evidence') {
   return evaluate(rt.cdp,`new Promise((resolve,reject)=>{
     const deadline=AbortSignal.timeout(20000);
-    const fail=()=>{observer.disconnect();reject(Error('DOM evidence deadline'))};
+    const fail=()=>{observer.disconnect();reject(Error(${JSON.stringify(`DOM evidence deadline: ${evidence}`)}))};
     const check=()=>{if((${expression})){observer.disconnect();deadline.removeEventListener('abort',fail);resolve(true)}};
     const observer=new MutationObserver(check);
     observer.observe(document,{subtree:true,childList:true,attributes:true,characterData:true});
     deadline.addEventListener('abort',fail,{once:true});check();
   })`);
 }
+export async function beginCleanupObservation(rt,tabs,workspace) {
+  return evaluate(rt.cdp,`(${installCleanupObserverPage.toString()})(${JSON.stringify({tabs,workspace})},${cleanupStateComplete.toString()})`);
+}
+export async function waitCleanupObservation(rt) {
+  return evaluate(rt.cdp,'window.__streamingSoakCleanup.wait()');
+}
+export async function disposeCleanupObservation(rt) {
+  return evaluate(rt.cdp,'window.__streamingSoakCleanup?.dispose()');
+}
 export async function visit(rt,cp,fixture) {
   await dcJson(['workspace','focus',cp.workspace.id]);
   await dcJson(['tab','focus','--tab',fixture.tab]);
   if (fixture.session) {
+    await observe(rt,`(${ownedChatComposerMounted.toString()})(document,${JSON.stringify(fixture.tab)})`,'owned chat composer mount');
     const root = `[data-testid="tab-session-chat"][data-tab-id="${fixture.tab}"]`;
-    await observe(rt,`document.querySelector(${JSON.stringify(root)})?.dataset.snapshotReady === 'true'`);
     if (fixture.marker) await observe(rt,`document.querySelector(${JSON.stringify(root)})?.innerText.includes(${JSON.stringify(fixture.marker)})`);
   } else await observe(rt,`document.querySelector('[data-tab-id="${fixture.tab}"] .xterm') !== null`);
 }

@@ -96,15 +96,17 @@ class FakeChatServer {
   ): void {
     const start = this.offset;
     this.offset = start + span;
-    this.handler?.({
-      payload: {
-        tab_id: this.tabId,
-        messages,
-        start_offset: start,
-        offset: this.offset,
-        source_session_id: sourceSessionId,
-        session_binding_nonce: "nonce-1",
-      },
+    act(() => {
+      this.handler?.({
+        payload: {
+          tab_id: this.tabId,
+          messages,
+          start_offset: start,
+          offset: this.offset,
+          source_session_id: sourceSessionId,
+          session_binding_nonce: "nonce-1",
+        },
+      });
     });
   }
 
@@ -134,6 +136,9 @@ interface Mounted {
 
 async function main(): Promise<void> {
   setupHookDom();
+  const chatSendStore = await import("./chatSendStore");
+  const { MemoryChatSendRepository } = await import("./chatSendRepository.testSupport");
+  chatSendStore.__setChatSendRepositoryForTest(new MemoryChatSendRepository());
   const bridge = await import("../../lib/bridge");
   const { useChatSession } = await import("./useChatSession");
 
@@ -515,7 +520,7 @@ async function main(): Promise<void> {
 
   // Late echoes replace pending sends at their source positions through remount and restart.
   {
-    const { forgetChatSendsInMemory } = await import("./chatSendStore");
+    const { forgetChatSendsInMemory, ensureChatSendTabHydrated } = chatSendStore;
     const realNow = Date.now;
     const base = 1_800_000_000_000;
     let clock = base;
@@ -604,6 +609,7 @@ async function main(): Promise<void> {
 
       await act(async () => app.root.unmount());
       forgetChatSendsInMemory();
+      await ensureChatSendTabHydrated(server.tabId);
       app = await mount(server);
       assert(shape(app.messages()) === remounted, "a restart hydrates byte-for-byte identical rows and identities");
       await act(async () => app.root.unmount());
