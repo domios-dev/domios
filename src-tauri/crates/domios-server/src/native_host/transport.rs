@@ -1,22 +1,18 @@
-use super::enrollment::{
-    enroll, verify_client_process, verify_component, EnrollmentPolicy,
-};
+use super::enrollment::{enroll, verify_client_process, verify_component, EnrollmentPolicy};
 use crate::bootstrap::process::PinnedProcess;
 use codeterm_types::{
     native_host::{
         NativeHostCancellation, NativeHostCompletion, NativeHostConnection, NativeHostEvent,
-        NativeHostEventAudience, NativeHostFrame, NativeHostOperation, NativeHostReply,
-        NativeHostRejection, NativeHostRequest, NativeHostRequestId, NativeHostResult,
-        NativeHostScope, NativeHostUncertainty, NativeViewBinding,
-        MAX_NATIVE_HOST_FRAME_BYTES, MAX_PENDING_NATIVE_HOST_REQUESTS,
-        NATIVE_HOST_PROTOCOL, NATIVE_HOST_REQUEST_DEADLINE,
+        NativeHostEventAudience, NativeHostFrame, NativeHostOperation, NativeHostRejection,
+        NativeHostReply, NativeHostRequest, NativeHostRequestId, NativeHostResult, NativeHostScope,
+        NativeHostUncertainty, NativeViewBinding, NativeWebviewDiagnosticsReport,
+        NativeWebviewDiagnosticsSnapshot, MAX_NATIVE_HOST_FRAME_BYTES,
+        MAX_PENDING_NATIVE_HOST_REQUESTS, NATIVE_HOST_PROTOCOL, NATIVE_HOST_REQUEST_DEADLINE,
     },
     native_update::{
         NativeUpdateExecutor, NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult,
     },
-    server_bootstrap::{
-        ProcessProvenance, ServerComponentManifest, ServerReady,
-    },
+    server_bootstrap::{ProcessProvenance, ServerComponentManifest, ServerReady},
 };
 use interprocess::local_socket::{
     tokio::{prelude::*, Listener, Stream},
@@ -96,6 +92,7 @@ pub(super) struct Session<UpdateRequest, UpdateResult> {
 
 pub(super) struct SessionState<UpdateResult> {
     pub(super) view: Option<NativeViewBinding>,
+    pub(super) diagnostics: Option<NativeWebviewDiagnosticsReport>,
     pub(super) pending: HashMap<NativeHostRequestId, Pending<UpdateResult>>,
 }
 
@@ -121,11 +118,10 @@ where
         manifest: ServerComponentManifest,
         allowed_view_origins: HashSet<String>,
     ) -> io::Result<Self> {
-        verify_component(&manifest, &ready)?;
-        let address = codeterm_types::native_host::native_host_socket_address(
-            &ready.bootstrap_address,
-        )
-        .ok_or_else(|| io::Error::other("Invalid native host bootstrap address"))?;
+        verify_component(&manifest, &ready, &ready.resources)?;
+        let address =
+            codeterm_types::native_host::native_host_socket_address(&ready.bootstrap_address)
+                .ok_or_else(|| io::Error::other("Invalid native host bootstrap address"))?;
         let name = address.to_ns_name::<GenericNamespaced>()?;
         let options = ListenerOptions::new().name(name);
         #[cfg(unix)]
@@ -138,8 +134,8 @@ where
             use interprocess::os::windows::{
                 local_socket::ListenerOptionsExt, security_descriptor::SecurityDescriptor,
             };
-            let sddl = widestring::U16CString::from_str("D:P(A;;GA;;;OW)")
-                .map_err(io::Error::other)?;
+            let sddl =
+                widestring::U16CString::from_str("D:P(A;;GA;;;OW)").map_err(io::Error::other)?;
             options.security_descriptor(SecurityDescriptor::deserialize(&sddl)?)
         };
         let listener = options.create_tokio()?;
@@ -216,6 +212,41 @@ where
             .as_ref()
             .filter(|session| !session.retired.load(Ordering::Acquire))
             .map(|session| session.connection.clone())
+    }
+
+    pub fn webview_diagnostics_snapshot(&self) -> Option<NativeWebviewDiagnosticsSnapshot> {
+        let session = self
+            .active
+            .read()
+            .as_ref()
+            .filter(|session| !session.retired.load(Ordering::Acquire))
+            .cloned()?;
+        if self.active_generation.load(Ordering::Acquire) != session.connection.generation {
+            return None;
+        }
+        let report = {
+            let state = session.state.lock();
+            if session.retired.load(Ordering::Acquire)
+                || self.active_generation.load(Ordering::Acquire) != session.connection.generation
+            {
+                return None;
+            }
+            let report = state.diagnostics.as_ref()?;
+            if state
+                .view
+                .as_ref()
+                .is_none_or(|view| view.session_id != report.view_session)
+            {
+                return None;
+            }
+            report.clone()
+        };
+        Some(NativeWebviewDiagnosticsSnapshot {
+            connection: session.connection.clone(),
+            view_session: report.view_session,
+            client_process: session.client_process.clone(),
+            status: report.status,
+        })
     }
 
     pub async fn request(
@@ -366,20 +397,21 @@ where
             &Frame::<UpdateRequest, UpdateResult>::Challenge(policy.challenge.clone()),
         )
         .await?;
-        let request: Frame<UpdateRequest, UpdateResult> = timeout(
-            NATIVE_HOST_REQUEST_DEADLINE,
-            read_frame(&mut stream),
-        )
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Native enrollment deadline"))??;
+        let request: Frame<UpdateRequest, UpdateResult> =
+            timeout(NATIVE_HOST_REQUEST_DEADLINE, read_frame(&mut stream))
+                .await
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::TimedOut, "Native enrollment deadline")
+                })??;
         let Frame::Enroll(request) = request else {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Expected native enrollment request",
             ));
         };
-        let enrollment = enroll(&policy, request, verified)
-            .map_err(|_| io::Error::new(io::ErrorKind::PermissionDenied, "Native enrollment refused"))?;
+        let enrollment = enroll(&policy, request, verified).map_err(|_| {
+            io::Error::new(io::ErrorKind::PermissionDenied, "Native enrollment refused")
+        })?;
         let view = enrollment.view.clone();
         let connection = enrollment.connection.clone();
         self.reserve_attach(&connection, &enrollment.client_process)?;
@@ -396,6 +428,7 @@ where
             events: event_tx,
             state: Mutex::new(SessionState {
                 view,
+                diagnostics: None,
                 pending: HashMap::new(),
             }),
             shutdown,
@@ -548,9 +581,7 @@ where
             }
             Ok(Err(_)) => {
                 guard.disarm();
-                NativeHostCompletion::Uncertain(
-                    NativeHostUncertainty::DisconnectedAfterDispatch,
-                )
+                NativeHostCompletion::Uncertain(NativeHostUncertainty::DisconnectedAfterDispatch)
             }
             Err(_) => {
                 if let Ok(reply) = reply_rx.try_recv() {
@@ -595,7 +626,7 @@ where
         Some(dispatched)
     }
 
-    fn retire(&self, uncertainty: NativeHostUncertainty) {
+    pub(super) fn retire(&self, uncertainty: NativeHostUncertainty) {
         if self.retired.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -603,6 +634,7 @@ where
         let pending = {
             let mut state = self.state.lock();
             state.view = None;
+            state.diagnostics = None;
             std::mem::take(&mut state.pending)
         };
         for (request_id, pending) in pending {
@@ -696,11 +728,14 @@ where
                     }
                 },
             };
-            if !matches!(timeout(
-                NATIVE_HOST_REQUEST_DEADLINE,
-                write_encoded_frame(&mut writer, &bytes),
-            )
-            .await, Ok(Ok(()))) {
+            if !matches!(
+                timeout(
+                    NATIVE_HOST_REQUEST_DEADLINE,
+                    write_encoded_frame(&mut writer, &bytes),
+                )
+                .await,
+                Ok(Ok(()))
+            ) {
                 break;
             }
         }
@@ -728,15 +763,16 @@ where
                 Frame::BindView { connection, view } if connection == self.connection => {
                     self.bind_view(view);
                 }
+                Frame::DiagnosticsStatus(report) if report.connection == self.connection => {
+                    self.accept_diagnostics_status(report);
+                }
                 Frame::ReleaseView {
                     connection,
                     session_id,
                 } if connection == self.connection => {
                     self.release_view(session_id);
                 }
-                Frame::Cancel(cancellation)
-                    if cancellation.connection == self.connection =>
-                {
+                Frame::Cancel(cancellation) if cancellation.connection == self.connection => {
                     self.cancelled_by_client(cancellation.request_id);
                 }
                 _ => break,
@@ -750,9 +786,10 @@ where
         }
         let pending = {
             let mut state = self.state.lock();
-            if state.pending.get(&reply.request_id).is_some_and(|call| {
-                call.dispatched && call.scope == reply.scope
-            })
+            if state
+                .pending
+                .get(&reply.request_id)
+                .is_some_and(|call| call.dispatched && call.scope == reply.scope)
             {
                 state.pending.remove(&reply.request_id)
             } else {
@@ -764,6 +801,26 @@ where
                 let _ = sender.send(reply);
             }
         }
+    }
+
+    pub(super) fn accept_diagnostics_status(&self, report: NativeWebviewDiagnosticsReport) {
+        if self.retired.load(Ordering::Acquire)
+            || report.connection != self.connection
+            || !report.status.is_well_formed()
+            || self.active_generation.load(Ordering::Acquire) != self.connection.generation
+        {
+            return;
+        }
+        let mut state = self.state.lock();
+        if self.retired.load(Ordering::Acquire)
+            || !state
+                .view
+                .as_ref()
+                .is_some_and(|view| view.session_id == report.view_session)
+        {
+            return;
+        }
+        state.diagnostics = Some(report);
     }
 
     pub(super) fn mark_dispatched(&self, request_id: NativeHostRequestId) -> bool {
@@ -829,7 +886,7 @@ where
         }
     }
 
-    fn bind_view(&self, view: NativeViewBinding) {
+    pub(super) fn bind_view(&self, view: NativeViewBinding) {
         if self.retired.load(Ordering::Acquire)
             || !view.is_well_formed()
             || !self.allowed_view_origins.contains(&view.origin)
@@ -842,6 +899,7 @@ where
                 return;
             }
             let Some(previous) = state.view.replace(view.clone()) else {
+                state.diagnostics = None;
                 return;
             };
             if previous.session_id == view.session_id {
@@ -851,6 +909,7 @@ where
                 state.view = Some(previous);
                 return;
             }
+            state.diagnostics = None;
             let old_session = previous.session_id;
             let (replies, cancellations) = self.revoke_view_requests(&mut state, old_session);
             (replies, cancellations)
@@ -869,6 +928,7 @@ where
                 return;
             }
             state.view = None;
+            state.diagnostics = None;
             self.revoke_view_requests(&mut state, session_id)
         };
         self.complete_view_revocation(replies, cancellations);
@@ -920,7 +980,9 @@ where
                         request_id,
                         connection: self.connection.clone(),
                         scope: call.scope,
-                        completion: NativeHostCompletion::Rejected(NativeHostRejection::InvalidView),
+                        completion: NativeHostCompletion::Rejected(
+                            NativeHostRejection::InvalidView,
+                        ),
                     };
                     replies.push((reply, response));
                 }
@@ -1013,8 +1075,7 @@ fn pin_peer(stream: &Stream) -> io::Result<PinnedProcess> {
     #[cfg(not(target_os = "macos"))]
     let pid = credentials
         .pid()
-        .ok_or_else(|| io::Error::other("Native host peer PID unavailable"))?
-        as u32;
+        .ok_or_else(|| io::Error::other("Native host peer PID unavailable"))? as u32;
     #[cfg(target_os = "macos")]
     let pid = {
         use std::os::fd::{AsFd, AsRawFd};
