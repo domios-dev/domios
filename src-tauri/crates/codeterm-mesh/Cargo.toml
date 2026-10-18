@@ -7,7 +7,7 @@ edition = "2021"
 [dependencies]
 aes-gcm = "0.10"
 base64 = "0.22"
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-util = { path = "../codeterm-util" }
 ed25519-dalek = { version = "2", features = ["rand_core"] }

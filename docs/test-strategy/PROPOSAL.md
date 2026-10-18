@@ -195,7 +195,7 @@ Rust test code outside the workspace that **no gate runs**:
 | Package | Where | Static attrs | Evidence |
 |---|---|---|---|
 | codeterm-mem-store | `crates/mem-store` | 38 | path dependency (`src-tauri/Cargo.toml`, `codeterm-mem-store = { path = "../crates/mem-store" }`), not in `members`; only `dep-audit.yml:13` touches it |
-| codeterm-paths | `crates/codeterm-paths` | 7 | path dependency, not in `members`; `qualification.yml:1700-1701` lists its sources for hashing only |
+| codeterm-paths | `src-tauri/crates/codeterm-paths` | 7 | now an app workspace member; count retains the original proposal snapshot |
 | portable-pty (pty-fork) | `src-tauri/pty-fork` | 16 | `exclude = ["pty-fork", ...]` (`src-tauri/Cargo.toml:9`); reachable by `./build.sh test-one pty-fork` / `nextest pty-fork` only |
 | codeterm (integration) | `src-tauri/tests/main.rs` (`[[test]] name = "main"`) | 15 | CI archives `--lib`; `build.sh test` and `verify` run `--lib` |
 
@@ -470,7 +470,7 @@ Base: develop, which now includes Bastion's gateway fix `3f5af3ee4`.
    (spec, Phase C), and deletes the 19 dead `event_name == 'schedule'`
    expressions and the false nightly text (Owner answer 2).
 6. Rust gaps go to the `release` tier, after P1 lands and never inside P1 (P1
-   stays a pure move): ci-tiers brings `crates/mem-store`, `crates/codeterm-paths`,
+   stays a pure move): ci-tiers brings `crates/mem-store`, `src-tauri/crates/codeterm-paths`,
    `src-tauri/tests/main.rs` and the 19 workspace members that `test`, `verify`
    and `release-preflight` skip under gates. Each is proven green in canonical QA
    before a tier includes it, and Elgar approves the `build.sh` and
@@ -518,7 +518,7 @@ Base: develop, which now includes Bastion's gateway fix `3f5af3ee4`.
    gate runs today? **Recommendation: yes**, after the Linux green run of
    Migration step 2.
 5. **Rust test code no gate runs.** `crates/mem-store` (38 attributes),
-   `crates/codeterm-paths` (7), `src-tauri/tests/main.rs` (15, excluded by
+   `src-tauri/crates/codeterm-paths` (7), `src-tauri/tests/main.rs` (15, excluded by
    `--lib` in `scripts/ci-rust-archives.mjs:69`) and `src-tauri/pty-fork` (16).
    **Recommendation:** release tier for the first three once canonical QA shows
    them green (mem-store and codeterm-paths are linked into the app);
@@ -549,7 +549,7 @@ Relayed by Elgar (owner review, develop Orchestrator, tab 4c25e56b).
    develop after P1 first.
 4. Yes.
 5. Yes, but not in P1 (P1 stays a pure move). After P1 lands, the ci-tiers task
-   brings `crates/mem-store`, `crates/codeterm-paths` and `src-tauri/tests/main.rs`
+   brings `crates/mem-store`, `src-tauri/crates/codeterm-paths` and `src-tauri/tests/main.rs`
    under gates, together with the 19 workspace members that `test`, `verify` and
    `release-preflight` skip. Elgar approves the `build.sh` and
    `scripts/ci-rust-archives.mjs` diff.
@@ -562,7 +562,7 @@ The gaps this inventory found are to be fixed, not only recorded:
 
 - the 19 workspace members that `./build.sh test`, `verify` and
   `release-preflight` skip;
-- the ungated Rust code in `crates/mem-store`, `crates/codeterm-paths` and
+- the ungated Rust code in `crates/mem-store`, `src-tauri/crates/codeterm-paths` and
   `src-tauri/tests/main.rs`;
 - 20 of 37 Node and 3 of 5 Python script tests that no gate runs;
 - `scripts/plugin-tests.sh`, which lists 62 of 76 plugin test files.

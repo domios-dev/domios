@@ -10,7 +10,7 @@ workspace = true
 [dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["full", "test-util"] }
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
 codeterm-sentinel = { path = "../codeterm-sentinel" }
 codeterm-storage = { path = "../codeterm-storage" }
