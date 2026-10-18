@@ -39,7 +39,7 @@ DEV_NOTIFY_TARGET_MESH="${DEV_NOTIFY_TARGET_MESH:-}"
 
 # Long operations stream one receipt through the shell's live Domios return route.
 case "$CMD" in
-  qa-lock-storm|feature-cycle|lane-check|embedding-parity|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
+  process-probe|qa-lock-storm|feature-cycle|lane-check|embedding-parity|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -408,6 +408,7 @@ run_nextest_scope() {
       package="$CT_APP_TEST_PACKAGE"
       targets=("${CT_APP_TEST_TARGET_ARGS[@]}")
       ;;
+    domios-server) package="domios-server"; targets+=(--lib) ;;
     shell) package="codeterm"; targets+=(--lib --test main) ;;
     mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets=(--lib) ;;
     paths|codeterm-paths) package="codeterm-paths"; targets=(--lib) ;;
@@ -2250,7 +2251,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
+  process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2297,6 +2298,7 @@ CodeTerm build commands
   worktree-check              Isolated lane-safe Rust compile check
   test-one <input-macos|input-windows|billing|account|analytics|app|shell|root|api|socket|commands|sentinel-host|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage|codeterm-*> NAME
                               Run one focused Rust test
+  process-probe --case server-only|arbitration --instance split-oracle  Build and prove isolated server ownership
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
   nextest-archive [sha] [--measure selector...] Build/reuse one archive and optionally time selectors
   release-rust [runner-id...]  Run every release-tier Rust runner of tests/catalogue.json (or the named ones)
@@ -2632,10 +2634,34 @@ EOF
     prepare_bundle_stubs
     run_workspace_lib_tests
     ;;
+  process-probe)
+    [ -z "$(git status --porcelain)" ] || { echo 'ERROR: process-probe requires the exact committed clean source' >&2; exit 2; }
+    node scripts/process-separation-probe.mjs --validate "${@:2}"
+    process_probe_dir="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID-process-probe"
+    mkdir -p "$process_probe_dir"
+    process_probe_target="$(ct_host_triple)"
+    cargo build --manifest-path cli/Cargo.toml --bin codeterm --target "$process_probe_target" \
+      --message-format=json > "$process_probe_dir/cli.jsonl"
+    CODETERM_SERVER_CLI_SHA256="$(node scripts/server-artifact.mjs stage-resources \
+      "$process_probe_dir/cli.jsonl" "$(pwd -P)" "$process_probe_dir/resources")"
+    export CODETERM_SERVER_CLI_SHA256
+    cargo build --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
+      --no-default-features --features domios-server/embeddings --target "$process_probe_target" \
+      --message-format=json > "$process_probe_dir/cargo.jsonl"
+    cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --target "$process_probe_target" \
+      --no-default-features --features domios-server/embeddings --edges normal,build --prefix none \
+      --format '{p}' > "$process_probe_dir/closure.txt"
+    node scripts/server-artifact.mjs "$process_probe_dir/cargo.jsonl" "$process_probe_dir/closure.txt" \
+      "$(git rev-parse HEAD)" "$process_probe_target" "$process_probe_dir/resources" "$process_probe_dir/artifact.json"
+    node scripts/process-separation-probe.mjs "${@:2}" --artifact-receipt "$process_probe_dir/artifact.json"
+    ;;
   test-one)
-    test_scope="${2:?test-one requires billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
+    test_scope="${2:?test-one requires domios-server, billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
+      domios-server)
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p domios-server --lib "$test_filter"
+        ;;
       app)
         if [ "$test_filter" = "build_identity_required" ]; then
           scripts/test-capped.sh --exec node --test scripts/tests/build_identity_required.test.mjs

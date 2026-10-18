@@ -1210,7 +1210,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 48 -->
+<!-- revision: 49 -->
 
 ### Lane and batch scopes
 
@@ -1379,3 +1379,61 @@ Run this opt-in regression from a lane: it includes the two-worktree E0425
 reproduction, a 12000-character Unicode/quotes/exit-code forwarding check, and
 real `./build.sh lane-check codeterm-service-core --tests`. Require exit 0 from
 the real crate check; a tiny fixture alone does not cover Windows argument limits.
+
+## Independent server process oracle
+
+If the extracted server build reports `bundled plugins directory is missing`,
+check the server build script's app-manifest input before rebuilding: it must
+canonicalize `CARGO_MANIFEST_DIR/../..` before the shared bundler takes `parent()`.
+Taking the parent of a literal trailing `..` selects `src-tauri/crates/plugins`
+instead of the repository `plugins/` directory. Source review caught and fixed
+this extraction path error; no native build failure was executed in that lane.
+
+Parent canonical Team QA owns all Rust and native execution for this slice:
+
+```bash
+./build.sh test-one domios-server process_split_contract
+./build.sh process-probe --case server-only --instance split-oracle
+./build.sh process-probe --case arbitration --instance split-oracle
+```
+
+On Windows use the same arguments through `build.ps1`. `test-one domios-server`
+selects only the server library, disables default test features, and the existing
+capped runner refuses zero selected tests. Moved startup preservation selectors
+are `./build.sh test-one domios-server startup::` and core path arbitration is
+`./build.sh test-one app instance_lifetime::path_owner::`.
+
+`process-probe` first builds the exact CLI artifact, stages it at
+`resources/cli/codeterm[.exe]`, hashes its bytes, and passes
+`CODETERM_SERVER_CLI_SHA256` to the server build. It then builds only
+`domios-server --bin domios-server` with
+`--no-default-features --features domios-server/embeddings` and the explicit host
+target. Its Cargo artifact receipt pins the actual executable and digest; the
+matching normal/build dependency closure must exclude Tauri, Wry, WebView and
+codeterm-host-runtime. Packaging must record the shipped release artifact's
+own feature/target closure too. Workspace/test feature unions do not establish
+this proof. A server built without the CLI digest refuses actual service startup.
+The resource is copied and reverified into a private lifetime lease before memory
+initialization; process-local CLI selection never falls back to a GUI executable.
+The probe starts a unique disposable named DEV identity beneath split-oracle,
+scrubs inherited connection/display selectors, and never connects to PROD.
+It waits on protected broker replies, listener-ready events and pinned OS exit
+handles, then verifies API/socket and a real disposable PTY after its launcher
+exits. A missing CLI resource must refuse before data initialization. The probe
+also requires the actual existing maintenance spawn, transferred kernel witness
+and separately verified executable/creation provenance; early exit or unavailable
+witness fails that row without spawning a substitute. Focused observer checks:
+`./build.sh test-one mem process_split_contract`.
+The arbitration case races a missing identity and an explicit junction/symlink
+path alias (probe-only DTO, both canonical roots must equal normal roots),
+requires one initialization audit, and rejects identity/build/protocol/epoch/PID
+skew and foreign executable/listener cases. Cleanup requires exact server exit;
+uncertain cleanup retains disposable data and fails.
+
+A Windows breakaway refusal means the launching job forbids server detachment.
+Record the returned infrastructure failure; never disable the PTY kill-on-close
+job or retry behind a deadline. The client launch must originate from a context
+that can create the independent server. Report Windows, Linux and macOS native
+rows separately. An unrun probe, successful source check or fake fixture is never
+a native process PASS. Probe receipts contain no API credential; the credential
+travels only over private inherited pipes or authenticated local IPC.
