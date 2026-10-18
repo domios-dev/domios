@@ -1022,6 +1022,23 @@ pub fn launch_agent_in_background_with_env(
             return;
         }
         if session_starts_on_first_turn {
+            if !launch.await_provider_ack(std::time::Duration::ZERO)
+                && !crate::service::launch_readiness::note_first_turn_input_ready(
+                    &readiness_attempt.tab_id,
+                    &readiness_attempt.pty_id,
+                    &readiness_attempt.binding_nonce,
+                )
+            {
+                let failure = LaunchFailure::ProviderInputNotReady(
+                    "launch readiness no longer owns the first-turn composer evidence".into(),
+                );
+                launch.fail(&svc, failure.clone());
+                set_booting(&launch, false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(failure.reason()));
+                }
+                return;
+            }
             set_booting(&launch, false);
             if !launch.emit_first_turn_input_ready(&svc) {
                 return;
