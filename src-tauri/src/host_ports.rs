@@ -129,6 +129,9 @@ impl Shell for TauriShell {
     fn focus_window(&self, label: &str) -> Result<(), ShellError> {
         let label = label.to_owned();
         self.on_main(move |app| {
+            if label == "main" {
+                return crate::startup::desktop_lifecycle::show_or_create(&app).map_err(failed);
+            }
             if let Some(window) = app.get_webview_window(&label) {
                 window.show().map_err(failed)?;
                 window.unminimize().map_err(failed)?;
