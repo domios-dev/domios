@@ -50,6 +50,11 @@ checkout, even if that attempt has no worktree path; any dirt refuses the report
 even with `--acknowledge-dirty`.
 Other attempts with an unresolved lane still receive the lane worktree refusal.
 Without the flag every rule above is unchanged.
+For this canonical dispatch, add `--kind qa` or `--kind release_manager` to
+select the built-in prompt profile without changing `task.executor_role`; the
+kind does not grant canonical placement.
+Direct `agent spawn --plan-task` and task-less kinds with Plan context cannot
+reserve or write in the canonical checkout.
 
 For a plan-bound mesh Worker, the peer owns its lane and the origin owns review
 and integration. After accepting the attempt, run
@@ -135,4 +140,4 @@ Only hierarchy and report placement move. Shell parent/Team environment values
 remain launch provenance, never current membership proof; resolve reports from
 live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

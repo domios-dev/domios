@@ -59,6 +59,30 @@ pub fn classify_mutating_lane(
     })
 }
 
+pub fn refuse_taskless_canonical_mutation(
+    plan: &Plan,
+    intent: &ExecutionIntent,
+    spawn_cwd: Option<&str>,
+) -> Result<(), String> {
+    if intent != &ExecutionIntent::Mutating {
+        return Ok(());
+    }
+    let canonical = canonical_path_of(plan);
+    let Some(cwd) = spawn_cwd.map(str::trim).filter(|cwd| !cwd.is_empty()) else {
+        return Err(format!(
+            "spawn refused: a task-less mutating Worker cannot prove that its checkout is not \
+             canonical '{canonical}'. Bind a task and use parent-authorized canonical dispatch."
+        ));
+    };
+    if same_checkout(cwd, canonical) {
+        return Err(format!(
+            "spawn refused: a task-less mutating Worker cannot reserve canonical checkout \
+             '{canonical}'. Bind a task and use parent-authorized canonical dispatch."
+        ));
+    }
+    Ok(())
+}
+
 /// `(task_id, attempt_id)` of the live attempt holding canonical as its exclusive writer.
 pub fn live_canonical_writer(plan: &Plan) -> Option<(&str, &str)> {
     plan.tasks.iter().find_map(|task| {
@@ -86,6 +110,14 @@ fn dispatch_remedy(plan_id: &str, task_id: &str) -> String {
     format!(
         "Dispatch the task instead, so the isolated lane is provisioned and recorded before any \
          tab exists: codeterm plan task dispatch {plan_id} {task_id}"
+    )
+}
+
+fn canonical_dispatch_remedy(plan_id: &str, task_id: &str) -> String {
+    format!(
+        "Use parent-authorized canonical placement so its exclusive attempt is reserved before \
+         any tab exists: codeterm plan task dispatch {plan_id} {task_id} \
+         --execution-intent mutating --canonical-writer"
     )
 }
 
@@ -122,7 +154,8 @@ pub fn refuse_unsafe_task_bound_mutating_lane(
         None => Ok(()),
         Some(UnsafeMutatingLane::Canonical { canonical }) => Err(format!(
             "spawn refused: a mutating Worker for task '{task_id}' would write in the \
-             canonical checkout '{canonical}'. No tab was created. {remedy}"
+             canonical checkout '{canonical}'. No tab was created. {}",
+            canonical_dispatch_remedy(&plan.id, task_id)
         )),
         Some(UnsafeMutatingLane::ForeignLane { worktree, owner }) => Err(format!(
             "spawn refused: a mutating Worker for task '{task_id}' would write in \
@@ -147,7 +180,32 @@ impl ServiceContext {
             return Ok(());
         }
         let Some(task_ref) = task_bound_spawn_ref(params) else {
-            return Ok(());
+            let taskless_worker_kind = params.role.as_deref() == Some("Worker")
+                && params
+                    .role_profile
+                    .as_deref()
+                    .is_some_and(|profile| !profile.trim().is_empty());
+            if !taskless_worker_kind {
+                return Ok(());
+            }
+            let Some(plan_id) = params
+                .plan_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|plan_id| !plan_id.is_empty())
+            else {
+                return Ok(());
+            };
+            let plan = self
+                .plan_store
+                .get(plan_id)
+                .ok_or_else(|| "plan not found".to_string())?;
+            let cwd = self.task_bound_spawn_cwd(params);
+            return refuse_taskless_canonical_mutation(
+                &plan,
+                &ExecutionIntent::Mutating,
+                cwd.as_deref(),
+            );
         };
         let store = &self.plan_store;
         let resolved = store
