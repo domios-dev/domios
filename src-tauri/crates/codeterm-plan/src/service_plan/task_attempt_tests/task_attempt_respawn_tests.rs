@@ -77,6 +77,49 @@ fn attempt_model_fields_round_trip() {
 }
 
 #[test]
+fn respawn_uses_source_resolved_model_instead_of_conflicting_task_model() {
+    let (_dir, store, plan_id, task_id) = super::bound_report_store();
+    let source_attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+        .id
+        .clone();
+    store
+        .with_plan(&plan_id, 4, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.model = Some("codex:gpt-6-luna".into());
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == source_attempt_id)
+                .unwrap();
+            attempt.provider = Some("claude".into());
+            attempt.agent_type = Some("claude".into());
+            attempt.model = None;
+            attempt.provider_resolved_model = Some("haiku".into());
+            attempt.requested_model = Some("haiku".into());
+            Ok(())
+        })
+        .unwrap();
+
+    let draft = store
+        .build_task_respawn_draft(
+            &plan_id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: source_attempt_id,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(draft.provider, "claude");
+    assert_eq!(draft.model.as_deref(), Some("haiku"));
+}
+
+#[test]
 fn respawn_from_a_source_attempt_is_single_use_while_replacement_is_live() {
     let (_dir, store, plan_id, task_id) = super::bound_report_store();
     let source_attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
