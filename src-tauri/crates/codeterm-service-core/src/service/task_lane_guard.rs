@@ -113,11 +113,16 @@ fn dispatch_remedy(plan_id: &str, task_id: &str) -> String {
     )
 }
 
-fn canonical_dispatch_remedy(plan_id: &str, task_id: &str) -> String {
+fn canonical_dispatch_remedy(plan_id: &str, task_id: &str, selected_kind: Option<&str>) -> String {
+    let kind_flag = selected_kind
+        .map(|kind| kind.trim().to_ascii_lowercase())
+        .filter(|kind| matches!(kind.as_str(), "qa" | "release_manager"))
+        .map(|kind| format!(" --kind {kind}"))
+        .unwrap_or_default();
     format!(
         "Use parent-authorized canonical placement so its exclusive attempt is reserved before \
          any tab exists: codeterm plan task dispatch {plan_id} {task_id} \
-         --execution-intent mutating --canonical-writer"
+         --execution-intent mutating --canonical-writer{kind_flag}"
     )
 }
 
@@ -128,6 +133,16 @@ pub fn refuse_unsafe_task_bound_mutating_lane(
     task: &Task,
     intent: Option<&ExecutionIntent>,
     spawn_cwd: Option<&str>,
+) -> Result<(), String> {
+    refuse_unsafe_task_bound_mutating_lane_with_kind(plan, task, intent, spawn_cwd, None)
+}
+
+fn refuse_unsafe_task_bound_mutating_lane_with_kind(
+    plan: &Plan,
+    task: &Task,
+    intent: Option<&ExecutionIntent>,
+    spawn_cwd: Option<&str>,
+    selected_kind: Option<&str>,
 ) -> Result<(), String> {
     // Read-only verification keeps its existing contract: it owns no lane and
     // is the one shape allowed to run in the canonical checkout.
@@ -155,7 +170,7 @@ pub fn refuse_unsafe_task_bound_mutating_lane(
         Some(UnsafeMutatingLane::Canonical { canonical }) => Err(format!(
             "spawn refused: a mutating Worker for task '{task_id}' would write in the \
              canonical checkout '{canonical}'. No tab was created. {}",
-            canonical_dispatch_remedy(&plan.id, task_id)
+            canonical_dispatch_remedy(&plan.id, task_id, selected_kind)
         )),
         Some(UnsafeMutatingLane::ForeignLane { worktree, owner }) => Err(format!(
             "spawn refused: a mutating Worker for task '{task_id}' would write in \
@@ -220,11 +235,12 @@ impl ServiceContext {
             .find(|task| task.id == resolved.task_id)
             .ok_or_else(|| "task not found".to_string())?;
         let cwd = self.task_bound_spawn_cwd(params);
-        refuse_unsafe_task_bound_mutating_lane(
+        refuse_unsafe_task_bound_mutating_lane_with_kind(
             &plan,
             task,
             params.execution_intent.as_ref(),
             cwd.as_deref(),
+            params.role_profile.as_deref(),
         )
     }
 
@@ -238,6 +254,27 @@ impl ServiceContext {
             .filter(|cwd| !cwd.is_empty())
             .map(str::to_string)
             .or_else(|| self.worker_spawn_workspace_cwd(params))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_dispatch_remedy;
+
+    #[test]
+    fn canonical_dispatch_remedy_preserves_selected_builtin_worker_kind() {
+        for kind in ["qa", "release_manager"] {
+            assert_eq!(
+                canonical_dispatch_remedy("plan", "task", Some(kind)),
+                format!(
+                    "Use parent-authorized canonical placement so its exclusive attempt is reserved before any tab exists: codeterm plan task dispatch plan task --execution-intent mutating --canonical-writer --kind {kind}"
+                )
+            );
+        }
+        assert_eq!(
+            canonical_dispatch_remedy("plan", "task", Some("unavailable-overlay")),
+            "Use parent-authorized canonical placement so its exclusive attempt is reserved before any tab exists: codeterm plan task dispatch plan task --execution-intent mutating --canonical-writer"
+        );
     }
 }
 
