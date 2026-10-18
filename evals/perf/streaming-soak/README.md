@@ -8,6 +8,11 @@ lib prerequisites, and a running native DEV with CDP and exactly one renderer.
 Keel owns live execution. Blueprint scheduling and an actual hours-long run are
 slice 4, outside this change.
 
+The cumulative saved-response/input extension is documented in
+[REPLAY.md](REPLAY.md). It reuses this runner's DEV identity, owned fixtures,
+checkpoint, samples and cleanup. Its finite input/graph measurements are separate
+from the 40-minute memory plateau oracle below.
+
 ## Commands
 
 Run all live commands through the dev-locked wrapper from the repository root.
@@ -22,11 +27,12 @@ bash evals/perf/streaming-soak/run.sh inspect --out /absolute/evidence/identity
 Inspect writes `identity.json`: full build SHA, served HTML plus entry-script
 SHA-256, boot/page IDs, renderer and daemon PID/creation. Copy its `build` and
 `entryHash` into the setup flags. Every subsequent live invocation recomputes
-and compares the complete identity before operating. HMR, restart, rebind, PID
+and compares the complete identity before operating. Entry-script drift, restart, rebind, PID
 reuse, PROD identifiers, ambiguous renderer attribution, or a foreign resource
 cause refusal. The daemon PID comes from the actual 7686 listener; renderer PID
 comes from the DEV browser's CDP process inventory. A checkpoint lock refuses
-concurrent invocations instead of queueing.
+concurrent invocations instead of queueing. The entry hash does not cover every
+HMR dependency; parent must freeze sources during a run.
 
 First collect an idle control on this same build, frontend entry and process
 lifetimes. The idle workload uses the same two mounted surfaces and focus
