@@ -18,6 +18,7 @@ codeterm-sentinel-host = { path = "../codeterm-sentinel-host", default-features 
 codeterm-build-info = { path = "../codeterm-build-info" }
 codeterm-plan = { path = "../codeterm-plan" }
 codeterm-plugin = { path = "../codeterm-plugin" }
+codeterm-plugins = { path = "../codeterm-plugins" }
 codeterm-events = { path = "../codeterm-events" }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-util = { path = "../codeterm-util" }
