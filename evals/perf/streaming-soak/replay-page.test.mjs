@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Window} from 'happy-dom';
-import {installReplayPage} from './replay-page.mjs';
+import {installReplayPage,functionalReplayPrerequisites} from './replay-page.mjs';
 
 test('controlled frames prove replay harness input/tail acknowledgements and metadata-only capture; not browser latency',async () => {
+  const {Window} = await import('happy-dom');
   const window = new Window(), originals = new Map(), frames = [];
   const globals = {window,document:window.document,HTMLTextAreaElement:window.HTMLTextAreaElement,InputEvent:window.InputEvent,
     EventTarget:window.EventTarget,CustomEvent:window.CustomEvent,MutationObserver:window.MutationObserver,
@@ -66,5 +66,56 @@ test('controlled frames prove replay harness input/tail acknowledgements and met
     window.__streamingSoakReplay?.dispose();
     for (const [key,descriptor] of originals) { if (descriptor) Object.defineProperty(globalThis,key,descriptor); else delete globalThis[key]; }
     await window.happyDOM.abort();
+  }
+});
+
+
+test('bundled functional preflight refuses missing mode or shipped handles before setup',() => {
+  const original = Object.getOwnPropertyDescriptor(globalThis,'window');
+  try {
+    const window = {location:{href:'http://127.0.0.1:7686/'}};
+    Object.defineProperty(globalThis,'window',{value:window,configurable:true,writable:true});
+    assert.deepEqual(functionalReplayPrerequisites(),{available:false,reason:'existing_e2e_entry_required'});
+    window.location.href += '?e2e';
+    assert.deepEqual(functionalReplayPrerequisites(),{available:false,reason:'bundled_chat_handles_unavailable_open_existing_chat'});
+    window.__codetermTestChat = {reply() {},pushMessages() {}};
+    window.__chatProjection = {snapshot() {},recordPaint() {}};
+    assert.deepEqual(functionalReplayPrerequisites(),{available:true,internalStore:'unavailable',durableStorage:'unavailable',authority:'backend_binding_only'});
+  } finally {
+    if (original) Object.defineProperty(globalThis,'window',original); else delete globalThis.window;
+  }
+});
+
+test('bundled functional adapter uses existing public projection without source imports or fake store rows',async () => {
+  const originals = new Map();
+  const document = new EventTarget();
+  const textarea = {value:''};
+  const root = {querySelector:() => textarea,querySelectorAll:() => [{dataset:{sourceMessageId:'soak-run-tail'}}]};
+  document.querySelector = selector => selector.includes('tab-session-chat')?root:null;
+  const recordPaint = () => {};
+  const monitor = {recordPaint,snapshot:() => ({paintedTail:'soak-run-tail#4'})};
+  const window = {location:{href:'http://127.0.0.1:7686/?e2e'},__codetermTestChat:{reply() {},pushMessages() {}},__chatProjection:monitor};
+  for (const [key,value] of Object.entries({window,document})) {
+    originals.set(key,Object.getOwnPropertyDescriptor(globalThis,key));
+    Object.defineProperty(globalThis,key,{value,configurable:true,writable:true});
+  }
+  let imports = 0;
+  try {
+    const result = await installReplayPage({functional:true,tab:'local',session:'s',nonce:'n',run:'run',other:{tab:'other',session:'o',nonce:'p'}},async () => { imports++; throw Error('Source import forbidden'); });
+    assert.equal(imports,0);
+    assert.equal(result.internalStore,'unavailable');
+    const observation = window.__streamingSoakReplay.read();
+    assert.equal(observation.rows,undefined);
+    assert.equal(observation.authority,'backend_binding_only');
+    assert.equal(observation.durableStorage,'unavailable');
+    assert.deepEqual(observation.visibleSourceIds,['soak-run-tail']);
+    window.__streamingSoakReplay.dispose();
+    assert.equal(monitor.recordPaint,recordPaint);
+    assert.equal(window.__streamingSoakReplay,undefined);
+  } finally {
+    window.__streamingSoakReplay?.dispose();
+    for (const [key,descriptor] of originals) {
+      if (descriptor) Object.defineProperty(globalThis,key,descriptor); else delete globalThis[key];
+    }
   }
 });
