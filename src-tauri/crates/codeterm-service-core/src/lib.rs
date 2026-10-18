@@ -98,6 +98,7 @@ pub mod persistence_test_support;
 
 pub use fdlimit::raise_fd_limit;
 pub use instance_lifetime::acquire as acquire_instance_lifetime;
+pub use instance_lifetime::{PathOwnership, ResolvedInstancePaths};
 pub use liveness::start_api_liveness_watchdog;
 pub use webview2_reap::reap_orphaned_webview2;
 
