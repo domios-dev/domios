@@ -112,6 +112,7 @@ pub enum NativeUpdateUncertainty {
     CancelledAfterDispatch,
     DeadlineAfterDispatch,
     DisconnectedAfterDispatch,
+    InvalidReplyAfterDispatch(NativeUpdateRefusal),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,6 +140,13 @@ pub enum NativeUpdateDispatchOutcome {
     UncertainAfterExecution { reason: NativeUpdateUncertainty },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NativeUpdateObservationOutcome {
+    Reply(NativeUpdateResult),
+    NoNewEvidence,
+    Unavailable { reason: NativeUpdateUncertainty },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeUpdateInstallReceipt {
@@ -157,17 +165,27 @@ pub struct NativeUpdateVerification {
 #[serde(tag = "state", content = "payload", rename_all = "snake_case")]
 pub enum NativeUpdateState {
     Admitted,
-    InProgress { stage: NativeUpdateStage },
-    Uncertain { reason: NativeUpdateUncertainty },
+    InProgress {
+        stage: NativeUpdateStage,
+    },
+    Uncertain {
+        reason: NativeUpdateUncertainty,
+    },
     /// The broker's physical installation receipt; replacement health is not implied.
-    Completed { install: NativeUpdateInstallReceipt },
-    InstalledAwaitingVerification { install: NativeUpdateInstallReceipt },
+    Completed {
+        install: NativeUpdateInstallReceipt,
+    },
+    InstalledAwaitingVerification {
+        install: NativeUpdateInstallReceipt,
+    },
     /// The replacement client re-enrolled and the pinned server still reports ready.
     Verified {
         install: NativeUpdateInstallReceipt,
         verification: NativeUpdateVerification,
     },
-    Rejected { reason: NativeUpdateRefusal },
+    Rejected {
+        reason: NativeUpdateRefusal,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -214,8 +232,7 @@ impl NativeUpdateResult {
                     return Err(NativeUpdateRefusal::ExpectedServerMismatch);
                 }
             }
-            NativeUpdateState::Admitted
-            | NativeUpdateState::Rejected { .. } => {
+            NativeUpdateState::Admitted | NativeUpdateState::Rejected { .. } => {
                 if request.action.requires_server_handoff()
                     && self.connection.server_epoch != request.expected_server.incarnation.epoch
                 {
@@ -248,14 +265,13 @@ impl NativeUpdateResult {
             {
                 return Err(NativeUpdateRefusal::ExpectedServerMismatch);
             }
-            let reconnect_transition = matches!(
-                &previous.state,
-                NativeUpdateState::Completed { .. }
-            ) && matches!(
-                &self.state,
-                NativeUpdateState::InstalledAwaitingVerification { .. }
-                    | NativeUpdateState::Verified { .. }
-            );
+            let reconnect_transition =
+                matches!(&previous.state, NativeUpdateState::Completed { .. })
+                    && matches!(
+                        &self.state,
+                        NativeUpdateState::InstalledAwaitingVerification { .. }
+                            | NativeUpdateState::Verified { .. }
+                    );
             let verified_transition = matches!(&self.state, NativeUpdateState::Verified { .. })
                 && !matches!(
                     &previous.state,
@@ -346,7 +362,8 @@ fn valid_process(process: &ProcessProvenance) -> bool {
         && !process.executable.as_os_str().is_empty()
 }
 
-pub type NativeUpdateResultFuture = Pin<Box<dyn Future<Output = NativeUpdateResult> + Send>>;
+pub type NativeUpdateObservationFuture =
+    Pin<Box<dyn Future<Output = NativeUpdateObservationOutcome> + Send>>;
 pub type NativeUpdateDispatchFuture =
     Pin<Box<dyn Future<Output = NativeUpdateDispatchOutcome> + Send>>;
 
@@ -366,7 +383,7 @@ pub trait NativeUpdateExecutor: Send + Sync {
         &self,
         operation_id: NativeUpdateOperationId,
         after_sequence: u64,
-    ) -> NativeUpdateResultFuture;
+    ) -> NativeUpdateObservationFuture;
 }
 
 impl NativeUpdateRequest {
@@ -380,7 +397,13 @@ impl NativeUpdateRequest {
             .map_err(|()| NativeUpdateRefusal::InvalidStagedManifest)?;
         if self.expected_server.incarnation.epoch.trim().is_empty()
             || self.expected_server.incarnation.process.pid == 0
-            || self.expected_server.incarnation.process.created.trim().is_empty()
+            || self
+                .expected_server
+                .incarnation
+                .process
+                .created
+                .trim()
+                .is_empty()
             || self.expected_server.identity.data.as_os_str().is_empty()
             || self.expected_server.identity.config.as_os_str().is_empty()
             || self.expected_server.components.server_executable
@@ -393,10 +416,8 @@ impl NativeUpdateRequest {
                 if self.restart_authorized {
                     return Err(NativeUpdateRefusal::UnexpectedRestartAuthorization);
                 }
-                if !same_server_artifact(
-                    &self.expected_server.components,
-                    &self.staged_components,
-                ) {
+                if !same_server_artifact(&self.expected_server.components, &self.staged_components)
+                {
                     return Err(NativeUpdateRefusal::ClientOnlyChangesServer);
                 }
             }
@@ -590,9 +611,9 @@ mod tests {
             &self,
             operation_id: NativeUpdateOperationId,
             after_sequence: u64,
-        ) -> super::NativeUpdateResultFuture {
+        ) -> super::NativeUpdateObservationFuture {
             Box::pin(async move {
-                NativeUpdateResult {
+                super::NativeUpdateObservationOutcome::Reply(NativeUpdateResult {
                     operation_id,
                     sequence: after_sequence + 1,
                     connection: NativeHostConnection {
@@ -607,7 +628,7 @@ mod tests {
                     state: NativeUpdateState::Uncertain {
                         reason: NativeUpdateUncertainty::DisconnectedAfterDispatch,
                     },
-                }
+                })
             })
         }
     }

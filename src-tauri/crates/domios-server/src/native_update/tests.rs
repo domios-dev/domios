@@ -3,8 +3,8 @@ use codeterm_types::{
     native_host::NativeHostConnection,
     native_update::{
         ExpectedServer, NativeUpdateAttachment, NativeUpdateDispatchOutcome,
-        NativeUpdateInstallReceipt, NativeUpdateOperationId, NativeUpdateStage,
-        NativeUpdateUncertainty, NativeUpdateVerification,
+        NativeUpdateInstallReceipt, NativeUpdateObservationOutcome, NativeUpdateOperationId,
+        NativeUpdateStage, NativeUpdateUncertainty, NativeUpdateVerification,
     },
     server_bootstrap::{
         ProcessProvenance, ServerExpectation, ServerIdentity, ServerReady, API_VERSION,
@@ -98,17 +98,19 @@ fn start(
 }
 
 fn state_handle() -> UpdateStateHandle {
-    Arc::new(Mutex::new(codeterm_service_core::update_state::UpdateState {
-        install_method: codeterm_service_core::update_state::InstallMethod::Unknown,
-        last_check: None,
-        last_check_time: None,
-        channel: Channel::Stable,
-        phase: UpdatePhase::Idle,
-        last_error: None,
-        phase_changed_at: None,
-        downloaded_bytes: 0,
-        download_total_bytes: None,
-    }))
+    Arc::new(Mutex::new(
+        codeterm_service_core::update_state::UpdateState {
+            install_method: codeterm_service_core::update_state::InstallMethod::Unknown,
+            last_check: None,
+            last_check_time: None,
+            channel: Channel::Stable,
+            phase: UpdatePhase::Idle,
+            last_error: None,
+            phase_changed_at: None,
+            downloaded_bytes: 0,
+            download_total_bytes: None,
+        },
+    ))
 }
 
 fn result(
@@ -187,7 +189,7 @@ struct FakeExecutor {
     dispatch_result: NativeUpdateResult,
     dispatch_outcome: Option<NativeUpdateDispatchOutcome>,
     attachment: Option<NativeUpdateAttachment>,
-    observations: Mutex<VecDeque<NativeUpdateResult>>,
+    observations: Mutex<VecDeque<NativeUpdateObservationOutcome>>,
     dispatch_count: AtomicUsize,
     observe_count: AtomicUsize,
     panic_first_observation: bool,
@@ -199,7 +201,7 @@ struct FakeExecutor {
 impl FakeExecutor {
     fn new(
         dispatch_result: NativeUpdateResult,
-        observations: Vec<NativeUpdateResult>,
+        observations: Vec<NativeUpdateObservationOutcome>,
     ) -> Self {
         let attachment = NativeUpdateAttachment {
             connection: dispatch_result.connection.clone(),
@@ -222,7 +224,6 @@ impl FakeExecutor {
             observation_dropped: Mutex::new(None),
         }
     }
-
 }
 
 struct DropSignal(Option<oneshot::Sender<()>>);
@@ -257,13 +258,16 @@ impl NativeUpdateExecutor for FakeExecutor {
         &self,
         _operation_id: NativeUpdateOperationId,
         _after_sequence: u64,
-    ) -> NativeUpdateResultFuture {
+    ) -> codeterm_types::native_update::NativeUpdateObservationFuture {
         let observation = self.observe_count.fetch_add(1, Ordering::SeqCst) + 1;
         let should_panic = self.panic_first_observation && observation == 1;
-        let result = if should_panic || self.pending_observation {
-            None
+        let outcome = if should_panic || self.pending_observation {
+            NativeUpdateObservationOutcome::NoNewEvidence
         } else {
-            self.observations.lock().pop_front()
+            self.observations
+                .lock()
+                .pop_front()
+                .unwrap_or(NativeUpdateObservationOutcome::NoNewEvidence)
         };
         let started = self.observation_started.lock().take();
         let dropped = self.observation_dropped.lock().take();
@@ -277,9 +281,9 @@ impl NativeUpdateExecutor for FakeExecutor {
                 panic!("injected observation worker failure");
             }
             if pending {
-                std::future::pending::<NativeUpdateResult>().await;
+                std::future::pending::<NativeUpdateObservationOutcome>().await;
             }
-            result.expect("the test supplied an observation result")
+            outcome
         })
     }
 }
@@ -293,7 +297,10 @@ async fn wait_for_status(
         if predicate(&current) {
             return current;
         }
-        receiver.changed().await.expect("coordinator status remains observable");
+        receiver
+            .changed()
+            .await
+            .expect("coordinator status remains observable");
     }
 }
 
@@ -328,18 +335,26 @@ async fn invalid_immediate_observation_holds_once_without_retrying_cursor() {
     );
     let executor = Arc::new(FakeExecutor::new(
         in_progress(&request),
-        vec![wrong],
+        vec![NativeUpdateObservationOutcome::Reply(wrong)],
     ));
     let coordinator = NativeUpdateCoordinator::new();
-    let operation_id = start(&coordinator, &request, state_handle(), Some(executor.clone()))
-        .expect("the global update lease is free");
+    let state = state_handle();
+    let operation_id = start(
+        &coordinator,
+        &request,
+        state.clone(),
+        Some(executor.clone()),
+    )
+    .expect("the global update lease is free");
     let mut status = coordinator.subscribe(operation_id).unwrap();
     let held = wait_for_status(&mut status, |status| {
         matches!(
             &status.phase,
             NativeUpdateCoordinatorPhase::Held {
-                reason: NativeUpdateHoldReason::InvalidReply(
-                    NativeUpdateRefusal::WrongOperation
+                reason: NativeUpdateHoldReason::PostDispatchUncertain(
+                    NativeUpdateUncertainty::InvalidReplyAfterDispatch(
+                        NativeUpdateRefusal::WrongOperation
+                    )
                 )
             }
         ) && !status.worker_running
@@ -347,6 +362,160 @@ async fn invalid_immediate_observation_holds_once_without_retrying_cursor() {
     .await;
 
     assert_eq!(held.sequence, Some(1));
+    assert_eq!(
+        held.captured_attachment,
+        executor.captured_attachment().unwrap()
+    );
+    assert!(matches!(
+        held.last_result.as_ref().map(|result| &result.state),
+        Some(NativeUpdateState::InProgress { .. })
+    ));
+    assert_eq!(state.lock().phase, UpdatePhase::Applying);
+    assert_eq!(executor.dispatch_count.load(Ordering::SeqCst), 1);
+    assert_eq!(executor.observe_count.load(Ordering::SeqCst), 1);
+    assert!(global().is_in_flight());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn wrong_epoch_observation_is_post_dispatch_uncertain() {
+    let _gate_lock = global_gate_test_lock();
+    let request = request();
+    let mut wrong = in_progress(&request);
+    wrong.sequence = 2;
+    wrong.connection.server_epoch = "replacement-epoch".into();
+    wrong.connection.generation = 2;
+    let executor = Arc::new(FakeExecutor::new(
+        in_progress(&request),
+        vec![NativeUpdateObservationOutcome::Reply(wrong)],
+    ));
+    let coordinator = NativeUpdateCoordinator::new();
+    start(
+        &coordinator,
+        &request,
+        state_handle(),
+        Some(executor.clone()),
+    )
+    .expect("the global update lease is free");
+    let mut status = coordinator.subscribe(request.operation_id).unwrap();
+    let held = wait_for_status(&mut status, |status| {
+        matches!(
+            &status.phase,
+            NativeUpdateCoordinatorPhase::Held {
+                reason: NativeUpdateHoldReason::PostDispatchUncertain(
+                    NativeUpdateUncertainty::InvalidReplyAfterDispatch(
+                        NativeUpdateRefusal::ExpectedServerMismatch
+                    )
+                )
+            }
+        ) && !status.worker_running
+    })
+    .await;
+
+    assert_eq!(held.sequence, Some(1));
+    assert_eq!(
+        held.captured_attachment,
+        executor.captured_attachment().unwrap()
+    );
+    assert_eq!(executor.dispatch_count.load(Ordering::SeqCst), 1);
+    assert_eq!(executor.observe_count.load(Ordering::SeqCst), 1);
+    assert!(global().is_in_flight());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn no_new_observation_evidence_holds_until_exact_reconciliation() {
+    let _gate_lock = global_gate_test_lock();
+    let request = request();
+    let executor = Arc::new(FakeExecutor::new(
+        in_progress(&request),
+        vec![
+            NativeUpdateObservationOutcome::NoNewEvidence,
+            NativeUpdateObservationOutcome::Reply(verified(&request)),
+        ],
+    ));
+    let coordinator = NativeUpdateCoordinator::new();
+    start(
+        &coordinator,
+        &request,
+        state_handle(),
+        Some(executor.clone()),
+    )
+    .expect("the global update lease is free");
+    let mut status = coordinator.subscribe(request.operation_id).unwrap();
+    let held = wait_for_status(&mut status, |status| {
+        matches!(
+            &status.phase,
+            NativeUpdateCoordinatorPhase::Held {
+                reason: NativeUpdateHoldReason::ObservationNoNewEvidence
+            }
+        ) && !status.worker_running
+    })
+    .await;
+
+    assert_eq!(held.sequence, Some(1));
+    assert_eq!(
+        held.captured_attachment,
+        executor.captured_attachment().unwrap()
+    );
+    assert!(matches!(
+        held.last_result.as_ref().map(|result| &result.state),
+        Some(NativeUpdateState::InProgress { .. })
+    ));
+    assert_eq!(executor.dispatch_count.load(Ordering::SeqCst), 1);
+    assert_eq!(executor.observe_count.load(Ordering::SeqCst), 1);
+    assert!(global().is_in_flight());
+
+    let verified = coordinator
+        .reconcile(request.operation_id)
+        .await
+        .expect("explicit read-only reconciliation supplies exact verification");
+
+    assert_eq!(verified.phase, NativeUpdateCoordinatorPhase::Verified);
+    assert_eq!(verified.sequence, Some(3));
+    assert_eq!(executor.dispatch_count.load(Ordering::SeqCst), 1);
+    assert_eq!(executor.observe_count.load(Ordering::SeqCst), 2);
+    assert!(!global().is_in_flight());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn unavailable_observation_holds_the_captured_transaction() {
+    let _gate_lock = global_gate_test_lock();
+    let request = request();
+    let executor = Arc::new(FakeExecutor::new(
+        in_progress(&request),
+        vec![NativeUpdateObservationOutcome::Unavailable {
+            reason: NativeUpdateUncertainty::DisconnectedAfterDispatch,
+        }],
+    ));
+    let coordinator = NativeUpdateCoordinator::new();
+    start(
+        &coordinator,
+        &request,
+        state_handle(),
+        Some(executor.clone()),
+    )
+    .expect("the global update lease is free");
+    let mut status = coordinator.subscribe(request.operation_id).unwrap();
+    let held = wait_for_status(&mut status, |status| {
+        matches!(
+            &status.phase,
+            NativeUpdateCoordinatorPhase::Held {
+                reason: NativeUpdateHoldReason::PostDispatchUncertain(
+                    NativeUpdateUncertainty::DisconnectedAfterDispatch
+                )
+            }
+        ) && !status.worker_running
+    })
+    .await;
+
+    assert_eq!(held.sequence, Some(1));
+    assert_eq!(
+        held.captured_attachment,
+        executor.captured_attachment().unwrap()
+    );
+    assert!(matches!(
+        held.last_result.as_ref().map(|result| &result.state),
+        Some(NativeUpdateState::InProgress { .. })
+    ));
     assert_eq!(executor.dispatch_count.load(Ordering::SeqCst), 1);
     assert_eq!(executor.observe_count.load(Ordering::SeqCst), 1);
     assert!(global().is_in_flight());
@@ -366,7 +535,12 @@ fn missing_authenticated_attachment_refuses_before_admission_or_status_change() 
     executor.attachment = None;
 
     assert_eq!(
-        start(&coordinator, &request, state.clone(), Some(Arc::new(executor))),
+        start(
+            &coordinator,
+            &request,
+            state.clone(),
+            Some(Arc::new(executor))
+        ),
         Err(NativeUpdateRefusal::NativeHostUnavailable)
     );
     assert_eq!(state.lock().phase, UpdatePhase::Idle);
@@ -381,22 +555,34 @@ async fn pre_dispatch_detach_refuses_without_fabricating_an_event() {
     let request = request();
     let mut executor = FakeExecutor::new(in_progress(&request), Vec::new());
     executor.dispatch_outcome = Some(NativeUpdateDispatchOutcome::RefusedBeforeExecution {
-            reason: NativeUpdateRefusal::NativeHostUnavailable,
-        });
+        reason: NativeUpdateRefusal::NativeHostUnavailable,
+    });
     let executor = Arc::new(executor);
     let coordinator = NativeUpdateCoordinator::new();
-    start(&coordinator, &request, state_handle(), Some(executor.clone()))
-        .expect("the active attachment admits one server-owned operation");
+    start(
+        &coordinator,
+        &request,
+        state_handle(),
+        Some(executor.clone()),
+    )
+    .expect("the active attachment admits one server-owned operation");
     let mut status = coordinator.subscribe(request.operation_id).unwrap();
     let refused = wait_for_status(&mut status, |status| {
-        matches!(&status.phase, NativeUpdateCoordinatorPhase::Rejected {
-            reason: NativeUpdateRefusal::NativeHostUnavailable
-        }) && !status.worker_running
-    }).await;
+        matches!(
+            &status.phase,
+            NativeUpdateCoordinatorPhase::Rejected {
+                reason: NativeUpdateRefusal::NativeHostUnavailable
+            }
+        ) && !status.worker_running
+    })
+    .await;
 
     assert_eq!(refused.sequence, None);
     assert!(refused.last_result.is_none());
-    assert_eq!(refused.captured_attachment, executor.captured_attachment().unwrap());
+    assert_eq!(
+        refused.captured_attachment,
+        executor.captured_attachment().unwrap()
+    );
     assert_eq!(executor.dispatch_count.load(Ordering::SeqCst), 1);
     assert_eq!(executor.observe_count.load(Ordering::SeqCst), 0);
     assert!(!global().is_in_flight());
@@ -408,21 +594,30 @@ async fn uncertain_dispatch_keeps_the_captured_attachment_and_shared_lease() {
     let request = request();
     let mut executor = FakeExecutor::new(in_progress(&request), Vec::new());
     executor.dispatch_outcome = Some(NativeUpdateDispatchOutcome::UncertainAfterExecution {
-            reason: NativeUpdateUncertainty::DisconnectedAfterDispatch,
-        });
+        reason: NativeUpdateUncertainty::DisconnectedAfterDispatch,
+    });
     let executor = Arc::new(executor);
     let captured = executor.captured_attachment().unwrap();
     let coordinator = NativeUpdateCoordinator::new();
-    start(&coordinator, &request, state_handle(), Some(executor.clone()))
-        .expect("the active attachment admits one server-owned operation");
+    start(
+        &coordinator,
+        &request,
+        state_handle(),
+        Some(executor.clone()),
+    )
+    .expect("the active attachment admits one server-owned operation");
     let mut status = coordinator.subscribe(request.operation_id).unwrap();
     let held = wait_for_status(&mut status, |status| {
-        matches!(&status.phase, NativeUpdateCoordinatorPhase::Held {
-            reason: NativeUpdateHoldReason::DispatchUncertain(
-                NativeUpdateUncertainty::DisconnectedAfterDispatch
-            )
-        }) && !status.worker_running
-    }).await;
+        matches!(
+            &status.phase,
+            NativeUpdateCoordinatorPhase::Held {
+                reason: NativeUpdateHoldReason::PostDispatchUncertain(
+                    NativeUpdateUncertainty::DisconnectedAfterDispatch
+                )
+            }
+        ) && !status.worker_running
+    })
+    .await;
 
     assert_eq!(held.sequence, None);
     assert!(held.last_result.is_none());
@@ -461,10 +656,10 @@ async fn caller_disconnect_and_observation_cancel_keep_uncertain_lease_reachable
         .expect("the global update lease is free");
     drop(caller);
     let mut status = coordinator.subscribe(operation_id).unwrap();
-    started_rx.await.expect("the server began a read-only observation");
-    assert!(coordinator.cancel_observation(
-        request.operation_id
-    ));
+    started_rx
+        .await
+        .expect("the server began a read-only observation");
+    assert!(coordinator.cancel_observation(request.operation_id));
     let held = wait_for_status(&mut status, |status| {
         matches!(
             &status.phase,
@@ -474,7 +669,9 @@ async fn caller_disconnect_and_observation_cancel_keep_uncertain_lease_reachable
         ) && !status.worker_running
     })
     .await;
-    dropped_rx.await.expect("cancellation dropped the pending observation");
+    dropped_rx
+        .await
+        .expect("cancellation dropped the pending observation");
 
     assert!(matches!(
         held.last_result.as_ref().map(|result| &result.state),
@@ -490,12 +687,20 @@ async fn caller_disconnect_and_observation_cancel_keep_uncertain_lease_reachable
 async fn interrupted_coordinator_reconciles_exact_completion_without_redispatch() {
     let _gate_lock = global_gate_test_lock();
     let request = request();
-    let mut executor = FakeExecutor::new(in_progress(&request), vec![verified(&request)]);
+    let mut executor = FakeExecutor::new(
+        in_progress(&request),
+        vec![NativeUpdateObservationOutcome::Reply(verified(&request))],
+    );
     executor.panic_first_observation = true;
     let executor = Arc::new(executor);
     let coordinator = NativeUpdateCoordinator::new();
-    let operation_id = start(&coordinator, &request, state_handle(), Some(executor.clone()))
-        .expect("the global update lease is free");
+    let operation_id = start(
+        &coordinator,
+        &request,
+        state_handle(),
+        Some(executor.clone()),
+    )
+    .expect("the global update lease is free");
     let mut status = coordinator.subscribe(operation_id).unwrap();
     let held = wait_for_status(&mut status, |status| {
         matches!(
@@ -527,13 +732,21 @@ async fn completed_reconciliation_stays_reachable_until_verified_without_redispa
     let request = request();
     let mut executor = FakeExecutor::new(
         in_progress(&request),
-        vec![completed(&request), verified(&request)],
+        vec![
+            NativeUpdateObservationOutcome::Reply(completed(&request)),
+            NativeUpdateObservationOutcome::Reply(verified(&request)),
+        ],
     );
     executor.panic_first_observation = true;
     let executor = Arc::new(executor);
     let coordinator = NativeUpdateCoordinator::new();
-    let operation_id = start(&coordinator, &request, state_handle(), Some(executor.clone()))
-        .expect("the global update lease is free");
+    let operation_id = start(
+        &coordinator,
+        &request,
+        state_handle(),
+        Some(executor.clone()),
+    )
+    .expect("the global update lease is free");
     let mut status = coordinator.subscribe(operation_id).unwrap();
     wait_for_status(&mut status, |status| {
         matches!(
@@ -579,7 +792,12 @@ fn existing_http_lease_refuses_native_admission_without_status_mutation() {
     let coordinator = NativeUpdateCoordinator::new();
 
     assert_eq!(
-        start(&coordinator, &request, state.clone(), Some(executor.clone())),
+        start(
+            &coordinator,
+            &request,
+            state.clone(),
+            Some(executor.clone())
+        ),
         Err(NativeUpdateRefusal::AlreadyInFlight)
     );
     assert_eq!(state.lock().phase, UpdatePhase::Idle);
