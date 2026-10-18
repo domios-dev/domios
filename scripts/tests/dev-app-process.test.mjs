@@ -263,20 +263,29 @@ test('prebuilt readiness phases classify absent attach then launch without treat
   assert.equal(prebuiltReadinessPhase(phase,'DOMIOS_DEV_ATTACHMENT malformed'),2);
 });
 
-test('prebuilt launch progress cannot rearm or increase the original readiness deadline',async()=>{
+test('prebuilt launch partitions bounded verification bootstrap and attachment without duplicate progress resets',async()=>{
   const source=fs.readFileSync(new URL('../dev-prep.mjs',import.meta.url),'utf8').replaceAll('\r\n','\n');
   const definition=source.match(/^async function launchPrebuilt\(options\) \{[\s\S]*?^\}/m)[0].replaceAll('import.meta.url',JSON.stringify(import.meta.url));
   const timers=[],cleared=[];
   let stopped=0;
+  let now=0;
   const launch=new Function('resolve','option','process','existsSync','statSync','spawn','node','fileURLToPath','repo','console','setTimeout','clearTimeout','terminateOwnedChild',`${definition}\nreturn launchPrebuilt;`)(path.resolve,(options,key)=>options.get(key),{env:{}},()=>true,()=>({isFile:()=>true}),()=>{
     const child=new EventEmitter();child.pid=123;child.unref=()=>{};
     queueMicrotask(()=>{
-      for (const phase of [2,1,1,2,2]) child.emit('message',{type:'phase',phase});
+      now=29000;
+      child.emit('message',{type:'phase',phase:2});
+      child.emit('message',{type:'phase',phase:1});
+      now=58000;
+      child.emit('message',{type:'phase',phase:1});
+      child.emit('message',{type:'phase',phase:2});
+      child.emit('message',{type:'phase',phase:2});
+      now=59000;
       child.emit('message',{type:'ready',signal:'validated attachment'});
     });
     return child;
-  },'node',()=>'/fixture/dev-prep.mjs','/fixture',{log(){}},(callback,ms)=>{const timer={callback,ms};timers.push(timer);return timer;},timer=>cleared.push(timer),async()=>{stopped++;});
+  },'node',()=>'/fixture/dev-prep.mjs','/fixture',{log(){}},(callback,ms)=>{const timer={callback,ms,expires:now+ms};timers.push(timer);return timer;},timer=>cleared.push(timer),async()=>{stopped++;});
   await launch(new Map([['--app','/fixture/codeterm.exe'],['--log','/fixture/log'],['--api-port','7686']]));
-  assert.equal(timers.length,1);assert.equal(timers[0].ms,30000);
+  assert.equal(timers.length,3);assert.ok(timers.every(timer=>timer.ms===30000));
+  assert.deepEqual(timers.map(timer=>timer.expires),[30000,59000,88000]);
   assert.deepEqual(cleared,timers);assert.equal(stopped,0);
 });

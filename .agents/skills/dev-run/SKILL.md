@@ -657,15 +657,20 @@ restored, no client credential is exposed and no new frontend/runtime hook is ad
 Attach exit4 is the finite ordinary unavailable-endpoint outcome and permits one
 initial launch; it is not an authentication/build failure. If launch starts but the
 outer prebuilt readiness deadline expires, preserve server bootstrap ACK timestamps
-and the client stream. The outer30-second guard (introduced in84a1083c8ea) begins
-before desktop spawn/artifact verification; the client's separate30-second bootstrap
-clock begins later. Progress now classifies preparation/bootstrap/attachment in the
-failure receipt without restarting or extending the original timer. Only exact native
-attachment is readiness. No larger cap, retry, public-health fallback or fabricated
-success is applied; long initialization needs an evidence-backed owning budget or
-performance correction before another launch can be expected to pass.
+and the client stream. The former outer30-second guard began before desktop spawn
+and artifact verification, while the client's bootstrap clock began later. The
+launcher now partitions preparation/bootstrap/attachment into bounded phases at
+ordered native diagnostic boundaries. Only exact native attachment is readiness;
+duplicated progress never extends a phase. Inner bootstrap and IO deadlines remain
+unchanged; no retry or public-health fallback is introduced.
 
 Named-target script fixtures must load dev_built_app_path alongside dev_app_path.
 Windows uses the raw executable path; Unix keeps raw Cargo bytes and stages the native
 client under .domios-dev-runtime/bin. The old fixture missed this c8a851cdd extraction;
 its repair checks both platform layouts and wait modes, preserving the default artifact.
+
+### Separate DEV verification and bootstrap budgets
+
+A slow verified startup previously consumed the outer30-second budget before the client began its own bootstrap budget. The launcher now bounds preparation, bootstrap and authenticated attachment separately at30seconds each. Only the ordered attach-start and reply-validation events move the boundary; duplicates never extend a phase. No event means failure at that phase deadline, and progress never means readiness. Existing inner bootstrap/transport deadlines remain unchanged.
+
+Debug `[boot-operation]` records measure embedded extraction, capability registration (including binary resolution/fingerprint), integrity hashing with actual bytes, restored plans and platform initialization. Capability timing includes the registration call rather than claiming a separate binary-probe duration; compare it with the existing VM model timing. No digest or private bootstrap reply is logged.
