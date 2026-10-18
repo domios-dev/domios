@@ -159,9 +159,6 @@ function validateComponentManifest(bytes, metadata, discovered) {
     fail('server-component.json is not valid JSON');
   }
   exactFields(manifest, COMPONENT_FIELDS, 'server-component.json');
-  if (JSON.stringify(Object.keys(manifest)) !== JSON.stringify(COMPONENT_FIELDS)) {
-    fail('server-component.json field order does not match ServerComponentManifest v1');
-  }
   if (manifest.schema !== 1) fail('server-component.json schema must be 1');
   if (typeof manifest.server_build !== 'string' || manifest.server_build.length === 0 ||
       manifest.server_build.trim() !== manifest.server_build || /[\u0000-\u001f\u007f]/.test(manifest.server_build)) {
@@ -368,6 +365,63 @@ function ensureArchiveReadback(archive, expectedFiles) {
   }
 }
 
+async function finalFileExists(file) {
+  try {
+    const stat = await lstat(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) fail('existing headless output is not a regular file: ' + file);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+async function replacePackageAssets(temporaryPaths, finalPaths, backupPaths, createdTemporaryPaths) {
+  const existing = [];
+  for (const file of finalPaths) existing.push(await finalFileExists(file));
+  const backedUp = [];
+  const installed = [];
+  try {
+    for (let index = 0; index < finalPaths.length; index += 1) {
+      if (!existing[index]) continue;
+      await rename(finalPaths[index], backupPaths[index]);
+      backedUp.push(index);
+    }
+    for (let index = 0; index < finalPaths.length; index += 1) {
+      await rename(temporaryPaths[index], finalPaths[index]);
+      createdTemporaryPaths.delete(temporaryPaths[index]);
+      installed.push(index);
+    }
+  } catch (error) {
+    const rollbackErrors = [];
+    for (const index of installed.reverse()) {
+      try {
+        await rm(finalPaths[index], { force: true });
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    for (const index of backedUp.reverse()) {
+      try {
+        await rename(backupPaths[index], finalPaths[index]);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (rollbackErrors.length) {
+      throw new AggregateError([error, ...rollbackErrors], 'headless output replacement failed and rollback was incomplete');
+    }
+    throw error;
+  }
+  for (const index of backedUp) {
+    try {
+      await rm(backupPaths[index], { force: true });
+    } catch (error) {
+      process.stderr.write('headless package committed; could not clear prior-output backup: ' + backupPaths[index] + '\n');
+    }
+  }
+}
+
 export async function packageHeadless({ stageDirectory, outputDirectory, target, tag, version, sourceSha }) {
   const { platform } = validateIdentity({ target, tag, version, sourceSha });
   if (!outputDirectory) fail('headless output directory is required');
@@ -382,11 +436,14 @@ export async function packageHeadless({ stageDirectory, outputDirectory, target,
   const outputStat = await lstat(outputRoot);
   if (!outputStat.isDirectory() || outputStat.isSymbolicLink()) fail('headless output path must be a regular directory');
   const finalPaths = [names.archive, names.checksum, names.manifest].map(name => path.join(outputRoot, name));
-  await Promise.all(finalPaths.map(file => rm(file, { force: true })));
   const temporaryPaths = finalPaths.map(file => file + '.' + randomUUID() + '.tmp');
+  const backupPaths = finalPaths.map(file => file + '.' + randomUUID() + '.bak');
+  const createdTemporaryPaths = new Set();
   try {
     const stage = await validateHeadlessStage({ stageDirectory, target, tag, version, sourceSha });
-    const archive = createArchive(stage.files);
+    await writeFile(temporaryPaths[0], createArchive(stage.files), { flag: 'wx' });
+    createdTemporaryPaths.add(temporaryPaths[0]);
+    const archive = await readFile(temporaryPaths[0]);
     ensureArchiveReadback(archive, stage.files);
     const archiveSha256 = digest(archive);
     const manifest = {
@@ -403,31 +460,24 @@ export async function packageHeadless({ stageDirectory, outputDirectory, target,
     };
     const checksumText = archiveSha256 + '  ' + names.archive + '\n';
     const manifestText = JSON.stringify(manifest, null, 2) + '\n';
-    await Promise.all([
-      writeFile(temporaryPaths[0], archive, { flag: 'wx' }),
-      writeFile(temporaryPaths[1], checksumText, { flag: 'wx' }),
-      writeFile(temporaryPaths[2], manifestText, { flag: 'wx' }),
-    ]);
+    await writeFile(temporaryPaths[1], checksumText, { flag: 'wx' });
+    createdTemporaryPaths.add(temporaryPaths[1]);
+    await writeFile(temporaryPaths[2], manifestText, { flag: 'wx' });
+    createdTemporaryPaths.add(temporaryPaths[2]);
     const checksumReadback = await readFile(temporaryPaths[1], 'utf8');
     const manifestReadback = JSON.parse(await readFile(temporaryPaths[2], 'utf8'));
     if (checksumReadback !== checksumText || manifestReadback.archive_sha256 !== digest(await readFile(temporaryPaths[0]))) {
       fail('headless checksum or metadata readback failed');
     }
-    for (let index = 0; index < finalPaths.length; index += 1) await rename(temporaryPaths[index], finalPaths[index]);
+    await replacePackageAssets(temporaryPaths, finalPaths, backupPaths, createdTemporaryPaths);
     return {
       ...manifest,
       archivePath: finalPaths[0],
       checksumPath: finalPaths[1],
       manifestPath: finalPaths[2],
     };
-  } catch (error) {
-    await Promise.all([
-      ...temporaryPaths.map(file => rm(file, { force: true })),
-      ...finalPaths.map(file => rm(file, { force: true })),
-    ]);
-    throw error;
   } finally {
-    await Promise.all(temporaryPaths.map(file => rm(file, { force: true })));
+    await Promise.all([...createdTemporaryPaths].map(file => rm(file, { force: true })));
   }
 }
 
