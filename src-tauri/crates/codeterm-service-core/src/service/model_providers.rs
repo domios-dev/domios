@@ -642,7 +642,7 @@ fn launch_env(
     let mut env = HashMap::new();
     for provider in providers.iter().filter(|provider| {
         provider.secret_name.is_some()
-            && model.is_none_or(|model| model_uses_provider(model, provider))
+            && model.is_some_and(|model| model_uses_provider(model, provider))
     }) {
         let name = env_name(adapter, &provider.id).map_err(|_| {
             ModelProviderError::LaunchSetup(format!(
