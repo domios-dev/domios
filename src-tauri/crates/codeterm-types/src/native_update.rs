@@ -6,8 +6,11 @@ use crate::{
     },
 };
 use serde::{Deserialize, Serialize};
-use std::future::Future;
-use std::pin::Pin;
+use std::{
+    future::Future,
+    path::{Component, Path},
+    pin::Pin,
+};
 use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -338,7 +341,11 @@ fn validate_verification(
         || server.build != request.staged_components.server_build
         || server.api_version != request.staged_components.api_version
         || server.protocol != request.staged_components.bootstrap_protocol
-        || server.process.executable != request.staged_components.server_executable
+        || !resource_executable_matches(
+            &server.resources,
+            &request.staged_components.server_executable,
+            &server.process.executable,
+        )
     {
         return Err(NativeUpdateRefusal::InvalidStagedManifest);
     }
@@ -407,8 +414,7 @@ impl NativeUpdateRequest {
                 .is_empty()
             || self.expected_server.identity.data.as_os_str().is_empty()
             || self.expected_server.identity.config.as_os_str().is_empty()
-            || self.expected_server.components.server_executable
-                != self.expected_server.incarnation.process.executable
+            || !valid_process(&self.expected_server.incarnation.process)
         {
             return Err(NativeUpdateRefusal::ExpectedServerMismatch);
         }
@@ -456,7 +462,11 @@ impl NativeUpdateRequest {
             && expected.incarnation.epoch == ready.epoch
             && expected.incarnation.process == ready.process
             && ready.build == expected.components.server_build
-            && ready.process.executable == expected.components.server_executable
+            && resource_executable_matches(
+                &ready.resources,
+                &expected.components.server_executable,
+                &ready.process.executable,
+            )
             && ready.api_version == expected.components.api_version
             && ready.protocol == expected.components.bootstrap_protocol
     }
@@ -465,7 +475,7 @@ impl NativeUpdateRequest {
 fn validate_manifest(manifest: &ServerComponentManifest) -> Result<(), ()> {
     if manifest.schema != SERVER_COMPONENT_SCHEMA
         || manifest.server_build.is_empty()
-        || manifest.server_executable.as_os_str().is_empty()
+        || !is_strict_resource_relative_path(&manifest.server_executable)
         || manifest.api_version != API_VERSION
         || manifest.bootstrap_protocol != BOOTSTRAP_PROTOCOL
         || !valid_sha256(&manifest.server_sha256)
@@ -474,6 +484,28 @@ fn validate_manifest(manifest: &ServerComponentManifest) -> Result<(), ()> {
         return Err(());
     }
     Ok(())
+}
+
+fn is_strict_resource_relative_path(path: &Path) -> bool {
+    let mut components = path.components();
+    matches!(components.next(), Some(Component::Normal(_)))
+        && components.all(|component| matches!(component, Component::Normal(_)))
+}
+
+fn resource_executable_matches(root: &Path, relative: &Path, executable: &Path) -> bool {
+    is_clean_absolute_path(root)
+        && is_strict_resource_relative_path(relative)
+        && root.join(relative) == executable
+}
+
+fn is_clean_absolute_path(path: &Path) -> bool {
+    path.is_absolute()
+        && path.components().all(|component| {
+            matches!(
+                component,
+                Component::Prefix(_) | Component::RootDir | Component::Normal(_)
+            )
+        })
 }
 
 fn valid_sha256(value: &str) -> bool {
@@ -491,9 +523,10 @@ fn same_server_artifact(left: &ServerComponentManifest, right: &ServerComponentM
 #[cfg(test)]
 mod tests {
     use super::{
-        ExpectedServer, NativeUpdateAction, NativeUpdateExecutor, NativeUpdateObservationOutcome,
-        NativeUpdateOperationId, NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult,
-        NativeUpdateStage, NativeUpdateState, NativeUpdateUncertainty, NativeUpdateVerification,
+        ExpectedServer, NativeUpdateAction, NativeUpdateExecutor, NativeUpdateInstallReceipt,
+        NativeUpdateObservationOutcome, NativeUpdateOperationId, NativeUpdateRefusal,
+        NativeUpdateRequest, NativeUpdateResult, NativeUpdateStage, NativeUpdateState,
+        NativeUpdateUncertainty, NativeUpdateVerification,
     };
     use crate::{
         native_host::NativeHostConnection,
@@ -509,7 +542,7 @@ mod tests {
         ServerComponentManifest {
             schema: SERVER_COMPONENT_SCHEMA,
             server_build: server_build.into(),
-            server_executable: PathBuf::from("C:/Domios/domios-server.exe"),
+            server_executable: PathBuf::from("bin/domios-server.exe"),
             server_sha256: "a".repeat(64),
             client_sha256: client_digest.into(),
             api_version: API_VERSION,
@@ -524,7 +557,7 @@ mod tests {
             NativeUpdateAction::Server => components("server-new", "b".repeat(64).as_str()),
             NativeUpdateAction::Pair => components("server-new", "c".repeat(64).as_str()),
         };
-        let executable = current.server_executable.clone();
+        let executable = resource_root().join(&current.server_executable);
         NativeUpdateRequest {
             operation_id: NativeUpdateOperationId::new(Uuid::from_u128(17)).unwrap(),
             action,
@@ -561,7 +594,18 @@ mod tests {
             api_address: "127.0.0.1:7686".parse().expect("valid test address"),
             socket_address: "socket".into(),
             bootstrap_address: "bootstrap".into(),
-            resources: PathBuf::from("C:/Domios/resources"),
+            resources: resource_root(),
+        }
+    }
+
+    fn resource_root() -> PathBuf {
+        #[cfg(windows)]
+        {
+            PathBuf::from(r"C:\Domios\resources")
+        }
+        #[cfg(not(windows))]
+        {
+            PathBuf::from("/opt/domios/resources")
         }
     }
 
@@ -738,6 +782,99 @@ mod tests {
         let mut wrong_artifact = installed;
         wrong_artifact.server_build = "other-build".into();
         assert!(!request.matches_current_server(&ready_for(&request), &wrong_artifact));
+    }
+
+    #[test]
+    fn current_server_match_resolves_manifest_path_under_exact_ready_resource_root() {
+        let request = request(NativeUpdateAction::ClientOnly, false);
+        let installed = request.expected_server.components.clone();
+        let ready = ready_for(&request);
+        assert!(request.matches_current_server(&ready, &installed));
+
+        let mut wrong_root = ready.clone();
+        wrong_root.resources = resource_root().join("other");
+        assert!(!request.matches_current_server(&wrong_root, &installed));
+
+        let mut traversing_root = ready.clone();
+        traversing_root.resources = resource_root().join("../outside");
+        assert!(!request.matches_current_server(&traversing_root, &installed));
+
+        let mut wrong_executable_request = request.clone();
+        wrong_executable_request
+            .expected_server
+            .components
+            .server_executable = PathBuf::from("bin/other-server.exe");
+        let wrong_executable_manifest = wrong_executable_request.expected_server.components.clone();
+        assert!(
+            !wrong_executable_request.matches_current_server(&ready, &wrong_executable_manifest,)
+        );
+    }
+
+    #[test]
+    fn manifest_executable_must_stay_inside_the_resource_root() {
+        let mut request = request(NativeUpdateAction::ClientOnly, false);
+        request.expected_server.components.server_executable =
+            PathBuf::from("../outside/domios-server.exe");
+        assert_eq!(
+            request.validate(),
+            Err(NativeUpdateRefusal::InvalidServerManifest)
+        );
+
+        let mut request = request(NativeUpdateAction::ClientOnly, false);
+        request.staged_components.server_executable =
+            PathBuf::from("bin/../../outside/domios-server.exe");
+        assert_eq!(
+            request.validate(),
+            Err(NativeUpdateRefusal::InvalidStagedManifest)
+        );
+
+        let mut request = request(NativeUpdateAction::ClientOnly, false);
+        request.expected_server.components.server_executable =
+            PathBuf::from("../outside/domios-server.exe");
+        assert!(!request
+            .matches_current_server(&ready_for(&request), &request.expected_server.components,));
+    }
+
+    #[test]
+    fn replacement_verification_resolves_relative_executable_against_ready_root() {
+        let request = request(NativeUpdateAction::ClientOnly, false);
+        let server = ready_for(&request);
+        let install = NativeUpdateInstallReceipt {
+            installed_components: request.staged_components.clone(),
+            client_process: ProcessProvenance {
+                pid: 72,
+                created: "start-72".into(),
+                executable: PathBuf::from("/opt/domios/domios.exe"),
+            },
+        };
+        let result_for = |server: ServerReady| NativeUpdateResult {
+            operation_id: request.operation_id,
+            sequence: 1,
+            connection: connection_for(&request, 2, &server.epoch),
+            state: NativeUpdateState::Verified {
+                install: install.clone(),
+                verification: NativeUpdateVerification {
+                    client_process: install.client_process.clone(),
+                    server,
+                },
+            },
+        };
+
+        assert_eq!(result_for(server.clone()).validate_for(&request), Ok(()));
+
+        let mut wrong_root = server.clone();
+        wrong_root.resources = resource_root().join("other");
+        assert_eq!(
+            result_for(wrong_root).validate_for(&request),
+            Err(NativeUpdateRefusal::InvalidStagedManifest)
+        );
+
+        let mut wrong_executable = server;
+        wrong_executable.process.executable = resource_root().join("bin/other-server.exe");
+        assert_eq!(
+            result_for(wrong_executable).validate_for(&request),
+            Err(NativeUpdateRefusal::InvalidStagedManifest)
+        );
     }
 
     #[test]
