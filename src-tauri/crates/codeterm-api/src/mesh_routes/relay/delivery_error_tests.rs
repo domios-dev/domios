@@ -12,9 +12,7 @@ fn receiving_classification_still_leads_with_the_delivery_code() {
             detail: "x".into(),
         }
         .to_json();
-    assert!(
-        relay_error_summary(502, &submit_unconfirmed).starts_with(delivery::SUBMIT_UNCONFIRMED)
-    );
+    assert!(relay_error_summary(502, &submit_unconfirmed).starts_with(delivery::SUBMIT_UNCONFIRMED));
 
     let tab_busy = codeterm_service_core::service::delivery_error::DeliveryError::TabBusyRefused {
         tab: "53854ac8".into(),
