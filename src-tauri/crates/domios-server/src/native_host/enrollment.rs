@@ -1,8 +1,13 @@
 use codeterm_types::{
     native_host::{
-        NativeHostChallenge, NativeHostEnrollment, NativeHostEnrollmentRequest,
-        NativeHostRejection,
+        NativeHostChallenge, NativeHostCompletion, NativeHostEnrollment,
+        NativeHostEnrollmentRequest, NativeHostOperation, NativeHostRejection,
+        NativeHostResult, NativeHostScope, NativeHostUncertainty,
         NATIVE_HOST_PROTOCOL,
+    },
+    native_update::{
+        NativeUpdateExecutor, NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult,
+        NativeUpdateResultFuture, NativeUpdateState, NativeUpdateUncertainty,
     },
     server_bootstrap::{
         ProcessProvenance, ServerComponentManifest, ServerReady, BOOTSTRAP_PROTOCOL, API_VERSION,
@@ -16,7 +21,308 @@ use std::{
     fs::File,
     io::{self, Read},
     path::Path,
+    sync::Arc,
 };
+use parking_lot::Mutex;
+use super::transport::{NativeHostEndpoint, Session};
+
+type UpdateCompletion = NativeHostCompletion<NativeHostResult<NativeUpdateResult>>;
+
+#[derive(Default)]
+struct NativeUpdateExecution {
+    request: Option<NativeUpdateRequest>,
+    last: Option<NativeUpdateResult>,
+}
+
+#[derive(Clone)]
+struct AttachedNativeUpdateExecutor {
+    endpoint: NativeHostEndpoint<NativeUpdateRequest, NativeUpdateResult>,
+    session: Arc<Session<NativeUpdateRequest, NativeUpdateResult>>,
+    connection: codeterm_types::native_host::NativeHostConnection,
+    client_process: ProcessProvenance,
+    ready: ServerReady,
+    manifest: ServerComponentManifest,
+    state: Arc<Mutex<NativeUpdateExecution>>,
+}
+
+pub(super) fn active_native_update_executor(
+    endpoint: &NativeHostEndpoint<NativeUpdateRequest, NativeUpdateResult>,
+) -> Result<Arc<dyn NativeUpdateExecutor>, NativeUpdateRefusal> {
+    let session = {
+        let active = endpoint.active.read();
+        Arc::clone(
+            active
+                .as_ref()
+                .filter(|session| {
+                    !session.retired.load(std::sync::atomic::Ordering::Acquire)
+                })
+                .ok_or(NativeUpdateRefusal::NativeHostUnavailable)?,
+        )
+    };
+    if !endpoint_owns_session(endpoint, &session) {
+        return Err(NativeUpdateRefusal::NativeHostUnavailable);
+    }
+    session
+        .process
+        .ensure_alive()
+        .map_err(|_| NativeUpdateRefusal::NativeHostUnavailable)?;
+    if !endpoint_owns_session(endpoint, &session) {
+        return Err(NativeUpdateRefusal::NativeHostUnavailable);
+    }
+    Ok(Arc::new(AttachedNativeUpdateExecutor {
+        endpoint: endpoint.clone(),
+        session: session.clone(),
+        connection: session.connection.clone(),
+        client_process: session.client_process.clone(),
+        ready: endpoint.ready.clone(),
+        manifest: endpoint.manifest.clone(),
+        state: Arc::new(Mutex::new(NativeUpdateExecution::default())),
+    }))
+}
+
+fn endpoint_owns_session(
+    endpoint: &NativeHostEndpoint<NativeUpdateRequest, NativeUpdateResult>,
+    session: &Arc<Session<NativeUpdateRequest, NativeUpdateResult>>,
+) -> bool {
+    !session.retired.load(std::sync::atomic::Ordering::Acquire)
+        && endpoint
+            .active_generation
+            .load(std::sync::atomic::Ordering::Acquire)
+            == session.connection.generation
+        && endpoint
+            .active
+            .read()
+            .as_ref()
+            .is_some_and(|active| Arc::ptr_eq(active, session))
+}
+
+impl NativeUpdateExecutor for AttachedNativeUpdateExecutor {
+    fn dispatch(&self, request: NativeUpdateRequest) -> NativeUpdateResultFuture {
+        let executor = self.clone();
+        Box::pin(async move { executor.dispatch_once(request).await })
+    }
+
+    fn observe(
+        &self,
+        operation_id: codeterm_types::native_update::NativeUpdateOperationId,
+        after_sequence: u64,
+    ) -> NativeUpdateResultFuture {
+        let executor = self.clone();
+        Box::pin(async move { executor.observe_only(operation_id, after_sequence).await })
+    }
+}
+
+impl AttachedNativeUpdateExecutor {
+    async fn dispatch_once(&self, request: NativeUpdateRequest) -> NativeUpdateResult {
+        if let Err(reason) = request.validate() {
+            return self.local_result(&request, NativeUpdateState::Rejected { reason });
+        }
+        if !request.matches_current_server(&self.ready, &self.manifest)
+            || self.connection != self.session.connection
+            || self.session.client_process != self.client_process
+        {
+            return self.local_result(
+                &request,
+                NativeUpdateState::Rejected {
+                    reason: NativeUpdateRefusal::ExpectedServerMismatch,
+                },
+            );
+        }
+        let already_started = {
+            let mut state = self.state.lock();
+            if state.request.is_some() {
+                true
+            } else {
+                state.request = Some(request.clone());
+                false
+            }
+        };
+        if already_started {
+            return self.local_result(
+                &request,
+                NativeUpdateState::Rejected {
+                    reason: NativeUpdateRefusal::AlreadyInFlight,
+                },
+            );
+        }
+        if !self.is_current() {
+            return self.local_result(
+                &request,
+                NativeUpdateState::Rejected {
+                    reason: NativeUpdateRefusal::NativeHostUnavailable,
+                },
+            );
+        }
+        let completion = self
+            .endpoint
+            .request_captured(
+                &self.session,
+                NativeHostScope::Client,
+                NativeHostOperation::NativeUpdate {
+                    request: request.clone(),
+                },
+            )
+            .await;
+        self.complete(request, completion, None, None, false)
+    }
+
+    async fn observe_only(
+        &self,
+        operation_id: codeterm_types::native_update::NativeUpdateOperationId,
+        after_sequence: u64,
+    ) -> NativeUpdateResult {
+        let (request, previous) = {
+            let state = self.state.lock();
+            (state.request.clone(), state.last.clone())
+        };
+        let Some(request) = request.filter(|request| request.operation_id == operation_id) else {
+            return self.local_result_for_id(
+                operation_id,
+                NativeUpdateState::Rejected {
+                    reason: NativeUpdateRefusal::WrongOperation,
+                },
+            );
+        };
+        if previous.is_none() {
+            return self.local_result(
+                &request,
+                NativeUpdateState::Rejected {
+                    reason: NativeUpdateRefusal::NativeHostUnavailable,
+                },
+            );
+        }
+        if !self.is_current() {
+            return self.local_result(
+                &request,
+                NativeUpdateState::Uncertain {
+                    reason: NativeUpdateUncertainty::DisconnectedAfterDispatch,
+                },
+            );
+        }
+        let completion = self
+            .endpoint
+            .request_captured(
+                &self.session,
+                NativeHostScope::Client,
+                NativeHostOperation::ObserveNativeUpdate {
+                    operation_id,
+                    after_sequence,
+                },
+            )
+            .await;
+        self.complete(
+            request,
+            completion,
+            previous.as_ref(),
+            Some(after_sequence),
+            true,
+        )
+    }
+
+    fn is_current(&self) -> bool {
+        !self.session.retired.load(std::sync::atomic::Ordering::Acquire)
+            && self
+                .endpoint
+                .active_generation
+                .load(std::sync::atomic::Ordering::Acquire)
+                == self.connection.generation
+            && self.session.process.ensure_alive().is_ok()
+            && self.session.client_process == self.client_process
+            && self.endpoint.active.read().as_ref().is_some_and(|active| {
+                Arc::ptr_eq(active, &self.session)
+                    && active.connection == self.connection
+                    && active.client_process == self.client_process
+            })
+    }
+
+    fn complete(
+        &self,
+        request: NativeUpdateRequest,
+        completion: UpdateCompletion,
+        previous: Option<&NativeUpdateResult>,
+        after_sequence: Option<u64>,
+        observing: bool,
+    ) -> NativeUpdateResult {
+        let state = match completion {
+            NativeHostCompletion::Completed(NativeHostResult::NativeUpdate(result)) => {
+                let validation = if result.connection != self.connection
+                    || after_sequence.is_some_and(|after| result.sequence <= after)
+                {
+                    Err(NativeUpdateRefusal::ExpectedServerMismatch)
+                } else {
+                    result.validate_after(&request, previous)
+                };
+                match validation {
+                    Ok(()) => return self.record(result),
+                    Err(_) => NativeUpdateState::InProgress {
+                        stage: codeterm_types::native_update::NativeUpdateStage::Applying,
+                    },
+                }
+            }
+            NativeHostCompletion::Completed(_) => NativeUpdateState::InProgress {
+                stage: codeterm_types::native_update::NativeUpdateStage::Applying,
+            },
+            NativeHostCompletion::Rejected(NativeHostRejection::NotAttached) if observing => {
+                NativeUpdateState::Uncertain {
+                    reason: NativeUpdateUncertainty::DisconnectedAfterDispatch,
+                }
+            }
+            NativeHostCompletion::Rejected(_) if observing => NativeUpdateState::InProgress {
+                stage: codeterm_types::native_update::NativeUpdateStage::Applying,
+            },
+            NativeHostCompletion::Rejected(_) => NativeUpdateState::Rejected {
+                reason: NativeUpdateRefusal::NativeHostUnavailable,
+            },
+            NativeHostCompletion::Uncertain(reason) => NativeUpdateState::Uncertain {
+                reason: match reason {
+                    NativeHostUncertainty::CancelledAfterDispatch => {
+                        NativeUpdateUncertainty::CancelledAfterDispatch
+                    }
+                    NativeHostUncertainty::DeadlineAfterDispatch => {
+                        NativeUpdateUncertainty::DeadlineAfterDispatch
+                    }
+                    NativeHostUncertainty::DisconnectedAfterDispatch => {
+                        NativeUpdateUncertainty::DisconnectedAfterDispatch
+                    }
+                },
+            },
+        };
+        self.local_result(&request, state)
+    }
+
+    fn record(&self, result: NativeUpdateResult) -> NativeUpdateResult {
+        self.state.lock().last = Some(result.clone());
+        result
+    }
+
+    fn local_result(
+        &self,
+        request: &NativeUpdateRequest,
+        state: NativeUpdateState,
+    ) -> NativeUpdateResult {
+        self.local_result_for_id(request.operation_id, state)
+    }
+
+    fn local_result_for_id(
+        &self,
+        operation_id: codeterm_types::native_update::NativeUpdateOperationId,
+        state: NativeUpdateState,
+    ) -> NativeUpdateResult {
+        let mut execution = self.state.lock();
+        let sequence = execution
+            .last
+            .as_ref()
+            .map_or(1, |last| last.sequence.saturating_add(1));
+        let result = NativeUpdateResult {
+            operation_id,
+            sequence,
+            connection: self.connection.clone(),
+            state,
+        };
+        execution.last = Some(result.clone());
+        result
+    }
+}
 
 pub(crate) struct EnrollmentPolicy {
     pub challenge: NativeHostChallenge,
