@@ -189,7 +189,10 @@ impl LaunchInputDiagnostic {
     ) {
         self.session_bound = GateFact::Observed(observation.session_bound);
         self.pending_prompt = GateFact::Observed(observation.pending_prompt);
-        self.process_gate_allows = GateFact::Observed(observation.provider_process_alive);
+        self.process_gate_allows = GateFact::Observed(
+            observation.provider_process_alive
+                || (self.mode == LaunchInputMode::LazySessionStart && observation.composer_ready),
+        );
         let classification = observation
             .classification
             .as_ref()
@@ -276,7 +279,8 @@ fn decide_launch_input(
             LaunchInputMode::LazySessionStart => Ok(None),
         };
     }
-    if mode == LaunchInputMode::LazySessionStart && !observation.provider_process_alive {
+    let lazy_tui_live = observation.provider_process_alive || observation.composer_ready;
+    if mode == LaunchInputMode::LazySessionStart && !lazy_tui_live {
         return Ok(None);
     }
     if mode == LaunchInputMode::LazySessionStart {
