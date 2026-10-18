@@ -352,9 +352,8 @@ mod tests {
             http::{Method, Request},
             Router,
         };
-        use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
+        use codeterm_service_core::service::test_fixture::ServiceFixture;
         use std::sync::Arc;
-        use tauri::Manager;
         use tower::ServiceExt;
 
         struct Fixture {
@@ -416,7 +415,7 @@ mod tests {
                     codeterm_service_core::mesh::MeshManager::new("fixture-instance".into(), 0);
                 mesh.disk_persist = false;
                 let state = AppState {
-                    app: runtime.app.handle().clone(),
+                    frontend_dev_url: None,
                     svc: Arc::new(runtime.service.clone()),
                     cron: Arc::new(parking_lot::Mutex::new(
                         codeterm_service_core::cron::store::CronStore::new_with_path(
@@ -448,10 +447,8 @@ mod tests {
                     web_dist: None,
                 };
                 let managed_config = runtime
-                    .app
-                    .handle()
-                    .state::<codeterm_service_core::config::ConfigState>()
-                    .inner()
+                    .service
+                    .ext::<codeterm_service_core::config::ConfigState>()
                     .clone();
                 let config_snapshot = state.config.lock().clone();
                 *managed_config.lock() = config_snapshot;

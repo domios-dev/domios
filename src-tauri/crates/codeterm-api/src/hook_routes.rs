@@ -659,7 +659,7 @@ pub(crate) fn defer_session_binding(
         let report_nonce = callback_nonce.clone();
         let source = callback_source.clone();
         let body = callback_body.clone();
-        tauri::async_runtime::spawn(async move {
+        codeterm_service_core::async_runtime::spawn(async move {
             complete_deferred_session_binding(
                 state,
                 tab_id,

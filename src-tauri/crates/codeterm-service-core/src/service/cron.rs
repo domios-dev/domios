@@ -17,13 +17,12 @@ pub(crate) fn cron_fired_payload(cron_id: &str, run_id: &str, tab_id: &str) -> s
     serde_json::json!({"cron_id": cron_id, "run_id": run_id, "tab_id": tab_id})
 }
 
-pub(crate) fn emit_cron_fired(
-    ui: &dyn crate::ports::host::UiEvents,
-    cron_id: &str,
-    run_id: &str,
-    tab_id: &str,
-) {
-    ui.emit_native("cron-fired", cron_fired_payload(cron_id, run_id, tab_id));
+pub fn emit_cron_fired(service: &ServiceContext, cron_id: &str, run_id: &str, tab_id: &str) {
+    let payload = cron_fired_payload(cron_id, run_id, tab_id);
+    service
+        .events
+        .publish_internal("cron-fired", payload.clone());
+    service.ui.emit_native("cron-fired", payload);
 }
 
 fn cron_report_delivery_label(result: Result<(), String>) -> String {
@@ -634,6 +633,17 @@ impl ServiceContext {
     }
 
     pub fn cron_trigger(&self, cron: &CronState, id: &str) -> Result<CronRunInfo, String> {
+        self.cron_trigger_with_spawn(cron, id, |spec| self.spawn_tab(spec))
+    }
+
+    pub(crate) fn cron_trigger_with_spawn(
+        &self,
+        cron: &CronState,
+        id: &str,
+        spawn: impl FnOnce(
+            crate::service::spawn::SpawnTabSpec,
+        ) -> Result<crate::service::spawn::TabHandle, String>,
+    ) -> Result<CronRunInfo, String> {
         let (
             agent,
             model,
@@ -744,7 +754,7 @@ impl ServiceContext {
             },
         );
 
-        let spawn = dispatch_after_trigger_record(cron, id, &run_info, || self.spawn_tab(spec))?;
+        let spawn = dispatch_after_trigger_record(cron, id, &run_info, || spawn(spec))?;
         match spawn {
             Ok(handle) => {
                 run_info.tab_id = Some(handle.tab_id.clone());
@@ -791,7 +801,7 @@ impl ServiceContext {
 
         if let Some(tab_id) = run_info.tab_id.as_deref() {
             self.sync_cron_owner_prompt_state(tab_id);
-            emit_cron_fired(self.ui.as_ref(), id, &run_id, tab_id);
+            emit_cron_fired(self, id, &run_id, tab_id);
         }
         self.emit_cron_changed();
         Ok(run_info)
