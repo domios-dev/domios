@@ -2,13 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseProviderIcons, shouldRefetch } from "./providerCatalogueModel";
 
-test("catalogue decisions cover attachment, unchanged versions, reconnects and failed fetches", () => {
-  assert.equal(shouldRefetch(undefined, 0, false, null), true);
-  assert.equal(shouldRefetch(1, 2, false, null), true);
-  assert.equal(shouldRefetch(2, 2, false, null), false);
-  assert.equal(shouldRefetch(2, 2, true, null), true);
-  assert.equal(shouldRefetch(2, 2, true, "offline"), true);
-  assert.equal(shouldRefetch(2, 2, false, "offline"), false);
+test("catalogue refresh follows server revision or build changes, not stream readiness", () => {
+  assert.equal(shouldRefetch(undefined, { build: "a", revision: 1 }), true);
+  assert.equal(shouldRefetch({ build: "a", revision: 1 }, { build: "a", revision: 1 }), false);
+  assert.equal(shouldRefetch({ build: "a", revision: 1 }, { build: "a", revision: 2 }), true);
+  assert.equal(shouldRefetch({ build: "a", revision: 2 }, { build: "b", revision: 1 }), true);
+  assert.equal(shouldRefetch({ boot: "old", build: "b" }, { boot: "new", build: "b" }), true);
 });
 
 test("persisted presentation metadata rejects malformed entries", () => {
