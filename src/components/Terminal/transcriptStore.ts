@@ -138,7 +138,7 @@ export function reconcileTranscriptWindow(
   batch: TranscriptBatch,
 ): TranscriptOutcome {
   const current = readTranscriptWindow(key);
-  if (batch.kind === "snapshot") knownWindows.delete(key);
+  if (batch.kind === "snapshot" && batch.placement !== "oldest") knownWindows.delete(key);
   const { state, outcome } = reduceTranscript(current.transcript, batch);
   publish(key, {
     ...current,
