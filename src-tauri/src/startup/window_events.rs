@@ -1,4 +1,4 @@
-use codeterm_service_core::multiplexer::commands::MuxState;
+use crate::host_ports::ServerApiAttachmentSlot;
 use tauri::Manager;
 
 pub(crate) fn handle_window_event(
@@ -6,15 +6,15 @@ pub(crate) fn handle_window_event(
     event: &tauri::WindowEvent,
 ) {
     if matches!(event, tauri::WindowEvent::Focused(true)) && window.label() == "main" {
-        if let Some(service) = window
+        if let Some(attachment) = window
             .app_handle()
-            .try_state::<codeterm_service_core::service::ServiceState>()
+            .try_state::<ServerApiAttachmentSlot>()
+            .and_then(|slot| slot.current())
         {
-            let service = service.inner().clone();
             tauri::async_runtime::spawn(async move {
-                let _ = service
-                    .refresh_billing(codeterm_billing::RefreshEvent::Focus)
-                    .await;
+                if let Err(error) = attachment.refresh_plan().await {
+                    log::debug!("[desktop] server focus refresh failed: {error}");
+                }
             });
         }
     }
@@ -27,21 +27,15 @@ pub(crate) fn handle_window_event(
         }
 
         let app = window.app_handle();
-        if let (Some(mux), Some(service)) = (
-            app.try_state::<MuxState>(),
-            app.try_state::<codeterm_service_core::service::ServiceState>(),
-        ) {
-            if let Err(error) =
-                codeterm_service_core::service::session_persist::submit_session_snapshot_with_intent(
-                    service.inner(),
-                    mux.inner(),
-                    codeterm_service_core::session::store::SaveIntent::PreserveDesk,
-                )
-            {
-                log::error!("Failed to submit close-to-tray session snapshot: {error}");
-            } else {
-                log::info!("Session snapshot submitted (close-to-tray)");
-            }
+        if let Some(attachment) = app
+            .try_state::<ServerApiAttachmentSlot>()
+            .and_then(|slot| slot.current())
+        {
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = attachment.save_session().await {
+                    log::debug!("[desktop] server close snapshot request failed: {error}");
+                }
+            });
         }
     }
 }

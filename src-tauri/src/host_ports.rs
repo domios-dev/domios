@@ -1,14 +1,26 @@
 #[cfg(test)]
 use std::time::Instant;
 use std::{
+    collections::HashSet,
     path::PathBuf,
-    sync::atomic::{AtomicU8, AtomicUsize, Ordering},
+    sync::{
+        atomic::{AtomicU8, AtomicUsize, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
 use codeterm_service_core::ports::host::{Shell, ShellError, UiEvents, WebviewRequest};
-use serde_json::Value;
+use codeterm_types::{
+    native_host::{NativeHostRejection, NativeHostUncertainty},
+    server_bootstrap::{ServerIdentity, ServerReady},
+};
+use reqwest::redirect::Policy;
 use tauri::{Emitter, Manager};
+
+pub(crate) mod native_client;
+pub(crate) mod webview_diagnostics;
+pub(crate) use webview_diagnostics::{ClientViewGeneration, CLIENT_VIEW_QUERY};
 
 #[cfg(test)]
 const MAX_PENDING_NATIVE_CALLS: usize = 64;
@@ -20,6 +32,218 @@ const MAIN_THREAD_RUNNING: u8 = 1;
 const MAIN_THREAD_CANCELLED: u8 = 2;
 const MAIN_THREAD_COMPLETED: u8 = 3;
 static QUEUED_MAIN_THREAD_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+const SERVER_API_REQUEST_DEADLINE: Duration = Duration::from_secs(10);
+const REQUEST_REPLAY_WINDOW: u64 = 256;
+
+#[derive(Default)]
+pub(crate) struct RequestReplayWindow {
+    highest: u64,
+    seen: HashSet<u64>,
+}
+
+impl RequestReplayWindow {
+    pub(crate) fn accept(&mut self, request_id: u64) -> bool {
+        let floor = self.highest.saturating_sub(REQUEST_REPLAY_WINDOW);
+        if request_id == 0 || request_id <= floor || self.seen.contains(&request_id) {
+            return false;
+        }
+        self.highest = self.highest.max(request_id);
+        let floor = self.highest.saturating_sub(REQUEST_REPLAY_WINDOW);
+        self.seen.retain(|seen| *seen > floor);
+        self.seen.insert(request_id)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ClientRootRenderState {
+    generation: Option<ClientViewGeneration>,
+    origin: Option<String>,
+    acknowledged: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClientRootRenderWait {
+    Ready,
+    Replaced,
+    Deadline,
+}
+
+#[derive(Clone)]
+pub(crate) struct ClientRootRenderLatch(tokio::sync::watch::Sender<ClientRootRenderState>);
+
+impl Default for ClientRootRenderLatch {
+    fn default() -> Self {
+        let (sender, _) = tokio::sync::watch::channel(ClientRootRenderState::default());
+        Self(sender)
+    }
+}
+
+impl ClientRootRenderLatch {
+    pub(crate) fn arm(&self, generation: ClientViewGeneration, origin: String) {
+        self.0.send_replace(ClientRootRenderState {
+            generation: Some(generation),
+            origin: Some(origin),
+            acknowledged: false,
+        });
+    }
+
+    pub(crate) fn acknowledge(&self, generation: ClientViewGeneration, origin: &str) -> bool {
+        let mut accepted = false;
+        self.0.send_if_modified(|state| {
+            if state.generation != Some(generation) || state.origin.as_deref() != Some(origin) {
+                return false;
+            }
+            accepted = true;
+            if state.acknowledged {
+                return false;
+            }
+            state.acknowledged = true;
+            true
+        });
+        accepted
+    }
+
+    pub(crate) fn is_armed(&self, generation: ClientViewGeneration, origin: &str) -> bool {
+        let state = self.0.borrow();
+        state.generation == Some(generation) && state.origin.as_deref() == Some(origin)
+    }
+
+    pub(crate) fn retire(&self) {
+        self.0.send_replace(ClientRootRenderState::default());
+    }
+
+    pub(crate) async fn wait_until(
+        &self,
+        generation: ClientViewGeneration,
+        deadline: std::time::Instant,
+    ) -> ClientRootRenderWait {
+        let mut state = self.0.subscribe();
+        let deadline = tokio::time::Instant::from_std(deadline);
+        loop {
+            let current = state.borrow_and_update().clone();
+            if current.generation != Some(generation) {
+                return ClientRootRenderWait::Replaced;
+            }
+            if current.acknowledged {
+                return ClientRootRenderWait::Ready;
+            }
+            match tokio::time::timeout_at(deadline, state.changed()).await {
+                Err(_) => return ClientRootRenderWait::Deadline,
+                Ok(Err(_)) => return ClientRootRenderWait::Replaced,
+                Ok(Ok(())) => {}
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn frontend_view_root_ready(
+    window: codeterm_host_runtime::app_runtime::WebviewWindow,
+    view_generation: u64,
+    navigation_generation: u64,
+) -> Result<bool, String> {
+    if window.label() != "main" || view_generation == 0 || navigation_generation == 0 {
+        return Ok(false);
+    }
+    let generation = ClientViewGeneration {
+        view: view_generation,
+        navigation: navigation_generation,
+    };
+    let url = window.url().map_err(|error| error.to_string())?;
+    if !crate::startup::frontend_shell::active_view_matches(&window.app_handle(), generation.view)
+        || webview_diagnostics::root_generation_from_url(&url) != Some(generation)
+    {
+        return Ok(false);
+    }
+    let app = window.app_handle();
+    let latch = app
+        .try_state::<ClientRootRenderLatch>()
+        .ok_or_else(|| "Native root-render observer is unavailable".to_string())?;
+    let accepted = latch.acknowledge(generation, &url.origin().ascii_serialization());
+    if accepted {
+        if let Some(slot) = app.try_state::<native_client::NativeHostClientSlot>() {
+            slot.report_root_rendered(generation, url).await;
+        }
+    }
+    Ok(accepted)
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct ServerApiAttachmentSlot(Arc<parking_lot::RwLock<Option<ServerApiAttachment>>>);
+
+#[derive(Clone)]
+pub(crate) struct ServerApiAttachment {
+    ready: ServerReady,
+    token: String,
+    client: reqwest::Client,
+}
+
+impl ServerApiAttachmentSlot {
+    pub(crate) fn install(&self, ready: ServerReady, token: String) -> Result<(), String> {
+        if !ready.api_address.ip().is_loopback() || token.trim().is_empty() {
+            return Err("Authenticated server attachment is invalid".into());
+        }
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(Policy::none())
+            .timeout(SERVER_API_REQUEST_DEADLINE)
+            .build()
+            .map_err(|error| error.to_string())?;
+        *self.0.write() = Some(ServerApiAttachment {
+            ready,
+            token,
+            client,
+        });
+        Ok(())
+    }
+
+    pub(crate) fn current(&self) -> Option<ServerApiAttachment> {
+        self.0.read().clone()
+    }
+}
+
+impl ServerApiAttachment {
+    pub(crate) fn ready(&self) -> &ServerReady {
+        &self.ready
+    }
+
+    pub(crate) fn token(&self) -> &str {
+        &self.token
+    }
+
+    pub(crate) fn identity(&self) -> &ServerIdentity {
+        &self.ready.identity
+    }
+
+    pub(crate) fn epoch(&self) -> &str {
+        &self.ready.epoch
+    }
+
+    pub(crate) fn api_origin(&self) -> String {
+        format!("http://{}", self.ready.api_address)
+    }
+
+    pub(crate) async fn refresh_plan(&self) -> Result<(), String> {
+        self.post("/api/account/plan/refresh").await
+    }
+
+    pub(crate) async fn save_session(&self) -> Result<(), String> {
+        self.post("/api/session/save").await
+    }
+
+    async fn post(&self, route: &str) -> Result<(), String> {
+        self.client
+            .post(format!("{}{}", self.api_origin(), route))
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({}))
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+}
 
 struct MainThreadQueuePermit;
 
@@ -322,6 +546,52 @@ mod tests {
     use super::*;
     use tauri::Listener;
 
+    #[tokio::test]
+    async fn process_split_contract_root_render_ack_is_origin_and_generation_bound() {
+        let latch = ClientRootRenderLatch::default();
+        let first = ClientViewGeneration {
+            view: 4,
+            navigation: 9,
+        };
+        latch.arm(first, "http://127.0.0.1:7686".into());
+
+        assert!(!latch.acknowledge(first, "http://127.0.0.1:7685"));
+        assert!(!latch.acknowledge(
+            ClientViewGeneration {
+                navigation: 8,
+                ..first
+            },
+            "http://127.0.0.1:7686"
+        ));
+        assert!(latch.acknowledge(first, "http://127.0.0.1:7686"));
+        assert!(latch.acknowledge(first, "http://127.0.0.1:7686"));
+        assert!(latch.is_armed(first, "http://127.0.0.1:7686"));
+        assert_eq!(
+            latch
+                .wait_until(first, std::time::Instant::now() + Duration::from_secs(1))
+                .await,
+            ClientRootRenderWait::Ready
+        );
+
+        let replacement = ClientViewGeneration {
+            navigation: 10,
+            ..first
+        };
+        latch.arm(replacement, "http://127.0.0.1:7686".into());
+        assert!(!latch.acknowledge(first, "http://127.0.0.1:7686"));
+        latch.retire();
+        assert!(!latch.acknowledge(replacement, "http://127.0.0.1:7686"));
+        assert_eq!(
+            latch
+                .wait_until(
+                    replacement,
+                    std::time::Instant::now() + Duration::from_secs(1)
+                )
+                .await,
+            ClientRootRenderWait::Replaced
+        );
+    }
+
     fn connection(server_epoch: &str, generation: u64) -> NativeConnection {
         NativeConnection {
             server_epoch: server_epoch.to_owned(),
@@ -330,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn native_calls_are_unique_and_pending_work_is_bounded() {
+    fn process_split_contract_native_calls_are_unique_and_pending_work_is_bounded() {
         let now = Instant::now();
         let connection = connection("epoch-a", 1);
         let mut calls = NativeCallRegistry::default();
@@ -361,7 +631,20 @@ mod tests {
     }
 
     #[test]
-    fn reconnect_retires_old_generation_and_discards_late_replies() {
+    fn process_split_contract_native_request_ids_reject_replay_and_allow_bounded_reordering() {
+        let mut ids = RequestReplayWindow::default();
+        assert!(ids.accept(1));
+        assert!(ids.accept(3));
+        assert!(ids.accept(2));
+        assert!(!ids.accept(2));
+        for request_id in 4..=260 {
+            assert!(ids.accept(request_id));
+        }
+        assert!(!ids.accept(3));
+    }
+
+    #[test]
+    fn process_split_contract_reconnect_retires_old_generation_and_discards_late_replies() {
         let now = Instant::now();
         let old = connection("epoch-a", 4);
         let current = connection("epoch-a", 5);
@@ -386,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    fn disconnect_retires_pending_calls_without_replay() {
+    fn process_split_contract_disconnect_retires_pending_calls_without_replay() {
         let now = Instant::now();
         let connection = connection("epoch-a", 2);
         let mut calls = NativeCallRegistry::default();
@@ -419,7 +702,7 @@ mod tests {
     }
 
     #[test]
-    fn server_epoch_fences_replies_even_when_generation_matches() {
+    fn process_split_contract_server_epoch_fences_replies_even_when_generation_matches() {
         let now = Instant::now();
         let old = connection("epoch-a", 1);
         let current = connection("epoch-b", 1);
@@ -440,7 +723,7 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_and_deadline_keep_execution_uncertainty() {
+    fn process_split_contract_cancellation_and_deadline_keep_execution_uncertainty() {
         let now = Instant::now();
         let connection = connection("epoch-a", 1);
         let mut calls = NativeCallRegistry::default();
@@ -485,7 +768,7 @@ mod tests {
     }
 
     #[test]
-    fn late_dispatched_reply_is_expired_as_uncertain() {
+    fn process_split_contract_late_dispatched_reply_is_expired_as_uncertain() {
         let now = Instant::now();
         let connection = connection("epoch-a", 1);
         let mut calls = NativeCallRegistry::default();
@@ -503,7 +786,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_disconnect_cannot_retire_the_current_connection() {
+    fn process_split_contract_stale_disconnect_cannot_retire_the_current_connection() {
         let now = Instant::now();
         let old = connection("epoch-a", 1);
         let current = connection("epoch-b", 1);
@@ -586,20 +869,35 @@ mod tests {
 
 pub struct TauriShell(pub AppHandle);
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum NativeShellFailure {
+    Refused(NativeHostRejection),
+    Uncertain(NativeHostUncertainty),
+}
+
+enum MainThreadCallError {
+    QueueFull,
+    Scheduling(ShellError),
+    Action(ShellError),
+    DeadlineBeforeDispatch,
+    UncertainAfterDispatch,
+}
+
 fn failed(error: impl std::fmt::Display) -> ShellError {
     ShellError::Failed(error.to_string())
 }
 
 impl TauriShell {
-    fn on_main<T: Send + 'static>(
+    fn on_main_call<T: Send + 'static>(
         &self,
         action: impl FnOnce(AppHandle) -> Result<T, ShellError> + Send + 'static,
-    ) -> Result<T, ShellError> {
+    ) -> Result<T, MainThreadCallError> {
         let app = self.0.clone();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let phase = std::sync::Arc::new(AtomicU8::new(MAIN_THREAD_QUEUED));
         let scheduled_phase = phase.clone();
-        let permit = MainThreadQueuePermit::acquire()?;
+        let permit =
+            MainThreadQueuePermit::acquire().map_err(|_| MainThreadCallError::QueueFull)?;
         self.0
             .run_on_main_thread(move || {
                 let _permit = permit;
@@ -617,9 +915,10 @@ impl TauriShell {
                 let _ = sender.send(action(app));
                 scheduled_phase.store(MAIN_THREAD_COMPLETED, Ordering::Release);
             })
-            .map_err(failed)?;
+            .map_err(|error| MainThreadCallError::Scheduling(failed(error)))?;
         match receiver.recv_timeout(MAIN_THREAD_ACK_DEADLINE) {
-            Ok(result) => result,
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(error)) => Err(MainThreadCallError::Action(error)),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 if phase
                     .compare_exchange(
@@ -630,15 +929,12 @@ impl TauriShell {
                     )
                     .is_ok()
                 {
-                    Err(ShellError::Failed(
-                        "Main-thread action cancelled before execution at its acknowledgement deadline".into(),
-                    ))
+                    Err(MainThreadCallError::DeadlineBeforeDispatch)
                 } else {
                     match receiver.try_recv() {
-                        Ok(result) => result,
-                        Err(_) => Err(ShellError::Failed(
-                            "Main-thread action acknowledgement deadline elapsed after execution began; outcome is uncertain".into(),
-                        )),
+                        Ok(Ok(result)) => Ok(result),
+                        Ok(Err(error)) => Err(MainThreadCallError::Action(error)),
+                        Err(_) => Err(MainThreadCallError::UncertainAfterDispatch),
                     }
                 }
             }
@@ -652,16 +948,86 @@ impl TauriShell {
                     )
                     .is_ok()
                 {
-                    Err(ShellError::Failed(
-                        "Main-thread action cancelled before execution because its acknowledgement channel closed".into(),
-                    ))
+                    Err(MainThreadCallError::DeadlineBeforeDispatch)
                 } else {
-                    Err(ShellError::Failed(
-                        "Main-thread action acknowledgement channel closed after execution began; outcome is uncertain".into(),
-                    ))
+                    Err(MainThreadCallError::UncertainAfterDispatch)
                 }
             }
         }
+    }
+
+    fn on_main<T: Send + 'static>(
+        &self,
+        action: impl FnOnce(AppHandle) -> Result<T, ShellError> + Send + 'static,
+    ) -> Result<T, ShellError> {
+        self.on_main_call(action).map_err(|error| match error {
+            MainThreadCallError::Scheduling(error) | MainThreadCallError::Action(error) => error,
+            MainThreadCallError::QueueFull => {
+                ShellError::Failed("Native main-thread queue is full".into())
+            }
+            MainThreadCallError::DeadlineBeforeDispatch => ShellError::Failed(
+                "Main-thread action was cancelled before execution at its deadline".into(),
+            ),
+            MainThreadCallError::UncertainAfterDispatch => ShellError::Failed(
+                "Main-thread action acknowledgement elapsed after execution began".into(),
+            ),
+        })
+    }
+
+    fn on_main_native<T: Send + 'static>(
+        &self,
+        action: impl FnOnce(AppHandle) -> Result<T, ShellError> + Send + 'static,
+    ) -> Result<T, NativeShellFailure> {
+        self.on_main_call(action).map_err(|error| match error {
+            MainThreadCallError::QueueFull => {
+                NativeShellFailure::Refused(NativeHostRejection::QueueFull)
+            }
+            MainThreadCallError::Scheduling(_) => {
+                NativeShellFailure::Refused(NativeHostRejection::HostRejected)
+            }
+            MainThreadCallError::DeadlineBeforeDispatch => {
+                NativeShellFailure::Refused(NativeHostRejection::DeadlineBeforeDispatch)
+            }
+            MainThreadCallError::Action(_) | MainThreadCallError::UncertainAfterDispatch => {
+                NativeShellFailure::Uncertain(NativeHostUncertainty::DisconnectedAfterDispatch)
+            }
+        })
+    }
+
+    pub(crate) fn focus_window_native(&self, label: String) -> Result<(), NativeShellFailure> {
+        self.on_main_native(move |app| {
+            if label == "main" {
+                return crate::startup::desktop_lifecycle::show_or_create(&app).map_err(failed);
+            }
+            if let Some(window) = app.get_webview_window(&label) {
+                window.show().map_err(failed)?;
+                window.unminimize().map_err(failed)?;
+                window.set_focus().map_err(failed)?;
+            }
+            Ok(())
+        })
+    }
+
+    pub(crate) fn window_exists_native(&self, label: String) -> Result<bool, NativeShellFailure> {
+        self.on_main_native(move |app| Ok(app.get_webview_window(&label).is_some()))
+    }
+
+    pub(crate) fn open_webview_native(
+        &self,
+        label: String,
+        url: url::Url,
+        title: String,
+        width: f64,
+        height: f64,
+    ) -> Result<(), NativeShellFailure> {
+        self.on_main_native(move |app| {
+            tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::External(url))
+                .title(title)
+                .inner_size(width, height)
+                .build()
+                .map_err(failed)?;
+            Ok(())
+        })
     }
 }
 
