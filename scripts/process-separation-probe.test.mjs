@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync, realpathSync, mkdirSync, readFileSy
 import os from 'node:os';
 import path from 'node:path';
 import { parseProbeArgs, cleanEnvironment, attachRequest } from './process-separation-probe.mjs';
-import { assertServerClosure, serverArtifact, workerArtifact, stageDevResources } from './server-artifact.mjs';
+import { assertServerClosure, serverArtifact, workerArtifact, stageDevResources, resolveDevResourceRoot } from './server-artifact.mjs';
 
 test('only explicit disposable process cases are admitted', () => {
   assert.deepEqual(parseProbeArgs(['--case', 'server-only', '--instance', 'split-oracle', '--artifact-receipt', '/receipt']), { case: 'server-only', receipt: '/receipt' });
@@ -104,4 +104,31 @@ for (const target of ['', 'opaque-target']) test(`DEV stages exact paired artifa
     writeFileSync(treeLog, 'domios-server v0.0.0\ntauri v2.0\n');
     await assert.rejects(stageDevResources(input), /forbidden/);
   } finally { rmSync(root, { recursive: true }); }
+});
+
+
+test('DEV root confinement accepts resolved SUBST spelling, not junctions or foreign roots', () => {
+  const paths = path.win32;
+  const expected = 'C:/physical/target/debug';
+  const physical = paths.resolve(expected);
+  const prepared = [];
+  let junction = false;
+  const boundary = {
+    paths,
+    stat: file => {
+      if (file.endsWith('missing')) throw Object.assign(new Error('absent'), { code: 'ENOENT' });
+      return { isDirectory: () => true, isSymbolicLink: () => junction && file === paths.resolve('X:/debug') };
+    },
+    canonical: file => file.startsWith('X:') ? paths.resolve('C:/physical/target', paths.relative('X:/', file)) : file,
+    prepare: file => prepared.push(file),
+  };
+  assert.equal(resolveDevResourceRoot('X:/debug', physical, boundary), physical);
+  assert.deepEqual(prepared, [physical]);
+  assert.throws(() => resolveDevResourceRoot('X:/foreign', physical, boundary), /resource root/);
+  junction = true;
+  assert.throws(() => resolveDevResourceRoot('X:/debug', physical, boundary), /symlink or junction/);
+  junction = false;
+  const derived = paths.join(physical, 'missing');
+  assert.equal(resolveDevResourceRoot('X:/debug/missing', derived, boundary), derived);
+  assert.deepEqual(prepared, [physical, derived]);
 });
