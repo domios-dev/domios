@@ -232,6 +232,25 @@ impl ServerApiAttachment {
         self.post("/api/session/save").await
     }
 
+    pub(crate) async fn post_account_callback(&self, url: &str) -> Result<(), String> {
+        if url.len() > 4 * 1024 {
+            return Err("Account callback exceeds the client request limit".into());
+        }
+        let response = self
+            .client
+            .post(format!("{}/api/account/callback", self.api_origin()))
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({ "url": url }))
+            .send()
+            .await
+            .map_err(|_| "Account callback delivery outcome is uncertain".to_string())?;
+        if response.status() == reqwest::StatusCode::NO_CONTENT {
+            Ok(())
+        } else {
+            Err("Server did not accept the account callback".into())
+        }
+    }
+
     async fn post(&self, route: &str) -> Result<(), String> {
         self.client
             .post(format!("{}{}", self.api_origin(), route))
