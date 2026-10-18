@@ -84,12 +84,13 @@ for (const base of ["src-tauri/crates", "crates"]) {
       const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
       lines.forEach((raw, index) => {
         const line = raw.replace(isManifest ? /#.*$/ : /\/\/.*$/, "");
+        const tokens = isManifest ? line.replace(/\bpath\s*=\s*(?:"(?:\\.|[^"\\])*"|'[^']*')/g, 'path = ""') : line;
         const core = isManifest ? /\bcodeterm[-_]service[-_]core\b/ : /\bcodeterm_service_core\b/;
         const tauri = isManifest ? /\btauri(?:[-_]\w+)?\b/ : /\btauri(?:_\w+)?\s*::|\b(?:use|extern\s+crate)\s+tauri\b/;
         const location = `${path.relative(root, file).replaceAll("\\", "/")}:${index + 1}`;
         if (!isManifest && /\bServiceContext\b/.test(line)) violations.push(`${location}: leaf crate names ServiceContext`);
-        if (core.test(line)) violations.push(`${location}: leaf crate names codeterm-service-core`);
-        if (tauri.test(line)) {
+        if (core.test(tokens)) violations.push(`${location}: leaf crate names codeterm-service-core`);
+        if (tauri.test(tokens)) {
           seenTauri.add(entry.name);
           if (!knownTauriViolations.has(entry.name)) violations.push(`${location}: leaf crate names tauri`);
         }

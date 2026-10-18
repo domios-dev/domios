@@ -61,7 +61,7 @@ rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load
 regex = "1"
 ulid = "1"
 async-trait = "0.1"
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 codeterm-plugins = { path = "../codeterm-plugins" }
 
 [dev-dependencies]

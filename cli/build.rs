@@ -6,7 +6,7 @@ mod plugin_bundles;
 use std::process::Command;
 
 fn main() {
-    plugin_bundles::generate_system_plugin_hashes();
+    plugin_bundles::generate_system_plugin_hashes(std::path::Path::new(env!("CARGO_MANIFEST_DIR")));
     for path in ["HEAD", "packed-refs"] {
         if let Some(path) = git_output(&["rev-parse", "--git-path", path]) {
             if !std::path::Path::new(&path).exists() {

@@ -1701,8 +1701,8 @@ jobs:
           account_identity="$(id -un 2>/dev/null)"
           kernel_identity="$(uname -srm 2>/dev/null)"
           # Reviewed foundation: facade, both owning test files, the Storage crate and its
-          # path-confinement dependency (codeterm-storage/Cargo.toml path = "../../../crates/codeterm-paths").
-          storage_paths=('src-tauri/src/storage.rs' 'src-tauri/src/storage' 'src-tauri/crates/codeterm-storage' 'crates/codeterm-paths')
+          # path-confinement dependency (codeterm-storage/Cargo.toml path = "../codeterm-paths").
+          storage_paths=('src-tauri/src/storage.rs' 'src-tauri/src/storage' 'src-tauri/crates/codeterm-storage' 'src-tauri/crates/codeterm-paths')
           storage_ancestor=false
           storage_inventory_equal=false
           if git cat-file -e "${REVIEWED_STORAGE_SHA}^{commit}" 2>/dev/null; then
@@ -1735,7 +1735,7 @@ jobs:
             'src-tauri/src/storage/tests.rs'
             'src-tauri/src/storage/tests/assets.rs'
           )
-          crate_listing="$(git ls-files -- src-tauri/crates/codeterm-storage crates/codeterm-paths 2>/dev/null)"
+          crate_listing="$(git ls-files -- src-tauri/crates/codeterm-storage src-tauri/crates/codeterm-paths 2>/dev/null)"
           crate_listing_status=$?
           if (( crate_listing_status != 0 )) || [[ -z "$crate_listing" ]]; then
             refuse_preflight storage_crate_listing_failed
@@ -1881,7 +1881,7 @@ jobs:
           ];
           const storageFacadePaths = ['src-tauri/src/storage.rs', 'src-tauri/src/storage/tests.rs', 'src-tauri/src/storage/tests/assets.rs'];
           const storageCratePrefix = 'src-tauri/crates/codeterm-storage/';
-          const pathsCratePrefix = 'crates/codeterm-paths/';
+          const pathsCratePrefix = 'src-tauri/crates/codeterm-paths/';
           const dir = process.env.STORAGE_RECEIPT_DIR;
           const logName = 'storage-contract.log';
           const receiptLimit = 65536;
@@ -2247,7 +2247,7 @@ jobs:
             refuse_preflight utc_clock_unavailable
           fi
           domain_roots=(
-            src-tauri/crates/codeterm-storage crates/codeterm-paths
+            src-tauri/crates/codeterm-storage src-tauri/crates/codeterm-paths
             src-tauri/src/storage.rs src-tauri/src/storage
             src-tauri/src/cron/clock.rs src-tauri/src/cron/mod.rs src-tauri/src/cron/scheduler.rs src-tauri/src/cron/store
             src-tauri/src/sentinel/command.rs src-tauri/src/sentinel/graph.rs src-tauri/src/sentinel/handlers.rs
@@ -2301,7 +2301,7 @@ jobs:
               refuse_preflight unexpected_domain_delta_since_3972
             fi
             foundation_roots=(
-              src-tauri/src/storage.rs src-tauri/src/storage crates/codeterm-paths
+              src-tauri/src/storage.rs src-tauri/src/storage src-tauri/crates/codeterm-paths
               src-tauri/crates/codeterm-storage/Cargo.toml
               src-tauri/crates/codeterm-storage/src/backup.rs src-tauri/crates/codeterm-storage/src/error.rs
               src-tauri/crates/codeterm-storage/src/owner.rs src-tauri/crates/codeterm-storage/src/owner

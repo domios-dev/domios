@@ -8,7 +8,7 @@ use crate::{
 use codeterm_service_core::{
     ports::host::{NoShell, ProcessPaths, ProcessShell, UiEvents},
     startup::RestApiPhase,
-    ResolvedInstancePaths,
+    PathOwnership, ResolvedInstancePaths,
 };
 use std::{io, sync::Arc};
 
@@ -38,9 +38,10 @@ pub fn run(
     crate::launch::ensure_detached()?;
     crate::launch::install_selectors(&options)?;
     let identity = crate::launch::verify_identity(&options, ResolvedInstancePaths::current()?)?;
-    let owner = Box::leak(Box::new(
-        identity.clone().try_acquire(&ownership_registry()?)?,
-    ));
+    let owner = Box::leak(Box::new(PathOwnership::try_acquire(
+        identity.clone(),
+        &ownership_registry()?,
+    )?));
     let process = process::own()?;
     let provenance = process.provenance()?;
     let resources = options.resources.canonicalize()?;

@@ -30,11 +30,16 @@ The native wrapper retains its existing optional desktop host during extraction.
 
 ## Pre-write authority
 
+`codeterm_paths::instance_identity::ResolvedInstancePaths` owns the single
+read-only resolver and its path-only tests in `src-tauri/crates/codeterm-paths`,
+an app workspace member. Service-core re-exports that type;
+`PathOwnership::try_acquire(identity, registry)` retains its OS locks and lock
+tests. The native client can resolve the same roots without service-core.
 `ResolvedInstancePaths::current()` derives data/config from the existing
 `config_path()` without creating data or calling the mesh identity loader.
 Resolution handles existing ancestors, missing leaves, symlinks/junctions,
 parent components and Windows case normalization for lock keys.
-`try_acquire()` locks sorted data and config coordination keys; shared config
+`PathOwnership::try_acquire()` locks sorted data and config coordination keys; shared config
 paths cannot obtain two writers through different data roots. Handles never
 replace or unlink a lock inode. A loser refuses before logging, mesh UUID,
 config, hook, credential or crash initialization. Only the coordination
@@ -56,7 +61,17 @@ The shared data-only contract is `codeterm_types::server_bootstrap`.
 `LaunchOptions`, `InstanceSelector`, `ServerIdentity`, `ProcessProvenance`,
 `ServerReady`, `ServerExpectation`, `AttachRequest`, `AttachReply` and
 `BootstrapOperation` are the authoritative serde types. Protocol is version 1;
-API version uses `frontend_bundle_api_version::API_VERSION`.
+Shared `API_VERSION=3` is re-exported from the existing service-core frontend API
+module; its bundled minimum/maximum remain 3.
+
+`ServerComponentManifest` is the schema-1 installed pair contract at
+`resource_dir/server-component.json`. Its seven required fields are `schema`,
+`server_build`, `server_executable`, `server_sha256`, `client_sha256`,
+`api_version` and `bootstrap_protocol`; unknown fields are refused.
+`server_executable` is relative beneath that resource directory. The server
+artifact build expectation is independent of the client build. The paired
+client digest does not replace OS verification of its actual process,
+executable and creation identity before native enrollment.
 
 `LaunchOptions.probe_identity_alias` defaults absent. Only an isolated
 `split-oracle-*` Development launch with its exact owned sink can supply it.

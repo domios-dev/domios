@@ -446,6 +446,13 @@ export function workspaceCrates(root, fs = nodeFs) {
       }
     }
   }
+  const rootCrates = posix.join(root, "crates");
+  for (const entry of fs.list(rootCrates)) {
+    const dir = posix.join(rootCrates, entry.name);
+    if (!entry.dir || !fs.isFile(posix.join(dir, "Cargo.toml"))) continue;
+    const manifest = load(dir);
+    if (manifest && !manifest.package.name) throw new Error(`Root crate manifest has no package name: ${dir}/Cargo.toml`);
+  }
   return { crates, warnings };
 }
 
@@ -844,13 +851,21 @@ function argValue(args, flag) {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
-const RUST_PATHSPECS = [":(glob)src-tauri/**/*.rs", ":(glob)src-tauri/**/Cargo.toml", ":(glob)cli/**/*.rs", ":(glob)cli/**/Cargo.toml"];
+const RUST_PATHSPECS = [":(glob)src-tauri/**/*.rs", ":(glob)src-tauri/**/Cargo.toml", ":(glob)cli/**/*.rs", ":(glob)cli/**/Cargo.toml", ":(glob)crates/**/*.rs", ":(glob)crates/**/Cargo.toml"];
 
 // Extracts a commit's Rust sources into a temp dir from git objects; the working tree is never touched.
 export function scanCommit(repo, rev) {
   const dir = mkdtempSync(path.join(tmpdir(), "rti-gate-"));
   try {
-    const archive = spawnSync("git", ["-C", repo, "-c", "core.autocrlf=false", "archive", "--format=tar", rev, "--", ...RUST_PATHSPECS], { maxBuffer: 1 << 30 });
+    const rootListing = spawnSync("git", ["-C", repo, "ls-tree", "-r", "--name-only", rev, "--", "crates"], { encoding: "utf8" });
+    if (rootListing.status !== 0) throw new Error(`git ls-tree ${rev} failed: ${rootListing.stderr}`);
+    const rootFiles = rootListing.stdout.split(/\r?\n/);
+    const pathspecs = RUST_PATHSPECS.filter((spec) => {
+      if (spec === ":(glob)crates/**/*.rs") return rootFiles.some((file) => file.endsWith(".rs"));
+      if (spec === ":(glob)crates/**/Cargo.toml") return rootFiles.some((file) => file.endsWith("/Cargo.toml"));
+      return true;
+    });
+    const archive = spawnSync("git", ["-C", repo, "-c", "core.autocrlf=false", "archive", "--format=tar", rev, "--", ...pathspecs], { maxBuffer: 1 << 30 });
     if (archive.status !== 0) throw new Error(`git archive ${rev} failed: ${archive.stderr}`);
     const tar = spawnSync("tar", ["-x", "-f", "-"], { cwd: dir, input: archive.stdout, maxBuffer: 1 << 26 });
     if (tar.status !== 0) throw new Error(`tar failed: ${tar.stderr}`);
