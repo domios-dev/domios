@@ -101,6 +101,7 @@ struct PinnedHolder {
     disposition: HolderDisposition,
 }
 
+#[cfg(feature = "desktop")]
 pub(super) fn inspect(
     release: bool,
     svc: Option<&codeterm_service_core::service::ServiceState>,
