@@ -99,3 +99,28 @@ fn wire_serialization_preserves_server_side_closed_tab_restore() {
     let restored = state.reopen_closed_tab(&workspace, None).unwrap();
     assert_eq!(state.get_tab(&restored).unwrap().restorable_launch, launch);
 }
+
+#[test]
+fn wire_cloud_mode_is_the_exact_persisted_launch_and_survives_restore() {
+    let (mut state, id) = MultiplexerState::new();
+    let tab = state.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("opaque-provider".into());
+    tab.restorable_launch.execution_mode = Some("opaque-cloud".into());
+    let encoded = serde_json::to_string(&state.to_session_snapshot()).unwrap();
+    let saved: SessionSnapshot = serde_json::from_str(&encoded).unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&saved);
+    assert_eq!(
+        restored
+            .get_tab(&id)
+            .unwrap()
+            .restorable_launch
+            .execution_mode
+            .as_deref(),
+        Some("opaque-cloud")
+    );
+    let wire = serde_json::to_value(restored.snapshot()).unwrap();
+    assert_eq!(
+        wire["tabs"][&id]["agent_runtime_config"]["executionMode"],
+        "opaque-cloud"
+    );
+}

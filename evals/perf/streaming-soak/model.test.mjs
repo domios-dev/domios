@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {VERSION,chatVisitEvidence,functionalVisitTarget,functionalTailEvidence,measurementCapabilities,requireMeasurement,rendererMetrics,admitDevSurface,validateDevSurfaceTarget,segmentSeconds,validateIdentity,validateResume,cleanupPlan,abortReplayPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
+import {VERSION,validateNativeLocatorEvidence,chatVisitEvidence,functionalVisitTarget,functionalTailEvidence,measurementCapabilities,requireMeasurement,rendererMetrics,admitDevSurface,validateDevSurfaceTarget,segmentSeconds,validateIdentity,validateResume,cleanupPlan,abortReplayPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
 const run = '11111111-1111-1111-1111-111111111111';
 const identity = () => ({port:7686,dev:true,page:{origin:'http://127.0.0.1:7686',path:'/'},capabilities:measurementCapabilities('profile',1),build:'a'.repeat(40),entryHash:'b'.repeat(64),target:'page',boot:'boot',renderer:{pid:1,created:'r'},daemon:{pid:2,created:'d'}});
 const fixture = (tab,session) => ({run,tab,session,pty:'pty-'+tab});
@@ -205,4 +205,21 @@ test('chat visit phases retain setup marker but accept reseeded owned mounts wit
   const observed={internalStore:'unavailable',authority:'backend_binding_only',projection:{paintedTail:'owned-tail#8'},visibleSourceIds:['owned-source']};
   assert.doesNotThrow(()=>functionalTailEvidence(expected,observed));
   assert.throws(()=>functionalTailEvidence(expected,{...observed,visibleSourceIds:[]}),/tail evidence/);
+});
+
+test('native split locator refuses stale client incarnation and view while preserving strict target',()=>{
+  const input=split();
+  const snapshot={client_process:{pid:23,created:'1234',executable:'C:/dev/codeterm.exe'},connection:{server_epoch:'epoch'},view_session:'view',status:{status:'active',payload:{port:9223,view_generation:4}}};
+  input.provenance.nativeClient={platform:'windows',snapshot,navigationGeneration:2,origin:'http://127.0.0.1:7686'};
+  const admitted=admitDevSurface({...input,surface:'native'});
+  assert.equal(admitted.available,true);
+  const target={type:'page',id:'native-page',url:'http://127.0.0.1:7686/?__codeterm_client_view=4:2',webSocketDebuggerUrl:'ws://127.0.0.1:9223/devtools/page/native-page'};
+  assert.doesNotThrow(()=>validateDevSurfaceTarget(admitted,target));
+  assert.throws(()=>validateDevSurfaceTarget(admitted,{...target,url:'http://127.0.0.1:7686/?__codeterm_client_view=3:2'}),/incarnation/);
+  const process={pid:23,createdFiletime:'1234',executable:'C:/dev/codeterm.exe'};
+  assert.equal(validateNativeLocatorEvidence(admitted.locator,process,snapshot).pid,23);
+  for (const patch of [{pid:24},{createdFiletime:'replacement'},{executable:'C:/foreign/codeterm.exe'}])
+    assert.throws(()=>validateNativeLocatorEvidence(admitted.locator,{...process,...patch},snapshot),/incarnation/);
+  assert.throws(()=>validateNativeLocatorEvidence(admitted.locator,process,{...snapshot,view_session:'replacement'}),/snapshot drift/);
+  assert.throws(()=>admitDevSurface({...input,provenance:{...input.provenance,buildSha:'f'.repeat(40)}}),/provenance/);
 });

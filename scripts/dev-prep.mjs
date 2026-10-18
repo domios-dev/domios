@@ -2,7 +2,7 @@
 // Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/dev-prebuilt; scripts tests/release-input-reuse.test.mjs
 import crypto from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
-import { runDevApp } from "./dev-app-process.mjs";
+import { runDevApp, nativeLocatorRecord } from "./dev-app-process.mjs";
 import { devRuntimeEnvironment } from "./dev-runtime-environment.mjs";
 import {
   accessSync,
@@ -319,7 +319,8 @@ function checkProvenance(options) {
   } catch (error) {
     throw new Error(`record is unparseable: ${error.message}`);
   }
-  assertKeys(data, ["schema", "buildSha", "inputsSha256", "instance", "artifacts"], "record");
+  const {nativeClient,...buildRecord} = data;
+  assertKeys(buildRecord, ["schema", "buildSha", "inputsSha256", "instance", "artifacts"], "record");
   if (data.schema !== provenanceSchema) throw new Error(`unsupported record schema: ${data.schema}`);
   if (data.buildSha !== provenanceSha(options)) throw new Error("recorded build commit does not match HEAD or launch SHA");
   if (!/^[0-9a-f]{64}$/.test(data.inputsSha256) || data.inputsSha256 !== inputFingerprint()) {
@@ -451,6 +452,33 @@ function disconnectSupervisor() {
   if (process.connected) process.disconnect();
 }
 
+function nativeLocatorSink(options) {
+  if (!options.has("--record")) return () => {};
+  const file=resolve(option(options,"--record")), app=realpathSync.native(option(options,"--app"));
+  let partial="", attachment=null, pending=null;
+  const decoder=new StringDecoder("utf8");
+  const write = data => {
+    const temporary=`${file}.${process.pid}.locator.tmp`;
+    writeFileSync(temporary,JSON.stringify(data,null,2)+"\n",{flag:"wx"});
+    renameSync(temporary,file);
+  };
+  const initial=JSON.parse(readFileSync(file,"utf8"));
+  write({...initial,nativeClient:null});
+  return chunk => {
+    const lines=(partial+decoder.write(chunk)).split(/\r?\n/); partial=lines.pop();
+    if (partial.length > 65536) throw Error("Native DEV diagnostic line exceeds bound");
+    for (const line of lines) {
+      if (readinessSignal(line,option(options,"--api-port"))) attachment=JSON.parse(line.slice("DOMIOS_DEV_ATTACHMENT ".length));
+      if (line.startsWith("DOMIOS_DEV_NATIVE_LOCATOR ")) pending=line;
+      if (!attachment || !pending) continue;
+      const record=JSON.parse(readFileSync(file,"utf8"));
+      const next=nativeLocatorRecord(pending,record,app,attachment);
+      if (next) write(next);
+      pending=null;
+    }
+  };
+}
+
 async function supervisePrebuilt(options) {
   const app = resolve(option(options, "--app"));
   const log = resolve(option(options, "--log"));
@@ -459,8 +487,10 @@ async function supervisePrebuilt(options) {
   let partial = "";
   let ready = false;
   let startupFailed = false;
+  const locator = options.has("--record") ? nativeLocatorSink(options) : () => {};
   try {
     const { code, signal } = await runDevApp({ app, log, interactiveDesktop: true, cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
+      locator(chunk);
       const lines = `${partial}${decoder.write(chunk)}`.split(/\r?\n/);
       partial = lines.pop() ?? "";
       const failure = lines.map(startupFailureSignal).find(Boolean);
@@ -488,9 +518,10 @@ async function supervisePrebuilt(options) {
 }
 
 async function runPrebuilt(options) {
+  const locator=nativeLocatorSink(options);
   const { code, signal } = await runDevApp({
     app: resolve(option(options, "--app")), log: resolve(option(options, "--log")), interactiveDesktop: true,
-    cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => process.stdout.write(chunk),
+    cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => { locator(chunk); process.stdout.write(chunk); },
   });
   process.exitCode = code ?? (signal ? 1 : 0);
 }
@@ -512,7 +543,7 @@ async function launchPrebuilt(options) {
       const fail = (error) => rejectReady(error instanceof Error ? error : new Error(String(error)));
       child = spawn(
         node,
-        [fileURLToPath(import.meta.url), "--supervise-prebuilt", "--app", app, "--log", log, "--api-port", apiPort],
+        [fileURLToPath(import.meta.url), "--supervise-prebuilt", "--app", app, "--log", log, "--api-port", apiPort, ...(options.has("--record")?["--record",option(options,"--record")]:[])],
         {
           cwd: repo,
           detached: true,

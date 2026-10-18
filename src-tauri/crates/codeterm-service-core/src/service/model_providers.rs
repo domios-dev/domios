@@ -19,7 +19,7 @@ pub(crate) mod presets;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelProviderError {
     Unsupported,
@@ -37,10 +37,14 @@ pub enum ModelProviderError {
     Unauthorized,
     Connection,
     InvalidResponse,
+    LaunchSetup(String),
 }
 
 impl std::fmt::Display for ModelProviderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Self::LaunchSetup(message) = self {
+            return f.write_str(message);
+        }
         write!(
             f,
             "model provider operation failed ({})",
@@ -577,6 +581,14 @@ impl ServiceContext {
         &self,
         provider_id: &str,
     ) -> Result<HashMap<String, String>, ModelProviderError> {
+        self.model_provider_launch_env_for_model(provider_id, None)
+    }
+
+    pub(crate) fn model_provider_launch_env_for_model(
+        &self,
+        provider_id: &str,
+        model: Option<&str>,
+    ) -> Result<HashMap<String, String>, ModelProviderError> {
         let Some(adapter) = self
             .agent_registry
             .provider_arc(provider_id)
@@ -584,11 +596,23 @@ impl ServiceContext {
         else {
             return Ok(HashMap::new());
         };
-        let path = adapter.path().map_err(|_| ModelProviderError::Config)?;
+        let path = adapter.path().map_err(|_| {
+            ModelProviderError::LaunchSetup(format!(
+                "launch model-provider config path lookup for '{provider_id}' failed"
+            ))
+        })?;
         let providers = adapter
-            .read(&read_config(&path)?)
-            .map_err(|_| ModelProviderError::Config)?;
-        launch_env(&self.secrets, provider_id, &*adapter, &providers)
+            .read(&read_config(&path).map_err(|_| {
+                ModelProviderError::LaunchSetup(format!(
+                    "launch model-provider config read for '{provider_id}' failed"
+                ))
+            })?)
+            .map_err(|_| {
+                ModelProviderError::LaunchSetup(format!(
+                    "launch model-provider config lookup for '{provider_id}' failed"
+                ))
+            })?;
+        launch_env(&self.secrets, provider_id, &*adapter, &providers, model)
     }
 }
 
@@ -597,17 +621,47 @@ fn launch_env(
     owner: &str,
     adapter: &dyn ModelProviderConfig,
     providers: &[ModelProviderDefinition],
+    model: Option<&str>,
 ) -> Result<HashMap<String, String>, ModelProviderError> {
     let mut env = HashMap::new();
-    for provider in providers.iter().filter(|p| p.secret_name.is_some()) {
-        let name = env_name(adapter, &provider.id)?;
+    for provider in providers.iter().filter(|provider| {
+        provider.secret_name.is_some()
+            && model.is_none_or(|model| model_uses_provider(model, provider))
+    }) {
+        let name = env_name(adapter, &provider.id).map_err(|_| {
+            ModelProviderError::LaunchSetup(format!(
+                "launch credential environment lookup for model-provider endpoint '{}' failed",
+                provider.id
+            ))
+        })?;
         if provider.key_env.as_deref() != Some(&name) || env.contains_key(&name) {
-            return Err(ModelProviderError::Config);
+            return Err(ModelProviderError::LaunchSetup(format!(
+                "launch credential environment validation for model-provider endpoint '{}' failed",
+                provider.id
+            )));
         }
-        let secret = get_secret(store, owner, provider)?;
+        let secret = get_secret(store, owner, provider).map_err(|error| {
+            ModelProviderError::LaunchSetup(format!(
+                "launch secret lookup for model '{}' on model-provider endpoint '{}' secret '{}' failed ({error})",
+                model.unwrap_or("<unspecified>"),
+                provider.id,
+                provider.secret_name.as_deref().unwrap_or_default()
+            ))
+        })?;
         env.insert(name, secret.value.into_inner());
     }
     Ok(env)
+}
+
+fn model_uses_provider(model: &str, provider: &ModelProviderDefinition) -> bool {
+    let Some((provider_id, model_id)) = model.split_once('/') else {
+        return false;
+    };
+    provider_id == provider.id
+        && provider
+            .models
+            .iter()
+            .any(|candidate| candidate == model_id)
 }
 
 fn requires_fresh_pty(provider: &dyn AgentProvider) -> bool {

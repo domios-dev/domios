@@ -11,10 +11,10 @@ export function ExecutionLocationPicker({provider, location, environmentId, onLo
   return <fieldset className="my-3 space-y-2">
     <legend>Execution location</legend>
     <label className="mr-3"><input type="radio" name="execution-location" value="local" checked={location === "local"} onChange={() => onLocation("local")} /> Local</label>
-    <label><input type="radio" name="execution-location" value="remote" checked={location === "remote"} onChange={() => onLocation("remote")} /> Remote</label>
-    {location === "remote" && <div>
+    <label><input type="radio" name="execution-location" value="cloud" checked={location === "cloud"} onChange={() => onLocation("cloud")} /> {capability.displayName}</label>
+    {location === "cloud" && <div>
       {capability.availability.status === "unavailable" && <p role="status">{capability.availability.reason}</p>}
-      {capability.environments.length > 0 ? <label>Environment<select aria-label="Remote environment" value={environmentId} onChange={event => onEnvironment(event.target.value)}>
+      {capability.environments.length > 0 ? <label>Environment<select aria-label="Cloud environment" value={environmentId} onChange={event => onEnvironment(event.target.value)}>
         <option value="">Choose an environment</option>
         {capability.environments.map(environment => <option key={environment.id} value={environment.id}>{environment.label}</option>)}
       </select></label> : <p role="status">No remote environments are available. Connect the account that owns your Cloud environments, then refresh providers.</p>}

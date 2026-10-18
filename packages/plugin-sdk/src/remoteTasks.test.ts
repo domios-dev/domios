@@ -18,7 +18,7 @@ function fixture() {
   let uncertain = false;
   const environment = {id: "environment-fixture", accountRef: "account-fixture", label: "Fixture environment"};
   const backend: RemoteTaskBackend = {
-    capability: {backend: "fixture", localProviderId: "provider-fixture", environments: [environment], availability: {status: "available"}, followUp: false, cancel: false, applyDiff: false},
+    capability: {backend: "fixture", mode: "cloud", displayName: "Cloud", environments: [environment], availability: {status: "available"}, followUp: false, cancel: false, applyDiff: false},
     environments() { return [environment]; },
     create() { creates++; if (uncertain) throw new Error("connection lost after server accepted"); return {taskId: "task-fixture"}; },
     read(binding) {
@@ -114,5 +114,14 @@ test("an acknowledged create whose binding write fails is never recreated after 
   const restarted = new RemoteTaskController(storage, f.backend);
   assert.equal(restarted.restore("tab")?.phase, "create_uncertain");
   assert.throws(() => restarted.create("tab", "provider-fixture", f.environment, "master", "Read README"));
+  assert.equal(f.creates(), 1);
+});
+
+test("restore refuses a binding from another execution mode without creating or reading a task", () => {
+  const f = fixture();
+  new RemoteTaskController(f.storage, f.backend).create("tab", "provider-fixture", f.environment, "master", "Read README");
+  const foreign = {...f.storage.read("tab")!, executionMode: "foreign"};
+  const storage = {...f.storage, read: () => foreign};
+  assert.throws(() => new RemoteTaskController(storage, f.backend).restore("tab"));
   assert.equal(f.creates(), 1);
 });

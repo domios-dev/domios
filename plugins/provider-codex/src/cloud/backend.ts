@@ -1,4 +1,4 @@
-import type {RemoteTaskBackend, RemoteTaskBinding, RemoteTaskCapability, RemoteTaskSnapshot} from "../../../packages/plugin-sdk/src/remoteTasks";
+import type {RemoteTaskBackend, RemoteTaskBinding, RemoteTaskCapability, RemoteTaskSnapshot} from "../../../../packages/plugin-sdk/src/remoteTasks";
 
 type Row = Record<string, unknown>;
 const row = (value: unknown): Row => value && typeof value === "object" && !Array.isArray(value) ? value as Row : {};
