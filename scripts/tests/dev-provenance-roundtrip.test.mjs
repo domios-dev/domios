@@ -37,7 +37,7 @@ function fixture() {
   for (const dir of ['scripts', clientDebug, 'data/bin', 'dist']) {
     fs.mkdirSync(path.join(checkout, dir), { recursive: true });
   }
-  for (const name of ['dev-prep.mjs', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'build-identity.cjs']) {
+  for (const name of ['dev-prep.mjs', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'windows-dev-desktop.cs', 'build-identity.cjs']) {
     fs.copyFileSync(path.join(root, 'scripts', name), path.join(checkout, 'scripts', name));
   }
   const exe = process.platform === 'win32' ? '.exe' : '';
@@ -323,3 +323,16 @@ for (const [name, relative, message] of [
     } finally { fs.rmSync(directory, { recursive: true, force: true }); }
   });
 }
+
+
+test('prebuilt refuses changed desktop execution helper source', () => {
+  const { directory, checkout, sha } = fixture();
+  try {
+    const written = provenance(checkout, checkout, checkout, sha, 'write_dev_provenance');
+    assert.equal(written.status, 0, written.stderr);
+    fs.appendFileSync(path.join(checkout, 'scripts/windows-dev-desktop.cs'), '\n');
+    const checked = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance');
+    assert.equal(checked.status, 1);
+    assert.match(checked.stderr, /source|input|dirty/);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
