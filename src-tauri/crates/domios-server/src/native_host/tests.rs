@@ -1,7 +1,9 @@
 use super::enrollment::{
     enroll, verify_client_process, verify_component, EnrollmentPolicy, VerifiedClientProcess,
 };
-use super::transport::{NativeHostEndpoint, Pending, Session, SessionState};
+use super::transport::{
+    NativeHostBindError, NativeHostEndpoint, NativeHostServer, Pending, Session, SessionState,
+};
 use crate::bootstrap::process::PinnedProcess;
 use codeterm_types::{
     native_host::{
@@ -193,6 +195,31 @@ fn component_manifest_pins_server_protocol_build_path_and_bytes() {
     escaping_path.server_executable = PathBuf::from("../server-fixture.bin");
     assert!(verify_component(&escaping_path, &ready, &ready.resources).is_err());
     assert!(verify_component(&valid_manifest, &ready, ready.resources.parent().unwrap()).is_err());
+}
+
+#[test]
+fn native_host_bind_separates_inventory_rejection_from_listener_unavailability() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("server-fixture.bin");
+    let (manifest, ready) = server_fixture(path, b"server fixture image");
+
+    let mut invalid_manifest = manifest.clone();
+    invalid_manifest.schema = 0;
+    let inventory_error =
+        NativeHostServer::<String, String>::bind(ready.clone(), invalid_manifest, HashSet::new());
+    assert!(matches!(
+        inventory_error,
+        Err(NativeHostBindError::InventoryRejected(_))
+    ));
+
+    let mut unavailable_ready = ready;
+    unavailable_ready.bootstrap_address = "invalid-bootstrap-address".into();
+    let listener_error =
+        NativeHostServer::<String, String>::bind(unavailable_ready, manifest, HashSet::new());
+    assert!(matches!(
+        listener_error,
+        Err(NativeHostBindError::ListenerUnavailable(_))
+    ));
 }
 
 fn update_request_and_connection() -> (NativeUpdateRequest, NativeHostConnection) {

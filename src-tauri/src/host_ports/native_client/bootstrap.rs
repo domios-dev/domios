@@ -231,6 +231,10 @@ pub(super) fn verify_install(
     })
 }
 
+pub(super) fn supports_shutdown_completion_protocol(protocol: u32) -> bool {
+    protocol == BOOTSTRAP_PROTOCOL
+}
+
 pub(super) fn valid_digest(digest: &str) -> bool {
     digest.len() == 64
         && digest
@@ -586,6 +590,7 @@ impl super::NativeHostClient {
         if self.retired.load(Ordering::Acquire)
             || !slot.is_current(self)
             || self.ready != expected
+            || !supports_shutdown_completion_protocol(expected.protocol)
             || self.connection.generation == 0
             || self.connection.identity != expected.identity
             || self.connection.server_epoch != expected.epoch
@@ -610,7 +615,7 @@ impl super::NativeHostClient {
         }
 
         let request = AttachRequest {
-            protocol: expected.protocol,
+            protocol: BOOTSTRAP_PROTOCOL,
             api_version: expected.api_version,
             build: expected.build.clone(),
             identity: expected.identity.clone(),
