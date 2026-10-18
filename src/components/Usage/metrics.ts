@@ -39,3 +39,9 @@ export function unreportedBillingLabel(snapshot: Pick<UsageSnapshot, "billing_mo
     && snapshot.session_pct == null && snapshot.weekly_pct == null && snapshot.spend_cents == null
     ? "subscription · limits not reported" : null;
 }
+
+export function usagePillText(snapshot: Pick<UsageSnapshot, "session_pct" | "weekly_pct">): string {
+  const percentage = (value: number | null) => value == null ? "—" : `${Math.round(value)}%`;
+  if (snapshot.session_pct == null && snapshot.weekly_pct == null) return "—";
+  return `${percentage(snapshot.session_pct)} · ${percentage(snapshot.weekly_pct)}`;
+}
