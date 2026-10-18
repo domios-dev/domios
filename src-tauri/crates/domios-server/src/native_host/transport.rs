@@ -1,4 +1,5 @@
 use super::enrollment::{enroll, verify_client_process, verify_component, EnrollmentPolicy};
+use super::wire_io::{encode_frame, read_frame, send_frame, write_encoded_frame};
 use crate::bootstrap::process::PinnedProcess;
 use codeterm_types::{
     native_host::{
@@ -6,8 +7,8 @@ use codeterm_types::{
         NativeHostEventAudience, NativeHostFrame, NativeHostOperation, NativeHostRejection,
         NativeHostReply, NativeHostRequest, NativeHostRequestId, NativeHostResult, NativeHostScope,
         NativeHostUncertainty, NativeViewBinding, NativeWebviewDiagnosticsReport,
-        NativeWebviewDiagnosticsSnapshot, MAX_NATIVE_HOST_FRAME_BYTES,
-        MAX_PENDING_NATIVE_HOST_REQUESTS, NATIVE_HOST_REQUEST_DEADLINE,
+        NativeWebviewDiagnosticsSnapshot, MAX_PENDING_NATIVE_HOST_REQUESTS,
+        NATIVE_HOST_REQUEST_DEADLINE,
     },
     native_update::{
         NativeUpdateExecutor, NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult,
@@ -29,7 +30,7 @@ use std::{
     },
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncWriteExt,
     sync::{mpsc, oneshot, watch, Semaphore},
     time::timeout,
 };
@@ -126,6 +127,15 @@ where
     ) -> Result<Self, NativeHostBindError> {
         verify_component(&manifest, &ready, &ready.resources)
             .map_err(NativeHostBindError::InventoryRejected)?;
+        if matches!(
+            manifest.client_identity,
+            codeterm_types::server_bootstrap::ClientIdentity::None
+        ) {
+            return Err(NativeHostBindError::InventoryRejected(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Headless components do not admit native attachment",
+            )));
+        }
         let listener = create_listener(&ready).map_err(NativeHostBindError::ListenerUnavailable)?;
         Ok(Self {
             listener,
@@ -391,12 +401,14 @@ where
                     generation,
                 },
             ),
-            client_sha256: self.manifest.client_sha256.clone(),
+            client_identity: self.manifest.client_identity.clone(),
+            resources: self.ready.resources.clone(),
             allowed_view_origins: self.allowed_view_origins.clone(),
         };
         let verification_policy = EnrollmentPolicy {
             challenge: policy.challenge.clone(),
-            client_sha256: policy.client_sha256.clone(),
+            client_identity: policy.client_identity.clone(),
+            resources: policy.resources.clone(),
             allowed_view_origins: policy.allowed_view_origins.clone(),
         };
         let (process, verified) = tokio::task::spawn_blocking(move || {
@@ -1117,77 +1129,4 @@ fn pin_peer(stream: &Stream) -> io::Result<PinnedProcess> {
         pid as u32
     };
     PinnedProcess::open(pid)
-}
-
-async fn read_frame<R, UpdateRequest, UpdateResult>(
-    reader: &mut R,
-) -> io::Result<Frame<UpdateRequest, UpdateResult>>
-where
-    R: tokio::io::AsyncRead + Unpin,
-    UpdateRequest: DeserializeOwned,
-    UpdateResult: DeserializeOwned,
-{
-    let count = reader.read_u32().await? as usize;
-    if count == 0 || count > MAX_NATIVE_HOST_FRAME_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Invalid native host frame length",
-        ));
-    }
-    let mut bytes = vec![0; count];
-    reader.read_exact(&mut bytes).await?;
-    serde_json::from_slice(&bytes).map_err(io::Error::other)
-}
-
-async fn send_frame<W, UpdateRequest, UpdateResult>(
-    writer: &mut W,
-    frame: &Frame<UpdateRequest, UpdateResult>,
-) -> io::Result<()>
-where
-    W: tokio::io::AsyncWrite + Unpin,
-    UpdateRequest: Serialize,
-    UpdateResult: Serialize,
-{
-    timeout(NATIVE_HOST_REQUEST_DEADLINE, write_frame(writer, frame))
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Native host write deadline"))?
-}
-
-async fn write_frame<W, UpdateRequest, UpdateResult>(
-    writer: &mut W,
-    frame: &Frame<UpdateRequest, UpdateResult>,
-) -> io::Result<()>
-where
-    W: tokio::io::AsyncWrite + Unpin,
-    UpdateRequest: Serialize,
-    UpdateResult: Serialize,
-{
-    let bytes = encode_frame(frame)?;
-    write_encoded_frame(writer, &bytes).await
-}
-
-fn encode_frame<UpdateRequest, UpdateResult>(
-    frame: &Frame<UpdateRequest, UpdateResult>,
-) -> io::Result<Vec<u8>>
-where
-    UpdateRequest: Serialize,
-    UpdateResult: Serialize,
-{
-    let bytes = serde_json::to_vec(frame).map_err(io::Error::other)?;
-    if bytes.is_empty() || bytes.len() > MAX_NATIVE_HOST_FRAME_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Native host frame exceeds its bound",
-        ));
-    }
-    Ok(bytes)
-}
-
-async fn write_encoded_frame<W>(writer: &mut W, bytes: &[u8]) -> io::Result<()>
-where
-    W: tokio::io::AsyncWrite + Unpin,
-{
-    writer.write_u32(bytes.len() as u32).await?;
-    writer.write_all(&bytes).await?;
-    writer.flush().await
 }

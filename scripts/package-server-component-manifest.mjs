@@ -3,7 +3,7 @@ import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const SERVER_COMPONENT_SCHEMA = 1;
+export const SERVER_COMPONENT_SCHEMA = 2;
 export const SUPPORTED_BOOTSTRAP_PROTOCOL = 2;
 export const MANIFEST_RELATIVE_PATH = 'target/domios-package/server-component.json';
 
@@ -15,7 +15,7 @@ const FIELD_NAMES = [
   'server_build',
   'server_executable',
   'server_sha256',
-  'client_sha256',
+  'client_identity',
   'api_version',
   'bootstrap_protocol',
 ];
@@ -38,7 +38,11 @@ function parseVersion(value, name) {
   return parsed;
 }
 
-function validateServerExecutable(value) {
+function validateServerExecutable(value, identity) {
+  if (identity?.kind === 'macos_designated_requirement') {
+    if (value === '../MacOS/domios-server') return value;
+    fail('macOS app server executable must be the exact signed nested-code path');
+  }
   if (
     typeof value !== 'string' ||
     value.length === 0 ||
@@ -60,6 +64,18 @@ function validateServerExecutable(value) {
   return value;
 }
 
+function validateClientIdentity(identity) {
+  if (identity === null || typeof identity !== 'object' || Array.isArray(identity)) fail('client identity must be an object');
+  const fields = Object.keys(identity).sort();
+  if (identity.kind === 'none' && JSON.stringify(fields) === JSON.stringify(['kind'])) return identity;
+  if (identity.kind === 'sha256' && JSON.stringify(fields) === JSON.stringify(['kind', 'sha256']) && SHA256_PATTERN.test(identity.sha256)) return identity;
+  if (identity.kind === 'macos_designated_requirement' &&
+      JSON.stringify(fields) === JSON.stringify(['identifier', 'kind', 'requirement', 'team_id']) &&
+      /^[A-Z0-9]{10}$/.test(identity.team_id) && identity.identifier === 'com.codeterm.app' &&
+      identity.requirement === `anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "${identity.team_id}"`) return identity;
+  fail('client identity does not match a supported ServerComponentManifest v2 variant');
+}
+
 function isPositiveU32(value) {
   return Number.isInteger(value) && value > 0 && value <= UINT32_MAX;
 }
@@ -69,8 +85,8 @@ export function validateManifest(manifest) {
     fail('manifest must be an object');
   }
 
-  if (JSON.stringify(Object.keys(manifest)) !== JSON.stringify(FIELD_NAMES)) {
-    fail('manifest fields do not match ServerComponentManifest v1');
+  if (JSON.stringify(Object.keys(manifest).sort()) !== JSON.stringify([...FIELD_NAMES].sort())) {
+    fail('manifest fields do not match ServerComponentManifest v2');
   }
 
   if (manifest.schema !== SERVER_COMPONENT_SCHEMA) {
@@ -86,14 +102,11 @@ export function validateManifest(manifest) {
     fail('server build must be a non-empty printable string');
   }
 
-  validateServerExecutable(manifest.server_executable);
+  validateClientIdentity(manifest.client_identity);
+  validateServerExecutable(manifest.server_executable, manifest.client_identity);
 
   if (!SHA256_PATTERN.test(manifest.server_sha256)) {
     fail('server_sha256 must be a lowercase SHA-256 digest');
-  }
-
-  if (!SHA256_PATTERN.test(manifest.client_sha256)) {
-    fail('client_sha256 must be a lowercase SHA-256 digest');
   }
 
   if (!isPositiveU32(manifest.api_version)) {
@@ -138,6 +151,7 @@ export async function createManifest({
   cwd = process.cwd(),
   serverFile,
   clientFile,
+  clientIdentity,
   serverBuild,
   serverExecutable,
   apiVersion,
@@ -150,7 +164,7 @@ export async function createManifest({
     fail('server build is required');
   }
 
-  const serverExecutablePath = validateServerExecutable(serverExecutable);
+  const serverExecutablePath = validateServerExecutable(serverExecutable, clientIdentity);
   if (!Number.isInteger(apiVersion) || !isPositiveU32(apiVersion)) {
     fail('api_version must be a positive u32');
   }
@@ -163,38 +177,40 @@ export async function createManifest({
     fail('staged server file is required');
   }
 
-  if (typeof clientFile !== 'string' || clientFile.length === 0) {
-    fail('staged client file is required');
+  if (!clientIdentity && (typeof clientFile !== 'string' || clientFile.length === 0)) {
+    fail('staged client file is required for a SHA identity');
   }
 
   const stageRoot = path.resolve(cwd, STAGE_ROOT);
   const stagedServer = path.resolve(cwd, serverFile);
-  const stagedClient = path.resolve(cwd, clientFile);
-  const expectedServer = path.resolve(stageRoot, ...serverExecutablePath.split('/'));
+  const stagedClient = clientFile ? path.resolve(cwd, clientFile) : null;
+  const expectedServer = path.resolve(stageRoot, 'domios-server', path.basename(serverExecutablePath));
 
   if (!samePath(stagedServer, expectedServer)) {
     fail('staged server file must match server_executable beneath target/domios-package');
   }
 
-  if (samePath(stagedServer, stagedClient)) {
+  if (stagedClient && samePath(stagedServer, stagedClient)) {
     fail('staged server and client files must be distinct');
   }
 
-  if (samePath(outputPath, stagedServer) || samePath(outputPath, stagedClient)) {
+  if (samePath(outputPath, stagedServer) || (stagedClient && samePath(outputPath, stagedClient))) {
     fail('manifest output must stay outside the server and client executables');
   }
 
   const [serverBytes, clientBytes] = await Promise.all([
     readStagedFile(stagedServer, 'staged server file'),
-    readStagedFile(stagedClient, 'staged client file'),
+    stagedClient ? readStagedFile(stagedClient, 'staged client file') : Promise.resolve(null),
   ]);
+
+  const identity = clientIdentity ?? { kind: 'sha256', sha256: digest(clientBytes) };
 
   const manifest = validateManifest({
     schema: SERVER_COMPONENT_SCHEMA,
     server_build: serverBuild,
     server_executable: serverExecutablePath,
     server_sha256: digest(serverBytes),
-    client_sha256: digest(clientBytes),
+    client_identity: identity,
     api_version: apiVersion,
     bootstrap_protocol: bootstrapProtocol,
   });
