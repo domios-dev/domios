@@ -1,8 +1,266 @@
 use std::path::PathBuf;
+#[cfg(test)]
+use std::time::{Duration, Instant};
 
 use codeterm_service_core::ports::host::{Shell, ShellError, UiEvents, WebviewRequest};
 use serde_json::Value;
 use tauri::{Emitter, Manager};
+
+#[cfg(test)]
+const MAX_PENDING_NATIVE_CALLS: usize = 64;
+
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct NativeConnection {
+    server_epoch: String,
+    generation: u64,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct NativeRequestId(u64);
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativeCallOutcome {
+    CancelledBeforeDispatch,
+    DisconnectedBeforeDispatch,
+    TimedOutBeforeDispatch,
+    Uncertain,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativeReplyDisposition {
+    Accepted,
+    IgnoredStale,
+    IgnoredBeforeDispatch,
+    Expired(NativeCallOutcome),
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativeCallError {
+    NotAttached,
+    PendingLimit,
+    RequestIdsExhausted,
+    DeadlineOverflow,
+    UnknownRequest,
+    StaleConnection,
+    AlreadyDispatched,
+    Expired,
+}
+
+#[cfg(test)]
+struct PendingNativeCall {
+    connection: NativeConnection,
+    deadline: Instant,
+    dispatched: bool,
+}
+
+#[cfg(test)]
+struct NativeCallRetirement {
+    id: NativeRequestId,
+    outcome: NativeCallOutcome,
+}
+
+#[cfg(test)]
+struct NativeCallRegistry {
+    connection: Option<NativeConnection>,
+    next_id: Option<u64>,
+    pending: std::collections::HashMap<NativeRequestId, PendingNativeCall>,
+}
+
+#[cfg(test)]
+impl Default for NativeCallRegistry {
+    fn default() -> Self {
+        Self {
+            connection: None,
+            next_id: Some(1),
+            pending: std::collections::HashMap::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl NativeCallRegistry {
+    fn attach(&mut self, connection: NativeConnection) -> Vec<NativeCallRetirement> {
+        if self.connection.as_ref() == Some(&connection) {
+            return Vec::new();
+        }
+        self.connection = Some(connection);
+        self.retire_pending()
+    }
+
+    fn detach(&mut self, connection: &NativeConnection) -> Vec<NativeCallRetirement> {
+        if self.connection.as_ref() != Some(connection) {
+            return Vec::new();
+        }
+        self.connection = None;
+        self.retire_pending()
+    }
+
+    fn begin(
+        &mut self,
+        connection: &NativeConnection,
+        now: Instant,
+        budget: Duration,
+    ) -> Result<NativeRequestId, NativeCallError> {
+        if self.connection.as_ref() != Some(connection) {
+            return Err(NativeCallError::NotAttached);
+        }
+        if self.pending.len() >= MAX_PENDING_NATIVE_CALLS {
+            return Err(NativeCallError::PendingLimit);
+        }
+        if budget.is_zero() {
+            return Err(NativeCallError::Expired);
+        }
+        let deadline = now
+            .checked_add(budget)
+            .ok_or(NativeCallError::DeadlineOverflow)?;
+        let id = NativeRequestId(self.next_id.ok_or(NativeCallError::RequestIdsExhausted)?);
+        self.next_id = id.0.checked_add(1);
+        self.pending.insert(
+            id,
+            PendingNativeCall {
+                connection: connection.clone(),
+                deadline,
+                dispatched: false,
+            },
+        );
+        Ok(id)
+    }
+
+    fn mark_dispatched(
+        &mut self,
+        connection: &NativeConnection,
+        id: NativeRequestId,
+        now: Instant,
+    ) -> Result<(), NativeCallError> {
+        self.require_current(connection)?;
+        let call = self
+            .pending
+            .get(&id)
+            .ok_or(NativeCallError::UnknownRequest)?;
+        if call.connection != *connection {
+            return Err(NativeCallError::StaleConnection);
+        }
+        let expired = call.deadline <= now;
+        let dispatched = call.dispatched;
+        if expired {
+            self.pending.remove(&id);
+            return Err(NativeCallError::Expired);
+        }
+        if dispatched {
+            return Err(NativeCallError::AlreadyDispatched);
+        }
+        let call = self
+            .pending
+            .get_mut(&id)
+            .ok_or(NativeCallError::UnknownRequest)?;
+        call.dispatched = true;
+        Ok(())
+    }
+
+    fn cancel(
+        &mut self,
+        connection: &NativeConnection,
+        id: NativeRequestId,
+    ) -> Result<NativeCallOutcome, NativeCallError> {
+        self.require_current(connection)?;
+        let call = self
+            .pending
+            .get(&id)
+            .ok_or(NativeCallError::UnknownRequest)?;
+        if call.connection != *connection {
+            return Err(NativeCallError::StaleConnection);
+        }
+        let dispatched = call.dispatched;
+        self.pending.remove(&id);
+        Ok(if dispatched {
+            NativeCallOutcome::Uncertain
+        } else {
+            NativeCallOutcome::CancelledBeforeDispatch
+        })
+    }
+
+    fn accept_reply(
+        &mut self,
+        connection: &NativeConnection,
+        id: NativeRequestId,
+        now: Instant,
+    ) -> NativeReplyDisposition {
+        if self.connection.as_ref() != Some(connection) {
+            return NativeReplyDisposition::IgnoredStale;
+        }
+        let Some(call) = self.pending.get(&id) else {
+            return NativeReplyDisposition::IgnoredStale;
+        };
+        if call.connection != *connection {
+            return NativeReplyDisposition::IgnoredStale;
+        }
+        let dispatched = call.dispatched;
+        let expired = call.deadline <= now;
+        if expired {
+            if self.pending.remove(&id).is_none() {
+                return NativeReplyDisposition::IgnoredStale;
+            }
+            return NativeReplyDisposition::Expired(if dispatched {
+                NativeCallOutcome::Uncertain
+            } else {
+                NativeCallOutcome::TimedOutBeforeDispatch
+            });
+        }
+        if !dispatched {
+            return NativeReplyDisposition::IgnoredBeforeDispatch;
+        }
+        self.pending.remove(&id);
+        NativeReplyDisposition::Accepted
+    }
+
+    fn expire(&mut self, now: Instant) -> Vec<NativeCallRetirement> {
+        let expired = self
+            .pending
+            .iter()
+            .filter_map(|(id, call)| (call.deadline <= now).then_some(*id))
+            .collect::<Vec<_>>();
+        expired
+            .into_iter()
+            .filter_map(|id| {
+                self.pending.remove(&id).map(|call| NativeCallRetirement {
+                    id,
+                    outcome: if call.dispatched {
+                        NativeCallOutcome::Uncertain
+                    } else {
+                        NativeCallOutcome::TimedOutBeforeDispatch
+                    },
+                })
+            })
+            .collect()
+    }
+
+    fn require_current(&self, connection: &NativeConnection) -> Result<(), NativeCallError> {
+        if self.connection.as_ref() == Some(connection) {
+            Ok(())
+        } else {
+            Err(NativeCallError::StaleConnection)
+        }
+    }
+
+    fn retire_pending(&mut self) -> Vec<NativeCallRetirement> {
+        std::mem::take(&mut self.pending)
+            .into_iter()
+            .map(|(id, call)| NativeCallRetirement {
+                id,
+                outcome: if call.dispatched {
+                    NativeCallOutcome::Uncertain
+                } else {
+                    NativeCallOutcome::DisconnectedBeforeDispatch
+                },
+            })
+            .collect()
+    }
+}
 
 type AppHandle = codeterm_host_runtime::app_runtime::AppHandle;
 
@@ -32,6 +290,202 @@ impl UiEvents for TauriUiEvents {
 mod tests {
     use super::*;
     use tauri::Listener;
+
+    fn connection(server_epoch: &str, generation: u64) -> NativeConnection {
+        NativeConnection {
+            server_epoch: server_epoch.to_owned(),
+            generation,
+        }
+    }
+
+    #[test]
+    fn native_calls_are_unique_and_pending_work_is_bounded() {
+        let now = Instant::now();
+        let connection = connection("epoch-a", 1);
+        let mut calls = NativeCallRegistry::default();
+        calls.attach(connection.clone());
+
+        let ids = (0..MAX_PENDING_NATIVE_CALLS)
+            .map(|_| {
+                calls
+                    .begin(&connection, now, Duration::from_secs(30))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(calls.pending.len(), MAX_PENDING_NATIVE_CALLS);
+        assert_eq!(
+            calls.begin(&connection, now, Duration::from_secs(30)),
+            Err(NativeCallError::PendingLimit)
+        );
+        assert_eq!(
+            calls.cancel(&connection, ids[0]),
+            Ok(NativeCallOutcome::CancelledBeforeDispatch)
+        );
+        let next = calls
+            .begin(&connection, now, Duration::from_secs(30))
+            .unwrap();
+        assert!(ids.iter().all(|id| *id != next));
+        assert_eq!(calls.pending.len(), MAX_PENDING_NATIVE_CALLS);
+    }
+
+    #[test]
+    fn reconnect_retires_old_generation_and_discards_late_replies() {
+        let now = Instant::now();
+        let old = connection("epoch-a", 4);
+        let current = connection("epoch-a", 5);
+        let mut calls = NativeCallRegistry::default();
+        calls.attach(old.clone());
+        let id = calls.begin(&old, now, Duration::from_secs(30)).unwrap();
+        calls.mark_dispatched(&old, id, now).unwrap();
+
+        let retired = calls.attach(current.clone());
+
+        assert_eq!(retired.len(), 1);
+        assert_eq!(retired[0].id, id);
+        assert_eq!(retired[0].outcome, NativeCallOutcome::Uncertain);
+        assert_eq!(
+            calls.accept_reply(&old, id, now),
+            NativeReplyDisposition::IgnoredStale
+        );
+        assert_eq!(
+            calls.begin(&current, now, Duration::from_secs(30)),
+            Ok(NativeRequestId(id.0 + 1))
+        );
+    }
+
+    #[test]
+    fn disconnect_retires_pending_calls_without_replay() {
+        let now = Instant::now();
+        let connection = connection("epoch-a", 2);
+        let mut calls = NativeCallRegistry::default();
+        calls.attach(connection.clone());
+        let queued = calls
+            .begin(&connection, now, Duration::from_secs(30))
+            .unwrap();
+        let dispatched = calls
+            .begin(&connection, now, Duration::from_secs(30))
+            .unwrap();
+        calls.mark_dispatched(&connection, dispatched, now).unwrap();
+
+        let retired = calls.detach(&connection);
+
+        assert_eq!(retired.len(), 2);
+        assert!(retired.iter().any(|call| {
+            call.id == queued && call.outcome == NativeCallOutcome::DisconnectedBeforeDispatch
+        }));
+        assert!(retired
+            .iter()
+            .any(|call| { call.id == dispatched && call.outcome == NativeCallOutcome::Uncertain }));
+        assert_eq!(
+            calls.begin(&connection, now, Duration::from_secs(30)),
+            Err(NativeCallError::NotAttached)
+        );
+        assert_eq!(
+            calls.accept_reply(&connection, dispatched, now),
+            NativeReplyDisposition::IgnoredStale
+        );
+    }
+
+    #[test]
+    fn server_epoch_fences_replies_even_when_generation_matches() {
+        let now = Instant::now();
+        let old = connection("epoch-a", 1);
+        let current = connection("epoch-b", 1);
+        let mut calls = NativeCallRegistry::default();
+        calls.attach(old.clone());
+        let id = calls.begin(&old, now, Duration::from_secs(30)).unwrap();
+        calls.mark_dispatched(&old, id, now).unwrap();
+        calls.attach(current.clone());
+
+        assert_eq!(
+            calls.accept_reply(&old, id, now),
+            NativeReplyDisposition::IgnoredStale
+        );
+        assert_eq!(
+            calls.begin(&current, now, Duration::from_secs(30)),
+            Ok(NativeRequestId(id.0 + 1))
+        );
+    }
+
+    #[test]
+    fn cancellation_and_deadline_keep_execution_uncertainty() {
+        let now = Instant::now();
+        let connection = connection("epoch-a", 1);
+        let mut calls = NativeCallRegistry::default();
+        calls.attach(connection.clone());
+        let cancelled = calls
+            .begin(&connection, now, Duration::from_secs(1))
+            .unwrap();
+        let timed_out = calls
+            .begin(&connection, now, Duration::from_secs(1))
+            .unwrap();
+        let cancelled_after_dispatch = calls
+            .begin(&connection, now, Duration::from_secs(1))
+            .unwrap();
+        let dispatched = calls
+            .begin(&connection, now, Duration::from_secs(1))
+            .unwrap();
+        calls
+            .mark_dispatched(&connection, cancelled_after_dispatch, now)
+            .unwrap();
+        calls.mark_dispatched(&connection, dispatched, now).unwrap();
+
+        assert_eq!(
+            calls.cancel(&connection, cancelled),
+            Ok(NativeCallOutcome::CancelledBeforeDispatch)
+        );
+        assert_eq!(
+            calls.cancel(&connection, cancelled_after_dispatch),
+            Ok(NativeCallOutcome::Uncertain)
+        );
+        assert_eq!(
+            calls.accept_reply(&connection, timed_out, now),
+            NativeReplyDisposition::IgnoredBeforeDispatch
+        );
+        let retired = calls.expire(now + Duration::from_secs(1));
+        assert_eq!(retired.len(), 2);
+        assert!(retired.iter().any(|call| {
+            call.id == timed_out && call.outcome == NativeCallOutcome::TimedOutBeforeDispatch
+        }));
+        assert!(retired
+            .iter()
+            .any(|call| { call.id == dispatched && call.outcome == NativeCallOutcome::Uncertain }));
+    }
+
+    #[test]
+    fn late_dispatched_reply_is_expired_as_uncertain() {
+        let now = Instant::now();
+        let connection = connection("epoch-a", 1);
+        let mut calls = NativeCallRegistry::default();
+        calls.attach(connection.clone());
+        let id = calls
+            .begin(&connection, now, Duration::from_secs(1))
+            .unwrap();
+        calls.mark_dispatched(&connection, id, now).unwrap();
+
+        assert_eq!(
+            calls.accept_reply(&connection, id, now + Duration::from_secs(1)),
+            NativeReplyDisposition::Expired(NativeCallOutcome::Uncertain)
+        );
+        assert!(calls.pending.is_empty());
+    }
+
+    #[test]
+    fn stale_disconnect_cannot_retire_the_current_connection() {
+        let now = Instant::now();
+        let old = connection("epoch-a", 1);
+        let current = connection("epoch-b", 1);
+        let mut calls = NativeCallRegistry::default();
+        calls.attach(old.clone());
+        calls.attach(current.clone());
+
+        assert!(calls.detach(&old).is_empty());
+        assert_eq!(
+            calls.begin(&current, now, Duration::from_secs(30)),
+            Ok(NativeRequestId(1))
+        );
+    }
 
     #[test]
     fn ui_events_redact_web_payloads_and_preserve_desktop_payloads() {
