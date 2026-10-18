@@ -436,6 +436,11 @@ async fn connect_native_host(
         view: Mutex::new(None),
         root_generation: Mutex::new(None),
         diagnostics: super::webview_diagnostics::DiagnosticsSession::new(diagnostics_mode),
+        #[cfg(debug_assertions)]
+        publish_dev_locator: super::webview_diagnostics::dev_locator_enabled(
+            cfg!(debug_assertions),
+            &install.launch_options.instance,
+        ),
         pending: Mutex::new(HashSet::new()),
         request_ids: Mutex::new(super::RequestReplayWindow::default()),
         cancellations: Mutex::new(VecDeque::new()),
@@ -557,6 +562,8 @@ struct NativeHostClient {
     view: Mutex<Option<NativeViewBinding>>,
     root_generation: Mutex<Option<super::ClientViewGeneration>>,
     diagnostics: super::webview_diagnostics::DiagnosticsSession,
+    #[cfg(debug_assertions)]
+    publish_dev_locator: bool,
     pending: Mutex<HashSet<NativeHostRequestId>>,
     request_ids: Mutex<super::RequestReplayWindow>,
     cancellations: Mutex<VecDeque<(NativeHostRequestId, oneshot::Sender<()>)>>,
@@ -621,7 +628,7 @@ impl NativeHostClient {
         }
         self.diagnostics.adopt_status(status.clone());
         #[cfg(debug_assertions)]
-        if std::env::var("CODETERM_DEV").as_deref() == Ok("1") {
+        if self.publish_dev_locator {
             if let Some(snapshot) = self.diagnostics_snapshot() {
                 eprintln!(
                     "DOMIOS_DEV_NATIVE_LOCATOR {}",

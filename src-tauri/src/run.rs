@@ -578,6 +578,28 @@ mod process_split_contract_client_composition {
     }
 
     #[test]
+    fn dev_diagnostics_publication_uses_captured_selector_not_scrubbed_environment() {
+        let arguments = [std::ffi::OsString::from(
+            "--local-webview-diagnostics-port=9223",
+        )];
+        assert!(matches!(
+            crate::preflight_client_arguments(&arguments).unwrap(),
+            crate::ClientArgumentPreflight::Native(_)
+        ));
+        let selector = select_client_instance(true, None, Some(OsStr::new("7686"))).unwrap();
+        assert!(crate::host_ports::webview_diagnostics::dev_locator_enabled(
+            true, &selector
+        ));
+        assert!(!crate::host_ports::webview_diagnostics::dev_locator_enabled(false, &selector));
+        assert!(
+            !crate::host_ports::webview_diagnostics::dev_locator_enabled(
+                true,
+                &InstanceSelector::Production
+            )
+        );
+    }
+
+    #[test]
     fn production_selection_ignores_inherited_launch_selectors() {
         assert!(matches!(
             select_client_instance(false, Some(OsStr::new("foreign")), Some(OsStr::new("7686")))
