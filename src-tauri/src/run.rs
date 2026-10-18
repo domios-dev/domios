@@ -216,6 +216,13 @@ fn client_exit_confirmed() -> bool {
 }
 
 fn request_client_quit(app: &codeterm_host_runtime::app_runtime::AppHandle) {
+    let _ = request_client_quit_exact(app, None);
+}
+
+pub(crate) fn request_client_quit_exact(
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    expected: Option<codeterm_types::app_quit::QuitSnapshot>,
+) -> Result<(), codeterm_types::app_quit::QuitRefusal> {
     use crate::host_ports::{
         native_client::{ExactServerShutdownResult, NativeHostClientSlot},
         ServerApiAttachmentSlot,
@@ -231,7 +238,7 @@ fn request_client_quit(app: &codeterm_host_runtime::app_runtime::AppHandle) {
                 QuitFeedback::Waiting
             };
             show_quit_feedback(app, feedback);
-            return;
+            return Err(codeterm_types::app_quit::QuitRefusal::Busy);
         }
     };
     let native = app
@@ -244,11 +251,14 @@ fn request_client_quit(app: &codeterm_host_runtime::app_runtime::AppHandle) {
         crash::exit::refuse_client_exit_before_dispatch(ticket);
         log::debug!("[client] quit refused before dispatch: authenticated attachment unavailable");
         show_quit_feedback(app, QuitFeedback::Refused);
-        return;
+        return Err(codeterm_types::app_quit::QuitRefusal::Unavailable);
     };
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        match native.request_exact_server_shutdown(&api).await {
+        match native
+            .request_exact_server_shutdown(&api, expected.as_ref())
+            .await
+        {
             ExactServerShutdownResult::Confirmed {
                 server,
                 client_generation,
@@ -270,6 +280,7 @@ fn request_client_quit(app: &codeterm_host_runtime::app_runtime::AppHandle) {
             }
         }
     });
+    Ok(())
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
