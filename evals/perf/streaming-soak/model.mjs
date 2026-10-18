@@ -25,19 +25,29 @@ export function admitDevSurface({health,provenance,instance='',port=7686,surface
       Number(gui.cdp_port) === native && Number.isInteger(vite) && vite > 0 && vite <= 65535 && vite !== 7685,
     'Legacy client target differs from selected provenance');
   }
-  if (surface === 'native' && !legacy) return {available:false,reason:'Native CDP locator unavailable for independent server'};
+  const locator = surface === 'native' && !legacy ? provenance.nativeClient : null;
+  if (surface === 'native' && !legacy && !locator) return {available:false,reason:'Native CDP locator unavailable for independent server'};
+  if (locator) {
+    requireValue(locator.platform === 'windows' && locator.snapshot?.status?.status === 'active' &&
+      locator.snapshot.status.payload.port === native && Number.isSafeInteger(locator.navigationGeneration) && locator.navigationGeneration > 0 &&
+      Number.isSafeInteger(locator.snapshot.status.payload.view_generation) && locator.snapshot.status.payload.view_generation > 0 &&
+      Number.isSafeInteger(locator.snapshot.client_process?.pid) && locator.snapshot.client_process.pid > 0 &&
+      /^[0-9]+$/.test(locator.snapshot.client_process.created??'') &&
+      [port,vite].some(value=>locator.origin===`http://127.0.0.1:${value}`),'Invalid native client locator');
+  }
   const cdpPort = surface === 'chrome'?Number(cdp):native;
   requireValue(Number.isInteger(cdpPort) && cdpPort >= 1024 && cdpPort <= 65535 && cdpPort !== 7685 && cdpPort !== port,
     'Invalid explicit DEV diagnostic port');
   requireValue(surface !== 'chrome' || Boolean(target) && (!legacy || cdpPort !== native),
     'Browser requires a separate explicit CDP port and target ID');
   return {available:true,surface,cdpPort,target:surface === 'chrome'?target:null,
-    origin:`http://127.0.0.1:${legacy?vite:port}`,vitePort:legacy?vite:null};
+    origin:locator?locator.origin:`http://127.0.0.1:${legacy?vite:port}`,vitePort:legacy?vite:null, ...(locator?{locator}: {})};
 }
 export function validateDevSurfaceTarget(admission,target) {
   requireValue(admission.available && target?.type === 'page' && Boolean(target.id), 'DEV page target unavailable');
   requireValue(!admission.target || target.id === admission.target, 'Explicit Browser target mismatch');
   requireValue(new URL(target.url).origin === admission.origin, 'Browser target must serve the admitted DEV origin');
+  if (admission.locator) requireValue(new URL(target.url).searchParams.get('__codeterm_client_view') === `${admission.locator.snapshot.status.payload.view_generation}:${admission.locator.navigationGeneration}`,'Native view incarnation drift');
   const socket = new URL(target.webSocketDebuggerUrl);
   requireValue(socket.protocol === 'ws:' && socket.hostname === '127.0.0.1' && Number(socket.port) === admission.cdpPort &&
     socket.pathname === `/devtools/page/${target.id}`, 'DEV page diagnostic socket mismatch');
@@ -165,4 +175,13 @@ export function functionalVisitTarget(method,targetOther=false) {
 export function chatVisitEvidence(phase,mounted,markerPresent,hasMarker) {
   if (!['setup','replay'].includes(phase)) throw Error('Invalid chat visit phase');
   return mounted === true && (phase === 'replay' || !hasMarker || markerPresent === true);
+}
+
+export function validateNativeLocatorEvidence(locator,process,snapshot) {
+  const expected=locator.snapshot.client_process;
+  const image=value=>value.replaceAll('\\','/').replace(/^\/\/\?\//,'').toLowerCase();
+  requireValue(process.pid === expected.pid && process.createdFiletime === expected.created &&
+    typeof process.executable === 'string' && image(process.executable) === image(expected.executable), 'Native client process incarnation drift');
+  requireValue(isDeepStrictEqual(snapshot,locator.snapshot),'Native authenticated diagnostics snapshot drift');
+  return {pid:expected.pid,created:expected.created,executable:expected.executable,viewGeneration:locator.snapshot.status.payload.view_generation,navigationGeneration:locator.navigationGeneration,connection:locator.snapshot.connection,viewSession:locator.snapshot.view_session};
 }

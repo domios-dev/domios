@@ -538,8 +538,9 @@ forced external Browser targets onto Vite. Split DEV inspection now reads the se
 schema3 provenance and pins full server build/name/API identity, then admits only the
 explicit Browser target at the API-served DEV origin. It hashes actual served HTML and
 entry script bytes. Target/socket/renderer PID/incarnation/native-bridge refusals remain.
-Legacy combined-role target checks stay strict. Split native inspection returns locator
-unavailable rather than inventing CDP from client configuration or blank server fields.
+Legacy combined-role target checks stay strict. Split native inspection uses the
+checked Windows debug locator described below; without it inspection remains unavailable
+rather than inventing CDP from client configuration or blank server fields.
 Parent Browser authentication and live fixture work remain separate authorized steps.
 
 ### Browser-wide renderer count blocks functional replay
@@ -616,3 +617,22 @@ return, final reads and after-return use replay phase: exact selected owned moun
 remains required, while dispatch/final-read retain exact replay tail evidence.
 The setup marker may disappear after normalized reseed/virtualization; requiring it
 then caused a pre-input readiness refusal, not proof of app storage failure.
+
+
+### Windows split native inspection locator
+
+Supported dev/dev-prebuilt selects the existing instance-specific CDP port and
+passes the finite local diagnostics option only to the Windows debug native client.
+WebView2 binds loopback; release builds do not enable it through this path. No
+server/CLI/PTY argument or credentials are forwarded. The existing client verifier
+checks exact main-view generation and WebView process lineage before Active.
+The launcher records the checked snapshot, origin, client PID/kernel creation identity
+and view/navigation generation in schema3 provenance nativeClient after authenticated
+attachment. Each new launch clears the old locator. Inspect refuses process creation,
+executable, current native snapshot or view-target generation mismatch. The native
+renderer attribution rules stay strict; functional mode still makes no memory claim.
+macOS WKWebView and Linux WebKitGTK do not expose this Windows WebView2 CDP seam;
+no locator is published there. Their native inspection remains unavailable.
+Use the existing streaming-soak inspect --surface native after the parent rebuild;
+no external Browser endpoint or guessed native renderer is substituted. The frozen
+58a pair has no new locator and must remain untouched until coordinated rebuild.

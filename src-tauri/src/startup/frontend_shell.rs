@@ -325,7 +325,8 @@ pub fn create_window(
         .state::<crate::ClientStartupOptions>()
         .local_webview_diagnostics
     {
-        let available = crate::host_ports::webview_diagnostics::port_is_available(port);
+        let available = cfg!(debug_assertions)
+            && crate::host_ports::webview_diagnostics::port_is_available(port);
         if let Some(slot) =
             app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>()
         {
