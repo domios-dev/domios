@@ -49,6 +49,15 @@ mod store_index_tests {
     }
 
     fn write_channel(dir: &Path, name: &str, plugins: &[(&str, &str)]) {
+        write_channel_with_retired(dir, name, plugins, &[]);
+    }
+
+    fn write_channel_with_retired(
+        dir: &Path,
+        name: &str,
+        plugins: &[(&str, &str)],
+        retired: &[&str],
+    ) {
         std::fs::create_dir_all(dir).unwrap();
         let entries = plugins
             .iter()
@@ -56,7 +65,13 @@ mod store_index_tests {
             .collect::<Vec<_>>();
         std::fs::write(
             dir.join("channel.json"),
-            serde_json::json!({"schemaVersion": 1, "name": name, "plugins": entries}).to_string(),
+            serde_json::json!({
+                "schemaVersion": 1,
+                "name": name,
+                "plugins": entries,
+                "retired": retired
+            })
+            .to_string(),
         )
         .unwrap();
         for (id, path) in plugins {
@@ -978,6 +993,53 @@ exit /b 0
             assert!(!plugin_dir(&PluginId::validated("extra-system")).exists());
 
             restore_env("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", prev_system_url);
+        });
+    }
+
+    #[test]
+    fn update_system_retires_manifest_listed_legacy_plugins_without_install_records() {
+        with_data_root(|root| {
+            let previous_url = std::env::var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL").ok();
+            let source = root.join("system-source");
+            write_channel_with_retired(&source, SYSTEM_CHANNEL_NAME, &[], &["codex-cloud"]);
+            std::env::set_var(
+                "CODETERM_SYSTEM_PLUGIN_CHANNEL_URL",
+                format!("file://{}", source.display()),
+            );
+
+            let legacy_dir = plugins_root().join("codex-cloud");
+            let legacy_data = root.join("legacy-data");
+            std::fs::create_dir_all(&legacy_dir).unwrap();
+            std::fs::create_dir_all(&legacy_data).unwrap();
+            std::fs::write(
+                legacy_dir.join("plugin.json"),
+                serde_json::json!({
+                    "id": "codex-cloud",
+                    "version": "0.1.0",
+                    "dataPaths": [legacy_data.display().to_string()]
+                })
+                .to_string(),
+            )
+            .unwrap();
+
+            let first = update_system_command(None).expect("manifest retirement succeeds");
+            assert_eq!(first["retired"], serde_json::json!(["codex-cloud"]));
+            assert!(!legacy_dir.exists());
+            assert!(legacy_data.is_dir());
+
+            let second = update_system_command(None).expect("repeat sync is idempotent");
+            assert_eq!(second["retired"], serde_json::json!([]));
+            let events = std::fs::read_to_string(audit_log_path()).unwrap();
+            let retirements = events
+                .lines()
+                .filter(|line| {
+                    let event: serde_json::Value = serde_json::from_str(line).unwrap();
+                    event["kind"] == "retire" && event["plugin"] == "codex-cloud"
+                })
+                .count();
+            assert_eq!(retirements, 1);
+
+            restore_env("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", previous_url);
         });
     }
 
