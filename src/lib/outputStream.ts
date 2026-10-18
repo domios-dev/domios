@@ -17,6 +17,7 @@ import {
 import { createTransportClient, type TransportClient } from "./transportClient";
 import { TerminalOutputReplay } from "./outputReplay";
 import { planOutputResync } from "./outputResync";
+import { planOutputReconnect } from "./outputReconnect";
 import { DEV_BUILD } from "./devBuild";
 import { acceptsTerminalOutput } from "./terminalFrameGate";
 
@@ -29,6 +30,7 @@ export function bindOutputStreamTransport(client: TransportClient): void {
   outputClient = client;
   resetOutputStream();
   for (const [tabId, record] of remoteRecords) {
+    cancelRemoteOutputReconnect(record);
     record.controller?.abort();
     openRemoteOutputConnection(tabId, record);
   }
@@ -299,6 +301,7 @@ function subscribeRemoteTabOutput(
   const cursor = existing?.recovery.currentCursor();
   const identity = sinkIdentities.get(sink);
   if (existing && cursor && identity && replay.offset(identity.terminal, ordinaryTabId, cursor.boot ?? "", identity.ptyId) < cursor.offset) {
+    cancelRemoteOutputReconnect(existing);
     existing.recovery.dispose();
     existing.controller?.abort();
     remoteRecords.delete(ordinaryTabId);
@@ -312,6 +315,7 @@ function subscribeRemoteTabOutput(
     if (set!.size === 0) {
       remoteSinks.delete(ordinaryTabId);
       const record = remoteRecords.get(ordinaryTabId);
+      if (record) cancelRemoteOutputReconnect(record);
       record?.recovery.dispose();
       record?.controller?.abort();
       remoteRecords.delete(ordinaryTabId);
@@ -327,6 +331,9 @@ interface RemoteOutputCursor {
 
 interface RemoteOutputRecord {
   peerId: string;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+  failures: number;
+  openedAt: number;
   controller: AbortController | null;
   recovery: RemoteChannelRecovery<RemoteOutputCursor>;
   settlements: Map<number, { promise: Promise<void>; resolve: () => void }>;
@@ -354,6 +361,9 @@ function startRemoteTabOutput(ordinaryTabId: string, peerId: string): void {
   if (!record) {
     record = {
       peerId,
+      reconnectTimer: null,
+      failures: 0,
+      openedAt: 0,
       controller: null,
       recovery: createRemoteChannelRecovery<RemoteOutputCursor>({
         channel: "output",
@@ -366,11 +376,13 @@ function startRemoteTabOutput(ordinaryTabId: string, peerId: string): void {
     remoteRecords.set(ordinaryTabId, record);
   }
   record.peerId = peerId;
-  if (record.controller && !record.controller.signal.aborted) return;
+  if (record.reconnectTimer !== null || (record.controller && !record.controller.signal.aborted)) return;
   openRemoteOutputConnection(ordinaryTabId, record);
 }
 
 function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputRecord): void {
+  cancelRemoteOutputReconnect(record);
+  record.openedAt = performance.now();
   const remoteTabId = parseCompositeTabId(ordinaryTabId)?.remoteTabId;
   const generation = record.recovery.beginConnection();
   let settle!: () => void;
@@ -401,8 +413,8 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
     },
     onEnd(end) {
       deadline.clear();
-      const reason: StreamEndReason = end.reason === "http"
-        ? streamResponseFailureReason(end.status ?? 500) : end.reason === "eof" ? "eof" : "error";
+      const reason: StreamEndReason | "abort" = end.reason === "http"
+        ? streamResponseFailureReason(end.status ?? 500) : end.reason === "abort" ? "abort" : end.reason === "eof" ? "eof" : "error";
       if (!abort.signal.aborted && record.recovery.isCurrent(generation) && (end.error || end.reason === "capacity")) {
         const error = end.error instanceof Error ? end.error : new Error(end.reason === "capacity" ? `SSE capacity exceeded (${end.bytes} bytes)` : String(end.error));
         for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onStreamError?.(error);
@@ -473,16 +485,34 @@ function finalizeRemoteOutputConnection(
   record: RemoteOutputRecord,
   generation: number,
   abort: AbortController,
-  reason: StreamEndReason,
+  reason: StreamEndReason | "abort",
 ): void {
-  const decision = record.recovery.handleStreamEnd(generation, reason);
+  const decision = reason === "abort"
+    ? record.recovery.isCurrent(generation) ? "wait" : "stale"
+    : record.recovery.handleStreamEnd(generation, reason);
   resolveRemoteSettlement(record, generation);
   if (decision === "stale") return; // superseded/disposed: the current generation owns controller + state.
   record.controller = null;
-  if (abort.signal.aborted) return; // unsubscribe/forced abort: the caller drives the next connection.
-  if (!remoteSinks.has(ordinaryTabId)) return;
-  if (decision === "reconnect") openRemoteOutputConnection(ordinaryTabId, record);
-  // decision === "wait": stay dark until resumeRemoteOutputStreams() signals a resync.
+  const plan = planOutputReconnect({
+    failures: record.failures,
+    connectedMs: performance.now() - record.openedAt,
+    reason: abort.signal.aborted ? "abort" : reason,
+    current: record.recovery.isCurrent(generation),
+    subscribed: remoteSinks.has(ordinaryTabId),
+  });
+  if (!plan) return;
+  record.failures = plan.failures;
+  record.reconnectTimer = setTimeout(() => {
+    record.reconnectTimer = null;
+    if (remoteRecords.get(ordinaryTabId) === record && remoteSinks.has(ordinaryTabId)
+      && record.recovery.isCurrent(generation)) openRemoteOutputConnection(ordinaryTabId, record);
+  }, plan.delayMs);
+}
+
+function cancelRemoteOutputReconnect(record: RemoteOutputRecord): void {
+  if (record.reconnectTimer === null) return;
+  clearTimeout(record.reconnectTimer);
+  record.reconnectTimer = null;
 }
 
 function resolveRemoteSettlement(record: RemoteOutputRecord, generation: number): void {
@@ -499,6 +529,7 @@ export function resumeRemoteOutputStreams(): void {
     // Never supersede a connection still awaiting its first frame — that dropped the initial replay and blanked the remote terminal.
     if (record.recovery.currentCursor() == null && !record.recovery.isAwaitingSignal()) continue;
     if (record.recovery.signal() === "stale") continue;
+    cancelRemoteOutputReconnect(record);
     record.controller?.abort();
     openRemoteOutputConnection(ordinaryTabId, record);
   }
