@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::{net::SocketAddr, path::PathBuf};
+use std::{
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
 
 /// Protocol 2 Shutdown replies attest successful required cleanup before process exit.
 pub const BOOTSTRAP_PROTOCOL: u32 = 2;
@@ -104,7 +107,15 @@ pub struct AttachReply {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InstanceSelector {
     Production,
-    Development { instance: Option<String>, port: u16 },
+    Development {
+        instance: Option<String>,
+        port: u16,
+    },
+    IsolatedVerification {
+        data_dir: PathBuf,
+        config_dir: PathBuf,
+        bind: SocketAddr,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -147,9 +158,101 @@ impl LaunchOptions {
                     Ok(())
                 }
             }
+            InstanceSelector::IsolatedVerification {
+                data_dir,
+                config_dir,
+                bind,
+            } if !development_artifact => validate_isolated_verification(
+                data_dir,
+                config_dir,
+                *bind,
+                &dirs::home_dir()
+                    .ok_or_else(|| std::io::Error::other("Cannot determine the user data root"))?,
+            ),
             _ => Err(std::io::Error::other(
                 "Instance selector does not match server artifact",
             )),
         }
     }
 }
+
+fn validate_isolated_verification(
+    data_dir_path: &Path,
+    config_dir_path: &Path,
+    bind: SocketAddr,
+    home: &Path,
+) -> std::io::Result<()> {
+    if !bind.ip().is_loopback() || matches!(bind.port(), 0 | 7685 | 7686) {
+        return Err(std::io::Error::other(
+            "Isolated verification requires a private loopback port",
+        ));
+    }
+    let data_dir = canonical_isolated_directory(data_dir_path, "data")?;
+    let config_dir = canonical_isolated_directory(config_dir_path, "config")?;
+    if data_dir == config_dir {
+        return Err(std::io::Error::other(
+            "Isolated verification data and config directories must differ",
+        ));
+    }
+    validate_isolated_config_file(&config_dir)?;
+    let home = home.canonicalize()?;
+    if is_user_codeterm_directory(data_dir_path, &home)
+        || is_user_codeterm_directory(config_dir_path, &home)
+        || is_user_codeterm_directory(&data_dir, &home)
+        || is_user_codeterm_directory(&config_dir, &home)
+    {
+        return Err(std::io::Error::other(
+            "Isolated verification refuses user CodeTerm directories",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_isolated_config_file(config_dir: &Path) -> std::io::Result<()> {
+    let config_file = config_dir.join("config.toml");
+    match std::fs::symlink_metadata(&config_file) {
+        Ok(_) => {
+            let resolved = config_file.canonicalize()?;
+            if resolved.parent() != Some(config_dir) {
+                return Err(std::io::Error::other(
+                    "Isolated verification config file must stay in its config directory",
+                ));
+            }
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+fn canonical_isolated_directory(path: &Path, label: &str) -> std::io::Result<PathBuf> {
+    if !path.is_absolute() {
+        return Err(std::io::Error::other(format!(
+            "Isolated verification {label} directory must be absolute"
+        )));
+    }
+    let canonical = path.canonicalize()?;
+    if !canonical.is_dir() {
+        return Err(std::io::Error::other(format!(
+            "Isolated verification {label} path must be a directory"
+        )));
+    }
+    Ok(canonical)
+}
+
+fn is_user_codeterm_directory(path: &Path, home: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(home) else {
+        return false;
+    };
+    relative.components().any(|component| {
+        let name = component.as_os_str().to_string_lossy();
+        if cfg!(windows) {
+            name.to_ascii_lowercase().starts_with(".codeterm")
+        } else {
+            name.starts_with(".codeterm")
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests;

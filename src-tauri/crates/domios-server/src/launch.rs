@@ -1,16 +1,25 @@
 use std::{
     io::{self, BufRead, Read, Write},
+    net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
 };
 
+use codeterm_types::server_bootstrap::{AttachRequest, BootstrapOperation, ServerExpectation};
 pub use codeterm_types::server_bootstrap::{InstanceSelector, LaunchOptions};
 
-pub const HUMAN_START_USAGE: &str = "domios-server start --production [--resources PATH] [--json]\nDebug artifact: domios-server start --development --port PORT [--instance NAME] [--resources PATH] [--json]";
+pub const HUMAN_START_USAGE: &str = "domios-server start --production [--resources PATH] [--json]\nDebug artifact: domios-server start --development --port PORT [--instance NAME] [--resources PATH] [--json]\nRelease artifact: domios-server start --verify-isolated --data-dir ABS_DIR --config-dir ABS_DIR --port PORT";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HumanStartMode {
+    Detached,
+    IsolatedVerification,
+}
 
 pub struct HumanStart {
     pub options: LaunchOptions,
     pub json: bool,
+    pub mode: HumanStartMode,
 }
 
 pub fn human_start_options(
@@ -18,6 +27,9 @@ pub fn human_start_options(
     executable: &Path,
     development_artifact: bool,
 ) -> io::Result<HumanStart> {
+    if args.first().is_some_and(|arg| arg == "--verify-isolated") {
+        return isolated_verification_options(args, executable, development_artifact);
+    }
     let mut selector = None;
     let mut instance = None;
     let mut port = None;
@@ -59,11 +71,7 @@ pub fn human_start_options(
     };
     let resources = match resources {
         Some(path) => path,
-        None => executable
-            .parent()
-            .and_then(Path::parent)
-            .ok_or_else(|| io::Error::other("Common resource root unavailable"))?
-            .to_owned(),
+        None => common_resources(executable)?,
     };
     let options = LaunchOptions {
         instance,
@@ -72,7 +80,79 @@ pub fn human_start_options(
         probe_identity_alias: None,
     };
     options.validate(development_artifact)?;
-    Ok(HumanStart { options, json })
+    Ok(HumanStart {
+        options,
+        json,
+        mode: HumanStartMode::Detached,
+    })
+}
+
+fn isolated_verification_options(
+    args: &[String],
+    executable: &Path,
+    development_artifact: bool,
+) -> io::Result<HumanStart> {
+    let mut verify = false;
+    let mut data_dir = None;
+    let mut config_dir = None;
+    let mut port = None;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--verify-isolated" if !verify => verify = true,
+            "--data-dir" if data_dir.is_none() => {
+                data_dir = Some(PathBuf::from(human_value(&mut args)?));
+            }
+            "--config-dir" if config_dir.is_none() => {
+                config_dir = Some(PathBuf::from(human_value(&mut args)?));
+            }
+            "--port" if port.is_none() => {
+                port =
+                    Some(human_value(&mut args)?.parse::<u16>().map_err(|_| {
+                        io::Error::other("Isolated verification port must be a u16")
+                    })?);
+            }
+            _ => {
+                return Err(io::Error::other(
+                    "Unknown or repeated isolated verification option",
+                ))
+            }
+        }
+    }
+    if !verify {
+        return Err(io::Error::other(
+            "Isolated verification mode must be explicit",
+        ));
+    }
+    let options = LaunchOptions {
+        instance: InstanceSelector::IsolatedVerification {
+            data_dir: data_dir
+                .ok_or_else(|| io::Error::other("Verification requires --data-dir"))?,
+            config_dir: config_dir
+                .ok_or_else(|| io::Error::other("Verification requires --config-dir"))?,
+            bind: SocketAddr::new(
+                Ipv4Addr::LOCALHOST.into(),
+                port.ok_or_else(|| io::Error::other("Verification requires --port"))?,
+            ),
+        },
+        resources: common_resources(executable)?,
+        probe_sink: None,
+        probe_identity_alias: None,
+    };
+    options.validate(development_artifact)?;
+    Ok(HumanStart {
+        options,
+        json: false,
+        mode: HumanStartMode::IsolatedVerification,
+    })
+}
+
+fn common_resources(executable: &Path) -> io::Result<PathBuf> {
+    executable
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_owned)
+        .ok_or_else(|| io::Error::other("Common resource root unavailable"))
 }
 
 fn human_value<'a>(args: &mut std::slice::Iter<'a, String>) -> io::Result<&'a str> {
@@ -101,14 +181,52 @@ pub fn write_human_ready(
     output.flush()
 }
 
+pub fn write_isolated_ready(
+    output: &mut impl Write,
+    ready: &crate::bootstrap::protocol::ServerReady,
+) -> io::Result<()> {
+    if !ready.api_address.ip().is_loopback() {
+        return Err(io::Error::other(
+            "Isolated verification server did not bind loopback",
+        ));
+    }
+    serde_json::to_writer(
+        &mut *output,
+        &serde_json::json!({
+            "type": "READY",
+            "build": ready.build,
+            "port": ready.api_address.port(),
+        }),
+    )
+    .map_err(io::Error::other)?;
+    output.write_all(b"\n")?;
+    output.flush()
+}
+
 pub fn launch_service(
     executable: &Path,
     options: &LaunchOptions,
 ) -> io::Result<crate::bootstrap::protocol::AttachReply> {
+    let (child, reply) = launch_child(executable, options)?;
+    drop(child);
+    Ok(reply)
+}
+
+fn launch_child(
+    executable: &Path,
+    options: &LaunchOptions,
+) -> io::Result<(Child, crate::bootstrap::protocol::AttachReply)> {
     use crate::bootstrap::{process::PinnedProcess, protocol::FAILURE_DEADLINE};
     options.validate(cfg!(debug_assertions))?;
     let executable = executable.canonicalize()?;
-    let mut child = spawn_detached(&executable)?;
+    let mut child = if matches!(
+        &options.instance,
+        InstanceSelector::IsolatedVerification { .. }
+    ) {
+        spawn_supervised(&executable)?
+    } else {
+        spawn_detached(&executable)?
+    };
     let result = (|| {
         let mut stdin = child
             .stdin
@@ -148,11 +266,140 @@ pub fn launch_service(
         }
         Ok(reply)
     })();
-    if result.is_err() && child.try_wait()?.is_none() {
-        child.kill()?;
-        child.wait()?;
+    match result {
+        Ok(reply) => Ok((child, reply)),
+        Err(error) => {
+            if child.try_wait()?.is_none() {
+                child.kill()?;
+                child.wait()?;
+            }
+            Err(error)
+        }
     }
-    result
+}
+
+pub fn run_isolated_verification(executable: &Path, options: &LaunchOptions) -> io::Result<()> {
+    let InstanceSelector::IsolatedVerification {
+        data_dir,
+        config_dir,
+        bind,
+    } = &options.instance
+    else {
+        return Err(io::Error::other(
+            "Isolated verification requires its explicit launch mode",
+        ));
+    };
+    let expected_data = data_dir.canonicalize()?;
+    let expected_config = config_dir.canonicalize()?;
+    let (mut child, reply) = launch_child(executable, options)?;
+    let ready_matches = reply.ready.identity.data == expected_data
+        && reply.ready.identity.config == expected_config
+        && reply.ready.api_address == *bind;
+    if !ready_matches {
+        stop_child_after_failure(&mut child, &reply.ready, executable);
+        return Err(io::Error::other(
+            "Isolated verification readiness does not match its requested identity",
+        ));
+    }
+    if let Err(error) = write_isolated_ready(&mut io::stdout().lock(), &reply.ready) {
+        stop_child_after_failure(&mut child, &reply.ready, executable);
+        return Err(error);
+    }
+
+    let wait_result = wait_for_isolated_verification_stop();
+    let shutdown_result = request_server_shutdown(&reply.ready, executable);
+    if let Err(error) = shutdown_result {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
+    let status = child.wait()?;
+    wait_result?;
+    if !status.success() {
+        return Err(io::Error::other(
+            "Isolated verification server exited unsuccessfully",
+        ));
+    }
+    Ok(())
+}
+
+fn stop_child_after_failure(
+    child: &mut Child,
+    ready: &crate::bootstrap::protocol::ServerReady,
+    executable: &Path,
+) {
+    if request_server_shutdown(ready, executable).is_err() {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+}
+
+fn request_server_shutdown(
+    ready: &crate::bootstrap::protocol::ServerReady,
+    executable: &Path,
+) -> io::Result<()> {
+    use crate::bootstrap::{
+        channel,
+        protocol::{BOOTSTRAP_PROTOCOL, FAILURE_DEADLINE},
+    };
+    let request = AttachRequest {
+        protocol: BOOTSTRAP_PROTOCOL,
+        api_version: ready.api_version,
+        build: ready.build.clone(),
+        identity: ready.identity.clone(),
+        challenge: uuid::Uuid::new_v4().to_string(),
+        operation: BootstrapOperation::Shutdown,
+        expected: Some(ServerExpectation {
+            process: ready.process.clone(),
+            epoch: ready.epoch.clone(),
+        }),
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let (_, process) = runtime.block_on(channel::attach(&request, executable))?;
+    process.wait_exit(FAILURE_DEADLINE)
+}
+
+fn wait_for_isolated_verification_stop() -> io::Result<()> {
+    use tokio::io::AsyncReadExt;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(async {
+        let mut stdin = tokio::io::stdin();
+        let mut bytes = [0u8; 256];
+        let interrupt = tokio::signal::ctrl_c();
+        tokio::pin!(interrupt);
+        #[cfg(unix)]
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        loop {
+            #[cfg(unix)]
+            tokio::select! {
+                read = stdin.read(&mut bytes) => {
+                    if read? == 0 {
+                        return Ok(());
+                    }
+                }
+                result = &mut interrupt => return result,
+                signal = terminate.recv() => {
+                    if signal.is_some() {
+                        return Ok(());
+                    }
+                }
+            }
+            #[cfg(windows)]
+            tokio::select! {
+                read = stdin.read(&mut bytes) => {
+                    if read? == 0 {
+                        return Ok(());
+                    }
+                }
+                result = &mut interrupt => return result,
+            }
+        }
+    })
 }
 
 pub(crate) fn verify_identity(
@@ -190,6 +437,8 @@ pub fn install_selectors(options: &LaunchOptions) -> io::Result<()> {
         "CODETERM_SOCKET_PATH",
         "CODETERM_INSTANCE",
         "CODETERM_DATA_DIR",
+        "CODETERM_CONFIG_DIR",
+        "CODETERM_VERIFY_ISOLATED",
         "CODETERM_DEV",
         "CODETERM_DEV_INSTANCE",
         "CODETERM_DEV_API_PORT",
@@ -209,6 +458,19 @@ pub fn install_selectors(options: &LaunchOptions) -> io::Result<()> {
             if let Some(instance) = instance {
                 std::env::set_var("CODETERM_INSTANCE", instance);
             }
+        }
+        InstanceSelector::IsolatedVerification {
+            data_dir,
+            config_dir,
+            bind,
+        } => {
+            let data_dir = data_dir.canonicalize()?;
+            let config_dir = config_dir.canonicalize()?;
+            std::env::set_var("CODETERM_DATA_DIR", data_dir);
+            std::env::set_var("CODETERM_CONFIG_DIR", config_dir);
+            std::env::set_var("CODETERM_API_PORT", bind.port().to_string());
+            std::env::set_var("CODETERM_VERIFY_ISOLATED", "1");
+            std::env::set_var("CODETERM_MACHINE_OWNER", "false");
         }
     }
     Ok(())
@@ -273,6 +535,16 @@ pub fn spawn_detached(executable: &Path) -> io::Result<Child> {
             });
         }
     }
+    command.spawn()
+}
+
+fn spawn_supervised(executable: &Path) -> io::Result<Child> {
+    let mut command = Command::new(executable.canonicalize()?);
+    command
+        .arg("serve")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
     command.spawn()
 }
 

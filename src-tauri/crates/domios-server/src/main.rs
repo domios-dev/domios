@@ -4,7 +4,8 @@ use domios_server::{
         protocol::{with_observation_preflight, AttachReply, AttachRequest, FAILURE_DEADLINE},
     },
     launch::{
-        human_start_options, launch_service, write_human_ready, LaunchOptions, HUMAN_START_USAGE,
+        human_start_options, launch_service, run_isolated_verification, write_human_ready,
+        HumanStartMode, LaunchOptions, HUMAN_START_USAGE,
     },
 };
 use std::io::{self, BufRead, Read, Write};
@@ -27,6 +28,9 @@ fn execute() -> io::Result<()> {
     if args.first().map(String::as_str) == Some("start") {
         let executable = std::env::current_exe()?.canonicalize()?;
         let start = human_start_options(&args[1..], &executable, cfg!(debug_assertions))?;
+        if start.mode == HumanStartMode::IsolatedVerification {
+            return run_isolated_verification(&executable, &start.options);
+        }
         let reply = launch_service(&executable, &start.options)?;
         return write_human_ready(&mut io::stdout().lock(), &reply.ready, start.json);
     }
