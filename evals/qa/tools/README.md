@@ -29,6 +29,8 @@ All live changes require the caller's existing grant. No helper starts/stops an 
 
 catalogue.mjs is a local metadata and release-record tool. It does not call DEV, production, Browser, or any live service.
 
+Run its unit coverage with `node --test evals/qa/tools/*.test.mjs`. The explicit wildcard works on Windows, where `node --test evals/qa/tools` is resolved as a module path instead of a test directory.
+
     node evals/qa/tools/catalogue.mjs validate
     node evals/qa/tools/catalogue.mjs list --id CUR-001
     node evals/qa/tools/catalogue.mjs list --tier release-core --surface web --platform windows --area messaging
