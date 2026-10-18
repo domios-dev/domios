@@ -100,10 +100,14 @@ export function muxBindings(state) {
   return Object.fromEntries(Object.entries(state.tabs).map(([id,tab]) => [id,{...tab,workspace_id:membership.get(id)??null}]));
 }
 export function validateResume(cp, actual, bindings) {
+  requireValue(cp?.pending === null && !cp.abort, 'Ambiguous unfinished or aborted replay; never replay');
+  return validateOwnedCheckpoint(cp,actual,bindings);
+}
+function validateOwnedCheckpoint(cp, actual, bindings) {
   requireValue(cp?.version === VERSION && cp.stage === 'ready', 'Checkpoint is not resumable');
   validateIdentity(cp.identity); validateIdentity(actual);
   requireValue(isDeepStrictEqual(cp.identity, actual), 'DEV identity drift');
-  requireValue(Number.isSafeInteger(cp.batch) && cp.batch >= 0 && cp.pending === null, 'Ambiguous unfinished batch; never replay');
+  requireValue(Number.isSafeInteger(cp.batch) && cp.batch >= 0, 'Invalid completed batch count');
   requireValue(typeof cp.run === 'string' && /^[a-f0-9-]{36}$/.test(cp.run), 'Invalid owner');
   requireValue(Array.isArray(cp.fixtures) && cp.fixtures.length === (cp.mode === 'replay'?2:1) && cp.terminal?.tab, 'Missing owned fixtures');
   const owned = [...cp.fixtures, cp.terminal];
@@ -121,6 +125,15 @@ export function cleanupPlan(cp, actual, bindings) {
   validateResume({...cp, stage:'ready'}, actual, bindings);
   requireValue(cp.pending === null, 'Unfinished batch');
   const tabs = [...cp.fixtures.map(f => f.tab), cp.terminal.tab];
+  requireValue(Object.entries(bindings).every(([id,tab]) => tab.workspace_id !== cp.workspace.id || tabs.includes(id)), 'Foreign tab in owned workspace');
+  return tabs;
+}
+export function abortReplayPlan(cp,actual,bindings) {
+  requireValue(cp?.mode === 'replay' && cp.replay?.status === 'running' &&
+    typeof cp.pending?.replay === 'string' && cp.pending.replay.length > 0 && cp.pending.replay === cp.replay.fingerprint,
+    'Abort requires exact unfinished replay evidence');
+  validateOwnedCheckpoint(cp,actual,bindings);
+  const tabs = [...cp.fixtures.map(f => f.tab),cp.terminal.tab];
   requireValue(Object.entries(bindings).every(([id,tab]) => tab.workspace_id !== cp.workspace.id || tabs.includes(id)), 'Foreign tab in owned workspace');
   return tabs;
 }
