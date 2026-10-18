@@ -494,9 +494,8 @@ fn validate_attach_reply(
         ));
     }
     startup_started(ClientStartupStage::ReplyValidation);
-    validate_ready(install, &reply.ready).map_err(|error| {
-        startup_io_error(ClientStartupStage::ReplyValidation, &error);
-        error
+    validate_ready(install, &reply.ready).inspect_err(|error| {
+        startup_io_error(ClientStartupStage::ReplyValidation, error);
     })?;
     Ok(reply)
 }

@@ -74,15 +74,14 @@ pub fn run(
             }
             #[cfg(unix)]
             install_client_signal_handlers(app_handle.clone());
-            let root = client_resource_root(&app_handle).map_err(|error| {
+            let root = client_resource_root(&app_handle).inspect_err(|error| {
                 crate::host_ports::native_client::startup_io_error(
                     crate::host_ports::native_client::ClientStartupStage::ResourceRoot,
-                    &error,
+                    error,
                 );
                 crate::host_ports::native_client::startup_refused(
                     crate::host_ports::native_client::ClientStartupStage::ResourceRoot,
                 );
-                error
             })?;
             let instance = selector.clone();
             tauri::async_runtime::spawn(async move {
@@ -90,12 +89,11 @@ pub fn run(
                     crate::host_ports::native_client::startup_started(
                         crate::host_ports::native_client::ClientStartupStage::Inventory,
                     );
-                    load_client_components(root, instance).map_err(|error| {
+                    load_client_components(root, instance).inspect_err(|error| {
                         crate::host_ports::native_client::startup_io_error(
                             crate::host_ports::native_client::ClientStartupStage::Inventory,
-                            &error,
+                            error,
                         );
-                        error
                     })
                 })
                 .await;
