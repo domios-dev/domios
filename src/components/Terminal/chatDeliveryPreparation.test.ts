@@ -5,10 +5,13 @@ import { markVoice } from "@codeterm/chat-core";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { clearRelayTarget, setRelayTarget } from "../../lib/webApi";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
-import { addChatSend, beginChatSendRetry, forgetChatSendsInMemory, readChatSends, setChatSendDraft } from "./chatSendStore";
+import { addChatSend, beginChatSendRetry, forgetChatSendsInMemory, readChatSends, setChatSendDraft,
+  __setChatSendRepositoryForTest, ensureChatSendTabHydrated } from "./chatSendStore";
 import { deliveryState } from "./chatDeliveryModel";
+import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 
 Object.defineProperty(globalThis, "localStorage", { value: window.localStorage, configurable: true });
+__setChatSendRepositoryForTest(new MemoryChatSendRepository());
 
 const path = "C:\\Users\\blackstar\\voice-note.webm";
 const peerPath = "/Users/eight/voice-note.webm";
@@ -35,6 +38,7 @@ test("remote voice preparation retains an explicit failure and retries the origi
   try {
     await assert.rejects(prepareChatDelivery(tab, original, expansion), /model not installed/);
     forgetChatSendsInMemory();
+    await ensureChatSendTabHydrated(tab);
     const failed = readChatSends(tab)[0];
     assert.equal(deliveryState(failed), "failed");
     assert.match(failed.content, /model not installed/);
