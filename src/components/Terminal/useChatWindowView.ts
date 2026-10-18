@@ -19,7 +19,7 @@ import {
   addChatSend,
   recordChatSendEchoes,
   updateChatSendContent,
-  useChatSends,
+  useChatSendSnapshot,
 } from "./chatSendStore";
 import {
   chatWindowAnchorIdentity,
@@ -59,7 +59,7 @@ export function useChatWindowView({
   followTailRef: MutableRefObject<boolean>;
   loadOlderPage: (beforeOffset: number, maxBytes: number) => Promise<OlderChatPage | null>;
 }) {
-  const sends = useChatSends(tabId);
+  const { sends, hydration } = useChatSendSnapshot(tabId);
   useChatSendDismissals(tabId);
   const [backfillLoading, setBackfillLoading] = useState(false);
   const backfillInFlightRef = useRef(false);
@@ -77,10 +77,13 @@ export function useChatWindowView({
   }, [committedRows]);
   const liveSends = useMemo(() => deliveryProjectionSends(sends, resetCutoffMs), [sends, resetCutoffMs]);
   const projection = useMemo(() => projectTranscript(transcript, liveSends), [transcript, liveSends]);
-  const allMessages = useMemo(() => projectContextEpochs(visibleDeliveryRows(projection.rows, sends, projection.echoes)), [projection, sends]);
+  const allMessages = useMemo(() => projectContextEpochs(hydration === "ready"
+    ? visibleDeliveryRows(projection.rows, sends, projection.echoes)
+    : projection.rows), [projection, sends, hydration]);
   useLayoutEffect(() => {
+    if (hydration !== "ready") return;
     recordChatSendEchoes(tabId, projection.echoes);
-  }, [projection, tabId]);
+  }, [hydration, projection, tabId]);
 
   // Both layers reuse prior objects for unchanged messages so MessageBubble
   // memo keeps skipping the ~220 untouched bubbles on every streamed chunk.

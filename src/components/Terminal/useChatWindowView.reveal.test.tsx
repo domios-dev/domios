@@ -7,6 +7,9 @@ import { Window } from "happy-dom";
 import { createTranscriptState, reduceTranscript, type TranscriptState } from "@codeterm/chat-core";
 import { useChatWindowView } from "./useChatWindowView";
 import { clearTranscriptWindows, useTranscriptWindow } from "./transcriptStore";
+import { __setChatSendRepositoryForTest, ensureChatSendTabHydrated, chatSendTabHydrationState } from "./chatSendStore";
+import { encodeChatSend } from "./chatSendDurableModel";
+import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 
 const authority = { sourceSessionId: "session", sessionBindingNonce: "nonce" };
 function page(state: TranscriptState, start: number, end: number) {
@@ -51,6 +54,99 @@ test("backfill rendered before request completion still reveals the merged older
   } finally {
     await act(async () => root.unmount());
     clearTranscriptWindows();
+    await browser.happyDOM.abort();
+  }
+});
+
+test("transcript history stays visible until a complete send ledger confirms dismissal", async () => {
+  const browser = new Window();
+  Object.defineProperties(globalThis, {
+    window: { configurable: true, value: browser }, document: { configurable: true, value: browser.document },
+    navigator: { configurable: true, value: browser.navigator }, IS_REACT_ACT_ENVIRONMENT: { configurable: true, value: true },
+  });
+  const tabId = "reveal-during-send-hydration";
+  const sendId = "owned-echo";
+  let finishHydration!: () => void;
+  const repository = new MemoryChatSendRepository();
+  repository.hydrationGate = new Promise<void>((resolve) => { finishHydration = resolve; });
+  repository.records.set(JSON.stringify([tabId, sendId]), encodeChatSend(tabId, {
+    id: sendId, correlationId: sendId, content: "owned text", sentAtMs: 1, dismissed: true,
+  }));
+  __setChatSendRepositoryForTest(repository);
+  const transcript = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority, range: { start: 0, end: 1, unit: "items" },
+    rows: [{ id: sendId, type: "user", content: "owned text", correlationId: sendId, timestamp: "1" }],
+  }).state;
+  let view: ReturnType<typeof useChatWindowView> | undefined;
+  function Harness() {
+    const followTailRef = useRef(true);
+    const { anchorKey } = useTranscriptWindow(`${tabId}:session`);
+    view = useChatWindowView({ tabId, windowKey: `${tabId}:session`, transcript, anchorKey, followTailRef,
+      loadOlderPage: async () => null,
+    });
+    return createElement("output", null, view.allMessages.map((message) => message.id).join(","));
+  }
+  const host = document.createElement("main");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(Harness)));
+    assert.equal(chatSendTabHydrationState(tabId), "pending");
+    assert.equal(host.textContent, sendId, "incomplete persistence cannot remove an authoritative transcript row");
+
+    await act(async () => {
+      finishHydration();
+      await ensureChatSendTabHydrated(tabId);
+    });
+    assert.equal(chatSendTabHydrationState(tabId), "ready");
+    assert.equal(host.textContent, "", "the complete persisted dismissal is applied to the projection");
+  } finally {
+    finishHydration();
+    await act(async () => root.unmount());
+    clearTranscriptWindows();
+    __setChatSendRepositoryForTest(null);
+    await browser.happyDOM.abort();
+  }
+});
+
+test("failed send hydration leaves the authoritative transcript projection intact", async () => {
+  const browser = new Window();
+  Object.defineProperties(globalThis, {
+    window: { configurable: true, value: browser }, document: { configurable: true, value: browser.document },
+    navigator: { configurable: true, value: browser.navigator }, IS_REACT_ACT_ENVIRONMENT: { configurable: true, value: true },
+  });
+  const tabId = "reveal-after-send-storage-error";
+  let finishHydration!: () => void;
+  const repository = new MemoryChatSendRepository();
+  repository.hydrationGate = new Promise<void>((resolve) => { finishHydration = resolve; });
+  repository.failHydration = true;
+  __setChatSendRepositoryForTest(repository);
+  const transcript = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot", authority, range: { start: 0, end: 1, unit: "items" },
+    rows: [{ id: "still-authoritative", type: "user", content: "owned text", correlationId: "still-authoritative", timestamp: "1" }],
+  }).state;
+  let view: ReturnType<typeof useChatWindowView> | undefined;
+  function Harness() {
+    const followTailRef = useRef(true);
+    const { anchorKey } = useTranscriptWindow(`${tabId}:session`);
+    view = useChatWindowView({ tabId, windowKey: `${tabId}:session`, transcript, anchorKey, followTailRef,
+      loadOlderPage: async () => null,
+    });
+    return createElement("output", null, view.allMessages.map((message) => message.id).join(","));
+  }
+  const host = document.createElement("main");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(Harness)));
+    assert.equal(host.textContent, "still-authoritative", "transcript rows render while send persistence is pending");
+    finishHydration();
+    await act(async () => { await ensureChatSendTabHydrated(tabId); });
+    assert.equal(chatSendTabHydrationState(tabId), "error");
+    assert.equal(host.textContent, "still-authoritative", "storage failure is not interpreted as an empty dismissal ledger");
+  } finally {
+    finishHydration();
+    await act(async () => root.unmount());
+    clearTranscriptWindows();
+    __setChatSendRepositoryForTest(null);
     await browser.happyDOM.abort();
   }
 });
