@@ -20,15 +20,13 @@ fn fresh_lazy_session_accepts_input_at_provider_ready() {
                 },
             ),
     ));
-    assert!(
-        harness
-            .service
-            .agent_registry
-            .with_provider("resume-first-turn-fixture", |provider| {
-                provider.provider_readiness_strategy().requires_composer()
-            })
-            .unwrap()
-    );
+    assert!(harness
+        .service
+        .agent_registry
+        .with_provider("resume-first-turn-fixture", |provider| {
+            provider.provider_readiness_strategy().requires_composer()
+        })
+        .unwrap());
 
     assert!(launch_waits_for_first_turn_binding(
         &harness.service,

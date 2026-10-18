@@ -84,7 +84,7 @@ for (const target of ['', 'opaque-target']) test(`DEV stages exact paired artifa
     const result = await stageDevResources(input);
     assert.equal(result.manifest.bootstrap_protocol, 2);
     assert.equal(result.manifest.server_sha256, digest(server));
-    assert.equal(result.manifest.client_sha256, digest(client));
+    assert.deepEqual(result.manifest.client_identity, { kind: 'sha256', sha256: digest(client) });
     assert.equal(digest(process.platform === 'win32' ? client : path.resolve(resourceRoot, '../../bin', path.basename(client))), digest(client));
     assert.equal(readFileSync(server, 'utf8'), 'opaque-' + path.basename(server));
     await assert.rejects(stageDevResources({ ...input, resourceRoot: path.join(root, 'untrusted-root') }), /resource root/);
