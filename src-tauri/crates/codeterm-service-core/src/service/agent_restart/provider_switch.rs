@@ -1,6 +1,8 @@
 use super::{RestartOutcome, TabRestartSnapshot};
 use crate::agent::provider::ProviderTransport;
-use crate::multiplexer::types::{RestorableLaunchParameters, Tab, TabBacking};
+use crate::multiplexer::types::{
+    ContextEpochTransport, RestorableLaunchParameters, Tab, TabBacking,
+};
 use crate::service::{agent_runtime, provider_handoff, ServiceContext, SpawnAgentParams};
 
 mod general;
@@ -197,6 +199,7 @@ impl ServiceContext {
                 self.tear_down_restart_pty(&snap)?;
             }
         }
+        self.archive_provider_switch_source(&tab.id, &tab)?;
         let carry_required = carry.is_some();
         self.stage_runtime_restart_binding(&tab.id, carry);
         {
@@ -264,6 +267,41 @@ impl ServiceContext {
         self.end_held_user_sends_for_fresh_restart(tab)?;
         self.discard_pending_delivery(tab)
             .map_err(|error| error.to_string())
+    }
+
+    fn archive_provider_switch_source(&self, tab_id: &str, source: &Tab) -> Result<(), String> {
+        let (provider, session_id, transport) = match &source.backing {
+            TabBacking::Pty => (
+                source.agent_type.clone(),
+                source.agent_session_id.clone(),
+                ContextEpochTransport::AgentProvider,
+            ),
+            TabBacking::ChatBackend {
+                plugin_id,
+                session_id,
+            } => (
+                Some(plugin_id.clone()),
+                Some(session_id.clone())
+                    .filter(|id| !id.is_empty())
+                    .or_else(|| source.agent_session_id.clone()),
+                ContextEpochTransport::ChatBackend,
+            ),
+            TabBacking::Surface(_) => (None, None, ContextEpochTransport::AgentProvider),
+        };
+        let (Some(provider), Some(session_id)) = (provider, session_id) else {
+            return Ok(());
+        };
+        let mut mux = self.mux.write();
+        let tab = mux
+            .get_tab_mut(tab_id)
+            .ok_or("provider_switch_superseded: tab closed after source retirement")?;
+        tab.archive_provider_handoff(
+            &provider,
+            source.cwd.as_deref().unwrap_or_default(),
+            &session_id,
+            transport,
+        );
+        Ok(())
     }
 
     fn provider_switch_idle(&self, tab_id: &str, route: TargetRoute) -> bool {

@@ -53,11 +53,31 @@ pub struct Workspace {
     pub task_keys: codeterm_types::plan::task_key::WorkspaceTaskKeys,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextEpochTransport {
+    #[default]
+    AgentProvider,
+    ChatBackend,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextEpochBoundary {
+    #[default]
+    ContextReset,
+    ProviderHandoff,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextEpochArchive {
     pub provider: String,
     pub cwd: String,
     pub session_id: String,
+    #[serde(default)]
+    pub transport: ContextEpochTransport,
+    #[serde(default)]
+    pub boundary: ContextEpochBoundary,
 }
 
 /// Why a tab is being closed. A `PolicyWorker` close (system/exhaustion) of a
@@ -1002,18 +1022,61 @@ impl Tab {
     }
 
     pub fn archive_context_epoch(&mut self, provider: &str, session_id: &str) {
-        if session_id.is_empty()
-            || self
-                .context_epoch_archives
-                .iter()
-                .any(|archive| archive.provider == provider && archive.session_id == session_id)
-        {
+        let cwd = self.cwd.clone().unwrap_or_default();
+        self.archive_provider_session(
+            provider,
+            &cwd,
+            session_id,
+            ContextEpochTransport::AgentProvider,
+            ContextEpochBoundary::ContextReset,
+        );
+    }
+
+    pub fn archive_provider_handoff(
+        &mut self,
+        provider: &str,
+        cwd: &str,
+        session_id: &str,
+        transport: ContextEpochTransport,
+    ) {
+        self.archive_provider_session(
+            provider,
+            cwd,
+            session_id,
+            transport,
+            ContextEpochBoundary::ProviderHandoff,
+        );
+    }
+
+    fn archive_provider_session(
+        &mut self,
+        provider: &str,
+        cwd: &str,
+        session_id: &str,
+        transport: ContextEpochTransport,
+        boundary: ContextEpochBoundary,
+    ) {
+        if session_id.is_empty() {
+            return;
+        }
+        if let Some(archive) = self.context_epoch_archives.iter_mut().find(|archive| {
+            archive.provider == provider
+                && archive.cwd == cwd
+                && archive.session_id == session_id
+                && archive.transport == transport
+        }) {
+            archive.transport = transport;
+            if boundary == ContextEpochBoundary::ProviderHandoff {
+                archive.boundary = boundary;
+            }
             return;
         }
         self.context_epoch_archives.push(ContextEpochArchive {
             provider: provider.to_string(),
-            cwd: self.cwd.clone().unwrap_or_default(),
+            cwd: cwd.to_string(),
             session_id: session_id.to_string(),
+            transport,
+            boundary,
         });
     }
 }

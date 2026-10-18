@@ -678,7 +678,8 @@ export function useChatSession({
         const snapshotRange = batchRange(res.start_offset, res.offset, res.offset_kind);
         const batchKind = chatStartBatchKind(res.kind);
         let recover = false;
-        if (batchKind != null && (snapshotRange != null || (res.messages?.length ?? 0) > 0)) {
+        if (batchKind != null && (snapshotRange != null || (res.messages?.length ?? 0) > 0
+          || (res.archived_messages?.length ?? 0) > 0)) {
           const snapshotOutcome = reconcileTranscriptWindow(
           windowKeyRef.current,
           {
@@ -691,6 +692,18 @@ export function useChatSession({
             rows: res.messages ?? [],
           },
           );
+          if (batchKind === "snapshot" && (res.archived_messages?.length ?? 0) > 0) {
+            reconcileTranscriptWindow(windowKeyRef.current, {
+              kind: "snapshot",
+              authority: {
+                sourceSessionId: res.source_session_id,
+                sessionBindingNonce: res.session_binding_nonce,
+              },
+              range: null,
+              placement: "oldest",
+              rows: res.archived_messages!,
+            });
+          }
           rememberCursor(res, snapshotOutcome);
           recover = needsRecovery(snapshotOutcome);
         } else {
