@@ -963,12 +963,18 @@ impl PlanStore {
             .cloned()
             .ok_or(PlanError::TaskNotFound)?;
         let (task_provider, task_model) = split_provider_model(task.model.as_deref());
+        let source_provider = source.provider.clone().or(source.agent_type.clone());
         let provider = request
             .provider
-            .or(source.provider.clone())
+            .or(source_provider.clone())
             .or(task_provider)
             .unwrap_or_else(|| "claude".into());
-        let model = request.model.or(source.model.clone()).or(task_model);
+        let model = request
+            .model
+            .or(source.model.clone())
+            .or(source.provider_resolved_model.clone())
+            .or(source.requested_model.clone())
+            .or_else(|| source_provider.is_none().then_some(task_model).flatten());
         let reasoning_effort = source.reasoning_effort.clone();
         let report_command = task_report_command(plan_id, &task.id);
         let manifest = super::plan_skills::plan_skill_manifest(self, plan_id)?;

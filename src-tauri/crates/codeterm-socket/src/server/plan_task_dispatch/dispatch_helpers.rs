@@ -86,7 +86,7 @@ mod tests {
     use codeterm_service_core::service::plan::task_attempts::TaskRespawnDraft;
 
     #[test]
-    fn respawn_launch_inherits_task_execution_intent() {
+    fn respawn_launch_inherits_source_identity_and_task_execution_intent() {
         let draft = TaskRespawnDraft {
             plan_id: "pl_opaque".into(),
             task_id: "task_opaque".into(),
@@ -94,8 +94,8 @@ mod tests {
             attempt_id: "attempt_new".into(),
             source_attempt: Default::default(),
             provider: "codex".into(),
-            planned_model: None,
-            model: None,
+            planned_model: Some("claude/sonnet".into()),
+            model: Some("gpt-6-luna".into()),
             reasoning_effort: None,
             parent_tab_id: None,
             workspace_id: None,
@@ -111,6 +111,8 @@ mod tests {
         let params = respawn_worker_params(&draft, "opaque task", None, "tab_parent");
 
         assert_eq!(params.execution_intent, Some(ExecutionIntent::Mutating));
+        assert_eq!(params.agent.as_deref(), Some("codex"));
+        assert_eq!(params.model.as_deref(), Some("gpt-6-luna"));
         assert_eq!(
             params.task_launch_authority.unwrap().attempt_id,
             "attempt_new"
