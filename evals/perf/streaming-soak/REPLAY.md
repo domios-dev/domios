@@ -37,6 +37,35 @@ null renderer data into a successful memory oracle. Browser authentication and i
 fixtures still require the already granted parent QA authorization; no extra pages
 are created or closed to satisfy profiling assumptions.
 
+### Bundled API-served functional preflight and evidence limit
+
+On the SAME explicit parent-owned Browser page, first save its original URL, then
+navigate through the normal Browser controls from `http://127.0.0.1:7686/` to
+`http://127.0.0.1:7686/?e2e`. Do not create/close other pages or switch to Vite/HMR.
+If no chat is mounted, open an already owner-approved existing chat through normal UI
+so the shipped `__codetermTestChat` and `__chatProjection` handles exist. This does not
+authorize input to that existing chat. Run functional `inspect` again and re-pin its
+build, entry hash, exact page and `testMode:true` identity before setup. Setup refuses
+missing URL mode/handles during attach, before creating owned fixtures.
+
+Functional replay uses the existing full-message public test event with exact owned
+synthetic IDs and backend-observed session/nonce/PTY checks before each seed/step.
+It uses the shipped projection monitor and owned DOM source-message IDs; it NEVER
+imports source modules into the bundled page. Internal transcript rows/authority are
+not exposed by these public handles. Functional completion reports only the observed
+owned projected tail signature and visible source ID. Internal full-history/content,
+frontend authority and durable-storage evidence are explicitly unavailable. DOM or
+projection evidence does not prove IndexedDB, localStorage, reload restoration or
+durable transcript persistence. Those require separate already-supported storage QA.
+Source-module/profile mode retains its stronger internal-store final-content oracle.
+
+Use the functional command sequence above with the re-inspected SHA/entry and the same
+explicit page ID. If a synthetic target is unmounted or does not expose its public
+projection, dispatch refuses or the bounded observation fails; no success is invented.
+After exact owned cleanup is confirmed, restore the saved original URL through normal
+Browser controls (currently `http://127.0.0.1:7686/`). A failed/pending fixture journal
+requires parent review before URL restoration; never replay or erase its evidence.
+
 ## Obtain and freeze the input
 
 Use the supported `tab chat --since 0 --json` export of an owner-authorized saved
