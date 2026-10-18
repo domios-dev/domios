@@ -368,6 +368,11 @@ pub enum PlanTaskAction {
             help = "Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred"
         )]
         canonical_writer: bool,
+        #[arg(
+            long = "kind",
+            help = "Select a built-in Worker prompt kind without changing the task's executor_role"
+        )]
+        worker_kind: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
         #[arg(
@@ -613,6 +618,35 @@ mod tests {
     fn canonical_writer_dispatch_flag_is_opt_in_and_off_by_default() {
         assert!(!dispatch_canonical_writer(&[]));
         assert!(dispatch_canonical_writer(&["--canonical-writer"]));
+    }
+
+    #[test]
+    fn plan_task_dispatch_accepts_a_worker_kind_override() {
+        use clap::Parser;
+        let parsed = Cli::try_parse_from([
+            "codeterm",
+            "plan",
+            "task",
+            "dispatch",
+            "plan-id",
+            "task-id",
+            "--execution-intent",
+            "mutating",
+            "--canonical-writer",
+            "--kind",
+            "release_manager",
+        ])
+        .expect("dispatch kind parses");
+        let crate::Commands::Plan {
+            action:
+                crate::PlanAction::Task {
+                    action: super::PlanTaskAction::Dispatch { worker_kind, .. },
+                },
+        } = parsed.command
+        else {
+            panic!("expected plan task dispatch")
+        };
+        assert_eq!(worker_kind.as_deref(), Some("release_manager"));
     }
 
     #[test]

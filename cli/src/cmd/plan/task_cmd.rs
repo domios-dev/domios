@@ -343,6 +343,7 @@ pub(super) fn run_dispatch(
         agent,
         authorized_gates,
         canonical_writer,
+        worker_kind,
         model,
         description,
         reasoning_effort,
@@ -371,6 +372,9 @@ pub(super) fn run_dispatch(
     }
     if canonical_writer {
         params["placement"] = json!("canonical_writer");
+    }
+    if let Some(kind) = worker_kind {
+        params["worker_kind"] = json!(kind);
     }
     if let Some(agent) = agent {
         params["agent"] = json!(agent);
