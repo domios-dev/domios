@@ -65,7 +65,7 @@ The live Plan owner may cancel, pend, reassign, respawn or dispatch a tab-gone t
 
 After every report, reminder, task close, tab death or gate:
 
-Worker death during `in_progress` (tab closed/crashed or agent exited) pushes `[worker lost: <task>]` with task, lane, dirt and recovery command. Tell the user about the incident, then run the named `codeterm plan task respawn` command. Respawn inherits the execution intent recorded on the task and needs no extra intent flag.
+Worker death during `in_progress` (tab closed/crashed or agent exited) pushes `[worker lost: <task>]` with task, lane, dirt and recovery command. Tell the user about the incident, then run the named `codeterm plan task respawn` command.
 
 1. **Judge pushed reports** without polling. Worker `--status blocked` proposes
    a block without changing task state; see `ORCHESTRATION-TASKS`.
@@ -176,4 +176,4 @@ A `[provider access lost]` notice means recover the login or respawn on another 
 
 Confined mutating Workers persist host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR/TEMP/TMP use lane-local `.codeterm-tmp`. Task-bound spawns require explicit read_only or mutating intent. Older task tabs without saved confinement retain their behavior.
 
-<!-- revision: 133 -->
+<!-- revision: 134 -->
