@@ -44,7 +44,7 @@ configure_lane_workspace_wrapper() {
 lane_check() (
   local package="${1:?lane-check requires a touched package}" tests=() timings=() target=(--lib) manifest=src-tauri/Cargo.toml
   shift
-  case "$package" in codeterm|codeterm-*) ;; *) echo 'lane-check requires a codeterm package' >&2; return 2 ;; esac
+  case "$package" in domios-server|codeterm|codeterm-*) ;; *) echo 'lane-check requires a codeterm package' >&2; return 2 ;; esac
   if [ "${1:-}" = --tests ]; then tests=(--tests); shift; fi
   if [ "${1:-}" = --timings ]; then timings=(--timings); shift; fi
   [ "$#" = 0 ] || { echo 'Usage: ./build.sh lane-check <package> [--tests] [--timings]' >&2; return 2; }

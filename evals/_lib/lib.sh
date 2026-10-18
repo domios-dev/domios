@@ -124,10 +124,6 @@ dev_resolution_error() {
 dev_bootstrap_cli() {
   local candidate data_dir
   data_dir="$(dev_requested_data_dir)"
-  if [ -n "${CODETERM_CLI_PATH:-}" ] && [ -x "$CODETERM_CLI_PATH" ]; then
-    printf '%s\n' "$CODETERM_CLI_PATH"
-    return
-  fi
   for candidate in \
     "$data_dir/bin/codeterm" \
     "$data_dir/bin/codeterm.exe"; do

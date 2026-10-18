@@ -384,7 +384,7 @@ pub(crate) fn start_servers(
         }
         assert!(service_state.set_ext(states.rest_api.clone()).is_ok());
         let rest_inputs = codeterm_api::routes::AppState {
-            frontend_dev_url: frontend_dev_url,
+            frontend_dev_url,
             svc: service_state.clone(),
             cron: cron_state.clone(),
             cron_wake: cron_wake.clone(),

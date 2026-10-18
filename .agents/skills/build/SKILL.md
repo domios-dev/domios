@@ -1382,6 +1382,14 @@ the real crate check; a tiny fixture alone does not cover Windows argument limit
 
 ## Independent server process oracle
 
+If `lane-check domios-server --tests` refuses with `lane-check requires a
+codeterm package` before Cargo, the package router predates the independent
+server name. Admit exactly `domios-server` alongside `codeterm|codeterm-*` in
+`scripts/lane-check.sh`; keep all other refusals and lane resources unchanged.
+Verify with `node --test --test-name-pattern='server lane routing'
+scripts/tests/lane-check.test.mjs` (stubbed Cargo), then run the authorized
+focused lane check. Never broaden the allowlist to a `domios-*` wildcard.
+
 If the extracted server build reports `bundled plugins directory is missing`,
 check the server build script's app-manifest input before rebuilding: it must
 canonicalize `CARGO_MANIFEST_DIR/../..` before the shared bundler takes `parent()`.
