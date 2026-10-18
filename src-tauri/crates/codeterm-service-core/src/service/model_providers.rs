@@ -642,7 +642,7 @@ fn launch_env(
     let mut env = HashMap::new();
     for provider in providers.iter().filter(|provider| {
         provider.secret_name.is_some()
-            && model.is_some_and(|model| model_uses_provider(model, provider))
+            && model.is_none_or(|model| model_uses_provider(model, provider))
     }) {
         let name = env_name(adapter, &provider.id).map_err(|_| {
             ModelProviderError::LaunchSetup(format!(
@@ -656,19 +656,31 @@ fn launch_env(
                 provider.id
             )));
         }
-        let secret = get_secret(store, owner, provider).map_err(|error| match error {
-            ModelProviderError::NotFound => ModelProviderError::LaunchSecretNotFound {
-                model: model.unwrap_or("<unspecified>").to_owned(),
-                endpoint_id: provider.id.clone(),
-                secret_name: provider.secret_name.clone().unwrap_or_default(),
-            },
-            error => ModelProviderError::LaunchSetup(format!(
-                "launch secret lookup for model '{}' on model-provider endpoint '{}' secret '{}' failed ({error})",
-                model.unwrap_or("<unspecified>"),
-                provider.id,
-                provider.secret_name.as_deref().unwrap_or_default()
-            )),
-        })?;
+        let secret = match get_secret(store, owner, provider) {
+            Ok(secret) => secret,
+            Err(ModelProviderError::NotFound) if model.is_none() => {
+                log::debug!(
+                    "[model-provider] skipped unavailable launch secret for endpoint '{}'",
+                    provider.id
+                );
+                continue;
+            }
+            Err(ModelProviderError::NotFound) => {
+                return Err(ModelProviderError::LaunchSecretNotFound {
+                    model: model.unwrap_or("<unspecified>").to_owned(),
+                    endpoint_id: provider.id.clone(),
+                    secret_name: provider.secret_name.clone().unwrap_or_default(),
+                });
+            }
+            Err(error) => {
+                return Err(ModelProviderError::LaunchSetup(format!(
+                    "launch secret lookup for model '{}' on model-provider endpoint '{}' secret '{}' failed ({error})",
+                    model.unwrap_or("<unspecified>"),
+                    provider.id,
+                    provider.secret_name.as_deref().unwrap_or_default()
+                )));
+            }
+        };
         env.insert(name, secret.value.into_inner());
     }
     Ok(env)
