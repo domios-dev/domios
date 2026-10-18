@@ -424,7 +424,8 @@ mod tests {
                 },
             );
             let encoded = serde_json::to_vec(&frame).unwrap();
-            let decoded = serde_json::from_slice(&encoded).unwrap();
+            let decoded: NativeHostFrame<String, crate::native_update::NativeUpdateResult> =
+                serde_json::from_slice(&encoded).unwrap();
             assert_eq!(decoded, frame);
         }
     }

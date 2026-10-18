@@ -5,7 +5,7 @@ import { invoke, listen } from "../../lib/bridge";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { resizeOwnerChangedEvent, type ResizeOwner } from "../../lib/resizeOwner";
 import { tabResizeChanged } from "./tabResize";
-import { completeResize, createResizeModel, requestResize, setResizeAuthority, terminalGeometryPolicy, type ResizeRequest } from "./resizeModel";
+import { completeResize, createResizeModel, ptyResizeGeometry, requestResize, setResizeAuthority, terminalGeometryPolicy, type ResizeRequest } from "./resizeModel";
 import { DEV_BUILD } from "../../lib/devBuild";
 
 export interface UseTerminalResizeOptions {
@@ -76,13 +76,15 @@ export function useTerminalResize({
   }, []);
 
   const commitResize = useCallback((force = false) => {
-    if (terminalGeometryPolicy(isRemote) === "viewer-local") return;
+    const policy = terminalGeometryPolicy(isRemote);
+    if (policy === "viewer-local") return;
     if (!ownsResizeRef.current || suppressCommitRef.current) return;
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     const term = termRef.current;
     const currentPtyId = connectedPtyRef.current ?? ptyId ?? null;
     if (!term || !currentPtyId || !resizeClientId) return;
-    const size = pendingSizeRef.current ?? { cols: term.cols, rows: term.rows };
+    const size = ptyResizeGeometry(policy, pendingSizeRef.current ?? { cols: term.cols, rows: term.rows });
+    if (!size) return;
     if (size.cols <= 0 || size.rows <= 0) return;
     const state = resizeModelRef.current;
     if (state.owner?.ptyId !== currentPtyId || state.owner.clientId !== resizeClientId) return;
@@ -124,8 +126,12 @@ export function useTerminalResize({
     const h = el.clientHeight;
     if (!tabResizeChanged(lastContainerSizeRef.current, w, h)) return;
     lastContainerSizeRef.current = { w, h };
-    try { fitAddonRef.current?.fit(); } catch { /* teardown */ }
-  }, [containerRef, fitAddonRef]);
+    try {
+      fitAddonRef.current?.fit();
+      const term = termRef.current;
+      if (term) pendingSizeRef.current = { cols: term.cols, rows: term.rows };
+    } catch { /* teardown */ }
+  }, [containerRef, fitAddonRef, termRef]);
 
   const forceFitMeasuredContainer = useCallback(() => {
     const el = containerRef.current;
@@ -135,6 +141,7 @@ export function useTerminalResize({
     try {
       fitAddonRef.current?.fit();
       term.refresh(0, term.rows - 1);
+      pendingSizeRef.current = { cols: term.cols, rows: term.rows };
     } catch { /* teardown */ }
   }, [containerRef, fitAddonRef, termRef]);
 

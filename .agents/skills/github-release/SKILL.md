@@ -803,6 +803,31 @@ gh release view v$VER --json assets --jq '.assets[] | "\(.name)  \(.size)B"'
 curl -sIL https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json | grep '^HTTP' | tail -1
 ```
 
+#### Headless distribution launch contract
+
+From the extracted package root, start the server with the explicit production
+selector:
+
+```bash
+./domios-server/domios-server start --production --json
+# Windows PowerShell:
+.\domios-server\domios-server.exe start --production --json
+```
+
+The resource root defaults to the executable's parent-parent directory;
+`--resources PATH` selects an explicit root. That root must include the CLI,
+frontend assets, skills and target runtime resources. `--json` writes only the
+`ServerReady` response, including the API address; without it the server prints a
+token-free address and process identity. Open that address in the browser and
+authenticate through the existing WebGate using the API credential from the
+protected local configuration. Never put the credential in argv, a URL, release
+metadata or logs. Browser authentication is not native-client enrollment.
+
+The command uses the server's existing protected launch/readiness path and does
+not start a Tauri window. Source fixtures and archive readback do not establish a
+native release: packaged startup, missing-resource refusal and authenticated
+browser attachment remain required platform proof for Windows, macOS and Linux.
+
 Verify the notes contract or repair it idempotently:
 
 ```bash

@@ -7,7 +7,7 @@ import { __setInvokeForTest, __setListenForTest } from "../lib/bridge";
 import { signalEventStreamReady } from "../lib/eventStreamReady";
 import { invalidateAgentProviders, useAgentProviders } from "./useAgentProviders";
 
-test("reconnect refetches once, retains good data on failure, and accepts the restarted daemon", async () => {
+test("stream readiness does not refetch; provider changes do and failures retain good data", async () => {
   invalidateAgentProviders();
   let calls = 0;
   let fail = false;
@@ -36,18 +36,14 @@ test("reconnect refetches once, retains good data on failure, and accepts the re
     assert.equal(host.textContent, "first");
     fail = true;
     await act(async () => signalEventStreamReady());
-    assert.equal(calls, 2);
+    assert.equal(calls, 1, "reconnect readiness does not invalidate the provider catalogue");
     assert.equal(host.textContent, "first");
     fail = false;
-    version = 1;
-    name = "restarted";
-    await act(async () => signalEventStreamReady());
-    assert.equal(calls, 3);
-    assert.equal(host.textContent, "restarted");
-    name = "hot reload";
+    version = 11;
+    name = "updated";
     await act(async () => handlers.get("contributions-changed")!({ payload: { kind: "agent_provider" } }));
-    assert.equal(calls, 4);
-    assert.equal(host.textContent, "hot reload");
+    assert.equal(calls, 2);
+    assert.equal(host.textContent, "updated");
   } finally {
     await act(async () => root.unmount());
     __setInvokeForTest(null);
@@ -56,11 +52,13 @@ test("reconnect refetches once, retains good data on failure, and accepts the re
   assert.equal(handlers.size, 0);
 });
 
-test("initial failure retries on readiness and fetch waits for contribution listener attachment", async () => {
+test("initial failure waits for a server change and fetch waits for listener attachment", async () => {
   invalidateAgentProviders();
   let attach!: (dispose: () => void) => void;
   let calls = 0;
-  __setListenForTest(async (event) => {
+  const handlers = new Map<string, (event: { payload: unknown }) => void>();
+  __setListenForTest(async (event, handler) => {
+    handlers.set(event, handler as (event: { payload: unknown }) => void);
     if (event === "contributions-changed") return new Promise<() => void>((resolve) => { attach = resolve; });
     return () => {};
   });
@@ -81,6 +79,8 @@ test("initial failure retries on readiness and fetch waits for contribution list
     await act(async () => attach(() => {}));
     assert.equal(calls, 1);
     await act(async () => signalEventStreamReady());
+    assert.equal(calls, 1, "readiness alone does not cause a retry");
+    await act(async () => handlers.get("contributions-changed")!({ payload: { kind: "agent_provider" } }));
     assert.equal(calls, 2);
     assert.equal(host.textContent, "ready");
   } finally {

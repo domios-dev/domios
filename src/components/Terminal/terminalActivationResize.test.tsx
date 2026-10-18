@@ -306,6 +306,14 @@ describe("terminal viewer activation resize", () => {
     assert.deepEqual(resizes.map(({ cols, rows }) => ({ cols, rows })), [{ cols: 160, rows: 48 }]);
   });
 
+  it("commits the fitted local row count to the owned PTY", async () => {
+    targetSize = { cols: 45, rows: 38 };
+    await mount(true);
+    assert.deepEqual({ cols: terminal.cols, rows: terminal.rows }, targetSize);
+    assert.deepEqual(resizes.map(({ cols, rows }) => ({ cols, rows })), [targetSize]);
+    assert.deepEqual(currentPtySize, targetSize);
+  });
+
   it("does not resize when the current PTY already matches the fitted screen", async () => {
     currentPtySize = { cols: 160, rows: 48 };
     await mount(true);

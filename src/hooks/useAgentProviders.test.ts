@@ -125,7 +125,7 @@ test("catalogue listener refetches a newer provider version while mounted", () =
   assert(refetches === 1, "listener should refetch while active");
 });
 
-test("catalogue events reach every mounted consumer and deduplicate per consumer", () => {
+test("catalogue revisions trigger one refresh across mounted consumers", () => {
   setAgentDescriptors([provider("shared-catalogue")]);
   const handlers: Array<(event: {payload: {provider: string; version: number}}) => void> = [];
   const counts = [0, 0];
@@ -137,7 +137,8 @@ test("catalogue events reach every mounted consumer and deduplicate per consumer
   for (const version of [1, 1, 2, 1]) {
     for (const handler of handlers) handler({payload: {provider: "shared-catalogue", version}});
   }
-  assert(counts[0] === 2 && counts[1] === 2, "each consumer observes both newer versions once");
+  assert(counts.reduce((total, count) => total + count, 0) === 2, "only one consumer refreshes each new revision");
+  assert(counts.filter((count) => count > 0).length === 1, "unchanged revision does not fan out duplicate requests");
   cleanups.forEach((cleanup) => cleanup());
 });
 test("catalogue listener releases a late registration after cleanup", async () => {

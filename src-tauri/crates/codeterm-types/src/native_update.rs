@@ -432,8 +432,8 @@ impl NativeUpdateRequest {
                 if !self.restart_authorized {
                     return Err(NativeUpdateRefusal::RestartAuthorizationRequired);
                 }
-                if self.expected_server.components.client_sha256
-                    != self.staged_components.client_sha256
+                if self.expected_server.components.client_identity
+                    != self.staged_components.client_identity
                     || self.expected_server.components.api_version
                         != self.staged_components.api_version
                     || self.expected_server.components.bootstrap_protocol
@@ -475,11 +475,11 @@ impl NativeUpdateRequest {
 fn validate_manifest(manifest: &ServerComponentManifest) -> Result<(), ()> {
     if manifest.schema != SERVER_COMPONENT_SCHEMA
         || manifest.server_build.is_empty()
-        || !is_strict_resource_relative_path(&manifest.server_executable)
+        || !valid_server_executable(&manifest.server_executable)
         || manifest.api_version != API_VERSION
         || manifest.bootstrap_protocol != BOOTSTRAP_PROTOCOL
         || !valid_sha256(&manifest.server_sha256)
-        || !valid_sha256(&manifest.client_sha256)
+        || !valid_client_identity(&manifest.client_identity)
     {
         return Err(());
     }
@@ -492,10 +492,49 @@ fn is_strict_resource_relative_path(path: &Path) -> bool {
         && components.all(|component| matches!(component, Component::Normal(_)))
 }
 
+fn valid_server_executable(path: &Path) -> bool {
+    if cfg!(target_os = "macos") {
+        path == Path::new("../MacOS/domios-server")
+    } else {
+        is_strict_resource_relative_path(path)
+    }
+}
+
+fn valid_client_identity(identity: &crate::server_bootstrap::ClientIdentity) -> bool {
+    use crate::server_bootstrap::ClientIdentity;
+    match identity {
+        ClientIdentity::Sha256 { sha256 } => !cfg!(target_os = "macos") && valid_sha256(sha256),
+        ClientIdentity::MacosDesignatedRequirement { requirement, team_id, identifier } => {
+            cfg!(target_os = "macos")
+                && team_id.len() == 10
+                && team_id.bytes().all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+                && identifier == "com.codeterm.app"
+                && requirement == &format!("anchor apple generic and identifier \"com.codeterm.app\" and certificate leaf[subject.OU] = \"{team_id}\"")
+        }
+    }
+}
+
 fn resource_executable_matches(root: &Path, relative: &Path, executable: &Path) -> bool {
-    is_clean_absolute_path(root)
-        && is_strict_resource_relative_path(relative)
-        && root.join(relative) == executable
+    if !is_clean_absolute_path(root) || !valid_server_executable(relative) {
+        return false;
+    }
+    if cfg!(target_os = "macos") {
+        root.file_name().is_some_and(|name| name == "Resources")
+            && root
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "Contents")
+            && root
+                .parent()
+                .and_then(Path::parent)
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "CodeTerm.app")
+            && root
+                .parent()
+                .is_some_and(|contents| contents.join("MacOS/domios-server") == executable)
+    } else {
+        root.join(relative) == executable
+    }
 }
 
 fn is_clean_absolute_path(path: &Path) -> bool {
@@ -509,7 +548,10 @@ fn is_clean_absolute_path(path: &Path) -> bool {
 }
 
 fn valid_sha256(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn same_server_artifact(left: &ServerComponentManifest, right: &ServerComponentManifest) -> bool {
@@ -523,16 +565,16 @@ fn same_server_artifact(left: &ServerComponentManifest, right: &ServerComponentM
 #[cfg(test)]
 mod tests {
     use super::{
-        ExpectedServer, NativeUpdateAction, NativeUpdateExecutor, NativeUpdateInstallReceipt,
-        NativeUpdateObservationOutcome, NativeUpdateOperationId, NativeUpdateRefusal,
-        NativeUpdateRequest, NativeUpdateResult, NativeUpdateStage, NativeUpdateState,
-        NativeUpdateUncertainty, NativeUpdateVerification,
+        ExpectedServer, NativeUpdateAction, NativeUpdateAttachment, NativeUpdateExecutor,
+        NativeUpdateInstallReceipt, NativeUpdateObservationOutcome, NativeUpdateOperationId,
+        NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult, NativeUpdateStage,
+        NativeUpdateState, NativeUpdateUncertainty, NativeUpdateVerification,
     };
     use crate::{
         native_host::NativeHostConnection,
         server_bootstrap::{
-            ProcessProvenance, ServerComponentManifest, ServerExpectation, ServerIdentity,
-            ServerReady, API_VERSION, BOOTSTRAP_PROTOCOL, SERVER_COMPONENT_SCHEMA,
+            ClientIdentity, ProcessProvenance, ServerComponentManifest, ServerExpectation,
+            ServerIdentity, ServerReady, API_VERSION, BOOTSTRAP_PROTOCOL, SERVER_COMPONENT_SCHEMA,
         },
     };
     use std::{future::Future, path::PathBuf, pin::Pin};
@@ -542,9 +584,23 @@ mod tests {
         ServerComponentManifest {
             schema: SERVER_COMPONENT_SCHEMA,
             server_build: server_build.into(),
-            server_executable: PathBuf::from("bin/domios-server.exe"),
+            server_executable: if cfg!(target_os = "macos") {
+                PathBuf::from("../MacOS/domios-server")
+            } else {
+                PathBuf::from("bin/domios-server.exe")
+            },
             server_sha256: "a".repeat(64),
-            client_sha256: client_digest.into(),
+            client_identity: if cfg!(target_os = "macos") {
+                ClientIdentity::MacosDesignatedRequirement {
+                    requirement: "anchor apple generic and identifier \"com.codeterm.app\" and certificate leaf[subject.OU] = \"JMMWQ9LWF7\"".into(),
+                    team_id: "JMMWQ9LWF7".into(),
+                    identifier: "com.codeterm.app".into(),
+                }
+            } else {
+                ClientIdentity::Sha256 {
+                    sha256: client_digest.into(),
+                }
+            },
             api_version: API_VERSION,
             bootstrap_protocol: BOOTSTRAP_PROTOCOL,
         }
@@ -557,7 +613,14 @@ mod tests {
             NativeUpdateAction::Server => components("server-new", "b".repeat(64).as_str()),
             NativeUpdateAction::Pair => components("server-new", "c".repeat(64).as_str()),
         };
-        let executable = resource_root().join(&current.server_executable);
+        let executable = if cfg!(target_os = "macos") {
+            resource_root()
+                .parent()
+                .unwrap()
+                .join("MacOS/domios-server")
+        } else {
+            resource_root().join(&current.server_executable)
+        };
         NativeUpdateRequest {
             operation_id: NativeUpdateOperationId::new(Uuid::from_u128(17)).unwrap(),
             action,
@@ -605,7 +668,36 @@ mod tests {
         }
         #[cfg(not(windows))]
         {
-            PathBuf::from("/opt/domios/resources")
+            if cfg!(target_os = "macos") {
+                PathBuf::from("/Applications/CodeTerm.app/Contents/Resources")
+            } else {
+                PathBuf::from("/opt/domios/resources")
+            }
+        }
+    }
+
+    #[test]
+    fn manifest_client_identity_and_server_location_are_platform_bound() {
+        let mut manifest = components("server-build", &"b".repeat(64));
+        assert!(super::validate_manifest(&manifest).is_ok());
+        if cfg!(target_os = "macos") {
+            manifest.server_executable = PathBuf::from("domios-server/domios-server");
+            assert!(super::validate_manifest(&manifest).is_err());
+            manifest.server_executable = PathBuf::from("../MacOS/domios-server");
+            manifest.client_identity = ClientIdentity::Sha256 {
+                sha256: "b".repeat(64),
+            };
+            assert!(super::validate_manifest(&manifest).is_err());
+        } else {
+            manifest.server_executable = PathBuf::from("../MacOS/domios-server");
+            assert!(super::validate_manifest(&manifest).is_err());
+            manifest.server_executable = PathBuf::from("bin/domios-server.exe");
+            manifest.client_identity = ClientIdentity::MacosDesignatedRequirement {
+                requirement: "anchor apple generic and identifier \"com.codeterm.app\" and certificate leaf[subject.OU] = \"JMMWQ9LWF7\"".into(),
+                team_id: "JMMWQ9LWF7".into(),
+                identifier: "com.codeterm.app".into(),
+            };
+            assert!(super::validate_manifest(&manifest).is_err());
         }
     }
 
@@ -761,7 +853,17 @@ mod tests {
     #[test]
     fn server_only_update_preserves_client_artifact_and_protocol_pair() {
         let mut request = request(NativeUpdateAction::Server, true);
-        request.staged_components.client_sha256 = "c".repeat(64);
+        request.staged_components.client_identity = if cfg!(target_os = "macos") {
+            ClientIdentity::MacosDesignatedRequirement {
+                requirement: "anchor apple generic and identifier \"com.codeterm.app\" and certificate leaf[subject.OU] = \"ABCDEFGHIJ\"".into(),
+                team_id: "ABCDEFGHIJ".into(),
+                identifier: "com.codeterm.app".into(),
+            }
+        } else {
+            ClientIdentity::Sha256 {
+                sha256: "c".repeat(64),
+            }
+        };
         assert_eq!(
             request.validate(),
             Err(NativeUpdateRefusal::ServerOnlyChangesClientOrCompatibility)
@@ -812,27 +914,33 @@ mod tests {
 
     #[test]
     fn manifest_executable_must_stay_inside_the_resource_root() {
-        let mut request = request(NativeUpdateAction::ClientOnly, false);
-        request.expected_server.components.server_executable =
-            PathBuf::from("../outside/domios-server.exe");
+        let mut expected_request = request(NativeUpdateAction::ClientOnly, false);
+        expected_request
+            .expected_server
+            .components
+            .server_executable = PathBuf::from("../outside/domios-server.exe");
         assert_eq!(
-            request.validate(),
+            expected_request.validate(),
             Err(NativeUpdateRefusal::InvalidServerManifest)
         );
 
-        let mut request = request(NativeUpdateAction::ClientOnly, false);
-        request.staged_components.server_executable =
+        let mut staged_request = request(NativeUpdateAction::ClientOnly, false);
+        staged_request.staged_components.server_executable =
             PathBuf::from("bin/../../outside/domios-server.exe");
         assert_eq!(
-            request.validate(),
+            staged_request.validate(),
             Err(NativeUpdateRefusal::InvalidStagedManifest)
         );
 
-        let mut request = request(NativeUpdateAction::ClientOnly, false);
-        request.expected_server.components.server_executable =
-            PathBuf::from("../outside/domios-server.exe");
-        assert!(!request
-            .matches_current_server(&ready_for(&request), &request.expected_server.components,));
+        let mut matching_request = request(NativeUpdateAction::ClientOnly, false);
+        matching_request
+            .expected_server
+            .components
+            .server_executable = PathBuf::from("../outside/domios-server.exe");
+        assert!(!matching_request.matches_current_server(
+            &ready_for(&matching_request),
+            &matching_request.expected_server.components,
+        ));
     }
 
     #[test]
@@ -891,7 +999,11 @@ mod tests {
         assert_eq!(first.sequence, 1);
         assert!(matches!(first.state, NativeUpdateState::Admitted));
 
-        let next = futures_poll_ready(port.observe(request_id, first.sequence));
+        let NativeUpdateObservationOutcome::Reply(next) =
+            futures_poll_ready(port.observe(request_id, first.sequence))
+        else {
+            panic!("the attached test executor replies to observation");
+        };
         assert_eq!(next.operation_id, request_id);
         assert_eq!(next.sequence, 2);
         assert!(matches!(
