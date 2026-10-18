@@ -4,6 +4,7 @@ use std::{net::SocketAddr, path::PathBuf};
 pub const BOOTSTRAP_PROTOCOL: u32 = 1;
 pub const API_VERSION: u32 = 3;
 pub const SERVER_COMPONENT_SCHEMA: u32 = 1;
+pub const BOOTSTRAP_ATTACH_UNAVAILABLE_EXIT_CODE: i32 = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
