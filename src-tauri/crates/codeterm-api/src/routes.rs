@@ -589,34 +589,10 @@ pub(super) fn create_router_with_preview_admission(
             "/api/mesh/peers/{id}/crons/{cron_id}/history",
             get(web_routes::peer_cron_history),
         )
-        .route(
-            "/api/tabs/{id}/agent/runtime/goal",
-            post(super::runtime_login::goal),
-        )
-        .route(
-            "/api/tabs/{id}/agent/runtime/thread-history",
-            post(super::runtime_login::thread_history),
-        )
-        .route(
-            "/api/tabs/{id}/agent/runtime/reset-credits",
-            post(super::runtime_login::reset_credits),
-        )
-        .route(
-            "/api/tabs/{id}/agent/runtime/login",
-            post(super::runtime_login::login),
-        )
+        .merge(super::runtime_login::router())
         .route(
             "/api/tabs/{id}/agent/runtime/retry",
             post(web_routes::agent_runtime_retry),
-        )
-        .route(
-            "/api/tabs/{id}/agent/runtime/children/{thread}/history",
-            get(super::runtime_login::child_history),
-        )
-        .route(
-            "/api/tabs/{id}/agent/runtime/background-processes",
-            get(super::runtime_login::background_processes)
-                .post(super::runtime_login::stop_background_process),
         )
         .route(
             "/api/tabs/{id}/agent/runtime/questions/{item}/answer",

@@ -280,6 +280,15 @@ button.ct-status-identity:focus-visible {
   width: 100%;
 }
 
+.ct-model-picker__effort .ct-liquid-segmented__option {
+  padding-inline: 2px;
+  font-size: 10px;
+}
+
+.ct-model-picker__footer > .ct-model-picker__actions {
+  margin-left: auto;
+}
+
 .ct-model-picker__label {
   color: var(--ct-muted-fg);
   font-size: 11px;

@@ -11,6 +11,9 @@ use std::{
 
 use super::super::{model::RuntimeFailure, process::Process};
 
+#[path = "backfill/restored_status.rs"]
+mod restored_status;
+
 const STARTUP_HISTORY_PAGES: u32 = 2;
 const HISTORY_CONCURRENCY: usize = 2;
 static HISTORY_READS: LazyLock<tokio::sync::Semaphore> =
@@ -26,6 +29,7 @@ pub(super) trait HistoryPort {
         questions: Vec<RuntimeHistoryQuestion>,
     ) -> impl Future<Output = Result<(), RuntimeFailure>> + Send;
     fn page_landed(&mut self, _ordinal: u32) {}
+    fn restored_state(&mut self, _state: RuntimeTurnState) {}
 }
 
 /// History replay of one epoch: requested newest first; a plugin that answers ascending
@@ -40,6 +44,7 @@ pub(super) struct Replay {
     history: RuntimeHistory,
     answers: Vec<ChatMsg>,
     ascending: Vec<ChatMsg>,
+    has_open_turn: bool,
     pub pages: u32,
     pub rows: usize,
     pub descending: bool,
@@ -58,6 +63,7 @@ impl Replay {
             history: RuntimeHistory::default(),
             answers: Vec::new(),
             ascending: Vec::new(),
+            has_open_turn: false,
             pages: 0,
             rows: 0,
             descending: false,
@@ -160,6 +166,7 @@ impl Replay {
             ));
         }
         self.pages += 1;
+        self.has_open_turn |= !open_items.is_empty();
         let mut rows = items;
         for open in &open_items {
             if !rows.iter().any(|row| row.id == open.item.id) {
@@ -182,6 +189,12 @@ impl Replay {
             session.context.lock().tab_id, self.pages, self.startup_limit
         );
         adopt_open_turns(session, &self.thread, &open_items);
+        if (self.descending && self.pages == 1) || (!self.descending && next_cursor.is_none()) {
+            let items = session.cache.lock().snapshot();
+            if let Some(state) = restored_status::history_state(&items, self.has_open_turn) {
+                port.restored_state(state);
+            }
+        }
         port.page_landed(self.pages);
         match next_cursor {
             None => self.done = true,
@@ -304,6 +317,28 @@ impl HistoryPort for RpcPort {
     fn page_landed(&mut self, ordinal: u32) {
         crate::startup::boot_timing::mark(&self.tab, None, format!("history_page_{ordinal}"));
         super::publish(&self.svc, &self.tab, &self.session);
+    }
+    fn restored_state(&mut self, state: RuntimeTurnState) {
+        let context = self.session.context.lock().clone();
+        if context.thread_id.as_deref() != Some(self.thread.as_str()) {
+            return;
+        }
+        let mut mux = self.svc.mux.write();
+        let Some(tab) = mux.get_tab_mut(&self.tab).filter(|tab| {
+            tab.agent_session_id.as_deref() == Some(self.thread.as_str())
+                && tab.session_binding_nonce.as_deref() == Some(context.binding_nonce.as_str())
+                && tab.agent_state.is_none()
+        }) else {
+            return;
+        };
+        log::debug!(
+            "[restore-status] tab={} thread={} history={state:?}",
+            self.tab,
+            self.thread
+        );
+        tab.agent_state = Some(crate::agent::state_verdict::live_state_for_runtime(
+            &state, None, None,
+        ));
     }
 }
 

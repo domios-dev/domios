@@ -138,6 +138,7 @@ pub struct ModelCatalogueCapability {
     /// Config files whose change voids a cached model snapshot (e.g. the
     /// provider's own model registry). Fingerprint-only, never a sandboxed read.
     pub config_files: Vec<String>,
+    pub config_file_environments: Vec<crate::js_runtime::manifest::ReadRootEnvironment>,
 }
 
 impl ModelCatalogueCapability {
@@ -146,6 +147,7 @@ impl ModelCatalogueCapability {
             authority: ModelCatalogueAuthority::Authoritative,
             live_discovery_required: false,
             config_files: Vec::new(),
+            config_file_environments: Vec::new(),
         }
     }
 
@@ -154,6 +156,7 @@ impl ModelCatalogueCapability {
             authority: ModelCatalogueAuthority::Authoritative,
             live_discovery_required: true,
             config_files: Vec::new(),
+            config_file_environments: Vec::new(),
         }
     }
 
@@ -169,6 +172,23 @@ impl ModelCatalogueCapability {
                 .iter()
                 .filter_map(|path| crate::js_runtime::PluginManifest::expand_home(path)),
         );
+        files.extend(
+            self.config_file_environments
+                .iter()
+                .filter_map(|source| source.resolve(std::env::var_os(&source.variable))),
+        );
+        files = files
+            .into_iter()
+            .filter_map(|path| {
+                if path.is_absolute() {
+                    Some(path)
+                } else {
+                    std::env::current_dir().ok().map(|cwd| cwd.join(path))
+                }
+            })
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        files.retain(|path| seen.insert(path.clone()));
         files
     }
 }

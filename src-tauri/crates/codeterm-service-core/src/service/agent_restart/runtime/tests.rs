@@ -29,7 +29,7 @@ module.exports = {
     if (op.kind === 'resumeThread' && op.instructions.includes('opaque refused identity'))
       return {kind:'refused',reason:{code:'provider_refused',message:'fixture load refused'}};
     let result = {kind:'done'};
-    if (op.kind === 'initialize') result = {kind:'initialized'};
+    if (op.kind === 'initialize') result = {kind:'initialized',binaryVersion:'fixture-runtime'};
     if (op.kind === 'resumeThread' || op.kind === 'openThread')
       result = {kind:'threadLoaded',threadId:op.threadId || ctx.bindingNonce,settings:op.settings};
     if (op.kind === 'readHistory') result = {kind:'historyPage',threadId:op.threadId,items:[],openItems:[]};
@@ -500,4 +500,154 @@ fn fresh_runtime_restart_without_force_is_refused_before_rotating_live_binding()
     let tab = mux.get_tab(&fixture.tab).unwrap();
     assert_eq!(tab.session_binding_nonce, before.session_binding_nonce);
     assert_eq!(tab.agent_session_id, before.agent_session_id);
+}
+
+#[test]
+fn provider_update_idle_now_busy_after_turn_preserves_thread_without_input() {
+    let fixture = RuntimeFixture::new();
+    let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+    let original = session.context.lock().clone();
+    let count = fixture.requests().len();
+    crate::service::provider_runtime_update::completed(
+        &fixture.service,
+        PROVIDER,
+        "1",
+        "fixture-runtime",
+    );
+    crate::async_runtime::block_on(async {
+        let mut changes = session.control_changes.subscribe();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                changes.borrow_and_update();
+                let context = session.context.lock().clone();
+                if context.binding_nonce != original.binding_nonce
+                    && session
+                        .thread_loaded
+                        .load(std::sync::atomic::Ordering::Acquire)
+                    && matches!(
+                        session.state.lock().phase,
+                        agent_runtime::model::RuntimePhase::Ready
+                    )
+                {
+                    break;
+                }
+                changes.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+    });
+    let idle = session.context.lock().clone();
+    assert_eq!(idle.thread_id, original.thread_id);
+    session.context.lock().active_turn_id = Some("busy-turn".into());
+    let count_busy = fixture.requests().len();
+    let deferred = crate::async_runtime::block_on(agent_runtime::restart::restart_idle(
+        &fixture.service,
+        &fixture.tab,
+        PROVIDER,
+        &idle.binding_nonce,
+    ))
+    .unwrap();
+    assert!(deferred.is_none());
+    assert_eq!(fixture.requests().len(), count_busy);
+    crate::service::provider_runtime_update::completed(
+        &fixture.service,
+        PROVIDER,
+        "2",
+        "fixture-runtime",
+    );
+    session.context.lock().active_turn_id = None;
+    agent_runtime::engine::publish(&fixture.service, &fixture.tab, &session);
+    crate::async_runtime::block_on(async {
+        let mut changes = session.control_changes.subscribe();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                changes.borrow_and_update();
+                if session.context.lock().binding_nonce != idle.binding_nonce
+                    && session
+                        .thread_loaded
+                        .load(std::sync::atomic::Ordering::Acquire)
+                    && matches!(
+                        session.state.lock().phase,
+                        agent_runtime::model::RuntimePhase::Ready
+                    )
+                {
+                    break;
+                }
+                changes.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+    });
+    assert_eq!(session.context.lock().thread_id, original.thread_id);
+    assert!(fixture.requests()[count..]
+        .iter()
+        .all(|request| request["method"] != "submitTurn"));
+}
+
+#[test]
+fn provider_update_version_mismatch_recovers_once_then_reports_failure() {
+    let fixture = RuntimeFixture::new();
+    let session = agent_runtime::engine::for_tab(&fixture.tab).unwrap();
+    let count = fixture.requests().len();
+    let thread = session.context.lock().thread_id.clone();
+    crate::service::provider_runtime_update::completed(&fixture.service, PROVIDER, "old", "wanted");
+    crate::async_runtime::block_on(async {
+        let mut changes = session.control_changes.subscribe();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                changes.borrow_and_update();
+                if fixture
+                    .service
+                    .mux
+                    .read()
+                    .get_tab(&fixture.tab)
+                    .unwrap()
+                    .agent_runtime_state
+                    .as_ref()
+                    .is_some_and(|state| state["state"] == "degraded")
+                {
+                    break;
+                }
+                changes.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+    });
+    let requests = fixture.requests();
+    assert_eq!(
+        requests[count..]
+            .iter()
+            .filter(|request| request["method"] == "initialize")
+            .count(),
+        2
+    );
+    assert_eq!(
+        requests[count..]
+            .iter()
+            .filter(|request| request["method"] == "resumeThread")
+            .count(),
+        2
+    );
+    assert!(requests[count..]
+        .iter()
+        .all(|request| request["method"] != "submitTurn"));
+    assert_eq!(session.context.lock().thread_id, thread);
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&fixture.tab)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        tab.agent_runtime_state.as_ref().unwrap()["state"],
+        "degraded"
+    );
+    assert_eq!(
+        tab.agent_runtime_state.as_ref().unwrap()["binaryVersion"],
+        "fixture-runtime"
+    );
 }

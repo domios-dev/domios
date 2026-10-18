@@ -1,5 +1,6 @@
+import { loadClientPageSelection, saveClientPageSelection } from "../../lib/clientPageSelection";
+
 const STORAGE_KEY = "codeterm.sidebar.workspace-card-initials";
-const SELECTED_WORKSPACE_KEY = "codeterm.sidebar.selected-workspace";
 
 export type WorkspaceInitials = Record<string, string>;
 
@@ -36,15 +37,10 @@ export function persistWorkspaceInitials(initials: WorkspaceInitials): void {
 }
 
 export function loadSelectedWorkspaceId(): string | null {
-  try {
-    return window.localStorage.getItem(SELECTED_WORKSPACE_KEY);
-  } catch {
-    return null;
-  }
+  return loadClientPageSelection()?.workspaceId ?? null;
 }
 
 export function persistSelectedWorkspaceId(workspaceId: string): void {
-  try {
-    window.localStorage.setItem(SELECTED_WORKSPACE_KEY, workspaceId);
-  } catch {}
+  const saved = loadClientPageSelection();
+  saveClientPageSelection({ workspaceId, tabId: saved?.workspaceId === workspaceId ? saved.tabId : null });
 }

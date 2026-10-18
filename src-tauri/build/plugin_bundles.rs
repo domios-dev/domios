@@ -25,7 +25,7 @@ pub fn generate_system_plugin_hashes() {
     for child in std::fs::read_dir(&plugins_root).expect("read plugins dir") {
         let child = child.expect("read plugins entry");
         let path = child.path();
-        if !path.is_dir() {
+        if !path.is_dir() || !path.join("plugin.json").is_file() {
             continue;
         }
         let dir_name = path

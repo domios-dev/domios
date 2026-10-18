@@ -122,6 +122,12 @@ test("optimistic chat session preserves committed send identity across stream up
     sequence: 1,
     retained_from: 1,
     correlationId: chipToken,
+    matched_row: {
+      source: { source_session_id: "sid-1", record: {
+        kind: "structured", thread_id: "sid-1", item_id: "chip-echo",
+      } },
+      ordinal: 1,
+    },
   }];
   await act(async () => {
     for (const handler of listeners.get("tab-chat-msg-tab") ?? []) {
@@ -144,7 +150,7 @@ test("optimistic chat session preserves committed send identity across stream up
   await flush();
   const chipRows = v().allMessages.filter((row) => row.type === "user");
   assert(chipRows.length === 1, "chip-divergent optimistic and committed turns render one bubble");
-  assert(chipRows[0]?.id === "chip-echo", "the committed chip-bearing row wins by correlation id");
+  assert(chipRows[0]?.id === "chip-echo", "the committed item wins by its matched row identity");
 
   let firstId = "";
   await act(async () => {
@@ -188,6 +194,10 @@ test("optimistic chat session preserves committed send identity across stream up
   await flush();
   const rows = v().allMessages;
   const secondKey = rows.find((row) => row.id === secondId)?.timestamp;
+  const { readChatSends } = await import("./chatSendStore");
+  const boundary = readChatSends("tab").find((send) => send.id === secondId)?.echoBoundary;
+  assert(boundary?.lastRowId === "a-1", "the stable send callback captures the latest committed row");
+  assert(boundary.sourceSessionId === "sid-1" && boundary.sessionBindingNonce === "nonce-1", "the boundary belongs to the attached session");
   assert(typeof secondKey === "string", "the second send projects with its own key");
   assert(
     Number(secondKey) >= Number(firstKey),

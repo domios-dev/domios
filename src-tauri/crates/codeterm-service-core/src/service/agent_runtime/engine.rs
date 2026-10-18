@@ -20,11 +20,13 @@ pub struct OutstandingRequest {
 }
 
 pub struct Session {
+    pub(super) update_generation: std::sync::atomic::AtomicU64,
+    pub(super) update_recovery_available: std::sync::atomic::AtomicBool,
     pub provider: String,
     pub adapter: Mutex<Option<Arc<dyn crate::agent::provider::AgentProvider>>>,
     pub context: Mutex<RuntimeContext>,
     pub(super) controls_confirmation: Mutex<Option<RuntimeSettings>>,
-    pub(super) control_changes: tokio::sync::watch::Sender<()>,
+    pub(crate) control_changes: tokio::sync::watch::Sender<()>,
     pub(super) reverted_thread: Mutex<Option<String>>,
     pub(super) completions: Mutex<super::completions::Completions>,
     pub state: Mutex<RuntimeState>,
@@ -224,6 +226,8 @@ async fn ensure_with_fork(
                 let mut state = RuntimeState::unloaded(thread.clone());
                 state.restore_timing(saved_state.as_ref());
                 Arc::new(Session {
+                    update_generation: std::sync::atomic::AtomicU64::new(0),
+                    update_recovery_available: std::sync::atomic::AtomicBool::new(false),
                     provider: provider.clone(),
                     adapter: Mutex::new(None),
                     controls_confirmation: Mutex::new(None),
@@ -358,7 +362,11 @@ async fn ensure_locked(
         if let Some(old) = old {
             old.finish().await?;
         }
-        let epoch = session.state.lock().begin();
+        let epoch = {
+            let mut state = session.state.lock();
+            state.binary_version = None;
+            state.begin()
+        };
         session
             .provider_operation_failures
             .store(0, std::sync::atomic::Ordering::Relaxed);
@@ -463,21 +471,20 @@ async fn ensure_locked(
     session
         .initialization
         .ensure(|| async {
-            if !matches!(
-                run(
-                    svc,
-                    provider,
-                    session,
-                    &process,
-                    RuntimeOperation::Initialize
-                )
-                .await?,
-                RuntimeResult::Initialized
-            ) {
+            let result = run(
+                svc,
+                provider,
+                session,
+                &process,
+                RuntimeOperation::Initialize,
+            )
+            .await?;
+            let RuntimeResult::Initialized { binary_version } = result else {
                 return Err(RuntimeFailure::HookFailed(
                     "Initialize result is invalid".into(),
                 ));
-            }
+            };
+            session.state.lock().binary_version = binary_version;
             Ok(())
         })
         .await?;
@@ -1009,6 +1016,12 @@ fn commit_runtime_binding(
 
 pub(super) fn snapshot(session: &Session) -> model::RuntimeSnapshot {
     let mut snapshot = session.state.lock().snapshot();
+    super::update::mask_recoverable_failure(
+        &mut snapshot,
+        session
+            .update_recovery_available
+            .load(std::sync::atomic::Ordering::Acquire),
+    );
     {
         let cache = session.cache.lock();
         snapshot.history = Some(cache.backfill());
@@ -1023,7 +1036,6 @@ pub(super) fn snapshot(session: &Session) -> model::RuntimeSnapshot {
 }
 
 pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
-    session.control_changes.send_replace(());
     let context = session.context.lock().clone();
     let mut value = serde_json::to_value(snapshot(session)).unwrap_or(Value::Null);
     if let Some(snapshot) = value.as_object_mut() {
@@ -1086,6 +1098,7 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
         target.agent_runtime_state = Some(value.clone());
         target.agent_booting = value["state"] == "loading";
     }
+    session.control_changes.send_replace(());
     svc.notify_event(
         "agent-runtime-state",
         serde_json::json!({"tab_id":tab,"session_binding_nonce":context.binding_nonce,"state":value}),

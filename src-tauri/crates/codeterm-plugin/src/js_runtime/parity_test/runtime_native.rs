@@ -287,7 +287,9 @@ impl AgentProvider for NativeRuntime {
                         process_id: process_id.clone(),
                         acknowledged: value["acknowledged"] == true,
                     },
-                    RuntimeOperation::Initialize => RuntimeResult::Initialized,
+                    RuntimeOperation::Initialize => RuntimeResult::Initialized {
+                        binary_version: value["binaryVersion"].as_str().map(str::to_string),
+                    },
                     RuntimeOperation::OpenThread { settings, .. } => RuntimeResult::ThreadLoaded {
                         thread_id: value["threadId"]
                             .as_str()

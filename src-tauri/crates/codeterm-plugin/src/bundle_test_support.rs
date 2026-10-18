@@ -15,7 +15,7 @@ pub(crate) fn fixtures() -> BundledPlugins {
         let Some(id) = bundled_plugin_dirs::bundled_plugin_id(name) else {
             continue;
         };
-        if !path.is_dir() {
+        if !path.is_dir() || !path.join("plugin.json").is_file() {
             continue;
         }
         let id: &'static str = Box::leak(id.to_string().into_boxed_str());

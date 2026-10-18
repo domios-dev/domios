@@ -29,6 +29,8 @@ mod process_slot;
 pub(crate) mod projections;
 pub mod reset_credits;
 pub mod thread_history;
+pub(crate) mod update;
+pub use projections::for_tab as usage_for_tab;
 pub use projections::latest as projections_latest;
 pub(crate) mod prompt_answers;
 mod question_delivery;

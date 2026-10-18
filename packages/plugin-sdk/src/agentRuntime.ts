@@ -85,7 +85,7 @@ export type OperationResult =
   | {kind:"goal"; threadId:string; intent:import("./gen/ChatSessionIntent").ChatSessionIntent|null}
   | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]; nextCursor:string|null}
   | {kind:"backgroundProcessTermination"; threadId:string; processId:string; acknowledged:boolean}
-  | {kind:"initialized"}
+  | {kind:"initialized"; binaryVersion?:string}
   | {kind:"threadLoaded"; threadId:string; settings:RuntimeSettings}
   | {kind:"threadForked"; sourceThreadId:string; threadId:string; turnId:string}
   | {kind:"historyPage"; threadId:string; items:readonly ChatMsg[];

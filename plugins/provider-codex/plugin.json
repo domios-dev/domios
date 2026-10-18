@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.39",
+  "version": "1.14.45",
   "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Codex",
@@ -123,7 +123,7 @@
         "terminalCommand": "codex login"
       },
       "usage": true,
-      "resetCreditsMinVersion": "0.162.1",
+      "resetCreditsMinVersion": "0.163.0",
       "backgroundProcesses": true,
       "goals": {
         "actions": [

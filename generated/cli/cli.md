@@ -95,6 +95,17 @@ Toggle whether a tab can spawn children
 - `--enable` — Enable or disable spawning
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
+#### `codeterm agent child-history`
+
+Read one recorded child's transcript under the exact parent binding
+
+- `--binding-nonce` — Current parent binding nonce
+- `--cursor` — Opaque continuation cursor from the prior response
+- `--epoch` — Current parent runtime epoch
+- `--root-thread-id` — Current parent thread id from its runtime binding
+- `--tab` — Parent agent tab id
+- `--thread` — Recorded child thread id
+
 #### `codeterm agent cli`
 
 Inspect or manage a provider's CLI using its manifest commands
@@ -223,9 +234,11 @@ Spawn a new agent; roleless unless --role is provided.
 - `--charter-file` — Read watcher charter text from a file
 - `--cwd` — Working directory: an existing directory, refused otherwise. A relative path resolves against your current directory. With --mesh it must be absolute on the peer; from Git Bash set MSYS_NO_PATHCONV=1 for POSIX paths
 - `--description` — Short tab description (max 200 chars)
+- `--environment` — Remote environment ID or unambiguous label; never inferred
 - `--execution-intent` — Declared execution intent. Plain mutating Workers require a task binding; Worker kinds may mutate task-less and default to `mutating`
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
-- `--kind` — Worker prompt kind/profile, with or without a task: tester or release_manager
+- `--kind` — Worker prompt kind/profile, with or without a task: qa or release_manager
+- `--location` — Execution location declared by the provider. Remote tasks are one-shot tabs
 - `--max-actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--non-user-facing` — Declare the tab non-user-facing (bench/probe): its prompts and exits never notify the user; they are reported to its parent instead
@@ -260,6 +273,23 @@ Cancel automatic cleanup for an inspected startup attempt
 - `--attempt` — Launch attempt shown in the startup-overdue report
 - `--tab` — Target spawned Tab
 
+#### `codeterm agent switch-provider`
+
+Continue this tab on another provider through a bounded handoff produced by the target
+
+- `--force` — Stop the current turn before switching. Otherwise a busy tab refuses
+- `--model`
+- `<provider>`
+- `--reasoning-effort`
+- `--tab`
+
+#### `codeterm agent switch-provider-status`
+
+Read a daemon-owned provider switch operation, including self-switch results
+
+- `<operation>`
+- `--tab`
+
 #### `codeterm agent turns`
 
 Read completed turns from a tool-less agent's exact bound session
@@ -273,6 +303,23 @@ Read completed turns from a tool-less agent's exact bound session
 Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
+#### `codeterm agent usage`
+
+Read usage or consume a confirmed reset credit for an exact tab
+
+#### `codeterm agent usage read`
+
+Read this exact tab's provider usage snapshot
+
+- `--tab`
+
+#### `codeterm agent usage reset`
+
+Consume one available reset credit on this exact tab's account
+
+- `--confirm` — Confirm spending one reset credit
+- `--tab`
 
 #### `codeterm analytics`
 
@@ -2428,11 +2475,11 @@ BOUNCE: atomically exits in_review back to in_progress
 
 #### `codeterm plan review delegate`
 
-Hand one in-review task to a direct child Tester for accept/bounce review
+Hand one in-review task to a direct child QA for accept/bounce review
 
 - `<plan_id>`
+- `--qa-tab`
 - `<task_id>`
-- `--tester-tab`
 
 #### `codeterm plan review hold`
 

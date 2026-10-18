@@ -4,13 +4,13 @@ fn review_task_ref(plan_id: &str, task_id: &str) -> String {
     format!("{plan_id}/{task_id}")
 }
 
-pub(super) fn is_tester(svc: &ServiceContext, tab_id: &str) -> bool {
+pub(super) fn is_qa(svc: &ServiceContext, tab_id: &str) -> bool {
     svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
         codeterm_types::agent::role_kind::can_close_review(tab.role, tab.role_profile.as_deref())
     })
 }
 
-fn tester_review_actor(
+fn qa_review_actor(
     svc: &ServiceContext,
     plan_id: &str,
     task_id: &str,
@@ -21,7 +21,7 @@ fn tester_review_actor(
         .tab_id
         .as_deref()
         .filter(|tab_id| !tab_id.trim().is_empty())
-        .ok_or_else(|| unauthorized("tester review requires its live tab binding"))?;
+        .ok_or_else(|| unauthorized("qa review requires its live tab binding"))?;
     let requested_session = caller
         .session_id
         .as_deref()
@@ -42,13 +42,12 @@ fn tester_review_actor(
     let mux = svc.mux.read();
     let tab = mux
         .get_tab(tab_id)
-        .ok_or_else(|| unauthorized("the tester tab is no longer live"))?;
+        .ok_or_else(|| unauthorized("the qa tab is no longer live"))?;
     let current_task_ref = review_task_ref(plan_id, task_id);
     let session_id = tab.agent_session_id.as_deref();
     let binding_nonce = tab.session_binding_nonce.as_deref();
     let attested = requested_session.is_none_or(|requested| Some(requested) == session_id)
         && session_id.is_some()
-        && session_id == requested_session
         && nonce.is_some()
         && binding_nonce == nonce
         && tab.reported_session_binding_nonce.as_deref() == nonce;
@@ -62,7 +61,7 @@ fn tester_review_actor(
         || !attested
     {
         return Err(unauthorized(
-            "the live Tester was not handed this in-review task by its Plan owner",
+            "the live QA was not handed this in-review task by its Plan owner",
         ));
     }
     Ok(AgentRef {
@@ -80,11 +79,11 @@ pub(super) fn authorized_review_actor(
 ) -> Result<AgentRef, JsonRpcError> {
     let caller = structural_caller(params);
     let candidate_tab_id = caller.tab_id.clone().or_else(|| actor(params).tab_id);
-    let is_tester = candidate_tab_id
+    let is_qa = candidate_tab_id
         .as_deref()
-        .is_some_and(|tab_id| is_tester(svc, tab_id));
-    if is_tester {
-        return tester_review_actor(svc, plan_id, task_id, params);
+        .is_some_and(|tab_id| is_qa(svc, tab_id));
+    if is_qa {
+        return qa_review_actor(svc, plan_id, task_id, params);
     }
     if caller.tab_id.is_none()
         && caller.session_id.is_none()
@@ -100,7 +99,7 @@ pub(super) fn delegate_review_task(
     svc: &ServiceContext,
     plan_id: &str,
     task_id: &str,
-    tester_tab_id: &str,
+    qa_tab_id: &str,
     params: Option<&Value>,
 ) -> Result<Value, JsonRpcError> {
     let owner = authorized_orchestrator_actor(svc, plan_id, params)?;
@@ -124,27 +123,25 @@ pub(super) fn delegate_review_task(
     if task.status != codeterm_service_core::plan::TaskStatus::InReview {
         return Err(JsonRpcError {
             code: -32004,
-            message: "only an in-review task can be handed to a Tester".into(),
+            message: "only an in-review task can be handed to a QA".into(),
             data: Some(json!({ "type": "review_task_not_in_review" })),
         });
     }
     let task_ref = review_task_ref(plan_id, task_id);
     let mut mux = svc.mux.write();
-    let tester = mux
-        .get_tab(tester_tab_id)
-        .ok_or_else(|| unauthorized("the Tester tab is no longer live"))?;
-    if !codeterm_types::agent::role_kind::can_close_review(
-        tester.role,
-        tester.role_profile.as_deref(),
-    ) || tester.task_binding.is_some()
-        || tester.parent_tab_id.as_deref() != Some(owner_tab_id)
+    let qa = mux
+        .get_tab(qa_tab_id)
+        .ok_or_else(|| unauthorized("the QA tab is no longer live"))?;
+    if !codeterm_types::agent::role_kind::can_close_review(qa.role, qa.role_profile.as_deref())
+        || qa.task_binding.is_some()
+        || qa.parent_tab_id.as_deref() != Some(owner_tab_id)
     {
         return Err(unauthorized(
-            "review delegation requires a task-less Tester that is a direct child of the Plan owner",
+            "review delegation requires a task-less QA that is a direct child of the Plan owner",
         ));
     }
     if mux.all_tabs().any(|tab| {
-        tab.id != tester_tab_id
+        tab.id != qa_tab_id
             && tab
                 .taskless_authorized_review_tasks
                 .iter()
@@ -152,31 +149,29 @@ pub(super) fn delegate_review_task(
     }) {
         return Err(JsonRpcError {
             code: -32004,
-            message: "this review task is already handed to another Tester".into(),
+            message: "this review task is already handed to another QA".into(),
             data: Some(json!({ "type": "review_task_already_delegated" })),
         });
     }
-    let tester = mux
-        .get_tab_mut(tester_tab_id)
-        .expect("the live Tester remains in the mux write lock");
-    if tester
+    let qa = mux
+        .get_tab_mut(qa_tab_id)
+        .expect("the live QA remains in the mux write lock");
+    if qa
         .taskless_authorized_review_tasks
         .iter()
         .any(|grant| grant == &task_ref)
     {
         return Err(JsonRpcError {
             code: -32004,
-            message: "this review task is already handed to this Tester".into(),
+            message: "this review task is already handed to this QA".into(),
             data: Some(json!({ "type": "review_task_already_delegated" })),
         });
     }
-    tester.taskless_authorized_review_tasks.push(task_ref);
-    Ok(
-        json!({ "plan_id": plan_id, "task_id": task_id, "tester_tab_id": tester_tab_id, "delegated": true }),
-    )
+    qa.taskless_authorized_review_tasks.push(task_ref);
+    Ok(json!({ "plan_id": plan_id, "task_id": task_id, "qa_tab_id": qa_tab_id, "delegated": true }))
 }
 
-pub(super) fn consume_tester_review_grant(
+pub(super) fn consume_qa_review_grant(
     svc: &ServiceContext,
     from: &AgentRef,
     plan_id: &str,

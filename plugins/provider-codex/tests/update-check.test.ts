@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
-import { checkCodexUpdate, updateAvailable } from "../src/update";
+import { checkCodexUpdate, parseVersion, updateAvailable } from "../src/update";
+import { availableUpdate } from "../../provider-shared/updateCheck";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 type CodexPlugin = { checkForUpdate?: () => { latestVersion: string } | null };
@@ -57,6 +58,15 @@ const current = fixture("current.json");
 const available = fixture("available.json");
 assert(!updateAvailable(current.currentVersion, current.latestVersion), "current versions do not offer an update");
 assert(updateAvailable(available.currentVersion, available.latestVersion), "newer versions are available");
+assert(updateAvailable("0.162.1", "0.163.0"), "the pending stable release is newer");
+assert(updateAvailable("0.9.10", "0.10.0"), "comparison uses numeric version components");
+assert(!updateAvailable("1.2.3", "1.2.2"), "older versions never offer a downgrade");
+for (const version of ["1.2", "v1.2.3", "01.2.3", "1.2.3-beta.1", "1.2.3+build", "prefix 1.2.3", "9007199254740992.1.0"]) {
+  assert(parseVersion(version) === null, `invalid stable version is rejected: ${version}`);
+}
+assert(availableUpdate("0.162.1", { status: 200, body: '{"version":"0.163.0"}' })?.latestVersion === "0.163.0", "npm registry latest metadata is parsed");
+assert(availableUpdate("0.162.1", { status: 503, body: '{"version":"0.163.0"}' }) === null, "registry errors are not offers");
+assert(availableUpdate("0.162.1", { status: 200, body: "invalid" }) === null, "malformed registry metadata is unanswered");
 assert(loadPlugin(available.currentVersion, available.latestVersion).checkForUpdate()?.latestVersion === available.latestVersion,
   "the provider bridge offers the checked newer version");
 const answered = loadPlugin(current.currentVersion, current.latestVersion).checkForUpdate() as { currentVersion: string; latestVersion: string } | null;

@@ -20,8 +20,8 @@ import { usePhoneViewport } from "../../hooks/useSidebarViewport";
 import { useMuxSelector } from "../../store/multiplexer";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { goalVisible } from "./goalModel";
-import { ComposerBackgroundWorkPanel } from "./ComposerBackgroundWorkPanel";
-import { useComposerBackgroundWork } from "./useComposerBackgroundWork";
+import { ComposerBackgroundWorkPanel, SubagentCapsules } from "./ComposerBackgroundWorkPanel";
+import { useComposerBackgroundWorkStatus } from "./ComposerBackgroundWorkContext";
 import { composerBackgroundWorkBubble } from "./composerBackgroundWorkModel";
 
 export type ContextKind = "blueprints" | "crons" | "delayed" | "goal" | "background";
@@ -139,12 +139,8 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     return tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null);
   });
   const descriptor = useAgentDescriptor(providerId);
-  const backgroundWork = useComposerBackgroundWork(
-    tabId,
-    descriptor?.agent_runtime?.backgroundProcesses === true,
-    descriptor?.supports_subagent_visibility === true,
-  );
-  const backgroundBubble = composerBackgroundWorkBubble(backgroundWork.items);
+  const backgroundWork = useComposerBackgroundWorkStatus();
+  const backgroundBubble = composerBackgroundWorkBubble(backgroundWork.items.filter(item => item.kind === "terminal"));
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
   const [requested, setRequested] = useState<ContextKind | null>(null);
   const goalTriggerRef = useRef<HTMLButtonElement>(null);
@@ -309,7 +305,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       }}
     >
       <PillIcon size={12} aria-hidden="true" className="ct-ctx-pill__icon" data-kind={plan ? "plan" : kinds[0]} />
-      <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]] ?? (hasGoal ? "Session goal" : "Plugin removed")}</span>
+      <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]] ?? (hasGoal ? "Session goal" : hasPluginError ? "Plugin removed" : "Subagents")}</span>
       {total > 0 && <span className="ct-ctx-pill__count">+{total}</span>}
       <ChevronUp size={12} aria-hidden="true" className="ct-ctx-pill__chev" />
       {Object.values(alerts).some(Boolean) && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
@@ -363,6 +359,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
         {!phone && linkedChips}
       </div>
       {phone && linkedChips}
+      <SubagentCapsules items={backgroundWork.items.filter(item => item.kind === "agent")} />
       {open && (phone ? (
         <div className="ct-ctx__reveal" data-open={unfolded || undefined}>
           <div className="ct-ctx__reveal-inner">{body}</div>

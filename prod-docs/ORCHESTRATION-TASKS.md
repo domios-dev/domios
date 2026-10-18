@@ -31,9 +31,9 @@ any open state → cancelled
   decision, approval, access). Work sequenced after a release or milestone is
   not blocked: keep it `pending` in a later group (`plan task update --group`).
 - The Orchestrator alone dispatches and holds `in_review` tasks. It may hand one
-  in-review task to a direct child Tester with `codeterm plan review delegate`;
-  that Tester may accept or bounce only the handed task and must attach its
-  evidence note. A Tester cannot hold, dispatch, or transition any other task.
+  in-review task to a direct child QA with `codeterm plan review delegate`;
+  that QA may accept or bounce only the handed task and must attach its
+  evidence note. A QA cannot hold, dispatch, or transition any other task.
   `hold` preserves assignment and lane; `bounce` resumes the Worker when its
   continuation is available, or reopens a gone Worker task as pending while
   preserving the note, attempt history, and lane for redispatch.
@@ -105,4 +105,4 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

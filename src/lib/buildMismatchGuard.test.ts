@@ -136,12 +136,13 @@ describe("web build drift reload", () => {
       expect(local.mock.calls[0]?.[0]).toBe(`${window.location.origin}/api/health`);
     } finally { uninstall(); }
   });
-  it("uses a local boot-changed build hint without fetching health", async () => {
+  it("keeps a same-build boot attach in place and reloads on a changed local build hint", async () => {
     const { reload } = driftEnv();
     const fetcher = health(compatible(), "unused");
     const uninstall = installBuildDriftTriggers();
     try {
       window.dispatchEvent(new CustomEvent(WEB_BOOT_CHANGED_EVENT, { detail: { boot: "b", build: "frontend-hash", relayed: false } }));
+      expect(reload).not.toHaveBeenCalled();
       window.dispatchEvent(new CustomEvent(WEB_BOOT_CHANGED_EVENT, { detail: { boot: "b", build: "new-build", relayed: false } }));
       await vi.waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
       expect(fetcher).not.toHaveBeenCalled();

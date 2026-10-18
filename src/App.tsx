@@ -1,4 +1,6 @@
 import { WorkspacePaneState } from "./components/shared/FolderPaneState";
+import { DeferredLoader } from "./components/shared/DeferredLoader";
+import { initialRouteReady } from "./store/multiplexer/pageSelection";
 import { emitFeatureUsed } from "./lib/productAnalytics";
 import { localJson } from "./lib/webApi";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
@@ -9,7 +11,7 @@ import { buildTeamActions } from "./lib/teamActions";
 import { selectAiHelperTab } from "./lib/aiHelperFocus";
 import { getCurrentTabUiMode, resolveInitialTabUiMode } from "./lib/clientTabUiMode";
 import { tabChatCapable } from "./lib/chatUiMode";
-import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
+import { useComposerDraftGc } from "./lib/useComposerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { SidebarDrawer } from "./components/Sidebar/SidebarDrawer";
@@ -261,7 +263,8 @@ function AppInner() {
       });
     }
   }, []);
-  useFrontendApp({
+  const routeRestored = useFrontendApp({
+    pageSnapshot: IS_WEB ? { workspaces: state.workspaces, tabs: state.tabs, active_workspace_id: state.active_workspace_id } : undefined,
     generation: state.generation,
     workspaceId: state.active_workspace_id,
     tabId: state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null,
@@ -302,16 +305,7 @@ function AppInner() {
     [],
   );
 
-  // Reclaim composer drafts left behind by closed tabs so a reused/colliding
-  // tab id can never inherit a dead tab's unsent text.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      pruneOrphanComposerDrafts(window.localStorage, new Set(Object.keys(state.tabs)));
-    } catch {
-      // Best-effort: draft GC must never break the app.
-    }
-  }, [state.tabs]);
+  useComposerDraftGc(state.tabs);
   const configRef = useRef(config);
   configRef.current = config;
 
@@ -427,7 +421,7 @@ function AppInner() {
     prewarmTab: prewarmBackendTab,
   });
   const showWorkspaceCanvas =
-    mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;
+    initialRouteReady(state.generation) && mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;
   const workspaceCanvasOpen = useCanvasWorkspaceOpen();
   const workspaceCanvasDismissed = useCanvasWorkspaceDismissed();
   const showInlineWorkspaceCanvas = showWorkspaceCanvas && !workspaceCanvasDismissed;
@@ -708,6 +702,9 @@ function AppInner() {
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
+          {!routeRestored && !state.storageUnavailable ? (
+            <DeferredLoader state="present" role="status" aria-label="Restoring workspace" />
+          ) : <>
           {/* All panels stay mounted — switching mainView only changes visibility.
               Unmounting the workspace would tear down xterm + re-run get_tab_text
               on return, blocking the main thread with MB of escape codes. */}
@@ -907,6 +904,7 @@ function AppInner() {
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
           <PlanSidePanelHost api={stableApiConfig} />
+          </>}
         </main>
         </div>
       </div>

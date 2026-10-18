@@ -39,7 +39,8 @@ import type {
 } from "../../lib/types";
 import type { ExtendedState } from "./tree";
 import { reducer, type Action } from "./reducer";
-import { acceptsPageFocus } from "./pageSelection";
+import { acceptsPageFocus, initialPageSelection } from "./pageSelection";
+import { loadClientPageSelection } from "../../lib/clientPageSelection";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
 import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
@@ -105,8 +106,7 @@ function buildInitialState(): ExtendedState {
     workspaces: cached.workspaces,
     tabs: cached.tabs,
     teams: cached.teams ?? [],
-    active_workspace_id: cached.active_workspace_id,
-    focused_tab_id: cached.focused_tab_id,
+    ...initialPageSelection(cached, loadClientPageSelection()),
     recently_closed: cached.recently_closed,
     closed_structures: cached.closed_structures,
     generation: HYDRATED_GENERATION,
@@ -171,15 +171,26 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const applyBackendState = useCallback((s: MultiplexerState) => {
     // here silently dropped the closed-history on every reload.
     const guarded = applyPendingTabGuard(s, pendingTabSwitchRef.current);
-    dispatch({ type: "SET_STATE", state: guarded, pageOwnedSelection: IS_WEB });
+    dispatch({ type: "SET_STATE", state: guarded, pageOwnedSelection: IS_WEB,
+      initialSelection: IS_WEB && !reconciledRef.current ? initialPageSelection(guarded, loadClientPageSelection()) : undefined });
     const remoteTabs = Object.fromEntries(
       Object.entries(stateRef.current.tabs).filter(([, tab]) => Boolean(tab.remote_peer_id)),
     );
     if (Object.keys(remoteTabs).length > 0) {
       applyRemoteProjection(remoteTabs);
     }
-    if (IS_WEB) saveStateSnapshot(s);
   }, [applyRemoteProjection]);
+
+  const { generation, workspaces, tabs, teams, activeTabIds, active_workspace_id,
+    focused_tab_id, recently_closed, closed_structures } = state;
+  useEffect(() => {
+    if (!IS_WEB || generation <= 0) return;
+    saveStateSnapshot({ generation, tabs, teams, active_workspace_id, focused_tab_id,
+      recently_closed, closed_structures, workspaces: workspaces.map((workspace) => ({
+        ...workspace, active_tab_id: activeTabIds[workspace.id] ?? null,
+      })) });
+  }, [generation, workspaces, tabs, teams, activeTabIds, active_workspace_id,
+    focused_tab_id, recently_closed, closed_structures]);
 
   const cachedBackendGenerationRef = useRef<number | undefined>(undefined);
   const acceptBackendState = useCallback((s: MultiplexerState) => {
@@ -534,6 +545,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       peerSwitchRef.current = switchId;
       pendingTabSwitchRef.current = {};
       writeGateRef.current.lock();
+      reconciledRef.current = false;
       dispatch({ type: "RESET_PEER_CONTEXT" });
     };
     const rebindPeerContext = (event: Event) => {

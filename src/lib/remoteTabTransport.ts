@@ -1,5 +1,6 @@
 import type { ApiConfig } from "./types";
-import { childHistorySuffix, type ChildTranscriptAuthority } from "./childTranscript";
+import { childHistorySuffix, currentChildAuthority, type ChildTranscriptAuthority } from "./childTranscript";
+import type { MultiplexerState } from "./types";
 import { backgroundProcessesSuffix, type BackgroundProcessAuthority } from "./backgroundProcesses";
 import { daemonAuthToken, daemonHttpBase, isPromptNotOnScreenResponse } from "./webApi";
 
@@ -79,6 +80,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     ...identity, method, suffix, body, select,
   });
   switch (command) {
+    case "agent_runtime_child_authority": return call("GET", "/runtime-authority", null, value => currentChildAuthority((value as MultiplexerState).tabs[identity.remoteTabId]));
     case "agent_runtime_child_history": return call("GET", childHistorySuffix(String(args.threadId), args.request as ChildTranscriptAuthority & {cursor?:string}));
     case "agent_runtime_background_processes": return call("GET", backgroundProcessesSuffix(args.request as BackgroundProcessAuthority));
     case "agent_runtime_stop_background_process": return call("POST", "/agent/runtime/background-processes", args.request);
@@ -148,6 +150,9 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
       { enabled: args.enabled === true },
       (value) => (value as { enabled?: boolean })?.enabled === true,
     );
+    case "provider_switch_status": return call("GET", `/agent/switch-provider/${encodeURIComponent(String(args.operationId ?? ""))}?wait=${args.wait === true}`);
+    case "read_provider_history": return call("GET", `/agent/provider-history?file=${encodeURIComponent(String(args.file ?? ""))}`);
+    case "switch_agent_provider": return call("POST", "/agent/switch-provider", { provider: args.providerId, model: args.model, reasoning_effort: args.reasoningEffort, force: args.force === true });
     case "restart_agent_tab": return call("POST", "/agent/restart", { fresh: args.fresh === true });
     case "switch_agent_model": return call("POST", "/agent/model", { model: args.model, reasoning_effort: args.reasoningEffort, runtime_mode: args.runtimeMode, ...(args.serviceTier !== undefined ? { service_tier: args.serviceTier } : {}), ...(args.restartResume === true ? { restart_resume: true } : {}), ...(args.cancel === true ? { cancel: true } : {}) });
     default: return null;

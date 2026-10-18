@@ -38,16 +38,16 @@ test("a PTY agent tab is offered the other PTY providers", () => {
 
 test("the entry names the provider it is on", () => {
   const view = tabProviderMenuView(tab(), CATALOG, "Idle");
-  assert.equal(tabProviderEntryLabel(view!), "Provider: CLAUDE");
+  assert.equal(tabProviderEntryLabel(view!), "Switch provider…");
 });
 
-test("a chat-backend tab has no PTY provider switch", () => {
+test("a runtime-backed tab offers managed provider handoff", () => {
   const view = tabProviderMenuView(
     tab({ backing: { kind: "chat_backend" } as Tab["backing"] }),
-    CATALOG,
+    [{...CATALOG[0], agent_runtime: {}}, CATALOG[1]],
     "Idle",
   );
-  assert.equal(view, null, "a plugin transport owns its own session");
+  assert.ok(view, "a runtime owns a managed provider session");
 });
 
 test("a tab with no agent has nothing to switch", () => {
@@ -75,7 +75,7 @@ test("protected home tabs offer the same capability-based provider choice", () =
 test("switching requests one provider restart without changing identity first", async () => {
   const calls: Array<[string, string]> = [];
   const api: TabProviderSwitchApi = {
-    restartWithProvider: async (tabId, providerId) => { calls.push([tabId, providerId]); },
+    switchProvider: async (tabId, providerId) => { calls.push([tabId, providerId]); },
   };
   await switchTabProvider(api, "t1", "codex");
   assert.deepEqual(calls, [["t1", "codex"]]);
@@ -84,7 +84,7 @@ test("switching requests one provider restart without changing identity first", 
 test("a refused provider restart is surfaced without another operation", async () => {
   let calls = 0;
   const api: TabProviderSwitchApi = {
-    restartWithProvider: async () => { calls++; throw new Error("refused"); },
+    switchProvider: async () => { calls++; throw new Error("refused"); },
   };
   await assert.rejects(switchTabProvider(api, "t1", "codex"), /refused/);
   assert.equal(calls, 1);
@@ -98,7 +98,7 @@ test("the default provider API requests the atomic lifecycle operation", async (
   });
   try {
     await switchTabProvider(getTabProviderApi(), "home", "opaque-provider");
-    assert.deepEqual(calls, [{ command: "restart_agent_tab", args: {
+    assert.deepEqual(calls, [{ command: "switch_agent_provider", args: {
       tabId: "home", providerId: "opaque-provider",
     } }]);
   } finally {

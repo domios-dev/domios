@@ -8,7 +8,7 @@ use codeterm_service_core::plan::{AgentRef, PlanEvidenceClass, ReviewCapacityCla
 use codeterm_service_core::service::plan::PlanError;
 use codeterm_service_core::service::{ServiceContext, ServiceState};
 
-mod tester_authority;
+mod qa_authority;
 
 use super::JsonRpcError;
 
@@ -295,16 +295,15 @@ pub(super) fn dispatch(
         }
         "plan.review.delegate" => {
             let (plan_id, task_id) = super::plan_refs::resolve_task(store, params)?;
-            let tester_tab_id = str_field(p, "tester_tab_id").trim();
-            if tester_tab_id.is_empty() {
+            let qa_tab_id = str_field(p, "qa_tab_id").trim();
+            if qa_tab_id.is_empty() {
                 return Err(JsonRpcError {
                     code: -32602,
-                    message: "tester_tab_id is required".into(),
+                    message: "qa_tab_id is required".into(),
                     data: None,
                 });
             }
-            let result =
-                tester_authority::delegate_review_task(svc, &plan_id, &task_id, tester_tab_id, p)?;
+            let result = qa_authority::delegate_review_task(svc, &plan_id, &task_id, qa_tab_id, p)?;
             emit_plan_changed(svc, &plan_id);
             Ok(result)
         }
@@ -313,7 +312,7 @@ pub(super) fn dispatch(
             let residual_risk = p
                 .and_then(|x| x.get("residual_risk"))
                 .and_then(|v| v.as_str());
-            let from = tester_authority::authorized_review_actor(svc, &plan_id, &task_id, p)?;
+            let from = qa_authority::authorized_review_actor(svc, &plan_id, &task_id, p)?;
             if note(p).trim().is_empty() {
                 return Err(plan_rpc_err(PlanError::QaNoteRequired));
             }
@@ -342,7 +341,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            tester_authority::consume_tester_review_grant(svc, &from, &plan_id, &task_id);
+            qa_authority::consume_qa_review_grant(svc, &from, &plan_id, &task_id);
             if let Some(worker) = worker {
                 if let Some(ports) =
                     svc.try_ext::<codeterm_service_core::ports::sentinel::SentinelPorts>()
@@ -369,7 +368,7 @@ pub(super) fn dispatch(
         }
         "plan.review.bounce" => {
             let (plan_id, task_id) = super::plan_refs::resolve_task(store, params)?;
-            let from = tester_authority::authorized_review_actor(svc, &plan_id, &task_id, p)?;
+            let from = qa_authority::authorized_review_actor(svc, &plan_id, &task_id, p)?;
             if note(p).trim().is_empty() {
                 return Err(plan_rpc_err(PlanError::QaNoteRequired));
             }
@@ -406,7 +405,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            tester_authority::consume_tester_review_grant(svc, &from, &plan_id, &task_id);
+            qa_authority::consume_qa_review_grant(svc, &from, &plan_id, &task_id);
             if recorded {
                 svc.record_kpi_review_verdict(
                     from.tab_id.as_deref().unwrap_or("unknown"),
@@ -545,11 +544,9 @@ pub(super) fn dispatch(
             if from
                 .tab_id
                 .as_deref()
-                .is_some_and(|tab_id| tester_authority::is_tester(svc, tab_id))
+                .is_some_and(|tab_id| qa_authority::is_qa(svc, tab_id))
             {
-                return Err(unauthorized(
-                    "Testers may only accept or bounce handed reviews",
-                ));
+                return Err(unauthorized("QAs may only accept or bounce handed reviews"));
             }
             let result = store
                 .hold_review(&plan_id, &task_id, note(p), from, now)

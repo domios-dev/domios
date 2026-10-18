@@ -1,4 +1,14 @@
 *.sh text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.ps1 text eol=lf
+*.mjs text eol=lf
+*.js text eol=lf
+.pnpmfile.cjs text eol=lf
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+tests/fixtures/**/*.txt text eol=lf
 prod-docs/*.md text eol=lf
 generated/cli/cli.md text eol=lf
 generated/cli/cli-manifest.json text eol=lf

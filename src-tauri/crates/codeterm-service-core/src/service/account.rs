@@ -10,11 +10,17 @@ pub struct AccountCell(pub Arc<tokio::sync::OnceCell<Arc<Account>>>);
 pub struct AccountCredentials {
     store: SecretStoreState,
     operation: Arc<tokio::sync::Mutex<()>>,
+    fallback: Arc<codeterm_account::protected_credentials::ProtectedCredentials>,
 }
 impl AccountCredentials {
     pub fn new(store: SecretStoreState) -> Self {
         Self {
             store,
+            fallback: Arc::new(
+                codeterm_account::protected_credentials::ProtectedCredentials::new(
+                    crate::paths::data_dir().to_string_lossy().into_owned(),
+                ),
+            ),
             operation: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
@@ -24,61 +30,87 @@ fn credential_name(provider: &str) -> String {
 }
 #[async_trait]
 impl CredentialStore for AccountCredentials {
+    fn session_only(&self, provider: &str) -> bool {
+        self.fallback.session_only(&credential_name(provider))
+    }
     async fn load(&self, provider: &str) -> codeterm_account::Result<Option<Secret>> {
         let store = self.store.read().await.clone();
         let name = credential_name(provider);
         let operation = self.operation.clone().lock_owned().await;
+        let fallback = self.fallback.clone();
         let runtime = tokio::runtime::Handle::current();
         let result = tokio::task::spawn_blocking(move || {
             let _operation = operation;
-            runtime.block_on(store.get(&name))
+            if let Some(value) = fallback.load(&name)? {
+                return Ok(Some(value));
+            }
+            if !store.allows_account_credentials() {
+                return Ok(None);
+            }
+            match runtime.block_on(store.get(&name)) {
+                Ok(value) => Ok(Some(Secret::new(value.value.expose_secret()))),
+                Err(SecretError::NotFound) => Ok(None),
+                Err(_) => Err(Error::Credentials),
+            }
         })
         .await
         .map_err(|_| Error::Credentials)?;
-        match result {
-            Ok(value) => Ok(Some(Secret::new(value.value.expose_secret()))),
-            Err(SecretError::NotFound) => Ok(None),
-            Err(_) => Err(Error::Credentials),
-        }
+        result
     }
     async fn save(&self, provider: &str, token: &Secret) -> codeterm_account::Result<()> {
         let store = self.store.read().await.clone();
         let name = credential_name(provider);
-        let value = SecretString::from(token.expose().to_owned());
+        let token = token.clone();
         let operation = self.operation.clone().lock_owned().await;
+        let fallback = self.fallback.clone();
         let runtime = tokio::runtime::Handle::current();
         tokio::task::spawn_blocking(move || {
             let _operation = operation;
-            runtime.block_on(store.save(SaveRequest {
-                name,
-                value,
-                notes: None,
-                folder: None,
-                organization: None,
-                collection: None,
-                overwrite: true,
-            }))
+            if store.allows_account_credentials()
+                && runtime
+                    .block_on(store.save(SaveRequest {
+                        name: name.clone(),
+                        value: SecretString::from(token.expose().to_owned()),
+                        notes: None,
+                        folder: None,
+                        organization: None,
+                        collection: None,
+                        overwrite: true,
+                    }))
+                    .is_ok()
+            {
+                fallback.delete(&name)?;
+                return Ok(());
+            }
+            fallback.save(&name, &token)
         })
         .await
-        .map_err(|_| Error::Credentials)?
-        .map_err(|_| Error::Credentials)?;
+        .map_err(|_| Error::Credentials)??;
         Ok(())
     }
     async fn delete(&self, provider: &str) -> codeterm_account::Result<()> {
         let store = self.store.read().await.clone();
         let name = credential_name(provider);
         let operation = self.operation.clone().lock_owned().await;
+        let fallback = self.fallback.clone();
         let runtime = tokio::runtime::Handle::current();
         let result = tokio::task::spawn_blocking(move || {
             let _operation = operation;
-            runtime.block_on(store.delete(&name))
+            let fallback_present = fallback.load(&name)?.is_some();
+            fallback.delete(&name)?;
+            if store.allows_account_credentials() {
+                match runtime.block_on(store.delete(&name)) {
+                    Ok(()) | Err(SecretError::NotFound) => Ok(()),
+                    Err(_) if fallback_present => Ok(()),
+                    Err(_) => Err(Error::Credentials),
+                }
+            } else {
+                Ok(())
+            }
         })
         .await
         .map_err(|_| Error::Credentials)?;
-        match result {
-            Ok(()) | Err(SecretError::NotFound) => Ok(()),
-            Err(_) => Err(Error::Credentials),
-        }
+        result
     }
 }
 struct AnalyticsIdentity(codeterm_analytics::Worker);

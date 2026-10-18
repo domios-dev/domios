@@ -27,7 +27,8 @@ import { rustRouteContracts, routeMatches } from "./transportRouteAudit";
 import type { TransportClient } from "./transportClient";
 import fixtures from "./transportCommandContracts.json";
 
-const result = { ok: true, status: 200, data: [], paired: [], plans: [], themes: [], path: "path", text: "text", output: "output", line: "line", offset: 4, pty_id: "pty", generation: 1 };
+const result = { ok: true, status: 200, data: [], paired: [], plans: [], themes: [], path: "path", text: "text", output: "output", line: "line", offset: 4, pty_id: "pty", generation: 1,
+  tabs: {tab:{agent_session_id:"root",session_binding_nonce:"nonce",agent_runtime_state:{state:"loaded",epoch:4}}} };
 function fixture() {
   const calls: string[][] = [];
   const json = async <T>(method: string, path: string): Promise<T> => { calls.push([method, path]); return structuredClone(result) as T; };

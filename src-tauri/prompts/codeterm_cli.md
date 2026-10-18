@@ -9,7 +9,7 @@ Env vars ALWAYS set in every tab: `$CODETERM=1`, `$CODETERM_TAB_ID` (your intern
 
 Env vars set CONDITIONALLY, only when the tab actually has that identity — test before you use one: `$CODETERM_PARENT_TAB_ID` (set for a tab with a parent; a root Orchestrator legitimately has none), `$CODETERM_ROLE`, `$CODETERM_TEAM_ID`, `$CODETERM_WORKER_ID`, `$CODETERM_PLAN_ID`, `$CODETERM_TASK_ID`, `$CODETERM_ATTEMPT_ID`, `$CODETERM_STARTUP_ATTEMPT_ID` (agent-created launch handshake), `$CODETERM_LANE_BASE` (task-bound launches), `$CODETERM_PAD_DIR`, `$CODETERM_API_TOKEN`. `codeterm plan record --help` and `codeterm agent report --help` render the ones they default from as `[env: …]`. There is NO `$CODETERM_WORKSPACE_ID` in a shell tab — resolve the workspace with `codeterm workspace list` or `codeterm tab list`.
 
-Worker kinds add role prompts automatically: use `agent spawn --role Worker --kind tester` for verification or `--kind release_manager` for release coordination, with `--parent-tab`. Both can perform assigned mutating work with or without `--plan-task`; task-less reports omit `--status`. Publication and tags require owner GO.
+Worker kinds add role prompts automatically: use `agent spawn --role Worker --kind qa` for verification or `--kind release_manager` for release coordination, with `--parent-tab`. Both can perform assigned mutating work with or without `--plan-task`; task-less reports omit `--status`. Publication and tags require owner GO.
 
 ## Hard invariants
 
@@ -47,7 +47,8 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Tabs: list, read, search, send | `tab list`, then `tab inspect` / `tab get-text --tab <ID>`; `tab search <PATTERN>` spans every workspace; `send`; chat backends: `tab chat`; a numbered prompt the provider classifier confirmed: `tab respond OPTION --tab <ID>` | `docs ROUTING` |
 | A tab with a wrong or stale agent binding | `tab rebind`, `tab repair --from-evidence`, `tab adopt-agent` (read `--help` first). Never type task or ACK text into an unverified shell or picker | `docs ROUTING` |
 | Servers, watchers | `tab new --purpose dev --cmd "..."`; replace it with `tab restart --tab ID --cmd "..."` | — |
-| Agents: spawn, restart, switch provider, report | `agent spawn`, `agent restart`, `agent report`, `agent providers` / `agent models` | `docs ORCHESTRATION` |
+| Agents: spawn, restart, switch provider, report | `agent spawn`, `agent restart`, `agent switch-provider`, `agent switch-provider-status`, `agent report`, `agent providers` / `agent models` | `docs ORCHESTRATION` |
+| Agent usage, reset credits, child transcript | `agent usage read|reset`, `agent child-history` (all require exact tab ids) | `docs API-CLI` |
 | Becoming an Orchestrator | Tab menu Make Orchestrator, or `--role Orchestrator` | `docs ORCHESTRATION` |
 | Plans, specs, tasks | `plan --help`, `spec --help`, `task --help`; `plan lanes <plan> --clean` previews cleanup, `--confirm` executes, `--fetch` refreshes refs | `docs PLAN-EDITING` |
 | Delayed or repeated message to a tab | `send --delay` / `--at` / `--every`, `delayed --help` | — |
@@ -77,6 +78,8 @@ Plans, tasks, Teams: `codeterm plan --help` / `codeterm task --help` / `codeterm
 Workers default to full machine access for either execution intent. For explicit confinement pass `--sandbox read-only` or `--sandbox workspace-write` to `codeterm agent spawn` or local `codeterm plan task dispatch`. Execution intent still limits task and report authority; saved sandbox policies remain immutable.
 
 The owner's explicit `codeterm agent restart --tab <ID> --fresh` starts a new session in the same tab with its recorded model and effort. An existing exact restored session is refused; a live agent requires `--force`. Restore never makes this choice automatically.
+
+For an in-place provider handoff, use `codeterm agent switch-provider TARGET --tab TAB`. The target builds its summary from bounded recent messages and host context. Full history is not transferred. Optional `--model` and `--reasoning-effort` follow the target catalogue; a busy tab requires waiting or explicit `--force` to stop first. Self-switch is daemon-owned and returns an operation id immediately; read it with `agent switch-provider-status ID --tab TAB`. Switching `main` also saves the General’s provider/model/effort defaults.
 
 ## Mesh (remote peers)
 

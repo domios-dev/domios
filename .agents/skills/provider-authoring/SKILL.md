@@ -68,6 +68,12 @@ Keep own-session filtering in the stored projector and cover native/JS policy pa
 
 Runtime agent rows may carry `agent_parent_thread_id` beside `agent_id`, `agent_ordinal`, `agent_state`, `agent_description`, `agent_model` and `agent_reasoning_effort` in `toolInput`. Emit the parent marker only for provider-authenticated spawn/activity receivers. The host records those children under the current root binding and permits descendant `readHistory` requests with an exact `call.target.threadId`, never child sends, rebinds, notifications or response side effects. Ordinary references to another thread grant no inspection authority.
 
+Live agent activity also carries `agent_binding_nonce` and `agent_runtime_epoch` from its runtime context. Historical activity cannot establish liveness: the background panel shows unknown status without elapsed time unless those fields match the current parent binding.
+
+History projection preserves authenticated spawn parent/child markers under the exact requested root session. Restoring those relations grants only descendant history reads; it never restores active turns or current liveness evidence.
+
+A provider-authenticated started-activity record in that parent's own history can establish the same relation as a spawn call. Completion-only activity and references from foreign sessions cannot establish it.
+
 `launchOnboardingSafeChoice(screen)` declares the exact option value associated
 with `launchOnboardingResponse(screen)`. Missing or null means unsupported. The
 host requires a unique provider-parsed option, a delegated Worker/Planner role,
@@ -244,6 +250,12 @@ Status and dispatch warnings name missing command runners with setup guidance,
 derived from the manifest command's leading executable or explicit shell
 availability checks. This diagnostic does not parse arbitrary shell programs or
 install prerequisites; conditional installers can use an available alternative.
+
+## Catalogue inputs
+
+Declare model configuration paths in `modelCatalogue.configFiles` and environment-selected paths in `modelCatalogue.configFileEnvironments` as `{variable, subdir?}`. These are metadata-only watcher/fingerprint inputs; they grant no file reads. Declare native account files through `credentials.file` and its existing `fileEnvironment` selector. A discovery receives an opaque input fingerprint covering the CLI, declared files and invalidation generation. Cache by that complete fingerprint, reject late results from a previous input, and return null on failure rather than presenting the previous snapshot as a fresh result.
+
+Keep authoritative identity discovery complete within the existing exec capture bound. Optional verbose metadata can decorate identities; a partial identity list cannot become authoritative. Derive the model set from the provider's effective configuration/discovery, without a second manually maintained list.
 
 ## Minimal vs full: pick your tier
 
@@ -564,6 +576,17 @@ instead.
 | `notificationsSchema()` | — | SettingField[] | `[]`. Cached with `settingsSchema`. |
 | `providerSelfUpdateCapability()` | — | capability object or `null` | native fallback; else `null`. |
 
+`providerSelfUpdateCapability()` returns `{npmPackage, standaloneDirectory, standaloneArgs}`.
+It composes with `cliBinary` and `checkForUpdate()` (`--version` and npm registry
+`/<encoded npmPackage>/latest`). The host verifies the resolved binary belongs
+to that npm package or the declared standalone directory. Npm updates preserve
+the owning global prefix; standalone updates invoke that binary with the declared
+arguments. Other installation methods refuse without changing installers. This
+pure declaration adds no sandbox host functions or plugin filesystem grants.
+Updates require an explicit action and run in a visible utility tab. Completion
+reports `provider`, `operation`, `success`, `old_version`, `new_version`, `tab_id`,
+`exit_code` and `summary`; success requires the requested installed version.
+
 ### Rule & integration
 
 `installBridgeRule`, `uninstallBridgeRule`, `installIntegration`,
@@ -674,4 +697,6 @@ refuses redemption below that version or when the version is unknown. Runtime
 list never replaces the count. Explicit popover opens request details; background
 reads omit them. `redeemResetCredit` returns `resetCreditConsumed` with one of the
 four typed outcomes. Confirmation creates a UUID once; retries preserve it.
+An optional `creditId` selects an actual reported available credit; omission lets
+the provider choose. Adapters must preserve it through consume and retries.
 Never invoke a live redemption during testing: credits are irreversible.

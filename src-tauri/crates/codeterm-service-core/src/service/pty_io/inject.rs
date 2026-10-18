@@ -5,13 +5,17 @@ use crate::service::ServiceContext;
 impl ServiceContext {
     fn write_spawn_dispatch(&self, pty_id: &str, cmd: &str) -> Result<usize, String> {
         let bytes = build_spawn_dispatch(cmd).map_err(|e| e.to_string())?;
+        self.write_spawn_bytes(pty_id, &bytes)
+    }
+
+    fn write_spawn_bytes(&self, pty_id: &str, bytes: &[u8]) -> Result<usize, String> {
         #[cfg(windows)]
         {
             let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
             let generation = signal.generation();
             self.pty
                 .lock()
-                .write(pty_id, &bytes)
+                .write(pty_id, bytes)
                 .map_err(|e| e.to_string())?;
             signal.wait_after(generation, super::PASTE_RENDER_WINDOW);
             self.pty
@@ -24,10 +28,29 @@ impl ServiceContext {
         {
             self.pty
                 .lock()
-                .write(pty_id, &bytes)
+                .write(pty_id, bytes)
                 .map_err(|e| e.to_string())?;
             Ok(bytes.len())
         }
+    }
+
+    pub fn send_shell_spawn_observed(
+        &self,
+        pty_id: &str,
+        cmd: &str,
+    ) -> Result<crate::service::ExecWaiter, String> {
+        self.await_shell_ready(pty_id);
+        self.feed_input_parser(pty_id, cmd, true);
+        let bytes = build_spawn_dispatch(cmd).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        let expected = String::from_utf8_lossy(&bytes)
+            .trim_end_matches('\r')
+            .to_string();
+        #[cfg(windows)]
+        let expected = format!(" {cmd}");
+        let waiter = crate::service::ExecWaiter::for_command(pty_id, &expected);
+        self.write_spawn_bytes(pty_id, &bytes)?;
+        Ok(waiter)
     }
 
     pub fn send_shell_spawn_after_ready(&self, pty_id: &str, cmd: &str) -> Result<(), String> {

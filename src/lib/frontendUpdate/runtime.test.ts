@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT } from "./runtime";
 import { createFrontendSignals } from "./signals";
 import { TransportError } from "../transportClient";
@@ -158,6 +158,31 @@ it("registers the browser draft restorer before daemon hydration and collects lo
   }
 });
 
+it("restores a detached scroll after a fresh module boot ahead of an older daemon checkpoint", async () => {
+  const key = "own-tab:reload-session";
+  const reading = { mode: "detached" as const, scrollTop: 2034,
+    anchor: { key: "own-message", ordinal: 0, offset: -43 } };
+  sessionStorage.clear();
+  const previous = await import("../../components/Terminal/chatViewport");
+  previous.setPersistedChatScrollState(key, reading);
+  vi.resetModules();
+  const fresh = await import("../../components/Terminal/chatViewport");
+  expect(fresh.getPersistedChatScrollState(key)).toEqual(reading);
+  const { initializeBrowserFrontendUpdates } = await import("./browser");
+  const { frontendSignals } = await import("./appState");
+  const f = fixture({}, { ...checkpoint, scroll: { [key]: {
+    chat: JSON.stringify({ mode: "pinned", scrollTop: 2933 }), terminal: null,
+  } } });
+  const browser = await initializeBrowserFrontendUpdates(f.client, f.options);
+  try {
+    expect(fresh.getPersistedChatScrollState(key)).toEqual(reading);
+    expect(JSON.parse(frontendSignals.checkpoint().scroll[key].chat!)).toEqual(reading);
+  } finally {
+    browser.dispose();
+    fresh.clearPersistedChatScrollState(key);
+  }
+});
+
 it("applies staged consent once through checkpoint and activation while respecting Update-all hold", async () => {
   const f = fixture({ focused: true }, checkpoint, release);
   const options = { ...f.options, held: () => true };
@@ -175,4 +200,29 @@ it("applies staged consent once through checkpoint and activation while respecti
   expect(f.calls.filter(call => call.path.endsWith("activate"))).toHaveLength(1);
   expect((f.calls.find(call => call.method === "PUT")?.body as CheckpointWrite).payload.drafts.t).toEqual(checkpoint.drafts.t);
   runtime.dispose();
+});
+
+it("reopens a closed frontend from current local drafts without resurrecting an old swap checkpoint", async () => {
+  localStorage.clear();
+  sessionStorage.clear();
+  vi.resetModules();
+  const { initializeBrowserFrontendUpdates } = await import("./browser");
+  const { frontendSignals } = await import("./appState");
+  const { COMPOSER_DRAFT_PREFIX } = await import("../composerDraftGc");
+  localStorage.setItem(COMPOSER_DRAFT_PREFIX + "tab-session-chat:t", "latest unsent edit");
+  localStorage.setItem(COMPOSER_DRAFT_PREFIX + "tab-session-chat-capsules:t", '[{"label":"image","kind":"image","path":"/uploads/image.png"}]');
+  const f = fixture({}, { ...checkpoint, drafts: {
+    "tab-session-chat:t": { text: "old unsent edit", attachmentIds: [], replyTo: null },
+    "tab-session-chat:cleared": { text: "already sent", attachmentIds: [], replyTo: null },
+  } });
+  const browser = await initializeBrowserFrontendUpdates(f.client, { ...f.options, boot: null });
+  try {
+    expect(frontendSignals.checkpoint().drafts["tab-session-chat:t"].text).toBe("latest unsent edit");
+    expect(frontendSignals.checkpoint().drafts["tab-session-chat:t"].attachmentIds).toEqual(["image"]);
+    expect(frontendSignals.checkpoint().drafts["tab-session-chat:cleared"]).toBeUndefined();
+    expect(f.calls.filter(call => call.method !== "GET")).toEqual([]);
+  } finally {
+    browser.dispose();
+    localStorage.clear();
+  }
 });

@@ -25,43 +25,17 @@ pub fn run(
     startup::setup_logging();
 
     log::info!("CodeTerm starting...");
-    let _instance_lifetime = match codeterm_service_core::acquire_instance_lifetime() {
-        Ok(lifetime) => lifetime,
-        Err(error) => {
-            log::error!("[startup] could not acquire instance lifetime lock: {error}");
-            return;
-        }
-    };
-    let startup_recovery = crash::record_startup();
-    if let Some(record) = &startup_recovery.last_crash {
-        log::warn!(
-            "[recovery] previous process classified as {:?}; old_pid={} old_epoch={} new_epoch={} last_healthy_at={} backoff_ms={} loop_protected={}",
-            record.classification,
-            record.previous.pid,
-            record.previous.epoch,
-            record.new_epoch,
-            record.previous.last_healthy_at,
-            record.supervisor_action.backoff_ms,
-            record.supervisor_action.loop_protected
-        );
+    let mut builder = codeterm_host_runtime::app_runtime::builder();
+    if startup::desktop_lifecycle::single_instance_enabled(
+        cfg!(debug_assertions),
+        &context.config().identifier,
+    ) {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            startup::desktop_lifecycle::activate(app);
+        }));
     }
 
-    // Lift the open-file soft limit before anything opens fds (#186).
-    codeterm_service_core::raise_fd_limit();
-
-    // Reap msedgewebview2.exe orphaned by a prior hard GUI crash, before window init (GH #183).
-    codeterm_service_core::reap_orphaned_webview2();
-
-    // Write shell integration scripts (OSC 7 CWD tracking)
-    pty::shell_integration::ensure_scripts();
-
-    let states = startup::init_states();
-
-    // Seed canonical ~/.codeterm/skills/, then mirror into provider dirs agents load from (#178).
-    codeterm_service_core::service::seed_bundled_skills();
-    codeterm_service_core::service::mirror_skills_to_providers();
-
-    let mut builder = codeterm_host_runtime::app_runtime::builder()
+    let builder = builder
         .plugin(tauri_plugin_shell::init())
         .plugin(startup::native_notification())
         .plugin(tauri_plugin_dialog::init())
@@ -79,46 +53,60 @@ pub fn run(
             updater.build()
         });
 
-    if !cfg!(debug_assertions) {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
-        }));
-    }
-
-    let builder = builder
-        .plugin(tauri_plugin_deep_link::init())
-        .manage(states.storage.clone())
-        .manage(states.config.clone())
-        .manage(states.pty.clone())
-        .manage(states.mux.clone())
-        .manage(states.notif.clone())
-        .manage(states.session.clone())
-        .manage(states.output_buffer.clone())
-        .manage(states.screen_state.clone())
-        .manage(states.agent_tracker.clone())
-        .manage(states.report_store.clone())
-        .manage(states.event_broadcaster.clone())
-        .manage(states.update.clone())
-        .manage(states.mesh.clone())
-        .manage(states.keepawake.clone())
-        .manage(states.resize_owner.clone())
-        .manage(states.rest_api.clone());
+    let builder = builder.plugin(tauri_plugin_deep_link::init());
     register_commands(builder)
         .setup(move |app| {
             #[cfg(debug_assertions)]
             tauri::async_runtime::spawn(codeterm_service_core::startup::runtime_diagnostics::watch("main"));
-            {
-                let api_config = states.config.lock().api.clone();
-                let window = startup::frontend_shell_create_window(app, &api_config)?;
-                startup::setup_window_styling(&window);
-                #[cfg(windows)]
-                crate::native_resize::install(&window)?;
-                crate::webview_watchdog::spawn(window);
+            app.manage(codeterm_service_core::acquire_instance_lifetime()?);
+            let startup_recovery = crash::record_startup();
+            if let Some(record) = &startup_recovery.last_crash {
+                log::warn!(
+                    "[recovery] previous process classified as {:?}; old_pid={} old_epoch={} new_epoch={} last_healthy_at={} backoff_ms={} loop_protected={}",
+                    record.classification,
+                    record.previous.pid,
+                    record.previous.epoch,
+                    record.new_epoch,
+                    record.previous.last_healthy_at,
+                    record.supervisor_action.backoff_ms,
+                    record.supervisor_action.loop_protected
+                );
             }
+
+            // Lift the open-file soft limit before anything opens fds (#186).
+            codeterm_service_core::raise_fd_limit();
+
+            // Reap msedgewebview2.exe orphaned by a prior hard GUI crash, before window init (GH #183).
+            codeterm_service_core::reap_orphaned_webview2();
+
+            // Write shell integration scripts (OSC 7 CWD tracking)
+            pty::shell_integration::ensure_scripts();
+
+            let states = startup::init_states();
+
+            // Seed canonical ~/.codeterm/skills/, then mirror into provider dirs agents load from (#178).
+            codeterm_service_core::service::seed_bundled_skills();
+            codeterm_service_core::service::mirror_skills_to_providers();
+
+            app.manage(states.storage.clone());
+            app.manage(states.config.clone());
+            app.manage(states.pty.clone());
+            app.manage(states.mux.clone());
+            app.manage(states.notif.clone());
+            app.manage(states.session.clone());
+            app.manage(states.output_buffer.clone());
+            app.manage(states.screen_state.clone());
+            app.manage(states.agent_tracker.clone());
+            app.manage(states.report_store.clone());
+            app.manage(states.event_broadcaster.clone());
+            app.manage(states.update.clone());
+            app.manage(states.mesh.clone());
+            app.manage(states.keepawake.clone());
+            app.manage(states.resize_owner.clone());
+            app.manage(states.rest_api.clone());
+            app.manage(startup::desktop_lifecycle::DesktopLifecycle::default());
+            startup::frontend_shell_initialize(app.handle())?;
+            startup::desktop_lifecycle::show_or_create(app.handle())?;
 
             // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
@@ -280,9 +268,7 @@ pub fn run(
                 });
             }
 
-            // Extract embedded providers on first run for offline/dev-limited setups.
-            // Skip in CODETERM_DEV=1 so workspace sources stay authoritative.
-            if std::env::var("CODETERM_DEV").as_deref() != Ok("1") {
+            {
                 let user_plugins = codeterm_service_core::paths::data_dir().join("plugins");
                 match plugin::embedded::bootstrap_into(&user_plugins) {
                     Ok(written) if !written.is_empty() => {
@@ -304,8 +290,6 @@ pub fn run(
                         );
                     }
                 }
-            } else {
-                log::info!("[plugin/bootstrap] CODETERM_DEV=1 — skipping embedded extract, workspace plugins are authoritative");
             }
 
             // Register JS plugins from workspace and user drop-in dirs.
@@ -357,7 +341,7 @@ pub fn run(
                     // Hold a VM handle so the ServiceContext can be late-bound into its sandbox after service init.
                     plugin_vms.push(p.vm().clone());
                     log::info!(
-                        "[js-plugin] {id} trust={:?} caps(agent={} secret={} transcribe={})",
+                        "[js-plugin] {id} version={version} trust={:?} caps(agent={} secret={} transcribe={})",
                         trust,
                         caps.agent_provider,
                         caps.secret_backend.enabled(),
@@ -745,26 +729,34 @@ pub fn run(
         .on_window_event(startup::handle_window_event)
         .build(startup::frontend_shell_application_context(context))
         .expect("error while building tauri application")
-        .run(|_app, _event| {
+        .run(|app, event| {
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = _event {
-                if !has_visible_windows {
-                    if let Some(w) = _app.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
+            if let tauri::RunEvent::Reopen { .. } = event {
+                startup::desktop_lifecycle::activate(app);
+            }
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } = &event
+            {
+                if label == "main" {
+                    startup::desktop_lifecycle::destroyed(app);
+                }
+            }
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = &event {
+                if startup::desktop_lifecycle::retain_daemon(app, *code) {
+                    api.prevent_exit();
+                    log::debug!("[desktop] prevented implicit last-window daemon exit");
+                } else {
+                    log::info!("[shutdown] explicit RunEvent::ExitRequested received");
+                    crash::shutdown::mark_shutting_down();
                 }
             }
 
-            // Mark shutting down the moment exit is requested, so the liveness watchdog doesn't read the imminent API-down as a crash.
-            if let tauri::RunEvent::ExitRequested { .. } = _event {
-                log::info!("[shutdown] RunEvent::ExitRequested received");
-                crash::shutdown::mark_shutting_down();
-            }
-
             // log doesn't survive into the next run. The updater's graceful_shutdown already does this on the in-place upgrade path; this catches every other shutdown route.
-            if let tauri::RunEvent::Exit = _event {
-                crash::exit::handle_run_exit(_app);
+            if let tauri::RunEvent::Exit = event {
+                crash::exit::handle_run_exit(app);
             }
         });
     log::info!("[shutdown] Tauri event loop returned");

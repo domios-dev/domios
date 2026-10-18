@@ -8,11 +8,15 @@ use crate::ports::{ChatPreprocessorProvider, PreprocessCtx};
 struct TagStage {
     id: String,
     tag: String,
+    provider_scope: Option<String>,
 }
 
 impl ChatPreprocessorProvider for TagStage {
     fn id(&self) -> &str {
         &self.id
+    }
+    fn provider_scope(&self) -> Option<&str> {
+        self.provider_scope.as_deref()
     }
     fn preprocess(&self, _ctx: &PreprocessCtx, text: &str) -> Option<String> {
         Some(format!("{text}{}", self.tag))
@@ -36,10 +40,12 @@ fn stages_run_in_order() {
         Arc::new(TagStage {
             id: "a".into(),
             tag: "[a]".into(),
+            provider_scope: None,
         }),
         Arc::new(TagStage {
             id: "b".into(),
             tag: "[b]".into(),
+            provider_scope: None,
         }),
     ];
     let ctx = PreprocessCtx {
@@ -136,6 +142,7 @@ async fn voice_stage_output_can_flow_into_text_preprocessor() {
     let stages: Vec<Arc<dyn ChatPreprocessorProvider>> = vec![Arc::new(TagStage {
         id: "pre".into(),
         tag: "[pre]".into(),
+        provider_scope: None,
     })];
     let ctx = PreprocessCtx {
         tab_id: "p1".into(),
@@ -143,6 +150,37 @@ async fn voice_stage_output_can_flow_into_text_preprocessor() {
     };
 
     assert_eq!(run_text_stages(&stages, &ctx, voice.text), "hello ru[pre]");
+}
+
+#[test]
+fn provider_scoped_text_stage_owns_its_slot_and_global_stage_falls_back_elsewhere() {
+    let stages: Vec<Arc<dyn ChatPreprocessorProvider>> = vec![
+        Arc::new(TagStage {
+            id: "global".into(),
+            tag: "[global]".into(),
+            provider_scope: None,
+        }),
+        Arc::new(TagStage {
+            id: "provider".into(),
+            tag: "[provider]".into(),
+            provider_scope: Some("provider-a".into()),
+        }),
+    ];
+
+    let provider_stages = resolve_text_stages(&stages, Some("provider-a"));
+    let global_stages = resolve_text_stages(&stages, Some("provider-b"));
+
+    assert_eq!(
+        run_text_stages(&provider_stages, &PreprocessCtx::default(), "x".into()),
+        "x[provider]"
+    );
+    assert_eq!(
+        run_text_stages(&global_stages, &PreprocessCtx::default(), "x".into()),
+        "x[global]"
+    );
+    assert!(
+        detect_text_conflicts([("global", None), ("provider", Some("provider-a")),]).is_empty()
+    );
 }
 
 #[tokio::test]

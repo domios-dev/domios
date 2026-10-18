@@ -19,15 +19,21 @@ import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { capsuleSpans } from "./composerCapsules";
 import { ChatComposer } from "./ChatComposer";
+import { prepareBrowserUpload } from "./browserImageUpload";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const path = "/home/owner/.codeterm-dev/uploads/id-photo.png";
 const pixels = "data:image/png;base64,iVBORw0KGgo=";
 
-it.each(["success", "pending", "HTTP 503", "NotReadableError"])("web picker sends immediately and omits failed images without a popup: %s", async (failure) => {
+it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError"])("web picker sends immediately and omits failed images without a popup: %s", async (failure) => {
   vi.stubGlobal("Blob", BrowserBlob);
   vi.stubGlobal("File", BrowserFile);
   vi.stubGlobal("FormData", BrowserFormData);
+  if (failure === "HEIC") {
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ width: 2, height: 2, close: vi.fn() })));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(new Blob(["image"], { type: "image/jpeg" })));
+  }
   const sent: string[] = [];
   const previews: string[] = [];
   let requests = 0;
@@ -39,7 +45,8 @@ it.each(["success", "pending", "HTTP 503", "NotReadableError"])("web picker send
     const file = body.get("file") as File;
     expect(body).toBeInstanceOf(FormData);
     expect(file).toBeInstanceOf(Blob);
-    expect(file.type).toBe("image/png");
+    expect(file.type).toBe(failure === "HEIC" ? "image/jpeg" : "image/png");
+    expect(file.name).toBe(failure === "HEIC" ? "photo.jpg" : "photo.png");
     expect(file.size).toBe(5);
     if (failure === "NotReadableError" && ++reads === 1) throw new DOMException("unreadable", "NotReadableError");
     if (++requests === 1 && failure === "HTTP 503") return new Response("busy", { status: 503 });
@@ -91,10 +98,17 @@ it.each(["success", "pending", "HTTP 503", "NotReadableError"])("web picker send
       editor.setSelectionRange(15, 15);
     });
     const input = host.querySelector<HTMLInputElement>('[data-testid="composer-attach-input"]')!;
-    const file = new File(["image"], "photo.png", { type: "image/png" });
+    const file = new File(["image"], failure === "HEIC" ? "photo.heic" : "photo.png", { type: failure === "HEIC" ? "image/heic" : "image/png" });
     Object.defineProperty(input, "files", { value: [file] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
     expect(fetch.mock.calls.length, host.textContent ?? "").toBe(1);
+    if (failure === "HEIC") await expect(fetch.mock.results[0].value).resolves.toBeInstanceOf(Response);
+    if (failure === "HTTP 503" || failure === "NotReadableError") {
+      const notice = host.querySelector('[role="note"]');
+      expect(notice).not.toBeNull();
+      expect(host.querySelector('[role="group"][aria-label="Message composer"]')?.contains(notice)).toBe(false);
+      expect(editor.value).not.toContain(file.name);
+    }
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, `${editor.value} after upload`);
       editor.dispatchEvent(new Event("input", { bubbles: true }));
@@ -117,7 +131,7 @@ it.each(["success", "pending", "HTTP 503", "NotReadableError"])("web picker send
     expect(row.querySelector('[aria-label="User message"]')?.parentElement).toBe(row);
     expect(row.querySelector('[role="status"]')?.parentElement).toBe(row);
     expect(host.querySelector('[role="dialog"]')).toBeNull();
-    if (failure !== "success" && failure !== "pending") {
+    if (failure !== "success" && failure !== "HEIC" && failure !== "pending") {
       expect(parseAttachmentMarkers(sent[0]).attachments).toEqual([]);
       expect(host.querySelector('button[aria-label="Retry omitted attachments"]')).not.toBeNull();
       expect(row.querySelector('[role="note"]')).not.toBeNull();
@@ -137,6 +151,25 @@ it.each(["success", "pending", "HTTP 503", "NotReadableError"])("web picker send
     expect(previews).toContain(path);
   } finally {
     await act(async () => root.unmount()); host.remove(); removeChatSend("picker", "sent");
-    __setInvokeForTest(null); __setListenForTest(null); vi.unstubAllGlobals();
+    __setInvokeForTest(null); __setListenForTest(null); vi.unstubAllGlobals(); vi.restoreAllMocks();
   }
+});
+
+
+it("falls back to an image decoder when bitmap HEIF decoding fails and releases its URL", async () => {
+  vi.stubGlobal("createImageBitmap", vi.fn(async () => { throw new Error("unsupported"); }));
+  vi.stubGlobal("Image", class {
+    naturalWidth = 2; naturalHeight = 2; onload: (() => void) | null = null;
+    set src(_url: string) { this.onload?.(); }
+  });
+  const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:opaque");
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(new Blob(["jpeg"], { type: "image/jpeg" })));
+  try {
+    const result = await prepareBrowserUpload(new Blob(["heif"], { type: "image/heif" }), "screen.heif");
+    expect(result.name).toBe("screen.jpg");
+    expect(result.blob.type).toBe("image/jpeg");
+    expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:opaque");
+  } finally { vi.unstubAllGlobals(); vi.restoreAllMocks(); }
 });

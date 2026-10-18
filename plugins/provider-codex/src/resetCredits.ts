@@ -9,7 +9,7 @@ function expiry(value: unknown): number | null {
 
 export function resetCredits(raw: unknown): ResetCredits | undefined {
   const summary = object(raw);
-  const count = summary.available_count;
+  const count = summary.availableCount;
   if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return undefined;
   const credits = Array.isArray(summary.credits) ? summary.credits.flatMap(rawCredit => {
     const credit = object(rawCredit);
@@ -17,7 +17,7 @@ export function resetCredits(raw: unknown): ResetCredits | undefined {
     if (!id) return [];
     const status: ResetCredit["status"] = credit.status === "available" || credit.status === "redeeming"
       || credit.status === "redeemed" ? credit.status : "unknown";
-    return [{id, status, expiresAt: expiry(credit.expires_at),
+    return [{id, status, expiresAt: expiry(credit.expiresAt),
       ...(text(credit.title) ? {title: text(credit.title)} : {}),
       ...(text(credit.description) ? {description: text(credit.description)} : {})}];
   }) : null;

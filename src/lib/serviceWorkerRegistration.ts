@@ -1,4 +1,5 @@
 import { IS_WEB } from "./webApi";
+import { buildHash } from "./buildStamp";
 import { interfaceReloadUrl, prepareInterfaceReload } from "./interfaceReload";
 
 const REG_FAIL_KEY = "codeterm-sw-reg-failures";
@@ -13,6 +14,57 @@ export function __resetServiceWorkerForTest(): void {
   refreshing = false;
   reloadTarget = null;
   reloadPending = null;
+}
+
+export function shouldReloadForControllerChange(
+  hadController: boolean,
+  loadedBuild: string,
+  nextControllerBuild: string | null,
+): boolean {
+  return hadController && nextControllerBuild !== loadedBuild;
+}
+
+function controllerBuild(controller: ServiceWorker | null): Promise<string | null> {
+  if (!controller) return Promise.resolve(null);
+  let channel: MessageChannel;
+  try {
+    channel = new MessageChannel();
+  } catch {
+    return Promise.resolve(null);
+  }
+  const signal = AbortSignal.timeout(5000);
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      signal.removeEventListener("abort", onAbort);
+      channel.port1.removeEventListener("message", onMessage);
+      channel.port1.removeEventListener("messageerror", onAbort);
+      channel.port1.close();
+      channel.port2.close();
+    };
+    const finish = (build: string | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(build);
+    };
+    const onAbort = () => finish(null);
+    const onMessage = (event: MessageEvent<unknown>) => {
+      if (!event.data || typeof event.data !== "object") return finish(null);
+      const message = event.data as { type?: unknown; build?: unknown };
+      finish(message.type === "BUILD_IDENTITY" && typeof message.build === "string" ? message.build : null);
+    };
+    channel.port1.addEventListener("message", onMessage, { once: true });
+    channel.port1.addEventListener("messageerror", onAbort, { once: true });
+    signal.addEventListener("abort", onAbort, { once: true });
+    channel.port1.start();
+    if (signal.aborted) return onAbort();
+    try {
+      controller.postMessage({ type: "GET_BUILD_IDENTITY" }, [channel.port2]);
+    } catch {
+      finish(null);
+    }
+  });
 }
 
 function reloadPageOnce(): void {
@@ -76,8 +128,13 @@ export function registerServiceWorker(): void {
   if (!IS_WEB || !("serviceWorker" in navigator)) return;
 
   const hadController = Boolean(navigator.serviceWorker.controller);
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
+  const loadedBuild = buildHash();
+  navigator.serviceWorker.addEventListener("controllerchange", async () => {
     if (!hadController) return;
+    const nextController = navigator.serviceWorker.controller;
+    const nextBuild = await controllerBuild(nextController);
+    if (navigator.serviceWorker.controller !== nextController) return;
+    if (!shouldReloadForControllerChange(hadController, loadedBuild, nextBuild)) return;
     reloadPageOnce();
   });
 

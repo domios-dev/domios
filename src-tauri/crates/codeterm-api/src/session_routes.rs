@@ -300,11 +300,12 @@ fn restorable_identity(
     identity: Option<ResumableIdentity>,
     parent_is_live_orchestrator: impl Fn(&str) -> bool,
 ) -> Option<ResumableIdentity> {
-    let identity = identity?;
+    let mut identity = identity?;
     let restored = codeterm_types::agent::restore_role(
         Some(identity.role.as_str()),
         identity.role_profile.as_deref(),
     )?;
+    identity.role_profile = restored.role_profile.clone();
     // An anchor stands alone; every other kind needs its parent still live.
     if codeterm_types::agent::role_kind::anchors_team(
         Some(restored.role),

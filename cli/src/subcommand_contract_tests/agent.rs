@@ -12,6 +12,45 @@ struct AgentOnly {
 }
 
 #[test]
+fn provider_switch_parses_target_selection_and_requires_a_provider() {
+    let parsed = AgentOnly::try_parse_from([
+        "codeterm",
+        "switch-provider",
+        "target-token",
+        "--tab",
+        "tab-token",
+        "--model",
+        "model-token",
+        "--reasoning-effort",
+        "effort-token",
+        "--force",
+    ])
+    .unwrap();
+    assert!(
+        matches!(parsed.action, AgentAction::SwitchProvider { provider, tab: Some(tab), model: Some(model), reasoning_effort: Some(effort), force: true } if provider == "target-token" && tab == "tab-token" && model == "model-token" && effort == "effort-token")
+    );
+    assert!(
+        AgentOnly::try_parse_from(["codeterm", "switch-provider", "--tab", "tab-token"]).is_err()
+    );
+}
+
+#[test]
+fn provider_switch_status_reads_a_specific_daemon_operation() {
+    let parsed = AgentOnly::try_parse_from([
+        "codeterm",
+        "switch-provider-status",
+        "operation-token",
+        "--tab",
+        "main",
+    ])
+    .unwrap();
+    assert!(
+        matches!(parsed.action, AgentAction::SwitchProviderStatus { operation, tab: Some(tab) } if operation == "operation-token" && tab == "main")
+    );
+    assert!(AgentOnly::try_parse_from(["codeterm", "switch-provider-status"]).is_err());
+}
+
+#[test]
 fn fresh_restart_parses_and_rejects_provider_handoff() {
     let parsed = AgentOnly::try_parse_from([
         "codeterm", "restart", "--tab", "tab-id", "--fresh", "--force",

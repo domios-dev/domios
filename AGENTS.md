@@ -339,7 +339,7 @@ netstat -ano | grep :7685 | grep LISTENING | awk '{print $5}'   # PROD — NEVER
 
 Prefer `./build.sh kill` (only touches dev). When unsure, ask the user.
 
-**Non-canonical worktree?** Set `CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port>` before `./build.sh dev` — you get your own `~/.codeterm-dev-<name>` data dir + port, and `./build.sh kill` only touches your instance. Without it all worktrees share `.codeterm-dev`/7686 and `kill` would take down another worktree's dev.
+**Non-canonical worktree?** Set `CODETERM_DEV_INSTANCE=<name> CODETERM_DEV_API_PORT=<port>` before `./build.sh dev` — you get your own `~/.codeterm-dev-<name>` data dir + port, and `./build.sh kill` only touches your instance. Without explicit launch settings, non-canonical worktrees refuse dev and cleanup. The launcher ignores inherited parent connection selectors; canonical defaults to 7686.
 
 ## Cross-platform
 

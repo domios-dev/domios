@@ -1,6 +1,7 @@
 // Run: npx tsx src/store/multiplexer/writeGate.test.tsx
 
 export {};
+import type { ExtendedState } from "./tree";
 
 class FakeStorage {
   private map = new Map<string, string>();
@@ -92,18 +93,19 @@ async function setupHappyDom() {
 }
 
 async function renderProvider(
-  onLayout: (setActiveWorkspace: (id: string) => void) => void,
+  onLayout: (setActiveWorkspace: (id: string) => void, state: ExtendedState) => void,
 ) {
   const { act, useLayoutEffect, createRoot, React } = await setupHappyDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
-  const { MultiplexerProvider, useMultiplexer } = await import("./index");
+  const { MultiplexerProvider, useMultiplexer, useMuxState } = await import("./index");
 
   __setListenForTest(async () => () => {});
 
   function Probe() {
     const { setActiveWorkspace } = useMultiplexer();
+    const state = useMuxState();
     useLayoutEffect(() => {
-      onLayout(setActiveWorkspace);
+      onLayout(setActiveWorkspace, state);
     }, [setActiveWorkspace]);
     return null;
   }
@@ -136,6 +138,27 @@ test("webBootHasSyncCache is false with no cache", async () => {
   (globalThis as unknown as { localStorage: FakeStorage }).localStorage.clear();
   const { webBootHasSyncCache } = await import("./index");
   assert(webBootHasSyncCache() === false, "empty storage should not lock boot");
+});
+
+test("the first cached render selects the restored chat before a daemon read completes", async () => {
+  const { saveStateSnapshot } = await import("../../lib/stateCache");
+  const { __setInvokeForTest } = await import("../../lib/bridge");
+  const snapshot = { ...sampleCachedState("restored"), workspaces: [
+    { id: "restored", name: "Restored", tabs: ["chat"], active_tab_id: "chat", cwd: null },
+  ], tabs: { chat: { id: "chat", title: "Chat", pty_id: null, cwd: null, tab_type: "Terminal" as const } } };
+  saveStateSnapshot(snapshot);
+  __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
+    if (cmd === "mux_get_state") return new Promise<T>(() => {});
+    return [] as T;
+  });
+  let firstState: ExtendedState | undefined;
+  const { root, act, __setListenForTest } = await renderProvider((_select, state) => { firstState ??= state; });
+  assert(firstState?.active_workspace_id === "restored", "first render restores the workspace");
+  assert(firstState.activeTabIds.restored === "chat", "first render selects the chat instead of an empty plan view");
+  assert(firstState.focused_tab_id === "chat", "first render focuses the restored chat");
+  await act(async () => root.unmount());
+  __setInvokeForTest(null);
+  __setListenForTest(null);
 });
 
 test("guarded mux writes stay blocked until first reconcile, then open", async () => {

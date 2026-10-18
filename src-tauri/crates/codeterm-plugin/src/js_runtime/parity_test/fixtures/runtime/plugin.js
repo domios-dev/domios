@@ -32,7 +32,7 @@ module.exports = {
     }
     switch (op.kind) {
       case 'backgroundProcesses': return {kind:'complete',result:op.action.kind === 'list' ? {kind:'backgroundProcesses',threadId:op.threadId,processes:reply.value.processes,nextCursor:reply.value.nextCursor || null} : op.action.kind === 'terminate' ? {kind:'backgroundProcessTermination',threadId:op.threadId,processId:op.action.processId,acknowledged:reply.value.acknowledged === true} : {kind:'done'}};
-      case 'initialize': return {kind:'complete',result:{kind:'initialized'}};
+      case 'initialize': return {kind:'complete',result:{kind:'initialized',...(reply.value && reply.value.binaryVersion ? {binaryVersion:reply.value.binaryVersion} : {})}};
       case 'openThread': return {kind:'complete',result:{kind:'threadLoaded',threadId:reply.value.threadId,settings:op.settings}};
       case 'resumeThread': return {kind:'complete',result:{kind:'threadLoaded',threadId:op.threadId,settings:op.settings}};
       case 'readHistory': if (reply.value.more) return {kind:'continue',plan:{action:{kind:"request",call:{method:op.kind,params:op}},state:null},history:{kind:'historyPage',threadId:op.threadId,items:reply.value.items,openItems:[]},beforeAcceptance:false}; return {kind:'complete',result:{kind:'historyPage',threadId:op.threadId,items:reply.value.items,openItems:[]}};
