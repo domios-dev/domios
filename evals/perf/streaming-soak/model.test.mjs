@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {VERSION,admitDevSurface,validateDevSurfaceTarget,segmentSeconds,validateIdentity,validateResume,cleanupPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
+import {VERSION,measurementCapabilities,requireMeasurement,rendererMetrics,admitDevSurface,validateDevSurfaceTarget,segmentSeconds,validateIdentity,validateResume,cleanupPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
 const run = '11111111-1111-1111-1111-111111111111';
-const identity = () => ({port:7686,dev:true,build:'a'.repeat(40),entryHash:'b'.repeat(64),target:'page',boot:'boot',renderer:{pid:1,created:'r'},daemon:{pid:2,created:'d'}});
+const identity = () => ({port:7686,dev:true,page:{origin:'http://127.0.0.1:7686',path:'/'},capabilities:measurementCapabilities('profile',1),build:'a'.repeat(40),entryHash:'b'.repeat(64),target:'page',boot:'boot',renderer:{pid:1,created:'r'},daemon:{pid:2,created:'d'}});
 const fixture = (tab,session) => ({run,tab,session,pty:'pty-'+tab});
 const checkpoint = () => ({version:VERSION,stage:'ready',run,identity:identity(),batch:0,pending:null,workspace:{id:'owned'},
   fixtures:[fixture('chat','session')],terminal:fixture('terminal',null)});
@@ -118,4 +118,29 @@ test('split native surface refuses missing owning locator while legacy target ch
   assert.throws(() => admitDevSurface({...legacy,cdp:9223}));
   for (const patch of [{identifier:'com.codeterm'},{vite_port:'9999'},{cdp_port:''}])
     assert.throws(() => admitDevSurface({...legacy,health:{...legacy.health,instance:{...legacy.health.instance,...patch}}}));
+});
+
+
+test('functional admission preserves page identity while OS renderer metrics are explicitly unavailable',() => {
+  const actual = {...identity(),capabilities:measurementCapabilities('functional',5),renderer:null};
+  assert.equal(validateIdentity(actual),actual);
+  assert.deepEqual(rendererMetrics(actual,null),{renderer:null,rendererPrivateBytes:null,
+    rendererAttribution:{available:false,reason:'functional_page_only'}});
+  assert.throws(() => rendererMetrics(actual,{pid:99,created:'arbitrary'}));
+  for (const kind of ['memory','cpu','trace']) assert.throws(() => requireMeasurement(actual,kind),/unavailable/);
+  for (const count of [0,2,5,undefined]) assert.throws(() => measurementCapabilities('profile',count),/Exactly one/);
+  assert.doesNotThrow(() => requireMeasurement(identity(),'trace'));
+});
+
+test('functional resume and cleanup fence capability and page drift without a renderer guess',() => {
+  const actual = {...identity(),capabilities:measurementCapabilities('functional'),renderer:null};
+  const cp = {...checkpoint(),identity:actual};
+  assert.equal(validateResume(cp,actual,bindings()),cp);
+  assert.deepEqual(cleanupPlan(cp,actual,bindings()),['chat','terminal']);
+  assert.throws(() => validateResume(cp,identity(),bindings()),/drift/);
+  assert.throws(() => validateResume(cp,{...actual,target:'foreign'},bindings()),/drift/);
+  assert.throws(() => validateResume(cp,{...actual,page:{...actual.page,path:'/other'}},bindings()),/drift/);
+  assert.throws(() => validateIdentity({...actual,page:null}));
+  assert.throws(() => validateIdentity({...actual,renderer:{pid:99,created:'guessed'}}));
+  assert.throws(() => validateIdentity({...identity(),renderer:null}));
 });

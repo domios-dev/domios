@@ -43,11 +43,39 @@ export function validateDevSurfaceTarget(admission,target) {
     socket.pathname === `/devtools/page/${target.id}`, 'DEV page diagnostic socket mismatch');
   return target;
 }
+export function measurementCapabilities(purpose,rendererCount) {
+  requireValue(['profile','functional'].includes(purpose),'Expected purpose functional or profile');
+  if (purpose === 'functional') return {purpose,rendererAttribution:'unavailable',traceAttribution:'unavailable',reason:'functional_page_only'};
+  requireValue(rendererCount === 1,'Exactly one renderer required for supported process profiling');
+  return {purpose,rendererAttribution:'exact',traceAttribution:'exact',reason:null};
+}
+export function requireMeasurement(identity,measurement) {
+  requireValue(['memory','cpu','trace'].includes(measurement),'Unknown measurement capability');
+  requireValue(identity?.capabilities?.purpose === 'profile' && identity.capabilities.rendererAttribution === 'exact' &&
+    Number.isSafeInteger(identity.renderer?.pid) && identity.renderer.pid > 0 && Boolean(identity.renderer.created),
+  `${measurement} unavailable without exact renderer attribution`);
+}
+export function rendererMetrics(identity,observed) {
+  if (identity.capabilities?.purpose === 'functional') {
+    requireValue(observed === null,'Functional mode cannot attribute an OS renderer');
+    return {renderer:null,rendererPrivateBytes:null,rendererAttribution:{available:false,reason:'functional_page_only'}};
+  }
+  requireMeasurement(identity,'memory');
+  requireValue(observed?.pid === identity.renderer.pid && observed.created === identity.renderer.created,'Renderer process identity changed');
+  return {renderer:observed,rendererPrivateBytes:observed.privateBytes,rendererAttribution:{available:true,reason:null}};
+}
 export function validateIdentity(identity) {
   requireValue(identity?.port === 7686 && identity.dev === true, 'Shared DEV only; PROD refused');
   requireValue(/^[a-f0-9]{40}$/.test(identity.build ?? ''), 'Exact DEV SHA required');
   requireValue(/^[a-f0-9]{64}$/.test(identity.entryHash ?? ''), 'Served entry digest required');
-  for (const key of ['renderer', 'daemon']) {
+  const functional = identity.capabilities?.purpose === 'functional';
+  requireValue(isDeepStrictEqual(identity.capabilities,measurementCapabilities(functional?'functional':'profile',1)), 'Invalid explicit measurement capability');
+  if (functional) {
+    requireValue(identity.renderer === null,'Functional renderer attribution must be unavailable');
+    requireValue(typeof identity.page?.origin === 'string' && identity.page.origin.length > 0 &&
+      typeof identity.page.path === 'string' && identity.page.path.startsWith('/'),'Functional page identity required');
+  }
+  for (const key of functional?['daemon']:['renderer', 'daemon']) {
     requireValue(Number.isSafeInteger(identity[key]?.pid) && identity[key].pid > 0 &&
       typeof identity[key].created === 'string' && identity[key].created.length > 0, `Missing ${key} PID/creation`);
   }

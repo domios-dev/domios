@@ -5,6 +5,38 @@ Parent owns live execution on a disposable, named canonical DEV build. The
 worker supplies offline tests and preparation only. Nothing starts/restarts DEV,
 enables production CDP, launches a provider, or sends a provider message.
 
+## Explicit functional replay without OS renderer attribution
+
+Use `--purpose functional` on **every** invocation for one functional checkpoint.
+This uses the same setup/replay/finish/cleanup and exact fixture ownership. It requires
+the selected DEV/provenance/page/entry/daemon/boot identities but does not query or
+select a browser-wide renderer PID. Identity and reports record renderer/trace
+attribution unavailable with reason `functional_page_only`; renderer private bytes
+are null. DOM/input/store/final-tail and page-CDP Performance metrics remain available.
+Functional samples do not force GC or establish process memory/plateau/trace evidence.
+
+For the already authenticated explicit Browser page, parent can run these finite
+commands with a private output directory and previously prepared fixture. Replace
+FULL_SHA and ENTRY_SHA256 with the exact fields from the first identity.json; do not
+infer them from the caller checkout. Use a fresh output for each control/probe.
+
+```bash
+bash evals/perf/streaming-soak/run.sh inspect --purpose functional --surface chrome --cdp 58454 --target 16389F3D19EF145FF8D87BDE991C35E7 --out C:/private-evidence/functional-identity
+bash evals/perf/streaming-soak/run.sh setup --purpose functional --surface chrome --cdp 58454 --target 16389F3D19EF145FF8D87BDE991C35E7 --out C:/private-evidence/functional-replay --mode replay --expect-build FULL_SHA --expect-entry ENTRY_SHA256
+bash evals/perf/streaming-soak/run.sh replay --purpose functional --surface chrome --cdp 58454 --target 16389F3D19EF145FF8D87BDE991C35E7 --out C:/private-evidence/functional-replay --fixture C:/private-evidence/prepared-h320-c1024/replay-fixture.json --segments 1 --control stream --probe composer --profile none
+bash evals/perf/streaming-soak/run.sh finish --purpose functional --surface chrome --cdp 58454 --target 16389F3D19EF145FF8D87BDE991C35E7 --out C:/private-evidence/functional-replay
+bash evals/perf/streaming-soak/run.sh cleanup --purpose functional --surface chrome --cdp 58454 --target 16389F3D19EF145FF8D87BDE991C35E7 --out C:/private-evidence/functional-replay
+```
+
+The finite target/port above identify the parent's current admitted Browser, not a
+persistent locator. A replaced page/boot/entry or capability change refuses resume.
+`--purpose profile` remains the default and requires exact supported OS attribution.
+Functional mode refuses CPU/trace profiles, snapshots, load/idle memory setup,
+plateau analysis and before/after profiling comparisons. It does not silently turn
+null renderer data into a successful memory oracle. Browser authentication and input
+fixtures still require the already granted parent QA authorization; no extra pages
+are created or closed to satisfy profiling assumptions.
+
 ## Obtain and freeze the input
 
 Use the supported `tab chat --since 0 --json` export of an owner-authorized saved
@@ -75,7 +107,7 @@ existing frontend test mode (`VITE_CODETERM_TEST=1` at startup or the DEV-only
 `?e2e` entry), verifies the actual health build, and forbids HMR during a run.
 The runner stays locked to DEV API 7686. It uses the existing bench `dev_run`
 wrapper, never inherited production selectors. It refuses PROD identifiers and
-ambiguous renderer PID attribution.
+ambiguous renderer PID attribution in profiling mode.
 
 ```bash
 bash evals/perf/streaming-soak/run.sh inspect --out C:/private-evidence/native-identity
@@ -152,7 +184,8 @@ journal.
 
 For Chrome use a parent-owned dedicated browser diagnostic session already
 serving this DEV entry/test mode, authenticated through the normal UI, with an
-explicit supported CDP endpoint/target and exactly one renderer. No worker
+explicit supported CDP endpoint/target. Profiling requires exactly one renderer;
+functional mode records OS renderer attribution unavailable. No worker
 launches it; no production browser is restarted. Add these same flags to
 **every** inspect/setup/replay/finish/cleanup invocation for that run:
 
@@ -234,8 +267,7 @@ Coarse upstream arrivals, queued frontend handlers, fast adoption with late
 paint, and graph-only layout peaks are different findings. This reconstructed
 post-provider replay bypasses Rust ItemUpdated production, SSE decoding and the
 ordinary frontend authority gate; it cannot select among those upstream causes.
-The WebView renderer and Rust host are separate processes; native host/API share
-the Rust process. Healthy API/agents alone do not prove window responsiveness.
+The WebView renderer and Rust host are separate processes; native client and API/server own separate Rust processes in split DEV. Healthy API/agents alone do not prove window responsiveness.
 
 ## Focused checks (offline only)
 
