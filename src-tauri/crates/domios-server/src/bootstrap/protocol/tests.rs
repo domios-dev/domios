@@ -1,5 +1,65 @@
 use super::*;
 
+#[test]
+fn process_split_contract_only_absent_initial_inspect_authorizes_launch() {
+    use super::super::channel::{classify_connect_error, helper_exit_code};
+    use codeterm_types::server_bootstrap::{
+        ServerExpectation, BOOTSTRAP_ATTACH_UNAVAILABLE_EXIT_CODE,
+    };
+
+    let ready = ready();
+    let mut request = request(&ready);
+    let classify = |request: &AttachRequest, kind| {
+        helper_exit_code(&classify_connect_error(
+            request,
+            &ready.build,
+            io::Error::from(kind),
+        ))
+    };
+    for absent in [io::ErrorKind::NotFound, io::ErrorKind::ConnectionRefused] {
+        assert_eq!(
+            classify(&request, absent),
+            BOOTSTRAP_ATTACH_UNAVAILABLE_EXIT_CODE
+        );
+        assert_eq!(helper_exit_code(&io::Error::from(absent)), 1);
+    }
+    for failure in [
+        io::ErrorKind::PermissionDenied,
+        io::ErrorKind::UnexpectedEof,
+        io::ErrorKind::InvalidData,
+        io::ErrorKind::TimedOut,
+        io::ErrorKind::ConnectionReset,
+        io::ErrorKind::WouldBlock,
+        io::ErrorKind::Other,
+    ] {
+        assert_eq!(classify(&request, failure), 1);
+    }
+    request.expected = Some(ServerExpectation {
+        process: ready.process.clone(),
+        epoch: ready.epoch.clone(),
+    });
+    assert_eq!(classify(&request, io::ErrorKind::NotFound), 1);
+    request.expected = None;
+    request.operation = BootstrapOperation::Shutdown;
+    assert_eq!(classify(&request, io::ErrorKind::NotFound), 1);
+    request.operation = BootstrapOperation::Inspect;
+    request.protocol += 1;
+    assert_eq!(classify(&request, io::ErrorKind::NotFound), 1);
+    request.protocol = ready.protocol;
+    request.api_version += 1;
+    assert_eq!(classify(&request, io::ErrorKind::NotFound), 1);
+    request.api_version = ready.api_version;
+    request.build.push_str("-foreign");
+    assert_eq!(classify(&request, io::ErrorKind::NotFound), 1);
+    request.build = ready.build;
+    request.challenge.clear();
+    assert_eq!(classify(&request, io::ErrorKind::NotFound), 1);
+    assert_eq!(
+        helper_exit_code(&io::Error::from(io::ErrorKind::AlreadyExists)),
+        3
+    );
+}
+
 fn ready() -> ServerReady {
     ServerReady {
         protocol: BOOTSTRAP_PROTOCOL,
