@@ -774,7 +774,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             unplanned,
             reason: _,
         } => {
-            if matches!(location, Some(crate::args::agent::SpawnLocation::Remote)) || environment.is_some() {
+            if matches!(location, Some(crate::args::agent::SpawnLocation::Cloud)) || environment.is_some() {
                 return unsupported("Remote task spawning is local-only; run the command on the peer that owns the provider");
             }
             if *unplanned {

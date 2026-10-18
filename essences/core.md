@@ -102,7 +102,7 @@ Providers may declare live model and effort commands. These run only at an idle 
 
 #### Provider lifecycle
 
-Providers may declare Local and Remote task locations. Remote requires an explicitly chosen environment and honest account availability. A remote task tab has no terminal, retains its exact task and account reference across restart, and re-fetches that task without creating another. Creation uncertainty never authorizes replay. Results and diffs remain available independently of unsupported follow-up or cancellation; local patch application is always an explicit user action. An empty environment list offers account connection and discovery refresh instead of guessing a default or changing billing paths.
+A provider may declare Local and Cloud execution modes under one identity. Cloud requires an explicitly chosen environment and honest account availability. A remote task tab has no terminal, retains its exact task and account reference across restart, and re-fetches that task without creating another. Creation uncertainty never authorizes replay. Results and diffs remain available independently of unsupported follow-up or cancellation; local patch application is always an explicit user action. An empty environment list offers account connection and discovery refresh instead of guessing a default or changing billing paths.
 
 Provider CLI updates are silent host operations using the provider's declared updater and compatibility verdict. Production participates by default; other instances opt in. A default-on setting allows opting out. An active provider turn defers the update to an idle event. Running agents are never restarted to apply an update; subsequent launches use the updated CLI.
 

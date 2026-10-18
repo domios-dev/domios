@@ -13,7 +13,7 @@
     {
       "id": "codex",
       "path": "provider-codex",
-      "version": "1.14.38",
+      "version": "1.14.39",
       "minCodeterm": "1.14.9"
     },
     {
@@ -45,12 +45,6 @@
       "path": "browser",
       "version": "1.12.4",
       "minCodeterm": "1.12.4"
-    },
-    {
-      "id": "codex-cloud",
-      "path": "provider-codex-cloud",
-      "version": "0.1.0",
-      "minCodeterm": "1.14.9"
     }
   ]
 }

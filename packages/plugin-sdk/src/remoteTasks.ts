@@ -1,6 +1,7 @@
 export interface RemoteTaskCapability {
   backend: string;
-  localProviderId: string;
+  mode: string;
+  displayName: string;
   environments: RemoteEnvironment[];
   availability: {status: "unavailable"; reason: string} | {status: "available"};
   followUp: boolean;
@@ -29,6 +30,7 @@ export interface RemoteTaskSnapshot {
 export interface RemoteTaskBinding {
   revision: number;
   providerId: string;
+  executionMode: string;
   backend: string;
   environmentId: string;
   accountRef: string;
@@ -62,7 +64,7 @@ export class RemoteTaskController {
       throw new Error("Choose an environment available to this account");
     }
     const claim: RemoteTaskBinding = {
-      revision: 0, providerId, backend: this.backend.capability.backend,
+      revision: 0, providerId, executionMode: this.backend.capability.mode, backend: this.backend.capability.backend,
       environmentId: environment.id, accountRef: environment.accountRef, branch,
       phase: "creating", snapshot: null,
     };
@@ -91,6 +93,7 @@ export class RemoteTaskController {
   restore(tabId: string): RemoteTaskBinding | null {
     const binding = this.storage.read(tabId);
     if (!binding) return null;
+    if (binding.executionMode !== this.backend.capability.mode) throw new Error("Remote execution mode does not match the stored tab");
     if (binding.backend !== this.backend.capability.backend) throw new Error("Remote backend does not match the stored tab");
     if (binding.phase !== "bound" || !binding.snapshot) {
       if (binding.phase === "create_uncertain") return binding;

@@ -227,7 +227,10 @@ pub fn refresh_after_settings_change(
     provider_ids: impl IntoIterator<Item = String>,
 ) {
     for provider_id in provider_ids {
-        if chat_backends.contains(&provider_id) {
+        if chat_backends
+            .get(&provider_id)
+            .is_some_and(|backend| backend.remote_task_capability().is_none())
+        {
             crate::service::capability_probe::invalidate_and_rebuild(&provider_id);
             chat_backends.refresh_after_input_change(&provider_id);
         } else {

@@ -204,7 +204,7 @@ async fn ensure_with_fork(
             target.agent_runtime_state.clone(),
         )
     };
-    if !requested(svc, &provider) {
+    if !super::requested_for_tab(svc, tab) {
         return Err(RuntimeFailure::Refused("Runtime capability absent".into()));
     }
     let session = {

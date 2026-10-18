@@ -108,7 +108,7 @@ pub fn manifest_cli_status(
     manifest: &crate::js_runtime::manifest::PluginManifest,
     platform: &str,
 ) -> Option<ProviderCliStatus> {
-    if manifest.capabilities.chat_backend.enabled() {
+    if manifest.capabilities.chat_backend.enabled() && !manifest.capabilities.agent_provider {
         return Some(no_cli());
     }
     if !manifest.capabilities.agent_provider {
