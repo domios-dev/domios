@@ -8,7 +8,7 @@ export async function installReplayPage({tab,session,nonce,run,other,muxTab,prob
   const root = document.querySelector(`[data-testid="tab-session-chat"][data-tab-id="${tab}"]`);
   const textarea = root?.querySelector('textarea[aria-label="Message composer"]');
   const graph = document.querySelector('[role="toolbar"][aria-label="Mesh graph controls"]')?.parentElement;
-  if (!root || root.dataset.snapshotReady !== 'true' || probe === 'composer' && (!textarea || textarea.value !== '')) throw Error('Owned empty attached composer required');
+  if (!root || probe === 'composer' && (!textarea || textarea.value !== '')) throw Error('Owned composer mount required');
   if (probe === 'mesh' && (!graph || graph.getBoundingClientRect().width <= 0)) throw Error('Parent must open the visible Mesh machines graph before replay');
   const key = store.transcriptWindowKey(tab,session);
   const read = (target={session,nonce}) => {

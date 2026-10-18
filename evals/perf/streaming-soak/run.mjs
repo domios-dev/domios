@@ -8,7 +8,7 @@ import {analyzeGraph,snapshotGraph,heapDiff} from './heap.mjs';
 import {declareControl,plateau} from './oracle.mjs';
 import {VERSION,requireValue,segmentSeconds,validateResume,cleanupPlan,sampleDue,acknowledge,validateFileOwnership,muxBindings} from './model.mjs';
 import {atomic,readJson,waitFile,request,shellCommand} from './io.mjs';
-import {attach,dcJson,visit,sample} from './runtime.mjs';
+import {attach,dcJson,visit,sample,beginCleanupObservation,waitCleanupObservation,disposeCleanupObservation} from './runtime.mjs';
 import {prepareReplay,compareReplays,outsideRepository,REPLAY_LIMITS} from './replay-model.mjs';
 import {runReplay,repositoryRoot} from './replay.mjs';
 
@@ -48,6 +48,7 @@ async function execute() {
   if (command === 'inspect') { atomic(path.join(out,'identity.json'),rt.identity); return; }
   if (command === 'setup') return setup();
   cp = readJson(checkpoint);
+  if (command === 'cleanup') requireValue(cp.cleanup?.status !== 'running','Interrupted cleanup requires owner review; do not retry this checkpoint');
   const state = await rt.api('/api/mux/state'), bindings = muxBindings(state);
   requireValue(state.workspaces.some(w => w.id === cp.workspace.id && w.cwd === cp.workspace.cwd),'Workspace identity drift');
   if (command === 'cleanup') cleanupPlan(cp,rt.identity,bindings);
@@ -114,14 +115,22 @@ async function execute() {
       return;
     }
     const tabs = cleanupPlan(cp,rt.identity,muxBindings(await rt.api('/api/mux/state')));
-    for (const tab of tabs) { await dcJson(['tab','close','--tab',tab]); cp.cleanedTabs??=[]; cp.cleanedTabs.push(tab); save(); }
-    fs.unlinkSync(cp.junction);
-    for (const f of cp.fixtures) fs.unlinkSync(f.path);
-    fs.rmdirSync(cp.history);
-    await dcJson(['workspace','close',cp.workspace.id]);
-    cp.stage = 'cleaned'; cp.cleanedAt = Date.now(); save();
-    const state = await rt.api('/api/mux/state');
-    requireValue(tabs.every(tab => !state.tabs[tab]) && !state.workspaces.some(w => w.id === cp.workspace.id),'Owned cleanup not observed');
+    await beginCleanupObservation(rt,tabs,cp.workspace.id);
+    cp.cleanup = {status:'running',startedAt:Date.now(),tabs}; save();
+    try {
+      for (const tab of tabs) { await dcJson(['tab','close','--tab',tab]); cp.cleanedTabs??=[]; cp.cleanedTabs.push(tab); save(); }
+      await dcJson(['workspace','close',cp.workspace.id]);
+      const confirmation = await waitCleanupObservation(rt);
+      requireValue(confirmation?.tabsAbsent === true && confirmation.workspaceAbsent === true &&
+        Number.isSafeInteger(confirmation.events) && confirmation.events > 0 &&
+        Number.isSafeInteger(confirmation.reads) && confirmation.reads > 0,'Owned cleanup not observed');
+      cp.cleanup.confirmation = confirmation;
+      cp.cleanup.confirmedAt = Date.now(); save();
+      fs.unlinkSync(cp.junction);
+      for (const f of cp.fixtures) fs.unlinkSync(f.path);
+      fs.rmdirSync(cp.history);
+      cp.cleanup.status = 'complete'; cp.stage = 'cleaned'; cp.cleanedAt = Date.now(); save();
+    } finally { await disposeCleanupObservation(rt).catch(() => {}); }
   }
 }
 function verifyFiles() {
