@@ -143,28 +143,42 @@ fn in_progress(request: &NativeUpdateRequest) -> NativeUpdateResult {
     )
 }
 
-fn verified(request: &NativeUpdateRequest) -> NativeUpdateResult {
-    let client_process = ProcessProvenance {
-        pid: 72,
-        created: "start-72".into(),
-        executable: PathBuf::from("C:/Domios/domios.exe"),
-    };
-    let install = NativeUpdateInstallReceipt {
+fn install_receipt(request: &NativeUpdateRequest) -> NativeUpdateInstallReceipt {
+    NativeUpdateInstallReceipt {
         installed_components: request.staged_components.clone(),
-        client_process: client_process.clone(),
-    };
-    let server = ready_for(request);
+        client_process: ProcessProvenance {
+            pid: 72,
+            created: "start-72".into(),
+            executable: PathBuf::from("C:/Domios/domios.exe"),
+        },
+    }
+}
+
+fn completed(request: &NativeUpdateRequest) -> NativeUpdateResult {
+    result(
+        request,
+        request.operation_id,
+        2,
+        2,
+        NativeUpdateState::Completed {
+            install: install_receipt(request),
+        },
+    )
+}
+
+fn verified(request: &NativeUpdateRequest) -> NativeUpdateResult {
+    let install = install_receipt(request);
     result(
         request,
         request.operation_id,
         3,
-        2,
+        3,
         NativeUpdateState::Verified {
-            install,
             verification: NativeUpdateVerification {
-                client_process,
-                server,
+                client_process: install.client_process.clone(),
+                server: ready_for(request),
             },
+            install,
         },
     )
 }
@@ -504,6 +518,54 @@ async fn interrupted_coordinator_reconciles_exact_completion_without_redispatch(
     assert_eq!(verified.sequence, Some(3));
     assert_eq!(executor.dispatch_count.load(Ordering::SeqCst), 1);
     assert_eq!(executor.observe_count.load(Ordering::SeqCst), 2);
+    assert!(!global().is_in_flight());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn completed_reconciliation_stays_reachable_until_verified_without_redispatch() {
+    let _gate_lock = global_gate_test_lock();
+    let request = request();
+    let mut executor = FakeExecutor::new(
+        in_progress(&request),
+        vec![completed(&request), verified(&request)],
+    );
+    executor.panic_first_observation = true;
+    let executor = Arc::new(executor);
+    let coordinator = NativeUpdateCoordinator::new();
+    let operation_id = start(&coordinator, &request, state_handle(), Some(executor.clone()))
+        .expect("the global update lease is free");
+    let mut status = coordinator.subscribe(operation_id).unwrap();
+    wait_for_status(&mut status, |status| {
+        matches!(
+            &status.phase,
+            NativeUpdateCoordinatorPhase::Held {
+                reason: NativeUpdateHoldReason::CoordinatorInterrupted
+            }
+        ) && !status.worker_running
+    })
+    .await;
+
+    let installed = coordinator
+        .reconcile(operation_id)
+        .await
+        .expect("the broker installation receipt is exact");
+    assert!(matches!(
+        &installed.phase,
+        NativeUpdateCoordinatorPhase::Held {
+            reason: NativeUpdateHoldReason::ReconciliationIncomplete
+        }
+    ));
+    assert_eq!(installed.sequence, Some(2));
+    assert!(global().is_in_flight());
+
+    let verified = coordinator
+        .reconcile(operation_id)
+        .await
+        .expect("replacement verification is exact");
+    assert_eq!(verified.phase, NativeUpdateCoordinatorPhase::Verified);
+    assert_eq!(verified.sequence, Some(3));
+    assert_eq!(executor.dispatch_count.load(Ordering::SeqCst), 1);
+    assert_eq!(executor.observe_count.load(Ordering::SeqCst), 3);
     assert!(!global().is_in_flight());
 }
 
