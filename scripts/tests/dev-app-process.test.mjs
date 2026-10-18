@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
-import { runDevApp } from '../dev-app-process.mjs';
+import { runDevApp, windowsDevArguments } from '../dev-app-process.mjs';
 import { devRuntimeEnvironment } from '../dev-runtime-environment.mjs';
 
 for (const code of [0, 17]) {
@@ -49,7 +49,8 @@ test('DEV supervisor still sends READY from file output and disconnects exactly 
     `${readiness}\n${supervisor}\nreturn supervisePrebuilt;`)(
       options => {
         assert.equal(options.env.CODETERM_DEV_WORKSPACE_ROOT, directory);
-        return runDevApp({ ...options, args: ['-e', script] });
+        assert.equal(options.interactiveDesktop, true);
+        return runDevApp({ ...options, interactiveDesktop: false, args: ['-e', script] });
       }, fakeProcess,
       () => { if (fakeProcess.connected) { fakeProcess.connected = false; disconnected++; } }, StringDecoder, path.resolve,
       (options, key) => options.get(key), directory, devRuntimeEnvironment);
@@ -185,4 +186,16 @@ test('DEV supervisor reports terminal refusal immediately and cannot turn it int
   await execute(new Map([['--app', process.execPath], ['--log', 'fixture.log'], ['--api-port', '7786']]));
   assert.deepEqual(messages, [{ type: 'failed', error: 'Native client startup refused at startup' }]);
   assert.equal(state.exitCode, 1);
+});
+
+
+test('interactive Windows DEV invocation is finite and keeps selectors out of argv', () => {
+  const input = { wrapper: 'C:/repo with spaces/scripts/windows-dev-app.ps1', app: 'C:/target/debug/codeterm.exe',
+    args: [], interactiveDesktop: true, env: { CODETERM_DEV: '1', CODETERM_API_TOKEN: 'PRIVATE_TOKEN', CODETERM_SOCKET_PATH: 'PRIVATE_SOCKET' } };
+  const argv = windowsDevArguments(input);
+  assert.deepEqual(argv, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', input.wrapper, '-App', input.app, '-InteractiveDesktop']);
+  assert.doesNotMatch(JSON.stringify(argv), /PRIVATE_TOKEN|PRIVATE_SOCKET/);
+  assert.throws(() => windowsDevArguments({ ...input, args: ['workspace'] }), /no arbitrary/);
+  assert.throws(() => windowsDevArguments({ ...input, env: {} }), /explicit development intent/);
+  assert.deepEqual(windowsDevArguments({ ...input, interactiveDesktop: false, args: ['fixture'] }), argv.slice(0, -1));
 });
