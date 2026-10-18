@@ -211,6 +211,16 @@ fn launch_credentials_ignore_unrelated_missing_endpoint_and_name_relevant_lookup
     provider.key_env = Some("DOMIOS_PROVIDER_DEMO_KEY".into());
     let store = store();
 
+    let unspecified_model_env = launch_env(
+        &store,
+        "opencode",
+        &adapter,
+        std::slice::from_ref(&provider),
+        None,
+    )
+    .unwrap();
+    assert!(unspecified_model_env.is_empty());
+
     let default_model_env = launch_env(
         &store,
         "opencode",
