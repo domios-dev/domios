@@ -7,9 +7,9 @@ import {connect,evaluate,pageTarget,takeHeapSnapshot} from '../renderer-memory/c
 import {FIND_TERMINALS} from '../renderer-memory/terminals.mjs';
 import {processInfo} from './io.mjs';
 import {requireValue,validateIdentity,admitDevSurface,validateDevSurfaceTarget,measurementCapabilities,requireMeasurement,rendererMetrics} from './model.mjs';
-import {functionalReplayPrerequisites} from './replay-page.mjs';
+import {functionalReplayPrerequisites,ownedBrowserSelection} from './replay-page.mjs';
 import {ownedChatComposerMounted} from './readiness.mjs';
-import {cleanupStateComplete,installCleanupObserverPage} from './cleanup-observation.mjs';
+import {cleanupStateComplete,installCleanupObserverPage,createFunctionalCleanupObserver} from './cleanup-observation.mjs';
 
 export {dcJson};
 export async function attach(signal,options={}) {
@@ -90,17 +90,35 @@ export async function observe(rt,expression,evidence='DOM evidence') {
   })`);
 }
 export async function beginCleanupObservation(rt,tabs,workspace) {
+  if (rt.identity.capabilities.purpose === 'functional') {
+    rt.cleanupObserver = createFunctionalCleanupObserver(tabs,workspace,() => rt.api('/api/mux/state'));
+    return {ready:true};
+  }
   return evaluate(rt.cdp,`(${installCleanupObserverPage.toString()})(${JSON.stringify({tabs,workspace})},${cleanupStateComplete.toString()})`);
 }
+export async function cleanupCommandCompleted(rt) {
+  await rt.cleanupObserver?.afterCommand();
+}
 export async function waitCleanupObservation(rt) {
+  if (rt.cleanupObserver) return rt.cleanupObserver.wait();
   return evaluate(rt.cdp,'window.__streamingSoakCleanup.wait()');
 }
 export async function disposeCleanupObservation(rt) {
+  if (rt.cleanupObserver) { rt.cleanupObserver.dispose(); delete rt.cleanupObserver; return; }
   return evaluate(rt.cdp,'window.__streamingSoakCleanup?.dispose()');
 }
 export async function visit(rt,cp,fixture) {
-  await dcJson(['workspace','focus',cp.workspace.id]);
-  await dcJson(['tab','focus','--tab',fixture.tab]);
+  requireValue([...cp.fixtures,cp.terminal].some(owned => owned?.tab === fixture.tab),'Visit target is not an owned fixture');
+  if (rt.identity.surface === 'chrome') {
+    const selection = action => `(${ownedBrowserSelection.toString()})(document,${JSON.stringify(cp.workspace.id)},${JSON.stringify(fixture.tab)},${JSON.stringify(action)})`;
+    await evaluate(rt.cdp,selection('workspace'));
+    await observe(rt,`[...document.querySelectorAll('[data-testid="workspace-detail"]')].some(node=>node.dataset.workspaceId===${JSON.stringify(cp.workspace.id)}&&!node.hidden)`,'owned workspace selection');
+    await evaluate(rt.cdp,selection('tab'));
+    await observe(rt,selection('mounted'),'owned Browser mounted target');
+  } else {
+    await dcJson(['workspace','focus',cp.workspace.id]);
+    await dcJson(['tab','focus','--tab',fixture.tab]);
+  }
   if (fixture.session) {
     await observe(rt,`(${ownedChatComposerMounted.toString()})(document,${JSON.stringify(fixture.tab)})`,'owned chat composer mount');
     const root = `[data-testid="tab-session-chat"][data-tab-id="${fixture.tab}"]`;

@@ -563,3 +563,15 @@ Vite/HMR switch are used. Backend fixture identity remains checked, while public
 projection/DOM tail observations explicitly do not prove internal rows/authority or
 durable storage. Use the bounded procedure in streaming-soak/REPLAY.md; unavailable
 handles or unmounted synthetic projections refuse rather than fabricating completion.
+
+
+Bundled functional replay selects the exact owned workspace and tab on the selected
+Browser page through sidebar controls; daemon focus is only used for the native
+surface. Backend focus acknowledgement alone does not prove a mounted composer.
+Functional cleanup uses authenticated mux reads after each successful close and a
+final all-owned-IDs-absent read before unlinking fixture files. UI absence remains
+unavailable; profile mode retains its source bridge event observer.
+For a pre-close cleanup failure with pending null and cleanup null, run only the
+original checkpoint's `cleanup` with its original purpose/surface/CDP/target flags.
+Do not rerun setup or replay that checkpoint. After exact cleanup, use a fresh
+output directory for inspect/setup/replay/finish/cleanup and restore the saved URL.
