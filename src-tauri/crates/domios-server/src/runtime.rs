@@ -10,18 +10,37 @@ use codeterm_service_core::{
     startup::RestApiPhase,
     PathOwnership, ResolvedInstancePaths,
 };
+use codeterm_types::native_update::{NativeUpdateRequest, NativeUpdateResult};
 use std::{io, sync::Arc};
 
-struct ServerEvents(codeterm_events::EventBroadcasterState);
+type NativeEndpoint =
+    crate::native_host::NativeHostEndpoint<NativeUpdateRequest, NativeUpdateResult>;
+type NativeServer = crate::native_host::NativeHostServer<NativeUpdateRequest, NativeUpdateResult>;
+type NativeEventPort = Arc<parking_lot::RwLock<Option<NativeEndpoint>>>;
+
+struct ServerEvents {
+    events: codeterm_events::EventBroadcasterState,
+    native: NativeEventPort,
+}
 impl UiEvents for ServerEvents {
     fn emit(&self, event: &str, payload: serde_json::Value) {
-        self.0.publish_generic(
+        self.events.publish_generic(
             event,
             codeterm_events::web_safe_event_payload(event, payload),
         );
     }
-    fn emit_native(&self, _: &str, _: serde_json::Value) {}
-    fn emit_to(&self, _: &str, _: &str, _: serde_json::Value) {}
+    fn emit_native(&self, event: &str, payload: serde_json::Value) {
+        let endpoint = self.native.read().clone();
+        if let Some(endpoint) = endpoint {
+            endpoint.emit_native(event, payload);
+        }
+    }
+    fn emit_to(&self, target: &str, event: &str, payload: serde_json::Value) {
+        let endpoint = self.native.read().clone();
+        if let Some(endpoint) = endpoint {
+            endpoint.emit_to(target, event, payload);
+        }
+    }
 }
 
 pub fn ownership_registry() -> io::Result<std::path::PathBuf> {
@@ -45,6 +64,7 @@ pub fn run(
     let process = process::own()?;
     let provenance = process.provenance()?;
     let resources = options.resources.canonicalize()?;
+    let native_inventory = crate::native_inventory::load(&resources)?;
     let shell = Arc::new(ProcessShell {
         paths: ProcessPaths {
             executable: provenance.executable.clone(),
@@ -87,8 +107,14 @@ pub fn run(
     note(&mut audit, "crash")?;
     codeterm_service_core::crash::record_startup();
     note(&mut audit, "config-credential-hook-state")?;
+    let native_events: NativeEventPort = Arc::new(parking_lot::RwLock::new(None));
     let running = crate::composition::compose_observed(
-        |events| Arc::new(ServerEvents(events)),
+        |events| {
+            Arc::new(ServerEvents {
+                events,
+                native: native_events.clone(),
+            })
+        },
         shell,
         None,
         Some(resources.clone()),
@@ -133,6 +159,30 @@ pub fn run(
             resources,
         })
     })?;
+    let native_server = native_inventory
+        .map(|manifest| {
+            let origins = codeterm_service_core::startup::frontend_shell_declared_frontend_origins(
+                &running.states.config.lock().api,
+                None,
+            )
+            .into_iter()
+            .collect();
+            runtime.block_on(async { NativeServer::bind(ready.clone(), manifest, origins) })
+        })
+        .transpose();
+    let native_server = match native_server {
+        Ok(server) => server,
+        Err(error) => {
+            if let Err(cleanup) = shutdown(&running) {
+                log::error!("[native-host] refused startup cleanup failed: {cleanup}");
+            }
+            runtime.shutdown_timeout(std::time::Duration::from_secs(6));
+            return Err(error);
+        }
+    };
+    if let Some(server) = &native_server {
+        *native_events.write() = Some(server.endpoint());
+    }
     let token = running.states.config.lock().api.token.clone();
     if let Err(error) = acknowledge(&ready, token.as_deref()) {
         if !matches!(
@@ -150,6 +200,7 @@ pub fn run(
         tokio::select! {
             result = control => result,
             result = shutdown_signal() => result,
+            result = serve_native(native_server, native_events) => result,
         }
     });
     let shutdown_result = shutdown(&running);
@@ -157,6 +208,16 @@ pub fn run(
     drop(process);
     let _ = owner;
     control_result.and(shutdown_result)
+}
+
+async fn serve_native(server: Option<NativeServer>, events: NativeEventPort) -> io::Result<()> {
+    if let Some(server) = server {
+        if let Err(error) = server.serve().await {
+            log::debug!("[native-host] listener unavailable; headless service retained: {error}");
+        }
+        *events.write() = None;
+    }
+    std::future::pending().await
 }
 
 async fn shutdown_signal() -> io::Result<()> {
