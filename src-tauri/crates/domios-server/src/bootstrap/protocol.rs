@@ -5,6 +5,23 @@ pub use codeterm_types::server_bootstrap::{
 use std::io;
 pub const FAILURE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
+pub fn validate_observation(request: &AttachRequest) -> io::Result<()> {
+    if request.operation != BootstrapOperation::Inspect || request.expected.is_none() {
+        return Err(io::Error::other(
+            "Observation requires Inspect and exact expected incarnation",
+        ));
+    }
+    Ok(())
+}
+
+pub fn with_observation_preflight<T>(
+    request: &AttachRequest,
+    attach: impl FnOnce() -> T,
+) -> io::Result<T> {
+    validate_observation(request)?;
+    Ok(attach())
+}
+
 pub fn validate_attach(request: &AttachRequest, ready: &ServerReady) -> io::Result<()> {
     if request.protocol != BOOTSTRAP_PROTOCOL || ready.protocol != BOOTSTRAP_PROTOCOL {
         return Err(io::Error::other("Bootstrap protocol mismatch"));
