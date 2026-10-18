@@ -2250,6 +2250,31 @@ prepare_release_bundle_inputs() {
   pnpm build
   cargo build --release --timings --manifest-path cli/Cargo.toml "${cargo_target_args[@]}"
   node scripts/bundle-cli.js
+  if [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" = 1 ]; then
+    local release_target release_sha release_logs
+    release_target="${CARGO_BUILD_TARGET:-$(ct_host_triple)}"
+    if [[ "$release_target" == *-apple-darwin ]]; then
+      : "${APPLE_SIGNING_IDENTITY:?Release CLI signing identity is required}"
+      : "${RELEASE_KEYCHAIN:?Release keychain is required}"
+      codesign --force --options runtime --timestamp --keychain "$RELEASE_KEYCHAIN" \
+        --sign "$APPLE_SIGNING_IDENTITY" src-tauri/bundled-cli/codeterm
+      codesign --verify --strict src-tauri/bundled-cli/codeterm
+    fi
+    release_sha="$(git rev-parse HEAD)"
+    release_logs="release-artifacts/build-logs/$release_target"
+    mkdir -p "$release_logs"
+    CODETERM_SERVER_CLI_SHA256="$(node scripts/release-stage.mjs cli-digest --target "$release_target")"
+    export CODETERM_SERVER_CLI_SHA256
+    cargo build --release --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
+      --no-default-features --features domios-server/embeddings --target "$release_target" \
+      --message-format=json > "$release_logs/server.jsonl"
+    cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --target "$release_target" \
+      --no-default-features --features domios-server/embeddings --edges normal,build --prefix none \
+      --format '{p}' > "$release_logs/closure.txt"
+    node scripts/release-stage.mjs prepare --target "$release_target" --source-sha "$release_sha" \
+      --cargo-log "$release_logs/server.jsonl" --tree-log "$release_logs/closure.txt" \
+      --cli-sha256 "$CODETERM_SERVER_CLI_SHA256"
+  fi
   if [ "$mode" = "standalone" ]; then
     cargo build --release --timings --manifest-path src-tauri/Cargo.toml \
       "${cargo_target_args[@]}" \
@@ -2624,7 +2649,19 @@ EOF
     prepare_release_bundle_inputs bundle
     bundle_target_args=()
     [ -z "${CARGO_BUILD_TARGET:-}" ] || bundle_target_args=(--target "$CARGO_BUILD_TARGET")
-    pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" "${bundle_args[@]}"
+    if [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" = 1 ]; then
+      [ "${#bundle_args[@]}" -eq 0 ] || { echo "Shared-stage release-bundle takes no extra Tauri flags" >&2; exit 2; }
+      local_target="${CARGO_BUILD_TARGET:-$(ct_host_triple)}"
+      pnpm tauri build --no-bundle "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}"
+      node scripts/release-stage.mjs stage-full --target "$local_target" \
+        --source-sha "$(git rev-parse HEAD)" \
+        --cargo-log "release-artifacts/build-logs/$local_target/server.jsonl" \
+        --tree-log "release-artifacts/build-logs/$local_target/closure.txt" \
+        --client-file "src-tauri/target/$local_target/release/codeterm.exe"
+      pnpm tauri bundle "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" --bundles nsis
+    else
+      pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" "${bundle_args[@]}"
+    fi
     ;;
   release-preflight)
     prepare_dev_frontend_dist "$(pwd -P)"

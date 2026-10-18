@@ -29,9 +29,15 @@ fi
 
 if [ "$ARCH" = "arm64" ]; then
   rm -rf src-tauri/target/release/bundle
-  ./build.sh release-inputs
-  pnpm tauri build --features "${CODETERM_RELEASE_FEATURES:-embeddings}" \
+  CODETERM_RELEASE_COMMON_STAGE=1 ./build.sh release-inputs
+  pnpm tauri build --no-bundle --features "${CODETERM_RELEASE_FEATURES:-embeddings}" \
     --config src-tauri/tauri.conf.json
+  node scripts/release-stage.mjs stage-full --target aarch64-apple-darwin \
+    --source-sha "$(git rev-parse HEAD)" \
+    --cargo-log release-artifacts/build-logs/aarch64-apple-darwin/server.jsonl \
+    --tree-log release-artifacts/build-logs/aarch64-apple-darwin/closure.txt \
+    --client-file src-tauri/target/release/codeterm
+  pnpm tauri bundle --features "${CODETERM_RELEASE_FEATURES:-embeddings}" --bundles app,dmg
   APP=src-tauri/target/release/bundle/macos/CodeTerm.app
 else
   rm -rf src-tauri/target/x86_64-apple-darwin/release/bundle
