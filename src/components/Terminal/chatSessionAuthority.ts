@@ -66,6 +66,8 @@ export interface ChatStartResult extends TranscriptAuthority {
    *  loading one; `pending` here means unavailable, not "not yet". */
   source_missing?: boolean;
   messages?: ChatMessage[];
+  /** Read-only rows from earlier provider sessions, before the active session window. */
+  archived_messages?: ChatMessage[];
   cursor?: string;
   subscription_id?: string | null;
 }
