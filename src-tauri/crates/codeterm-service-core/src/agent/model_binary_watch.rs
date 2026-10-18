@@ -66,6 +66,22 @@ fn changes_input(event: &Event, targets: &[PathBuf]) -> bool {
     ) && touches_any(event, targets)
 }
 
+fn accept_input_event(
+    event: &Event,
+    targets: &[PathBuf],
+    stamps: &mut Vec<Option<InputStamp>>,
+) -> bool {
+    if !changes_input(event, targets) {
+        return false;
+    }
+    let current = input_stamps(targets);
+    if current == *stamps && matches!(event.kind, EventKind::Modify(ModifyKind::Metadata(_))) {
+        return false;
+    }
+    *stamps = current;
+    true
+}
+
 impl ProviderBinaryWatchers {
     fn watch(
         &self,
@@ -102,14 +118,9 @@ impl ProviderBinaryWatchers {
         let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
             let _role = codeterm_util::named_thread::Scope::enter(&role);
             let Ok(event) = event else { return };
-            if !changes_input(&event, &watched_targets) {
+            if !accept_input_event(&event, &watched_targets, &mut stamps) {
                 return;
             }
-            let current = input_stamps(&watched_targets);
-            if current == stamps {
-                return;
-            }
-            stamps = current;
             let on_change = event_callback.lock().clone();
             on_change();
         });

@@ -2,6 +2,41 @@ use super::*;
 use notify::event::{AccessKind, CreateKind, DataChange, RemoveKind};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[test]
+fn scoped_data_events_advance_generation_with_preserved_size_and_mtime() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in ["config", "auth"] {
+        let path = dir.path().join(name);
+        std::fs::write(&path, b"before").unwrap();
+        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let targets = vec![path.clone()];
+        let mut stamps = input_stamps(&targets);
+        std::fs::write(&path, b"latest").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        assert!(input_stamps(&targets) == stamps);
+        let event = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+            .add_path(path.clone());
+        let id = format!("preserved-metadata-{name}-fixture");
+        let before = model_catalog::current_version(&id);
+        assert!(accept_input_event(&event, &targets, &mut stamps));
+        model_catalog::invalidate_inputs(&id);
+        assert!(model_catalog::current_version(&id) > before);
+        let unchanged = Event::new(EventKind::Modify(ModifyKind::Metadata(
+            MetadataKind::WriteTime,
+        )))
+        .add_path(path);
+        assert!(!accept_input_event(&unchanged, &targets, &mut stamps));
+        let unrelated = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
+            .add_path(dir.path().join("unrelated"));
+        assert!(!accept_input_event(&unrelated, &targets, &mut stamps));
+    }
+}
+
 #[tokio::test]
 async fn native_config_and_auth_events_refresh_the_warm_authoritative_catalogue() {
     use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
@@ -16,14 +51,22 @@ async fn native_config_and_auth_events_refresh_the_warm_authoritative_catalogue(
         "credentials":[{"id":"account", "file":auth}],
         "modelCatalogue":{"authority":"authoritative", "liveDiscoveryRequired":true, "configFiles":[config]},
     }).to_string();
-    let vm = PluginVm::from_source_with(id, r#"
+    let vm = PluginVm::from_source_with(
+        id,
+        r#"
+        const sources = new Map();
         module.exports.default = {
             discoverModels: function(stamp) {
-                const files = JSON.parse(stamp).files;
-                return [{id: "fixture/model-" + files[0][1] + "-" + files[1][1], displayName: "Fixture"}];
+                if (!/^[a-f0-9]{64}$/.test(stamp)) throw new Error("invalid fixture token");
+                if (!sources.has(stamp)) sources.set(stamp, sources.size + 1);
+                return [{id: "fixture/model-" + sources.get(stamp), displayName: "Fixture"}];
             }
         };
-    "#.into(), Some(manifest.clone())).unwrap();
+    "#
+        .into(),
+        Some(manifest.clone()),
+    )
+    .unwrap();
     let provider: Arc<dyn AgentProvider> = Arc::new(JsProvider::new(
         PluginManifest::from_json_str(&manifest).unwrap(),
         Arc::new(vm),
@@ -31,14 +74,18 @@ async fn native_config_and_auth_events_refresh_the_warm_authoritative_catalogue(
     model_catalog::refresh_models(provider.clone(), true)
         .await
         .unwrap();
-    assert!(model_catalog::resolve_catalog_model(id, "fixture/model-1-3").is_some());
+    assert!(model_catalog::resolve_catalog_model(id, "fixture/model-1").is_some());
+    assert!(model_catalog::refresh_models(provider.clone(), false)
+        .await
+        .is_none());
     install(provider.clone());
     let mut changes = model_catalog::subscribe_changes();
-    for (path, data, expected) in [
-        (&config, Some(&b"newest"[..]), "fixture/model-1-6"),
-        (&auth, Some(&b"next"[..]), "fixture/model-4-6"),
-        (&config, None, "fixture/model-4-null"),
+    for (path, data) in [
+        (&config, Some(&b"newest"[..])),
+        (&auth, Some(&b"next"[..])),
+        (&config, None),
     ] {
+        let previous = model_catalog::resolve_models(id)[0].id.clone();
         match data {
             Some(data) => std::fs::write(path, data).unwrap(),
             None => std::fs::remove_file(path).unwrap(),
@@ -46,19 +93,17 @@ async fn native_config_and_auth_events_refresh_the_warm_authoritative_catalogue(
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
                 let change = changes.recv().await.unwrap();
-                if change.provider == id
-                    && model_catalog::resolve_catalog_model(id, expected).is_some()
-                {
-                    break;
+                if change.provider == id {
+                    let models = model_catalog::resolve_models(id);
+                    if models.first().is_some_and(|model| model.id != previous) {
+                        break;
+                    }
                 }
             }
         })
         .await
         .unwrap();
     }
-    assert!(model_catalog::refresh_models(provider, false)
-        .await
-        .is_none());
     watchers().watchers.lock().remove(&format!("pty:{id}"));
     model_catalog::unregister(id);
 }

@@ -1,4 +1,5 @@
 use super::*;
+use sha2::{Digest, Sha256};
 
 fn generations() -> &'static RwLock<HashMap<String, u64>> {
     static GENERATIONS: OnceLock<RwLock<HashMap<String, u64>>> = OnceLock::new();
@@ -38,12 +39,13 @@ fn stamp(provider: &dyn AgentProvider, generation: u64) -> String {
             (path, metadata.map(|m| m.len()), modified)
         })
         .collect();
-    serde_json::json!({
+    let inputs = serde_json::json!({
         "binary": provider.cli_binary().and_then(fingerprint_bin),
         "files": files,
         "generation": generation,
     })
-    .to_string()
+    .to_string();
+    format!("{:x}", Sha256::digest(inputs.as_bytes()))
 }
 
 pub(super) fn publish_current<R>(
