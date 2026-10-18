@@ -515,3 +515,18 @@ which retains its explicit private stdin/stdout. This prevents those original he
 handles from extending the caller pipe lifetime. Exact bounded one-line plus EOF and
 successful helper exit remain mandatory. The prior deadline is not reclassified as
 success; parent native execution must establish the actual handle/ACK outcome.
+
+### Authenticated split attachment succeeds but the reporter refuses health
+
+The independent server owns full build SHA, instance name and API port. Client Vite,
+CDP and window identifier values are not server health identity. Split reporting
+requires exact server health plus the fresh native attachment event, matching API
+listener PID and observed live client/server. The event comes from the verified
+client's authenticated retained attachment; supplemental PID liveness is not a new
+process-provenance verifier. Legacy combined-role health checks stay strict.
+
+Launch configuration and staged client/frontend bytes remain pinned by DEV provenance.
+Bench target checks accept empty server GUI fields only with the selected schema3
+DEV provenance/build/instance record; existing CLI/data/config/socket isolation remains.
+Neither launch reporting nor bench identity claims renderer paint, browser login or an
+active CDP endpoint. Those require observations on their own selected client surface.

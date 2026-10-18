@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 
 const healthReady = (health, apiPort) =>
   health?.status === "ok" && String(health.instance?.api_port) === String(apiPort);
@@ -43,7 +45,7 @@ test("dev_wait_health rejects prod health while scoping to the dev port", () => 
 
 test("DEV web watcher keeps a production-mode bundle with the DEV build flag on both platform branches", async () => {
   const { readFile } = await import("node:fs/promises");
-  const source = await readFile(new URL("../../build.sh", import.meta.url), "utf8");
+  const source = (await readFile(new URL("../../build.sh", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
   const watch = source.match(/^start_web_watch\(\) \{\n([\s\S]*?)^\}/m)?.[1];
   assert.ok(watch, "DEV web watcher must exist");
   const commands = watch.split("\n").filter(line => line.includes('"$vite_entry"'));
@@ -57,7 +59,7 @@ test("DEV web watcher keeps a production-mode bundle with the DEV build flag on 
 
 test("release frontend preparation retains the default production build", async () => {
   const { readFile } = await import("node:fs/promises");
-  const source = await readFile(new URL("../../build.sh", import.meta.url), "utf8");
+  const source = (await readFile(new URL("../../build.sh", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
   const release = source.match(/^prepare_release_bundle_inputs\(\) \{\n([\s\S]*?)^\}/m)?.[1];
   assert.ok(release, "release input preparation must exist");
   assert.match(release, /^  pnpm build$/m);
@@ -68,4 +70,54 @@ test("release frontend preparation retains the default production build", async 
   assert.match(wrapper, /'node_modules\/typescript\/bin\/tsc'/);
   assert.match(wrapper, /'node_modules\/vite\/bin\/vite\.js'\), 'build'/);
   assert.doesNotMatch(wrapper, /NODE_ENV|CODETERM_FRONTEND_DEV|--mode/);
+});
+
+
+const buildSource = readFileSync(new URL('../../build.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+const healthFunctions = ['dev_health_fields', 'validate_dev_health'].map(name => buildSource.match(new RegExp(`^${name}\\(\\) \\{[^]*?^\\}`, 'm'))[0]).join('\n');
+const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
+for (const role of ['server', 'combined']) {
+  test(`actual DEV health validator preserves exact server identity for ${role}`, () => {
+    const sha = 'a'.repeat(40);
+    const health = { status: 'ok', build_sha: sha, instance: { name: 'fixture', api_port: '7786',
+      ...(role === 'combined' ? { vite_port: '1420', cdp_port: '9223', identifier: 'fixture.dev' } : {}) } };
+    const check = value => spawnSync(bash, ['-c', `${healthFunctions}\nvalidate_dev_health "$@"`, '--',
+      sha, 'fixture', '7786', '1420', '9223', 'fixture.dev', JSON.stringify(value), role], { encoding: 'utf8' });
+    assert.equal(check(health).status, 0);
+    for (const value of [
+      { ...health, status: 'starting' }, { ...health, build_sha: 'b'.repeat(40) }, { ...health, build_sha: sha.slice(0, 8) },
+      { ...health, instance: { ...health.instance, name: 'other' } },
+      { ...health, instance: { ...health.instance, api_port: '7685' } },
+    ]) assert.notEqual(check(value).status, 0);
+    if (role === 'combined') {
+      for (const field of ['vite_port', 'cdp_port', 'identifier']) {
+        assert.notEqual(check({ ...health, instance: { ...health.instance, [field]: '' } }).status, 0);
+      }
+    }
+  });
+}
+
+
+test('split reporter requires live authenticated attachment proof in addition to server health', () => {
+  const reporter = buildSource.match(/^dev_notify_health_proof\(\) \{[\s\S]*?^\}/m)[0];
+  for (const admitted of [false, true]) {
+    const result = spawnSync(bash, ['-c', `set -eu
+${reporter}
+EXPECTED_BUILD_SHA=${'a'.repeat(40)} CT_SPLIT_DEV=1 CT_INSTANCE=fixture CT_PORT=7786
+CT_VITE_PORT=1420 CT_CDP_PORT=9223 CT_IDENTIFIER=fixture.dev
+DEV_NOTIFY_LOG=owned.log DEV_NOTIFY_SENT_MARKER=marker
+validate_dev_health() { [ "$8" = server ] && printf '%s' "$1"; }
+dev_health_status() { printf '{}'; }
+dev_listener_pid() { printf 20; }
+node() {
+  [ "$*" = 'scripts/dev-prep.mjs --check-attachment --log owned.log --api-port 7786 --listener-pid 20' ] || return 91
+  return ${admitted ? 0 : 42}
+}
+dev_notify_ready_once() { printf 'reported:%s:%s' "$5" "$6"; }
+dev_notify_health_proof parent
+`], { encoding: 'utf8' });
+    assert.equal(result.status, admitted ? 0 : 1, result.stderr);
+    if (admitted) assert.equal(result.stdout, `reported:${'a'.repeat(40)}:20`);
+    else assert.equal(result.stdout, '');
+  }
 });
