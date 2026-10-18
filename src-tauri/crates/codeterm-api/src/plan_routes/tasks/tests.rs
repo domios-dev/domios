@@ -363,4 +363,9 @@ fn respawn_hint_carries_the_source_attempt_flag() {
         !hint.contains("--execution-intent"),
         "intent is inherited: {hint}"
     );
+    assert!(
+        !hint.contains("--provider"),
+        "provider is inherited: {hint}"
+    );
+    assert!(!hint.contains("--model"), "model is inherited: {hint}");
 }
