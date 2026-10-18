@@ -584,3 +584,17 @@ Missing-after-expansion times out/refuses; duplicate controls refuse. This is no
 proof that overflow caused a prior refusal when fixture membership was not captured.
 Tab activation uses the actual TabItem aria-current="page" contract plus a visible
 owned mounted composer/terminal; backend focus alone remains insufficient.
+
+
+### Unfinished replay: explicit teardown only
+
+Ordinary finish/cleanup/resume refuse a pending replay. After owner approval use
+`bash evals/perf/streaming-soak/run.sh abort-replay --out ORIGINAL_RUN --purpose functional --surface chrome --cdp EXACT_CDP --target EXACT_PAGE`.
+Keep the original page/e2e/build/entry/daemon identity. This operation validates
+exact session/nonce/PTY/workspace and fixture files, admits one abort, authenticates
+the existing emitter stop and requires its exact child-exit receipt. It then closes
+only owned tabs/workspace, proves backend absence, and unlinks owned fixture files.
+Pending and replay failure evidence remain unchanged; a separate abort record and
+aborted stage never count as replay success or permit replay/resume. An interrupted
+abort/cleanup needs owner review, never automatic repeat. Do not clear a pending
+journal, seed again, erase its checkpoint or create another run before teardown.
