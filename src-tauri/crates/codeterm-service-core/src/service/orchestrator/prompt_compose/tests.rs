@@ -454,19 +454,24 @@ fn utility_guidance_reaches_managers_and_roleless_but_not_workers() {
 fn built_in_plugins_section_follows_the_primer_and_is_absent_without_contributors() {
     const SECTION: &str = "Built-in plugins:\n- OPAQUE_CORE_LINE_q7";
     let primer = crate::prompts::AGENT_CODETERM_PRIMER.trim();
+    let routing_contract = crate::prompts::AGENT_ROUTING_CONTRACT.trim();
     let after_primer = format!("{primer}\n\n{SECTION}\n\n");
 
     let plain = super::agent_system_prompt_with_plugins(Some("opaque-task"), None);
     assert!(!plain.contains("Built-in plugins:"));
+    assert_eq!(plain.matches(routing_contract).count(), 1);
     let with = super::agent_system_prompt_with_plugins(Some("opaque-task"), Some(SECTION));
     assert!(with.starts_with(&after_primer));
+    assert!(with.find(SECTION) < with.find(routing_contract));
     assert_eq!(with.replacen(&format!("{SECTION}\n\n"), "", 1), plain);
 
     let worker_plain = super::worker_agent_system_prompt_with_plugins(None, "opaque", None, None);
     assert!(!worker_plain.contains("Built-in plugins:"));
+    assert_eq!(worker_plain.matches(routing_contract).count(), 1);
     let worker =
         super::worker_agent_system_prompt_with_plugins(None, "opaque", None, Some(SECTION));
     assert_eq!(worker.matches(&after_primer).count(), 1);
+    assert!(worker.find(SECTION) < worker.find(routing_contract));
     assert_eq!(
         worker.replacen(&format!("{SECTION}\n\n"), "", 1),
         worker_plain
