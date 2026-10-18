@@ -49,13 +49,14 @@ test('control requests bind challenge and exact intended server incarnation', ()
   assert.equal(attachRequest(ready, { operation: 'shutdown' }).operation, 'shutdown');
 });
 
-test('DEV stages exact paired artifacts and protocol2 inventory under native resource root', async () => {
+for (const target of ['', 'opaque-target']) test(`DEV stages exact paired artifacts under native resource root: ${target || 'host'}`, async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'domios-dev-stage-'));
   try {
     const exe = process.platform === 'win32' ? '.exe' : '';
-    const resourceRoot = path.join(root, 'target/debug');
-    const server = path.join(resourceRoot, `domios-server${exe}`);
-    const client = path.join(resourceRoot, `codeterm${exe}`);
+    const artifactRoot = path.join(root, 'target', target, 'debug');
+    const resourceRoot = process.platform === 'win32' ? artifactRoot : path.join(artifactRoot, '.domios-dev-runtime/lib/codeterm');
+    const server = path.join(artifactRoot, `domios-server${exe}`);
+    const client = path.join(artifactRoot, `codeterm${exe}`);
     const cli = path.join(root, `cli/target/debug/codeterm${exe}`);
     const serverSource = path.join(root, 'src-tauri/crates/domios-server/src/main.rs');
     const cliSource = path.join(root, 'cli/src/main.rs');
@@ -84,9 +85,19 @@ test('DEV stages exact paired artifacts and protocol2 inventory under native res
     assert.equal(result.manifest.bootstrap_protocol, 2);
     assert.equal(result.manifest.server_sha256, digest(server));
     assert.equal(result.manifest.client_sha256, digest(client));
+    assert.equal(digest(process.platform === 'win32' ? client : path.resolve(resourceRoot, '../../bin', path.basename(client))), digest(client));
+    assert.equal(readFileSync(server, 'utf8'), 'opaque-' + path.basename(server));
+    await assert.rejects(stageDevResources({ ...input, resourceRoot: path.join(root, 'untrusted-root') }), /resource root/);
     assert.equal(result.worker_cli_sha256, digest(cli));
     assert.equal(readFileSync(path.join(resourceRoot, result.manifest.server_executable), 'utf8'), readFileSync(server, 'utf8'));
     const inventory = readFileSync(path.join(resourceRoot, 'server-component.json'));
+    const foreignClient = path.join(root, 'foreign', path.basename(client));
+    mkdirSync(path.dirname(foreignClient)); writeFileSync(foreignClient, 'foreign');
+    await assert.rejects(stageDevResources({ ...input, client: foreignClient }), /resource root/);
+    const wrongName = path.join(artifactRoot, 'foreign-client');
+    writeFileSync(wrongName, 'foreign');
+    await assert.rejects(stageDevResources({ ...input, client: wrongName }), /client artifact filename/);
+    assert.deepEqual(readFileSync(path.join(resourceRoot, 'server-component.json')), inventory);
     writeFileSync(cargoLog, [{ ...scriptReceipt, env: [['BUILD_SHA', build], ['SERVER_CLI_SHA256', 'b'.repeat(64)]] }, artifact, finish].map(JSON.stringify).join('\n'));
     await assert.rejects(stageDevResources(input), /CLI binding/);
     assert.deepEqual(readFileSync(path.join(resourceRoot, 'server-component.json')), inventory);

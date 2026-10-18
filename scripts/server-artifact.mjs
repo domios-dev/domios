@@ -76,10 +76,16 @@ function copyResource(source, destination) {
 }
 export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resourceRoot, client, build }) {
   if (!/^[a-f0-9]{40}$/.test(build)) throw new Error('Expected exact DEV source build identity');
+  const builtClient = regular(client);
+  const expectedRoot = process.platform === 'win32' ? path.dirname(builtClient) : path.join(path.dirname(builtClient), '.domios-dev-runtime/lib/codeterm');
+  if (path.resolve(resourceRoot) !== expectedRoot) throw new Error('DEV resource root must derive from the native client artifact directory');
+  ensureDirectory(resourceRoot);
   const root = realpathSync.native(resourceRoot);
-  const clientFile = regular(client);
-  if (path.dirname(clientFile) !== root) throw new Error('DEV resources must be in the native client artifact directory');
+  if (root !== expectedRoot) throw new Error('DEV resource root must not redirect through an alias');
+  const clientFile = process.platform === 'win32' ? builtClient : path.resolve(root, '../../bin', path.basename(builtClient));
   const server = artifactReceipt({ cargoLog, treeLog, build, resources: root });
+  if (path.dirname(server.executable) !== path.dirname(builtClient)) throw new Error('DEV server and client must share the exact Cargo artifact directory');
+  if (path.basename(builtClient) !== `codeterm${process.platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected DEV client artifact filename');
   const messages = readFileSync(cargoLog, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
   const message = messages.find(row => row.reason === 'compiler-artifact' && row.executable && realpathSync.native(row.executable) === server.executable);
   if (realpathSync.native(message.target.src_path) !== realpathSync.native(path.join(repo, 'src-tauri/crates/domios-server/src/main.rs'))) throw new Error('Server artifact has a foreign source target');
@@ -97,6 +103,8 @@ export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resou
     if (!match) throw new Error(`Missing shared bootstrap contract ${name}`);
     return Number(match[1]);
   };
+  if (clientFile !== builtClient) copyResource(builtClient, clientFile);
+  if (createHash('sha256').update(readFileSync(clientFile)).digest('hex') !== createHash('sha256').update(readFileSync(builtClient)).digest('hex')) throw new Error('Staged client differs from the built native artifact');
   copyResource(cli, path.join(root, 'cli', path.basename(cli)));
   copyResource(cli, path.join(root, 'cli', bundledCliName()));
   if (process.platform === 'win32') copyResource(path.join(repo, 'src-tauri/conpty'), path.join(root, 'conpty'));
