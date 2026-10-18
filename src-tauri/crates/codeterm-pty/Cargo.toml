@@ -11,7 +11,7 @@ codeterm-provider-signals = { path = "../codeterm-provider-signals" }
 codeterm-storage = { path = "../codeterm-storage" }
 codeterm-util = { path = "../codeterm-util" }
 codeterm-build-info = { path = "../codeterm-build-info" }
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 portable-pty = { path = "../../pty-fork" }
 vt100 = "0.16"
 serde = { version = "1", features = ["derive"] }

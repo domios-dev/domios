@@ -31,7 +31,8 @@ The native wrapper retains its existing optional desktop host during extraction.
 ## Pre-write authority
 
 `codeterm_paths::instance_identity::ResolvedInstancePaths` owns the single
-read-only resolver and its path-only tests. Service-core re-exports that type;
+read-only resolver and its path-only tests in `src-tauri/crates/codeterm-paths`,
+an app workspace member. Service-core re-exports that type;
 `PathOwnership::try_acquire(identity, registry)` retains its OS locks and lock
 tests. The native client can resolve the same roots without service-core.
 `ResolvedInstancePaths::current()` derives data/config from the existing
