@@ -567,7 +567,7 @@ fn install_leaf(
     // Literal legacy migration: `Orchestrator`/`Conductor` rows carried
     // no profile, so their anchoring kind is re-materialized here.
     let restored_role =
-        codeterm_types::agent::restore_persisted_role(role.as_deref(), role_profile.as_deref());
+        codeterm_types::agent::restore_role(role.as_deref(), role_profile.as_deref());
     let parsed_role = restored_role.as_ref().map(|restored| restored.role);
     let restored_role_profile = restored_role
         .as_ref()

@@ -7,8 +7,8 @@ pub mod provider_signals;
 pub mod roles;
 pub mod session_model;
 pub use roles::{
-    is_legacy_cartographer_worker_binding, restore_persisted_role, restore_role, AgentRole,
-    ReportOutcomeClass, ReportStatus, RestoredRole,
+    is_legacy_cartographer_worker_binding, restore_role, AgentRole, ReportOutcomeClass,
+    ReportStatus, RestoredRole,
 };
 pub use session_model::SessionModelTranscriptBoundary;
 pub mod role_identity;
