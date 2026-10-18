@@ -287,6 +287,7 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
     let source_draft = codeterm_service_core::service::plan::task_attempts::TaskRespawnDraft {
         plan_id: plan.id.clone(),
         task_id: task_id.clone(),
+        execution_intent: codeterm_service_core::plan::ExecutionIntent::Mutating,
         attempt_id: "attempt-source".into(),
         source_attempt: Default::default(),
         provider: "claude".into(),
@@ -373,5 +374,9 @@ fn respawn_hint_carries_the_source_attempt_flag() {
     assert!(
         hint.contains(&format!("{RESPAWN_ATTEMPT_FLAG} attempt_3")),
         "respawn hint omits the required attempt selector: {hint}"
+    );
+    assert!(
+        !hint.contains("--execution-intent"),
+        "intent is inherited: {hint}"
     );
 }

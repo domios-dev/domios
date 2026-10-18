@@ -38,12 +38,28 @@ pub enum ModelProviderError {
     Connection,
     InvalidResponse,
     LaunchSetup(String),
+    LaunchSecretNotFound {
+        model: String,
+        endpoint_id: String,
+        secret_name: String,
+    },
 }
 
 impl std::fmt::Display for ModelProviderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Self::LaunchSetup(message) = self {
             return f.write_str(message);
+        }
+        if let Self::LaunchSecretNotFound {
+            model,
+            endpoint_id,
+            secret_name,
+        } = self
+        {
+            return write!(
+                f,
+                "launch secret lookup for model '{model}' on model-provider endpoint '{endpoint_id}' secret '{secret_name}' failed (not_found)"
+            );
         }
         write!(
             f,
@@ -640,13 +656,18 @@ fn launch_env(
                 provider.id
             )));
         }
-        let secret = get_secret(store, owner, provider).map_err(|error| {
-            ModelProviderError::LaunchSetup(format!(
+        let secret = get_secret(store, owner, provider).map_err(|error| match error {
+            ModelProviderError::NotFound => ModelProviderError::LaunchSecretNotFound {
+                model: model.unwrap_or("<unspecified>").to_owned(),
+                endpoint_id: provider.id.clone(),
+                secret_name: provider.secret_name.clone().unwrap_or_default(),
+            },
+            error => ModelProviderError::LaunchSetup(format!(
                 "launch secret lookup for model '{}' on model-provider endpoint '{}' secret '{}' failed ({error})",
                 model.unwrap_or("<unspecified>"),
                 provider.id,
                 provider.secret_name.as_deref().unwrap_or_default()
-            ))
+            )),
         })?;
         env.insert(name, secret.value.into_inner());
     }

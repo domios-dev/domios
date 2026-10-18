@@ -631,7 +631,7 @@ fn context_owner_absent_manifest_parses_byte_equivalent_to_today() {
         let manifest: PluginManifest = serde_json::from_str(&raw)
             .unwrap_or_else(|e| panic!("parse {}: {e}", manifest_path.display()));
         // The legacy serializer predates `remoteTask`, so it cannot describe those manifests.
-        if manifest.capabilities.chat_backend.remote_task.is_some() {
+        if manifest.capabilities.remote_task.is_some() {
             continue;
         }
         assert_context_owner_absent_is_byte_equivalent(
