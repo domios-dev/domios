@@ -1,6 +1,6 @@
 use super::{auth::CallerIdentity, routes::AppState};
 use axum::{
-    extract::{Query, State},
+    extract::{rejection::JsonRejection, Query, State},
     http::StatusCode,
     Extension, Json,
 };
@@ -41,6 +41,67 @@ pub async fn login(
         state.svc.account_login(hint).await.map_err(unavailable)?,
     ))
 }
+
+pub(crate) const MAX_CALLBACK_REQUEST_BYTES: usize = 8 * 1024;
+const MAX_CALLBACK_URL_BYTES: usize = 4 * 1024;
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccountCallback {
+    url: String,
+}
+
+pub async fn callback(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    input: Result<Json<AccountCallback>, JsonRejection>,
+) -> Result<StatusCode, Error> {
+    dispatch_callback(caller.as_ref(), input, |callback| async move {
+        let account = state
+            .svc
+            .account()
+            .await
+            .map_err(|_| unavailable("Account callback service unavailable".into()))?;
+        account.complete(callback).await.map_err(callback_failure)
+    })
+    .await
+}
+
+async fn dispatch_callback<F, Fut>(
+    caller: Option<&Extension<CallerIdentity>>,
+    input: Result<Json<AccountCallback>, JsonRejection>,
+    complete: F,
+) -> Result<StatusCode, Error>
+where
+    F: FnOnce(codeterm_account::Callback) -> Fut,
+    Fut: std::future::Future<Output = Result<(), Error>>,
+{
+    admit(caller)?;
+    let Json(input) =
+        input.map_err(|error| (error.status(), "Invalid account callback request".into()))?;
+    if input.url.len() > MAX_CALLBACK_URL_BYTES {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Account callback exceeds limit".into(),
+        ));
+    }
+    let callback = codeterm_account::Callback::parse(&input.url).map_err(callback_failure)?;
+    complete(callback).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn callback_failure(error: codeterm_account::Error) -> Error {
+    let status = match error {
+        codeterm_account::Error::InvalidCallback => StatusCode::BAD_REQUEST,
+        codeterm_account::Error::WrongState
+        | codeterm_account::Error::Consumed
+        | codeterm_account::Error::Cancelled
+        | codeterm_account::Error::Timeout => StatusCode::CONFLICT,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    };
+    (status, "Account callback could not be accepted".into())
+}
+
 pub async fn logout(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
