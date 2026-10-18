@@ -154,3 +154,10 @@ export function sampleDue(now, previous) { return previous === null || now - pre
 export function acknowledge(expected, reply) {
   requireValue(reply?.batch === expected && reply.ok === true, 'Exact batch acknowledgement missing');
 }
+
+export function functionalVisitTarget(method,targetOther=false) {
+  if (method === 'seed') return targetOther?'other':'local';
+  if (method === 'readOther') return 'other';
+  if (['read','begin'].includes(method)) return 'local';
+  return null;
+}

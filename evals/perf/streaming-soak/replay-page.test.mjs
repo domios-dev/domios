@@ -90,8 +90,9 @@ test('bundled functional adapter uses existing public projection without source 
   const originals = new Map();
   const document = new EventTarget();
   const textarea = {value:''};
-  const root = {querySelector:() => textarea,querySelectorAll:() => [{dataset:{sourceMessageId:'soak-run-tail'}}]};
-  document.querySelector = selector => selector.includes('tab-session-chat')?root:null;
+  let selected = 'local';
+  const root = id => ({querySelector:() => textarea,querySelectorAll:() => selected === id ? [{dataset:{sourceMessageId:'soak-run-tail'}}] : []});
+  document.querySelector = selector => selector.includes('tab-session-chat')?root(selector.includes('other')?'other':'local'):null;
   const recordPaint = () => {};
   const monitor = {recordPaint,snapshot:() => ({paintedTail:'soak-run-tail#4'})};
   const window = {location:{href:'http://127.0.0.1:7686/?e2e'},__codetermTestChat:{reply() {},pushMessages() {}},__chatProjection:monitor};
@@ -109,6 +110,10 @@ test('bundled functional adapter uses existing public projection without source 
     assert.equal(observation.authority,'backend_binding_only');
     assert.equal(observation.durableStorage,'unavailable');
     assert.deepEqual(observation.visibleSourceIds,['soak-run-tail']);
+    assert.deepEqual(window.__streamingSoakReplay.readOther().visibleSourceIds,[]);
+    selected='other';
+    assert.deepEqual(window.__streamingSoakReplay.readOther().visibleSourceIds,['soak-run-tail']);
+    assert.deepEqual(window.__streamingSoakReplay.read().visibleSourceIds,[]);
     window.__streamingSoakReplay.dispose();
     assert.equal(monitor.recordPaint,recordPaint);
     assert.equal(window.__streamingSoakReplay,undefined);

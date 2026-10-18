@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 import {evaluate} from '../renderer-memory/cdp.mjs';
 import {atomic,readJson} from './io.mjs';
 import {visit,sample} from './runtime.mjs';
-import {muxBindings,requireValue,requireMeasurement,functionalTailEvidence} from './model.mjs';
+import {muxBindings,requireValue,requireMeasurement,functionalTailEvidence,functionalVisitTarget} from './model.mjs';
 import {outsideRepository,validateReplay,ownedRows,prefixRow,assertComplete,REPLAY_LIMITS} from './replay-model.mjs';
 import {distribution,summarizeCpu,traceCollector} from './replay-metrics.mjs';
 import {installReplayPage} from './replay-page.mjs';
@@ -58,6 +58,7 @@ export async function runReplay(rt,cp,out,flags,save) {
     ]};
   let installed = false;
   try {
+    report.functionalBackgroundEvidence = functional ? {projection:'public_tail_signature',visibleDom:'unavailable_during_background_measurement',internalStore:'unavailable',durableStorage:'unavailable'} : null;
     report.boundary = await evaluate(rt.cdp,`(${installReplayPage.toString()})(${JSON.stringify(authority)})\n//# sourceURL=streaming-soak/replay-page.mjs`); installed = true;
     atomic(path.join(out,'replay-profile.json'),report);
     await rt.cdp.send('Performance.enable');
@@ -75,6 +76,7 @@ export async function runReplay(rt,cp,out,flags,save) {
       await call('seed',JSON.stringify(otherRows),true);
       const completeness = functional?functionalTailEvidence(rows,await call('read')):assertComplete(rows,await call('read'),authority);
       completeness.other = functional?functionalTailEvidence(otherRows,await call('readOther')):assertComplete(otherRows,await call('readOther'),other);
+      if (functional) await visit(rt,cp,f);
       const after = await sample(rt,cp,out,`replay-${segment}-after`); save();
       const values = Object.fromEntries(Object.entries(page.values).map(([key,value]) => [key,distribution(value)]));
       requireValue(values.inputToSecondFrame.count === replay.ends.length && values.captureToDocumentBubble.count === replay.ends.length,'Every owned edit must have handler and frame evidence');
@@ -93,6 +95,8 @@ export async function runReplay(rt,cp,out,flags,save) {
   return report;
 
   async function call(method,...args) {
+    const target = functional ? functionalVisitTarget(method,args[1] === true) : null;
+    if (target) await visit(rt,cp,target === 'other'?otherFixture:f);
     if (functional && ['seed','step'].includes(method)) {
       const bindings = muxBindings(await rt.api('/api/mux/state'));
       for (const fixture of cp.fixtures) {
