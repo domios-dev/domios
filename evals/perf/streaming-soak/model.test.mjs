@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {VERSION,segmentSeconds,validateIdentity,validateResume,cleanupPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
+import {VERSION,admitDevSurface,validateDevSurfaceTarget,segmentSeconds,validateIdentity,validateResume,cleanupPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
 const run = '11111111-1111-1111-1111-111111111111';
 const identity = () => ({port:7686,dev:true,build:'a'.repeat(40),entryHash:'b'.repeat(64),target:'page',boot:'boot',renderer:{pid:1,created:'r'},daemon:{pid:2,created:'d'}});
 const fixture = (tab,session) => ({run,tab,session,pty:'pty-'+tab});
@@ -79,4 +79,43 @@ test('elapsed cadence schedules samples but never proves readiness or ack',() =>
   assert.equal(sampleDue(1,null),true); assert.equal(sampleDue(59_999,0),false); assert.equal(sampleDue(60_000,0),true);
   assert.doesNotThrow(() => acknowledge(8,{ok:true,batch:8}));
   for (const reply of [null,{ok:true,batch:7},{ok:false,batch:8},{ok:true,batch:'8'}]) assert.throws(() => acknowledge(8,reply));
+});
+
+
+const split = () => ({health:{status:'ok',build_sha:'a'.repeat(40),instance:{name:'',api_port:7686}},
+  provenance:{schema:3,buildSha:'a'.repeat(40),instance:{name:'',apiPort:'7686',vitePort:'1420',cdpPort:'9223',identifier:'com.codeterm.dev'}},
+  surface:'chrome',cdp:58454,target:'owned-page'});
+const browserTarget = origin => ({id:'owned-page',type:'page',url:origin+'/',webSocketDebuggerUrl:'ws://127.0.0.1:58454/devtools/page/owned-page'});
+
+test('split Browser admission pins exact server provenance and API-served target independently',() => {
+  const input = split(), admitted = admitDevSurface(input);
+  assert.equal(admitted.origin,'http://127.0.0.1:7686');
+  assert.equal(validateDevSurfaceTarget(admitted,browserTarget(admitted.origin)).id,'owned-page');
+  for (const provenance of [null,{...input.provenance,schema:2},{...input.provenance,buildSha:'b'.repeat(40)},
+    {...input.provenance,instance:{...input.provenance.instance,name:'foreign'}},
+    {...input.provenance,instance:{...input.provenance.instance,apiPort:'7685'}},
+    {...input.provenance,instance:{...input.provenance.instance,identifier:'com.codeterm'}}])
+    assert.throws(() => admitDevSurface({...input,provenance}));
+  for (const health of [{...input.health,status:'starting'},{...input.health,build_sha:'a123'},
+    {...input.health,build_sha:'b'.repeat(40)},{...input.health,instance:{name:'foreign',api_port:7686}},
+    {...input.health,instance:{name:'',api_port:7685}}]) assert.throws(() => admitDevSurface({...input,health}));
+  for (const cdp of [undefined,0,7685,7686,65536]) assert.throws(() => admitDevSurface({...input,cdp}));
+  assert.throws(() => admitDevSurface({...input,target:null}));
+  const target = browserTarget(admitted.origin);
+  for (const patch of [{id:'foreign'},{type:'worker'},{url:'http://127.0.0.1:1420/'},{url:'http://127.0.0.1:7685/'},
+    {webSocketDebuggerUrl:'ws://127.0.0.1:9999/devtools/page/owned-page'}])
+    assert.throws(() => validateDevSurfaceTarget(admitted,{...target,...patch}));
+});
+
+test('split native surface refuses missing owning locator while legacy target checks remain strict',() => {
+  const input = split();
+  assert.deepEqual(admitDevSurface({...input,surface:'native'}),{available:false,reason:'Native CDP locator unavailable for independent server'});
+  const legacy = {...input,health:{...input.health,instance:{...input.health.instance,
+    identifier:'com.codeterm.dev',vite_port:'1420',cdp_port:'9223'}}};
+  assert.equal(admitDevSurface(legacy).origin,'http://127.0.0.1:1420');
+  const native = admitDevSurface({...legacy,surface:'native'});
+  assert.equal(native.cdpPort,9223);
+  assert.throws(() => admitDevSurface({...legacy,cdp:9223}));
+  for (const patch of [{identifier:'com.codeterm'},{vite_port:'9999'},{cdp_port:''}])
+    assert.throws(() => admitDevSurface({...legacy,health:{...legacy.health,instance:{...legacy.health.instance,...patch}}}));
 });

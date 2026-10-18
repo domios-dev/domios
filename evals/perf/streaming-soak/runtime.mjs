@@ -6,7 +6,7 @@ import {listenerIdentity} from '../../core-journeys/lib/listener.mjs';
 import {connect,evaluate,pageTarget,takeHeapSnapshot} from '../renderer-memory/cdp.mjs';
 import {FIND_TERMINALS} from '../renderer-memory/terminals.mjs';
 import {processInfo} from './io.mjs';
-import {requireValue,validateIdentity} from './model.mjs';
+import {requireValue,validateIdentity,admitDevSurface,validateDevSurfaceTarget} from './model.mjs';
 import {ownedChatComposerMounted} from './readiness.mjs';
 import {cleanupStateComplete,installCleanupObserverPage} from './cleanup-observation.mjs';
 
@@ -19,20 +19,23 @@ export async function attach(signal,options={}) {
     requireValue(response.ok,`DEV API ${route}: ${response.status}`); return response.json();
   };
   const health = await api('/api/health');
-  requireValue(Number(health.instance?.api_port) === 7686,'DEV listener mismatch');
-  requireValue(/^com\.codeterm\.dev(?:\.|$)/.test(health.instance.identifier??''),'PROD build identifier refused');
-  const nativePort = Number(health.instance.cdp_port), vitePort = Number(health.instance.vite_port);
-  const surface = options.surface??'native';
-  requireValue(['native','chrome'].includes(surface),'Expected native or chrome surface');
-  const cdpPort = surface === 'chrome'?Number(options.cdp):nativePort;
-  requireValue(surface !== 'chrome' || cdpPort !== nativePort && Boolean(options.target),'Chrome requires a separate explicit CDP port and target ID');
-  requireValue(cdpPort > 0 && cdpPort !== 7685 && vitePort > 0 && vitePort !== 7685,'Invalid DEV frontend ports');
+  const record = path.join(process.env.CODETERM_DEV_DATA_DIR,'dev-build-provenance.json');
+  const metadata = fs.lstatSync(record);
+  requireValue(metadata.isFile() && !metadata.isSymbolicLink() && metadata.size <= 4*1024*1024,'Invalid selected DEV provenance');
+  const provenance = JSON.parse(fs.readFileSync(record,'utf8'));
+  const admission = admitDevSurface({health,provenance,instance:process.env.CODETERM_INSTANCE??'',
+    surface:options.surface??'native',cdp:options.cdp,target:options.target});
+  requireValue(admission.available,admission.reason);
+  const {surface,cdpPort,origin,vitePort} = admission;
   let target;
   if (surface === 'chrome') {
-    const targets = await (await fetch(`http://127.0.0.1:${cdpPort}/json/list`,{signal})).json();
-    target = targets.find(t => t.id === options.target && t.type === 'page');
-    requireValue(target && new URL(target.url).origin === `http://127.0.0.1:${vitePort}`,'Explicit Chrome target must serve this DEV entry');
+    const response = await fetch(`http://127.0.0.1:${cdpPort}/json/list`,{signal});
+    requireValue(response.ok,'Browser diagnostic target list unavailable');
+    const targets = (await response.json()).filter(t => t.id === options.target && t.type === 'page');
+    requireValue(targets.length === 1,'Exactly one explicit Browser page target required');
+    target = targets[0];
   } else target = await pageTarget(cdpPort,vitePort);
+  validateDevSurfaceTarget(admission,target);
   const cdp = await connect(target.webSocketDebuggerUrl);
   signal.addEventListener('abort',() => cdp.close(),{once:true});
   let browser;
@@ -45,16 +48,17 @@ export async function attach(signal,options={}) {
     const renderer = processInfo(renderers[0].id), daemon = processInfo(listenerIdentity(7686).pid);
     const native = await evaluate(cdp,'Boolean(window.__TAURI_INTERNALS__)');
     requireValue(native === (surface === 'native'),'Requested surface does not match native bridge presence');
-    const origin = `http://127.0.0.1:${vitePort}`;
-    const htmlResponse = await fetch(target.url,{signal}); requireValue(htmlResponse.ok,'Entry HTML unavailable');
-    const html = await htmlResponse.text();
+    const htmlResponse = await fetch(target.url,{signal});
+    requireValue(htmlResponse.ok && new URL(htmlResponse.url).origin === origin,'Entry HTML unavailable or redirected outside DEV');
+    const htmlBytes = Buffer.from(await htmlResponse.arrayBuffer());
+    const html = htmlBytes.toString('utf8');
     const entries = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/g)].map(m => m[1]);
     requireValue(entries.length > 0,'No served entry scripts');
-    const hash = createHash('sha256').update(html);
+    const hash = createHash('sha256').update(htmlBytes);
     for (const src of entries.sort()) {
       const url = new URL(src,target.url); requireValue(url.origin === origin,'Foreign entry origin');
-      const response = await fetch(url,{signal}); requireValue(response.ok,'Entry script unavailable');
-      hash.update(src).update(await response.text());
+      const response = await fetch(url,{signal}); requireValue(response.ok && new URL(response.url).origin === origin,'Entry script unavailable or redirected outside DEV');
+      hash.update(src).update(Buffer.from(await response.arrayBuffer()));
     }
     const identity = validateIdentity({port:7686,dev:true,surface,browser:{product:version.Browser??null,protocol:version['Protocol-Version']??null,userAgent:version['User-Agent']??null,v8:version['V8-Version']??null},
       page:{origin:new URL(target.url).origin,path:new URL(target.url).pathname,testMode:new URL(target.url).searchParams.has('e2e')},build:health.build_sha,entryHash:hash.digest('hex'),
