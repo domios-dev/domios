@@ -154,6 +154,7 @@ pub enum NativeHostResult<UpdateResult> {
 pub enum NativeHostRejection {
     NotAttached,
     QueueFull,
+    RequestIdsExhausted,
     DeadlineBeforeDispatch,
     Unauthorized,
     InvalidView,
@@ -327,8 +328,11 @@ mod tests {
                 "server_epoch": "epoch",
                 "generation": 1
             },
-            "scope": "client",
-            "operation": { "operation": "restart" },
+            "scope": { "scope": "client" },
+            "operation": {
+                "operation": "window_exists",
+                "payload": { "label": "main" }
+            },
             "origin": "https://untrusted.example"
         });
 
