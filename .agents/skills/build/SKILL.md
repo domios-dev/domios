@@ -155,8 +155,10 @@ pipe to start and stop the server; stdout contains one JSON line of the form
 Keep stdin open while using the server. Closing stdin on any platform or sending
 SIGTERM on Unix asks the supervisor to perform the normal authenticated
 shutdown. The API token stays in the isolated config file and private bootstrap
-pipe. For the paired CLI, set `CODETERM_DATA_DIR`, `CODETERM_API_URL`, and
-`CODETERM_API_TOKEN`, plus a fresh matching `CODETERM_INSTANCE` and
+pipe. Probe `http://127.0.0.1:<port>/api/health`. For the paired CLI, read the
+token from `<config-dir>/config.toml` and set it with `CODETERM_API_TOKEN`;
+also set `CODETERM_DATA_DIR` to `<data-dir>` and `CODETERM_API_URL` to
+`http://127.0.0.1:<port>`. Add a fresh matching `CODETERM_INSTANCE` and
 `CODETERM_SOCKET_PATH` (for example `verify-smoke-<random>` and
 `codeterm-dev-verify-smoke-<random>.sock`). This forces a private HTTP fallback
 without scanning or connecting to another local server. Leave
