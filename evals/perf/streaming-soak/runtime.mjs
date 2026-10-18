@@ -7,6 +7,7 @@ import {connect,evaluate,pageTarget,takeHeapSnapshot} from '../renderer-memory/c
 import {FIND_TERMINALS} from '../renderer-memory/terminals.mjs';
 import {processInfo} from './io.mjs';
 import {requireValue,validateIdentity,admitDevSurface,validateDevSurfaceTarget,measurementCapabilities,requireMeasurement,rendererMetrics} from './model.mjs';
+import {functionalReplayPrerequisites} from './replay-page.mjs';
 import {ownedChatComposerMounted} from './readiness.mjs';
 import {cleanupStateComplete,installCleanupObserverPage} from './cleanup-observation.mjs';
 
@@ -52,6 +53,10 @@ export async function attach(signal,options={}) {
       renderer = processInfo(renderers[0].id);
     }
     const daemon = processInfo(listenerIdentity(7686).pid);
+    if (purpose === 'functional') {
+      const prerequisites = await evaluate(cdp,`(${functionalReplayPrerequisites.toString()})()`);
+      requireValue(prerequisites.available,prerequisites.reason);
+    }
     const native = await evaluate(cdp,'Boolean(window.__TAURI_INTERNALS__)');
     requireValue(native === (surface === 'native'),'Requested surface does not match native bridge presence');
     const htmlResponse = await fetch(target.url,{signal});

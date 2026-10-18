@@ -552,3 +552,14 @@ PID/private bytes/trace attribution are explicitly unavailable, never guessed.
 Functional reports retain DOM/input/storage and page-CDP metrics, refuse profiling,
 heap snapshots and memory/plateau comparisons, and cannot resume across capability
 or page drift. No other Browser page/profile is changed to obtain a renderer PID.
+
+### Bundled functional replay cannot import TypeScript source paths
+
+The API-served dist returns HTML for `/src` imports. Functional replay now preflights
+the same owned page at existing local DEV `?e2e` and requires the shipped test-chat
+and projection handles BEFORE setup fixtures. Re-inspect/re-pin that changed page;
+restore its saved URL only after exact cleanup. No source module copies/app hooks or
+Vite/HMR switch are used. Backend fixture identity remains checked, while public
+projection/DOM tail observations explicitly do not prove internal rows/authority or
+durable storage. Use the bounded procedure in streaming-soak/REPLAY.md; unavailable
+handles or unmounted synthetic projections refuse rather than fabricating completion.

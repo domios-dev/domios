@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 import {evaluate} from '../renderer-memory/cdp.mjs';
 import {atomic,readJson} from './io.mjs';
 import {visit,sample} from './runtime.mjs';
-import {muxBindings,requireValue,requireMeasurement} from './model.mjs';
+import {muxBindings,requireValue,requireMeasurement,functionalTailEvidence} from './model.mjs';
 import {outsideRepository,validateReplay,ownedRows,prefixRow,assertComplete,REPLAY_LIMITS} from './replay-model.mjs';
 import {distribution,summarizeCpu,traceCollector} from './replay-metrics.mjs';
 import {installReplayPage} from './replay-page.mjs';
@@ -29,7 +29,8 @@ export async function runReplay(rt,cp,out,flags,save) {
   requireValue(live.agent_session_id === f.session && typeof live.session_binding_nonce === 'string' && live.session_binding_nonce.length > 0,'Exact owned session nonce required');
   requireValue(otherLive.agent_session_id === otherFixture.session && typeof otherLive.session_binding_nonce === 'string','Owned unrelated fixture nonce required');
   const other = {tab:otherFixture.tab,session:otherFixture.session,nonce:otherLive.session_binding_nonce};
-  const authority = {tab:f.tab,session:f.session,nonce:live.session_binding_nonce,run:cp.run,other,muxTab:cp.terminal.tab,probe};
+  const functional = rt.identity.capabilities.purpose === 'functional';
+  const authority = {functional,tab:f.tab,session:f.session,nonce:live.session_binding_nonce,run:cp.run,other,muxTab:cp.terminal.tab,probe};
   const rows = ownedRows(replay,cp.run,f.session), tail = rows.at(-1);
   const otherRows = ownedRows(replay,cp.run+'-other',other.session), otherTail = otherRows.at(-1);
   const seededRows = [...rows.slice(0,-1),prefixRow(tail,replay.ends[0])], seededOtherRows = [...otherRows.slice(0,-1),prefixRow(otherTail,replay.ends[0])];
@@ -72,8 +73,8 @@ export async function runReplay(rt,cp,out,flags,save) {
       // Controls hold the local prefix during measurement; retain the complete saved tail afterward.
       if (mode !== 'stream') await call('seed',JSON.stringify(rows));
       await call('seed',JSON.stringify(otherRows),true);
-      const completeness = assertComplete(rows,await call('read'),authority);
-      completeness.other = assertComplete(otherRows,await call('readOther'),other);
+      const completeness = functional?functionalTailEvidence(rows,await call('read')):assertComplete(rows,await call('read'),authority);
+      completeness.other = functional?functionalTailEvidence(otherRows,await call('readOther')):assertComplete(otherRows,await call('readOther'),other);
       const after = await sample(rt,cp,out,`replay-${segment}-after`); save();
       const values = Object.fromEntries(Object.entries(page.values).map(([key,value]) => [key,distribution(value)]));
       requireValue(values.inputToSecondFrame.count === replay.ends.length && values.captureToDocumentBubble.count === replay.ends.length,'Every owned edit must have handler and frame evidence');
@@ -91,7 +92,17 @@ export async function runReplay(rt,cp,out,flags,save) {
   }
   return report;
 
-  function call(method,...args) { return evaluate(rt.cdp,`window.__streamingSoakReplay.${method}(${args.map(arg => JSON.stringify(arg)).join(',')})`); }
+  async function call(method,...args) {
+    if (functional && ['seed','step'].includes(method)) {
+      const bindings = muxBindings(await rt.api('/api/mux/state'));
+      for (const fixture of cp.fixtures) {
+        const live = bindings[fixture.tab];
+        requireValue(live?.agent_session_id === fixture.session && live.session_binding_nonce === fixture.nonce &&
+          live.pty_id === fixture.pty,'Backend fixture binding drift before public test dispatch');
+      }
+    }
+    return evaluate(rt.cdp,`window.__streamingSoakReplay.${method}(${args.map(arg => JSON.stringify(arg)).join(',')})`);
+  }
   async function profiledSegment(segment) {
     const tracing = profile === 'trace' || profile === 'both';
     const trace = tracing?traceCollector(200_000,{pid:rt.identity.renderer.pid}):null, cpu = profile === 'cpu' || profile === 'both';

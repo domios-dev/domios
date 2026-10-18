@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {VERSION,measurementCapabilities,requireMeasurement,rendererMetrics,admitDevSurface,validateDevSurfaceTarget,segmentSeconds,validateIdentity,validateResume,cleanupPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
+import {VERSION,functionalTailEvidence,measurementCapabilities,requireMeasurement,rendererMetrics,admitDevSurface,validateDevSurfaceTarget,segmentSeconds,validateIdentity,validateResume,cleanupPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
 const run = '11111111-1111-1111-1111-111111111111';
 const identity = () => ({port:7686,dev:true,page:{origin:'http://127.0.0.1:7686',path:'/'},capabilities:measurementCapabilities('profile',1),build:'a'.repeat(40),entryHash:'b'.repeat(64),target:'page',boot:'boot',renderer:{pid:1,created:'r'},daemon:{pid:2,created:'d'}});
 const fixture = (tab,session) => ({run,tab,session,pty:'pty-'+tab});
@@ -143,4 +143,17 @@ test('functional resume and cleanup fence capability and page drift without a re
   assert.throws(() => validateIdentity({...actual,page:null}));
   assert.throws(() => validateIdentity({...actual,renderer:{pid:99,created:'guessed'}}));
   assert.throws(() => validateIdentity({...identity(),renderer:null}));
+});
+
+
+test('bundled functional completion requires observed owned tail and never claims internal or durable contents',() => {
+  const rows = [{id:'soak-run-tail',content:'tail'}];
+  const observed = {internalStore:'unavailable',authority:'backend_binding_only',projection:{paintedTail:'soak-run-tail#4'},visibleSourceIds:['soak-run-tail']};
+  const result = functionalTailEvidence(rows,observed);
+  assert.equal(functionalTailEvidence([{...rows[0],sourceMessageId:'soak-run-source'}],{...observed,visibleSourceIds:['soak-run-source']}).sourceId,'soak-run-source');
+  assert.equal(result.internalStore.available,false);
+  assert.equal(result.durableStorage.available,false);
+  assert.equal(result.authority.available,false);
+  for (const patch of [{projection:{paintedTail:'foreign#4'}},{visibleSourceIds:[]},{internalStore:'verified'}])
+    assert.throws(() => functionalTailEvidence(rows,{...observed,...patch}));
 });
