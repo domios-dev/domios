@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { completeResize, createResizeModel, requestResize, setResizeAuthority, type ResizeModel } from "./resizeModel";
+import { completeResize, createResizeModel, requestResize, setResizeAuthority, terminalGeometryPolicy, type ResizeModel } from "./resizeModel";
+
+test("remote viewers fit their own xterm without changing shared PTY geometry", () => {
+  assert.equal(terminalGeometryPolicy(true), "viewer-local");
+  assert.equal(terminalGeometryPolicy(false), "shared-pty");
+});
 
 const owner = { ptyId: "pty", clientId: "viewer" };
 const initial = { cols: 80, rows: 24 };

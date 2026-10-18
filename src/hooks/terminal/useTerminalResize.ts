@@ -5,7 +5,7 @@ import { invoke, listen } from "../../lib/bridge";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { resizeOwnerChangedEvent, type ResizeOwner } from "../../lib/resizeOwner";
 import { tabResizeChanged } from "./tabResize";
-import { completeResize, createResizeModel, requestResize, setResizeAuthority, type ResizeRequest } from "./resizeModel";
+import { completeResize, createResizeModel, requestResize, setResizeAuthority, terminalGeometryPolicy, type ResizeRequest } from "./resizeModel";
 import { DEV_BUILD } from "../../lib/devBuild";
 
 export interface UseTerminalResizeOptions {
@@ -19,6 +19,7 @@ export interface UseTerminalResizeOptions {
   isFocused: boolean;
   resizeEnabled?: boolean;
   resizeClientId?: string;
+  isRemote?: boolean;
 }
 
 export interface UseTerminalResizeReturn {
@@ -48,6 +49,7 @@ export function useTerminalResize({
   isFocused,
   resizeEnabled = true,
   resizeClientId,
+  isRemote = false,
 }: UseTerminalResizeOptions): UseTerminalResizeReturn {
   const lastContainerSizeRef = useRef({ w: 0, h: 0 });
   const pendingSizeRef = useRef<{ cols: number; rows: number } | null>(null);
@@ -74,6 +76,7 @@ export function useTerminalResize({
   }, []);
 
   const commitResize = useCallback((force = false) => {
+    if (terminalGeometryPolicy(isRemote) === "viewer-local") return;
     if (!ownsResizeRef.current || suppressCommitRef.current) return;
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     const term = termRef.current;
@@ -87,7 +90,7 @@ export function useTerminalResize({
     resizeModelRef.current = requestResize(state, size, force);
     const request = resizeModelRef.current.inFlight;
     if (request && request !== state.inFlight) sendResize(request);
-  }, [connectedPtyRef, ptyId, resizeClientId, sendResize, termRef]);
+  }, [connectedPtyRef, isRemote, ptyId, resizeClientId, sendResize, termRef]);
 
   const loseResizeOwnership = useCallback(() => {
     ownsResizeRef.current = false;
