@@ -1812,7 +1812,9 @@ name = "codeterm-process-identity"
 version = "0.0.0"
 dependencies = [
  "codeterm-types",
+ "core-foundation",
  "libc",
+ "security-framework",
  "windows-sys 0.61.2",
 ]
 

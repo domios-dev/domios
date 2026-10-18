@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use std::{
     fs::File,
     io::{self, Read},
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     process::Stdio,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -264,7 +264,10 @@ pub(super) fn verify_install(
         || manifest.bootstrap_protocol != BOOTSTRAP_PROTOCOL
         || manifest.server_build.trim().is_empty()
         || !valid_digest(&manifest.server_sha256)
-        || !valid_digest(&manifest.client_sha256)
+        || codeterm_process_identity::client_identity::validate_client_identity(
+            &manifest.client_identity,
+        )
+        .is_err()
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -287,20 +290,11 @@ pub(super) fn verify_install(
             "Server resources differ from the verified component root",
         ));
     }
-    let server_relative = &manifest.server_executable;
-    if !valid_server_relative_path(server_relative) {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Server executable must be a confined resource-relative path",
-        ));
-    }
-    let server_executable = resource_root.join(server_relative).canonicalize()?;
-    if !server_executable.starts_with(&resource_root) || !server_executable.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Server executable escaped the verified resource root",
-        ));
-    }
+    let server_executable = codeterm_process_identity::client_identity::resolve_server_executable(
+        &resource_root,
+        &manifest.server_executable,
+        &manifest.client_identity,
+    )?;
     startup_started(ClientStartupStage::ServerArtifact);
     if file_sha256(&server_executable)? != manifest.server_sha256 {
         return Err(io::Error::new(
@@ -311,9 +305,33 @@ pub(super) fn verify_install(
 
     startup_started(ClientStartupStage::ClientArtifact);
     let client_executable = std::env::current_exe()?.canonicalize()?;
-    if client_executable == server_executable
-        || file_sha256(&client_executable)? != manifest.client_sha256
-    {
+    #[cfg(not(target_os = "macos"))]
+    let identity_matches = match &manifest.client_identity {
+        codeterm_types::server_bootstrap::ClientIdentity::Sha256 { sha256 } => {
+            file_sha256(&client_executable)? == *sha256
+        }
+        _ => false,
+    };
+    #[cfg(target_os = "macos")]
+    let identity_matches = match &manifest.client_identity {
+        codeterm_types::server_bootstrap::ClientIdentity::MacosDesignatedRequirement {
+            requirement,
+            team_id,
+            identifier,
+        } => {
+            let process = codeterm_process_identity::PinnedProcess::open(std::process::id())?;
+            codeterm_process_identity::code_signature_macos::verify_macos_client(
+                &process,
+                &resource_root,
+                requirement,
+                team_id,
+                identifier,
+            )?;
+            true
+        }
+        _ => false,
+    };
+    if client_executable == server_executable || !identity_matches {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "Client executable differs from the installed component manifest",
@@ -346,11 +364,12 @@ pub(super) fn valid_digest(digest: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
+#[cfg(test)]
 pub(super) fn valid_server_relative_path(path: &Path) -> bool {
     !path.as_os_str().is_empty()
         && path
             .components()
-            .all(|component| matches!(component, Component::Normal(_)))
+            .all(|component| matches!(component, std::path::Component::Normal(_)))
 }
 
 fn file_sha256(path: &Path) -> io::Result<String> {
@@ -388,14 +407,15 @@ pub(super) fn verify_shutdown_artifact(
         || manifest.server_build != ready.build
         || manifest.api_version != ready.api_version
         || manifest.bootstrap_protocol != ready.protocol
-        || !valid_server_relative_path(&manifest.server_executable)
     {
         return Err(ArtifactVerificationFailure::Invalid);
     }
-    let installed = resource_root
-        .join(&manifest.server_executable)
-        .canonicalize()
-        .map_err(|_| ArtifactVerificationFailure::Io)?;
+    let installed = codeterm_process_identity::client_identity::resolve_server_executable(
+        &resource_root,
+        &manifest.server_executable,
+        &manifest.client_identity,
+    )
+    .map_err(|_| ArtifactVerificationFailure::Invalid)?;
     let helper = server_executable
         .canonicalize()
         .map_err(|_| ArtifactVerificationFailure::Io)?;
@@ -404,7 +424,7 @@ pub(super) fn verify_shutdown_artifact(
         .executable
         .canonicalize()
         .map_err(|_| ArtifactVerificationFailure::Io)?;
-    if !installed.starts_with(&resource_root) || installed != helper || installed != process_image {
+    if installed != helper || installed != process_image {
         return Err(ArtifactVerificationFailure::Invalid);
     }
     if file_sha256(&installed).map_err(|_| ArtifactVerificationFailure::Io)?

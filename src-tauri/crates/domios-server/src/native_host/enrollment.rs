@@ -22,7 +22,7 @@ use std::{
     collections::HashSet,
     fs::File,
     io::{self, Read},
-    path::{Component, Path},
+    path::Path,
     sync::Arc,
 };
 
@@ -350,11 +350,19 @@ fn map_uncertainty(reason: NativeHostUncertainty) -> NativeUpdateUncertainty {
 
 pub(crate) struct EnrollmentPolicy {
     pub challenge: NativeHostChallenge,
-    pub client_sha256: String,
+    pub client_identity: codeterm_types::server_bootstrap::ClientIdentity,
+    pub resources: std::path::PathBuf,
     pub allowed_view_origins: HashSet<String>,
 }
 
 pub(crate) struct VerifiedClientProcess(ProcessProvenance);
+
+#[cfg(test)]
+impl VerifiedClientProcess {
+    pub(super) fn for_enrollment_fixture(provenance: ProcessProvenance) -> Self {
+        Self(provenance)
+    }
+}
 
 pub(crate) fn verify_component(
     manifest: &ServerComponentManifest,
@@ -376,19 +384,26 @@ pub(crate) fn verify_component(
         || ready.api_version != manifest.api_version
         || ready.protocol != manifest.bootstrap_protocol
         || !valid_digest(&manifest.server_sha256)
-        || !valid_digest(&manifest.client_sha256)
-        || !valid_resource_relative_path(&manifest.server_executable)
+        || (!matches!(
+            manifest.client_identity,
+            codeterm_types::server_bootstrap::ClientIdentity::None
+        ) && codeterm_process_identity::client_identity::validate_client_identity(
+            &manifest.client_identity,
+        )
+        .is_err())
     {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "Native host component record does not match the running server",
         ));
     }
-    let executable = resource_root
-        .join(&manifest.server_executable)
-        .canonicalize()?;
+    let executable = codeterm_process_identity::client_identity::resolve_server_executable(
+        &resource_root,
+        &manifest.server_executable,
+        &manifest.client_identity,
+    )?;
     let ready_executable = ready.process.executable.canonicalize()?;
-    if !executable.starts_with(&resource_root) || executable != ready_executable {
+    if executable != ready_executable {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "Server executable differs from the confined component path",
@@ -404,18 +419,13 @@ pub(crate) fn verify_component(
     Ok(())
 }
 
-fn valid_resource_relative_path(path: &Path) -> bool {
-    !path.as_os_str().is_empty()
-        && path
-            .components()
-            .all(|component| matches!(component, Component::Normal(_)))
-}
-
 pub(crate) fn verify_client_process(
     process: &PinnedProcess,
     policy: &EnrollmentPolicy,
 ) -> io::Result<VerifiedClientProcess> {
-    if !valid_digest(&policy.client_sha256) {
+    if codeterm_process_identity::client_identity::validate_client_identity(&policy.client_identity)
+        .is_err()
+    {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "Client artifact digest is invalid",
@@ -423,9 +433,32 @@ pub(crate) fn verify_client_process(
     }
     process.ensure_alive()?;
     let provenance = process.provenance()?;
-    let image = process_image_path(&provenance);
-    let digest = sha256_file(&image)?;
-    if digest != policy.client_sha256 || process.provenance()? != provenance {
+    #[cfg(not(target_os = "macos"))]
+    let identity_matches = match &policy.client_identity {
+        codeterm_types::server_bootstrap::ClientIdentity::Sha256 { sha256 } => {
+            sha256_file(&process_image_path(&provenance))? == *sha256
+        }
+        _ => false,
+    };
+    #[cfg(target_os = "macos")]
+    let identity_matches = match &policy.client_identity {
+        codeterm_types::server_bootstrap::ClientIdentity::MacosDesignatedRequirement {
+            requirement,
+            team_id,
+            identifier,
+        } => {
+            codeterm_process_identity::code_signature_macos::verify_macos_client(
+                process,
+                &policy.resources,
+                requirement,
+                team_id,
+                identifier,
+            )?;
+            true
+        }
+        _ => false,
+    };
+    if !identity_matches || process.provenance()? != provenance {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "Native host process does not match the installed client artifact",
@@ -492,6 +525,7 @@ fn sha256_file(path: &Path) -> io::Result<String> {
     Ok(digest)
 }
 
+#[cfg(not(target_os = "macos"))]
 fn process_image_path(provenance: &ProcessProvenance) -> std::path::PathBuf {
     #[cfg(target_os = "linux")]
     {
