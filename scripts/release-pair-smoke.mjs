@@ -125,7 +125,7 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
     const deadline = deadlineSignal(30000);
     await waitForReady(child, manifest.server_build, port, deadline);
     const healthResponse = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: deadline });
-    if (!healthResponse.ok || (await healthResponse.json()).build !== manifest.server_build) fail('packaged server health build differs from manifest');
+    if (!healthResponse.ok || (await healthResponse.json()).build_sha !== manifest.server_build) fail('packaged server health build differs from manifest');
     const token = parseApiToken(await readFile(path.join(config, 'config.toml'), 'utf8'));
     const nonce = randomUUID();
     const env = { ...process.env, CODETERM_DATA_DIR: data, CODETERM_API_URL: `http://127.0.0.1:${port}`,
