@@ -17,7 +17,7 @@ test-support = ["codeterm-service-core/test-support"]
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-analytics = { path = "../codeterm-analytics" }
 codeterm-events = { path = "../codeterm-events" }
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 codeterm-types = { path = "../codeterm-types" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

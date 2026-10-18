@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
-import { test } from "vitest";
+import { beforeEach, test } from "vitest";
 
 import { applyDeliveryStatus, deliveryState, type DeliverySend } from "./chatDeliveryModel";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { isProvenAdmissionRefusal, reconcileTrackedChatMessages, sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
-import { addChatSend, beginChatSendRetry, forgetChatSendsInMemory, observeDeliveryStatus, readChatSends } from "./chatSendStore";
+import { addChatSend, beginChatSendRetry, forgetChatSendsInMemory, observeDeliveryStatus, readChatSends,
+  __setChatSendRepositoryForTest, ensureChatSendTabHydrated, chatSendTabHydrationState } from "./chatSendStore";
+import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
+
+beforeEach(() => __setChatSendRepositoryForTest(new MemoryChatSendRepository()));
 
 function heldStatus(): ChatSendStatus {
   return {
@@ -26,6 +30,7 @@ test("restart reconciliation wires durable states onto each persisted held bubbl
     addChatSend(tabId, { id: "bubble", correlationId: "message-1", content: "payload", sentAtMs: 1 });
     observeDeliveryStatus(prior);
     forgetChatSendsInMemory();
+    await ensureChatSendTabHydrated(tabId);
     const restored = { ...prior, ledger_id: "new-daemon", state };
     const calls: unknown[] = [];
     __setInvokeForTest(async <T>(command: string, args?: unknown) => {
@@ -34,6 +39,7 @@ test("restart reconciliation wires durable states onto each persisted held bubbl
     });
     await reconcileTrackedChatMessages(tabId);
     forgetChatSendsInMemory();
+    await ensureChatSendTabHydrated(tabId);
     const sends = readChatSends(tabId);
     assert.equal(sends.length, 1);
     assert.equal(sends[0].id, "bubble");
@@ -49,10 +55,44 @@ test("an absent receipt preserves held input as queued without inventing Retry",
   addChatSend(tabId, { id: "bubble", correlationId: "message-1", content: "payload", sentAtMs: 1 });
   observeDeliveryStatus({ ...heldStatus(), tab_id: tabId });
   forgetChatSendsInMemory();
+  await ensureChatSendTabHydrated(tabId);
   __setInvokeForTest(async <T>() => [] as T);
   await reconcileTrackedChatMessages(tabId);
   assert.equal(deliveryState(readChatSends(tabId)[0]), "queued");
   assert.equal(beginChatSendRetry(tabId, "bubble"), undefined);
+});
+
+test("status reconciliation waits for full hydration and skips failed storage without delivery inference", async () => {
+  const tabId = "reconcile-hydration-boundary";
+  let finishHydration!: () => void;
+  const repository = new MemoryChatSendRepository();
+  repository.hydrationGate = new Promise<void>((resolve) => { finishHydration = resolve; });
+  __setChatSendRepositoryForTest(repository);
+  const commands: string[] = [];
+  __setInvokeForTest(async <T,>(command: string) => {
+    commands.push(command);
+    return [] as T;
+  });
+
+  const pendingReconciliation = reconcileTrackedChatMessages(tabId);
+  const duplicateReconciliation = reconcileTrackedChatMessages(tabId);
+  assert.equal(pendingReconciliation, duplicateReconciliation, "overlapping pending reads share the hydration boundary");
+  await Promise.resolve();
+  assert.equal(chatSendTabHydrationState(tabId), "pending");
+  assert.deepEqual(commands, [], "pending storage cannot trigger empty-ledger reconciliation");
+  finishHydration();
+  await pendingReconciliation;
+  assert.deepEqual(commands, ["chat_send_status", "chat_send_dismissals"], "full hydration enables authoritative reconciliation");
+
+  const failedRepository = new MemoryChatSendRepository();
+  failedRepository.failHydration = true;
+  __setChatSendRepositoryForTest(failedRepository);
+  commands.length = 0;
+  addChatSend(tabId, { id: "live", correlationId: "live", content: "still sending", sentAtMs: 1 });
+  await reconcileTrackedChatMessages(tabId);
+  assert.equal(chatSendTabHydrationState(tabId), "error");
+  assert.deepEqual(commands, [], "storage failure cannot run deletion or delivery reconciliation");
+  assert.equal(deliveryState(readChatSends(tabId)[0]!), "sending", "storage failure leaves live send status unchanged");
 });
 
 test("held send enters the backend ledger once", async () => {
@@ -114,6 +154,7 @@ test("reconnect resolves a response-less refused admission using durable absence
   await assert.rejects(sendTrackedChatMessage(tabId, "offline-token", "opaque"));
   await reconcileTrackedChatMessages(tabId);
   forgetChatSendsInMemory();
+  await ensureChatSendTabHydrated(tabId);
   assert.equal(deliveryState(readChatSends(tabId)[0]), "failed");
   assert.equal(calls.filter((command) => command === "chat_send_text").length, 1);
   assert.notEqual(beginChatSendRetry(tabId, "offline-bubble"), undefined);
@@ -159,6 +200,8 @@ test("model command hold shows queued, then sending and delivered on the same bu
 
 test("Delete persists a dismissal with one RPC and never submits or retries its payload", async () => {
   const { deleteTrackedChatMessage } = await import("./chatSendStatus");
+  const repository = new MemoryChatSendRepository();
+  __setChatSendRepositoryForTest(repository);
   const tabId = "delete-rpc";
   const original = { id: "delete-bubble", correlationId: "delete-token", content: "opaque", sentAtMs: 1700000000000 };
   addChatSend(tabId, original);
@@ -176,7 +219,13 @@ test("Delete persists a dismissal with one RPC and never submits or retries its 
   release({ send_id: "send-1", send: original });
   await deleting;
   forgetChatSendsInMemory();
-  assert.equal(readChatSends(tabId)[0].dismissed, true);
+  await ensureChatSendTabHydrated(tabId);
+  assert.deepEqual(readChatSends(tabId), []);
+  const marker = await repository.readDismissal(tabId, original.id);
+  assert(marker);
+  assert.equal(marker.sendId, original.id);
+  assert.equal(marker.correlationId, original.correlationId);
+  assert.equal("content" in marker, false);
   assert.deepEqual(calls, ["chat_send_delete"]);
   assert.equal(beginChatSendRetry(tabId, original.id), undefined);
   __setInvokeForTest(null);

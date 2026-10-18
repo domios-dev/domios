@@ -1,10 +1,17 @@
+export interface ProviderCatalogueRevision {
+  build?: string;
+  boot?: string;
+  revision?: number;
+}
+
 export function shouldRefetch(
-  prevVersion: number | undefined,
-  nextVersion: number,
-  connectionEvent: boolean,
-  _lastError: string | null,
+  previous: ProviderCatalogueRevision | undefined,
+  next: ProviderCatalogueRevision,
 ): boolean {
-  return connectionEvent || prevVersion !== nextVersion;
+  return previous === undefined
+    || previous.build !== next.build
+    || previous.boot !== next.boot
+    || previous.revision !== next.revision;
 }
 
 export interface ProviderIconDescriptor {

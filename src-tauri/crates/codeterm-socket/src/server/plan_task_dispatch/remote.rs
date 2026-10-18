@@ -74,6 +74,11 @@ pub(super) fn dispatch(
     if owned_str(p, "sandbox").is_some() {
         return Err(invalid_dispatch("explicit sandbox selection is local-only; remote dispatch cannot drop a confinement request"));
     }
+    if owned_str(p, "worker_kind").is_some() {
+        return Err(invalid_dispatch(
+            "worker_kind overrides are local-only; mesh dispatch does not compose local Worker role prompts",
+        ));
+    }
     let peer_target = owned_str(p, "mesh_peer")
         .filter(|peer| !peer.trim().is_empty())
         .ok_or_else(|| {

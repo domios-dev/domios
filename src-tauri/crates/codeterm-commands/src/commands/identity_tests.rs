@@ -21,7 +21,8 @@ const CWD: &str = "/identity/proj";
 const SID: &str = "identity-session";
 const DELIVERY_DEADLINE: Duration = Duration::from_secs(30);
 /// Enough filler that one backfill page cannot start at byte 0.
-const FILLER_RECORDS: usize = 18;
+const FILLER_RECORDS: usize = 2;
+const FILLER_PADDING_BYTES: usize = 512 * 1024 + 16 * 1024;
 
 const PLAIN: &str = r#"{"type":"user","message":{"role":"user","content":"plain question"}}"#;
 const SPLIT: &str = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"first part"},{"type":"text","text":"second part"}]}}"#;
@@ -91,7 +92,7 @@ fn filler_record(index: usize) -> String {
             "type": "user",
             "uuid": format!("fill-{index:06}"),
             "message": {"role": "user", "content": "f"},
-            "padding": "f".repeat(64 * 1024)
+            "padding": "f".repeat(FILLER_PADDING_BYTES)
         })
     )
 }
@@ -165,16 +166,10 @@ fn tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_
     assert_eq!(snapshot.end_offset, total);
     assert!(snapshot.bytes_read <= session_window::SNAPSHOT_CAP_BYTES);
 
-    let window_start = codeterm_plugin::jsonl_window::tail_window_start(
-        &path,
-        total,
-        total - (record_len * (FILLER_RECORDS as u64 - 3) + 1),
-    );
-    assert_eq!(
-        window_start,
-        record_len * (FILLER_RECORDS as u64 - 2),
-        "window is record-aligned"
-    );
+    let tail_bytes = (PLAIN.len() + SPLIT.len() + UUID_ROW.len() + 3) as u64;
+    let window_start =
+        codeterm_plugin::jsonl_window::tail_window_start(&path, total, tail_bytes + 1);
+    assert_eq!(window_start, plain_start, "window is record-aligned");
     let (window_rows, _) =
         session_window::parse_window(&registry, provider_id, &path, window_start, total);
     let window = rich_rows_to_chat_msgs(&window_rows, window_start);

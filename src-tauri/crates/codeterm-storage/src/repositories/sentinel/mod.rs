@@ -22,10 +22,10 @@ pub use records::{
     CaptureRecord, CommandParameters, CommandResultRecord, CommandStatus, DefinitionProvenance,
     DefinitionUpdate, EscalateTarget, Fence, HandlerAction, HandlerDefinition, HandlerResultRecord,
     HandlerStatus, MutationOutcome, NewTransition, ObserveKind, ObserveSource, RunRecord,
-    RuntimeOutcome, SafeKind, ScheduleUpdate, SentinelCommit, SentinelCreate, SentinelId,
-    SentinelIdentity, SentinelImport, SentinelRecord, SentinelScope, SourceKind, StageDefinition,
-    StageRuntime, StageSource, StoredDefinition, StoredSentinel, TargetIdentity, TransitionRecord,
-    MAX_SENTINEL_BATCH, MAX_SENTINEL_LINEAGE, MAX_SENTINEL_RECORDS, OTHER_BUCKET,
+    RuntimeOutcome, SafeKind, ScheduleUpdate, SentinelCommit, SentinelCreate, SentinelEviction,
+    SentinelId, SentinelIdentity, SentinelImport, SentinelRecord, SentinelScope, SourceKind,
+    StageDefinition, StageRuntime, StageSource, StoredDefinition, StoredSentinel, TargetIdentity,
+    TransitionRecord, MAX_SENTINEL_BATCH, MAX_SENTINEL_LINEAGE, MAX_SENTINEL_RECORDS, OTHER_BUCKET,
 };
 
 impl Storage {
@@ -154,6 +154,24 @@ impl SentinelRepository {
         }
         self.storage
             .submit_mutation(create.cost(), move |cx| runtime::create(cx, create))
+    }
+
+    pub fn create_evicting(&self, create: SentinelCreate, eviction: SentinelEviction) -> Mutation {
+        if let Err(error) = create.validate().and_then(|()| {
+            if create.scenario_id.is_none() && !create.associate.is_empty() {
+                return Err(StorageError::invalid(
+                    "scenario associations",
+                    "require a scenario",
+                ));
+            }
+            Ok(())
+        }) {
+            return refused(error);
+        }
+        let cost = create.cost() + eviction.id.as_str().len() + eviction.workspace_id.len();
+        self.storage.submit_mutation(cost, move |cx| {
+            runtime::create_evicting(cx, create, eviction)
+        })
     }
 
     /// Inserts exact existing stages as `Imported` version 1; nothing is executed or rearmed.

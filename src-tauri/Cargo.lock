@@ -1078,13 +1078,16 @@ dependencies = [
  "codeterm-bridge",
  "codeterm-build-info",
  "codeterm-commands",
+ "codeterm-crash",
  "codeterm-decision",
  "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-host-runtime",
  "codeterm-orchestration",
+ "codeterm-paths",
  "codeterm-plan",
  "codeterm-plugin",
+ "codeterm-process-identity",
  "codeterm-sentinel-host",
  "codeterm-service-core",
  "codeterm-socket",
@@ -1095,6 +1098,7 @@ dependencies = [
  "domios-server",
  "fern",
  "include_dir",
+ "interprocess",
  "log",
  "objc2",
  "objc2-app-kit",
@@ -1116,6 +1120,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
+ "uuid",
  "vt100",
  "windows-sys 0.61.2",
 ]
@@ -1713,6 +1718,7 @@ name = "codeterm-paths"
 version = "0.1.0"
 dependencies = [
  "dirs 6.0.0",
+ "tempfile",
 ]
 
 [[package]]
@@ -1799,6 +1805,15 @@ dependencies = [
  "sha2",
  "tempfile",
  "uuid",
+]
+
+[[package]]
+name = "codeterm-process-identity"
+version = "0.0.0"
+dependencies = [
+ "codeterm-types",
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3023,7 +3038,7 @@ dependencies = [
 
 [[package]]
 name = "domios-server"
-version = "1.14.9"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "codeterm-api",
@@ -3035,6 +3050,8 @@ dependencies = [
  "codeterm-orchestration",
  "codeterm-plan",
  "codeterm-plugin",
+ "codeterm-plugins",
+ "codeterm-process-identity",
  "codeterm-sentinel-host",
  "codeterm-service-core",
  "codeterm-socket",

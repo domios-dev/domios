@@ -69,8 +69,9 @@ impl JsChatBackend {
             watcher_capable: manifest.capabilities.chat_backend_watcher_capable(),
             session_config: manifest.capabilities.chat_backend.session_config(),
             context_owner: manifest.capabilities.chat_backend.context_owner(),
-            agent_tasks: manifest.capabilities.chat_backend.agent_tasks,
-            remote_task: manifest.capabilities.chat_backend.remote_task.clone(),
+            agent_tasks: manifest.capabilities.chat_backend.agent_tasks
+                && manifest.capabilities.remote_task.is_none(),
+            remote_task: manifest.capabilities.remote_task.clone(),
             model_catalogue: manifest.model_catalogue.clone(),
             model_catalogue_input_files: manifest.model_catalogue.fingerprint_files(
                 super::host_credentials::declared_files(&manifest.credentials),

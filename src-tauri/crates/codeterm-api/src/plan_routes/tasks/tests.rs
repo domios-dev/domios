@@ -10,19 +10,6 @@ use codeterm_service_core::service::test_fixture::ServiceFixture;
 use serde_json::json;
 use std::sync::Arc;
 
-fn git(dir: &std::path::Path, args: &[&str]) {
-    let output = std::process::Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
 /// The exact live owner identity the update seam authorizes against:
 /// tab id, bound session and the nonce the tab itself reported back.
 pub(crate) fn owner_headers(tab_id: &str) -> HeaderMap {
@@ -201,28 +188,8 @@ fn rest_update_external_refs_round_trips_non_null() {
 fn rest_cleanup_done_refusal_returns_conflict_for_unmerged_lane_branch() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
     let project = fixture.temp.path();
-    git(project, &["init", "-q"]);
-    git(project, &["config", "user.email", "test@example.com"]);
-    git(project, &["config", "user.name", "Test"]);
-    std::fs::write(project.join("README.md"), "fixture").unwrap();
-    git(project, &["add", "README.md"]);
-    git(project, &["commit", "-qm", "fixture"]);
-    let lane = codeterm_service_core::service::provision_lane_for_test(
-        project.to_str().unwrap(),
-        "rest-cleanup-refusal",
-    )
-    .unwrap();
-    let provenance = lane.verify().unwrap();
-    std::fs::write(
-        std::path::Path::new(&lane.cwd).join("unmerged.txt"),
-        "unmerged work",
-    )
-    .unwrap();
-    git(std::path::Path::new(&lane.cwd), &["add", "unmerged.txt"]);
-    git(
-        std::path::Path::new(&lane.cwd),
-        &["commit", "-qm", "unmerged work"],
-    );
+    let worktree = project.join("lane/rest-cleanup-refusal");
+    let branch = "lane/rest-cleanup-refusal";
     fixture
         .service
         .plan_store
@@ -230,22 +197,39 @@ fn rest_cleanup_done_refusal_returns_conflict_for_unmerged_lane_branch() {
             &plan_id,
             &task_id,
             TaskLaneUpdate {
-                worktree_path: Some(Some(provenance.worktree_path.clone())),
-                branch: Some(Some(provenance.branch.clone())),
+                worktree_path: Some(Some(worktree.display().to_string())),
+                branch: Some(Some(branch.into())),
                 ..Default::default()
             },
             5,
         )
         .unwrap();
-    std::fs::remove_dir_all(&lane.cwd).unwrap();
-    git(project, &["worktree", "prune", "--expire", "now"]);
 
-    let result = task_update_core(
+    let result = task_update_core_with_lane_cleanup_check(
         &Arc::new(fixture.service.clone()),
         &owner_headers(&owner),
         &plan_id,
         &task_id,
         json!({"lane": {"cleanup_status": "done"}}),
+        |store, plan_id, task_id, lane| {
+            let lane = lane.expect("cleanup status reaches the lane verifier");
+            assert_eq!(lane.cleanup_status, Some(Some("done".to_owned())));
+            let task = store
+                .get(plan_id)
+                .unwrap()
+                .tasks
+                .into_iter()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            assert_eq!(task.lane.branch.as_deref(), Some(branch));
+            Err(
+                codeterm_service_core::service::lane_removal::CleanupStatusDoneError::Refused(
+                    format!(
+                        "cleanup is not complete: branch '{branch}' still has commits not merged into target checkout"
+                    ),
+                ),
+            )
+        },
     );
 
     let (status, Json(body)) = result.expect_err("unmerged commits refuse cleanup completion");
@@ -254,7 +238,7 @@ fn rest_cleanup_done_refusal_returns_conflict_for_unmerged_lane_branch() {
         .as_str()
         .unwrap()
         .contains("commits not merged"));
-    assert!(body["error"].as_str().unwrap().contains(&provenance.branch));
+    assert!(body["error"].as_str().unwrap().contains(branch));
 }
 
 #[test]
@@ -287,6 +271,7 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
     let source_draft = codeterm_service_core::service::plan::task_attempts::TaskRespawnDraft {
         plan_id: plan.id.clone(),
         task_id: task_id.clone(),
+        execution_intent: codeterm_service_core::plan::ExecutionIntent::Mutating,
         attempt_id: "attempt-source".into(),
         source_attempt: Default::default(),
         provider: "claude".into(),
@@ -374,4 +359,13 @@ fn respawn_hint_carries_the_source_attempt_flag() {
         hint.contains(&format!("{RESPAWN_ATTEMPT_FLAG} attempt_3")),
         "respawn hint omits the required attempt selector: {hint}"
     );
+    assert!(
+        !hint.contains("--execution-intent"),
+        "intent is inherited: {hint}"
+    );
+    assert!(
+        !hint.contains("--provider"),
+        "provider is inherited: {hint}"
+    );
+    assert!(!hint.contains("--model"), "model is inherited: {hint}");
 }

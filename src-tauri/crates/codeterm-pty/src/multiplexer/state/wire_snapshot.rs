@@ -12,6 +12,12 @@ pub(super) fn tabs<S: Serializer>(
     let mut map = serializer.serialize_map(Some(tabs.len()))?;
     for (id, tab) in tabs {
         let mut wire = tab.clone();
+        if let Some(mode) = &tab.restorable_launch.execution_mode {
+            let config = wire
+                .agent_runtime_config
+                .get_or_insert_with(|| serde_json::json!({}));
+            config["executionMode"] = serde_json::json!(mode);
+        }
         if let Some(config) = wire
             .agent_runtime_config
             .as_mut()

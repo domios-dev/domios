@@ -8,7 +8,7 @@ edition = "2021"
 workspace = true
 
 [dependencies]
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 codeterm-build-info = { path = "../codeterm-build-info" }
 codeterm-shutdown = { path = "../codeterm-shutdown" }
 codeterm-keepawake = { path = "../codeterm-keepawake" }

@@ -4,7 +4,7 @@ use clap::{Args, Subcommand};
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpawnLocation {
     Local,
-    Remote,
+    Cloud,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug)]
@@ -395,7 +395,7 @@ pub enum AgentAction {
         #[arg(
             long,
             requires = "location",
-            required_if_eq("location", "remote"),
+            required_if_eq("location", "cloud"),
             conflicts_with = "preset"
         )]
         environment: Option<String>,

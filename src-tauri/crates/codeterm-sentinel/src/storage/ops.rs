@@ -6,7 +6,7 @@ use crate::handlers::{ResultRecord, Transition};
 use crate::source::RunBindOutcome;
 use crate::source::RunBinding;
 use crate::store::{Lease, ScheduleChange, Sentinel, StopNotice, Store, MAX_ACTIVE};
-use codeterm_storage::{Fence, MutationOutcome, ScheduleUpdate};
+use codeterm_storage::{Fence, MutationOutcome, ScheduleUpdate, SentinelEviction};
 
 fn refused<T: Send + 'static>(error: String) -> Staged<T> {
     Staged::ready(Err(error))
@@ -93,6 +93,44 @@ impl Store {
                         Err("blueprint capacity reached".into())
                     }
                     other => Err(format!("blueprint creation refused: {other:?}")),
+                }
+            }),
+        )
+    }
+
+    pub fn sqlite_insert_evicting(
+        &mut self,
+        job: Sentinel,
+        associate: &[String],
+        candidate: Sentinel,
+    ) -> Staged<Sentinel> {
+        let create = match codec::create(&job, associate) {
+            Ok(create) => create,
+            Err(error) => return refused(error),
+        };
+        let id = match codec::id(&candidate.id) {
+            Ok(id) => id,
+            Err(error) => return refused(error),
+        };
+        let eviction = SentinelEviction {
+            id,
+            workspace_id: candidate.workspace_id,
+            team_id: candidate.team_id,
+            expected_revision: candidate.revision,
+        };
+        self.submit(
+            move |repo| repo.create_evicting(create, eviction),
+            finishing(move |_, outcome| {
+                let commit = outcome.map_err(Failure::message)?;
+                match commit.outcome {
+                    MutationOutcome::Applied => Ok(job),
+                    MutationOutcome::Fenced(Fence::Duplicate) => {
+                        Err("duplicate blueprint ID".into())
+                    }
+                    MutationOutcome::Fenced(Fence::Capacity) => {
+                        Err("blueprint capacity reached".into())
+                    }
+                    other => Err(format!("blueprint eviction/insertion refused: {other:?}")),
                 }
             }),
         )

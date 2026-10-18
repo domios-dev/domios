@@ -251,3 +251,30 @@ fn worker_owned_utility_shell_inherits_task_context_and_reports_to_worker() {
         .iter()
         .any(|entry| entry.message.contains("UTILITY_SHELL_REPORT_PAYLOAD")));
 }
+
+#[test]
+fn shell_job_policy_uses_persisted_membership_and_purpose() {
+    use crate::pty::manager::WindowsJobPolicy::{AllowExplicitServerBreakaway, Contained};
+    let (mut mux, tab_id) = MultiplexerState::new();
+    assert_eq!(super::shell_job_policy_for_mux(&mux, &tab_id), Contained);
+    mux.get_tab_mut(&tab_id).unwrap().purpose = ShellPurpose::Dev;
+    assert_eq!(super::shell_job_policy_for_mux(&mux, &tab_id), Contained);
+    mux.get_tab_mut(&tab_id).unwrap().team_id = Some("missing-team".into());
+    assert_eq!(super::shell_job_policy_for_mux(&mux, &tab_id), Contained);
+    mux.get_tab_mut(&tab_id).unwrap().team_id = None;
+    mux.set_orchestrator_role(&tab_id).unwrap();
+    mux.resolve_or_mint_team_for_parent(&tab_id).unwrap();
+    assert_eq!(
+        super::shell_job_policy_for_mux(&mux, &tab_id),
+        AllowExplicitServerBreakaway
+    );
+    mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("fixture".into());
+    assert_eq!(super::shell_job_policy_for_mux(&mux, &tab_id), Contained);
+    mux.get_tab_mut(&tab_id).unwrap().agent_type = None;
+    mux.get_tab_mut(&tab_id).unwrap().purpose = ShellPurpose::Qa;
+    assert_eq!(super::shell_job_policy_for_mux(&mux, &tab_id), Contained);
+    assert_eq!(
+        super::shell_job_policy_for_mux(&mux, "missing-tab"),
+        Contained
+    );
+}

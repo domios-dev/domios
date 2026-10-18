@@ -52,9 +52,9 @@ const PREVIOUSLY_SKIPPED = ['codeterm-input-macos', 'codeterm-input-windows', 'c
 test('the release Rust set comes from the catalogue release tier and leaves pty-fork manual', () => {
   const { runners, overlay, testCounts } = loadReleaseRust(fileURLToPath(new URL('../..', import.meta.url)));
   const released = runners.map((r) => r.package);
-  for (const pkg of [...PREVIOUSLY_SKIPPED, 'codeterm-mem-store', 'codeterm-paths', 'codeterm', 'codeterm-service-core', 'codeterm-cli']) assert.ok(released.includes(pkg), pkg);
+  for (const pkg of [...PREVIOUSLY_SKIPPED, 'codeterm-mem-store', 'codeterm-paths', 'domios-server', 'codeterm', 'codeterm-service-core', 'codeterm-cli']) assert.ok(released.includes(pkg), pkg);
   assert.ok(!released.includes('portable-pty'));
-  assert.ok(testCounts['rust-mem-store'] > 0 && testCounts['rust-paths'] > 0);
+  assert.ok(testCounts['rust-mem-store'] > 0 && testCounts['rust-paths'] > 0 && testCounts['rust-domios-server'] > 0);
   const plan = releaseRustPlan(runners, overlay, 'linux', [], testCounts);
   assert.equal(plan.find((g) => g.ids.includes('rust-service-core')).noTests, 'fail');
   assert.equal(plan.flatMap((g) => g.ids).sort().join(), runners.map((r) => r.id).sort().join());
@@ -63,7 +63,7 @@ test('the release Rust set comes from the catalogue release tier and leaves pty-
   const workspace = archiveTargets('workspace', runners);
   const archived = packagesOf(workspace);
   for (const pkg of PREVIOUSLY_SKIPPED.slice(2)) assert.ok(archived.includes(pkg), pkg);
-  for (const pkg of ['codeterm-mem-store', 'codeterm-paths', 'codeterm']) assert.ok(archived.includes(pkg), pkg);
+  for (const pkg of ['codeterm-mem-store', 'codeterm-paths', 'domios-server', 'codeterm']) assert.ok(archived.includes(pkg), pkg);
   assert.ok(!archived.includes('portable-pty'));
   assert.deepEqual(workspace.slice(-3), ['--lib', '--test', 'main']);
   assert.deepEqual(archiveTargets('cli', runners), ['-p', 'codeterm-cli', '--all-targets']);

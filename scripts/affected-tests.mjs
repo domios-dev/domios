@@ -238,7 +238,7 @@ function vitestFiles(repoRoot, files) {
   return relatedRoots ? tests : [];
 }
 
-function pluginCommands(files) {
+function pluginCommands(repoRoot, files) {
   const pluginFiles = files.filter((file) => file.startsWith("plugins/"));
   const directories = [...new Set(files
     .filter((file) => /^plugins\/[^/]+\/.+/.test(file))
@@ -253,7 +253,7 @@ function pluginCommands(files) {
   }
   const providerSuites = ["provider-claude", "provider-codex", "provider-opencode", "provider-cursor"];
   for (const provider of directories) {
-    if (provider === "analytics") continue;
+    if (provider === "analytics" || !existsSync(path.join(repoRoot, "plugins", provider))) continue;
     const suites = provider === "provider-shared" ? providerSuites : [provider];
     for (const suite of suites) {
       commands.push({
@@ -287,7 +287,7 @@ function renderParallelCommands(repoRoot, files) {
       reason: "Vitest resolves related test files from the changed source graph",
     });
   }
-  commands.push(...pluginCommands(files));
+  commands.push(...pluginCommands(repoRoot, files));
   if (files.some((file) => file.startsWith("essences/"))) {
     commands.push({
       command: "codeterm essence-map validate --root .",

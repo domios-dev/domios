@@ -71,7 +71,9 @@ export type AdmissionEvidence = "present" | "absent" | "unknown";
 export function reconcileAdmissionEvidence(send: DeliverySend, evidence: AdmissionEvidence): DeliverySend {
   if (send.status || deliveryState(send) === "delivered" || send.requestFailed) return send;
   const failed = evidence === "absent" && send.requestHadResponse === false;
-  return { ...send, requestFailed: failed, requestUncertain: !failed };
+  const uncertain = !failed;
+  if (send.requestFailed === failed && send.requestUncertain === uncertain) return send;
+  return { ...send, requestFailed: failed, requestUncertain: uncertain };
 }
 
 export function reconcileDeliverySnapshot(send: DeliverySend, statuses: readonly ChatSendStatus[]): DeliverySend {

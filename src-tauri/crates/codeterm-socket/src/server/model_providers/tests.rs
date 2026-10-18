@@ -170,7 +170,6 @@ fn malformed_selectors_and_endpoint_objects_are_refused_without_echo() {
 fn method_owns_action_and_malformed_params_never_reach_the_service() {
     for params in [
         json!([]),
-        Value::Null,
         json!({"action":"remove", "name":"demo"}),
         json!({"unexpected":true}),
     ] {
@@ -181,6 +180,12 @@ fn method_owns_action_and_malformed_params_never_reach_the_service() {
                 .code,
             -32602
         );
+    }
+    for params in [None, Some(Value::Null)] {
+        assert!(matches!(
+            prepare("model_provider.list", params).unwrap().1,
+            ModelProviderRequest::List
+        ));
     }
     assert_eq!(
         prepare("model_provider.unknown", None).err().unwrap().code,

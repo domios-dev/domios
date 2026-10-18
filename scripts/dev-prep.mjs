@@ -2,7 +2,7 @@
 // Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/dev-prebuilt; scripts tests/release-input-reuse.test.mjs
 import crypto from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
-import { runDevApp } from "./dev-app-process.mjs";
+import { runDevApp, nativeLocatorRecord, prebuiltReadinessPhase } from "./dev-app-process.mjs";
 import { devRuntimeEnvironment } from "./dev-runtime-environment.mjs";
 import {
   accessSync,
@@ -32,7 +32,7 @@ const isWin = process.platform === "win32";
 const pnpm = isWin ? "pnpm.cmd" : "pnpm";
 const cargo = isWin ? "cargo.exe" : "cargo";
 const node = process.execPath;
-const provenanceSchema = 2;
+const provenanceSchema = 3;
 const childExitDeadlineMs = 10_000;
 const inputPathspecs = [
   "build.sh",
@@ -53,11 +53,14 @@ const inputPathspecs = [
   "crates",
   "src-tauri",
   "scripts/dev-prep.mjs",
+  "scripts/server-artifact.mjs",
+  "scripts/package-server-component-manifest.mjs",
   "scripts/dev-app-process.mjs",
   "scripts/dev-runtime-environment.mjs",
   "scripts/dev-instance-policy.mjs",
   "scripts/windows-dev-app.ps1",
   "scripts/windows-dev-app.cs",
+  "scripts/windows-dev-desktop.cs",
   "scripts/bundle-cli.js",
   "scripts/build-artifacts.cjs",
   "scripts/frontend-build.mjs",
@@ -69,6 +72,10 @@ const inputPathspecs = [
   "scripts/build-gateway.sh",
   "scripts/release-signing.sh",
 ];
+
+function devResourceRoot(app) {
+  return isWin ? dirname(app) : resolve(dirname(app), "../lib/codeterm");
+}
 
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
@@ -155,7 +162,15 @@ function hashPath(requested, expectedType, requireExecutable = false) {
   if (requireExecutable && !isWin && (stat.mode & 0o111) === 0) throw new Error(`artifact is not executable: ${path}`);
   const hash = sha256();
   let bytes = 0;
-  const files = stat.isDirectory() ? listTree(path) : [path];
+  const files = expectedType === "runtime-resources"
+    ? ["cli", "skills", "LICENSE", "NOTICE", ...(isWin ? ["conpty"] : [])].flatMap(name => {
+        const resource = join(path, name);
+        const metadata = lstatSync(resource);
+        const entries = metadata.isDirectory() ? listTree(resource) : [resource];
+        if (metadata.isSymbolicLink() || entries.some(file => lstatSync(file).isSymbolicLink())) throw new Error("Runtime resource links are not accepted");
+        return entries;
+      }).sort()
+    : stat.isDirectory() ? listTree(path) : [path];
   if (files.length === 0) throw new Error(`artifact is empty: ${path}`);
   for (const file of files) {
     const fileStat = lstatSync(file);
@@ -239,6 +254,9 @@ function artifactPaths(options) {
     app: option(options, "--app"),
     cli: option(options, "--cli"),
     frontend: option(options, "--frontend"),
+    server: join(devResourceRoot(option(options, "--app")), "domios-server", isWin ? "domios-server.exe" : "domios-server"),
+    inventory: join(devResourceRoot(option(options, "--app")), "server-component.json"),
+    resources: devResourceRoot(option(options, "--app")),
   };
 }
 
@@ -256,6 +274,9 @@ function buildProvenance(options) {
       app: hashPath(paths.app, "file", true),
       cli: hashPath(paths.cli, "file", true),
       frontend: hashPath(paths.frontend, "tree"),
+      server: hashPath(paths.server, "file", true),
+      inventory: hashPath(paths.inventory, "file"),
+      resources: hashPath(paths.resources, "runtime-resources"),
     },
   };
 }
@@ -298,7 +319,8 @@ function checkProvenance(options) {
   } catch (error) {
     throw new Error(`record is unparseable: ${error.message}`);
   }
-  assertKeys(data, ["schema", "buildSha", "inputsSha256", "instance", "artifacts"], "record");
+  const {nativeClient,...buildRecord} = data;
+  assertKeys(buildRecord, ["schema", "buildSha", "inputsSha256", "instance", "artifacts"], "record");
   if (data.schema !== provenanceSchema) throw new Error(`unsupported record schema: ${data.schema}`);
   if (data.buildSha !== provenanceSha(options)) throw new Error("recorded build commit does not match HEAD or launch SHA");
   if (!/^[0-9a-f]{64}$/.test(data.inputsSha256) || data.inputsSha256 !== inputFingerprint()) {
@@ -307,11 +329,14 @@ function checkProvenance(options) {
   const expectedInstance = instanceFrom(options);
   assertKeys(data.instance, ["name", "apiPort", "vitePort", "cdpPort", "identifier"], "instance");
   if (JSON.stringify(data.instance) !== JSON.stringify(expectedInstance)) throw new Error("recorded instance does not match this dev instance");
-  assertKeys(data.artifacts, ["app", "cli", "frontend"], "artifacts");
+  assertKeys(data.artifacts, ["app", "cli", "frontend", "server", "inventory", "resources"], "artifacts");
   const paths = artifactPaths(options);
   validateArtifact(data.artifacts.app, paths.app, "file", "app", true);
   validateArtifact(data.artifacts.cli, paths.cli, "file", "CLI", true);
   validateArtifact(data.artifacts.frontend, paths.frontend, "tree", "frontend");
+  validateArtifact(data.artifacts.server, paths.server, "file", "server", true);
+  validateArtifact(data.artifacts.inventory, paths.inventory, "file", "inventory");
+  validateArtifact(data.artifacts.resources, paths.resources, "runtime-resources", "resources");
   console.log(`[dev-provenance] matched ${record} at ${data.buildSha}`);
 }
 
@@ -374,16 +399,84 @@ async function terminateOwnedChild(child) {
 }
 
 function readinessSignal(line, apiPort) {
-  return (
-    process.env.CODETERM_TEST_PREBUILT_NEVER_READY !== "1" &&
-    line.includes("REST API generation ") &&
-    line.includes(" health-proven on http://") &&
-    new RegExp(`:${apiPort}(?:\\b|/)`).test(line)
-  );
+  if (process.env.CODETERM_TEST_PREBUILT_NEVER_READY === "1") return false;
+  const prefix = "DOMIOS_DEV_ATTACHMENT ";
+  if (!line.startsWith(prefix)) return false;
+  try {
+    const status = JSON.parse(line.slice(prefix.length));
+    return Object.keys(status).sort().join(",") === "api_address,client_pid,epoch,protocol,server_pid"
+      && status.protocol === 2 && Number.isSafeInteger(status.client_pid) && status.client_pid > 0
+      && Number.isSafeInteger(status.server_pid) && status.server_pid > 0 && status.client_pid !== status.server_pid
+      && typeof status.epoch === "string" && /^[a-f0-9-]{36}$/.test(status.epoch)
+      && [`127.0.0.1:${apiPort}`, `[::1]:${apiPort}`].includes(status.api_address);
+  } catch { return false; }
+}
+
+function startupFailureSignal(line) {
+  const prefix = "ERROR: DOMIOS_DEV_FAILURE ";
+  if (!line.startsWith(prefix)) return null;
+  try {
+    const value = JSON.parse(line.slice(prefix.length));
+    const stages = ["resource_root", "inventory", "install", "resource_verification", "server_artifact", "client_artifact", "identity_resolution", "attach", "launch", "reply_validation", "api_attachment", "native_enrollment", "frontend", "startup"];
+    if (Object.keys(value).sort().join(",") !== "exit_code,io_kind,os_error,stage,status"
+      || !stages.includes(value.stage) || value.status !== "refused"
+      || value.io_kind !== null || value.os_error !== null || value.exit_code !== null) return null;
+    return `Native client startup refused at ${value.stage}`;
+  } catch { return null; }
+}
+
+function attachmentProof(lines, port, listenerPid, alive) {
+  const events = lines.filter(line => readinessSignal(line, port));
+  if (!events.length) throw new Error("Native attachment readiness is absent");
+  const event = JSON.parse(events.at(-1).slice("DOMIOS_DEV_ATTACHMENT ".length));
+  if (!/^[1-9][0-9]*$/.test(String(listenerPid)) || event.server_pid !== Number(listenerPid)) {
+    throw new Error("Native attachment differs from the actual DEV API listener");
+  }
+  if (!alive(event.client_pid) || !alive(event.server_pid)) {
+    throw new Error("Native attachment client or server is no longer live");
+  }
+  return event;
+}
+
+function checkAttachment(options) {
+  const log = resolve(option(options, "--log"));
+  const stat = lstatSync(log);
+  if (!stat.isFile() || stat.size > 4 * 1024 * 1024) throw new Error("Native attachment log exceeds its bound");
+  const port = option(options, "--api-port");
+  attachmentProof(readFileSync(log, "utf8").split(/\r?\n/), port, option(options, "--listener-pid"), pid => {
+    try { process.kill(pid, 0); return true; } catch { return false; }
+  });
 }
 
 function disconnectSupervisor() {
   if (process.connected) process.disconnect();
+}
+
+function nativeLocatorSink(options) {
+  if (!options.has("--record")) return () => {};
+  const file=resolve(option(options,"--record")), app=realpathSync.native(option(options,"--app"));
+  let partial="", attachment=null, pending=null;
+  const decoder=new StringDecoder("utf8");
+  const write = data => {
+    const temporary=`${file}.${process.pid}.locator.tmp`;
+    writeFileSync(temporary,JSON.stringify(data,null,2)+"\n",{flag:"wx"});
+    renameSync(temporary,file);
+  };
+  const initial=JSON.parse(readFileSync(file,"utf8"));
+  write({...initial,nativeClient:null});
+  return chunk => {
+    const lines=(partial+decoder.write(chunk)).split(/\r?\n/); partial=lines.pop();
+    if (partial.length > 65536) throw Error("Native DEV diagnostic line exceeds bound");
+    for (const line of lines) {
+      if (readinessSignal(line,option(options,"--api-port"))) attachment=JSON.parse(line.slice("DOMIOS_DEV_ATTACHMENT ".length));
+      if (line.startsWith("DOMIOS_DEV_NATIVE_LOCATOR ")) pending=line;
+      if (!attachment || !pending) continue;
+      const record=JSON.parse(readFileSync(file,"utf8"));
+      const next=nativeLocatorRecord(pending,record,app,attachment);
+      if (next) write(next);
+      pending=null;
+    }
+  };
 }
 
 async function supervisePrebuilt(options) {
@@ -393,12 +486,29 @@ async function supervisePrebuilt(options) {
   const decoder = new StringDecoder("utf8");
   let partial = "";
   let ready = false;
+  let startupFailed = false;
+  let readinessPhase=0;
+  const locator = options.has("--record") ? nativeLocatorSink(options) : () => {};
   try {
-    const { code, signal } = await runDevApp({ app, log, cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
+    const { code, signal } = await runDevApp({ app, log, interactiveDesktop: true, cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
+      locator(chunk);
       const lines = `${partial}${decoder.write(chunk)}`.split(/\r?\n/);
       partial = lines.pop() ?? "";
+      for (const line of lines) {
+        const next=prebuiltReadinessPhase(readinessPhase,line);
+        if (next !== readinessPhase && !ready && !startupFailed && process.connected) {
+          readinessPhase=next;
+          process.send({type:"phase",phase:next});
+        }
+      }
+      const failure = lines.map(startupFailureSignal).find(Boolean);
+      if (!ready && failure && process.connected) {
+        startupFailed = true;
+        process.send({ type: "failed", error: failure });
+        disconnectSupervisor();
+      }
       const signal = lines.find(line => readinessSignal(line, apiPort));
-      if (!ready && signal) {
+      if (!ready && !startupFailed && signal) {
         ready = true;
         if (process.connected) process.send({ type: "ready", signal });
         disconnectSupervisor();
@@ -407,7 +517,7 @@ async function supervisePrebuilt(options) {
     if (!ready && process.connected) {
       process.send({ type: "failed", error: `prebuilt app exited before readiness (code=${code}, signal=${signal})` });
     }
-    process.exitCode = code ?? (signal ? 1 : 0);
+    process.exitCode = startupFailed ? 1 : code ?? (signal ? 1 : 0);
   } catch (error) {
     if (process.connected) process.send({ type: "failed", error: error.message });
     process.exitCode = 1;
@@ -416,9 +526,10 @@ async function supervisePrebuilt(options) {
 }
 
 async function runPrebuilt(options) {
+  const locator=nativeLocatorSink(options);
   const { code, signal } = await runDevApp({
-    app: resolve(option(options, "--app")), log: resolve(option(options, "--log")),
-    cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => process.stdout.write(chunk),
+    app: resolve(option(options, "--app")), log: resolve(option(options, "--log")), interactiveDesktop: true,
+    cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => { locator(chunk); process.stdout.write(chunk); },
   });
   process.exitCode = code ?? (signal ? 1 : 0);
 }
@@ -435,12 +546,13 @@ async function launchPrebuilt(options) {
   if (!existsSync(app) || !statSync(app).isFile()) throw new Error(`prebuilt app is absent: ${app}`);
   let child;
   let deadline;
+  let phase=0;
   try {
     await new Promise((resolveReady, rejectReady) => {
       const fail = (error) => rejectReady(error instanceof Error ? error : new Error(String(error)));
       child = spawn(
         node,
-        [fileURLToPath(import.meta.url), "--supervise-prebuilt", "--app", app, "--log", log, "--api-port", apiPort],
+        [fileURLToPath(import.meta.url), "--supervise-prebuilt", "--app", app, "--log", log, "--api-port", apiPort, ...(options.has("--record")?["--record",option(options,"--record")]:[])],
         {
           cwd: repo,
           detached: true,
@@ -449,9 +561,12 @@ async function launchPrebuilt(options) {
           windowsHide: true,
         },
       );
-      child.once("message", (message) => {
+      child.on("message", (message) => {
         if (message?.type === "ready") resolveReady(message.signal);
         else if (message?.type === "failed") fail(new Error(message.error));
+        else if (message?.type === "phase" && Number.isInteger(message.phase) && message.phase === phase+1 && message.phase <= 2) {
+          phase=message.phase;
+        }
       });
       child.once("error", fail);
       child.once("exit", (code, signal) =>
@@ -459,7 +574,7 @@ async function launchPrebuilt(options) {
       );
       child.unref();
       console.log(`[dev-prebuilt] launched pid ${child.pid}, log ${log}`);
-      deadline = setTimeout(() => fail(new Error(`prebuilt app did not report readiness within ${deadlineMs}ms`)), deadlineMs);
+      deadline = setTimeout(() => fail(new Error(`prebuilt app did not report readiness within ${deadlineMs}ms (phase=${['preparation','bootstrap','attachment'][phase]})`)), deadlineMs);
     }).then((signal) => console.log(`[dev-prebuilt] readiness signal: ${signal}`));
   } catch (error) {
     await terminateOwnedChild(child);
@@ -480,7 +595,8 @@ function runRegularPrep() {
 
 const command = process.argv[2];
 try {
-  if (command === "--write-provenance") writeProvenance(parseOptions(process.argv.slice(3)));
+  if (command === "--check-attachment") checkAttachment(parseOptions(process.argv.slice(3)));
+  else if (command === "--write-provenance") writeProvenance(parseOptions(process.argv.slice(3)));
   else if (command === "--check-provenance") checkProvenance(parseOptions(process.argv.slice(3)));
   else if (command === "--check-runtime") checkRuntime(parseOptions(process.argv.slice(3)));
   else if (command === "--supervise-prebuilt") await supervisePrebuilt(parseOptions(process.argv.slice(3)));

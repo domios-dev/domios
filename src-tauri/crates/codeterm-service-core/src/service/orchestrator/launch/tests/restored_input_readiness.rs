@@ -1,5 +1,5 @@
 #[test]
-fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
+fn fresh_lazy_session_accepts_input_at_provider_ready() {
     use crate::agent::test_provider::MockProvider;
 
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -7,10 +7,8 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
     {
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some("resume-first-turn-fixture".into());
-        tab.agent_session_id = Some("saved-session".into());
         tab.session_binding_nonce = Some("resume-first-turn-nonce".into());
         tab.pty_id = Some(pty_id.into());
-        tab.restored_from_snapshot = true;
     }
     let harness = crate::service::test_fixture::ServiceFixture::new(mux);
     harness.service.agent_registry.register_provider(Box::new(
@@ -35,9 +33,14 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
         &tab_id,
         "resume-first-turn-fixture",
         false,
-        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+        crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
     ));
-    assert!(launch_waits_for_first_turn_binding(
+    assert!(super::user_input::requires_composer(
+        &harness.service,
+        "resume-first-turn-fixture",
+        &tab_id,
+    ));
+    assert!(!launch_waits_for_first_turn_binding(
         &harness.service,
         &tab_id,
         "resume-first-turn-fixture",
@@ -97,4 +100,65 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
     assert!(tab.launch_session_authenticated());
     drop(mux);
     LAUNCH_REGISTRY.lock().finish(&launch);
+}
+
+#[test]
+fn restored_retained_session_does_not_wait_for_a_lazy_first_turn() {
+    use crate::agent::provider::ProviderReadinessStrategy;
+    use crate::agent::test_provider::MockProvider;
+    use codeterm_types::pty::{TabVerdict, TimelineState};
+
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("resume-first-turn-fixture".into());
+    tab.agent_session_id = Some("01a1507e-4cd1-7603-b5ad-2c14efde0072".into());
+    tab.boot_stage = Some(BootStage::PtyStarting);
+    tab.restored_from_snapshot = true;
+    tab.agent_state = Some(
+        TabVerdict {
+            state: TimelineState::Idle,
+            subtype: None,
+        }
+        .into(),
+    );
+    let harness = crate::service::test_fixture::ServiceFixture::new(mux);
+    harness.service.agent_registry.register_provider(Box::new(
+        MockProvider::new("resume-first-turn-fixture")
+            .with_session_starts_on_first_user_turn()
+            .with_provider_readiness_strategy(ProviderReadinessStrategy::StructuralComposer {
+                timeout: std::time::Duration::from_secs(30),
+            }),
+    ));
+
+    assert!(!first_turn_binding_required(true, false, true));
+    assert!(
+        !super::startup_readiness::launch_waits_for_first_turn_binding_with_resume_session(
+            &harness.service,
+            "resume-first-turn-fixture",
+            false,
+            crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+            Some("01a1507e-4cd1-7603-b5ad-2c14efde0072"),
+        )
+    );
+    assert!(
+        super::startup_readiness::launch_waits_for_first_turn_binding_with_resume_session(
+            &harness.service,
+            "resume-first-turn-fixture",
+            false,
+            crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+            None,
+        )
+    );
+    assert!(!launch_waits_for_first_turn_binding(
+        &harness.service,
+        &tab_id,
+        "resume-first-turn-fixture",
+        false,
+        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+    ));
+    assert!(super::user_input::requires_composer(
+        &harness.service,
+        "resume-first-turn-fixture",
+        &tab_id,
+    ));
 }

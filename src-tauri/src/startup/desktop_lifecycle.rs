@@ -72,12 +72,7 @@ fn raise(
 fn create(
     app: &AppHandle,
 ) -> Result<codeterm_host_runtime::app_runtime::WebviewWindow, Box<dyn std::error::Error>> {
-    let config = app
-        .state::<codeterm_service_core::config::ConfigState>()
-        .lock()
-        .api
-        .clone();
-    let window = super::frontend_shell::create_window(app, &config)?;
+    let window = super::frontend_shell::create_window(app)?;
     super::window::setup_window_styling(&window);
     #[cfg(windows)]
     if let Err(error) = crate::native_resize::install(&window) {

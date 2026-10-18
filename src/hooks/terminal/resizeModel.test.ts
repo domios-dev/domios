@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { completeResize, createResizeModel, requestResize, setResizeAuthority, type ResizeModel } from "./resizeModel";
+import { completeResize, createResizeModel, ptyResizeGeometry, requestResize, setResizeAuthority, terminalGeometryPolicy, type ResizeModel } from "./resizeModel";
+
+test("remote viewers fit their own xterm without changing shared PTY geometry", () => {
+  assert.equal(terminalGeometryPolicy(true), "viewer-local");
+  assert.equal(terminalGeometryPolicy(false), "shared-pty");
+});
+
+test("local PTY resize geometry keeps the fitted xterm row count", () => {
+  const fitted = { cols: 45, rows: 38 };
+  assert.deepEqual(ptyResizeGeometry(terminalGeometryPolicy(false), fitted), fitted);
+  assert.equal(ptyResizeGeometry(terminalGeometryPolicy(true), fitted), null);
+});
 
 const owner = { ptyId: "pty", clientId: "viewer" };
 const initial = { cols: 80, rows: 24 };

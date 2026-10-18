@@ -192,6 +192,7 @@ pub fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
                 .until
                 .as_ref()
                 .is_some_and(|bucket| !job.buckets.contains(bucket))
+                && !(job.machine.stopped && job.agent_authored && job.team_id.is_some())
         {
             return Err("invalid blueprint route bucket".into());
         }

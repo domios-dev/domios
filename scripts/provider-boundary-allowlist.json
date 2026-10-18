@@ -18,7 +18,7 @@
   ],
   "entries": [
     {
-      "file": "crates/codeterm-paths/src/lib.rs",
+      "file": "src-tauri/crates/codeterm-paths/src/lib.rs",
       "token": "claude",
       "count": 2,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",

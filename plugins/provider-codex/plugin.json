@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.44",
+  "version": "1.14.45",
   "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Codex",
@@ -235,7 +235,21 @@
           ]
         }
       }
-    }
+    },
+    "remoteTask": {
+      "mode": "cloud",
+      "displayName": "Cloud",
+      "backend": "chatgpt-cloud-tasks",
+      "availability": {
+        "status": "unavailable",
+        "reason": "Live Cloud access has not been verified. Connect the account that owns your Cloud environments."
+      },
+      "environments": [],
+      "followUp": false,
+      "cancel": false,
+      "applyDiff": false
+    },
+    "view": true
   },
   "iconColor": "var(--ct-fg)",
   "entry": "plugin.js",
@@ -536,5 +550,8 @@
       "=0.160.0"
     ],
     "breaking": []
-  }
+  },
+  "dataPaths": [
+    "~/.codeterm/codex/tasks"
+  ]
 }

@@ -55,6 +55,7 @@ import type { Tab } from "../../lib/types";
 import { remoteTabsFromOrdinaryProjection, refreshAttachedRemoteAgentStates, shouldRefreshRemoteTabs } from "./remoteTabProjection";
 import {
   loadAttachedRemoteTabs,
+  hydrateAttachedRemoteTabs,
   projectAttachedRemoteTab,
   reconcileAttachedRemoteTabs,
   saveAttachedRemoteTabs,
@@ -78,7 +79,7 @@ export function isStorageUnavailableError(error: unknown): boolean {
   return message.includes(STORAGE_UNAVAILABLE_MESSAGE);
 }
 
-/** True when the web boot path paints sync cached mux state before reconcile. */
+/** True when this runtime already has a cache projection before reconcile. */
 export function webBootHasSyncCache(): boolean {
   return IS_WEB && loadCachedStateSync() !== null;
 }
@@ -108,7 +109,7 @@ function buildInitialState(): ExtendedState {
     teams: cached.teams ?? [],
     ...initialPageSelection(cached, loadClientPageSelection()),
     recently_closed: cached.recently_closed,
-    closed_structures: cached.closed_structures,
+    closed_structures: cached.closed_structures, tabStatuses: cached.tab_statuses ?? {},
     generation: HYDRATED_GENERATION,
   };
 }
@@ -155,8 +156,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const muxStateStoreRef = useRef(createMuxStateStore(() => stateRef.current));
   // so one click = exactly one tab (no duplicate on double-fire).
   const spawnInFlight = useRef<Set<string>>(new Set());
-  // authoritative reconcile lands; native boots never lock (no cache path).
-  const writeGateRef = useRef<WriteGate>(createWriteGate(webBootHasSyncCache()));
+  // Web writes wait until async cache discovery or authoritative reconcile.
+  const writeGateRef = useRef<WriteGate>(createWriteGate(IS_WEB));
   const reconciledRef = useRef(false);
   // In-flight user tab selections; masks stale snapshots until the backend
   // confirms the switch, rejects it, or removes the target tab.
@@ -167,6 +168,45 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const applyRemoteProjection = useCallback((tabs: Record<string, Tab>) => {
     dispatch({ type: "SET_REMOTE_TABS", tabs: reconcileAttachedRemoteTabs(tabs, attachedRemoteTabsRef.current) });
   }, []);
+
+  useEffect(() => {
+    if (!IS_WEB) return;
+    let active = true;
+    void loadCachedStateAsync().then((cached) => {
+      if (!active) return;
+      if (!cached) {
+        if (!reconciledRef.current) writeGateRef.current.unlock();
+        return;
+      }
+      if (reconciledRef.current) return;
+      const displayState = { ...cached, generation: HYDRATED_GENERATION };
+      dispatch({ type: "SET_STATE", state: displayState, pageOwnedSelection: true,
+        initialSelection: initialPageSelection(displayState, loadClientPageSelection()) });
+    });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!IS_WEB) return;
+    let active = true;
+    let contextGeneration = 0;
+    const reset = () => {
+      contextGeneration++;
+      attachedRemoteTabsRef.current = {};
+      applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
+    };
+    const hydrate = () => {
+      const generation = ++contextGeneration;
+      void hydrateAttachedRemoteTabs().then((attached) => {
+        if (!active || generation !== contextGeneration) return;
+        attachedRemoteTabsRef.current = attached;
+        applyRemoteProjection(remoteTabsFromOrdinaryProjection(Object.values(stateRef.current.tabs)));
+      });
+    };
+    window.addEventListener("codeterm-peer-switch-reset", reset);
+    window.addEventListener("codeterm-peer-switch-rebind", hydrate);
+    hydrate();
+    return () => { active = false; window.removeEventListener("codeterm-peer-switch-reset", reset); window.removeEventListener("codeterm-peer-switch-rebind", hydrate); };
+  }, [applyRemoteProjection]);
 
   const applyBackendState = useCallback((s: MultiplexerState) => {
     // here silently dropped the closed-history on every reload.
@@ -182,15 +222,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [applyRemoteProjection]);
 
   const { generation, workspaces, tabs, teams, activeTabIds, active_workspace_id,
-    focused_tab_id, recently_closed, closed_structures } = state;
+    focused_tab_id, recently_closed, closed_structures, tabStatuses } = state;
   useEffect(() => {
     if (!IS_WEB || generation <= 0) return;
-    saveStateSnapshot({ generation, tabs, teams, active_workspace_id, focused_tab_id,
-      recently_closed, closed_structures, workspaces: workspaces.map((workspace) => ({
-        ...workspace, active_tab_id: activeTabIds[workspace.id] ?? null,
-      })) });
+    void saveStateSnapshot({ generation, tabs, teams, active_workspace_id, focused_tab_id,
+      recently_closed, closed_structures, workspaces, activeTabIds, tab_statuses: tabStatuses });
   }, [generation, workspaces, tabs, teams, activeTabIds, active_workspace_id,
-    focused_tab_id, recently_closed, closed_structures]);
+    focused_tab_id, recently_closed, closed_structures, tabStatuses]);
 
   const cachedBackendGenerationRef = useRef<number | undefined>(undefined);
   const acceptBackendState = useCallback((s: MultiplexerState) => {
@@ -659,12 +697,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const reopenClosed = useCallback(async (workspaceId: string, index = 0) => {
     try {
-      guardedInvoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
-      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       const tabInfo = await reopenClosedTab(workspaceId, index);
       dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabInfo.tab_id] });
-      await guardedInvoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id }).catch(() => {});
-      dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
+      guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId: tabInfo.tab_id }).catch(() => {});
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
+      dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.tab_id });
       guardedInvoke("mux_set_focused_tab", { tabId: tabInfo.tab_id }).catch(() => {});
       refreshFromBackend();
     } catch (e) {
@@ -821,6 +858,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     reasoningEffort?: string,
     preset?: string,
     intent?: SessionLaunchIntent,
+    executionMode?: string,
   ): Promise<SpawnedTab | null> => {
     if (intent === "fresh_general") {
       const guardKey = `${workspaceId}:fresh_general`;
@@ -841,9 +879,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     if (spawnInFlight.current.has(guardKey)) return null;
     spawnInFlight.current.add(guardKey);
     try {
-      // activate + focus, picking the transport (PTY vs chat) on the backend.
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_tab", {
-        params: { agentId, workspaceId, cwd, model, reasoningEffort, ...atomicSpawnPreset(getAgentDescriptor(agentId), preset) },
+        params: { agentId, workspaceId, cwd, model, reasoningEffort, ...atomicSpawnPreset(getAgentDescriptor(agentId), preset, executionMode) },
       });
       applyBackendState(res.snapshot);
       if (res.launch_command) {

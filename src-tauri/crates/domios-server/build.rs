@@ -6,6 +6,23 @@ fn main() {
         .join("../..")
         .canonicalize()
         .expect("Resolve the app manifest directory for bundled resources");
+    let version_source = app.join("tauri.conf.json");
+    println!("cargo:rerun-if-changed={}", version_source.display());
+    let config: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(&version_source).expect("Read release version configuration"),
+    )
+    .expect("Parse release version configuration");
+    let version = config["version"]
+        .as_str()
+        .expect("Release version must be a string");
+    assert!(
+        !version.is_empty()
+            && version
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b".-+".contains(&byte)),
+        "Invalid release version"
+    );
+    println!("cargo:rustc-env=DOMIOS_VERSION={version}");
     plugin_bundles::generate_system_plugin_hashes(&app);
     for (key, args) in [
         ("BUILD_SHA", vec!["rev-parse", "HEAD"]),
@@ -30,6 +47,13 @@ fn main() {
         );
         println!("cargo:rustc-env={key}={value}");
     }
+    println!("cargo:rerun-if-env-changed=CODETERM_SERVER_DEV_FRONTEND_ORIGIN");
+    let frontend = std::env::var("CODETERM_SERVER_DEV_FRONTEND_ORIGIN").unwrap_or_default();
+    assert!(
+        frontend.bytes().all(|byte| byte.is_ascii_graphic()),
+        "Invalid development frontend origin"
+    );
+    println!("cargo:rustc-env=SERVER_DEV_FRONTEND_ORIGIN={frontend}");
     println!("cargo:rerun-if-env-changed=CODETERM_SERVER_CLI_SHA256");
     let worker = std::env::var("CODETERM_SERVER_CLI_SHA256").unwrap_or_default();
     assert!(

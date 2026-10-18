@@ -189,6 +189,16 @@ pub(crate) fn compose_observed(
     }
 
     {
+        match codeterm_plugins::retire_unshipped_system_plugins(codeterm_plugins::PluginCtx {
+            data_root: codeterm_service_core::paths::data_dir(),
+            version: codeterm_build_info::installed_version().map(str::to_string),
+        }) {
+            Ok(retired) if !retired.is_empty() => {
+                log::info!("[plugin/retire] retired unshipped official plugins {retired:?}");
+            }
+            Ok(_) => {}
+            Err(error) => log::warn!("[plugin/retire] official plugin retirement failed: {error}"),
+        }
         let user_plugins = codeterm_service_core::paths::data_dir().join("plugins");
         match plugin::embedded::bootstrap_into(&user_plugins) {
             Ok(written) if !written.is_empty() => {

@@ -1,11 +1,44 @@
 import { describe, expect, it } from "vitest";
-import { initialSwapState, swapEvent, compatible, observeBoot, recoveryTarget, safeToSwap, type Safety, type Release } from "./model";
+import {
+  initialSwapState,
+  swapEvent,
+  compatible,
+  observeBoot,
+  recoveryTarget,
+  safeToSwap,
+  serverHandoffStatus,
+  clientReconnectStatus,
+  admitUpdateTransaction,
+  claimNativeExecution,
+  nativeExecutionAfterDisconnect,
+  serverQuitStatus,
+  type Safety,
+  type Release,
+  type ServerHandoffEvidence,
+} from "./model";
 import type { ClientCheckpoint } from "./checkpoint";
 
 const checkpoint: ClientCheckpoint = { activeWorkspaceId: "w", activeTabId: "a", drafts: { a: { text: "draft", attachmentIds: ["attachment-1"], replyTo: null } }, scroll: { a: { terminal: "line-42", chat: "message-8" } } };
 const safe: Safety = { focused: false, idle: true, typing: false, composing: false, modalOpen: false, pendingUploads: 0 };
 const release: Release = { releaseId: "frontend-v1.0.0", version: "1.0.0", minApiVersion: 2, maxApiVersion: 2 };
 const ticket = { releaseId: release.releaseId, generation: 1, token: "health-token" };
+const completedHandoff: ServerHandoffEvidence = {
+  operationId: "operation-1", oldEpoch: "epoch-1", expectedPredecessor: "process-1",
+  explicitDecision: true, stagedPair: "compatible", snapshot: "persisted", requestedExit: "acknowledged",
+  exitedPredecessor: "process-1", replacement: {
+    operationId: "operation-1", predecessorEpoch: "epoch-1", epoch: "epoch-2",
+    provenanceMatches: true, health: "healthy", sessions: "exact",
+  },
+};
+const replacement = completedHandoff.replacement!;
+const completedQuit = {
+  serverIdentityMatches: true,
+  challengeMatches: true,
+  operationMatches: true,
+  snapshot: "persisted" as const,
+  requestedExit: "settled" as const,
+  processExited: true,
+};
 
 describe("frontend swap safety", () => {
   it("holds interface activation until ordered updates release it", () => {
@@ -41,6 +74,12 @@ describe("frontend swap safety", () => {
     expect(consented.effects[0]?.type).toBe("persist");
     const newer = swapEvent(watched.state, { type: "ready", release: { ...release, releaseId: "frontend-v1.0.1", version: "1.0.1" } });
     expect(newer.state.consented).toBe(false);
+  });
+  it("does not stage or activate frontend releases while the update connection is unavailable", () => {
+    const disconnected = swapEvent(initialSwapState(2, checkpoint, safe), { type: "connection", status: "unavailable" });
+    const offered = swapEvent(disconnected.state, { type: "ready", release });
+    expect(offered.state.pending).toBeNull();
+    expect(offered.effects).toEqual([]);
   });
   it("persists edits made during checkpoint and activation before reloading", () => {
     const pending = swapEvent(initialSwapState(2, checkpoint, safe), { type: "ready", release });
@@ -103,5 +142,52 @@ describe("frontend swap safety", () => {
     expect(recoveryTarget(release, bundled, 3, [])).toBeNull();
     expect(recoveryTarget(release, bundled, 2, [release.releaseId, "bundled"])).toBeNull();
     expect(recoveryTarget(release, bundled, 2, ["a", "b", "c"])).toBeNull();
+  });
+  it("keeps server replacement behind explicit decision and exact ordered handoff evidence", () => {
+    expect(serverHandoffStatus({ ...completedHandoff, explicitDecision: false })).toBe("decision-required");
+    expect(serverHandoffStatus({ ...completedHandoff, stagedPair: "pending" })).toBe("stage-required");
+    expect(serverHandoffStatus({ ...completedHandoff, stagedPair: "incompatible" })).toBe("refused");
+    expect(serverHandoffStatus({ ...completedHandoff, snapshot: "failed" })).toBe("refused");
+    expect(serverHandoffStatus({ ...completedHandoff, requestedExit: "pending" })).toBe("exit-ack-required");
+    expect(serverHandoffStatus({ ...completedHandoff, exitedPredecessor: null })).toBe("predecessor-exit-required");
+    expect(serverHandoffStatus({ ...completedHandoff, exitedPredecessor: "reused-process-id" })).toBe("refused");
+    expect(serverHandoffStatus({ ...completedHandoff, exitedPredecessor: null, replacement: { ...replacement, health: "unhealthy" } })).toBe("predecessor-exit-required");
+    expect(serverHandoffStatus({ ...completedHandoff, replacement: { ...replacement, operationId: "foreign" } })).toBe("refused");
+    expect(serverHandoffStatus({ ...completedHandoff, replacement: { ...replacement, predecessorEpoch: "foreign" } })).toBe("refused");
+    expect(serverHandoffStatus({ ...completedHandoff, replacement: { ...replacement, provenanceMatches: false } })).toBe("refused");
+    expect(serverHandoffStatus({ ...completedHandoff, replacement: { ...replacement, health: "unhealthy" } })).toBe("rollback");
+    expect(serverHandoffStatus({ ...completedHandoff, replacement: { ...replacement, sessions: "failed" } })).toBe("rollback");
+    expect(serverHandoffStatus(completedHandoff)).toBe("ready");
+  });
+  it("keeps a client-only reconnect on the exact server owner without requesting shutdown", () => {
+    expect(clientReconnectStatus("server-owner-1", null, true, false)).toBe("reconnecting");
+    expect(clientReconnectStatus("server-owner-1", "server-owner-1", true, false)).toBe("connected");
+    expect(clientReconnectStatus("server-owner-1", "server-owner-2", true, false)).toBe("unavailable");
+    expect(clientReconnectStatus("server-owner-1", "server-owner-1", false, false)).toBe("unavailable");
+    expect(clientReconnectStatus("server-owner-1", "server-owner-1", true, true)).toBe("unavailable");
+  });
+  it("permits tray client exit only after exact-server persistence and process exit", () => {
+    expect(serverQuitStatus({ ...completedQuit, serverIdentityMatches: false })).toBe("refused");
+    expect(serverQuitStatus({ ...completedQuit, challengeMatches: false })).toBe("refused");
+    expect(serverQuitStatus({ ...completedQuit, operationMatches: false })).toBe("refused");
+    expect(serverQuitStatus({ ...completedQuit, snapshot: "pending" })).toBe("snapshot-required");
+    expect(serverQuitStatus({ ...completedQuit, snapshot: "failed" })).toBe("refused");
+    expect(serverQuitStatus({ ...completedQuit, requestedExit: "pending" })).toBe("exit-settlement-required");
+    expect(serverQuitStatus({ ...completedQuit, processExited: false })).toBe("server-exit-required");
+    expect(serverQuitStatus(completedQuit)).toBe("client-exit-permitted");
+  });
+  it("coalesces update entry points and does not replay uncertain native execution", () => {
+    const admitted = admitUpdateTransaction(null, "operation-1");
+    expect(admitted).toEqual({ operationId: "operation-1", result: "accepted" });
+    expect(admitUpdateTransaction(admitted.operationId, "operation-1")).toEqual({ operationId: "operation-1", result: "joined" });
+    expect(admitUpdateTransaction(admitted.operationId, "operation-2")).toEqual({ operationId: "operation-1", result: "busy" });
+    const first = claimNativeExecution("not-started");
+    expect(first).toEqual({ state: "in-flight", execute: true });
+    expect(claimNativeExecution(first.state)).toEqual({ state: "in-flight", execute: false });
+    const uncertain = nativeExecutionAfterDisconnect(first.state);
+    expect(uncertain).toBe("uncertain");
+    expect(nativeExecutionAfterDisconnect(uncertain)).toBe("uncertain");
+    expect(claimNativeExecution(uncertain)).toEqual({ state: "uncertain", execute: false });
+    expect(claimNativeExecution("completed")).toEqual({ state: "completed", execute: false });
   });
 });
