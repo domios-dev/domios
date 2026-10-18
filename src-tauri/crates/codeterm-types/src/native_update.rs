@@ -503,6 +503,7 @@ fn valid_server_executable(path: &Path) -> bool {
 fn valid_client_identity(identity: &crate::server_bootstrap::ClientIdentity) -> bool {
     use crate::server_bootstrap::ClientIdentity;
     match identity {
+        ClientIdentity::None => false,
         ClientIdentity::Sha256 { sha256 } => !cfg!(target_os = "macos") && valid_sha256(sha256),
         ClientIdentity::MacosDesignatedRequirement { requirement, team_id, identifier } => {
             cfg!(target_os = "macos")
@@ -680,6 +681,9 @@ mod tests {
     fn manifest_client_identity_and_server_location_are_platform_bound() {
         let mut manifest = components("server-build", &"b".repeat(64));
         assert!(super::validate_manifest(&manifest).is_ok());
+        manifest.client_identity = ClientIdentity::None;
+        assert!(super::validate_manifest(&manifest).is_err());
+        manifest = components("server-build", &"b".repeat(64));
         if cfg!(target_os = "macos") {
             manifest.server_executable = PathBuf::from("domios-server/domios-server");
             assert!(super::validate_manifest(&manifest).is_err());
