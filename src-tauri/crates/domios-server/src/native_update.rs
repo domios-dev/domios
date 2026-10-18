@@ -5,8 +5,8 @@ use codeterm_service_core::{update_state::UpdatePhase, UpdateStateHandle};
 use codeterm_types::{
     native_update::{
         NativeUpdateAction, NativeUpdateAttachment, NativeUpdateDispatchOutcome,
-        NativeUpdateExecutor, NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult,
-        NativeUpdateState, NativeUpdateUncertainty,
+        NativeUpdateExecutor, NativeUpdateObservationOutcome, NativeUpdateRefusal,
+        NativeUpdateRequest, NativeUpdateResult, NativeUpdateState, NativeUpdateUncertainty,
     },
     server_bootstrap::{ServerComponentManifest, ServerReady},
 };
@@ -18,9 +18,9 @@ const MAX_AUTOMATIC_OBSERVATIONS: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NativeUpdateHoldReason {
-    InvalidReply(NativeUpdateRefusal),
     DispatchDeadline,
-    DispatchUncertain(NativeUpdateUncertainty),
+    PostDispatchUncertain(NativeUpdateUncertainty),
+    ObservationNoNewEvidence,
     ObservationDeadline,
     ObservationCancelled,
     ObservationBudgetExhausted,
@@ -284,12 +284,12 @@ impl NativeUpdateCoordinator {
         )
         .await;
         let result = match observed {
-            Ok(result) => record_event(
+            Ok(outcome) => record_observation(
                 &self.inner,
                 operation_id,
                 generation,
                 &request,
-                result,
+                outcome,
                 EventSource::Reconciliation,
             ),
             Err(_) => hold_active(
@@ -354,7 +354,7 @@ async fn run_client_update(
                 &inner,
                 operation_id,
                 Some(generation),
-                NativeUpdateHoldReason::DispatchUncertain(reason),
+                NativeUpdateHoldReason::PostDispatchUncertain(reason),
             );
             return;
         }
@@ -436,8 +436,8 @@ async fn run_client_update(
                 executor.observe(operation_id, after_sequence),
             ) => result,
         };
-        let result = match observed {
-            Ok(result) => result,
+        let outcome = match observed {
+            Ok(outcome) => outcome,
             Err(_) => {
                 hold_active(
                     &inner,
@@ -448,20 +448,49 @@ async fn run_client_update(
                 return;
             }
         };
-        let status = match record_event(
+        let status = match record_observation(
             &inner,
             operation_id,
             generation,
             &request,
-            result,
+            outcome,
             EventSource::Observation,
         ) {
             Ok(status) => status,
             Err(_) => return,
         };
-        if status.phase.is_terminal() {
+        if status.phase.is_terminal() || status.phase.is_held() {
             return;
         }
+    }
+}
+
+fn record_observation(
+    inner: &Arc<Mutex<CoordinatorState>>,
+    operation_id: codeterm_types::native_update::NativeUpdateOperationId,
+    generation: u64,
+    request: &NativeUpdateRequest,
+    outcome: NativeUpdateObservationOutcome,
+    source: EventSource,
+) -> Result<NativeUpdateCoordinatorStatus, NativeUpdateRefusal> {
+    match outcome {
+        NativeUpdateObservationOutcome::Reply(result) => {
+            record_event(inner, operation_id, generation, request, result, source)
+        }
+        NativeUpdateObservationOutcome::NoNewEvidence => hold_active(
+            inner,
+            operation_id,
+            Some(generation),
+            NativeUpdateHoldReason::ObservationNoNewEvidence,
+        )
+        .ok_or(NativeUpdateRefusal::AlreadyInFlight),
+        NativeUpdateObservationOutcome::Unavailable { reason } => hold_active(
+            inner,
+            operation_id,
+            Some(generation),
+            NativeUpdateHoldReason::PostDispatchUncertain(reason),
+        )
+        .ok_or(NativeUpdateRefusal::AlreadyInFlight),
     }
 }
 
@@ -520,7 +549,9 @@ fn record_event(
             .and(connection_refusal)
         {
             active.status.phase = NativeUpdateCoordinatorPhase::Held {
-                reason: NativeUpdateHoldReason::InvalidReply(refusal),
+                reason: NativeUpdateHoldReason::PostDispatchUncertain(
+                    NativeUpdateUncertainty::InvalidReplyAfterDispatch(refusal),
+                ),
             };
             active.status_tx.send_replace(active.status.clone());
             (
@@ -545,11 +576,25 @@ fn record_event(
                     true,
                 ),
                 NativeUpdateState::Completed { .. }
-                | NativeUpdateState::InstalledAwaitingVerification { .. } => (
-                    NativeUpdateCoordinatorPhase::InstalledAwaitingVerification,
-                    UpdateStatusEffect::None,
-                    false,
-                ),
+                | NativeUpdateState::InstalledAwaitingVerification { .. } => {
+                    if matches!(source, EventSource::Reconciliation) {
+                        (
+                            NativeUpdateCoordinatorPhase::Held {
+                                reason: NativeUpdateHoldReason::ReconciliationIncomplete,
+                            },
+                            UpdateStatusEffect::Error(
+                                "Native install is awaiting replacement verification".into(),
+                            ),
+                            false,
+                        )
+                    } else {
+                        (
+                            NativeUpdateCoordinatorPhase::InstalledAwaitingVerification,
+                            UpdateStatusEffect::None,
+                            false,
+                        )
+                    }
+                }
                 NativeUpdateState::Admitted
                 | NativeUpdateState::InProgress { .. }
                 | NativeUpdateState::Uncertain { .. } => match source {
@@ -622,9 +667,9 @@ fn reject_before_dispatch(
         active.status_tx.send_replace(active.status.clone());
         (active.state.clone(), active.lease.take())
     };
-    state
-        .lock()
-        .set_error(format!("Native update refused before execution: {reason:?}"));
+    state.lock().set_error(format!(
+        "Native update refused before execution: {reason:?}"
+    ));
     drop(lease);
 }
 
