@@ -1,17 +1,44 @@
-export async function installReplayPage({tab,session,nonce,run,other,muxTab,probe='composer',maxSamples=20000},loadModule=specifier => import(specifier)) {
+export function functionalReplayPrerequisites() {
+  if (!new URL(window.location.href).searchParams.has('e2e')) return {available:false,reason:'existing_e2e_entry_required'};
+  const chat = window.__codetermTestChat, projection = window.__chatProjection;
+  if (typeof chat?.reply !== 'function' || typeof chat?.pushMessages !== 'function' ||
+      typeof projection?.snapshot !== 'function' || typeof projection?.recordPaint !== 'function')
+    return {available:false,reason:'bundled_chat_handles_unavailable_open_existing_chat'};
+  return {available:true,internalStore:'unavailable',durableStorage:'unavailable',authority:'backend_binding_only'};
+}
+
+export async function installReplayPage({tab,session,nonce,run,other,muxTab,probe='composer',maxSamples=20000,functional=false},loadModule=specifier => import(specifier)) {
   if (window.__streamingSoakReplay) throw Error('Replay instrumentation already installed');
-  const bridge = await loadModule('/src/components/Terminal/chatTestBridge.ts');
-  if (!bridge.isCodeTermFrontendTestMode()) throw Error('Parent must enable frontend test mode on DEV before setup');
-  const store = await loadModule('/src/components/Terminal/transcriptStore.ts');
-  const core = await loadModule('/packages/chat-core/src/transcript.ts');
-  const {chatProjectionMonitor:monitor} = await loadModule('/src/components/Terminal/chatProjectionDiagnostics.ts');
+  let store,core,monitor;
+  if (functional) {
+    if (!new URL(window.location.href).searchParams.has('e2e') ||
+        typeof window.__codetermTestChat?.reply !== 'function' ||
+        typeof window.__codetermTestChat?.pushMessages !== 'function' ||
+        typeof window.__chatProjection?.snapshot !== 'function' ||
+        typeof window.__chatProjection?.recordPaint !== 'function') throw Error('Bundled DEV test handles unavailable');
+    monitor = window.__chatProjection;
+  } else {
+    const bridge = await loadModule('/src/components/Terminal/chatTestBridge.ts');
+    if (!bridge.isCodeTermFrontendTestMode()) throw Error('Parent must enable frontend test mode on DEV before setup');
+    store = await loadModule('/src/components/Terminal/transcriptStore.ts');
+    core = await loadModule('/packages/chat-core/src/transcript.ts');
+    ({chatProjectionMonitor:monitor} = await loadModule('/src/components/Terminal/chatProjectionDiagnostics.ts'));
+  }
   const root = document.querySelector(`[data-testid="tab-session-chat"][data-tab-id="${tab}"]`);
   const textarea = root?.querySelector('textarea[aria-label="Message composer"]');
   const graph = document.querySelector('[role="toolbar"][aria-label="Mesh graph controls"]')?.parentElement;
   if (!root || probe === 'composer' && (!textarea || textarea.value !== '')) throw Error('Owned composer mount required');
   if (probe === 'mesh' && (!graph || graph.getBoundingClientRect().width <= 0)) throw Error('Parent must open the visible Mesh machines graph before replay');
-  const key = store.transcriptWindowKey(tab,session);
+  const key = functional?null:store.transcriptWindowKey(tab,session);
   const read = (target={session,nonce}) => {
+    if (functional) {
+      const id = target.tab??tab;
+      const mounted = document.querySelector(`[data-testid="tab-session-chat"][data-tab-id="${id}"]`);
+      const projection = monitor.snapshot(id);
+      if (!mounted || !projection) throw Error('Owned bundled projection is not mounted');
+      return {internalStore:'unavailable',authority:'backend_binding_only',durableStorage:'unavailable',projection,
+        visibleSourceIds:[...mounted.querySelectorAll('[data-source-message-id]')].map(node => node.dataset.sourceMessageId)};
+    }
     const transcript = store.readTranscriptWindow(target === other?store.transcriptWindowKey(other.tab,other.session):key).transcript;
     if (transcript.authority?.sourceSessionId !== target.session || transcript.authority.sessionBindingNonce !== target.nonce) throw Error('Owned replay authority drift');
     return {authority:transcript.authority,rows:core.transcriptRows(transcript),evictedOlder:transcript.evictedOlder};
@@ -33,16 +60,18 @@ export async function installReplayPage({tab,session,nonce,run,other,muxTab,prob
   function recordPaint(id,tail) {
     originalPaint.call(this,id,tail);
     if (active && (id === tab || id === other.tab)) record({kind:'tail-paint-opportunity',at:performance.now(),tail,target:id === tab?'local':'other',...coordinate});
-    if (id === tab) paintEvents.dispatchEvent(new CustomEvent('tail',{detail:tail}));
+    if (id === tab || id === other.tab) paintEvents.dispatchEvent(new CustomEvent('tail',{detail:{tab:id,tail}}));
   }
   monitor.recordPaint = recordPaint;
-  function painted(tail) {
-    if (monitor.snapshot(tab)?.paintedTail === tail) return Promise.resolve();
+  function painted(tail,targetTab=tab,sourceId=tail.slice(0,tail.lastIndexOf('#'))) {
+    const observed = () => monitor.snapshot(targetTab)?.paintedTail === tail && (!functional ||
+      read({tab:targetTab}).visibleSourceIds.includes(sourceId));
+    if (observed()) return Promise.resolve();
     return new Promise((resolve,reject) => {
       const deadline = AbortSignal.timeout(20000);
       const cleanup = () => { paintEvents.removeEventListener('tail',onTail); deadline.removeEventListener('abort',fail); pending.delete(fail); };
       const fail = () => { cleanup(); reject(Error('Owned tail paint-opportunity deadline')); };
-      const onTail = event => { if (event.detail === tail) { cleanup(); resolve(); } };
+      const onTail = event => { if (event.detail.tab === targetTab && event.detail.tail === tail && observed()) { cleanup(); resolve(); } };
       pending.add(fail); paintEvents.addEventListener('tail',onTail); deadline.addEventListener('abort',fail,{once:true});
     });
   }
@@ -50,13 +79,16 @@ export async function installReplayPage({tab,session,nonce,run,other,muxTab,prob
     read(target);
     const start = performance.now(), messages = JSON.parse(wire), parsed = performance.now();
     if (!messages.every(row => row.id.startsWith('soak-'+run+'-') && row.sourceSessionId === target.session)) throw Error('Foreign replay row');
-    const tail = messages.at(-1), done = probe === 'composer' && target.tab === tab?painted(tail.id+'#'+tail.content.length):frames();
+    const tail = messages.at(-1), signature = tail.id+'#'+tail.content.length;
+    const done = functional?painted(signature,target.tab,tail.sourceMessageId??tail.id):probe === 'composer' && target.tab === tab?painted(signature):frames();
     window.dispatchEvent(new CustomEvent('codeterm:test-chat-reply',{detail:{tabId:target.tab,messages,sourceSessionId:target.session,sessionBindingNonce:target.nonce}}));
     const returnedAt = performance.now();
-    add('parse',parsed-start); add('dispatchToStoreReturn',returnedAt-parsed);
-    const committed = read(target).rows.find(row => row.id === tail.id);
-    if (committed?.content !== tail.content) throw Error('Owned test listener did not adopt exact tail; never pretend unmounted ingestion succeeded');
-    if (active) record({kind:'normalized-arrival-store-return',at:start,returnedAt,...coordinate,
+    add('parse',parsed-start); add(functional?'dispatchReturn':'dispatchToStoreReturn',returnedAt-parsed);
+    if (!functional) {
+      const committed = read(target).rows.find(row => row.id === tail.id);
+      if (committed?.content !== tail.content) throw Error('Owned test listener did not adopt exact tail; never pretend unmounted ingestion succeeded');
+    }
+    if (active) record({kind:functional?'normalized-arrival-public-event-return':'normalized-arrival-store-return',at:start,returnedAt,...coordinate,
       id:tail.id,seq:tail.seq??null,characters:tail.content.length,bytes:new TextEncoder().encode(tail.content).length,target:target.tab === tab?'local':'other'});
     return done;
   }
@@ -124,7 +156,7 @@ export async function installReplayPage({tab,session,nonce,run,other,muxTab,prob
       if (probe === 'composer' && !targetOther && textarea.value !== '') throw Error('Owned draft reset did not commit');
     },
     begin() {
-      values = Object.fromEntries(['parse','dispatchToStoreReturn','muxTestDispatch','frameInterval','eventTimestampToCapture','captureToDocumentBubble','inputToFirstFrame','inputToSecondFrame','eventTimingQueue','eventTimingHandler','eventTimingDuration','longTask'].map(name => [name,[]]));
+      values = Object.fromEntries(['parse','dispatchReturn','dispatchToStoreReturn','muxTestDispatch','frameInterval','eventTimestampToCapture','captureToDocumentBubble','inputToFirstFrame','inputToSecondFrame','eventTimingQueue','eventTimingHandler','eventTimingDuration','longTask'].map(name => [name,[]]));
       longTasks.length = 0; timeline = []; mutationCounts = {attributes:0,childList:0,characterData:0}; overflow = false; active = true;
       const epoch = ++frameEpoch; let previous = null;
       const frame = now => {
@@ -183,6 +215,6 @@ export async function installReplayPage({tab,session,nonce,run,other,muxTab,prob
       delete window.__streamingSoakReplay;
     },
   };
-  return {owned:true,boundary:'Normalized test-event dispatch -> existing transcript reducer -> ancestor/render/paint opportunity; no provider/SSE/native IPC adoption',
+  return {owned:true,internalStore:functional?'unavailable':'verified',durableStorage:'unavailable',authority:functional?'backend_binding_only':'verified_internal',boundary:functional?'Bundled test event -> public projection/DOM opportunity; internal store/authority/durability unavailable':'Normalized test-event dispatch -> existing transcript reducer -> ancestor/render/paint opportunity; no provider/SSE/native IPC adoption',
     timeOrigin:performance.timeOrigin,clock:'performance.now milliseconds; cross-process alignment requires measured clock uncertainty',hasLongTask,hasEventTiming};
 }

@@ -43,6 +43,16 @@ export function validateDevSurfaceTarget(admission,target) {
     socket.pathname === `/devtools/page/${target.id}`, 'DEV page diagnostic socket mismatch');
   return target;
 }
+export function functionalTailEvidence(expected,observed) {
+  const tail = expected.at(-1);
+  requireValue(tail && observed?.internalStore === 'unavailable' && observed.authority === 'backend_binding_only' &&
+    observed.projection?.paintedTail === tail.id+'#'+tail.content.length && observed.visibleSourceIds?.includes(tail.sourceMessageId??tail.id),
+  'Owned public projection/DOM tail evidence missing');
+  return {tailId:tail.id,sourceId:tail.sourceMessageId??tail.id,characters:tail.content.length,projectionTail:observed.projection.paintedTail,
+    internalStore:{available:false,reason:'bundled_transcript_store_not_exposed'},
+    durableStorage:{available:false,reason:'frontend_test_event_is_not_persistence'},
+    authority:{available:false,reason:'backend_binding_only'}};
+}
 export function measurementCapabilities(purpose,rendererCount) {
   requireValue(['profile','functional'].includes(purpose),'Expected purpose functional or profile');
   if (purpose === 'functional') return {purpose,rendererAttribution:'unavailable',traceAttribution:'unavailable',reason:'functional_page_only'};
