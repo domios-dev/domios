@@ -437,3 +437,24 @@ the deadline or trying another launch. Inspect the last install/attach/launch
 boundary and exact nonsecret code, never helper stdout or API credentials.
 Helper stderr remains hidden; this diagnostic does not authorize another retry
 or imply that a previously timed-out server/client launch became ready.
+
+### Windows detached server refused by an older utility job
+
+Symptom: verified DEV artifacts reach launch, then human start reports Access denied
+(os error 5). A PTY job without explicit breakaway permission can reject the server's
+CREATE_BREAKAWAY_FROM_JOB request. Confirm the actual spawn boundary before attributing
+an arbitrary permission failure to jobs.
+
+The host admits explicit breakaway only for persisted Team Dev utility shells. Their
+job retains KILL_ON_JOB_CLOSE; ordinary descendants remain contained. Default, agent,
+non-Team and other-purpose shells cannot request that policy. No silent breakaway or
+runtime environment switch exists. The server still refuses residual ancestor-job
+membership through ensure_detached.
+
+Activation requires a reviewed host carrying this policy to create a NEW utility PTY.
+A newly built DEV client cannot retrofit jobs created by the older installed host.
+Do not mutate a live PROD job, restart/install PROD automatically, or relax containment.
+An outside-job parent can separately verify exact staged artifacts, but cannot pass the
+Team utility activation oracle. Parent QA must observe default/agent/ordinary Dev
+children die on job close and only the explicit server survive with its retained
+process pin, authenticated epoch and existing session unchanged.
