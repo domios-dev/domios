@@ -6,13 +6,18 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 isolated="$(CODETERM_DEV_INSTANCE=playwright-harness CODETERM_DEV_API_PORT=7786 CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY=1 ./build.sh dev --wait)"
-grep -Fxq 'mode=isolated-named-wait' <<<"$isolated"
-grep -Eq '^target=.*/\.codeterm-dev-playwright-harness/target$' <<<"$isolated"
+grep -Fxq 'mode=isolated-named' <<<"$isolated"
+grep -Eq '^target=.*/src-tauri/target/dev-instances/playwright-harness$' <<<"$isolated"
 grep -Fxq 'build_gateway=required' <<<"$isolated"
 
-canonical="$(CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY=1 ./build.sh dev --wait)"
-grep -Fxq 'mode=shared' <<<"$canonical"
-grep -Fxq 'build_gateway=required' <<<"$canonical"
+interactive="$(CODETERM_DEV_INSTANCE=playwright-harness CODETERM_DEV_API_PORT=7786 CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY=1 ./build.sh dev)"
+[ "$interactive" = "$isolated" ]
+
+if [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ]; then
+  canonical="$(env -u CODETERM_DEV_INSTANCE -u CODETERM_DEV_API_PORT CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY=1 ./build.sh dev --wait)"
+  grep -Fxq 'mode=shared' <<<"$canonical"
+  grep -Fxq 'build_gateway=required' <<<"$canonical"
+fi
 
 first="$(CODETERM_DEV_INSTANCE=tester-one CODETERM_DEV_API_PORT=7781 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
 second="$(CODETERM_DEV_INSTANCE=tester-two CODETERM_DEV_API_PORT=7782 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
@@ -36,6 +41,6 @@ if [ "$missing_port_status" -ne 2 ] || ! grep -q 'requires its own CODETERM_DEV_
   exit 1
 fi
 
-node --test scripts/tests/dev-gateway-handoff.test.mjs
+node --test scripts/tests/dev-gateway-handoff.test.mjs scripts/tests/dev-named-target.test.mjs scripts/tests/dev-instance-policy.test.mjs
 
 echo "isolated named dev policy check passed"
