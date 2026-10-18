@@ -2,7 +2,10 @@
 mod plugin_bundles;
 
 fn main() {
-    let app = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let app = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("Resolve the app manifest directory for bundled resources");
     plugin_bundles::generate_system_plugin_hashes(&app);
     for (key, args) in [
         ("BUILD_SHA", vec!["rev-parse", "HEAD"]),
