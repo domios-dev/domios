@@ -20,7 +20,7 @@ import { usePhoneViewport } from "../../hooks/useSidebarViewport";
 import { useMuxSelector } from "../../store/multiplexer";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { goalVisible } from "./goalModel";
-import { ComposerBackgroundWorkPanel } from "./ComposerBackgroundWorkPanel";
+import { ComposerBackgroundWorkPanel, SubagentCapsules } from "./ComposerBackgroundWorkPanel";
 import { useComposerBackgroundWork } from "./useComposerBackgroundWork";
 import { composerBackgroundWorkBubble } from "./composerBackgroundWorkModel";
 
@@ -363,6 +363,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
         {!phone && linkedChips}
       </div>
       {phone && linkedChips}
+      <SubagentCapsules items={backgroundWork.items.filter(item => item.kind === "agent")} />
       {open && (phone ? (
         <div className="ct-ctx__reveal" data-open={unfolded || undefined}>
           <div className="ct-ctx__reveal-inner">{body}</div>
