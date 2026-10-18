@@ -84,8 +84,7 @@ Worker death during `in_progress` (tab closed/crashed or agent exited) pushes `[
    wave's focused selectors in canonical.
 8. **Let heartbeat follow state.** It derives from plan/task state; answer
    reminders there, never through heartbeat, focus or lane fields.
-9. **Clean up as you go:** when a task is accepted or cancelled, close its Worker tab, crons and idle utility shells (stop dev processes first),
-   prune lanes with `codeterm plan lanes <plan> --clean --confirm`, and record cleanup.
+9. **Clean up as you go:** close a reported Worker once its clean lane tip is integrated and no known author correction remains, even while parent-owned QA keeps the task in review. Deferred checks or hypothetical defects do not justify retaining the tab. Preserve review state, evidence and recoverable identity; restore the tab through the supported lifecycle if a later defect needs its author. Keep active/unreported work and required live fixtures. Close idle owned utilities/watchers; stop owned dev processes first. Prune only clean, ancestry-verified lanes with `codeterm plan lanes <plan> --clean --confirm`, and record cleanup. Closing a tab never accepts its task.
 
 The live Plan Orchestrator may run confirmed lane cleanup (including `--fetch`)
 from its own Team utility shell. The daemon verifies the shell's launch binding,
@@ -167,4 +166,4 @@ A `[provider access lost]` notice means recover the login or respawn on another 
 
 Confined mutating Workers persist host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR/TEMP/TMP use lane-local `.codeterm-tmp`. Task-bound spawns require explicit read_only or mutating intent. Older task tabs without saved confinement retain their behavior.
 
-<!-- revision: 129 -->
+<!-- revision: 130 -->
