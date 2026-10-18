@@ -541,3 +541,14 @@ entry script bytes. Target/socket/renderer PID/incarnation/native-bridge refusal
 Legacy combined-role target checks stay strict. Split native inspection returns locator
 unavailable rather than inventing CDP from client configuration or blank server fields.
 Parent Browser authentication and live fixture work remain separate authorized steps.
+
+### Browser-wide renderer count blocks functional replay
+
+The streaming-soak runner defaults to strict profiling attribution. For finite
+input/storage correctness on an existing multi-renderer Browser, use its explicit
+`--purpose functional` on inspect/setup/replay/finish/cleanup; follow REPLAY.md.
+The same page/entry/build/boot/daemon and fixture journal remain pinned. Renderer
+PID/private bytes/trace attribution are explicitly unavailable, never guessed.
+Functional reports retain DOM/input/storage and page-CDP metrics, refuse profiling,
+heap snapshots and memory/plateau comparisons, and cannot resume across capability
+or page drift. No other Browser page/profile is changed to obtain a renderer PID.

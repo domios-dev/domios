@@ -6,7 +6,7 @@ import {randomUUID,createHash} from 'node:crypto';
 import {fixtureRecord} from '../chat-memory/fixture.mjs';
 import {analyzeGraph,snapshotGraph,heapDiff} from './heap.mjs';
 import {declareControl,plateau} from './oracle.mjs';
-import {VERSION,requireValue,segmentSeconds,validateResume,cleanupPlan,sampleDue,acknowledge,validateFileOwnership,muxBindings} from './model.mjs';
+import {VERSION,requireValue,requireMeasurement,segmentSeconds,validateResume,cleanupPlan,sampleDue,acknowledge,validateFileOwnership,muxBindings} from './model.mjs';
 import {atomic,readJson,waitFile,request,shellCommand} from './io.mjs';
 import {attach,dcJson,visit,sample,beginCleanupObservation,waitCleanupObservation,disposeCleanupObservation} from './runtime.mjs';
 import {prepareReplay,compareReplays,outsideRepository,REPLAY_LIMITS} from './replay-model.mjs';
@@ -15,6 +15,12 @@ import {runReplay,repositoryRoot} from './replay.mjs';
 const [command,...args] = process.argv.slice(2);
 const flags = Object.fromEntries(args.reduce((all,key,i) => key.startsWith('--')?[...all,[key.slice(2),args[i+1]]]:all,[]));
 requireValue(['inspect','setup','pulse','sample','finish','cleanup','analyze','diff','prepare-replay','replay','compare-replay'].includes(command),'Expected inspect|setup|pulse|sample|finish|cleanup|analyze|diff|prepare-replay|replay|compare-replay');
+const purpose = flags.purpose??'profile';
+requireValue(['functional','profile'].includes(purpose),'--purpose functional|profile required');
+if (purpose === 'functional') {
+  requireValue(!flags.profile || flags.profile === 'none','Functional mode refuses CPU/process trace profiles');
+  requireValue(flags.snapshot !== 'yes' && !['analyze','diff','compare-replay'].includes(command),'Functional mode refuses memory/snapshot/comparison oracles');
+}
 const out = path.resolve(flags.out??''); requireValue(Boolean(flags.out),'--out required');
 const checkpoint = path.join(out,'checkpoint.json');
 const readSamples = () => fs.existsSync(path.join(out,'samples.jsonl')) ? fs.readFileSync(path.join(out,'samples.jsonl'),'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];
@@ -35,16 +41,18 @@ async function execute() {
   }
   if (command === 'compare-replay') {
     requireValue(flags.before && flags.after,'--before and --after replay-profile.json required');
-    atomic(path.join(out,'replay-comparison.json'),compareReplays(readJson(flags.before),readJson(flags.after))); return;
+    const before = readJson(flags.before), after = readJson(flags.after);
+    requireMeasurement(before.identity,'memory'); requireMeasurement(after.identity,'memory');
+    atomic(path.join(out,'replay-comparison.json'),compareReplays(before,after)); return;
   }
   if (command === 'diff') {
     requireValue(flags.before && flags.after,'--before and --after heapsnapshots required');
     atomic(path.join(out,'heap-diff.json'),heapDiff(analyzeGraph(snapshotGraph(readJson(flags.before))),analyzeGraph(snapshotGraph(readJson(flags.after))))); return;
   }
   if (command === 'analyze') {
-    cp = readJson(checkpoint); atomic(path.join(out,'plateau.json'),plateau(readSamples(),cp.control)); return;
+    cp = readJson(checkpoint); requireMeasurement(cp.identity,'memory'); atomic(path.join(out,'plateau.json'),plateau(readSamples(),cp.control)); return;
   }
-  rt = await attach(signal,{surface:flags.surface,cdp:flags.cdp,target:flags.target});
+  rt = await attach(signal,{surface:flags.surface,cdp:flags.cdp,target:flags.target,purpose});
   if (command === 'inspect') { atomic(path.join(out,'identity.json'),rt.identity); return; }
   if (command === 'setup') return setup();
   cp = readJson(checkpoint);
@@ -147,6 +155,7 @@ async function setup() {
   requireValue(rt.identity.build === flags['expect-build'] && rt.identity.entryHash === flags['expect-entry'],'Expected DEV build/served entry mismatch');
   const mode = flags.mode??'load'; requireValue(['load','idle','replay'].includes(mode),'Expected load, idle or replay');
   if (mode === 'replay') { outsideRepository(out,repositoryRoot); requireValue(flags.snapshot !== 'yes','Replay heap snapshots refused'); }
+  requireValue(purpose !== 'functional' || mode === 'replay','Functional setup supports only the existing replay fixture mode');
   const run = randomUUID(), token = randomUUID();
   cp = {version:VERSION,stage:'setup',run,token,identity:rt.identity,mode,batch:0,pending:null,lastSample:null,fixtures:[],lines:16};
   cp.match = {build:cp.identity.build,entryHash:cp.identity.entryHash,renderer:cp.identity.renderer,daemon:cp.identity.daemon,

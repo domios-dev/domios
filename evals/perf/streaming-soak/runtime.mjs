@@ -6,7 +6,7 @@ import {listenerIdentity} from '../../core-journeys/lib/listener.mjs';
 import {connect,evaluate,pageTarget,takeHeapSnapshot} from '../renderer-memory/cdp.mjs';
 import {FIND_TERMINALS} from '../renderer-memory/terminals.mjs';
 import {processInfo} from './io.mjs';
-import {requireValue,validateIdentity,admitDevSurface,validateDevSurfaceTarget} from './model.mjs';
+import {requireValue,validateIdentity,admitDevSurface,validateDevSurfaceTarget,measurementCapabilities,requireMeasurement,rendererMetrics} from './model.mjs';
 import {ownedChatComposerMounted} from './readiness.mjs';
 import {cleanupStateComplete,installCleanupObserverPage} from './cleanup-observation.mjs';
 
@@ -41,11 +41,17 @@ export async function attach(signal,options={}) {
   let browser;
   try {
     const version = await (await fetch(`http://127.0.0.1:${cdpPort}/json/version`,{signal})).json();
-    browser = await connect(version.webSocketDebuggerUrl);
-    const {processInfo:processes} = await browser.send('SystemInfo.getProcessInfo');
-    const renderers = processes.filter(p => p.type === 'renderer');
-    requireValue(renderers.length === 1,'Exactly one DEV renderer required; refuse ambiguous PID attribution');
-    const renderer = processInfo(renderers[0].id), daemon = processInfo(listenerIdentity(7686).pid);
+    const purpose = options.purpose??'profile';
+    let renderer = null, capabilities;
+    if (purpose === 'functional') capabilities = measurementCapabilities(purpose);
+    else {
+      browser = await connect(version.webSocketDebuggerUrl);
+      const {processInfo:processes} = await browser.send('SystemInfo.getProcessInfo');
+      const renderers = processes.filter(p => p.type === 'renderer');
+      capabilities = measurementCapabilities(purpose,renderers.length);
+      renderer = processInfo(renderers[0].id);
+    }
+    const daemon = processInfo(listenerIdentity(7686).pid);
     const native = await evaluate(cdp,'Boolean(window.__TAURI_INTERNALS__)');
     requireValue(native === (surface === 'native'),'Requested surface does not match native bridge presence');
     const htmlResponse = await fetch(target.url,{signal});
@@ -60,9 +66,9 @@ export async function attach(signal,options={}) {
       const response = await fetch(url,{signal}); requireValue(response.ok && new URL(response.url).origin === origin,'Entry script unavailable or redirected outside DEV');
       hash.update(src).update(Buffer.from(await response.arrayBuffer()));
     }
-    const identity = validateIdentity({port:7686,dev:true,surface,browser:{product:version.Browser??null,protocol:version['Protocol-Version']??null,userAgent:version['User-Agent']??null,v8:version['V8-Version']??null},
+    const identity = validateIdentity({port:7686,dev:true,surface,capabilities,browser:{product:version.Browser??null,protocol:version['Protocol-Version']??null,userAgent:version['User-Agent']??null,v8:version['V8-Version']??null},
       page:{origin:new URL(target.url).origin,path:new URL(target.url).pathname,testMode:new URL(target.url).searchParams.has('e2e')},build:health.build_sha,entryHash:hash.digest('hex'),
-      target:target.id,boot:health.boot_id,renderer:{pid:renderer.pid,created:renderer.created},daemon:{pid:daemon.pid,created:daemon.created}});
+      target:target.id,boot:health.boot_id,renderer:renderer?{pid:renderer.pid,created:renderer.created}:null,daemon:{pid:daemon.pid,created:daemon.created}});
     return {identity,cdp,api,signal,close:() => cdp.close()};
   } catch (error) { cdp.close(); throw error; }
   finally { browser?.close(); }
@@ -97,7 +103,9 @@ export async function visit(rt,cp,fixture) {
   } else await observe(rt,`document.querySelector('[data-tab-id="${fixture.tab}"] .xterm') !== null`);
 }
 export async function sample(rt,cp,out,label,{snapshot=false}={}) {
-  await rt.cdp.send('HeapProfiler.collectGarbage');
+  if (snapshot) requireMeasurement(rt.identity,'memory');
+  const postGC = rt.identity.capabilities.purpose === 'profile';
+  if (postGC) await rt.cdp.send('HeapProfiler.collectGarbage');
   const heap = await rt.cdp.send('Runtime.getHeapUsage'), dom = await rt.cdp.send('Memory.getDOMCounters');
   const census = await evaluate(rt.cdp,`(()=>{
     ${FIND_TERMINALS}
@@ -111,12 +119,12 @@ export async function sample(rt,cp,out,label,{snapshot=false}={}) {
       callbacks:window.__TAURI_INTERNALS__?.callbacks?.size??null,
       markdownCache:null,diagnosticRings:null,backendTranscriptRetention:null,backendOutputRetention:null};
   })()`);
-  const renderer = processInfo(cp.identity.renderer.pid), daemon = processInfo(cp.identity.daemon.pid);
-  for (const [key,value] of [['renderer',renderer],['daemon',daemon]])
-    requireValue(value.created === cp.identity[key].created,'Process identity changed during sample');
-  const row = {at:Date.now(),label,postGC:true,jsBytes:heap.usedSize??null,
-    rendererPrivateBytes:renderer.privateBytes,daemonPrivateBytes:daemon.privateBytes,
-    renderer,daemon,dom,...census};
+  const daemon = processInfo(cp.identity.daemon.pid);
+  requireValue(daemon.created === cp.identity.daemon.created,'Daemon process identity changed during sample');
+  const observed = cp.identity.capabilities.purpose === 'functional'?null:processInfo(cp.identity.renderer.pid);
+  const row = {at:Date.now(),label,postGC,jsBytes:heap.usedSize??null,
+    ...rendererMetrics(cp.identity,observed),daemonPrivateBytes:daemon.privateBytes,
+    daemon,dom,...census};
   fs.appendFileSync(path.join(out,'samples.jsonl'),JSON.stringify(row)+'\n');
   cp.lastSample = row.at;
   if (snapshot) await takeHeapSnapshot(rt.cdp,path.join(out,`${label}.heapsnapshot`));
