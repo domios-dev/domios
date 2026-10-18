@@ -3050,6 +3050,7 @@ dependencies = [
  "codeterm-orchestration",
  "codeterm-plan",
  "codeterm-plugin",
+ "codeterm-plugins",
  "codeterm-process-identity",
  "codeterm-sentinel-host",
  "codeterm-service-core",

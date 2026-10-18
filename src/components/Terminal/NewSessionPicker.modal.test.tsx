@@ -349,3 +349,29 @@ it("keeps an empty remote environment list actionable and refuses spawn", async 
   expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')?.disabled).toBe(true);
   expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
 });
+
+it("shows Cloud only under Codex and explains its unavailable environment state", async () => {
+  const reason = "Live Cloud access has not been verified. Connect the account that owns your Cloud environments.";
+  fixture.providers.providers = [{ id: "codex", display_name: "Codex", available_models: [], reasoning_efforts: [],
+    remote_task: { backend: "chatgpt-cloud-tasks", mode: "cloud", displayName: "Cloud",
+      availability: { status: "unavailable", reason }, environments: [], followUp: false, cancel: false, applyDiff: false } }] as never[];
+  localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "codex" }));
+
+  await renderPicker({fullAccess: false});
+
+  const providerButton = buttonNamed("Agent provider");
+  expect(providerButton?.textContent).toContain("Codex");
+  await act(async () => providerButton!.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })));
+  const providerOptions = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+    .map((item) => item.textContent?.trim());
+  expect(providerOptions).toEqual(["Codex"]);
+  await act(async () => document.body.querySelector<HTMLElement>('[role="menuitem"]')!.click());
+  expect(dialog().querySelectorAll('input[name="execution-location"][value="cloud"]')).toHaveLength(1);
+  expect(dialog().textContent).not.toContain("Codex Cloud");
+  await act(async () => dialog().querySelector<HTMLInputElement>('input[name="execution-location"][value="cloud"]')!.click());
+  expect(dialog().textContent).toContain(reason);
+  expect(dialog().textContent).toContain("No remote environments are available");
+  expect(dialog().querySelector('select[aria-label="Cloud environment"]')).toBeNull();
+  expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')?.disabled).toBe(true);
+  expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
+});
