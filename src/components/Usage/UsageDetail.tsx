@@ -18,7 +18,7 @@ import {
 } from "./cycle";
 import { BarTooltip, type BarHover } from "./BarTooltip";
 import { UsageGauge, type GaugeMarker } from "./UsageGauge";
-import { visibleUsageMetrics } from "./metrics";
+import { unreportedBillingLabel, visibleUsageMetrics } from "./metrics";
 import { staleBannerCopy } from "./staleBanner";
 
 interface UsageDetailProps {
@@ -119,6 +119,7 @@ export function UsageDetail({ snapshot, accountCreditsLabel, flipUp, onRefresh, 
     [projection?.weekly, snapshot.weekly_pct],
   );
   const metrics = visibleUsageMetrics(snapshot);
+  const billingLabel = unreportedBillingLabel(snapshot);
 
   return (
     <div className={`ct-usage-popover ${flipUp ? "up" : "down"}`} role="dialog" aria-label="usage details">
@@ -138,6 +139,8 @@ export function UsageDetail({ snapshot, accountCreditsLabel, flipUp, onRefresh, 
       </div>
 
       {isStale && <StaleBanner snapshot={snapshot} now={now} />}
+
+      {billingLabel && <div role="status">{billingLabel}</div>}
 
       {metrics.map((metric) => (
         <UsageGauge
