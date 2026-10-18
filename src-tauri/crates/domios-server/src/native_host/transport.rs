@@ -177,7 +177,7 @@ where
             pending_attaches: Arc::new(Semaphore::new(8)),
         });
         loop {
-            let (stream, _) = listener.accept().await?;
+            let stream = listener.accept().await?;
             let Ok(permit) = state.pending_attaches.clone().try_acquire_owned() else {
                 drop(stream);
                 continue;
@@ -602,30 +602,6 @@ where
         }
     }
 
-    fn cancel_request(&self, request_id: NativeHostRequestId) -> Option<bool> {
-        let (dispatched, send_cancellation) = {
-            let mut state = self.state.lock();
-            let dispatched = state.pending.get(&request_id)?.dispatched;
-            if !dispatched {
-                state.pending.remove(&request_id);
-                return Some(false);
-            }
-            let send_cancellation = state
-                .pending
-                .get_mut(&request_id)
-                .is_some_and(|call| call.reply.take().is_some());
-            (dispatched, send_cancellation)
-        };
-        if send_cancellation {
-            let cancellation = NativeHostCancellation {
-                request_id,
-                connection: self.connection.clone(),
-            };
-            let _ = self.control.try_send(Frame::Cancel(cancellation));
-        }
-        Some(dispatched)
-    }
-
     pub(super) fn retire(&self, uncertainty: NativeHostUncertainty) {
         if self.retired.swap(true, Ordering::AcqRel) {
             return;
@@ -1029,6 +1005,32 @@ where
                 });
             }
         }
+    }
+}
+
+impl<UpdateRequest, UpdateResult> Session<UpdateRequest, UpdateResult> {
+    fn cancel_request(&self, request_id: NativeHostRequestId) -> Option<bool> {
+        let (dispatched, send_cancellation) = {
+            let mut state = self.state.lock();
+            let dispatched = state.pending.get(&request_id)?.dispatched;
+            if !dispatched {
+                state.pending.remove(&request_id);
+                return Some(false);
+            }
+            let send_cancellation = state
+                .pending
+                .get_mut(&request_id)
+                .is_some_and(|call| call.reply.take().is_some());
+            (dispatched, send_cancellation)
+        };
+        if send_cancellation {
+            let cancellation = NativeHostCancellation {
+                request_id,
+                connection: self.connection.clone(),
+            };
+            let _ = self.control.try_send(Frame::Cancel(cancellation));
+        }
+        Some(dispatched)
     }
 }
 
