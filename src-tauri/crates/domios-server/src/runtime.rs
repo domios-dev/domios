@@ -50,16 +50,35 @@ pub fn ownership_registry() -> io::Result<std::path::PathBuf> {
     Ok(root.join("path-owners"))
 }
 
+fn ownership_registry_for(
+    options: &LaunchOptions,
+    identity: &ResolvedInstancePaths,
+) -> io::Result<std::path::PathBuf> {
+    if matches!(
+        &options.instance,
+        codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }
+    ) {
+        Ok(identity.data().join(".instance-ownership"))
+    } else {
+        ownership_registry()
+    }
+}
+
 pub fn run(
     options: LaunchOptions,
     acknowledge: impl FnOnce(&ServerReady, Option<&str>) -> io::Result<()>,
 ) -> io::Result<()> {
-    crate::launch::ensure_detached()?;
+    if !matches!(
+        &options.instance,
+        codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }
+    ) {
+        crate::launch::ensure_detached()?;
+    }
     crate::launch::install_selectors(&options)?;
     let identity = crate::launch::verify_identity(&options, ResolvedInstancePaths::current()?)?;
     let owner = Box::leak(Box::new(PathOwnership::try_acquire(
         identity.clone(),
-        &ownership_registry()?,
+        &ownership_registry_for(&options, &identity)?,
     )?));
     let process = process::own()?;
     let provenance = process.provenance()?;
@@ -109,7 +128,16 @@ pub fn run(
         None
     };
     note(&mut audit, "mesh")?;
-    let _lifetime = Box::leak(Box::new(codeterm_service_core::acquire_instance_lifetime()?));
+    let _lifetime = if matches!(
+        &options.instance,
+        codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }
+    ) {
+        None
+    } else {
+        Some(Box::leak(Box::new(
+            codeterm_service_core::acquire_instance_lifetime()?,
+        )))
+    };
     codeterm_service_core::crash::install();
     crate::startup::setup_logging();
     note(&mut audit, "crash")?;
@@ -168,17 +196,30 @@ pub fn run(
         })
     })?;
     log::debug!("[bootstrap] native listener binding started");
-    let native_server = native_inventory
-        .map(|manifest| {
+    let native_server = match native_inventory {
+        Some(manifest)
+            if matches!(
+                manifest.client_identity,
+                codeterm_types::server_bootstrap::ClientIdentity::None
+            ) =>
+        {
+            crate::native_host::verify_component(&manifest, &ready, &ready.resources)
+                .map(|_| None)
+                .map_err(crate::native_host::NativeHostBindError::InventoryRejected)
+        }
+        Some(manifest) => {
             let origins = codeterm_service_core::startup::frontend_shell_declared_frontend_origins(
                 &running.states.config.lock().api,
                 frontend_dev_url.as_ref(),
             )
             .into_iter()
             .collect();
-            runtime.block_on(async { NativeServer::bind(ready.clone(), manifest, origins) })
-        })
-        .transpose();
+            runtime
+                .block_on(async { NativeServer::bind(ready.clone(), manifest, origins) })
+                .map(Some)
+        }
+        None => Ok(None),
+    };
     let native_server = match optional_native_listener(native_server) {
         Ok(server) => server,
         Err(error) => {

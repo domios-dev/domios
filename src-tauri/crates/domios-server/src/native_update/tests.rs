@@ -29,20 +29,33 @@ fn components(client_digest: &str) -> ServerComponentManifest {
     ServerComponentManifest {
         schema: SERVER_COMPONENT_SCHEMA,
         server_build: "server-old".into(),
-        server_executable: PathBuf::from(if cfg!(windows) {
+        server_executable: PathBuf::from(if cfg!(target_os = "macos") {
+            "../MacOS/domios-server"
+        } else if cfg!(windows) {
             "domios-server/domios-server.exe"
         } else {
             "domios-server/domios-server"
         }),
         server_sha256: "a".repeat(64),
-        client_sha256: client_digest.into(),
+        client_identity: if cfg!(target_os = "macos") {
+            codeterm_types::server_bootstrap::ClientIdentity::MacosDesignatedRequirement {
+                requirement: r#"anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "ABCDE12345""#.into(),
+                team_id: "ABCDE12345".into(), identifier: "com.codeterm.app".into(),
+            }
+        } else {
+            codeterm_types::server_bootstrap::ClientIdentity::Sha256 {
+                sha256: client_digest.into(),
+            }
+        },
         api_version: API_VERSION,
         bootstrap_protocol: BOOTSTRAP_PROTOCOL,
     }
 }
 
 fn resource_root() -> PathBuf {
-    PathBuf::from(if cfg!(windows) {
+    PathBuf::from(if cfg!(target_os = "macos") {
+        "/Applications/CodeTerm.app/Contents/Resources"
+    } else if cfg!(windows) {
         "C:/Domios/resources"
     } else {
         "/domios/resources"
@@ -59,7 +72,14 @@ fn request() -> NativeUpdateRequest {
     let process = ProcessProvenance {
         pid: 41,
         created: "start-41".into(),
-        executable: resource_root().join(&current.server_executable),
+        executable: if cfg!(target_os = "macos") {
+            resource_root()
+                .parent()
+                .unwrap()
+                .join("MacOS/domios-server")
+        } else {
+            resource_root().join(&current.server_executable)
+        },
     };
     NativeUpdateRequest {
         operation_id: NativeUpdateOperationId::new(Uuid::from_u128(17)).unwrap(),

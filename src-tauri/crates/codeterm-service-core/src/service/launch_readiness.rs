@@ -12,7 +12,9 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::time::Instant;
 
+mod first_turn;
 mod wait;
+pub(crate) use first_turn::note_first_turn_input_ready;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
@@ -64,6 +66,8 @@ impl LaunchAttempt {
 pub enum LaunchEvidence {
     /// The agent named itself on this launch: a nonce-verified session binding.
     Acknowledged,
+    /// This lazy-session launch exposed its declared live composer on its own PTY.
+    FirstTurnInputReady,
     /// The observer gave up, carrying the provisional stage and the evidence
     /// that made it give up. Uncertainty about this attempt, never a verdict.
     Unobserved { stage: BootStage, reason: String },
@@ -293,6 +297,7 @@ pub(crate) fn settle_evidence(
     }
     match evidence {
         LaunchEvidence::Acknowledged => LaunchSettlement::Ready,
+        LaunchEvidence::FirstTurnInputReady => LaunchSettlement::AwaitingFirstTurn,
         LaunchEvidence::Unobserved { stage, reason } => {
             debug_assert!(stage.is_provisional());
             LaunchSettlement::Provisional { stage, reason }
@@ -562,7 +567,10 @@ fn note(
     {
         return false;
     }
-    if matches!(evidence, LaunchEvidence::Acknowledged) {
+    if matches!(
+        evidence,
+        LaunchEvidence::Acknowledged | LaunchEvidence::FirstTurnInputReady
+    ) {
         observed.suspected_exit = None;
     }
     observed.evidence = Some(evidence);
