@@ -1,4 +1,5 @@
 import { invoke } from "../../lib/bridge";
+import type { MatchedRow } from "@codeterm/chat-core";
 import { failChatSendRequest, observeDeliveryStatus, reconcileDeliveryStatuses, reconcileChatSendAdmission, recordChatSendAdmissionFailure, readChatSends, observeChatSendDismissal, beginChatSendDeletion, endChatSendDeletion, type ChatSendDismissal } from "./chatSendStore";
 import type { AdmissionEvidence } from "./chatDeliveryModel";
 
@@ -14,6 +15,7 @@ export type ChatSendStatus = {
   sequence: number;
   retained_from: number;
   correlationId?: string;
+  matched_row?: MatchedRow;
   pending_reason?: string;
   pad_file?: string;
   system_send?: { content: string; sent_at_ms: number };
