@@ -50,6 +50,14 @@ test('cleanup lists only checkpoint-owned tabs and refuses foreign additions',()
   assert.throws(() => cleanupPlan(checkpoint(),identity(),{...bindings(),foreign:{workspace_id:'owned'}}),/Foreign/);
   assert.deepEqual(cleanupPlan(checkpoint(),identity(),{...bindings(),foreign:{workspace_id:'other'}}),['chat','terminal']);
 });
+test('replay ownership includes both isolated transcript fixtures and still refuses foreign cleanup',() => {
+  const cp = checkpoint(); cp.mode = 'replay'; cp.fixtures.push(fixture('other','other-session'));
+  const live = {...bindings(),other:{workspace_id:'owned',agent_session_id:'other-session',pty_id:'pty-other'}};
+  assert.deepEqual(cleanupPlan(cp,identity(),live),['chat','other','terminal']);
+  assert.throws(() => validateResume({...cp,fixtures:cp.fixtures.slice(0,1)},identity(),live));
+  assert.throws(() => cleanupPlan(cp,identity(),{...live,foreign:{workspace_id:'owned'}}),/Foreign/);
+  assert.throws(() => validateResume(cp,identity(),{...live,other:{...live.other,session_binding_nonce:'rebound'}}),/nonce/);
+});
 test('filesystem cleanup gate checks owner, target, inventory and contents',() => {
   const cp = {...checkpoint(),history:'owned-history'}; cp.fixtures[0].path = 'file'; cp.fixtures[0].hash = 'hash';
   const actual = {owner:run,history:'owned-history',junctionMatches:true,inventoryMatches:true,hashes:{file:'hash'}};
