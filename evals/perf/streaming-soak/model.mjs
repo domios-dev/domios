@@ -31,14 +31,15 @@ export function validateResume(cp, actual, bindings) {
   requireValue(isDeepStrictEqual(cp.identity, actual), 'DEV identity drift');
   requireValue(Number.isSafeInteger(cp.batch) && cp.batch >= 0 && cp.pending === null, 'Ambiguous unfinished batch; never replay');
   requireValue(typeof cp.run === 'string' && /^[a-f0-9-]{36}$/.test(cp.run), 'Invalid owner');
-  requireValue(Array.isArray(cp.fixtures) && cp.fixtures.length === 1 && cp.terminal?.tab, 'Missing owned fixtures');
+  requireValue(Array.isArray(cp.fixtures) && cp.fixtures.length === (cp.mode === 'replay'?2:1) && cp.terminal?.tab, 'Missing owned fixtures');
   const owned = [...cp.fixtures, cp.terminal];
   requireValue(new Set(owned.map(f => f.tab)).size === owned.length, 'Duplicate owned tabs');
   for (const f of owned) {
     const live = bindings[f.tab];
     requireValue(typeof f.pty === 'string' && f.pty.length > 0 && typeof f.tab === 'string' && /^[a-zA-Z0-9_-]+$/.test(f.tab) &&
       f.run === cp.run && live?.workspace_id === cp.workspace.id &&
-      (live.agent_session_id ?? null) === f.session && live.pty_id === f.pty, 'Owned tab/session/PTY drift');
+      (live.agent_session_id ?? null) === f.session && live.pty_id === f.pty &&
+      (cp.mode !== 'replay' || (f.nonce??null) === (live.session_binding_nonce??null)), 'Owned tab/session/nonce/PTY drift');
   }
   return cp;
 }
