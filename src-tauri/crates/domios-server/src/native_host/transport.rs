@@ -7,7 +7,7 @@ use codeterm_types::{
         NativeHostReply, NativeHostRequest, NativeHostRequestId, NativeHostResult, NativeHostScope,
         NativeHostUncertainty, NativeViewBinding, NativeWebviewDiagnosticsReport,
         NativeWebviewDiagnosticsSnapshot, MAX_NATIVE_HOST_FRAME_BYTES,
-        MAX_PENDING_NATIVE_HOST_REQUESTS, NATIVE_HOST_PROTOCOL, NATIVE_HOST_REQUEST_DEADLINE,
+        MAX_PENDING_NATIVE_HOST_REQUESTS, NATIVE_HOST_REQUEST_DEADLINE,
     },
     native_update::{
         NativeUpdateExecutor, NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult,
@@ -677,25 +677,29 @@ where
             let bytes = match frame {
                 Frame::Request(request) => {
                     let request_id = request.request_id;
-                    let bytes = match encode_frame(&Frame::Request(request)) {
-                        Ok(bytes) => bytes,
-                        Err(_) => {
-                            self.reject_queued(request_id);
-                            continue;
-                        }
-                    };
+                    let bytes =
+                        match encode_frame::<UpdateRequest, UpdateResult>(&Frame::Request(request))
+                        {
+                            Ok(bytes) => bytes,
+                            Err(_) => {
+                                self.reject_queued(request_id);
+                                continue;
+                            }
+                        };
                     if !self.mark_dispatched(request_id) {
                         continue;
                     }
                     bytes
                 }
-                Frame::Event(event) => match encode_frame(&Frame::Event(event)) {
-                    Ok(bytes) => bytes,
-                    Err(error) => {
-                        log::debug!("[native-host] oversized event dropped: {error}");
-                        continue;
+                Frame::Event(event) => {
+                    match encode_frame::<UpdateRequest, UpdateResult>(&Frame::Event(event)) {
+                        Ok(bytes) => bytes,
+                        Err(error) => {
+                            log::debug!("[native-host] oversized event dropped: {error}");
+                            continue;
+                        }
                     }
-                },
+                }
                 frame => match encode_frame(&frame) {
                     Ok(bytes) => bytes,
                     Err(error) => {
@@ -1132,7 +1136,7 @@ where
 {
     timeout(NATIVE_HOST_REQUEST_DEADLINE, write_frame(writer, frame))
         .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Native host write deadline"))??
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Native host write deadline"))?
 }
 
 async fn write_frame<W, UpdateRequest, UpdateResult>(
