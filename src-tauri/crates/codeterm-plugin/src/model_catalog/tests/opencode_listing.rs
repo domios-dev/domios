@@ -250,11 +250,26 @@ async fn config_generation_rejects_an_old_in_flight_discovery_without_replacing_
     std::fs::write(&config, b"opaque").unwrap();
     let mut provider = config_stub(id, &config);
     let first = discovery_stamp(&provider);
+    assert_eq!(first.len(), 64);
+    assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
     assert_eq!(discovery_stamp(&provider), first);
     invalidate_inputs(id);
     assert_ne!(discovery_stamp(&provider), first);
     put_live(id, vec![model("last/good", "Fixture")], None);
-    provider.during_discovery = Some(Box::new(move || invalidate_inputs(id)));
+    let modified = std::fs::metadata(&config).unwrap().modified().unwrap();
+    provider.during_discovery = Some(Box::new(move || {
+        std::fs::write(&config, b"latest").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&config)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        let metadata = std::fs::metadata(&config).unwrap();
+        assert_eq!(metadata.len(), 6);
+        assert_eq!(metadata.modified().unwrap(), modified);
+        invalidate_inputs(id);
+    }));
     assert!(refresh_models(Arc::new(provider), true).await.is_none());
     assert_eq!(resolve_models(id)[0].id, "last/good");
     cleanup(id);
