@@ -87,6 +87,11 @@ Worker death during `in_progress` (tab closed/crashed or agent exited) pushes `[
 9. **Clean up as you go:** when a task is accepted or cancelled, close its Worker tab, crons and idle utility shells (stop dev processes first),
    prune lanes with `codeterm plan lanes <plan> --clean --confirm`, and record cleanup.
 
+The live Plan Orchestrator may run confirmed lane cleanup (including `--fetch`)
+from its own Team utility shell. The daemon verifies the shell's launch binding,
+recorded creator and Team against the Plan's live bound owner; a utility shell
+needs no agent session or plan rebind. Other Team members gain no cleanup authority.
+
 `actionable: false` tab hints are observations, never instructions to answer, notify or mutate. Actionable events require two agreeing strong observations of one launch.
 
 Discovery must lead to decisions and implementation, review or verification; research alone is incomplete.
@@ -162,4 +167,4 @@ A `[provider access lost]` notice means recover the login or respawn on another 
 
 Confined mutating Workers persist host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR/TEMP/TMP use lane-local `.codeterm-tmp`. Task-bound spawns require explicit read_only or mutating intent. Older task tabs without saved confinement retain their behavior.
 
-<!-- revision: 128 -->
+<!-- revision: 129 -->
