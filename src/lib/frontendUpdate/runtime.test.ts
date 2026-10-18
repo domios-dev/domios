@@ -201,3 +201,28 @@ it("applies staged consent once through checkpoint and activation while respecti
   expect((f.calls.find(call => call.method === "PUT")?.body as CheckpointWrite).payload.drafts.t).toEqual(checkpoint.drafts.t);
   runtime.dispose();
 });
+
+it("reopens a closed frontend from current local drafts without resurrecting an old swap checkpoint", async () => {
+  localStorage.clear();
+  sessionStorage.clear();
+  vi.resetModules();
+  const { initializeBrowserFrontendUpdates } = await import("./browser");
+  const { frontendSignals } = await import("./appState");
+  const { COMPOSER_DRAFT_PREFIX } = await import("../composerDraftGc");
+  localStorage.setItem(COMPOSER_DRAFT_PREFIX + "tab-session-chat:t", "latest unsent edit");
+  localStorage.setItem(COMPOSER_DRAFT_PREFIX + "tab-session-chat-capsules:t", '[{"label":"image","kind":"image","path":"/uploads/image.png"}]');
+  const f = fixture({}, { ...checkpoint, drafts: {
+    "tab-session-chat:t": { text: "old unsent edit", attachmentIds: [], replyTo: null },
+    "tab-session-chat:cleared": { text: "already sent", attachmentIds: [], replyTo: null },
+  } });
+  const browser = await initializeBrowserFrontendUpdates(f.client, { ...f.options, boot: null });
+  try {
+    expect(frontendSignals.checkpoint().drafts["tab-session-chat:t"].text).toBe("latest unsent edit");
+    expect(frontendSignals.checkpoint().drafts["tab-session-chat:t"].attachmentIds).toEqual(["image"]);
+    expect(frontendSignals.checkpoint().drafts["tab-session-chat:cleared"]).toBeUndefined();
+    expect(f.calls.filter(call => call.method !== "GET")).toEqual([]);
+  } finally {
+    browser.dispose();
+    localStorage.clear();
+  }
+});

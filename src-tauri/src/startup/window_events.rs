@@ -18,8 +18,11 @@ pub(crate) fn handle_window_event(
             });
         }
     }
-    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+    if let tauri::WindowEvent::CloseRequested { .. } = event {
         if window.label() != "main" {
+            return;
+        }
+        if !super::desktop_lifecycle::close_requested(window) {
             return;
         }
 
@@ -40,9 +43,5 @@ pub(crate) fn handle_window_event(
                 log::info!("Session snapshot submitted (close-to-tray)");
             }
         }
-
-        api.prevent_close();
-        let _ = window.hide();
-        log::info!("Window hidden to tray");
     }
 }
