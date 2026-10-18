@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 require_canonical_rust_tests() {
-  case "$1" in process-probe|test-one|nextest|check-queue) ;; *) return 0 ;; esac
+  case "$1" in test-one|nextest|check-queue) ;; *) return 0 ;; esac
   local current canonical
   current="$(git rev-parse --show-toplevel 2>/dev/null)" || current=""
   canonical="$(git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | head -n 1)" || canonical=""
