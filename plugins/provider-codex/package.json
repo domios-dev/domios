@@ -1,7 +1,7 @@
 {
   "license": "PolyForm-Shield-1.0.0",
   "name": "@codeterm/provider-codex",
-  "version": "1.14.43",
+  "version": "1.14.44",
   "private": true,
   "type": "module",
   "description": "CodeTerm provider plugin for OpenAI Codex CLI.",

@@ -1049,6 +1049,7 @@ function TabSessionChatBody({
         </div>
       )}
       </div>
+      <ComposerBackgroundWorkProvider tabId={tabId} messages={allMessages}>
       <ChatComposerSurface view={setupView} providerId={tabProvider ?? undefined} tabId={tabId}>
       {isWatcherTab && watcherSpec ? (
         runtimeReplacement ?? <WatcherReadOnlyBar
@@ -1099,7 +1100,6 @@ function TabSessionChatBody({
           void runThreadHistory("revert", turnId, true);
         }}
       />}
-      <ComposerBackgroundWorkProvider messages={allMessages}>
         {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
           tabId={tabId}
           tabProvider={tabProvider}
@@ -1125,10 +1125,10 @@ function TabSessionChatBody({
           showComposerError={showComposerError}
           onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
         />}
-      </ComposerBackgroundWorkProvider>
       </>
       )}
       </ChatComposerSurface>
+      </ComposerBackgroundWorkProvider>
     </div>
     </PluginNameProvider>
     </ChatBlockHostProvider>

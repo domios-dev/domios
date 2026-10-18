@@ -697,4 +697,6 @@ refuses redemption below that version or when the version is unknown. Runtime
 list never replaces the count. Explicit popover opens request details; background
 reads omit them. `redeemResetCredit` returns `resetCreditConsumed` with one of the
 four typed outcomes. Confirmation creates a UUID once; retries preserve it.
+An optional `creditId` selects an actual reported available credit; omission lets
+the provider choose. Adapters must preserve it through consume and retries.
 Never invoke a live redemption during testing: credits are irreversible.
