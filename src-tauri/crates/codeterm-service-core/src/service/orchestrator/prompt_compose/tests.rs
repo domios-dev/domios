@@ -92,9 +92,11 @@ fn planner_onboarding_remains_work_when_a_task_is_provided() {
         role_profile: Some("planner".into()),
         ..Default::default()
     };
-    assert!(spawn_onboarding_task(&params)
-        .unwrap()
-        .contains(&crate::prompts::planner_suffix()));
+    assert!(
+        spawn_onboarding_task(&params)
+            .unwrap()
+            .contains(&crate::prompts::planner_suffix())
+    );
 }
 
 /// Every launch composition, by capability class rather than provider id: a
@@ -204,6 +206,76 @@ fn spawned_worker_receives_the_codeterm_primer() {
     let composed = worker_agent_system_prompt(Some("do the thing"), None);
     assert!(composed.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
     assert!(composed.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
+}
+
+#[test]
+fn routed_contract_is_adjacent_to_the_primer_and_survives_both_delivery_channels() {
+    use crate::agent::provider::{StarterPrompt, SystemPromptDelivery};
+    use crate::service::launch_delivery::{content_for_descriptor, prepare_spawn_input};
+
+    const ASSIGNMENT: &str = "OPAQUE-ROUTED-ASSIGNMENT-6e8d1";
+    const PLUGINS: &str = "OPAQUE-PLUGIN-CONTEXT-9a2c4";
+
+    let primer = crate::prompts::AGENT_CODETERM_PRIMER.trim();
+    let routing = crate::prompts::AGENT_ROUTING_CONTRACT.trim();
+    let external_launch =
+        super::worker_agent_system_prompt_with_plugins(None, ASSIGNMENT, None, Some(PLUGINS));
+    let system_prompt = super::agent_system_prompt_with_plugins(None, Some(PLUGINS));
+    let expected_prefix = format!("{primer}\n\n{routing}\n\n{PLUGINS}");
+
+    for (name, composed) in [
+        ("external launch", &external_launch),
+        ("system primer", &system_prompt),
+    ] {
+        let primer_offset = composed
+            .find(primer)
+            .expect("composed prompt carries primer");
+        assert!(
+            composed[primer_offset..].starts_with(&expected_prefix),
+            "{name}"
+        );
+        assert_eq!(composed.matches(primer).count(), 1, "{name}");
+        assert_eq!(
+            composed.find(routing),
+            Some(primer_offset + primer.len() + 2),
+            "{name} places the routed contract immediately after the primer"
+        );
+        assert_eq!(composed.matches(routing).count(), 1, "{name}");
+        assert_eq!(composed.matches(PLUGINS).count(), 1, "{name}");
+    }
+    assert_eq!(external_launch.matches(ASSIGNMENT).count(), 1);
+
+    let external_provider = crate::agent::test_provider::MockProvider::new("opaque-external");
+    let spawn_input = prepare_spawn_input(
+        Some(&external_provider),
+        Some("Worker"),
+        Some(ASSIGNMENT),
+        StarterPrompt::NoStarter,
+        None,
+        str::to_string,
+    );
+    assert!(spawn_input.task_needs_fallback);
+    assert_eq!(spawn_input.provider_task, Some(ASSIGNMENT));
+    let fallback = spawn_input
+        .fallback_spec(None, Some(&external_launch), None)
+        .expect("external prompt is delivered as a confirmed first turn");
+    assert_eq!(fallback.payload, external_launch);
+    assert_eq!(
+        fallback.channel,
+        crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput
+    );
+
+    for descriptor in [
+        SystemPromptDelivery::CliFlag("opaque-system-flag".into()),
+        SystemPromptDelivery::SessionConfig,
+    ] {
+        let delivery = content_for_descriptor(&descriptor, Some(&system_prompt));
+        assert_eq!(
+            delivery.system_prompt.as_deref(),
+            Some(system_prompt.as_str())
+        );
+        assert!(delivery.fallback.is_none());
+    }
 }
 
 #[test]
