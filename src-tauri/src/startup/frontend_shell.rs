@@ -26,27 +26,49 @@ pub fn application_context(
     context
 }
 
+use crate::host_ports::{
+    webview_diagnostics::{root_generation_from_url, with_root_generation},
+    ClientRootRenderLatch, ClientRootRenderWait, ServerApiAttachment, ServerApiAttachmentSlot,
+};
+use crate::host_ports::{ClientViewGeneration, CLIENT_VIEW_QUERY};
 use codeterm_service_core::startup::{
     frontend_shell_fallback_origin as fallback_origin,
     frontend_shell_loopback_origin as loopback_origin,
 };
-use codeterm_service_core::startup::{RestApiControlState, RestApiPhase, RestApiStatus};
 use serde::Serialize;
 use std::collections::HashSet;
-use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use url::Url;
 
+#[cfg(test)]
 mod model;
-use model::{
-    boot_failure_action, development_frontend, external_link, BootFailureAction, BootObservation,
-};
+
+fn external_link(url: &Url, origin: Option<&str>) -> Option<Url> {
+    if !matches!(url.scheme(), "http" | "https" | "mailto")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.host_str() == Some("tauri.localhost")
+        || origin.is_some_and(|origin| url.origin().ascii_serialization() == origin)
+    {
+        return None;
+    }
+    Some(url.clone())
+}
+
+#[cfg(test)]
+use std::net::SocketAddr;
+
+#[cfg(test)]
+use codeterm_service_core::startup::{RestApiPhase, RestApiStatus};
 
 struct ShellSupervisor {
     navigation: Arc<AtomicU64>,
+    view_generation: AtomicU64,
+    active_view_generation: AtomicU64,
+    root_render: ClientRootRenderLatch,
     development_frontend: Option<Url>,
     windows: tokio::sync::watch::Sender<WindowEpoch>,
     capability_origins: parking_lot::Mutex<HashSet<String>>,
@@ -66,6 +88,7 @@ struct ShellBootstrap {
     frontend_origin: Option<String>,
 }
 
+#[cfg(test)]
 fn ready_origin(
     status: &RestApiStatus,
     address: Option<SocketAddr>,
@@ -77,6 +100,7 @@ fn ready_origin(
     loopback_origin(address).map(Some)
 }
 
+#[cfg(test)]
 fn bootstrap(
     config: &codeterm_service_core::config::schema::ApiConfig,
 ) -> Result<ShellBootstrap, String> {
@@ -93,6 +117,17 @@ fn bootstrap(
             config,
         )?)?,
         token,
+        frontend_origin: None,
+    })
+}
+
+fn bootstrap_attachment(attachment: &ServerApiAttachment) -> Result<ShellBootstrap, String> {
+    if attachment.token().trim().is_empty() {
+        return Err("Server attachment has no API credential".into());
+    }
+    Ok(ShellBootstrap {
+        origin: attachment.api_origin(),
+        token: attachment.token().to_owned(),
         frontend_origin: None,
     })
 }
@@ -126,8 +161,8 @@ fn unavailable_url() -> Result<Url, url::ParseError> {
 }
 
 fn navigation_allowed(url: &Url, origin: Option<&str>, unavailable: &Url, fallback: &Url) -> bool {
-    url == unavailable
-        || url == fallback
+    same_navigation_document(url, unavailable)
+        || same_navigation_document(url, fallback)
         || origin.is_some_and(|origin| {
             url.origin().ascii_serialization() == origin
                 && url.username().is_empty()
@@ -162,15 +197,46 @@ fn daemon_capability(origin: &str) -> Result<String, serde_json::Error> {
 pub fn initialize(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let development_frontend =
-        development_frontend(cfg!(debug_assertions), app.config().build.dev_url.as_ref())?;
+    if app.try_state::<crate::ClientStartupOptions>().is_none()
+        && !app.manage(crate::ClientStartupOptions::default())
+    {
+        return Err("Client startup options could not be installed".into());
+    }
+    let development_frontend = codeterm_service_core::startup::frontend_shell_development_frontend(
+        cfg!(debug_assertions),
+        app.config().build.dev_url.as_ref(),
+    )?;
+    let root_render = ClientRootRenderLatch::default();
+    if !app.manage(root_render.clone()) {
+        return Err("Client root-render latch could not be installed".into());
+    }
     app.manage(ShellSupervisor {
         development_frontend,
         navigation: Arc::new(AtomicU64::new(0)),
+        view_generation: AtomicU64::new(0),
+        active_view_generation: AtomicU64::new(0),
+        root_render,
         windows: tokio::sync::watch::channel(WindowEpoch::default()).0,
         capability_origins: Default::default(),
     });
     Ok(())
+}
+
+pub(crate) fn native_view_origins(
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    ready: &codeterm_types::server_bootstrap::ServerReady,
+) -> HashSet<String> {
+    let mut origins = HashSet::from([fallback_origin().to_string()]);
+    if let Ok(origin) = loopback_origin(ready.api_address) {
+        origins.insert(origin);
+    }
+    if let Ok(Some(frontend)) = codeterm_service_core::startup::frontend_shell_development_frontend(
+        cfg!(debug_assertions),
+        app.config().build.dev_url.as_ref(),
+    ) {
+        origins.insert(frontend.origin().ascii_serialization());
+    }
+    origins
 }
 
 pub fn window_created(app: &codeterm_host_runtime::app_runtime::AppHandle) {
@@ -181,32 +247,49 @@ pub fn window_created(app: &codeterm_host_runtime::app_runtime::AppHandle) {
 }
 
 pub fn window_destroying(app: &codeterm_host_runtime::app_runtime::AppHandle) {
-    app.state::<ShellSupervisor>()
-        .navigation
-        .fetch_add(1, Ordering::AcqRel);
-    app.state::<ShellSupervisor>()
-        .windows
-        .send_if_modified(|epoch| {
-            if !epoch.available {
-                return false;
-            }
-            epoch.generation += 1;
-            epoch.available = false;
-            true
-        });
+    if let Some(client) = app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>()
+    {
+        client.release_view();
+    }
+    let supervisor = app.state::<ShellSupervisor>();
+    let _ = next_generation(&supervisor.navigation);
+    supervisor
+        .active_view_generation
+        .store(0, Ordering::Release);
+    supervisor.root_render.retire();
+    supervisor.windows.send_if_modified(|epoch| {
+        if !epoch.available {
+            return false;
+        }
+        epoch.generation += 1;
+        epoch.available = false;
+        true
+    });
 }
 
 pub fn create_window(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
-    config: &codeterm_service_core::config::schema::ApiConfig,
 ) -> Result<WebviewWindow, Box<dyn std::error::Error>> {
-    let development_frontend = app.state::<ShellSupervisor>().development_frontend.clone();
-    let mut bootstrap = bootstrap(config)
-        .map_err(|error| {
-            log::error!("[frontend-shell] {error}");
-            error
-        })
-        .ok();
+    let supervisor = app.state::<ShellSupervisor>();
+    let development_frontend = supervisor.development_frontend.clone();
+    let view_generation = next_generation(&supervisor.view_generation)
+        .ok_or("Native view generation space is exhausted")?;
+    let attachment = app
+        .try_state::<ServerApiAttachmentSlot>()
+        .and_then(|slot| slot.current());
+    let mut bootstrap =
+        attachment
+            .as_ref()
+            .and_then(|attachment| match bootstrap_attachment(attachment) {
+                Ok(bootstrap) => Some(bootstrap),
+                Err(error) => {
+                    log::error!("[frontend-shell] {error}");
+                    None
+                }
+            });
+    if attachment.is_none() {
+        log::error!("[frontend-shell] no authenticated server attachment is available");
+    }
     if let Some(bootstrap) = bootstrap.as_mut() {
         bootstrap.frontend_origin = development_frontend
             .as_ref()
@@ -233,6 +316,23 @@ pub fn create_window(
         bootstrap.as_ref().map(|bootstrap| &bootstrap.origin)
     );
     let mut builder = WebviewWindowBuilder::from_config(app, &window_config)?;
+    #[cfg(windows)]
+    if let crate::LocalWebviewDiagnosticsMode::RequestedPort(port) = app
+        .state::<crate::ClientStartupOptions>()
+        .local_webview_diagnostics
+    {
+        let available = crate::host_ports::webview_diagnostics::port_is_available(port);
+        if let Some(slot) =
+            app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>()
+        {
+            slot.set_diagnostics_port_preflight(port, available);
+        }
+        if available {
+            builder = builder.additional_browser_args(&format!(
+                "--remote-debugging-address=127.0.0.1 --remote-debugging-port={port}"
+            ));
+        }
+    }
     if let Some(bootstrap) = bootstrap {
         let origin = origin.as_deref().ok_or("Frontend origin is missing")?;
         let supervisor = app.state::<ShellSupervisor>();
@@ -244,19 +344,32 @@ pub fn create_window(
         builder = builder.initialization_script(bootstrap_script(&bootstrap)?);
     }
     let new_window_origin = origin.clone();
-    Ok(builder
+    let page_origin = origin.clone();
+    let page_fallback = fallback.clone();
+    let page_unavailable = unavailable.clone();
+    supervisor
+        .active_view_generation
+        .store(view_generation, Ordering::Release);
+    match builder
         .on_new_window(move |url, _features| {
             open_external_link(&url, new_window_origin.as_deref());
             tauri::webview::NewWindowResponse::Deny
         })
-        .on_page_load(|window, payload| {
+        .on_page_load(move |window, payload| {
             log::debug!(
                 "[frontend-shell] page load {:?}: {}",
                 payload.event(),
                 navigation_identity(payload.url())
             );
             if payload.event() == tauri::webview::PageLoadEvent::Started {
-                observe_navigation(window, payload.url().clone());
+                observe_navigation(
+                    window,
+                    payload.url().clone(),
+                    view_generation,
+                    page_origin.as_deref(),
+                    &page_unavailable,
+                    &page_fallback,
+                );
             } else if cfg!(debug_assertions) {
                 let _ = window.eval("window.__CODETERM_SHELL_DIAGNOSTIC__?.('page-finished')");
             }
@@ -272,7 +385,27 @@ pub fn create_window(
             }
             allowed
         })
-        .build()?)
+        .build()
+    {
+        Ok(window) => Ok(window),
+        Err(error) => {
+            let _ = supervisor.active_view_generation.compare_exchange(
+                view_generation,
+                0,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
+            supervisor.root_render.retire();
+            Err(error.into())
+        }
+    }
+}
+
+fn same_navigation_document(url: &Url, expected: &Url) -> bool {
+    let mut url = url.clone();
+    url.set_query(None);
+    url.set_fragment(None);
+    url == *expected
 }
 
 fn navigation_identity(url: &Url) -> String {
@@ -295,67 +428,164 @@ fn show_unavailable(window: &WebviewWindow) {
     }
 }
 
-fn observe_navigation(window: WebviewWindow, url: Url) {
-    let app = window.app_handle();
-    let navigation = app.state::<ShellSupervisor>().navigation.clone();
-    let current_navigation = navigation.fetch_add(1, Ordering::AcqRel) + 1;
-    if url.scheme() == "data" {
-        log::debug!("[frontend-shell] boot observer skipped native recovery document");
-        return;
-    }
-    let control = app.state::<RestApiControlState>().inner().clone();
-    let listener = control.status();
-    if listener.phase != RestApiPhase::Listening {
-        log::debug!("[frontend-shell] boot observer skipped: listener={listener:?}");
-        return;
-    }
-    let frontend_generation = codeterm_service_core::startup::observe_frontend_boot();
-    let observation = BootObservation {
-        navigation: current_navigation,
-        listener_generation: listener.generation,
-        frontend_generation,
-        bundled_fallback: fallback_url().is_ok_and(|fallback| fallback == url),
-    };
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    log::debug!("[frontend-shell] boot observer armed: navigation={current_navigation}, listener={}, frontend={frontend_generation}, fallback={}", listener.generation, observation.bundled_fallback);
-    tauri::async_runtime::spawn(async move {
-        let ready = tokio::task::spawn_blocking(move || {
-            super::wait_for_frontend_ready_until(frontend_generation, deadline)
+fn next_generation(generation: &AtomicU64) -> Option<u64> {
+    generation
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            current.checked_add(1)
         })
-        .await
-        .unwrap_or(false);
-        if ready {
-            log::debug!("[frontend-shell] root render acknowledged: navigation={current_navigation}, frontend={frontend_generation}");
+        .ok()?
+        .checked_add(1)
+}
+
+pub(crate) fn active_view_matches(
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    generation: u64,
+) -> bool {
+    app.try_state::<ShellSupervisor>()
+        .is_some_and(|supervisor| {
+            supervisor.active_view_generation.load(Ordering::Acquire) == generation
+        })
+}
+
+fn prepare_root_navigation(
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    url: Url,
+) -> Result<Url, String> {
+    let supervisor = app.state::<ShellSupervisor>();
+    let view = supervisor.active_view_generation.load(Ordering::Acquire);
+    if view == 0 {
+        return Err("Main WebView generation is no longer active".into());
+    }
+    let navigation = next_generation(&supervisor.navigation)
+        .ok_or_else(|| "Navigation generation space is exhausted".to_string())?;
+    let generation = ClientViewGeneration { view, navigation };
+    supervisor
+        .root_render
+        .arm(generation, url.origin().ascii_serialization());
+    Ok(with_root_generation(&url, generation))
+}
+
+fn navigate_frontend(
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    window: &WebviewWindow,
+    url: Url,
+) -> Result<(), String> {
+    let prepared = prepare_root_navigation(app, url)?;
+    if let Err(error) = window.navigate(prepared) {
+        app.state::<ShellSupervisor>().root_render.retire();
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
+fn observe_navigation(
+    window: WebviewWindow,
+    url: Url,
+    view_generation: u64,
+    allowed_origin: Option<&str>,
+    unavailable: &Url,
+    fallback: &Url,
+) {
+    let app = window.app_handle();
+    let supervisor = app.state::<ShellSupervisor>();
+    let navigation = supervisor.navigation.clone();
+    let root_render = supervisor.root_render.clone();
+    if url.scheme() == "data" || !navigation_allowed(&url, allowed_origin, unavailable, fallback) {
+        root_render.retire();
+        if let Some(client) =
+            app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>()
+        {
+            client.release_view();
+        }
+        log::debug!("[frontend-shell] root observer skipped recovery or unpermitted document");
+        return;
+    }
+    let origin = url.origin().ascii_serialization();
+    let generation = root_generation_from_url(&url)
+        .filter(|generation| {
+            generation.view == view_generation && root_render.is_armed(*generation, &origin)
+        })
+        .or_else(|| {
+            next_generation(&supervisor.navigation).map(|navigation| ClientViewGeneration {
+                view: view_generation,
+                navigation,
+            })
+        });
+    let Some(generation) = generation else {
+        root_render.retire();
+        log::error!("[frontend-shell] navigation generation space is exhausted");
+        return;
+    };
+    if let Some(client) = app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>()
+    {
+        if let Err(reason) = client.bind_observed_view(&url, generation) {
+            log::debug!("[native-client] main view binding refused: {reason:?}");
+        }
+    }
+    let Some(attachment) = app
+        .try_state::<ServerApiAttachmentSlot>()
+        .and_then(|slot| slot.current())
+    else {
+        log::debug!("[frontend-shell] boot observer skipped: server attachment is absent");
+        return;
+    };
+    let server_identity = attachment.identity().clone();
+    let server_epoch = attachment.epoch().to_owned();
+    drop(attachment);
+    if !root_render.is_armed(generation, &origin) {
+        root_render.arm(generation, origin.clone());
+        let document_generation = format!(
+            "globalThis.__CODETERM_CLIENT_VIEW_GENERATION__ = Object.freeze({{viewGeneration:{view_generation},navigationGeneration:{}}});",
+            generation.navigation
+        );
+        if let Err(error) = window.eval(&document_generation) {
+            log::debug!("[frontend-shell] root generation injection failed: {error}");
+        }
+    }
+    let current_navigation = generation.navigation;
+    let bundled_fallback = *fallback == url;
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    log::debug!("[frontend-shell] root observer armed: view={view_generation}, navigation={current_navigation}, server_epoch={server_epoch}, fallback={bundled_fallback}");
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match root_render.wait_until(generation, deadline).await {
+            ClientRootRenderWait::Ready => {
+                log::debug!("[frontend-shell] root render acknowledged: view={view_generation}, navigation={current_navigation}");
+                return;
+            }
+            ClientRootRenderWait::Replaced => {
+                log::debug!("[frontend-shell] stale root observer retired: view={view_generation}, navigation={current_navigation}");
+                return;
+            }
+            ClientRootRenderWait::Deadline => {}
+        }
+        let same_server = app
+            .try_state::<ServerApiAttachmentSlot>()
+            .and_then(|slot| slot.current())
+            .is_some_and(|current| {
+                current.identity() == &server_identity && current.epoch() == server_epoch
+            });
+        if navigation.load(Ordering::Acquire) != current_navigation || !same_server {
+            log::debug!("[frontend-shell] stale boot failure ignored: navigation={current_navigation}, server_epoch={server_epoch}");
             return;
         }
-        let action = boot_failure_action(
-            observation,
-            navigation.load(Ordering::Acquire),
-            &control.status(),
-            codeterm_service_core::startup::frontend_readiness_generation(),
+        if bundled_fallback {
+            log::warn!("[frontend-shell] packaged root render was not acknowledged");
+            show_unavailable(&window);
+            return;
+        }
+        log::warn!(
+            "[frontend-shell] root render was not acknowledged; selecting packaged fallback"
         );
-        log::debug!("[frontend-shell] boot failure decision={action:?}, navigation={current_navigation}, frontend={frontend_generation}");
-        match action {
-            BootFailureAction::Ignore => {}
-            BootFailureAction::BundledFallback => {
-                log::warn!("[frontend-shell] root render was not acknowledged; selecting packaged fallback");
-                match fallback_url() {
-                    Ok(fallback) => {
-                        if let Err(error) = window.navigate(fallback) {
-                            log::error!(
-                                "[frontend-shell] packaged fallback navigation failed: {error}"
-                            );
-                            show_unavailable(&window);
-                        }
-                    }
-                    Err(error) => {
-                        log::error!("[frontend-shell] packaged fallback URL failed: {error}");
-                        show_unavailable(&window);
-                    }
+        match fallback_url() {
+            Ok(fallback) => {
+                if let Err(error) = navigate_frontend(&app, &window, fallback) {
+                    log::error!("[frontend-shell] packaged fallback navigation failed: {error}");
+                    show_unavailable(&window);
                 }
             }
-            BootFailureAction::Unavailable => {
-                log::warn!("[frontend-shell] packaged root render was not acknowledged");
+            Err(error) => {
+                log::error!("[frontend-shell] packaged fallback URL failed: {error}");
                 show_unavailable(&window);
             }
         }
@@ -376,8 +606,10 @@ async fn frontend_url(
     let bundles = app
         .try_state::<Arc<codeterm_frontend_bundle::FrontendBundles>>()
         .map(|bundles| bundles.inner().clone());
-    let index =
-        codeterm_service_core::startup::frontend_bundles_navigation_index(bundles.as_deref());
+    let index = bundles
+        .as_deref()
+        .and_then(codeterm_frontend_bundle::FrontendBundles::active_index)
+        .unwrap_or_else(|| "/bundled/index.html".into());
     let target = Url::parse(origin)
         .and_then(|origin| origin.join(&index))
         .map_err(|error| error.to_string())?;
@@ -409,83 +641,80 @@ async fn frontend_url(
     }
 }
 
-pub fn start(app: codeterm_host_runtime::app_runtime::AppHandle, control: RestApiControlState) {
-    let mut status = control.subscribe_status();
+pub fn start(app: codeterm_host_runtime::app_runtime::AppHandle) {
     let mut windows = app.state::<ShellSupervisor>().windows.subscribe();
     tauri::async_runtime::spawn(async move {
         loop {
-            let observed = status.borrow_and_update().clone();
             let epoch = *windows.borrow_and_update();
             if let Some(window) = app.get_webview_window("main").filter(|_| epoch.available) {
-                match ready_origin(&observed, control.bound_addr()) {
-                    Ok(Some(origin)) => {
-                        let target = tokio::select! {
-                            target = frontend_url(&app, &origin) => target,
-                            changed = status.changed() => {
-                                if changed.is_err() { return; }
-                                continue;
-                            },
-                            changed = windows.changed() => {
-                                if changed.is_err() { return; }
-                                continue;
-                            },
-                        };
-                        match target {
-                            Ok(url)
-                                if control.status() == observed && *windows.borrow() == epoch =>
-                            {
-                                log::debug!("[frontend-shell] navigating after listener acknowledgement: generation={}, url={}", observed.generation, navigation_identity(&url));
-                                if let Err(error) = window.navigate(url) {
-                                    log::error!("[frontend-shell] navigation failed: {error}");
-                                    show_unavailable(&window);
-                                }
-                            }
-                            Ok(_) => {}
-                            Err(error) => {
-                                log::error!("[frontend-shell] frontend unavailable: {error}");
+                let attachment = app
+                    .try_state::<ServerApiAttachmentSlot>()
+                    .and_then(|slot| slot.current());
+                if let Some(attachment) = attachment {
+                    let identity = attachment.identity().clone();
+                    let server_epoch = attachment.epoch().to_owned();
+                    let origin = attachment.api_origin();
+                    drop(attachment);
+                    let target = tokio::select! {
+                        target = frontend_url(&app, &origin) => target,
+                        changed = windows.changed() => {
+                            if changed.is_err() { return; }
+                            continue;
+                        },
+                    };
+                    match target {
+                        Ok(url)
+                            if same_server_attachment(&app, &identity, &server_epoch)
+                                && *windows.borrow() == epoch =>
+                        {
+                            log::debug!("[frontend-shell] navigating after server readiness: epoch={server_epoch}, url={}", navigation_identity(&url));
+                            if let Err(error) = navigate_frontend(&app, &window, url) {
+                                log::error!("[frontend-shell] navigation failed: {error}");
                                 show_unavailable(&window);
                             }
                         }
+                        Ok(_) => {}
+                        Err(error) => {
+                            log::error!("[frontend-shell] frontend unavailable: {error}");
+                            show_unavailable(&window);
+                        }
                     }
-                    Ok(None) => show_unavailable(&window),
-                    Err(error) => {
-                        log::error!("[frontend-shell] {error}");
-                        show_unavailable(&window);
-                    }
+                } else {
+                    log::error!("[frontend-shell] frontend has no authenticated server attachment");
+                    show_unavailable(&window);
                 }
             }
-            tokio::select! {
-                changed = status.changed() => if changed.is_err() { return; },
-                changed = windows.changed() => if changed.is_err() { return; },
+            if windows.changed().await.is_err() {
+                return;
             }
         }
     });
 }
 
 pub fn retry(app: &codeterm_host_runtime::app_runtime::AppHandle) {
-    let control = app.state::<RestApiControlState>().inner().clone();
-    let observed = control.status();
-    if observed.phase != RestApiPhase::Listening {
-        if let Err(error) = control.port_released() {
-            log::error!("[frontend-shell] native bind retry refused: {error}");
-        }
-        return;
-    }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let Some(window) = app.get_webview_window("main") else {
             return;
         };
-        let target = match ready_origin(&observed, control.bound_addr()) {
-            Ok(Some(origin)) => frontend_url(&app, &origin).await,
-            _ => return,
+        let Some(attachment) = app
+            .try_state::<ServerApiAttachmentSlot>()
+            .and_then(|slot| slot.current())
+        else {
+            show_unavailable(&window);
+            return;
         };
-        if control.status() != observed {
+        let identity = attachment.identity().clone();
+        let server_epoch = attachment.epoch().to_owned();
+        let origin = attachment.api_origin();
+        drop(attachment);
+        let target = frontend_url(&app, &origin).await;
+        if !same_server_attachment(&app, &identity, &server_epoch) {
             return;
         }
         match target {
             Ok(url) => {
-                if let Err(error) = window.navigate(url) {
+                if let Err(error) = navigate_frontend(&app, &window, url) {
                     log::error!("[frontend-shell] native frontend retry failed: {error}");
                     show_unavailable(&window);
                 }
@@ -496,6 +725,16 @@ pub fn retry(app: &codeterm_host_runtime::app_runtime::AppHandle) {
             }
         }
     });
+}
+
+fn same_server_attachment(
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    identity: &codeterm_types::server_bootstrap::ServerIdentity,
+    epoch: &str,
+) -> bool {
+    app.try_state::<ServerApiAttachmentSlot>()
+        .and_then(|slot| slot.current())
+        .is_some_and(|current| current.identity() == identity && current.epoch() == epoch)
 }
 
 #[cfg(test)]
