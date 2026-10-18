@@ -13150,7 +13150,7 @@
             },
             {
               "name": "respawn",
-              "about": "Respawn a worker from one prior execution attempt",
+              "about": "Respawn a worker from one prior attempt, inheriting its recorded execution intent and provider/model",
               "aliases": [],
               "args": [
                 {
