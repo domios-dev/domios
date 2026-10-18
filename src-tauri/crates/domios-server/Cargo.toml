@@ -8,6 +8,7 @@ license = "AGPL-3.0-only"
 workspace = true
 
 [dependencies]
+codeterm-process-identity = { path = "../codeterm-process-identity" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-api = { path = "../codeterm-api", default-features = false }
 codeterm-socket = { path = "../codeterm-socket", default-features = false }

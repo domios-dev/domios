@@ -1,4 +1,4 @@
-use super::super::protocol::ProcessProvenance;
+use codeterm_types::server_bootstrap::ProcessProvenance;
 use std::{
     io,
     os::fd::{AsRawFd, FromRawFd, OwnedFd},
