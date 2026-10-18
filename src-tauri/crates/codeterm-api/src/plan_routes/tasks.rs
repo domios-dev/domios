@@ -412,6 +412,32 @@ fn task_update_core(
     tid: &str,
     body: Value,
 ) -> PlanRouteResult {
+    task_update_core_with_lane_cleanup_check(
+        service,
+        headers,
+        id,
+        tid,
+        body,
+        codeterm_service_core::service::lane_removal::clear_vanished_lane_on_cleanup_done,
+    )
+}
+
+fn task_update_core_with_lane_cleanup_check(
+    service: &codeterm_service_core::service::ServiceState,
+    headers: &HeaderMap,
+    id: &str,
+    tid: &str,
+    body: Value,
+    lane_cleanup_check: impl FnOnce(
+        &codeterm_service_core::service::plan::PlanStore,
+        &str,
+        &str,
+        Option<TaskLaneUpdate>,
+    ) -> Result<
+        Option<TaskLaneUpdate>,
+        codeterm_service_core::service::lane_removal::CleanupStatusDoneError,
+    >,
+) -> PlanRouteResult {
     let previous_name = service
         .plan_store
         .show_task(tid)
@@ -483,20 +509,15 @@ fn task_update_core(
         .unwrap_or_default();
     let lane = lane_update_field(&body)
         .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
-    let lane = codeterm_service_core::service::lane_removal::clear_vanished_lane_on_cleanup_done(
-        &service.plan_store,
-        id,
-        tid,
-        lane,
-    )
-    .map_err(|error| match error {
-        codeterm_service_core::service::lane_removal::CleanupStatusDoneError::Refused(message) => {
-            text_err(axum::http::StatusCode::CONFLICT, message)
-        }
-        codeterm_service_core::service::lane_removal::CleanupStatusDoneError::Verification(
-            message,
-        ) => text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, message),
-    })?;
+    let lane =
+        lane_cleanup_check(&service.plan_store, id, tid, lane).map_err(|error| match error {
+            codeterm_service_core::service::lane_removal::CleanupStatusDoneError::Refused(
+                message,
+            ) => text_err(axum::http::StatusCode::CONFLICT, message),
+            codeterm_service_core::service::lane_removal::CleanupStatusDoneError::Verification(
+                message,
+            ) => text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, message),
+        })?;
     let depends_on = optional_string_vec_field(&body, "depends_on", "dependency_task_ids")
         .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
     // The edit panel submits the whole array, so this surface is Replace-only.

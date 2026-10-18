@@ -14,8 +14,23 @@ export const newSlowFailureSeconds = 1.25;
 export const regressionLimit = seconds => seconds + Math.max(seconds * 0.2, 0.25);
 export const unitKey = test => testKey(splitTestName(test));
 const identity = entry => unitKey(entry.test);
-// Exact key first; otherwise the inventory's facade rule, so a crate move keeps its allowance.
-const allowanceKey = (allowed, key) => (allowed.has(key) ? key : facadeMatch(key, [...allowed.keys()]));
+const unitSuffixes = value => {
+  const parts = value.split('::');
+  return new Set(parts.flatMap((_, index) => {
+    const suffix = parts.slice(index);
+    return suffix.length > 1 && suffix[0] !== 'tests' ? [suffix.join('::')] : [];
+  }));
+};
+const allowanceKey = (allowed, key) => {
+  if (allowed.has(key)) return key;
+  const keys = [...allowed.keys()];
+  const facade = facadeMatch(key, keys);
+  if (facade) return facade;
+  const wanted = unitSuffixes(key);
+  const matches = keys.filter(candidate =>
+    [...unitSuffixes(candidate)].some(suffix => wanted.has(suffix)));
+  return matches.length === 1 ? matches[0] : null;
+};
 const runIdentity = entry => JSON.stringify([entry.binary, entry.test]);
 const describeEntry = entry => `${entry.binary} ${entry.test}`;
 const exactName = /^[A-Za-z0-9_:./@-]+$/;
