@@ -423,6 +423,9 @@ mod tests {
                 )
                 .unwrap();
         }
+        let source_acknowledged_at =
+            store.show_task(&task_id).unwrap().task.execution_attempts[0].acknowledged_at;
+        assert_eq!(source_acknowledged_at.is_some(), omit_attempt);
 
         let authority = match target {
             Some(target) => fixture.service.authorize_provider_switch_binding(
@@ -490,6 +493,10 @@ mod tests {
         assert_eq!(rebound.execution_attempts.len(), 1);
         assert_eq!(rebound.execution_attempts[0].id, attempt_id);
         assert_eq!(
+            rebound.execution_attempts[0].acknowledged_at,
+            source_acknowledged_at
+        );
+        assert_eq!(
             rebound.execution_attempts[0].provider.as_deref(),
             Some(target.unwrap_or("provider"))
         );
@@ -513,6 +520,23 @@ mod tests {
             )
             .unwrap();
         assert_eq!(acknowledged.attempt.id, attempt_id);
-        assert_eq!(acknowledged.attempt.acknowledged_at, Some(5));
+        assert_eq!(acknowledged.plan_id, plan.id);
+        assert_eq!(acknowledged.task_id, task_id);
+        assert_eq!(
+            acknowledged.already_acknowledged,
+            source_acknowledged_at.is_some()
+        );
+        let expected_acknowledged_at = source_acknowledged_at.or(Some(5));
+        assert_eq!(
+            acknowledged.attempt.acknowledged_at,
+            expected_acknowledged_at
+        );
+        let persisted = store.show_task(&task_id).unwrap().task;
+        assert_eq!(persisted.execution_attempts.len(), 1);
+        assert_eq!(persisted.execution_attempts[0].id, attempt_id);
+        assert_eq!(
+            persisted.execution_attempts[0].acknowledged_at,
+            expected_acknowledged_at
+        );
     }
 }
