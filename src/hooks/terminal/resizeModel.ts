@@ -9,6 +9,13 @@ export function terminalGeometryPolicy(isRemote: boolean): TerminalGeometryPolic
   return isRemote ? "viewer-local" : "shared-pty";
 }
 
+export function ptyResizeGeometry(
+  policy: TerminalGeometryPolicy,
+  fitted: ResizeGeometry,
+): ResizeGeometry | null {
+  return policy === "shared-pty" ? { cols: fitted.cols, rows: fitted.rows } : null;
+}
+
 export interface ResizeAuthority {
   ptyId: string;
   clientId: string;
