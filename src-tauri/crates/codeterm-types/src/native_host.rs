@@ -101,14 +101,27 @@ pub enum NativeHostScope {
     View(Uuid),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "operation", content = "payload", rename_all = "snake_case")]
 pub enum NativeHostOperation<UpdateRequest> {
-    Restart,
-    Exit { code: i32 },
+    FocusWindow { label: String },
+    WindowExists { label: String },
+    OsNotify { title: String, body: Option<String> },
+    ToastPermission { enabling: Option<bool> },
+    OpenWebview { request: NativeWebviewRequest },
     CopyImageToClipboard { path: PathBuf },
     DebianPreflight,
     NativeUpdate { request: UpdateRequest },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeWebviewRequest {
+    pub label: String,
+    pub url: String,
+    pub title: String,
+    pub width: f64,
+    pub height: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -130,8 +143,10 @@ pub struct NativeDebianPreflight {
 #[serde(tag = "result", content = "payload", rename_all = "snake_case")]
 pub enum NativeHostResult<UpdateResult> {
     Acknowledged,
+    WindowExists(bool),
+    ToastPermission(String),
     DebianPreflight(NativeDebianPreflight),
-    NativeUpdateAccepted(UpdateResult),
+    NativeUpdate(UpdateResult),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,7 +181,7 @@ pub enum NativeHostCompletion<T> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NativeHostRequestId(pub u64);
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeHostRequest<UpdateRequest> {
     pub request_id: NativeHostRequestId,
@@ -192,16 +207,41 @@ pub struct NativeHostCancellation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "audience", content = "target", rename_all = "snake_case")]
+pub enum NativeHostEventAudience {
+    Generic,
+    Native,
+    Targeted(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeHostEvent {
+    pub event_id: u64,
+    pub connection: NativeHostConnection,
+    pub audience: NativeHostEventAudience,
+    pub name: String,
+    pub payload: serde_json::Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "payload", rename_all = "snake_case")]
 pub enum NativeHostFrame<UpdateRequest, UpdateResult> {
     Challenge(NativeHostChallenge),
     Enroll(NativeHostEnrollmentRequest),
     Enrolled(NativeHostEnrollment),
-    BindView(NativeViewBinding),
-    ReleaseView { session_id: Uuid },
+    BindView {
+        connection: NativeHostConnection,
+        view: NativeViewBinding,
+    },
+    ReleaseView {
+        connection: NativeHostConnection,
+        session_id: Uuid,
+    },
     Request(NativeHostRequest<UpdateRequest>),
     Reply(NativeHostReply<UpdateResult>),
     Cancel(NativeHostCancellation),
+    Event(NativeHostEvent),
 }
 
 #[cfg(test)]
@@ -242,9 +282,33 @@ mod tests {
         assert_eq!(value["payload"]["request"], "transaction");
         assert!(serde_json::from_value::<NativeHostOperation<String>>(json!({
             "operation": "invoke",
-            "payload": { "name": "restart" }
+            "payload": { "name": "focus_window" }
         }))
         .is_err());
+    }
+
+    #[test]
+    fn native_event_keeps_its_audience_explicit() {
+        let event = NativeHostEvent {
+            event_id: 7,
+            connection: NativeHostConnection {
+                instance_id: "instance".into(),
+                identity: crate::server_bootstrap::ServerIdentity {
+                    data: "data".into(),
+                    config: "config".into(),
+                },
+                server_epoch: "epoch".into(),
+                generation: 3,
+            },
+            audience: NativeHostEventAudience::Targeted("main".into()),
+            name: "selection-changed".into(),
+            payload: json!({ "selection": "tab" }),
+        };
+        let value = serde_json::to_value(event).unwrap();
+
+        assert_eq!(value["audience"], "targeted");
+        assert_eq!(value["target"], "main");
+        assert_eq!(value["payload"], json!({ "selection": "tab" }));
     }
 
     #[test]
