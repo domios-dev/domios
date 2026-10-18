@@ -26,6 +26,7 @@ pub mod resume;
 pub mod resume_cursor;
 pub mod row_cache;
 pub mod runtime_stored;
+pub mod session_segments;
 pub mod session_window;
 pub mod snapshot_flight;
 mod snapshot_rows;
@@ -676,9 +677,65 @@ pub fn tab_chat_snapshot(
     tab_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
-    let (mut messages, _) = tab_transcript_snapshot(svc, tab_id, 0)?;
-    if let Some(notice) = svc.provider_switch_notice(tab_id) {
-        messages.insert(0, notice);
+    let (current_messages, _) = tab_current_transcript_snapshot(svc, tab_id, 0)?;
+    let (mut archives, current) = {
+        let mux = svc.mux.read();
+        let tab = mux.get_tab(tab_id).ok_or("Tab not found")?;
+        let current = match &tab.backing {
+            crate::multiplexer::types::TabBacking::Pty => tab
+                .agent_type
+                .as_ref()
+                .zip(tab.agent_session_id.as_ref())
+                .map(|(provider, session)| {
+                    (
+                        provider.clone(),
+                        tab.cwd.clone().unwrap_or_default(),
+                        session.clone(),
+                        crate::multiplexer::types::ContextEpochTransport::AgentProvider,
+                    )
+                }),
+            crate::multiplexer::types::TabBacking::ChatBackend {
+                plugin_id,
+                session_id,
+            } => Some((
+                plugin_id.clone(),
+                tab.cwd.clone().unwrap_or_default(),
+                if session_id.is_empty() {
+                    tab.agent_session_id.clone().unwrap_or_default()
+                } else {
+                    session_id.clone()
+                },
+                crate::multiplexer::types::ContextEpochTransport::ChatBackend,
+            )),
+            crate::multiplexer::types::TabBacking::Surface(_) => None,
+        };
+        (tab.context_epoch_archives.clone(), current)
+    };
+    if let Some((provider, cwd, session_id, transport)) = current.as_ref() {
+        archives.retain(|archive| {
+            archive.provider.as_str() != provider.as_str()
+                || (*transport == crate::multiplexer::types::ContextEpochTransport::AgentProvider
+                    && archive.cwd.as_str() != cwd.as_str())
+                || archive.session_id.as_str() != session_id.as_str()
+                || archive.transport != *transport
+        });
+    }
+    let current_session_id = current
+        .as_ref()
+        .map(|(_, _, session_id, _)| session_id.as_str())
+        .unwrap_or_default();
+    let mut messages = session_segments::project_with_archived_provider_sessions(
+        svc,
+        &archives,
+        current_session_id,
+        current_messages,
+    );
+    if !archives.iter().any(|archive| {
+        archive.boundary == crate::multiplexer::types::ContextEpochBoundary::ProviderHandoff
+    }) {
+        if let Some(notice) = svc.provider_switch_notice(tab_id) {
+            messages.insert(0, notice);
+        }
     }
     Ok(restore_notice::snapshot(
         &svc.lifecycle_journal,
@@ -688,7 +745,7 @@ pub fn tab_chat_snapshot(
     ))
 }
 
-fn tab_transcript_snapshot(
+pub fn tab_current_transcript_snapshot(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
     since: usize,

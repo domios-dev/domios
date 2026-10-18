@@ -5,6 +5,67 @@ Parent owns live execution on a disposable, named canonical DEV build. The
 worker supplies offline tests and preparation only. Nothing starts/restarts DEV,
 enables production CDP, launches a provider, or sends a provider message.
 
+## Explicit functional replay without OS renderer attribution
+
+Use `--purpose functional` on **every** invocation for one functional checkpoint.
+This uses the same setup/replay/finish/cleanup and exact fixture ownership. It requires
+the selected DEV/provenance/page/entry/daemon/boot identities but does not query or
+select a browser-wide renderer PID. Identity and reports record renderer/trace
+attribution unavailable with reason `functional_page_only`; renderer private bytes
+are null. DOM/input/store/final-tail and page-CDP Performance metrics remain available.
+Functional samples do not force GC or establish process memory/plateau/trace evidence.
+
+For the already authenticated explicit Browser page, parent can run these finite
+commands with a private output directory and previously prepared fixture. Replace
+FULL_SHA and ENTRY_SHA256 with the exact fields from the first identity.json; do not
+infer them from the caller checkout. Use a fresh output for each control/probe.
+
+```bash
+bash evals/perf/streaming-soak/run.sh inspect --purpose functional --surface chrome --cdp 58454 --target 16389F3D19EF145FF8D87BDE991C35E7 --out C:/private-evidence/functional-identity
+bash evals/perf/streaming-soak/run.sh setup --purpose functional --surface chrome --cdp 58454 --target 16389F3D19EF145FF8D87BDE991C35E7 --out C:/private-evidence/functional-replay --mode replay --expect-build FULL_SHA --expect-entry ENTRY_SHA256
+bash evals/perf/streaming-soak/run.sh replay --purpose functional --surface chrome --cdp 58454 --target 16389F3D19EF145FF8D87BDE991C35E7 --out C:/private-evidence/functional-replay --fixture C:/private-evidence/prepared-h320-c1024/replay-fixture.json --segments 1 --control stream --probe composer --profile none
+bash evals/perf/streaming-soak/run.sh finish --purpose functional --surface chrome --cdp 58454 --target 16389F3D19EF145FF8D87BDE991C35E7 --out C:/private-evidence/functional-replay
+bash evals/perf/streaming-soak/run.sh cleanup --purpose functional --surface chrome --cdp 58454 --target 16389F3D19EF145FF8D87BDE991C35E7 --out C:/private-evidence/functional-replay
+```
+
+The finite target/port above identify the parent's current admitted Browser, not a
+persistent locator. A replaced page/boot/entry or capability change refuses resume.
+`--purpose profile` remains the default and requires exact supported OS attribution.
+Functional mode refuses CPU/trace profiles, snapshots, load/idle memory setup,
+plateau analysis and before/after profiling comparisons. It does not silently turn
+null renderer data into a successful memory oracle. Browser authentication and input
+fixtures still require the already granted parent QA authorization; no extra pages
+are created or closed to satisfy profiling assumptions.
+
+### Bundled API-served functional preflight and evidence limit
+
+On the SAME explicit parent-owned Browser page, first save its original URL, then
+navigate through the normal Browser controls from `http://127.0.0.1:7686/` to
+`http://127.0.0.1:7686/?e2e`. Do not create/close other pages or switch to Vite/HMR.
+If no chat is mounted, open an already owner-approved existing chat through normal UI
+so the shipped `__codetermTestChat` and `__chatProjection` handles exist. This does not
+authorize input to that existing chat. Run functional `inspect` again and re-pin its
+build, entry hash, exact page and `testMode:true` identity before setup. Setup refuses
+missing URL mode/handles during attach, before creating owned fixtures.
+
+Functional replay uses the existing full-message public test event with exact owned
+synthetic IDs and backend-observed session/nonce/PTY checks before each seed/step.
+It uses the shipped projection monitor and owned DOM source-message IDs; it NEVER
+imports source modules into the bundled page. Internal transcript rows/authority are
+not exposed by these public handles. Functional completion reports only the observed
+owned projected tail signature and visible source ID. Internal full-history/content,
+frontend authority and durable-storage evidence are explicitly unavailable. DOM or
+projection evidence does not prove IndexedDB, localStorage, reload restoration or
+durable transcript persistence. Those require separate already-supported storage QA.
+Source-module/profile mode retains its stronger internal-store final-content oracle.
+
+Use the functional command sequence above with the re-inspected SHA/entry and the same
+explicit page ID. If a synthetic target is unmounted or does not expose its public
+projection, dispatch refuses or the bounded observation fails; no success is invented.
+After exact owned cleanup is confirmed, restore the saved original URL through normal
+Browser controls (currently `http://127.0.0.1:7686/`). A failed/pending fixture journal
+requires parent review before URL restoration; never replay or erase its evidence.
+
 ## Obtain and freeze the input
 
 Use the supported `tab chat --since 0 --json` export of an owner-authorized saved
@@ -75,7 +136,7 @@ existing frontend test mode (`VITE_CODETERM_TEST=1` at startup or the DEV-only
 `?e2e` entry), verifies the actual health build, and forbids HMR during a run.
 The runner stays locked to DEV API 7686. It uses the existing bench `dev_run`
 wrapper, never inherited production selectors. It refuses PROD identifiers and
-ambiguous renderer PID attribution.
+ambiguous renderer PID attribution in profiling mode.
 
 ```bash
 bash evals/perf/streaming-soak/run.sh inspect --out C:/private-evidence/native-identity
@@ -125,22 +186,35 @@ ResizeObserver work; useMeshData refreshes on mesh/service events. No graph
 algorithm repair follows from source inspection alone.
 
 Every live invocation has the existing eight-minute failure deadline and lock.
-Each step waits for input and explicit tail paint-opportunity/frame signals;
-no sleeps, polling cadence or synthetic readiness delay. The pace follows the
-consumer's acknowledgements. This does not recreate unbounded real-world burst
-arrival pressure. Page instrumentation has a 450-second failure lifetime and
-stops frame sampling when a sample budget fails; runner loss cannot leave an
+Setup waits for the owned chat root and accessible composer to mount. Replay
+then checks the transcript store's exact source session and nonce before any
+dispatch; the `snapshotReady` display attribute is not used as an authority
+signal. The runner keeps its 20-second DOM evidence deadline. Each step waits
+for input and explicit tail paint-opportunity/frame signals; no sleeps, polling
+cadence or synthetic readiness delay. The pace follows the consumer's
+acknowledgements. This does not recreate unbounded real-world burst arrival
+pressure. Page instrumentation has a 450-second failure lifetime and stops
+frame sampling when a sample budget fails; runner loss cannot leave an
 unbounded sampler. Expiry removes the test handle and makes the run fail.
 `pending` is persisted before replay; interruption refuses
 replay and needs parent review of the ownership journal, not another run in the
 same checkpoint. Successful replay is single-use. Complete/finish/cleanup each
 owned run before the next control to keep mounted baseline counts fixed.
 
+Cleanup subscribes to `mux-state-changed` before closing owned tabs/workspace.
+Each bounded event triggers one `mux_get_state` read; cleanup completes only
+after a shaped snapshot confirms every owned tab and the owned workspace are
+absent. The 20-second observation deadline is a failure bound, not an API
+latency measurement. A timeout leaves `cleanup.status: running`, does not mark
+the checkpoint cleaned, and requires parent review; do not retry or edit that
+journal.
+
 ## Native/Chrome and before/after
 
 For Chrome use a parent-owned dedicated browser diagnostic session already
 serving this DEV entry/test mode, authenticated through the normal UI, with an
-explicit supported CDP endpoint/target and exactly one renderer. No worker
+explicit supported CDP endpoint/target. Profiling requires exactly one renderer;
+functional mode records OS renderer attribution unavailable. No worker
 launches it; no production browser is restarted. Add these same flags to
 **every** inspect/setup/replay/finish/cleanup invocation for that run:
 
@@ -152,7 +226,9 @@ The native surface uses only the DEV-advertised CDP endpoint. A Chrome endpoint
 must differ from that endpoint; native bridge presence must match the surface.
 Identity includes browser product/version/User-Agent/V8/protocol, page path and
 test-mode flag, full backend build SHA, served HTML/entry hash, boot/page IDs,
-renderer/daemon PID and creation times. The entry hash is not a hash of all HMR
+renderer/API-listener-owner PID and creation times. The listener owner is not
+native-client CPU or lock attribution; this runner does not currently identify
+the native wrapper PID. The entry hash is not a hash of all HMR
 modules: record the exact loaded checkout/build/entry and harness SHA separately.
 
 Repeat the same immutable fixture, chunk plan, history, controls, probe,
@@ -220,8 +296,7 @@ Coarse upstream arrivals, queued frontend handlers, fast adoption with late
 paint, and graph-only layout peaks are different findings. This reconstructed
 post-provider replay bypasses Rust ItemUpdated production, SSE decoding and the
 ordinary frontend authority gate; it cannot select among those upstream causes.
-The WebView renderer and Rust host are separate processes; native host/API share
-the Rust process. Healthy API/agents alone do not prove window responsiveness.
+The WebView renderer and Rust host are separate processes; native client and API/server own separate Rust processes in split DEV. Healthy API/agents alone do not prove window responsiveness.
 
 ## Focused checks (offline only)
 
@@ -235,3 +310,47 @@ metadata privacy, event/frame wiring and aggregation. They are not live browser
 timings. Parent first executes one bounded segment on a small prepared variant
 to validate real CDP/wiring, then the unchanged saved-session cumulative workload
 and controls. A failed live wiring run is a failure, not performance evidence.
+
+
+Bundled functional replay selects the exact owned workspace and tab on the selected
+Browser page through sidebar controls; daemon focus is only used for the native
+surface. Backend focus acknowledgement alone does not prove a mounted composer.
+Functional cleanup uses authenticated mux reads after each successful close and a
+final all-owned-IDs-absent read before unlinking fixture files. UI absence remains
+unavailable; profile mode retains its source bridge event observer.
+For a pre-close cleanup failure with pending null and cleanup null, run only the
+original checkpoint's `cleanup` with its original purpose/surface/CDP/target flags.
+Do not rerun setup or replay that checkpoint. After exact cleanup, use a fresh
+output directory for inspect/setup/replay/finish/cleanup and restore the saved URL.
+
+
+### Unfinished replay: explicit teardown only
+
+Ordinary finish/cleanup/resume refuse a pending replay. After owner approval use
+`bash evals/perf/streaming-soak/run.sh abort-replay --out ORIGINAL_RUN --purpose functional --surface chrome --cdp EXACT_CDP --target EXACT_PAGE`.
+Keep the original page/e2e/build/entry/daemon identity. This operation validates
+exact session/nonce/PTY/workspace and fixture files, admits one abort, authenticates
+the existing emitter stop and requires its exact child-exit receipt. It then closes
+only owned tabs/workspace, proves backend absence, and unlinks owned fixture files.
+Pending and replay failure evidence remain unchanged; a separate abort record and
+aborted stage never count as replay success or permit replay/resume. An interrupted
+abort/cleanup needs owner review, never automatic repeat. Do not clear a pending
+journal, seed again, erase its checkpoint or create another run before teardown.
+
+
+Functional replay now visits each exact seed target before dispatch/visible-tail
+verification, returns to local before measured input, and selects each target for
+final restoration/read. Inactive mounted chat shells may contain no message DOM.
+Measured background-control evidence therefore uses only the public projection tail;
+its visible DOM/internal store/durable storage evidence remains explicitly unavailable.
+Selected local and final selected-tail checks still require the exact visible source ID.
+The actual tail signature is row id plus # plus JavaScript content length, matching
+paintTailSignature; no monitor snapshot is converted into invented DOM rows.
+
+
+Replay visits explicitly distinguish setup from replay phase. Initial authority
+mount retains the original synthetic history marker. Seed routing, begin/local
+return, final reads and after-return use replay phase: exact selected owned mount
+remains required, while dispatch/final-read retain exact replay tail evidence.
+The setup marker may disappear after normalized reseed/virtualization; requiring it
+then caused a pre-input readiness refusal, not proof of app storage failure.

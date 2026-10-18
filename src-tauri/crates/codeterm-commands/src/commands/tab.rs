@@ -99,6 +99,22 @@ pub fn chat_start_core(
             result.messages.get_or_insert_default(),
         );
     }
+    if result.kind == ChatStartKind::Snapshot {
+        let archives = svc
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .map(|tab| tab.context_epoch_archives.clone())
+            .unwrap_or_default();
+        if !archives.is_empty() {
+            let archived = super::context_epochs::materialize_archived_context_epochs(
+                svc,
+                &archives,
+                result.source_session_id.as_deref().unwrap_or_default(),
+            );
+            result.archived_messages = Some(archived);
+        }
+    }
     log::debug!(
         "[chat-attach] tab={tab_id} phase=restore_notice elapsed_ms={} total_ms={}",
         notice_at.elapsed().as_millis(),
@@ -146,6 +162,7 @@ fn chat_start_inner(
             offset: total as u64,
             pending: false,
             messages: Some(messages.into_iter().skip(start).collect()),
+            archived_messages: None,
             cursor: None,
             source_session_id: context.thread_id,
             session_binding_nonce: Some(context.binding_nonce),
@@ -154,28 +171,20 @@ fn chat_start_inner(
         });
     }
     if codeterm_service_core::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some() {
-        return codeterm_service_core::service::codex_rpc::transcript::start(
+        let result = codeterm_service_core::service::codex_rpc::transcript::start(
             svc,
             &tab_id,
             subscription_id,
-        );
+        )?;
+        return Ok(result);
     }
     let started = std::time::Instant::now();
     let initial_authority = tab_chat_authority(svc, &tab_id);
     if codeterm_service_core::service::structured_endpoint_sse(&tab_id).is_some()
         && initial_authority.0.is_some()
     {
-        let archives = svc
-            .mux
-            .read()
-            .get_tab(&tab_id)
-            .map(|tab| tab.context_epoch_archives.clone())
-            .unwrap_or_default();
         let mut messages =
-            super::context_epochs::materialize_archived_context_epochs(svc, &archives);
-        messages.extend(
-            codeterm_service_core::service::structured_prompt::read_snapshot(svc, &tab_id)?,
-        );
+            codeterm_service_core::service::structured_prompt::read_snapshot(svc, &tab_id)?;
         let start = messages
             .len()
             .saturating_sub(codeterm_service_core::service::structured_prompt::RETAINED_ROWS);
@@ -193,6 +202,7 @@ fn chat_start_inner(
             pending: false,
             source_missing: false,
             messages: Some(prepend_pending_greeting(svc, &tab_id, messages)),
+            archived_messages: None,
             cursor: None,
             source_session_id: initial_authority.0,
             session_binding_nonce: initial_authority.1,
@@ -208,8 +218,10 @@ fn chat_start_inner(
             );
         }
         let (messages, _total) =
-            codeterm_service_core::service::tab_chat::tab_chat_snapshot(svc, &tab_id, 0)
-                .unwrap_or_default();
+            codeterm_service_core::service::tab_chat::tab_current_transcript_snapshot(
+                svc, &tab_id, 0,
+            )
+            .unwrap_or_default();
         return Ok(ChatStartResult {
             kind: Default::default(),
             file_length: None,
@@ -220,13 +232,14 @@ fn chat_start_inner(
             pending: false,
             source_missing: false,
             messages: Some(prepend_pending_greeting(svc, &tab_id, messages)),
+            archived_messages: None,
             cursor: None,
             source_session_id: initial_authority.0,
             session_binding_nonce: initial_authority.1,
             subscription_id: None,
         });
     }
-    let (provider_id, cwd, session_id, context_epoch_archives, mux_ms) = {
+    let (provider_id, cwd, session_id, mux_ms) = {
         let t = std::time::Instant::now();
         let m = svc.mux.read();
         let tab = m.get_tab(&tab_id).ok_or("Tab not found")?;
@@ -242,6 +255,7 @@ fn chat_start_inner(
                     pending: true,
                     source_missing: false,
                     messages: None,
+                    archived_messages: None,
                     cursor: None,
                     source_session_id: None,
                     session_binding_nonce: tab.session_binding_nonce.clone(),
@@ -269,6 +283,7 @@ fn chat_start_inner(
                         seq: i64::MIN,
                         ..Default::default()
                     }]),
+                    archived_messages: None,
                     cursor: None,
                     source_session_id: None,
                     session_binding_nonce: tab.session_binding_nonce.clone(),
@@ -285,23 +300,15 @@ fn chat_start_inner(
                 pending: true,
                 source_missing: false,
                 messages: None,
+                archived_messages: None,
                 cursor: None,
                 source_session_id: None,
                 session_binding_nonce: tab.session_binding_nonce.clone(),
                 subscription_id: None,
             });
         };
-        (
-            provider,
-            cwd,
-            sid,
-            tab.context_epoch_archives.clone(),
-            t.elapsed().as_millis(),
-        )
+        (provider, cwd, sid, t.elapsed().as_millis())
     };
-    let archived_messages =
-        super::context_epochs::materialize_archived_context_epochs(svc, &context_epoch_archives);
-    let archive_available = !archived_messages.is_empty();
 
     let session_binding_nonce = svc
         .mux
@@ -372,8 +379,6 @@ fn chat_start_inner(
                 handle,
             );
         }
-        let mut messages = archived_messages;
-        messages.extend(delta.messages);
         return Ok(ChatStartResult {
             kind: Default::default(),
             file_length: None,
@@ -383,7 +388,8 @@ fn chat_start_inner(
             offset: 0,
             pending: false,
             source_missing: false,
-            messages: Some(prepend_pending_greeting(svc, &tab_id, messages)),
+            messages: Some(prepend_pending_greeting(svc, &tab_id, delta.messages)),
+            archived_messages: None,
             cursor,
             source_session_id: Some(session_id.clone()),
             session_binding_nonce: session_binding_nonce.clone(),
@@ -441,9 +447,10 @@ fn chat_start_inner(
             offset_kind: ChatOffsetKind::Bytes,
             start_offset: 0,
             offset: 0,
-            pending: !archive_available,
+            pending: true,
             source_missing: true,
-            messages: archive_available.then_some(archived_messages),
+            messages: None,
+            archived_messages: None,
             cursor: None,
             source_session_id: Some(session_id.clone()),
             session_binding_nonce: session_binding_nonce.clone(),
@@ -620,11 +627,7 @@ fn chat_start_inner(
     // Backfill cursor: >0 means the bounded snapshot truncated older history.
     let snapshot_start = snap.start_offset;
     let msg_count = snap.messages.len();
-    let mut messages = if kind == ChatStartKind::Snapshot {
-        archived_messages
-    } else {
-        vec![]
-    };
+    let mut messages = Vec::new();
     messages.extend(snap.messages.iter().cloned());
 
     // is already running so one client's stop() cannot kill another's stream.
@@ -698,6 +701,7 @@ fn chat_start_inner(
         } else {
             messages
         }),
+        archived_messages: None,
         cursor,
         source_session_id: Some(session_id),
         session_binding_nonce,

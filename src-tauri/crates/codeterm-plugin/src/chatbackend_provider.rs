@@ -325,6 +325,9 @@ impl ChatBackendRegistry {
         id: String,
         provider: Arc<dyn ChatBackendProvider>,
     ) -> Option<std::thread::JoinHandle<()>> {
+        if provider.remote_task_capability().is_some() {
+            return None;
+        }
         let entries = self.entries.clone();
         let thread_id = id.clone();
         match std::thread::Builder::new()
@@ -439,7 +442,11 @@ impl ChatBackendRegistry {
     }
 
     pub fn unregister(&self, id: &str) {
-        if self.entries.write().remove(id).is_some() {
+        let entry = self.entries.write().remove(id);
+        if entry
+            .as_ref()
+            .is_some_and(|entry| entry.provider.remote_task_capability().is_none())
+        {
             let previous_version = model_catalog::current_version(id);
             model_catalog::unregister(id);
             if model_catalog::current_version(id) == previous_version {

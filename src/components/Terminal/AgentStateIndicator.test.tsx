@@ -112,16 +112,24 @@ async function main(): Promise<void> {
   assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol", "empty effort is omitted without a separator");
 
   await act(async () => idle.root.render(
-    <div style={{ width: 390 }}>
+    <div style={{ width: 390 }} data-testid="phone-composer-status">
+      <button type="button" aria-label="Attachment actions" />
       <AgentStateIndicator
         activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working", status_line: "A deliberately long status suffix that must remain in the compact row" } })}
         providerName="Codex"
         model="gpt-5.6-sol"
+        onStop={() => { stopCalls += 1; }}
         reasoningEffort={{ actual: "high", actual_source: "session-owned" }}
       />
     </div>,
   ));
   assert(idle.host.querySelectorAll('[data-testid="agent-state"]').length === 1, "390px rendering keeps one compact status row");
+  const phoneStatus = idle.host.querySelector('[data-testid="phone-composer-status"]');
+  const phoneAttach = phoneStatus?.querySelector('button[aria-label="Attachment actions"]');
+  const phoneStop = phoneStatus?.querySelector<HTMLButtonElement>('[data-testid="agent-stop"]');
+  assert(phoneAttach && phoneStop, "phone status row keeps attachment actions and working Stop together");
+  await act(async () => phoneStop.click());
+  assert(Number(stopCalls) === 2, "phone Stop still interrupts the active agent");
 
   let terminalCalls = 0;
   let cancelCalls = 0;

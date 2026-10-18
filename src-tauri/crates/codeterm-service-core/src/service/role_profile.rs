@@ -81,6 +81,7 @@ impl SpawnAgentParams {
                 .or_else(|| json_str(params, "reasoning-effort")),
             system_prompt: json_str(params, "system_prompt").or_else(|| json_str(params, "system")),
             preset: json_str(params, "preset"),
+            execution_mode: json_str(params, "execution_mode"),
             resume_session_id: json_str(params, "resume_session_id"),
             charter: json_str(params, "charter"),
             tick_interval_secs: json_u64(params, "tick_interval_secs"),
@@ -191,6 +192,25 @@ pub fn builtin_worker_profile(executor_role: Option<&str>) -> Option<String> {
     let descriptor = role_kind::builtin_kind(&role.to_ascii_lowercase())?;
     (!descriptor.anchors_team() && !descriptor.has_team_authority() && !descriptor.manages())
         .then(|| descriptor.id().to_string())
+}
+
+pub fn dispatch_worker_profile(
+    executor_role: Option<&str>,
+    selected_kind: Option<&str>,
+) -> Result<Option<String>, String> {
+    let Some(selected_kind) = selected_kind else {
+        return Ok(builtin_worker_profile(executor_role));
+    };
+    let selected_kind = selected_kind.trim().to_ascii_lowercase();
+    let Some(descriptor) = role_kind::builtin_kind(&selected_kind).filter(|descriptor| {
+        descriptor.is_taskless_worker()
+            && !descriptor.anchors_team()
+            && !descriptor.has_team_authority()
+            && !descriptor.manages()
+    }) else {
+        return Err("dispatch kind must name a built-in task-less Worker kind".into());
+    };
+    Ok(Some(descriptor.id().to_string()))
 }
 
 /// A Worker subtype narrows within leaf capability, so a subtype id is kept
@@ -378,6 +398,52 @@ mod normalization_tests {
                 Some(kind.into()),
                 "{kind}"
             );
+        }
+    }
+
+    #[test]
+    fn dispatch_worker_kind_composes_the_selected_prompt_with_or_without_a_task() {
+        for kind in [QA, RELEASE_MANAGER] {
+            for task_id in [None, Some("task-bound")] {
+                let profile = dispatch_worker_profile(Some("repository-integrator"), Some(kind))
+                    .expect("the selected builtin Worker kind is valid")
+                    .expect("the selected kind produces a profile");
+                let mut params = SpawnAgentParams {
+                    role: Some("Worker".into()),
+                    role_profile: Some(profile),
+                    task_id: task_id.map(str::to_string),
+                    ..Default::default()
+                };
+                params
+                    .normalize_role_profile()
+                    .expect("the profile remains a Worker kind");
+                let preset = crate::service::role_preset::resolve(
+                    Some(AgentRole::Worker),
+                    params.role_profile.as_deref(),
+                    None,
+                )
+                .expect("the selected kind resolves to a prompt preset");
+                let guidance = crate::service::role_preset::builtin_guidance(kind)
+                    .expect("the builtin kind carries prompt guidance");
+
+                assert_eq!(params.task_id.as_deref(), task_id);
+                assert_eq!(preset.kind_id, kind);
+                assert!(preset.fragments.iter().any(|fragment| {
+                    fragment.source == crate::service::role_preset::FragmentSource::Builtin
+                        && fragment.text == guidance
+                }));
+            }
+            assert_eq!(
+                dispatch_worker_profile(Some(kind), None).expect("saved executor role resolves"),
+                Some(kind.into())
+            );
+        }
+    }
+
+    #[test]
+    fn dispatch_worker_kind_refuses_unknown_and_managing_profiles() {
+        for kind in ["unknown-kind", "planner", "cartographer"] {
+            assert!(dispatch_worker_profile(None, Some(kind)).is_err(), "{kind}");
         }
     }
 

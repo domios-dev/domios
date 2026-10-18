@@ -1,6 +1,6 @@
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc, OnceLock,
+    atomic::{AtomicU64, Ordering},
 };
 
 use parking_lot::Mutex;
@@ -34,10 +34,7 @@ pub async fn broadcast_sync(mesh: &MeshState) {
     if clients.is_empty() {
         return;
     }
-    let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .unwrap_or_default();
+    let http = transport::shared_http_client();
     for (addresses, port, token, peer_id) in &clients {
         let result = transport::try_peer(addresses, |addr| {
             let url = format!("http://{}:{}/api/mesh/sync", addr.ip, port);
@@ -76,10 +73,7 @@ pub async fn broadcast_introductions(
     our_id: String,
     token: String,
 ) {
-    let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .unwrap_or_default();
+    let http = transport::shared_http_client();
     for existing in &existing_peers {
         if !existing.addresses.is_empty() {
             let intro = types::PeerIntroduction {
@@ -248,10 +242,7 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
         return report;
     }
 
-    let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .unwrap_or_default();
+    let http = transport::shared_http_client();
     for (addresses, port, token, peer_id, peer_name) in &clients {
         report.sent += 1;
         let stale_marker: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));

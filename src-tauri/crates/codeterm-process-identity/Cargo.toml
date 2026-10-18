@@ -1,0 +1,17 @@
+[package]
+name = "codeterm-process-identity"
+version = "0.0.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[lints]
+workspace = true
+
+[dependencies]
+codeterm-types = { path = "../codeterm-types" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }

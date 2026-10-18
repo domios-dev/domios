@@ -17,7 +17,7 @@ struct Shell {
 }
 
 #[test]
-fn bundled_runtime_registry_selects_chat_and_preserves_declared_controls() {
+fn bundled_codex_cloud_is_one_unavailable_execution_mode_on_codex() {
     use crate::agent::provider::AgentProvider;
     let agents = Arc::new(AgentRegistry::new());
     let manifest = crate::test_support::fixture_manifest_dir()
@@ -31,6 +31,8 @@ fn bundled_runtime_registry_selects_chat_and_preserves_declared_controls() {
     agents.register_provider(Box::new(provider));
     let registry = ProviderRegistry::new(agents, Arc::new(ChatBackendRegistry::new()));
     let descriptors = registry.describe_all();
+    assert_eq!(descriptors.len(), 1);
+    assert_eq!(descriptors[0].id, "codex");
     assert_eq!(descriptors[0].agent_runtime.as_ref(), Some(&runtime));
     assert_eq!(descriptors[0].structured_control, structured_control);
     assert_eq!(descriptors[0].transport, ProviderTransport::ChatBackend);
@@ -38,6 +40,13 @@ fn bundled_runtime_registry_selects_chat_and_preserves_declared_controls() {
         registry.transport_of(&provider_id),
         Some(ProviderTransport::ChatBackend)
     );
+    let remote_task = serde_json::to_value(descriptors[0].remote_task.as_ref()).unwrap();
+    assert_eq!(remote_task["mode"], "cloud");
+    assert_eq!(remote_task["availability"]["status"], "unavailable");
+    assert_eq!(remote_task["environments"], serde_json::json!([]));
+    assert!(remote_task["availability"]["reason"]
+        .as_str()
+        .is_some_and(|reason| !reason.is_empty()));
 }
 
 impl ChatBackendProvider for Shell {
@@ -268,4 +277,54 @@ fn runtime_capability_selects_chat_transport_and_retains_cli_controls() {
             .unwrap()
             .required
     );
+}
+
+#[test]
+fn remote_mode_keeps_one_provider_and_its_default_local_transport() {
+    use crate::agent::provider::AgentProvider;
+    for runtime in [false, true] {
+        let id = if runtime {
+            "opaque-local-runtime"
+        } else {
+            "opaque-local-pty"
+        };
+        let mut value = serde_json::json!({"id":id,"version":"0.1.0","displayName":"Fixture",
+        "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true},"remoteTask":{
+            "mode":"opaque-cloud","displayName":"Fixture Cloud","backend":"fixture","availability":{"status":"unavailable","reason":"fixture"},
+            "environments":[],"followUp":false,"cancel":false,"applyDiff":false
+        }}});
+        if runtime {
+            value["capabilities"]["agentRuntime"] = serde_json::json!({"runtime":"stdio-jsonrpc","command":{"binary":"opaque-cli","args":[]},"requestMethods":{"initialize":["initialize"]},"notificationMethods":[]});
+        }
+        let manifest = serde_json::from_value(value).unwrap();
+        let vm = Arc::new(
+            codeterm_plugin::js_runtime::PluginVm::from_source(
+                id,
+                "module.exports.default={};".into(),
+            )
+            .unwrap(),
+        );
+        let backend =
+            codeterm_plugin::js_runtime::JsChatBackend::from_manifest(vm.clone(), &manifest);
+        let provider = codeterm_plugin::js_runtime::JsProvider::new(manifest, vm);
+        assert!(provider.remote_task_capability().is_some());
+        let agents = Arc::new(AgentRegistry::new());
+        agents.register_provider(Box::new(provider));
+        let backends = Arc::new(ChatBackendRegistry::new());
+        backends.register(id, Arc::new(backend));
+        let registry = ProviderRegistry::new(agents, backends);
+        let descriptors = registry.describe_all();
+        assert_eq!(descriptors.len(), 1);
+        assert_eq!(descriptors[0].id, id);
+        assert_eq!(descriptors[0].agent_runtime.is_some(), runtime);
+        assert!(descriptors[0].remote_task.is_some());
+        assert_eq!(
+            registry.transport_of(id),
+            Some(if runtime {
+                ProviderTransport::ChatBackend
+            } else {
+                ProviderTransport::Pty
+            })
+        );
+    }
 }

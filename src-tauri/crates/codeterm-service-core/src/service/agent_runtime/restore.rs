@@ -4,7 +4,8 @@ use crate::{
 };
 
 fn materialize(tab: &mut Tab, runtime_declared: bool) -> bool {
-    if !runtime_declared
+    if tab.restorable_launch.execution_mode.is_some()
+        || !runtime_declared
         || !tab.restored_from_snapshot
         || tab.agent_type.is_none()
         || matches!(tab.backing, TabBacking::Surface(_))

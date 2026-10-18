@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Curated QA catalogue",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "cases"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/case" }
+    }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "area",
+        "tier",
+        "surfaces",
+        "platforms",
+        "providers",
+        "grants",
+        "automation",
+        "case",
+        "status"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^CUR-[0-9]{3}$" },
+        "title": { "type": "string", "minLength": 3 },
+        "area": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "tier": {
+          "type": "string",
+          "enum": ["release-core", "regression", "exploratory-charter"]
+        },
+        "surfaces": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["cli", "web", "native", "phone", "mesh", "team"]
+          }
+        },
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "providers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "grants": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "automation": {
+          "oneOf": [
+            { "type": "string", "enum": ["manual", "scripted"] },
+            {
+              "type": "string",
+              "pattern": "^bench:evals/[a-zA-Z0-9._/-]+$"
+            }
+          ]
+        },
+        "case": {
+          "type": "string",
+          "pattern": "^cases/CUR-[0-9]{3}-[a-z0-9]+(?:-[a-z0-9]+)*/case\\.md$"
+        },
+        "status": { "type": "string", "enum": ["active", "retired"] }
+      }
+    }
+  }
+}

@@ -51,6 +51,10 @@ impl AgentProvider for JsProvider {
     ) -> Result<Vec<codeterm_types::agent::chat_types::ChatMsg>, String> {
         self.js_runtime_stored_records(session, window)
     }
+    fn remote_task_capability(&self) -> Option<crate::remote_tasks::RemoteTaskCapability> {
+        self.manifest.capabilities.remote_task.clone()
+    }
+
     fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
         self.manifest.capabilities.agent_runtime.clone()
     }
@@ -1135,18 +1139,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {
-        if !self.has_custom_settings_schema {
-            let mut fields = manifest_settings_sections(&self.manifest);
-            if self.auth_status_probe().is_some() {
-                fields.push(provider::structured_signals_section());
-            }
-            return fields;
-        }
-        // Cached: describe() polls hit this; the plugin schema is a pure constant.
-        self.schema_cache
-            .get_or_init(|| self.compute_schemas())
-            .0
-            .clone()
+        capabilities::settings_schema(self)
     }
 
     fn notifications_schema(&self) -> Vec<SettingField> {

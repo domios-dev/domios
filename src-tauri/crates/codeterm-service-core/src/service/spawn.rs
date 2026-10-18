@@ -777,9 +777,6 @@ impl ServiceContext {
                     .is_some_and(|metadata| metadata.params.sandbox.is_some()),
             )?;
         let permission_bypass = permission_bypass_authorization.is_some();
-        let provider_key_env = self
-            .model_provider_launch_env(&agent.provider)
-            .map_err(|e| e.to_string())?;
         let clearance =
             provider_launch_preflight(&self.agent_registry, &agent.provider, permission_bypass)
                 .map_err(|e| e.to_string())?;
@@ -802,6 +799,9 @@ impl ServiceContext {
         );
         attach_planned_model(&mut model_resolution, agent.planned_model.as_deref());
         let launch_model = model_resolution.model.clone();
+        let provider_key_env = self
+            .model_provider_launch_env_for_model(&agent.provider, launch_model.as_deref())
+            .map_err(|e| e.to_string())?;
         validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent.provider,

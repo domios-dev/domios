@@ -943,7 +943,7 @@ exit /b 0
     }
 
     #[test]
-    fn update_system_installs_manifest_additions_and_warns_without_auto_removing_deletions() {
+    fn update_system_installs_additions_and_retires_removed_official_plugins() {
         with_data_root(|root| {
             let prev_system_url = std::env::var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL").ok();
             let source = root.join("system-source");
@@ -972,15 +972,10 @@ exit /b 0
             assert_eq!(extra["verified"], serde_json::json!(true));
 
             write_channel(&source, SYSTEM_CHANNEL_NAME, &[]);
-            let second = update_system_command(None).expect("removal warning does not uninstall");
+            let second = update_system_command(None).expect("removed official plugin retires");
             assert_eq!(second["updated"], serde_json::json!([]));
-            assert!(second["warnings"][0]
-                .as_str()
-                .unwrap()
-                .contains("left installed"));
-            assert!(plugin_dir(&PluginId::validated("extra-system"))
-                .join("plugin.json")
-                .exists());
+            assert_eq!(second["retired"], serde_json::json!(["extra-system"]));
+            assert!(!plugin_dir(&PluginId::validated("extra-system")).exists());
 
             restore_env("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", prev_system_url);
         });

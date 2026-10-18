@@ -189,7 +189,18 @@ pub(crate) fn compose_observed(
     }
 
     {
+        match codeterm_plugins::retire_unshipped_system_plugins(codeterm_plugins::PluginCtx {
+            data_root: codeterm_service_core::paths::data_dir(),
+            version: codeterm_build_info::installed_version().map(str::to_string),
+        }) {
+            Ok(retired) if !retired.is_empty() => {
+                log::info!("[plugin/retire] retired unshipped official plugins {retired:?}");
+            }
+            Ok(_) => {}
+            Err(error) => log::warn!("[plugin/retire] official plugin retirement failed: {error}"),
+        }
         let user_plugins = codeterm_service_core::paths::data_dir().join("plugins");
+        let bootstrap_started = std::time::Instant::now();
         match plugin::embedded::bootstrap_into(&user_plugins) {
             Ok(written) if !written.is_empty() => {
                 log::info!(
@@ -210,6 +221,10 @@ pub(crate) fn compose_observed(
                 );
             }
         }
+        log::debug!(
+            "[boot-operation] embedded plugin bootstrap/extraction elapsed_ms={}",
+            bootstrap_started.elapsed().as_millis()
+        );
     }
     {
         use codeterm_service_core::agent::provider::AgentProvider;
@@ -267,7 +282,9 @@ pub(crate) fn compose_observed(
             caps.transcriber
         );
             let core = plugin::js_runtime::loader::is_core_plugin(p.manifest(), trust);
+            let registration_started = std::time::Instant::now();
             cap_registries.register_plugin_with_core(p.manifest(), p.vm(), core);
+            log::debug!("[boot-operation] capability registration plugin={} including_binary_resolution_fingerprint elapsed_ms={}", id, registration_started.elapsed().as_millis());
             if !caps.agent_provider {
                 plugin::audit::append_daemon_reloaded(&id, &version);
                 continue;
@@ -460,9 +477,14 @@ pub(crate) fn compose_observed(
     codeterm_service_core::service::start_plan_reminder_scheduler(service_state.clone());
     drop(startup_step);
 
+    let plan_started = std::time::Instant::now();
     let startup_step = startup::StartupStep::logged("restored plan loading");
     startup::restore_plans(&service_state);
     drop(startup_step);
+    log::debug!(
+        "[boot-operation] restored plan loading elapsed_ms={}",
+        plan_started.elapsed().as_millis()
+    );
 
     let startup_step = startup::StartupStep::logged("background service initialization");
     {
@@ -548,6 +570,7 @@ pub(crate) fn compose_observed(
     }
     drop(startup_step);
 
+    let platform_started = std::time::Instant::now();
     let startup_step = startup::StartupStep::logged("platform and server initialization");
 
     startup::install_bundled_cli(service_state.shell.as_ref());
@@ -636,6 +659,10 @@ pub(crate) fn compose_observed(
     agent::state_reactor::start(service_state.clone());
     agent::live_state::start(service_state.clone());
     drop(startup_step);
+    log::debug!(
+        "[boot-operation] platform and server initialization elapsed_ms={}",
+        platform_started.elapsed().as_millis()
+    );
 
     Ok(ComposedService {
         states,

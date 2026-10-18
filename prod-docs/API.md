@@ -100,7 +100,7 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | GET | `/api/tabs/{id}/text` | `?formatted=false` | Visible terminal text (VT100-parsed, incl. alternate buffer), backend-served so hidden tabs work. Response: `{"text", "formatted", "tab_id"}`; `?formatted=true` keeps raw ANSI including cursor position and visibility. |
 | GET | `/api/tabs/{id}/usage` | — | Latest usage/cost counters for this tab |
 | GET | `/api/tabs/{id}/agent/runtime/usage` | — | Exact-tab limits, account and reset credits |
-| POST | `/api/tabs/{id}/agent/runtime/reset-credits` | `{action:"read"}` or `{action:"redeem", idempotencyKey, confirmed:true, creditId?}` | Read support, or consume one reset credit (UUID v4 key + confirmation; optional reported credit ID, omitted for provider selection); returns outcome and before/after counts |
+| POST | `/api/tabs/{id}/agent/runtime/reset-credits` | `{action:"read"}` or `{action:"redeem", idempotencyKey, confirmed:true, creditId?}` | Read support, or redeem one reset credit (UUID v4 key + confirmation; `creditId` omitted = provider picks); returns outcome and before/after counts |
 | GET | `/api/tabs/{id}/output/stream` | — | SSE real-time output stream |
 | GET | `/api/agent-runs/{tab_id}/log` | — | Agent run log for a tab |
 | POST | `/api/tabs/{id}/focus` | — | Focus tab |
@@ -181,4 +181,4 @@ Local analytics: `/api/analytics/{status,consent,event}` (see ACCOUNT).
 
 Account and plan routes: see `ACCOUNT`.
 
-<!-- revision: 206 -->
+<!-- revision: 207 -->

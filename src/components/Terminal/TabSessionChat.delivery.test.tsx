@@ -1,6 +1,6 @@
 import { act } from "react";
 import { Window } from "happy-dom";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import type { Tab } from "../../lib/types";
 import type { ProviderDescriptor } from "../../lib/types";
@@ -12,7 +12,11 @@ import {
 } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
-import { addChatSend, readChatSends, updateChatSendContent, failChatSendRequest, setChatSendDraft } from "./chatSendStore";
+import { addChatSend, readChatSends, updateChatSendContent, failChatSendRequest, setChatSendDraft,
+  __setChatSendRepositoryForTest, ensureChatSendTabHydrated, chatSendTabHydrationState } from "./chatSendStore";
+import { encodeChatSend } from "./chatSendDurableModel";
+import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
+import { sendTrackedChatMessage } from "./chatSendStatus";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -137,6 +141,7 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
 }> {
   setAgentDescriptors([{ id: "lmstudio", agent_runtime: { goals: { actions: ["read"] } } }] as unknown as ProviderDescriptor[]);
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  const { createRoot } = await import("react-dom/client");
   const { TabSessionChat } = await import("./TabSessionChat");
   const calls: string[] = [];
   __setInvokeForTest((async (command: string) => {
@@ -351,6 +356,117 @@ test("Chat has no delivery status surface", async () => {
 
   await act(async () => root.unmount());
   host.remove();
+});
+
+test("composer accepts a live send during hydration and keeps its newer local record", async () => {
+  const tabId = "send-during-hydration";
+  let finishHydration!: () => void;
+  let finishPersistence!: () => void;
+  const repository = new MemoryChatSendRepository();
+  repository.hydrationGate = new Promise<void>((resolve) => { finishHydration = resolve; });
+  repository.persistGate = new Promise<void>((resolve) => { finishPersistence = resolve; });
+  repository.records.set(JSON.stringify([tabId, "live-send"]), encodeChatSend(tabId, {
+    id: "live-send", correlationId: "live-send", content: "older persisted value", sentAtMs: 1,
+  }));
+  __setChatSendRepositoryForTest(repository);
+  const { host, root } = await renderChat(tabId);
+  try {
+    const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message composer"]');
+    assert(editor, "composer stays available while the ledger is pending");
+    assert(chatSendTabHydrationState(tabId) === "pending", "ledger remains explicitly pending");
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    await act(async () => {
+      setValue?.call(editor, "local edit during hydration");
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "local edit during hydration" }));
+      editor.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    assert(editor.value === "local edit during hydration", "typing updates immediately while persistence is pending");
+    assert(host.querySelector('textarea[aria-label="Message composer"]') === editor, "input keeps the mounted composer node");
+    await act(async () => addChatSend(tabId, {
+      id: "live-send", correlationId: "live-send", content: "current live value", sentAtMs: 2,
+    }));
+    assert(host.textContent?.includes("current live value"), "live optimistic row renders during hydration");
+    assert(editor.value === "local edit during hydration", `live row update keeps the local draft (${editor.value})`);
+
+    const { __setInvokeForTest } = await import("../../lib/bridge");
+    const status = {
+      tab_id: tabId, send_id: "transaction-live", correlationId: "live-send", state: "written" as const,
+      sequence: 1, ledger_id: "ledger", retained_from: 1, error: null,
+    };
+    let sendRequests = 0;
+    __setInvokeForTest(async <T,>(command: string) => {
+      if (command === "chat_send_text") { sendRequests++; return status as T; }
+      if (command === "chat_send_status") return [status] as T;
+      return [] as T;
+    });
+    await act(async () => {
+      await sendTrackedChatMessage(tabId, "live-send", "current live value");
+    });
+    assert(sendRequests === 1, "send admission is not gated on persistence hydration");
+    assert(host.querySelector('textarea[aria-label="Message composer"]') === editor, "send status keeps the composer mounted");
+    assert(editor.value === "local edit during hydration", `send status keeps the local draft (${editor.value})`);
+
+    await act(async () => {
+      finishHydration();
+      await ensureChatSendTabHydrated(tabId);
+    });
+    const live = readChatSends(tabId).find((send) => send.id === "live-send");
+    assert(live?.content === "current live value", "late hydration does not replace the current live send");
+    assert(live.status?.state === "written", "late hydration preserves the live delivery evidence");
+    assert(chatSendTabHydrationState(tabId) === "ready", "successful hydration reaches ready");
+    assert(host.querySelector('textarea[aria-label="Message composer"]') === editor, "hydration keeps the focused composer node");
+    assert(editor.value === "local edit during hydration", `hydration preserves the current composer draft (${editor.value})`);
+  } finally {
+    finishHydration();
+    finishPersistence();
+    await act(async () => root.unmount());
+    host.remove();
+    __setChatSendRepositoryForTest(null);
+  }
+});
+
+test("failed ledger hydration leaves the chat composer and send path usable", async () => {
+  const tabId = "send-after-hydration-error";
+  const repository = new MemoryChatSendRepository();
+  repository.failHydration = true;
+  __setChatSendRepositoryForTest(repository);
+  const { host, root } = await renderChat(tabId);
+  try {
+    await act(async () => ensureChatSendTabHydrated(tabId));
+    assert(chatSendTabHydrationState(tabId) === "error", "storage failure is exposed as an error state");
+    const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message composer"]');
+    assert(editor, "storage failure does not remove the composer");
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    await act(async () => {
+      setValue?.call(editor, "draft after storage error");
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "draft after storage error" }));
+      editor.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => addChatSend(tabId, {
+      id: "still-live", correlationId: "still-live", content: "usable after error", sentAtMs: 3,
+    }));
+    assert(host.textContent?.includes("usable after error"), "current-session send row remains visible after storage error");
+    assert(readChatSends(tabId).find((send) => send.id === "still-live")?.status == null,
+      "storage failure does not invent a delivery result");
+    const { __setInvokeForTest } = await import("../../lib/bridge");
+    let sendRequests = 0;
+    __setInvokeForTest(async <T,>(command: string) => {
+      if (command === "chat_send_text") {
+        sendRequests++;
+        return { tab_id: tabId, send_id: "still-live", correlationId: "still-live", state: "written",
+          sequence: 1, ledger_id: "ledger", retained_from: 1, error: null } as T;
+      }
+      return [] as T;
+    });
+    await act(async () => { await sendTrackedChatMessage(tabId, "still-live", "usable after error"); });
+    assert(sendRequests === 1, "storage failure does not gate live send admission");
+    assert(host.querySelector('textarea[aria-label="Message composer"]') === editor, "storage failure keeps the same composer node");
+    assert(editor.value === "draft after storage error", `storage failure preserves the local draft (${editor.value})`);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setChatSendRepositoryForTest(null);
+  }
 });
 
 test("three optimistic sends reconcile to ordered parts of one provider turn", async () => {

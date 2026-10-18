@@ -1,5 +1,5 @@
 import { useLatestCallback } from "../../hooks/useLatestCallback";
-import { type MutableRefObject, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type MutableRefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   lastSessionResetIndex,
   captureSendEchoBoundary,
@@ -10,6 +10,8 @@ import {
   timestampMs,
   transcriptBackfillCursor,
   transcriptRows,
+  type NormalizedChatMessage,
+  type SendEcho,
   type TimelineItem,
   type TranscriptState,
   type TranscriptAuthority,
@@ -17,10 +19,17 @@ import {
 import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
 import {
   addChatSend,
+  readChatSendDismissalMarkers,
   recordChatSendEchoes,
+  requestChatSendDismissalMarkers,
   updateChatSendContent,
-  useChatSends,
+  useChatSendSnapshot,
 } from "./chatSendStore";
+import {
+  chatSendDismissalIdentity,
+  chatSendDismissalMatchedRowKeys,
+  type ChatSendDismissalMarker,
+} from "./chatSendDurableModel";
 import {
   chatWindowAnchorIdentity,
   chatReadingWindowAnchor,
@@ -33,7 +42,7 @@ import {
   timelineItemKey,
   type ChatWindowAnchorIdentity,
 } from "./chatWindow";
-import { deliveryProjectionSends, visibleDeliveryRows } from "./chatDeliveryModel";
+import { deliveryProjectionSends, sendForRow, visibleDeliveryRows, type DeliverySend } from "./chatDeliveryModel";
 import { useChatSendDismissals } from "./useChatSendDismissals";
 import { cancelChatStartPaintTiming, paintChatStartTiming } from "./chatStartTiming";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
@@ -59,7 +68,7 @@ export function useChatWindowView({
   followTailRef: MutableRefObject<boolean>;
   loadOlderPage: (beforeOffset: number, maxBytes: number) => Promise<OlderChatPage | null>;
 }) {
-  const sends = useChatSends(tabId);
+  const { sends, hydration, dismissalRevision } = useChatSendSnapshot(tabId);
   useChatSendDismissals(tabId);
   const [backfillLoading, setBackfillLoading] = useState(false);
   const backfillInFlightRef = useRef(false);
@@ -77,10 +86,24 @@ export function useChatWindowView({
   }, [committedRows]);
   const liveSends = useMemo(() => deliveryProjectionSends(sends, resetCutoffMs), [sends, resetCutoffMs]);
   const projection = useMemo(() => projectTranscript(transcript, liveSends), [transcript, liveSends]);
-  const allMessages = useMemo(() => projectContextEpochs(visibleDeliveryRows(projection.rows, sends, projection.echoes)), [projection, sends]);
+  const compactDismissals = useMemo(() => hydration === "ready"
+    ? readChatSendDismissalMarkers(tabId, projection.rows)
+    : EMPTY_DISMISSALS, [dismissalRevision, hydration, projection.rows, tabId]);
+  useEffect(() => {
+    if (hydration === "ready") requestChatSendDismissalMarkers(tabId, projection.rows);
+  }, [hydration, projection.rows, tabId]);
+  const allMessages = useMemo(() => {
+    const visible = hydration === "ready"
+      ? visibleDeliveryRows(projection.rows, sends, projection.echoes)
+      : projection.rows;
+    return projectContextEpochs(hydration === "ready"
+      ? hideCompactedDismissals(visible, sends, projection.echoes, compactDismissals)
+      : visible);
+  }, [compactDismissals, hydration, projection, sends]);
   useLayoutEffect(() => {
+    if (hydration !== "ready") return;
     recordChatSendEchoes(tabId, projection.echoes);
-  }, [projection, tabId]);
+  }, [hydration, projection, tabId]);
 
   // Both layers reuse prior objects for unchanged messages so MessageBubble
   // memo keeps skipping the ~220 untouched bubbles on every streamed chunk.
@@ -252,4 +275,28 @@ export function useChatWindowView({
     prepareMessage,
     updateOptimistic,
   };
+}
+
+const EMPTY_DISMISSALS: readonly ChatSendDismissalMarker[] = [];
+
+function hideCompactedDismissals(
+  rows: NormalizedChatMessage[],
+  sends: readonly DeliverySend[],
+  echoes: ReadonlyMap<string, SendEcho>,
+  markers: readonly ChatSendDismissalMarker[],
+): NormalizedChatMessage[] {
+  if (markers.length === 0) return rows;
+  const withEchoes = sends.map((send) => ({ ...send, echo: send.echo ?? echoes.get(send.id) }));
+  const ids = new Set(markers.map((marker) => marker.sendId));
+  const correlations = new Set(markers.flatMap((marker) => marker.correlationId ? [marker.correlationId] : []));
+  const matchedRows = new Set(markers.flatMap((marker) => marker.matchedRowKey ? [marker.matchedRowKey] : []));
+  const echoKeys = new Set(markers.flatMap((marker) => marker.echoKey ? [marker.echoKey] : []));
+  return rows.filter((row) => {
+    if (sendForRow(withEchoes, row)) return true;
+    const identity = chatSendDismissalIdentity(row);
+    if (!identity) return true;
+    if (ids.has(identity.id) || (identity.correlationId && correlations.has(identity.correlationId))) return false;
+    if (chatSendDismissalMatchedRowKeys(identity).some((key) => matchedRows.has(key))) return false;
+    return !identity.echoKey || !echoKeys.has(identity.echoKey);
+  });
 }

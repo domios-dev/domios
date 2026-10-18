@@ -21,6 +21,21 @@ const term = {
   },
 };
 
+const seededCalls: string[] = [];
+const seededTerm = {
+  buffer: { active: { type: "normal" as const, viewportY: 0, baseY: 0 } },
+  cursorY: 0,
+  scrollToBottom: () => { seededCalls.push("bottom"); },
+  scrollToLine: (line: number) => { seededCalls.push(`line:${line}`); },
+  write: (_data: string, callback?: () => void) => callback?.(),
+};
+const emptySeed = captureTerminalViewport(seededTerm);
+seededTerm.buffer.active.baseY = 58;
+seededTerm.cursorY = 3;
+restoreTerminalViewportAfterQueue(seededTerm, emptySeed, () => true);
+assert(seededCalls[seededCalls.length - 1] === "bottom", "an empty restore seed follows output after scrollback is populated");
+assert(seededTerm.cursorY === 3, "viewport restoration leaves the output cursor at its restored position");
+
 const following = captureTerminalViewport(term);
 assert(following.followOutput, "bottom viewport follows output");
 restoreTerminalViewport(term, following);

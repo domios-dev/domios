@@ -141,6 +141,11 @@ pub async fn task_respawn(
         )
     })?;
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let _respawn_reservation = state
+        .svc
+        .plan_store
+        .reserve_task_respawn_startup(&id, &tid, &draft.source_attempt.id, &draft.attempt_id)
+        .map_err(plan_err)?;
     let description =
         codeterm_service_core::service::task_tab_description(&original_task.name, None);
     let spawn = state
@@ -154,6 +159,7 @@ pub async fn task_respawn(
                 description: Some(description),
                 task_description_managed: true,
                 role: Some("Worker".into()),
+                execution_intent: Some(draft.execution_intent.clone()),
                 parent_tab_id: draft.parent_tab_id.clone(),
                 task: Some(draft.task_prompt.clone()),
                 workspace_id: draft.workspace_id.clone(),

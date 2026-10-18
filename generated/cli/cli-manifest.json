@@ -915,7 +915,7 @@
               "value_name": "LOCATION",
               "possible_values": [
                 "local",
-                "remote"
+                "cloud"
               ],
               "default": null,
               "help": "Execution location declared by the provider. Remote tasks are one-shot tabs",
@@ -12717,6 +12717,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "kind",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "WORKER_KIND",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Select a built-in Worker prompt kind without changing the task's executor_role",
+                  "aliases": []
+                },
+                {
                   "name": "model",
                   "positional": false,
                   "required": false,
@@ -13140,7 +13150,7 @@
             },
             {
               "name": "respawn",
-              "about": "Respawn a worker from one prior execution attempt",
+              "about": "Respawn a worker from one prior attempt, inheriting its recorded execution intent and provider/model",
               "aliases": [],
               "args": [
                 {

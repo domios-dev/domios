@@ -1,4 +1,3 @@
-import { streamRecoveryAction } from "./streamRecoveryModel";
 /**
  * Web-mode event delivery for the `listen()` bridge.
  *
@@ -17,7 +16,7 @@ import { createTransportClient, type TransportClient } from "./transportClient";
 import { fireResync } from "./resync";
 import { replayCursorForTarget } from "./resyncModel";
 import { createSeqGapTracker } from "./eventSeqGaps";
-import { RECONNECT_FIRST_MS, nextReconnectBackoff, reconnectDelay, transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
+import { RECONNECT_FIRST_MS, nextReconnectBackoff, reconnectDelay, shouldResetReconnectBackoff, transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
 import { signalEventStreamReady } from "./eventStreamReady";
 import { WEB_BOOT_CHANGED_EVENT, WEB_EVENTS_READY_EVENT, type BootChangedDetail } from "./buildDriftReload";
@@ -50,7 +49,6 @@ const handlers = new Map<string, Set<Handler>>();
 let streamAbort: AbortController | null = null;
 let started = false;
 let lastFrameAt = 0;
-let forceImmediateRetry = false;
 let hasAttemptedConnection = false;
 let reconnectState: WebReconnectState = "connected";
 let cancelReconnectWait: (() => void) | null = null;
@@ -83,19 +81,37 @@ function armReceiveDeadline(abort: AbortController): void {
   (receiveDeadline as unknown as { unref?: () => void }).unref?.();
 }
 
-function waitForReconnectFailure(delay: number, generation: number): Promise<boolean> {
+function waitForReconnectFailure(delay: number, hiddenDelay: number, generation: number): Promise<boolean> {
   reconnectState = transitionWebReconnect(reconnectState, "lost").state;
   return new Promise((resolve) => {
+    const startedAt = Date.now();
+    let deadlineAt = startedAt + delay;
+    let deadline: ReturnType<typeof setTimeout> | null = null;
+    const scheduleDeadline = () => {
+      if (deadline !== null) clearTimeout(deadline);
+      deadline = setTimeout(() => finish("deadline"), Math.max(0, deadlineAt - Date.now()));
+      (deadline as unknown as { unref?: () => void }).unref?.();
+    };
     const finish = (event: "wake" | "deadline" | "stop") => {
-      clearTimeout(deadline);
+      if (deadline !== null) {
+        clearTimeout(deadline);
+        deadline = null;
+      }
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       cancelReconnectWait = null;
       wakeReconnectWait = null;
       const next = transitionWebReconnect(reconnectState, event);
       reconnectState = next.state;
       resolve(generation === streamGeneration && next.action === "probe");
     };
-    const deadline = setTimeout(() => finish("deadline"), delay);
-    (deadline as unknown as { unref?: () => void }).unref?.();
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        deadlineAt = Math.max(deadlineAt, startedAt + hiddenDelay);
+        scheduleDeadline();
+      }
+    };
+    scheduleDeadline();
+    document.addEventListener("visibilitychange", onVisibilityChange);
     wakeReconnectWait = () => finish("wake");
     cancelReconnectWait = () => finish("stop");
     window.dispatchEvent(new Event("codeterm-event-stream-disconnected"));
@@ -218,6 +234,7 @@ async function runStream(): Promise<void> {
   let backoffMs = RECONNECT_FIRST_MS;
   for (;;) {
     if (generation !== streamGeneration) return;
+    const attemptStartedAt = Date.now();
     const abort = new AbortController();
     streamAbort = abort;
     lastFrameAt = Date.now();
@@ -254,22 +271,25 @@ async function runStream(): Promise<void> {
           if (reconnecting) window.dispatchEvent(new Event(WEB_EVENTS_READY_EVENT));
         },
         onActivity() { lastFrameAt = Date.now(); armReceiveDeadline(abort); },
-        onEnd(end) {
-          if (streamRecoveryAction(end.reason, generation !== streamGeneration) === "reconnect") forceImmediateRetry = true;
+        onEnd() {
           resolve();
         },
       });
     });
     if (generation !== streamGeneration) return;
+    if (shouldResetReconnectBackoff(connected, Date.now() - attemptStartedAt)) backoffMs = RECONNECT_FIRST_MS;
     abort.abort();
     if (receiveDeadline) { clearTimeout(receiveDeadline); receiveDeadline = null; }
-    if (wakeRequested || forceImmediateRetry) {
+    if (wakeRequested) {
       wakeRequested = false;
-      forceImmediateRetry = false;
       continue;
     }
-    if (!await waitForReconnectFailure(reconnectDelay(backoffMs, Math.random()), generation)) return;
-    backoffMs = nextReconnectBackoff(backoffMs);
+    const hidden = document.hidden;
+    const random = Math.random();
+    const delay = reconnectDelay(backoffMs, random, hidden);
+    const hiddenDelay = reconnectDelay(backoffMs, random, true);
+    if (!await waitForReconnectFailure(delay, hiddenDelay, generation)) return;
+    backoffMs = nextReconnectBackoff(backoffMs, document.hidden);
   }
 }
 
@@ -333,6 +353,5 @@ export function __resetWebEventsForTest(): void {
   cursorTarget = readCursorTarget();
   cursor = readCursor();
   lastFrameAt = 0;
-  forceImmediateRetry = false;
   hasAttemptedConnection = false;
 }
