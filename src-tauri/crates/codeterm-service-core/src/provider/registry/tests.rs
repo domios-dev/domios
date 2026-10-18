@@ -17,7 +17,7 @@ struct Shell {
 }
 
 #[test]
-fn bundled_runtime_registry_selects_chat_and_preserves_declared_controls() {
+fn bundled_codex_cloud_is_one_unavailable_execution_mode_on_codex() {
     use crate::agent::provider::AgentProvider;
     let agents = Arc::new(AgentRegistry::new());
     let manifest = crate::test_support::fixture_manifest_dir()
@@ -31,6 +31,8 @@ fn bundled_runtime_registry_selects_chat_and_preserves_declared_controls() {
     agents.register_provider(Box::new(provider));
     let registry = ProviderRegistry::new(agents, Arc::new(ChatBackendRegistry::new()));
     let descriptors = registry.describe_all();
+    assert_eq!(descriptors.len(), 1);
+    assert_eq!(descriptors[0].id, "codex");
     assert_eq!(descriptors[0].agent_runtime.as_ref(), Some(&runtime));
     assert_eq!(descriptors[0].structured_control, structured_control);
     assert_eq!(descriptors[0].transport, ProviderTransport::ChatBackend);
@@ -38,6 +40,13 @@ fn bundled_runtime_registry_selects_chat_and_preserves_declared_controls() {
         registry.transport_of(&provider_id),
         Some(ProviderTransport::ChatBackend)
     );
+    let remote_task = serde_json::to_value(descriptors[0].remote_task.as_ref()).unwrap();
+    assert_eq!(remote_task["mode"], "cloud");
+    assert_eq!(remote_task["availability"]["status"], "unavailable");
+    assert_eq!(remote_task["environments"], serde_json::json!([]));
+    assert!(remote_task["availability"]["reason"]
+        .as_str()
+        .is_some_and(|reason| !reason.is_empty()));
 }
 
 impl ChatBackendProvider for Shell {
