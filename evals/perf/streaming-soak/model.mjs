@@ -7,6 +7,42 @@ export function segmentSeconds(value) {
   requireValue(Number.isInteger(value) && value > 0 && value <= 480, 'Segment must be 1..480 seconds');
   return value;
 }
+export function admitDevSurface({health,provenance,instance='',port=7686,surface='native',cdp,target}) {
+  requireValue(port === 7686 && health?.status === 'ok' && Number(health.instance?.api_port) === port,
+    'Shared DEV server identity required; PROD refused');
+  requireValue(/^[a-f0-9]{40}$/.test(health.build_sha??'') && provenance?.schema === 3 &&
+    provenance.buildSha === health.build_sha, 'Exact selected DEV provenance/build required');
+  const selected = provenance.instance;
+  requireValue(selected?.name === instance && (health.instance.name??'') === instance &&
+    Number(selected.apiPort) === port, 'Selected DEV instance/API drift');
+  requireValue(/^com\.codeterm\.dev(?:\.|$)/.test(selected.identifier??''), 'PROD client provenance refused');
+  requireValue(['native','chrome'].includes(surface), 'Expected native or chrome surface');
+  const gui = health.instance;
+  const legacy = Boolean(gui.identifier || gui.vite_port || gui.cdp_port);
+  const vite = Number(selected.vitePort), native = Number(selected.cdpPort);
+  if (legacy) {
+    requireValue(gui.identifier === selected.identifier && Number(gui.vite_port) === vite &&
+      Number(gui.cdp_port) === native && Number.isInteger(vite) && vite > 0 && vite <= 65535 && vite !== 7685,
+    'Legacy client target differs from selected provenance');
+  }
+  if (surface === 'native' && !legacy) return {available:false,reason:'Native CDP locator unavailable for independent server'};
+  const cdpPort = surface === 'chrome'?Number(cdp):native;
+  requireValue(Number.isInteger(cdpPort) && cdpPort >= 1024 && cdpPort <= 65535 && cdpPort !== 7685 && cdpPort !== port,
+    'Invalid explicit DEV diagnostic port');
+  requireValue(surface !== 'chrome' || Boolean(target) && (!legacy || cdpPort !== native),
+    'Browser requires a separate explicit CDP port and target ID');
+  return {available:true,surface,cdpPort,target:surface === 'chrome'?target:null,
+    origin:`http://127.0.0.1:${legacy?vite:port}`,vitePort:legacy?vite:null};
+}
+export function validateDevSurfaceTarget(admission,target) {
+  requireValue(admission.available && target?.type === 'page' && Boolean(target.id), 'DEV page target unavailable');
+  requireValue(!admission.target || target.id === admission.target, 'Explicit Browser target mismatch');
+  requireValue(new URL(target.url).origin === admission.origin, 'Browser target must serve the admitted DEV origin');
+  const socket = new URL(target.webSocketDebuggerUrl);
+  requireValue(socket.protocol === 'ws:' && socket.hostname === '127.0.0.1' && Number(socket.port) === admission.cdpPort &&
+    socket.pathname === `/devtools/page/${target.id}`, 'DEV page diagnostic socket mismatch');
+  return target;
+}
 export function validateIdentity(identity) {
   requireValue(identity?.port === 7686 && identity.dev === true, 'Shared DEV only; PROD refused');
   requireValue(/^[a-f0-9]{40}$/.test(identity.build ?? ''), 'Exact DEV SHA required');
