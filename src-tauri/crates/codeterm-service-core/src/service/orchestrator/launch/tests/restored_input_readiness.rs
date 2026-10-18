@@ -20,13 +20,15 @@ fn fresh_lazy_session_accepts_input_at_provider_ready() {
                 },
             ),
     ));
-    assert!(harness
-        .service
-        .agent_registry
-        .with_provider("resume-first-turn-fixture", |provider| {
-            provider.provider_readiness_strategy().requires_composer()
-        })
-        .unwrap());
+    assert!(
+        harness
+            .service
+            .agent_registry
+            .with_provider("resume-first-turn-fixture", |provider| {
+                provider.provider_readiness_strategy().requires_composer()
+            })
+            .unwrap()
+    );
 
     assert!(launch_waits_for_first_turn_binding(
         &harness.service,
@@ -75,8 +77,18 @@ fn fresh_lazy_session_accepts_input_at_provider_ready() {
         .expect("first-turn readiness waits for provider composer evidence");
     let input_ready = launch_source
         .find("emit_first_turn_input_ready")
-        .expect("first-turn readiness emits the input-accepting stage");
+        .expect("first-turn readiness records that the provider accepts input");
     assert!(provider_up < input_ready);
+    launch
+        .capture_binding_nonce(
+            &harness.service,
+            None,
+            None,
+            crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
+            None,
+            Some("resume-first-turn-nonce".into()),
+        )
+        .unwrap();
     assert!(launch.emit_first_turn_input_ready(&harness.service));
     {
         let mux = harness.service.mux.read();
@@ -84,15 +96,21 @@ fn fresh_lazy_session_accepts_input_at_provider_ready() {
         assert_eq!(tab.boot_stage, Some(BootStage::LaunchBindingUnconfirmed));
         assert!(tab.boot_failure_reason.is_some());
         assert!(!tab.launch_session_authenticated());
+        assert!(tab.provisional_launch.is_some());
     }
-    harness
-        .service
-        .mux
-        .write()
-        .get_tab_mut(&tab_id)
-        .unwrap()
-        .reported_session_binding_nonce = Some("resume-first-turn-nonce".into());
-    assert!(launch.emit_first_turn_input_ready(&harness.service));
+    {
+        let mut mux = harness.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_session_id = Some("first-turn-session".into());
+        tab.reported_session_binding_nonce = Some("resume-first-turn-nonce".into());
+    }
+    assert!(harness.service.retire_provisional_launch(
+        &tab_id,
+        &crate::service::ProviderSessionBinding {
+            pty_id: pty_id.into(),
+            binding_nonce: "resume-first-turn-nonce".into(),
+        },
+    ));
     let mux = harness.service.mux.read();
     let tab = mux.get_tab(&tab_id).unwrap();
     assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
