@@ -12,7 +12,6 @@ import { webListen } from "./webEvents";
 import { WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
 import { ipcLogArgs } from "./ipcLogArgs";
 import { checkBuildMismatch } from "./buildMismatchGuard";
-import type { TabInfo } from "./types";
 import { classifyTabTarget, hasCompositeTabArgument, remoteTransportCall } from "./remoteTabTransport";
 import { subscribeRemoteTabEvent } from "./remoteTabEvents";
 

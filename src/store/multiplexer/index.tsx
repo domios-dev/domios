@@ -703,7 +703,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.tab_id });
       guardedInvoke("mux_set_focused_tab", { tabId: tabInfo.tab_id }).catch(() => {});
-      dispatch({ type: "SET_FOCUSED_TAB", tabId: tabInfo.tab_id });
       refreshFromBackend();
     } catch (e) {
       console.error("Failed to reopen closed tab:", e);
