@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {installReplayPage,functionalReplayPrerequisites} from './replay-page.mjs';
+import {installReplayPage,functionalReplayPrerequisites,ownedBrowserSelection} from './replay-page.mjs';
 
 test('controlled frames prove replay harness input/tail acknowledgements and metadata-only capture; not browser latency',async () => {
   const {Window} = await import('happy-dom');
@@ -118,4 +118,30 @@ test('bundled functional adapter uses existing public projection without source 
       if (descriptor) Object.defineProperty(globalThis,key,descriptor); else delete globalThis[key];
     }
   }
+});
+
+test('owned Browser selection clicks only exact workspace and tab and gates mounted target',() => {
+  let selected = false, active = false, mounted = false, workspaceClicks = 0, tabClicks = 0;
+  const node = (dataset={}) => ({dataset,closest:()=>null,getClientRects:()=>[{}],contains:()=>false});
+  const button = (label,click,current=()=>null) => ({...node(),getAttribute:key=>key==='aria-label'?label:current(),click});
+  const workspaceButton = button('Select workspace fixture',()=>{ selected=true; workspaceClicks++; });
+  const tabButton = button('Open tab fixture',()=>{active=true;tabClicks++;},()=>active?'page':null);
+  const row = {...node({tabId:'owned-tab'}),querySelectorAll:()=>[tabButton]};
+  const detail = {...node({workspaceId:'owned-workspace'}),querySelectorAll:()=>[row]};
+  const card = {...node({workspaceId:'owned-workspace'}),querySelectorAll:()=>[workspaceButton]};
+  const root = {...node({tabId:'owned-tab'}),querySelector:()=>mounted?{}:null};
+  const document = {querySelectorAll:selector=>selector.includes('workspace-detail')?(selected?[detail]:[]):selector.includes('workspace-card')?[card]:selector==='[data-tab-id]'?[root]:[]};
+  ownedBrowserSelection(document,'owned-workspace','owned-tab','workspace');
+  assert.equal(workspaceClicks,1);
+  assert.equal(ownedBrowserSelection(document,'owned-workspace','owned-tab','mounted'),false);
+  ownedBrowserSelection(document,'owned-workspace','owned-tab','tab');
+  assert.equal(tabClicks,1);
+  assert.equal(ownedBrowserSelection(document,'owned-workspace','owned-tab','mounted'),false);
+  mounted=true;
+  assert.equal(ownedBrowserSelection(document,'owned-workspace','owned-tab','mounted'),true);
+  assert.throws(()=>ownedBrowserSelection(document,'owned-workspace','foreign-tab','tab'),/missing or ambiguous/);
+  detail.querySelectorAll=()=>[row,row];
+  assert.throws(()=>ownedBrowserSelection(document,'owned-workspace','owned-tab','tab'),/ambiguous/);
+  assert.equal(tabClicks,1);
+  assert.throws(()=>ownedBrowserSelection(document,'foreign-workspace','owned-tab','workspace'),/missing or ambiguous/);
 });

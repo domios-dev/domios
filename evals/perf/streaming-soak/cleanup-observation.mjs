@@ -79,3 +79,17 @@ export async function installCleanupObserverPage({tabs,workspace,maxEvents=64,de
   };
   return {ready:true};
 }
+
+export function createFunctionalCleanupObserver(tabs,workspace,readState) {
+  if (!Array.isArray(tabs) || !tabs.length || new Set(tabs).size !== tabs.length || tabs.some(tab => typeof tab !== 'string' || !tab) || typeof workspace !== 'string' || !workspace) throw Error('Invalid owned cleanup observation');
+  let reads = 0, commands = 0, closed = false;
+  const read = async () => { if (closed) throw Error('Cleanup observation disposed'); reads++; return readState(); };
+  return {
+    afterCommand:async () => { commands++; await read(); },
+    wait:async () => {
+      if (!cleanupStateComplete(await read(),tabs,workspace)) throw Error('Owned backend resources remain after cleanup');
+      return {commands,reads,tabsAbsent:true,workspaceAbsent:true,backendObservation:'authenticated_command_completion_reads',uiObservation:'unavailable'};
+    },
+    dispose:() => { closed = true; },
+  };
+}

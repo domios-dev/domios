@@ -310,3 +310,15 @@ metadata privacy, event/frame wiring and aggregation. They are not live browser
 timings. Parent first executes one bounded segment on a small prepared variant
 to validate real CDP/wiring, then the unchanged saved-session cumulative workload
 and controls. A failed live wiring run is a failure, not performance evidence.
+
+
+Bundled functional replay selects the exact owned workspace and tab on the selected
+Browser page through sidebar controls; daemon focus is only used for the native
+surface. Backend focus acknowledgement alone does not prove a mounted composer.
+Functional cleanup uses authenticated mux reads after each successful close and a
+final all-owned-IDs-absent read before unlinking fixture files. UI absence remains
+unavailable; profile mode retains its source bridge event observer.
+For a pre-close cleanup failure with pending null and cleanup null, run only the
+original checkpoint's `cleanup` with its original purpose/surface/CDP/target flags.
+Do not rerun setup or replay that checkpoint. After exact cleanup, use a fresh
+output directory for inspect/setup/replay/finish/cleanup and restore the saved URL.

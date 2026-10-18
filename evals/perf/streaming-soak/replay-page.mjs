@@ -218,3 +218,26 @@ export async function installReplayPage({tab,session,nonce,run,other,muxTab,prob
   return {owned:true,internalStore:functional?'unavailable':'verified',durableStorage:'unavailable',authority:functional?'backend_binding_only':'verified_internal',boundary:functional?'Bundled test event -> public projection/DOM opportunity; internal store/authority/durability unavailable':'Normalized test-event dispatch -> existing transcript reducer -> ancestor/render/paint opportunity; no provider/SSE/native IPC adoption',
     timeOrigin:performance.timeOrigin,clock:'performance.now milliseconds; cross-process alignment requires measured clock uncertainty',hasLongTask,hasEventTiming};
 }
+
+export function ownedBrowserSelection(document,workspace,tab,action) {
+  const visible = node => !node.closest('[hidden], [aria-hidden="true"]') && node.getClientRects().length > 0;
+  const unique = (nodes,label) => { if (nodes.length !== 1) throw Error(`Owned ${label} missing or ambiguous`); return nodes[0]; };
+  const matching = (selector,key,id) => [...document.querySelectorAll(selector)].filter(node => node.dataset[key] === id && visible(node));
+  if (action === 'workspace') {
+    const details = matching('[data-testid="workspace-detail"]','workspaceId',workspace);
+    if (details.length === 1) return true;
+    if (details.length > 1) throw Error('Owned workspace detail ambiguous');
+    const rows = [...matching('[data-testid="workspace-card"]','workspaceId',workspace),...matching('[data-testid="workspace-item"]','workspaceId',workspace)];
+    const buttons = rows.flatMap(row => [...row.querySelectorAll('button[aria-label]')].filter(button => /^(Select|Open) workspace /.test(button.getAttribute('aria-label')) && visible(button)));
+    unique(buttons,'workspace control').click(); return true;
+  }
+  const detail = unique(matching('[data-testid="workspace-detail"]','workspaceId',workspace),'workspace detail');
+  const rows = [...detail.querySelectorAll('[data-testid="tab-item"]')].filter(node => node.dataset.tabId === tab && visible(node));
+  const row = unique(rows,'tab');
+  const button = unique([...row.querySelectorAll('button[aria-label]')].filter(node => node.getAttribute('aria-label').startsWith('Open tab ') && visible(node)),'tab control');
+  if (action === 'tab') { button.click(); return true; }
+  if (action !== 'mounted') throw Error('Invalid owned selection action');
+  if (button.getAttribute('aria-current') !== 'page') return false;
+  const roots = [...document.querySelectorAll('[data-tab-id]')].filter(node => node.dataset.tabId === tab && visible(node) && (node.querySelector('textarea[aria-label="Message composer"]') || node.querySelector('.xterm')));
+  return roots.filter(node => !roots.some(other => other !== node && node.contains(other))).length === 1;
+}
