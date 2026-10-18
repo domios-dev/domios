@@ -575,3 +575,12 @@ For a pre-close cleanup failure with pending null and cleanup null, run only the
 original checkpoint's `cleanup` with its original purpose/surface/CDP/target flags.
 Do not rerun setup or replay that checkpoint. After exact cleanup, use a fresh
 output directory for inspect/setup/replay/finish/cleanup and restore the saved URL.
+
+
+A bundled replay workspace may be outside the collapsed sidebar card subset.
+The harness expands the unique visible overflow control once only when the exact
+owned workspace control is absent, then observes that exact control before clicking.
+Missing-after-expansion times out/refuses; duplicate controls refuse. This is not
+proof that overflow caused a prior refusal when fixture membership was not captured.
+Tab activation uses the actual TabItem aria-current="page" contract plus a visible
+owned mounted composer/terminal; backend focus alone remains insufficient.

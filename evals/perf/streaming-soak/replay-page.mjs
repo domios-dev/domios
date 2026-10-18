@@ -223,12 +223,20 @@ export function ownedBrowserSelection(document,workspace,tab,action) {
   const visible = node => !node.closest('[hidden], [aria-hidden="true"]') && node.getClientRects().length > 0;
   const unique = (nodes,label) => { if (nodes.length !== 1) throw Error(`Owned ${label} missing or ambiguous`); return nodes[0]; };
   const matching = (selector,key,id) => [...document.querySelectorAll(selector)].filter(node => node.dataset[key] === id && visible(node));
-  if (action === 'workspace') {
+  if (['workspace','workspace-reveal','workspace-ready'].includes(action)) {
     const details = matching('[data-testid="workspace-detail"]','workspaceId',workspace);
     if (details.length === 1) return true;
     if (details.length > 1) throw Error('Owned workspace detail ambiguous');
     const rows = [...matching('[data-testid="workspace-card"]','workspaceId',workspace),...matching('[data-testid="workspace-item"]','workspaceId',workspace)];
     const buttons = rows.flatMap(row => [...row.querySelectorAll('button[aria-label]')].filter(button => /^(Select|Open) workspace /.test(button.getAttribute('aria-label')) && visible(button)));
+    if (buttons.length > 1) throw Error('Owned workspace control ambiguous');
+    if (action === 'workspace-ready') return buttons.length === 1;
+    if (action === 'workspace-reveal') {
+      if (buttons.length === 1) return true;
+      const overflow = unique([...document.querySelectorAll('[data-testid="workspace-card-more"]')].filter(visible),'workspace overflow control');
+      if (overflow.getAttribute('aria-expanded') !== 'false') throw Error('Owned workspace missing after expansion');
+      overflow.click(); return true;
+    }
     unique(buttons,'workspace control').click(); return true;
   }
   const detail = unique(matching('[data-testid="workspace-detail"]','workspaceId',workspace),'workspace detail');
