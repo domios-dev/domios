@@ -26,7 +26,7 @@ struct MainThreadQueuePermit;
 impl MainThreadQueuePermit {
     fn acquire() -> Result<Self, ShellError> {
         QUEUED_MAIN_THREAD_CALLS
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
                 (pending < MAX_QUEUED_MAIN_THREAD_CALLS).then_some(pending + 1)
             })
             .map_err(|_| ShellError::Failed("Native main-thread queue is full".into()))?;
