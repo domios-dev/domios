@@ -663,7 +663,7 @@ fn mem_worker_report(
     }
     let svc_close = svc.clone();
     let tab_id = info.tab_id.clone();
-    codeterm_service_core::async_runtime::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         if let Err(e) = svc_close.close_tab_with_reason(&tab_id, TabCloseReason::AgentRunEnded) {
             log::warn!("[graph-workers] auto-close Tab {}: {}", tab_id, e);

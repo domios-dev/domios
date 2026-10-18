@@ -410,7 +410,7 @@ pub(crate) fn start_servers(
             service_state.clone(),
             sentinel_clock,
             storage,
-            &codeterm_service_core::paths::data_dir(),
+            app.handle(),
         );
     }
 
@@ -452,19 +452,8 @@ pub(crate) fn start_servers(
             app.manage(bundles.clone());
             codeterm_service_core::startup::frontend_bundles_check(bundles.clone());
         }
-        assert!(service_state
-            .register_host_extension(Arc::new(
-                codeterm_commands::application_host::ApplicationHostState(Arc::new(
-                    codeterm_commands::application_host::DesktopApplicationHost {
-                        app: app_handle.clone(),
-                        update_state: states.update.clone()
-                    }
-                ))
-            ))
-            .is_ok());
-        assert!(service_state.set_ext(states.rest_api.clone()).is_ok());
         let rest_inputs = codeterm_api::routes::AppState {
-            frontend_dev_url: app.config().build.dev_url.clone(),
+            app: app_handle.clone(),
             svc: service_state.clone(),
             cron: cron_state.clone(),
             cron_wake: cron_wake.clone(),
@@ -480,15 +469,14 @@ pub(crate) fn start_servers(
             web_dist: resolve_web_dist(app.path().resource_dir().ok()),
         };
         let router = codeterm_api::routes::create_router_with_frontend(rest_inputs, bundles);
-        assert!(service_state
-            .set_ext(codeterm_service_core::ports::rest::LocalApiRouter(
-                router.clone(),
-            ))
-            .is_ok());
+        app.manage(codeterm_service_core::ports::rest::LocalApiRouter(
+            router.clone(),
+        ));
         if let Err(e) = codeterm_socket::server::SocketServer::start(
             states.mux.clone(),
             states.pty.clone(),
             states.notif.clone(),
+            app_handle.clone(),
             states.output_buffer.clone(),
             service_state.clone(),
         ) {

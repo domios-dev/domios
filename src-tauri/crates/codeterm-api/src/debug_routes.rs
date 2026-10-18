@@ -184,17 +184,14 @@ pub async fn clean_restart(
             "clean restart is only available in debug builds".to_string(),
         ));
     }
-    let app = codeterm_commands::application_host::require(&state.svc)
-        .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error.to_string()))?;
+    let app = state.app.clone();
     log::info!("[shutdown] clean-restart request accepted");
     tokio::task::spawn_blocking(move || {
         codeterm_service_core::crash::shutdown::mark_shutting_down_for(
             codeterm_service_core::crash::lifecycle::ShutdownReason::Restart,
         );
         log::info!("[shutdown] requesting Tauri app exit");
-        if let Err(error) = app.exit(0) {
-            log::error!("[shutdown] {error}");
-        }
+        app.exit(0);
         log::info!("[shutdown] Tauri app exit request returned");
     });
     Ok(Json(serde_json::json!({"accepted": true})))

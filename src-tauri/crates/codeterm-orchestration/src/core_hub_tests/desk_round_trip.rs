@@ -45,7 +45,7 @@ fn team_close_round_trip_expected_pass() {
         .unwrap()
         .team_id;
     let instance = crate::test_fixture::open_instance_with_mux(root.path(), mux);
-    codeterm_service_core::async_runtime::block_on(instance.fixture.service.close_team(
+    tauri::async_runtime::block_on(instance.fixture.service.close_team(
         &team_id,
         TeamMutationCaller::Human,
         true,

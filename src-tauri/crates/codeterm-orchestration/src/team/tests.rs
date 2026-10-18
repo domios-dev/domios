@@ -38,8 +38,6 @@ fn team_members() -> (MultiplexerState, String, String, String, String) {
     (mux, team_id, orchestrator, planner, worker)
 }
 
-mod process_split_contract;
-
 #[test]
 fn team_manager_permission_allows_orchestrator_and_planner() {
     let (mut mux, team_id, orchestrator, planner, _) = team_members();

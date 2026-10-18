@@ -262,8 +262,8 @@ mod tests {
         MAX_LANE_BUNDLE_BYTES,
     };
     use crate::routes::AppState;
+    use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
     use codeterm_service_core::mesh::types::AccessLevel;
-    use codeterm_service_core::service::test_fixture::ServiceFixture;
 
     fn app_state(fixture: &ServiceFixture) -> crate::routes::AppState {
         let config = codeterm_service_core::config::schema::AppConfig::default();
@@ -289,7 +289,7 @@ mod tests {
             },
         );
         crate::routes::AppState {
-            frontend_dev_url: None,
+            app: fixture.app.handle().clone(),
             svc: std::sync::Arc::new(fixture.service.clone()),
             cron: std::sync::Arc::new(parking_lot::Mutex::new(
                 codeterm_service_core::cron::store::CronStore::new_with_path(
