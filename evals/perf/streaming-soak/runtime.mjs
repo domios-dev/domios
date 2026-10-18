@@ -6,7 +6,7 @@ import {listenerIdentity} from '../../core-journeys/lib/listener.mjs';
 import {connect,evaluate,pageTarget,takeHeapSnapshot} from '../renderer-memory/cdp.mjs';
 import {FIND_TERMINALS} from '../renderer-memory/terminals.mjs';
 import {processInfo} from './io.mjs';
-import {requireValue,validateIdentity,admitDevSurface,validateDevSurfaceTarget,measurementCapabilities,requireMeasurement,rendererMetrics} from './model.mjs';
+import {requireValue,chatVisitEvidence,validateIdentity,admitDevSurface,validateDevSurfaceTarget,measurementCapabilities,requireMeasurement,rendererMetrics} from './model.mjs';
 import {functionalReplayPrerequisites,ownedBrowserSelection} from './replay-page.mjs';
 import {ownedChatComposerMounted} from './readiness.mjs';
 import {cleanupStateComplete,installCleanupObserverPage,createFunctionalCleanupObserver} from './cleanup-observation.mjs';
@@ -107,7 +107,8 @@ export async function disposeCleanupObservation(rt) {
   if (rt.cleanupObserver) { rt.cleanupObserver.dispose(); delete rt.cleanupObserver; return; }
   return evaluate(rt.cdp,'window.__streamingSoakCleanup?.dispose()');
 }
-export async function visit(rt,cp,fixture) {
+export async function visit(rt,cp,fixture,{phase='setup'}={}) {
+  chatVisitEvidence(phase,false,false,false);
   requireValue([...cp.fixtures,cp.terminal].some(owned => owned?.tab === fixture.tab),'Visit target is not an owned fixture');
   if (rt.identity.surface === 'chrome') {
     const selection = action => `(${ownedBrowserSelection.toString()})(document,${JSON.stringify(cp.workspace.id)},${JSON.stringify(fixture.tab)},${JSON.stringify(action)})`;
@@ -122,9 +123,8 @@ export async function visit(rt,cp,fixture) {
     await dcJson(['tab','focus','--tab',fixture.tab]);
   }
   if (fixture.session) {
-    await observe(rt,`(${ownedChatComposerMounted.toString()})(document,${JSON.stringify(fixture.tab)})`,'owned chat composer mount');
     const root = `[data-testid="tab-session-chat"][data-tab-id="${fixture.tab}"]`;
-    if (fixture.marker) await observe(rt,`document.querySelector(${JSON.stringify(root)})?.innerText.includes(${JSON.stringify(fixture.marker)})`);
+    await observe(rt,`(${chatVisitEvidence.toString()})(${JSON.stringify(phase)},(${ownedChatComposerMounted.toString()})(document,${JSON.stringify(fixture.tab)}),document.querySelector(${JSON.stringify(root)})?.innerText.includes(${JSON.stringify(fixture.marker??'')}),${Boolean(fixture.marker)})`,`${phase} owned chat mount evidence`);
   } else await observe(rt,`document.querySelector('[data-tab-id="${fixture.tab}"] .xterm') !== null`);
 }
 export async function sample(rt,cp,out,label,{snapshot=false}={}) {
