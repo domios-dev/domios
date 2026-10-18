@@ -167,10 +167,26 @@ impl LaunchGeneration {
     }
 
     pub(super) fn emit_first_turn_input_ready(&mut self, svc: &ServiceContext) -> bool {
-        self.transition(BootStage::AgentReady);
-        self.commit_if_current(|| {
-            svc.emit_boot_stage(&self.tab_id, BootStage::AgentReady, None);
-        })
+        let Some(attempt) = self.attempt() else {
+            return false;
+        };
+        let mut stage = BootStage::LaunchBindingUnconfirmed;
+        let committed = self.commit_if_current(|| {
+            if self.await_provider_ack(std::time::Duration::ZERO) {
+                stage = BootStage::AgentReady;
+                svc.emit_boot_stage(&self.tab_id, BootStage::AgentReady, None);
+            } else {
+                svc.record_provisional_launch(
+                    &attempt,
+                    BootStage::LaunchBindingUnconfirmed,
+                    "provider composer accepts the first turn; session binding is pending",
+                );
+            }
+        });
+        if committed {
+            self.transition(stage);
+        }
+        committed
     }
 
     pub(super) fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {

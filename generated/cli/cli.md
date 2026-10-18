@@ -337,6 +337,16 @@ Record opt-in consent and create an installation identifier
 
 Show recorded consent, queue size and delivery counters
 
+#### `codeterm app`
+
+Control the exact local native application and server lifecycle
+
+#### `codeterm app quit`
+
+Quit the exact local application after successful server cleanup and observed exits
+
+- `--exact`
+
 #### `codeterm blueprint`
 
 Cheap hash-gated watchers with closed-set routes

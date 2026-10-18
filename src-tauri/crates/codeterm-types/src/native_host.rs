@@ -118,6 +118,9 @@ pub enum NativeHostScope {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "operation", content = "payload", rename_all = "snake_case")]
 pub enum NativeHostOperation<UpdateRequest> {
+    ExactQuit {
+        expected: Box<crate::app_quit::QuitSnapshot>,
+    },
     FocusWindow {
         label: String,
     },
@@ -176,6 +179,8 @@ pub struct NativeDebianPreflight {
 #[serde(tag = "result", content = "payload", rename_all = "snake_case")]
 pub enum NativeHostResult<UpdateResult> {
     Acknowledged,
+    ExactQuitAdmitted,
+    ExactQuitRefused(crate::app_quit::QuitRefusal),
     WindowExists(bool),
     ToastPermission(String),
     DebianPreflight(NativeDebianPreflight),

@@ -154,11 +154,18 @@ impl ServiceContext {
         else {
             return;
         };
-        let Some(parent_tab_id) = attempt
+        let parent_tab_id = attempt
             .orchestrator_tab_id
             .as_deref()
             .or(attempt.parent_tab_id.as_deref())
-        else {
+            .map(str::to_string)
+            .or_else(|| {
+                self.mux
+                    .read()
+                    .get_tab(worker_tab_id)
+                    .and_then(|tab| tab.parent_tab_id.clone())
+            });
+        let Some(parent_tab_id) = parent_tab_id else {
             return;
         };
         let Some((worker_title, runtime_ready)) = self
@@ -170,7 +177,7 @@ impl ServiceContext {
             return;
         };
         self.publish_worker_lifecycle_report(
-            parent_tab_id,
+            &parent_tab_id,
             worker_tab_id,
             &worker_title,
             &task.plan_id,

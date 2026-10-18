@@ -8,6 +8,9 @@ mod reserved_nonce;
 #[path = "tests/restored_continue.rs"]
 mod restored_continue;
 
+#[path = "tests/wrapper_exit.rs"]
+mod wrapper_exit;
+
 #[test]
 fn trust_frame_is_never_composer_evidence() {
     let input = codeterm_pty::pty::screen_state::ComposerInputState {
@@ -573,65 +576,6 @@ fn lazy_session_start_accepts_structural_composer_when_wrapper_name_is_absent() 
         ),
         Ok(None),
         "a live provider without its declared composer is not ready",
-    );
-}
-
-#[test]
-fn live_lazy_composer_supersedes_clean_wrapper_exit_on_the_same_launch() {
-    use crate::service::launch_readiness::{
-        arm, note_first_turn_input_ready, observe, suspect_exit, LaunchAttempt, LaunchEvidence,
-        LaunchExitProof, LaunchObservation,
-    };
-    use crate::service::process_tree::{
-        ProviderProcessTreeSnapshot, ProviderTreeKey, ProviderTreeWitnesses,
-    };
-
-    let attempt = LaunchAttempt {
-        tab_id: "lazy-wrapper-exit-tab".into(),
-        pty_id: "lazy-wrapper-exit-pty".into(),
-        binding_nonce: "lazy-wrapper-exit-nonce".into(),
-    };
-    let key = ProviderTreeKey {
-        tab_id: attempt.tab_id.clone(),
-        pty_id: attempt.pty_id.clone(),
-        binding_nonce: Some(attempt.binding_nonce.clone()),
-        executable_name: "fixture-agent".into(),
-    };
-    let absent =
-        ProviderTreeWitnesses::default().record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
-    let clean_wrapper_exit =
-        LaunchExitProof::from_finished_marker(&attempt, &absent, Some(0), true, None)
-            .expect("the shell Finished marker reports a clean wrapper exit");
-    assert!(clean_wrapper_exit.is_deferred());
-
-    assert_eq!(
-        decide_launch_input(
-            LaunchInputObservation {
-                provider_process_alive: false,
-                ..input_observation()
-            },
-            LaunchInputMode::LazySessionStart,
-        ),
-        Ok(Some(LaunchInputEvidence::ProviderComposer)),
-        "the declared structural composer is live in this attempt's own PTY",
-    );
-
-    arm(attempt.clone());
-    assert!(suspect_exit(
-        &attempt.tab_id,
-        Some(&attempt.pty_id),
-        Some(0),
-        &clean_wrapper_exit,
-    ));
-    assert!(note_first_turn_input_ready(
-        &attempt.tab_id,
-        &attempt.pty_id,
-        &attempt.binding_nonce,
-    ));
-    assert_eq!(
-        observe(&attempt, Instant::now()),
-        LaunchObservation::Evidence(LaunchEvidence::FirstTurnInputReady),
-        "the structural composer clears only this attempt's deferred shell exit",
     );
 }
 

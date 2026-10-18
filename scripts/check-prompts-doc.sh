@@ -14,6 +14,7 @@ root = Path(sys.argv[1])
 docs = root / "src-tauri/prompts/00-README.md"
 prompts_dir = root / "src-tauri/prompts"
 prompts_rs = root / "src-tauri/crates/codeterm-prompts/src/prompts.rs"
+service_prompts_rs = root / "src-tauri/crates/codeterm-service-core/src/prompts.rs"
 plan_prompts_rs = root / "src-tauri/crates/codeterm-plan/src/service_plan/prompts_plan.rs"
 mem_prompts_rs = root / "src-tauri/crates/codeterm-mem/src/prompt_text.rs"
 seed_rs = root / "src-tauri/crates/codeterm-mem/src/seed.rs"
@@ -30,6 +31,7 @@ prompt_files = [p for p in prompts_dir.rglob("*.md") if p not in documentation_f
 files = {p.relative_to(prompts_dir).as_posix() for p in prompt_files}
 loader_sources = [
     prompts_rs,
+    service_prompts_rs,
     plan_prompts_rs,
     mem_prompts_rs,
     seed_rs,

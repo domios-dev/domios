@@ -64,13 +64,29 @@ function snapWithTeams(generation: number, teams: Team[]): MultiplexerState {
 
 test("AgentReady event clears launching with no snapshot", () => {
   const state = base();
-  state.tabs.ready = { ...tab("ready"), agent_type: "fixture", agent_booting: true,
-    boot_stage: "agent_launching", backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "" } };
-  assert(tabActivity(state.tabs.ready).launching, "launch starts pending");
-  const next = reducer(state, { type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", agent_booting: false, session_bound: true });
+  state.tabs.ready = { ...tab("ready"), agent_type: "fixture", agent_booting: true, frozen: true, slept_at_ms: 1000,
+    pty_id: "pty-ready", session_binding_nonce: "binding-ready", boot_stage: "agent_launching",
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "" } };
+  const other = { ...tab("other"), frozen: true, boot_stage: "pty_starting" as const };
+  state.tabs.other = other;
+  const next = reducer(state, { type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", agent_booting: false, session_bound: true,
+    launchGeneration: { epoch: 3, operation_id: "launch-3", pty_id: "pty-ready", binding_nonce: "binding-ready" } });
   assert(next.tabs.ready.agent_booting === false, "event clears booting");
   assert(next.tabs.ready.session_bound === true, "event binds session");
+  assert(next.tabs.ready.frozen === false, "ready event releases the target tab from frozen state");
+  assert(next.tabs.ready.slept_at_ms === null, "ready event clears the sleep timestamp");
+  assert(next.tabs.other === other && next.tabs.other.frozen === true, "event leaves other tabs untouched");
   assert(!tabActivity(next.tabs.ready).launching, "event releases launch");
+});
+
+test("boot-stage events from an older PTY binding cannot release the current tab", () => {
+  const state = base();
+  state.tabs.ready = { ...tab("ready"), agent_type: "fixture", frozen: true, pty_id: "pty-current",
+    session_binding_nonce: "binding-current", boot_stage: "agent_launching" };
+  const next = reducer(state, { type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", session_bound: true,
+    launchGeneration: { epoch: 2, operation_id: "old-launch", pty_id: "pty-old", binding_nonce: "binding-old" } });
+  assert(next === state, "stale generation is ignored");
+  assert(next.tabs.ready.frozen === true, "stale event does not wake the current tab");
 });
 
 test("SET_STATE copies the exact incoming teams array", () => {
