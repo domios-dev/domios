@@ -128,6 +128,16 @@ fn utility_selection_refuses_foreign_scope_and_unproven_callers() {
         ("stale owner nonce", |_, _, _, o| {
             o.reported_session_binding_nonce = None
         }),
+        ("missing owner nonce", |_, _, _, o| {
+            o.session_binding_nonce = None
+        }),
+        ("mismatched owner attestation", |_, _, _, o| {
+            o.reported_session_binding_nonce = Some("foreign-nonce".into())
+        }),
+        ("empty owner attestation", |_, _, _, o| {
+            o.session_binding_nonce = Some(String::new());
+            o.reported_session_binding_nonce = Some(String::new());
+        }),
         ("rebound owner", |_, _, _, o| {
             o.agent_session_id = Some("new-session".into())
         }),
