@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { MANIFEST_RELATIVE_PATH, validateManifest } from '../package-server-component-manifest.mjs';
+import { MANIFEST_RELATIVE_PATH, createManifest, validateManifest } from '../package-server-component-manifest.mjs';
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const GENERATOR_PATH = path.join(REPOSITORY_ROOT, 'scripts/package-server-component-manifest.mjs');
@@ -59,7 +59,7 @@ function isContained(root, candidate) {
   return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 
-test('emits the exact v1 receipt from independently hashed staged artifacts', async t => {
+test('emits the exact v2 SHA identity from independently hashed staged artifacts', async t => {
   const stage = await makeStage();
   t.after(() => rm(stage.root, { recursive: true, force: true }));
 
@@ -69,7 +69,7 @@ test('emits the exact v1 receipt from independently hashed staged artifacts', as
   assert.deepEqual(Object.keys(manifest), Object.keys(fixture));
   assert.deepEqual(manifest, fixture);
   assert.equal(manifest.server_sha256, sha256(await readFile(stage.serverFile)));
-  assert.equal(manifest.client_sha256, sha256(await readFile(stage.clientFile)));
+  assert.equal(manifest.client_identity.sha256, sha256(await readFile(stage.clientFile)));
 
   const resourceRoot = path.join(stage.root, 'installed/resources');
   const resolvedServer = path.resolve(resourceRoot, ...manifest.server_executable.split('/'));
@@ -79,7 +79,6 @@ test('emits the exact v1 receipt from independently hashed staged artifacts', as
   assert.notEqual(path.resolve(stage.outputFile), stage.clientFile);
   assert.deepEqual(validateManifest(manifest), manifest);
 });
-
 test('changing one staged artifact changes only its matching digest', async t => {
   const stage = await makeStage();
   t.after(() => rm(stage.root, { recursive: true, force: true }));
@@ -91,7 +90,7 @@ test('changing one staged artifact changes only its matching digest', async t =>
   assert.equal(runGenerator(stage).status, 0);
   const serverChanged = JSON.parse(await readFile(stage.outputFile, 'utf8'));
   assert.notEqual(serverChanged.server_sha256, original.server_sha256);
-  assert.equal(serverChanged.client_sha256, original.client_sha256);
+  assert.deepEqual(serverChanged.client_identity, original.client_identity);
   assert.deepEqual({ ...serverChanged, server_sha256: original.server_sha256 }, original);
 
   await writeFile(stage.serverFile, SERVER_BYTES);
@@ -99,8 +98,27 @@ test('changing one staged artifact changes only its matching digest', async t =>
   assert.equal(runGenerator(stage).status, 0);
   const clientChanged = JSON.parse(await readFile(stage.outputFile, 'utf8'));
   assert.equal(clientChanged.server_sha256, original.server_sha256);
-  assert.notEqual(clientChanged.client_sha256, original.client_sha256);
-  assert.deepEqual({ ...clientChanged, client_sha256: original.client_sha256 }, original);
+  assert.notEqual(clientChanged.client_identity.sha256, original.client_identity.sha256);
+  assert.deepEqual({ ...clientChanged, client_identity: original.client_identity }, original);
+});
+
+test('macOS designated requirement has the fixed nested server path without a raw client hash', async t => {
+  const stage = await makeStage();
+  t.after(() => rm(stage.root, { recursive: true, force: true }));
+  const teamId = 'JMMWQ9LWF7';
+  await createManifest({ cwd: stage.root, serverFile: stage.serverFile,
+    serverBuild: 'fixture-server-build', serverExecutable: '../MacOS/domios-server',
+    clientIdentity: { kind: 'macos_designated_requirement',
+      requirement: `anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "${teamId}"`,
+      team_id: teamId, identifier: 'com.codeterm.app' }, apiVersion: 3, bootstrapProtocol: 2 });
+  const manifest = JSON.parse(await readFile(stage.outputFile, 'utf8'));
+  assert.equal(manifest.schema, 2);
+  assert.equal(manifest.server_executable, '../MacOS/domios-server');
+  assert.equal(manifest.server_sha256, sha256(SERVER_BYTES));
+  assert.equal(Object.hasOwn(manifest, 'client_sha256'), false);
+  assert.throws(() => validateManifest({ ...manifest, server_executable: 'domios-server/domios-server' }));
+  assert.throws(() => validateManifest({ ...manifest, client_identity: { kind: 'macos_designated_requirement',
+    requirement: 'identifier "com.codeterm.app"', team_id: teamId, identifier: 'com.codeterm.app' } }));
 });
 
 test('missing staged artifacts refuse generation and remove any stale manifest', async t => {
@@ -144,15 +162,8 @@ test('refuses malformed versions, digests, and unsupported protocol values', asy
   assert.notEqual(runGenerator(stage, { bootstrapProtocol: '1' }).status, 0);
 
   assert.throws(() => validateManifest({ ...fixture, server_sha256: 'not-a-digest' }));
-  assert.throws(() => validateManifest({ ...fixture, client_sha256: 'A'.repeat(64) }));
+  assert.throws(() => validateManifest({ ...fixture, client_identity: { kind: 'sha256', sha256: 'A'.repeat(64) } }));
   assert.throws(() => validateManifest({ ...fixture, api_version: '3' }));
-  assert.throws(() => validateManifest({ ...fixture, schema: 2 }));
+  assert.throws(() => validateManifest({ ...fixture, schema: 1 }));
   assert.throws(() => validateManifest({ ...fixture, unsupported: true }));
-});
-
-test('held release bundle mapping does not seal the paired inventory into the client', async () => {
-  const config = JSON.parse(await readFile(path.join(REPOSITORY_ROOT, 'src-tauri/tauri.conf.json'), 'utf8'));
-  assert.equal(config.bundle.resources['../target/domios-package/server-component.json'], undefined);
-  assert.equal(config.bundle.resources['../target/domios-package/domios-server/'], undefined);
-  assert.equal(config.bundle.resources['../dist'], 'dist');
 });
