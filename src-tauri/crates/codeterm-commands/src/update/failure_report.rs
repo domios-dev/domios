@@ -1,5 +1,6 @@
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "desktop")]
 use tauri::Manager;
 
 pub const NEXT_STEPS: &str =
@@ -75,11 +76,13 @@ fn render_abort(abort: &UpdateAbort) -> String {
 }
 
 /// Retains abort evidence and runtime status without raising a notification.
+#[cfg(feature = "desktop")]
 pub struct AppFailureSink {
     pub app: codeterm_host_runtime::app_runtime::AppHandle,
     pub update_state: codeterm_service_core::UpdateStateHandle,
 }
 
+#[cfg(feature = "desktop")]
 impl UpdateFailureSink for AppFailureSink {
     fn abort(&self, abort: &UpdateAbort) {
         let artifact = write_abort_artifact(abort);

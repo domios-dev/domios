@@ -49,6 +49,51 @@ pub trait Shell: Send + Sync {
 
 pub struct NoShell;
 
+pub struct ProcessPaths {
+    pub executable: PathBuf,
+    pub config: PathBuf,
+    pub resources: PathBuf,
+}
+
+pub struct ProcessShell {
+    pub paths: ProcessPaths,
+    pub native: std::sync::Arc<dyn Shell>,
+}
+
+impl Shell for ProcessShell {
+    fn current_exe(&self) -> Result<PathBuf, ShellError> {
+        Ok(self.paths.executable.clone())
+    }
+
+    fn config_dir(&self) -> Result<PathBuf, ShellError> {
+        Ok(self.paths.config.clone())
+    }
+
+    fn resource_dir(&self) -> Result<PathBuf, ShellError> {
+        Ok(self.paths.resources.clone())
+    }
+
+    fn focus_window(&self, label: &str) -> Result<(), ShellError> {
+        self.native.focus_window(label)
+    }
+
+    fn window_exists(&self, label: &str) -> bool {
+        self.native.window_exists(label)
+    }
+
+    fn os_notify(&self, title: &str, body: Option<&str>) -> Result<(), ShellError> {
+        self.native.os_notify(title, body)
+    }
+
+    fn toast_permission(&self, enabling: Option<bool>) -> String {
+        self.native.toast_permission(enabling)
+    }
+
+    fn open_webview(&self, request: WebviewRequest) -> Result<(), ShellError> {
+        self.native.open_webview(request)
+    }
+}
+
 impl Shell for NoShell {
     fn resource_dir(&self) -> Result<PathBuf, ShellError> {
         Err(ShellError::Unavailable)
