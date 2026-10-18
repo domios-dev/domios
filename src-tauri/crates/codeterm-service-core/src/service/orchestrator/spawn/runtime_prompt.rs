@@ -19,7 +19,10 @@ fn compose_with(
     bootstrap: Option<&str>,
     fragments: RuntimeFragments<'_>,
 ) -> String {
-    let mut sections = vec![fragments.primer.to_string()];
+    let mut sections = vec![
+        fragments.primer.to_string(),
+        crate::prompts::AGENT_ROUTING_CONTRACT.trim().to_string(),
+    ];
     sections.extend(fragments.plugins.map(str::to_string));
     sections.push(fragments.authority.to_string());
     let (identity, assignment) = params
