@@ -11,6 +11,7 @@ import {
   readHeadlessArchive,
   validateHeadlessStage,
 } from '../headless-release-package.mjs';
+import { SUPPORTED_BOOTSTRAP_PROTOCOL } from '../package-server-component-manifest.mjs';
 
 const identity = {
   tag: 'v1.2.3',
@@ -38,7 +39,6 @@ async function makeStage(parent, platform = 'linux-x86_64') {
   const stageDirectory = path.join(parent, metadata.target);
   await mkdir(stageDirectory, { recursive: true });
   const serverBytes = text('synthetic server executable bytes');
-  const clientBytes = text('synthetic native client executable bytes');
   const payload = new Map([
     ['domios-server/' + metadata.server, serverBytes],
     ['cli/' + metadata.cli, text('synthetic CLI executable bytes')],
@@ -55,13 +55,13 @@ async function makeStage(parent, platform = 'linux-x86_64') {
   }
   for (const [relativePath, bytes] of payload) await writePayload(stageDirectory, relativePath, bytes);
   const component = {
-    schema: 1,
+    schema: 2,
     server_build: 'fixture-server-build',
     server_executable: 'domios-server/' + metadata.server,
     server_sha256: hash(serverBytes),
-    client_sha256: hash(clientBytes),
+    client_identity: { kind: 'none' },
     api_version: 3,
-    bootstrap_protocol: 1,
+    bootstrap_protocol: SUPPORTED_BOOTSTRAP_PROTOCOL,
   };
   const componentBytes = text(JSON.stringify(component, null, 2) + '\n');
   payload.set('server-component.json', componentBytes);
@@ -180,7 +180,7 @@ test('component manifest field order is flexible and its staged bytes are preser
   const parsed = JSON.parse(await readFile(componentPath, 'utf8'));
   const reordered = {
     bootstrap_protocol: parsed.bootstrap_protocol,
-    client_sha256: parsed.client_sha256,
+    client_identity: parsed.client_identity,
     api_version: parsed.api_version,
     server_sha256: parsed.server_sha256,
     server_executable: parsed.server_executable,

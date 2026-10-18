@@ -85,6 +85,7 @@ jobs:
       # cargo from src-tauri, so a relative path lands in src-tauri/src-tauri/target.
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CODETERM_RELEASE_FEATURES: embeddings
+      CODETERM_RELEASE_COMMON_STAGE: '1'
       CARGO_INCREMENTAL: '0'
       # Some repo paths exceed Windows' 260-char limit (.codeterm/plans/**). git's
       # core.longpaths must be on for checkout to write them. Set it via GIT_CONFIG_*
@@ -311,6 +312,31 @@ jobs:
           node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pwsh -NoProfile -File build.ps1 release-bundle
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Produce shared headless stage and package
+        shell: pwsh
+        run: |
+          $bundles = @(Get-ChildItem -File "src-tauri/target/$env:TARGET/release/bundle/nsis" -Filter '*-setup.exe')
+          if ($bundles.Count -ne 1) { Write-Error "Expected one full NSIS installer; found $($bundles.Count)"; exit 1 }
+          $version = "${{ inputs.tag }}".Substring(1)
+          node scripts/release-stage.mjs finalize --target "$env:TARGET" --tag "${{ inputs.tag }}" `
+            --version $version --source-sha "${{ inputs.source_ref }}" `
+            --cargo-log "release-artifacts/build-logs/$env:TARGET/server.jsonl" `
+            --tree-log "release-artifacts/build-logs/$env:TARGET/closure.txt" `
+            --bundle $bundles[0].FullName --output-dir release-artifacts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify independent headless assets and checksum
+        shell: pwsh
+        run: |
+          node scripts/release-headless-assets.mjs verify "${{ inputs.tag }}" "${{ matrix.platform_key }}" release-artifacts "${{ inputs.source_ref }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Smoke packaged client and isolated server pair
+        shell: pwsh
+        run: |
+          node scripts/release-pair-smoke.mjs "$env:TARGET" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "release-artifacts/common-stage/$env:TARGET" release-artifacts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Smoke built release bundle
         shell: pwsh
         run: |
@@ -395,6 +421,24 @@ jobs:
           gh release view "$env:TAG" --repo "$env:MIRROR_REPO" | Out-Null
 
           gh release upload "$env:TAG" "$bundle" --clobber --repo "$env:MIRROR_REPO"
+
+      - name: Publish and read back headless source assets
+        if: ${{ !inputs.dry_run }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/release-headless-assets.mjs publish "${{ inputs.tag }}" "${{ matrix.platform_key }}" release-artifacts "${{ inputs.source_ref }}" "${{ github.repository }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Publish and read back headless mirror assets
+        if: ${{ inputs.mirror && !inputs.dry_run }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+        run: |
+          node scripts/release-headless-assets.mjs publish "${{ inputs.tag }}" "${{ matrix.platform_key }}" release-artifacts "${{ inputs.source_ref }}" rollacode/codeterm-releases
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - uses: ./.github/actions/rust-warnings
         if: always()
