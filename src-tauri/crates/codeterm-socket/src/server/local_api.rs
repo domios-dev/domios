@@ -1,11 +1,12 @@
 use axum::{body::Body, http::Request};
-use codeterm_service_core::service::ServiceState;
+use codeterm_host_runtime::app_runtime::AppHandle;
 use serde_json::Value;
+use tauri::Manager;
 use tower::ServiceExt;
 
 use super::JsonRpcError;
 
-pub(super) fn dispatch(params: &Option<Value>, svc: &ServiceState) -> Result<Value, JsonRpcError> {
+pub(super) fn dispatch(params: &Option<Value>, app: &AppHandle) -> Result<Value, JsonRpcError> {
     let params = params.as_ref().ok_or_else(|| invalid("params required"))?;
     let method = params
         .get("method")
@@ -30,8 +31,8 @@ pub(super) fn dispatch(params: &Option<Value>, svc: &ServiceState) -> Result<Val
             }
         }
     }
-    if let Some(token) = svc
-        .ext::<codeterm_service_core::config::ConfigState>()
+    if let Some(token) = app
+        .state::<codeterm_service_core::config::ConfigState>()
         .lock()
         .api
         .token
@@ -47,12 +48,11 @@ pub(super) fn dispatch(params: &Option<Value>, svc: &ServiceState) -> Result<Val
     let request = request
         .body(Body::from(body))
         .map_err(|error| invalid(error.to_string()))?;
-    let router = svc
-        .try_ext::<codeterm_service_core::ports::rest::LocalApiRouter>()
-        .ok_or_else(|| internal("local API router is not installed"))?
+    let router = app
+        .state::<codeterm_service_core::ports::rest::LocalApiRouter>()
         .0
         .clone();
-    codeterm_service_core::async_runtime::block_on(async move {
+    tauri::async_runtime::block_on(async move {
         let response = router
             .oneshot(request)
             .await

@@ -60,6 +60,7 @@ pub(crate) use dispatch::{dispatch_mesh_rpc, dispatch_service_rpc};
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 
+use codeterm_host_runtime::app_runtime::AppHandle;
 use serde::{Deserialize, Serialize};
 
 use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
@@ -186,6 +187,7 @@ impl SocketServer {
         mux_state: MuxState,
         pty_state: PtyState,
         notif_state: NotifState,
+        app: AppHandle,
         output_buf: OutputBufferState,
         svc_state: ServiceState,
     ) -> Result<(), String> {
@@ -236,11 +238,20 @@ impl SocketServer {
                         let mux = mux_state.clone();
                         let pty = pty_state.clone();
                         let notif = notif_state.clone();
+                        let app_handle = app.clone();
                         let out_buf = output_buf.clone();
                         let svc = svc_state.clone();
 
                         codeterm_util::named_thread::spawn("socket-connection", move || {
-                            handle_connection(stream, &mux, &pty, &notif, &out_buf, &svc);
+                            handle_connection(
+                                stream,
+                                &mux,
+                                &pty,
+                                &notif,
+                                &app_handle,
+                                &out_buf,
+                                &svc,
+                            );
                         });
                     }
                     Err(e) => {
@@ -466,6 +477,7 @@ fn handle_connection(
     mux: &MuxState,
     pty: &PtyState,
     notif: &NotifState,
+    app: &AppHandle,
     output_buf: &OutputBufferState,
     svc: &ServiceState,
 ) {
@@ -491,7 +503,16 @@ fn handle_connection(
                             req.method,
                             received_at_us,
                         );
-                        respond_to_request(req, received_at_us, mux, pty, notif, output_buf, svc)
+                        respond_to_request(
+                            req,
+                            received_at_us,
+                            mux,
+                            pty,
+                            notif,
+                            app,
+                            output_buf,
+                            svc,
+                        )
                     }
                     Err(e) => {
                         log::debug!("[socket-request] id=null method=invalid received_at_us={received_at_us}");
@@ -528,6 +549,7 @@ fn respond_to_request(
     mux: &MuxState,
     pty: &PtyState,
     notif: &NotifState,
+    app: &AppHandle,
     output_buf: &OutputBufferState,
     svc: &ServiceState,
 ) -> JsonRpcResponse {
@@ -565,6 +587,7 @@ fn respond_to_request(
             mux,
             pty,
             notif,
+            app,
             output_buf,
             svc,
         )
@@ -734,10 +757,10 @@ mod tests {
 
     #[test]
     fn cron_settle_cron_complete_closes_after_response_flush() {
+        use codeterm_host_runtime::test_fixture::HostFixture as ServiceFixture;
         use codeterm_service_core::cron::store::{
             CronCreateParams, CronRunInfo, CronRunStatus, CronStore,
         };
-        use codeterm_service_core::service::test_fixture::ServiceFixture;
         use std::sync::Arc;
 
         let (mut mux, initial_tab) =
@@ -825,6 +848,7 @@ mod tests {
             &svc.mux,
             &svc.pty,
             &svc.notif,
+            fixture.app.handle(),
             &svc.output_buf,
             &svc,
         );
@@ -1056,6 +1080,3 @@ mod tests {
         assert!(response.contains("\"ok\":true"));
     }
 }
-
-#[cfg(test)]
-mod process_split_contract;

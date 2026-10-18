@@ -1,4 +1,4 @@
-#[cfg_attr(feature = "desktop", tauri::command)]
+#[tauri::command]
 pub fn get_windows_build_number() -> u32 {
     // Build number is constant for the OS lifetime — cache to avoid spawning cmd.exe on every TerminalTab mount (~1s on Win11 with Defender).
     static CACHED: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
@@ -29,7 +29,7 @@ pub fn get_windows_build_number() -> u32 {
     })
 }
 
-#[cfg_attr(feature = "desktop", tauri::command)]
+#[tauri::command]
 pub fn get_default_cwd() -> Result<String, String> {
     std::env::current_dir()
         .map(|p| p.to_string_lossy().to_string())
@@ -41,7 +41,7 @@ pub fn get_default_cwd() -> Result<String, String> {
 /// The Settings UI shows an install banner only when `pwsh_installed` is false.
 /// Runs the filesystem walk in `spawn_blocking` because `Path::is_file()` on a
 /// dead network mount in the user's PATH (SMB/VPN) can block seconds.
-#[cfg_attr(feature = "desktop", tauri::command)]
+#[tauri::command]
 pub async fn get_shell_diagnostics() -> serde_json::Value {
     let platform = std::env::consts::OS;
     #[cfg(target_os = "windows")]
@@ -101,7 +101,7 @@ pub async fn get_shell_diagnostics() -> serde_json::Value {
 ///        "context_lost" — GPU context dropped (xterm will fall back)
 ///        "failed" — WebGL addon constructor threw
 ///        "skipped_macos" / "skipped_windows" / "skipped_test_mode" — deliberate DOM renderer
-#[cfg_attr(feature = "desktop", tauri::command)]
+#[tauri::command]
 pub fn report_webgl_status(state: String, detail: Option<String>) {
     match state.as_str() {
         "loaded" => log::info!("[webgl] addon loaded"),

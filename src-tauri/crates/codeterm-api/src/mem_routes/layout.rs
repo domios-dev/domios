@@ -105,7 +105,7 @@ pub async fn mem_graph_layout_rebuild(
         ));
     }
     let mem = state.svc.mem.clone();
-    codeterm_service_core::async_runtime::spawn_blocking(move || match mem.run_full_layout() {
+    tauri::async_runtime::spawn_blocking(move || match mem.run_full_layout() {
         Ok(v) => log::info!("[graph_layout] rebuild done v{v}"),
         Err(e) => log::warn!("[graph_layout] rebuild failed: {e}"),
     });

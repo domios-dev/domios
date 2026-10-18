@@ -1,7 +1,7 @@
 use super::*;
+use codeterm_host_runtime::test_fixture::HostFixture;
 use codeterm_service_core::agent::test_provider::MockProvider;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
-use codeterm_service_core::service::test_fixture::ServiceFixture;
 use std::cell::RefCell;
 use std::sync::{Arc, Once};
 
@@ -80,7 +80,7 @@ impl Write for Stream {
     }
 }
 
-fn socket_request(fixture: &ServiceFixture, request: serde_json::Value) -> serde_json::Value {
+fn socket_request(fixture: &HostFixture, request: serde_json::Value) -> serde_json::Value {
     let mut stream = Stream {
         input: io::Cursor::new(format!("{request}\n").into_bytes()),
         output: Vec::new(),
@@ -91,6 +91,7 @@ fn socket_request(fixture: &ServiceFixture, request: serde_json::Value) -> serde
         &svc.mux,
         &svc.pty,
         &svc.notif,
+        fixture.app.handle(),
         &svc.output_buf,
         &svc,
     );
@@ -100,7 +101,7 @@ fn socket_request(fixture: &ServiceFixture, request: serde_json::Value) -> serde
 #[test]
 fn socket_agent_spawn_binds_request_before_rejected_launch() {
     let (mux, _) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = HostFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
         MockProvider::with_empty_launch_command_when_task_present("arrival-fixture"),
     ));
@@ -149,7 +150,7 @@ fn socket_agent_spawn_binds_request_before_rejected_launch() {
 #[test]
 fn spawn_cli_request_marks_precede_pty_starting_without_starting_a_pty() {
     let (mux, _) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = HostFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
         MockProvider::with_empty_launch_command("arrival-fixture"),
     ));
@@ -204,7 +205,7 @@ fn spawn_cli_request_marks_precede_pty_starting_without_starting_a_pty() {
 #[test]
 fn socket_tab_new_binds_once_and_internal_tab_is_silent() {
     let (mux, _) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = HostFixture::new(mux);
     let capture = Capture::start();
     let response = socket_request(
         &fixture,
@@ -240,7 +241,7 @@ fn socket_tab_new_binds_once_and_internal_tab_is_silent() {
 #[test]
 fn invalid_socket_request_logs_arrival_without_installing_context() {
     let (mux, _) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
+    let fixture = HostFixture::new(mux);
     let capture = Capture::start();
     let response = socket_request(&fixture, serde_json::json!({}));
     assert_eq!(response["error"]["code"], -32700);

@@ -424,10 +424,10 @@ pub(crate) fn events_sse(
             }
         };
         for se in &replay {
+            if !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
             if se.seq > replayed_max {
                 replayed_max = se.seq;
             }
-            if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
             yield Ok(event_frame(se));
         }
         loop {
@@ -437,7 +437,7 @@ pub(crate) fn events_sse(
                         continue;
                     }
                     replayed_max = se.seq;
-                    if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
+                    if !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
                     yield Ok(event_frame(&se));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
@@ -702,9 +702,7 @@ pub async fn copy_image_to_clipboard(
     Json(body): Json<CopyImageToClipboardBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let host = codeterm_commands::application_host::require(&state.svc)
-        .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error.to_string()))?;
-    host.copy_image_to_clipboard(body.path)
+    commands::copy_image_to_clipboard(body.path)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
