@@ -1,0 +1,5 @@
+# Frontend deadline coordination was removed. These replacements exercise the
+# production service acknowledgement helper rather than retaining dead code.
+startup::servers::tests::general_agent_frontend_deadline_releases_mux_for_restored_backends -> startup::servers::tests::process_split_contract_general_and_restored_backends_have_independent_acknowledgements
+startup::servers::tests::restore_contract_missed_frontend_deadline_still_materializes_restored_agent_panes -> startup::servers::tests::process_split_contract_disconnected_initialization_never_grants_readiness
+startup::servers::tests::restore_contract_ready_frontend_materializes_without_a_deadline_note -> startup::servers::tests::process_split_contract_service_acknowledgement_needs_no_frontend

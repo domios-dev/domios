@@ -63,3 +63,4 @@ pub use frontend_shell::{
     fallback_origin as frontend_shell_fallback_origin,
     loopback_origin as frontend_shell_loopback_origin,
 };
+pub use cli_install::resolve_bundled_cli_src;

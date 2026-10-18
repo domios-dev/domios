@@ -1,0 +1,58 @@
+// Builds the isolated server oracle from Cargo artifact messages; no test feature union is accepted.
+import { createHash } from 'node:crypto';
+import { readFileSync, realpathSync, writeFileSync, mkdirSync, copyFileSync, cpSync, chmodSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+export const SERVER_FEATURES = ['domios-server/embeddings'];
+export function assertServerClosure(packages) {
+  if (!packages.some(row => row.startsWith('domios-server '))) throw new Error('Server dependency root missing');
+  const forbidden = packages.filter(row => /^(?:tauri(?:-| )|wry(?: |$)|webview(?:2)?(?:-| )|web-view(?:-| )|webkit2gtk(?:-| )|codeterm-host-runtime(?: |$))/.test(row));
+  if (forbidden.length) throw new Error(`Server production closure includes forbidden packages: ${forbidden.map(row => row.split(' ')[0]).join(', ')}`);
+}
+export function serverArtifact(messages) {
+  const artifacts = messages.filter(message => message.reason === 'compiler-artifact' && message.target?.name === 'domios-server' && message.target.kind.includes('bin') && message.executable && !message.profile?.test);
+  if (artifacts.length !== 1) throw new Error(`Expected one server binary artifact; received ${artifacts.length}`);
+  return realpathSync.native(artifacts[0].executable);
+}
+export function artifactReceipt({ cargoLog, treeLog, build, target, resources }) {
+  const messages = readFileSync(cargoLog, 'utf8').split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
+  if (!messages.some(message => message.reason === 'build-finished' && message.success)) throw new Error('Cargo build did not finish successfully');
+  const dependency_packages = readFileSync(treeLog, 'utf8').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  assertServerClosure(dependency_packages);
+  const executable = serverArtifact(messages);
+  const artifact = messages.find(message => message.reason === 'compiler-artifact' && message.executable && realpathSync.native(message.executable) === executable);
+  if (JSON.stringify([...artifact.features].sort()) !== JSON.stringify(['embeddings'])) throw new Error('Unexpected server artifact feature selection');
+  if (path.basename(executable) !== `domios-server${process.platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected server executable filename');
+  return { executable, executable_sha256: createHash('sha256').update(readFileSync(executable)).digest('hex'), build, target, profile: 'dev', features: SERVER_FEATURES, resources: realpathSync.native(resources), dependency_packages };
+}
+export function workerArtifact(messages, repo) {
+  const source = realpathSync.native(path.join(repo, 'cli/src/main.rs'));
+  const artifacts = messages.filter(message => message.reason === 'compiler-artifact' && message.target?.name === 'codeterm' && message.target.kind.includes('bin') && message.executable && !message.profile?.test && realpathSync.native(message.target.src_path) === source);
+  if (artifacts.length !== 1) throw new Error('Expected the exact CLI package binary artifact');
+  return realpathSync.native(artifacts[0].executable);
+}
+export function stageResources(cliLog, repo, output) {
+  const messages = readFileSync(cliLog, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
+  if (!messages.some(message => message.reason === 'build-finished' && message.success)) throw new Error('CLI build did not finish');
+  const executable = workerArtifact(messages, repo);
+  const name = `codeterm${process.platform === 'win32' ? '.exe' : ''}`;
+  mkdirSync(path.join(output, 'cli'), { recursive: true });
+  const target = path.join(output, 'cli', name);
+  copyFileSync(executable, target); chmodSync(target, 0o755);
+  if (process.platform === 'win32') cpSync(path.join(repo, 'src-tauri/conpty'), path.join(output, 'conpty'), { recursive: true });
+  return createHash('sha256').update(readFileSync(target)).digest('hex');
+}
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  if (process.argv[2] === 'stage-resources') {
+    const [cliLog, repo, output] = process.argv.slice(3);
+    process.stdout.write(stageResources(cliLog, repo, output));
+  } else {
+    const [cargoLog, treeLog, build, target, resources, output] = process.argv.slice(2);
+    if (!output) throw new Error('Expected Cargo log, closure log, build, target, resources and receipt path');
+    const receipt = artifactReceipt({ cargoLog, treeLog, build, target, resources });
+    const worker = path.join(resources, 'cli', `codeterm${process.platform === 'win32' ? '.exe' : ''}`);
+    receipt.worker_cli_sha256 = createHash('sha256').update(readFileSync(worker)).digest('hex');
+    writeFileSync(output, JSON.stringify(receipt, null, 2));
+  }
+}

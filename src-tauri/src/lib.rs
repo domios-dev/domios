@@ -17,7 +17,6 @@ pub fn run() {
 }
 
 mod crash;
-mod keepawake;
 mod os_notify;
 
 mod deep_links;
