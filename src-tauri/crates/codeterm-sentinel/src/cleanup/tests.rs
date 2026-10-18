@@ -140,3 +140,56 @@ fn terminal_cleanup_keeps_stopped_agent_authored_blueprint_in_store() {
     store.remove_team("team").unwrap();
     assert!(store.get("blueprint").is_none());
 }
+
+#[test]
+fn inserting_at_capacity_evicts_oldest_retained_stopped_agent_blueprint() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::new(
+        dir.path().join("blueprints.json"),
+        codeterm_cron::clock::MockClock::starting_at(1000),
+    );
+    store.jobs = (0..super::super::store::MAX_SENTINELS)
+        .map(|index| {
+            let mut blueprint = job(
+                &format!("retained-{index:03}"),
+                "creator",
+                true,
+                Some("done"),
+            );
+            blueprint.agent_authored = true;
+            blueprint
+        })
+        .collect();
+
+    let mut next = job("new-blueprint", "creator", false, None);
+    next.team_id = Some("team".into());
+    store.insert(next).unwrap();
+
+    assert!(store.get("retained-000").is_none());
+    assert!(store.get("retained-001").is_some());
+    assert!(store.get("new-blueprint").is_some());
+    assert_eq!(store.list().len(), super::super::store::MAX_SENTINELS);
+}
+
+#[test]
+fn insertion_at_capacity_refuses_when_all_blueprints_are_live() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::new(
+        dir.path().join("blueprints.json"),
+        codeterm_cron::clock::MockClock::starting_at(1000),
+    );
+    store.jobs = (0..super::super::store::MAX_SENTINELS)
+        .map(|index| {
+            let mut blueprint = job(&format!("live-{index:03}"), "creator", false, None);
+            blueprint.machine.paused = true;
+            blueprint
+        })
+        .collect();
+
+    let error = store
+        .insert(job("new-blueprint", "creator", false, None))
+        .unwrap_err();
+
+    assert!(error.contains("blueprint capacity reached"));
+    assert_eq!(store.list().len(), super::super::store::MAX_SENTINELS);
+}
