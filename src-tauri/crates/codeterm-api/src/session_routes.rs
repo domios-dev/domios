@@ -300,11 +300,12 @@ fn restorable_identity(
     identity: Option<ResumableIdentity>,
     parent_is_live_orchestrator: impl Fn(&str) -> bool,
 ) -> Option<ResumableIdentity> {
-    let identity = identity?;
+    let mut identity = identity?;
     let restored = codeterm_types::agent::restore_role(
         Some(identity.role.as_str()),
         identity.role_profile.as_deref(),
     )?;
+    identity.role_profile = restored.role_profile.clone();
     // An anchor stands alone; every other kind needs its parent still live.
     if codeterm_types::agent::role_kind::anchors_team(
         Some(restored.role),
@@ -484,6 +485,7 @@ pub async fn resume_session_api(
     let spawn_params = codeterm_service_core::service::SpawnAgentParams {
         agent: Some(meta.provider.clone()),
         remote_task_binding: None,
+        execution_mode: None,
         context_files: None,
         context_skills: None,
         fork_session: false,
@@ -526,6 +528,7 @@ pub async fn resume_session_api(
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: Some(permission_bypass),
+        sandbox: None,
         permission_bypass_authorization,
         spawned_by_tab_id: None,
         team_id: None,

@@ -513,6 +513,11 @@ where
     };
     let placement =
         canonical_writer::dispatch_worker_placement(p, &execution_intent, &detail.task)?;
+    let worker_profile = codeterm_service_core::service::role_profile::dispatch_worker_profile(
+        detail.task.executor_role.as_deref(),
+        owned_str(p, "worker_kind").as_deref(),
+    )
+    .map_err(invalid_dispatch)?;
     let allowance_capability = svc
         .agent_registry
         .with_provider(&resolved_provider, |provider| {
@@ -716,13 +721,12 @@ where
         title: explicit_persona,
         title_provenance,
         role: Some("Worker".into()),
-        role_profile: codeterm_service_core::service::role_profile::builtin_worker_profile(
-            detail.task.executor_role.as_deref(),
-        ),
+        role_profile: worker_profile,
         parent_tab_id: Some(parent_tab_id.clone()),
         plan_id: Some(plan_id.clone()),
         task_id: Some(task_id.clone()),
         execution_intent: Some(execution_intent.clone()),
+        sandbox: owned_str(p, "sandbox"),
         authorized_gates: authorized_gates.clone(),
         provider_reserve_pct: Some(reserve_pct),
         workspace_id: owned_str(p, "workspace_id"),

@@ -10,6 +10,8 @@ fn session() -> (Session, u64) {
     let mut state = RuntimeState::unloaded(Some(THREAD.into()));
     let epoch = state.begin();
     let session = Session {
+        update_generation: std::sync::atomic::AtomicU64::new(0),
+        update_recovery_available: std::sync::atomic::AtomicBool::new(false),
         provider: "fixture".into(),
         adapter: Mutex::new(None),
         context: Mutex::new(RuntimeContext {
@@ -84,6 +86,7 @@ struct FakePort {
     pages: HashMap<Option<String>, Result<RuntimeResult, RuntimeFailure>>,
     reads: Vec<Option<String>>,
     questions: Vec<Vec<RuntimeHistoryQuestion>>,
+    states: Vec<RuntimeTurnState>,
 }
 
 impl FakePort {
@@ -112,6 +115,9 @@ impl HistoryPort for FakePort {
     ) -> Result<(), RuntimeFailure> {
         self.questions.push(questions);
         Ok(())
+    }
+    fn restored_state(&mut self, state: RuntimeTurnState) {
+        self.states.push(state);
     }
 }
 
@@ -183,6 +189,42 @@ async fn the_first_page_adopts_a_running_restored_turn_before_ready() {
         session.context.lock().active_turn_id.as_deref(),
         Some("running")
     );
+    assert_eq!(port.states, [RuntimeTurnState::Working]);
+}
+
+#[tokio::test]
+async fn restored_status_uses_only_the_newest_page_of_the_bound_thread() {
+    for foreign in [false, true] {
+        let (session, epoch) = session();
+        let mut replay = replay_for(&session, epoch);
+        let mut answer = row("answer", "opaque");
+        answer.kind = "assistant".into();
+        let mut port = FakePort::with(vec![
+            (
+                None,
+                Ok(RuntimeResult::HistoryPage {
+                    thread_id: if foreign { "foreign" } else { THREAD }.into(),
+                    items: vec![answer],
+                    next_cursor: Some("older".into()),
+                    open_items: vec![],
+                    questions: None,
+                    order: Some(HistoryOrder::Desc),
+                }),
+            ),
+            (Some("older"), page(&["user"], None)),
+        ]);
+        let first = replay.first(&session, &mut port).await;
+        if foreign {
+            assert_eq!(first, Err(RuntimeFailure::Superseded));
+            assert!(port.states.is_empty());
+        } else {
+            first.unwrap();
+            assert_eq!(port.states, [RuntimeTurnState::Idle]);
+            make_ready(&session, epoch);
+            replay.rest(&session, &mut port).await.unwrap();
+            assert_eq!(port.states, [RuntimeTurnState::Idle]);
+        }
+    }
 }
 
 #[tokio::test]

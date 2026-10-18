@@ -1146,6 +1146,9 @@ mod peer_resolution_tests;
 mod tests;
 
 #[cfg(test)]
+mod command_round_trip_tests;
+
+#[cfg(test)]
 mod owner_gate_tests;
 
 #[cfg(test)]

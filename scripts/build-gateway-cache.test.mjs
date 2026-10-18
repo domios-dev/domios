@@ -14,7 +14,8 @@ const env = { ...process.env, PATH: process.platform === 'win32' ? `C:/Program F
 function observed(directory, predicate) {
   return new Promise((resolve, reject) => {
     let timer;
-    const watcher = fs.watch(directory, { recursive: true }, check);
+    const watcher = fs.watch(directory, check);
+    watcher.on('error', error => finish(error));
     function finish(error, value) { clearTimeout(timer); watcher.close(); error ? reject(error) : resolve(value); }
     function check() { try { const value = predicate(); if (value) finish(null, value); } catch (e) { if (e.code !== 'ENOENT') finish(e); } }
     timer = setTimeout(() => finish(new Error('Fixture event deadline exceeded')), 30000);
@@ -261,7 +262,7 @@ test('mixed build verbs share one cache startup and persist four completed histo
       const result = await client.exited;
       throw new Error(`${client.id} exited before startup: ${result.code}\n${result.output}\n${result.errors}`);
     })]);
-    await Promise.race([observed(directory, () => {
+    await Promise.race([observed(path.join(directory, 'state', 'jobs'), () => {
       const jobs = path.join(directory, 'state', 'jobs');
       return fs.readdirSync(jobs).filter(name => name.endsWith('.json')).length === 4;
     }), ...clients.map(async client => {

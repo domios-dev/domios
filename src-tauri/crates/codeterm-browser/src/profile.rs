@@ -117,7 +117,10 @@ impl ProfileLayout {
 }
 
 pub mod lease_model;
+mod management;
+pub use management::validate_named_profile;
 mod pool;
+pub use pool::delete_named_profile;
 pub use pool::ProfileLease;
 pub(crate) use pool::SharedBrowser;
 

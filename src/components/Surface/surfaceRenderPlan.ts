@@ -88,7 +88,7 @@ export function parseChromeSpec(value: unknown): SurfaceChromeSpec | null {
   if (!isRecord(value)) return null;
   const toolbar = Array.isArray(value.toolbar) ? value.toolbar.map(toolbarItem).filter((item): item is ToolbarItemSpec => item !== null) : [];
   const spec: SurfaceChromeSpec = { toolbar };
-  for (const flag of ["takeControl", "pointAndAsk", "snip", "openExternal"] as const) {
+  for (const flag of ["takeControl", "pointAndAsk", "snip", "openExternal", "clipboard"] as const) {
     if (typeof value[flag] === "boolean") spec[flag] = value[flag] as boolean;
   }
   // The camera was declared as `screenshot` before it became snip and ask.

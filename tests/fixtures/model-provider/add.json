@@ -1,0 +1,10 @@
+{
+  "provider": {
+    "id": "demo",
+    "kind": "openai-compatible",
+    "baseUrl": "http://localhost:1234/v1",
+    "secretName": "slot",
+    "models": ["fixture-model"]
+  },
+  "value": "opaque-rpc-fixture"
+}

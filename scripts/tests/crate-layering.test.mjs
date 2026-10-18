@@ -26,6 +26,25 @@ test("allows lower dependencies and host adapters", (t) => {
   write("codeterm-prompts", "src/lib.rs", 'pub use codeterm_types::agent::AgentRole;');
   assert.equal(run().status, 0);
 });
+
+test("Cargo path values accept the src-tauri directory without admitting framework dependencies", (t) => {
+  const { write, run } = fixture(t);
+  const sourcePath = 'path = "../../src-tauri/crates/codeterm-paths"';
+  write("codeterm-events", "Cargo.toml", `[dependencies]\ncodeterm-paths = { ${sourcePath} }\n`);
+  let result = run();
+  assert.equal(result.status, 0, result.stderr);
+  for (const declaration of [
+    `[dependencies]\ntauri = { ${sourcePath} }`,
+    `[dependencies]\nrenamed = { package = "tauri", ${sourcePath} }`,
+    `[dev-dependencies.tauri]\n${sourcePath}`,
+    `[dependencies.renamed]\npackage = "codeterm-service-core"\n${sourcePath}`,
+  ]) {
+    write("codeterm-events", "Cargo.toml", declaration);
+    result = run();
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /leaf crate names (?:tauri|codeterm-service-core)/);
+  }
+});
 for (const [name, file, text] of [
   ["codeterm-prompts", "Cargo.toml", 'alias = { package = "tauri", version = "2" }'],
   ["codeterm-prompts", "Cargo.toml", 'codeterm-service-core = "0.0.0"'],
@@ -101,7 +120,7 @@ for (const [name, dependency] of [
   });
 }
 
-for (const name of ["codeterm-service-core", "codeterm-events"]) {
+for (const name of ["codeterm-service-core", "codeterm-events", "domios-server"]) {
   test(`rejects host runtime dependency in ${name}`, (t) => {
     const { write, run } = fixture(t);
     write(name, "Cargo.toml", '[dependencies]\ncodeterm-host-runtime = { path = "../codeterm-host-runtime" }\n');
@@ -110,6 +129,16 @@ for (const name of ["codeterm-service-core", "codeterm-events"]) {
     assert.match(result.stderr, /core or leaf crate depends on codeterm-host-runtime/);
   });
 }
+
+test("server composition accepts core services and rejects GUI framework edges", (t) => {
+  const { write, run } = fixture(t);
+  write("domios-server", "Cargo.toml", '[dependencies]\ncodeterm-service-core = "0"\ncodeterm-api = "0"');
+  assert.equal(run().status, 0);
+  write("domios-server", "Cargo.toml", '[dependencies]\nalias = { package = "tauri", version = "2" }');
+  const result = run();
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /service core depends on tauri/);
+});
 
 test("allows the host runtime to own Tauri adapters", (t) => {
   const { write, run } = fixture(t);

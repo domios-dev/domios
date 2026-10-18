@@ -85,9 +85,12 @@ impl ExtensionsBuilder {
     }
 
     pub(crate) fn insert_service_slots(&mut self) {
+        self.insert_late::<crate::service::agent_restart::ProviderSwitchOperations>();
         self.insert_late::<crate::CronState>();
         self.insert_late::<crate::CronWake>();
         self.insert_late::<crate::ports::sentinel::SentinelPorts>();
+        self.insert_late::<crate::ports::rest::LocalApiRouter>();
+        self.insert_late::<crate::startup::RestApiControlState>();
         self.insert_late::<crate::session::SessionState>();
         self.insert_late::<crate::startup::StorageAuthority>();
         self.insert_late::<std::sync::Weak<crate::service::ServiceContext>>();
@@ -176,7 +179,6 @@ fn required() -> Vec<(TypeId, &'static str)> {
         key::<LoadedPlanProjects>(),
         key::<PlanStartupLoaded>(),
         key::<Arc<crate::service::hierarchy::heartbeat_gate::Gate>>(),
-        key::<Arc<crate::service::hierarchy::stalled_team::StallEpisodeTracker>>(),
         key::<Arc<crate::service::reply_relay::ReplyRelayRegistry>>(),
         key::<WorkerIdentityAllocator>(),
     ]

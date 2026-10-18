@@ -343,6 +343,7 @@ pub(super) fn run_dispatch(
         agent,
         authorized_gates,
         canonical_writer,
+        worker_kind,
         model,
         description,
         reasoning_effort,
@@ -350,6 +351,7 @@ pub(super) fn run_dispatch(
         workspace,
         cwd,
         execution_intent,
+        sandbox,
         provider_reserve_pct,
     } = action
     else {
@@ -362,11 +364,17 @@ pub(super) fn run_dispatch(
         "provider_reserve_pct": provider_reserve_pct,
         "authorized_gates": authorized_gates,
     });
+    if let Some(sandbox) = sandbox {
+        params["sandbox"] = json!(sandbox);
+    }
     if let Some(pid) = plan_ref {
         params["plan_id"] = json!(pid);
     }
     if canonical_writer {
         params["placement"] = json!("canonical_writer");
+    }
+    if let Some(kind) = worker_kind {
+        params["worker_kind"] = json!(kind);
     }
     if let Some(agent) = agent {
         params["agent"] = json!(agent);

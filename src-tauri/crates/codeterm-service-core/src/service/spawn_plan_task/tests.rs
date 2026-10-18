@@ -223,8 +223,8 @@ fn validate_accepts_a_read_only_worker_that_owns_no_task() {
 }
 
 #[test]
-fn taskless_worker_kinds_require_parent_read_only_and_no_task() {
-    for kind in ["tester", "release_manager"] {
+fn worker_kinds_support_mutating_work_with_or_without_tasks() {
+    for kind in ["qa", "release_manager", "opaque-worker-kind"] {
         validate_worker_plan_task_spawn(&SpawnAgentParams {
             role: Some("Worker".into()),
             role_profile: Some(kind.into()),
@@ -247,30 +247,28 @@ fn taskless_worker_kinds_require_parent_read_only_and_no_task() {
             "{kind}: {missing_parent}"
         );
 
-        let mutating = validate_worker_plan_task_spawn(&SpawnAgentParams {
+        validate_worker_plan_task_spawn(&SpawnAgentParams {
             role: Some("Worker".into()),
             role_profile: Some(kind.into()),
             parent_tab_id: Some("parent_tab".into()),
             execution_intent: Some(crate::plan::ExecutionIntent::Mutating),
             ..Default::default()
         })
-        .expect_err("taskless kinds cannot request mutating authority");
-        assert!(mutating.contains("read-only"), "{kind}: {mutating}");
+        .expect("a kind Worker may mutate without a task");
     }
 
-    for kind in ["tester", "release_manager"] {
-        let task_bound = validate_worker_plan_task_spawn(&SpawnAgentParams {
+    for kind in ["qa", "release_manager", "opaque-worker-kind"] {
+        validate_worker_plan_task_spawn(&SpawnAgentParams {
             role: Some("Worker".into()),
             role_profile: Some(kind.into()),
             parent_tab_id: Some("parent_tab".into()),
             plan_task: Some("task_name".into()),
-            execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+            execution_intent: Some(crate::plan::ExecutionIntent::Mutating),
             ..Default::default()
         })
-        .expect_err("taskless kinds cannot bind tasks");
-        assert!(task_bound.contains("cannot bind"), "{kind}: {task_bound}");
+        .expect("a kind Worker may own a normal task");
 
-        let existing_tab = validate_worker_plan_task_spawn(&SpawnAgentParams {
+        validate_worker_plan_task_spawn(&SpawnAgentParams {
             role: Some("Worker".into()),
             role_profile: Some(kind.into()),
             parent_tab_id: Some("parent_tab".into()),
@@ -278,8 +276,7 @@ fn taskless_worker_kinds_require_parent_read_only_and_no_task() {
             execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
             ..Default::default()
         })
-        .expect_err("taskless kinds cannot inherit a previous task binding");
-        assert!(existing_tab.contains("fresh tab"), "{kind}: {existing_tab}");
+        .expect("kind does not restrict ordinary existing-tab handling");
     }
 }
 

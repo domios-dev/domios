@@ -258,6 +258,10 @@ impl LocalStore {
 
 #[async_trait]
 impl SecretStore for LocalStore {
+    fn allows_account_credentials(&self) -> bool {
+        false
+    }
+
     fn id(&self) -> &'static str {
         "local"
     }
@@ -490,6 +494,11 @@ mod tests {
             collection: None,
             overwrite: false,
         }
+    }
+
+    #[test]
+    fn plaintext_storage_cannot_receive_account_credentials() {
+        assert!(!store().allows_account_credentials());
     }
 
     #[tokio::test]

@@ -22,14 +22,35 @@ pub fn one_shot(job: &Sentinel) -> bool {
 
 pub fn terminal_roots(jobs: &[Sentinel], leased: &BTreeSet<String>) -> Vec<Sentinel> {
     jobs.iter()
-        .filter(|root| root.is_scenario_root() && one_shot(root))
-        .filter(|root| {
-            jobs.iter()
-                .filter(|job| job.id == root.id || job.scenario_id.as_deref() == Some(&root.id))
-                .all(|job| job.machine.stopped && !leased.contains(&job.id))
-        })
+        .filter(|root| root.is_scenario_root() && one_shot(root) && !retain_for_team(root))
+        .filter(|root| terminal_graph(jobs, root, leased))
         .cloned()
         .collect()
+}
+
+pub(crate) fn oldest_capacity_candidate(
+    jobs: &[Sentinel],
+    leased: &BTreeSet<String>,
+    excluded: &BTreeSet<String>,
+) -> Option<Sentinel> {
+    jobs.iter()
+        .find(|root| {
+            root.is_scenario_root()
+                && one_shot(root)
+                && retain_for_team(root)
+                && terminal_graph(jobs, root, leased)
+                && !jobs.iter().any(|job| {
+                    (job.id == root.id || job.scenario_id.as_deref() == Some(&root.id))
+                        && excluded.contains(&job.id)
+                })
+        })
+        .cloned()
+}
+
+fn terminal_graph(jobs: &[Sentinel], root: &Sentinel, leased: &BTreeSet<String>) -> bool {
+    jobs.iter()
+        .filter(|job| job.id == root.id || job.scenario_id.as_deref() == Some(&root.id))
+        .all(|job| job.machine.stopped && !leased.contains(&job.id))
 }
 
 pub fn remove_terminal(store: &Arc<Mutex<Store>>) -> Result<(), String> {
@@ -48,11 +69,20 @@ pub fn remove_owned(store: &Arc<Mutex<Store>>, tab: &str) -> Result<(), String> 
         current
             .list()
             .iter()
-            .filter(|job| job.is_scenario_root() && job.creator_tab_id == tab && one_shot(job))
+            .filter(|job| {
+                job.is_scenario_root()
+                    && job.creator_tab_id == tab
+                    && one_shot(job)
+                    && !retain_for_team(job)
+            })
             .cloned()
             .collect()
     };
     remove(store, roots, true)
+}
+
+fn retain_for_team(job: &Sentinel) -> bool {
+    job.agent_authored && job.team_id.is_some()
 }
 
 fn remove(store: &Arc<Mutex<Store>>, roots: Vec<Sentinel>, owned: bool) -> Result<(), String> {

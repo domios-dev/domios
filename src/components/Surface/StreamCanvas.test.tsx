@@ -59,7 +59,7 @@ suite.test("watch-only canvas is a labelled image and clicks only report blocked
   await act(async () => canvas.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 200, clientY: 150 })));
   await act(async () => { canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", bubbles: true })); });
   assert.equal(recorded.blocked, 1);
-  assert.deepEqual(recorded.inputs, []);
+  assert.equal(recorded.inputs.length, 0);
   await unmount();
 });
 
@@ -115,6 +115,50 @@ suite.test("picking reports the page point once and Escape cancels", async () =>
   await act(async () => { canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); });
   assert.equal(recorded.cancels, 1);
   await unmount();
+});
+
+suite.test("dragging sends ordered pointer phases without an extra click", async () => {
+  const { host, recorded, unmount } = await renderCanvas({ interactive: true });
+  const canvas = getByRole(host, "application");
+  for (const [type, x] of [["pointerdown", 50], ["pointermove", 150], ["pointerup", 200]] as const) {
+    await act(async () => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, button: 0, clientX: x, clientY: 100 })));
+  }
+  await act(async () => canvas.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 200, clientY: 100, detail: 1 })));
+  assert.deepEqual(recorded.inputs.map((input) => input.kind === "pointer" ? input.phase : input.kind), ["down", "move", "up"]);
+  assert.deepEqual(recorded.inputs.map((input) => input.kind === "pointer" ? input.buttons : null), [1, 1, 0]);
+  await unmount();
+});
+
+suite.test("copy and paste shortcuts use the clipboard bridge instead of shell shortcuts", async () => {
+  const actions: string[] = [];
+  const { host, recorded, unmount } = await renderCanvas({ interactive: true, onCopy: () => actions.push("copy"), onPaste: () => actions.push("paste") });
+  const canvas = getByRole(host, "application");
+  await act(async () => canvas.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "c", code: "KeyC", ctrlKey: true })));
+  await act(async () => canvas.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "v", code: "KeyV", metaKey: true })));
+  assert.deepEqual(actions, ["copy", "paste"]);
+  assert.deepEqual(recorded.inputs, []);
+  await unmount();
+});
+
+suite.test("mouse double-click preserves the native click count for word selection", async () => {
+  const { host, recorded, unmount } = await renderCanvas({ interactive: true });
+  const canvas = getByRole(host, "application");
+  await act(async () => canvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse", pointerId: 2, button: 0, clientX: 100, clientY: 100 })));
+  assert.equal(recorded.inputs.length, 0);
+  await act(async () => canvas.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, detail: 2, clientX: 100, clientY: 100 })));
+  await act(async () => canvas.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "mouse", pointerId: 2, button: 0, clientX: 100, clientY: 100 })));
+  assert.deepEqual(recorded.inputs.map((input) => input.kind === "pointer" ? input.clickCount : 0), [2, 2]);
+  await unmount();
+});
+
+suite.test("a frame decoded after unmount is closed instead of retained", async () => {
+  let complete: ((value: Awaited<ReturnType<FrameDecoder>>) => void) | undefined;
+  let closed = 0;
+  const { unmount } = await renderCanvas({ decode: () => new Promise((resolve) => { complete = resolve; }) });
+  await unmount();
+  complete!({ ...FRAME, image: {} as CanvasImageSource, close: () => { closed += 1; } });
+  await flushAsync();
+  assert.equal(closed, 1);
 });
 
 void suite.run();

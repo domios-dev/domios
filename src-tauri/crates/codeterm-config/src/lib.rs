@@ -179,6 +179,7 @@ pub fn api_callback_url(api: &schema::ApiConfig) -> (String, String) {
 }
 
 pub fn canonical_api_bind_addr(api: &schema::ApiConfig) -> Result<SocketAddr, String> {
+    codeterm_paths::validate_listener_port(api.port, cfg!(debug_assertions))?;
     let trimmed = api.host.trim();
     let host = if trimmed.eq_ignore_ascii_case("localhost") {
         IpAddr::V4(Ipv4Addr::LOCALHOST)

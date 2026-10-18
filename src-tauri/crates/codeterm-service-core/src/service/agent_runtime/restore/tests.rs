@@ -190,3 +190,17 @@ fn restored_legacy_worker_materialization_preserves_saved_attempt_binding() {
     );
     super::super::authority::revoke(&id);
 }
+
+#[test]
+fn cloud_launch_record_never_materializes_a_local_runtime() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("opaque-provider".into());
+    tab.restored_from_snapshot = true;
+    tab.restorable_launch.execution_mode = Some("opaque-cloud".into());
+    assert!(!materialize(tab, true));
+    assert_eq!(
+        tab.restorable_launch.execution_mode.as_deref(),
+        Some("opaque-cloud")
+    );
+}

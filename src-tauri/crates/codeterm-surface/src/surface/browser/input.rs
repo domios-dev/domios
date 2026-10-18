@@ -24,6 +24,10 @@ const VIRTUAL_KEYS: &[(&str, i64)] = &[
 pub struct InputArgs {
     pub kind: String,
     #[serde(default)]
+    pub phase: Option<String>,
+    #[serde(default)]
+    pub buttons: Option<i64>,
+    #[serde(default)]
     pub x: Option<f64>,
     #[serde(default)]
     pub y: Option<f64>,
@@ -125,6 +129,25 @@ fn single_alphanumeric(key: &str) -> Option<char> {
 /// The ordered CDP commands one input becomes.
 pub fn input_commands(input: &InputArgs) -> Result<Vec<(&'static str, Value)>, String> {
     match input.kind.as_str() {
+        "pointer" => {
+            let (x, y) = input.point()?;
+            let kind = match input.phase.as_deref() {
+                Some("down") => "mousePressed",
+                Some("move") => "mouseMoved",
+                Some("up") => "mouseReleased",
+                _ => return Err("pointer input needs down, move or up phase".into()),
+            };
+            let buttons = input.buttons.unwrap_or(0).clamp(0, 1);
+            Ok(vec![(
+                "Input.dispatchMouseEvent",
+                json!({
+                    "type": kind, "x": x, "y": y,
+                    "button": if kind == "mouseMoved" && buttons == 0 { "none" } else { "left" },
+                    "buttons": buttons, "clickCount": input.click_count.unwrap_or(1).clamp(1, 3),
+                    "modifiers": input.modifier_bits(),
+                }),
+            )])
+        }
         "click" => {
             let (x, y) = input.point()?;
             let base = json!({

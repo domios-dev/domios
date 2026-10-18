@@ -8,7 +8,7 @@
 #   ./build.sh check     — integration-owner cargo check
 #   ./build.sh frontend  — production frontend typecheck + bundle
 #   ./build.sh release-inputs — build target-aware frontend/CLI bundle inputs
-#   ./build.sh release-bundle [tauri args...] — prepare and bundle in one gateway session
+#   ./build.sh release-bundle [--fresh-target] [tauri args...] — prepare and bundle in one gateway session
 #   ./build.sh release-preflight — run local PR checks and verify release inputs
 #   ./build.sh worktree-check — explicit isolated, nonincremental checkout check
 #   ./build.sh build     — production build
@@ -39,7 +39,7 @@ DEV_NOTIFY_TARGET_MESH="${DEV_NOTIFY_TARGET_MESH:-}"
 
 # Long operations stream one receipt through the shell's live Domios return route.
 case "$CMD" in
-  qa-lock-storm|feature-cycle|lane-check|embedding-parity|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
+  process-probe|qa-lock-storm|feature-cycle|lane-check|embedding-parity|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -408,6 +408,7 @@ run_nextest_scope() {
       package="$CT_APP_TEST_PACKAGE"
       targets=("${CT_APP_TEST_TARGET_ARGS[@]}")
       ;;
+    domios-server) package="domios-server"; targets+=(--lib) ;;
     shell) package="codeterm"; targets+=(--lib --test main) ;;
     mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets=(--lib) ;;
     paths|codeterm-paths) package="codeterm-paths"; targets=(--lib) ;;
@@ -564,7 +565,7 @@ case "$CMD" in
 esac
 
 # --- Per-worktree dev instance isolation ---
-# CODETERM_INSTANCE (optional) names a dev instance so multiple worktrees can
+# CODETERM_DEV_INSTANCE names a dev instance so multiple worktrees can
 # run ./build.sh dev concurrently without colliding. Unset = canonical defaults
 # (.codeterm-dev / 7686 / 1420). See AGENTS.md "Process safety".
 CT_INSTANCE="${CODETERM_INSTANCE:-}"
@@ -574,15 +575,14 @@ CT_CDP_PORT="${CODETERM_CDP_PORT:-}"
 CT_INSTANCE_HASH=""
 case "$CMD" in
   dev|dev-prebuilt|kill|e2e|e2e:llm)
-    if [ "$CT_PORT" = "7685" ]; then
-      if [ -n "$CT_INSTANCE" ]; then
-        echo "ERROR: refusing to run $CMD against prod port 7685 (CODETERM_INSTANCE=$CT_INSTANCE)." >&2
-        echo "Pick a non-prod CODETERM_API_PORT for this dev instance." >&2
-        exit 2
-      fi
-      echo "WARNING: ignoring inherited CODETERM_API_PORT=7685 for $CMD; using dev port 7686." >&2
-      CT_PORT=7686
-    fi
+    CT_DEV_SELECTION="$(node scripts/dev-instance-policy.mjs)" || exit $?
+    CT_INSTANCE="${CT_DEV_SELECTION%:*}"
+    CT_PORT="${CT_DEV_SELECTION##*:}"
+    CT_VITE_PORT="${CODETERM_DEV_VITE_PORT:-}"
+    CT_CDP_PORT="${CODETERM_DEV_CDP_PORT:-}"
+    export CODETERM_DEV_INSTANCE="$CT_INSTANCE"
+    export CODETERM_DEV_API_PORT="$CT_PORT"
+    unset CODETERM_API_URL CODETERM_API_TOKEN CODETERM_SOCKET_PATH CODETERM_DATA_DIR
     ;;
 esac
 if [ -n "$CT_INSTANCE" ]; then
@@ -611,14 +611,6 @@ else
 fi
 CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
 DEV_NOTIFY_LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
-case "$CMD" in
-  dev|dev-prebuilt)
-    if [ -n "$CT_INSTANCE" ] && [ "$CT_PORT" = "7686" ]; then
-      echo "ERROR: named dev instance '$CT_INSTANCE' requires its own non-default CODETERM_API_PORT." >&2
-      exit 2
-    fi
-    ;;
-esac
 # Export so the spawned daemon + its child PTYs inherit the instance identity.
 export CODETERM_INSTANCE="$CT_INSTANCE"
 export CODETERM_API_PORT="$CT_PORT"
@@ -649,16 +641,15 @@ else
 fi
 
 named_dev_target_dir() {
-  printf '%s\n' "$CT_DATA_DIR/target"
+  printf '%s\n' "$(pwd -P)/src-tauri/target/dev-instances/$CT_INSTANCE_KEY"
 }
 
-named_dev_wait_isolated() {
-  [ -n "$CT_INSTANCE" ] && [ "$CT_DEV_WAIT" = "1" ]
+named_dev_isolated() {
+  [ -n "$CT_INSTANCE" ]
 }
 
 prepare_named_dev_target() {
   export CARGO_TARGET_DIR="$(named_dev_target_dir)"
-  export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
   ct_verify_target_dir
   echo "[isolated-dev] cargo target=$CARGO_TARGET_DIR"
@@ -683,8 +674,8 @@ if [ "${CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY:-0}" = "1" ]; then
 fi
 
 if [ "${CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY:-0}" = "1" ]; then
-  if named_dev_wait_isolated; then
-    printf 'mode=isolated-named-wait\ntarget=%s\nbuild_gateway=required\n' "$(named_dev_target_dir)"
+  if named_dev_isolated; then
+    printf 'mode=isolated-named\ntarget=%s\nbuild_gateway=required\n' "$(named_dev_target_dir)"
   else
     printf 'mode=shared\nbuild_gateway=required\n'
   fi
@@ -1283,11 +1274,27 @@ record_dev_target() {
   fi
 }
 
-dev_app_path() {
+dev_resource_dir() {
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/lib/codeterm"
+  else
+    tauri_debug_dir
+  fi
+}
+
+dev_built_app_path() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     printf '%s\n' "$(tauri_debug_dir)/codeterm"
   else
     printf '%s\n' "$(tauri_debug_dir)/codeterm.exe"
+  fi
+}
+
+dev_app_path() {
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/bin/codeterm"
+  else
+    dev_built_app_path
   fi
 }
 
@@ -1385,7 +1392,7 @@ write_dev_provenance() {
     --build-sha "$build_sha" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
-    --frontend "$(pwd -P)/dist" \
+    --frontend "$(dev_resource_dir)/dist" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
     --vite-port "$CT_VITE_PORT" \
@@ -1403,7 +1410,7 @@ validate_dev_provenance() {
     --record "$(dev_provenance_record)" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
-    --frontend "$(pwd -P)/dist" \
+    --frontend "$(dev_resource_dir)/dist" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
     --vite-port "$CT_VITE_PORT" \
@@ -1895,6 +1902,14 @@ build_and_launch_dev() {
   configure_dev_cargo
   conf="$(dev_conf_path)"
   node scripts/bundle-cli.js "$built_cli_artifact"
+  local split_logs="$(tauri_debug_dir)/.domios-dev-build"
+  export CODETERM_SERVER_CLI_SHA256="$built_cli_hash"
+  export CODETERM_SERVER_DEV_FRONTEND_ORIGIN="http://127.0.0.1:$CT_VITE_PORT"
+  cargo build --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
+    --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --features domios-server/embeddings \
+    --message-format=json-render-diagnostics > "$split_logs/server.jsonl"
+  cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
+    --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
   local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
@@ -1903,6 +1918,8 @@ build_and_launch_dev() {
   TAURI_CONFIG="$(cat "$conf")" cargo build "${build_args[@]}"
   build_sha="$CODETERM_BUILD_SHA"
   build_dev_frontend
+  node scripts/server-artifact.mjs stage-dev "$split_logs/server.jsonl" "$split_logs/server-tree.txt" \
+    "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$build_sha"
   write_dev_provenance "$build_sha"
   retain_dev_pdb "$build_sha"
   release_stable_build_path
@@ -2045,10 +2062,10 @@ start_web_watch() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch --emptyOutDir false </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_resource_dir)/dist" </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_resource_dir)/dist" </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!
@@ -2073,10 +2090,10 @@ start_dev_static_server() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      CODETERM_DEV_STATIC_DIST="$(dev_resource_dir)/dist" node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      CODETERM_DEV_STATIC_DIST="$(dev_resource_dir)/dist" nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!
@@ -2159,6 +2176,8 @@ dev_health_fields() {
 
 validate_dev_health() {
   local expected_sha="$1" expected_instance="$2" expected_port="$3" expected_vite="$4" expected_cdp="$5" expected_identifier="$6" health="$7"
+  local role="${8:-combined}"
+  case "$role" in combined|server) ;; *) echo "Unknown DEV health role" >&2; return 1 ;; esac
   local status sha instance port vite cdp identifier fields
   fields="$(printf '%s' "$health" | dev_health_fields 2>/dev/null || true)"
   status="$(printf '%s\n' "$fields" | sed -n '1p')"
@@ -2177,7 +2196,7 @@ validate_dev_health() {
     return 1
   fi
   if [ "$instance" != "$expected_instance" ] || [ "$port" != "$expected_port" ] ||
-      [ "$vite" != "$expected_vite" ] || [ "$cdp" != "$expected_cdp" ] || [ "$identifier" != "$expected_identifier" ]; then
+      { [ "$role" = combined ] && { [ "$vite" != "$expected_vite" ] || [ "$cdp" != "$expected_cdp" ] || [ "$identifier" != "$expected_identifier" ]; }; }; then
     echo "Health endpoint is from the wrong instance: expected instance='$expected_instance' api='$expected_port' vite='$expected_vite' cdp='$expected_cdp' identifier='$expected_identifier', got instance='$instance' api='$port' vite='$vite' cdp='$cdp' identifier='$identifier'" >&2
     return 1
   fi
@@ -2193,11 +2212,16 @@ dev_listener_pid() {
 }
 
 dev_notify_health_proof() {
-  local tab_id="$1" health sha
+  local tab_id="$1" health sha role=combined listener
   [ -n "${EXPECTED_BUILD_SHA:-}" ] || return 1
+  [ "${CT_SPLIT_DEV:-0}" != 1 ] || role=server
   health="$(dev_health_status)"
-  sha="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$health" 2>/dev/null)" || return 1
-  dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$tab_id" "$CT_INSTANCE" "$CT_PORT" "$sha" "$(dev_listener_pid)" "$(pwd -P)"
+  sha="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$health" "$role" 2>/dev/null)" || return 1
+  listener="$(dev_listener_pid)"
+  if [ "$role" = server ]; then
+    node scripts/dev-prep.mjs --check-attachment --log "$DEV_NOTIFY_LOG" --api-port "$CT_PORT" --listener-pid "$listener" >/dev/null 2>&1 || return 1
+  fi
+  dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$tab_id" "$CT_INSTANCE" "$CT_PORT" "$sha" "$listener" "$(pwd -P)"
 }
 
 # Auto-install node deps if lockfile is newer than node_modules
@@ -2209,6 +2233,11 @@ ensure_deps() {
 }
 
 prepare_release_bundle_inputs() {
+  local mode="${1:-standalone}"
+  case "$mode" in
+    standalone|bundle) ;;
+    *) echo "Unknown release preparation mode: $mode" >&2; return 2 ;;
+  esac
   local minimum_macos_version
   minimum_macos_version=$(node -p "require('./src-tauri/tauri.conf.json').bundle?.macOS?.minimumSystemVersion || ''")
   if [ -n "$minimum_macos_version" ]; then
@@ -2221,10 +2250,12 @@ prepare_release_bundle_inputs() {
   pnpm build
   cargo build --release --timings --manifest-path cli/Cargo.toml "${cargo_target_args[@]}"
   node scripts/bundle-cli.js
-  cargo build --release --timings --manifest-path src-tauri/Cargo.toml \
-    "${cargo_target_args[@]}" \
-    --features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol" \
-    --bin codeterm
+  if [ "$mode" = "standalone" ]; then
+    cargo build --release --timings --manifest-path src-tauri/Cargo.toml \
+      "${cargo_target_args[@]}" \
+      --features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol" \
+      --bin codeterm
+  fi
 }
 
 enter_cargo_gateway() {
@@ -2253,7 +2284,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  lane-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
+  process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2274,6 +2305,7 @@ CodeTerm build commands
   embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
   lane-check <package> [--tests] [--timings]  Type-check a touched library with four jobs, using Cargo's shared build-dir lock
   lane-wrapper-check          Verify cache forwarding and metadata isolation with tiny fixtures
+  cache-wrapper-check         Verify compiler-cache relocation and tracked environment with real sccache
   dev-link-measure [app|cli-release|cli-dev]  Record Cargo timings without installing or launching DEV
   feature-cycle before|after <selector>  Measure equivalent dev/check/test core units in a temporary worktree
   check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
@@ -2292,13 +2324,14 @@ CodeTerm build commands
   runner-status               List runners with labels and paused machines
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend and CLI bundle inputs
-  release-bundle [tauri args...]  Prepare inputs and forward Tauri packaging flags in one gateway session
+  release-bundle [--fresh-target] [tauri args...]  Package in one session; optionally use the fresh release target policy
   ci-tests full|platform|embeddings  Compile and run ordinary, OS-specific, or embeddings Rust tests
   ci-clippy                   Run the clippy repo gate through the shared compile cache
   frontend-build              Run the release bundle's frontend step from its stable build path, without Rust
   worktree-check              Isolated lane-safe Rust compile check
   test-one <input-macos|input-windows|billing|account|analytics|app|shell|root|api|socket|commands|sentinel-host|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage|codeterm-*> NAME
                               Run one focused Rust test
+  process-probe --case server-only|arbitration --instance split-oracle  Build and prove isolated server ownership
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
   nextest-archive [sha] [--measure selector...] Build/reuse one archive and optionally time selectors
   release-rust [runner-id...]  Run every release-tier Rust runner of tests/catalogue.json (or the named ones)
@@ -2503,6 +2536,9 @@ EOF
   lane-wrapper-check)
     node --test scripts/tests/lane-check.test.mjs
     ;;
+  cache-wrapper-check)
+    CODETERM_CACHE_WRAPPER_TEST=1 node --test scripts/tests/cache-rustc-wrapper.test.mjs
+    ;;
   dev-link-measure)
     if [ "${CODETERM_LINK_TIMING:-0}" = 1 ]; then
       case "$OSTYPE" in
@@ -2578,11 +2614,17 @@ EOF
   # One session keeps both compiles on the gateway's stable path: a second path is a second
   # set of Cargo fingerprints and sccache keys, so tauri build would recompile the app.
   release-bundle)
+    bundle_args=("${@:2}")
+    if [ "${2:-}" = "--fresh-target" ]; then
+      require_release_source
+      prepare_release_target
+      bundle_args=("${@:3}")
+    fi
     ensure_deps
-    prepare_release_bundle_inputs
+    prepare_release_bundle_inputs bundle
     bundle_target_args=()
     [ -z "${CARGO_BUILD_TARGET:-}" ] || bundle_target_args=(--target "$CARGO_BUILD_TARGET")
-    pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" "${@:2}"
+    pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" "${bundle_args[@]}"
     ;;
   release-preflight)
     prepare_dev_frontend_dist "$(pwd -P)"
@@ -2625,10 +2667,34 @@ EOF
     prepare_bundle_stubs
     run_workspace_lib_tests
     ;;
+  process-probe)
+    [ -z "$(git status --porcelain)" ] || { echo 'ERROR: process-probe requires the exact committed clean source' >&2; exit 2; }
+    node scripts/process-separation-probe.mjs --validate "${@:2}"
+    process_probe_dir="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID-process-probe"
+    mkdir -p "$process_probe_dir"
+    process_probe_target="$(ct_host_triple)"
+    cargo build --manifest-path cli/Cargo.toml --bin codeterm --target "$process_probe_target" \
+      --message-format=json > "$process_probe_dir/cli.jsonl"
+    CODETERM_SERVER_CLI_SHA256="$(node scripts/server-artifact.mjs stage-resources \
+      "$process_probe_dir/cli.jsonl" "$(pwd -P)" "$process_probe_dir/resources")"
+    export CODETERM_SERVER_CLI_SHA256
+    cargo build --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
+      --no-default-features --features domios-server/embeddings --target "$process_probe_target" \
+      --message-format=json > "$process_probe_dir/cargo.jsonl"
+    cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --target "$process_probe_target" \
+      --no-default-features --features domios-server/embeddings --edges normal,build --prefix none \
+      --format '{p}' > "$process_probe_dir/closure.txt"
+    node scripts/server-artifact.mjs "$process_probe_dir/cargo.jsonl" "$process_probe_dir/closure.txt" \
+      "$(git rev-parse HEAD)" "$process_probe_target" "$process_probe_dir/resources" "$process_probe_dir/artifact.json"
+    node scripts/process-separation-probe.mjs "${@:2}" --artifact-receipt "$process_probe_dir/artifact.json"
+    ;;
   test-one)
-    test_scope="${2:?test-one requires billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
+    test_scope="${2:?test-one requires domios-server, billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
+      domios-server)
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p domios-server --lib "$test_filter"
+        ;;
       app)
         if [ "$test_filter" = "build_identity_required" ]; then
           scripts/test-capped.sh --exec node --test scripts/tests/build_identity_required.test.mjs
@@ -2749,7 +2815,7 @@ EOF
     ct_load_release_signing_key
     prepare_release_target
     ensure_deps
-    prepare_release_bundle_inputs
+    prepare_release_bundle_inputs bundle
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
     ct_snapshot_provenance "full-build-input" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
@@ -2789,7 +2855,7 @@ EOF
     ct_load_release_signing_key
     prepare_local_install_target
     ensure_deps
-    prepare_release_bundle_inputs
+    prepare_release_bundle_inputs bundle
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
     ct_snapshot_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
@@ -2846,6 +2912,11 @@ EOF
     sg_run bash scripts/check-build-gateway-owner-reap.sh
     sg_run bash scripts/check-build-check-queue.sh
     sg_run bash scripts/check-build-script-head.sh
+    if command -v python3 >/dev/null 2>&1; then
+      sg_run python3 scripts/check-lf-working-tree.py
+    else
+      sg_run python scripts/check-lf-working-tree.py
+    fi
     sg_run bash scripts/check-shared-sccache.sh
     for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
       sg_run bash "scripts/$sg"
@@ -3106,9 +3177,9 @@ LOCK_STORM_PY
     echo "Done."
     ;;
   dev-prebuilt)
-    if [ -n "$CT_INSTANCE" ] && [ -z "${CARGO_TARGET_DIR:-}" ]; then
+    CT_SPLIT_DEV=1
+    if named_dev_isolated; then
       export CARGO_TARGET_DIR="$(named_dev_target_dir)"
-      export CODETERM_ALLOW_EXTERNAL_TARGET=1
     fi
     PREBUILT_LOG="/tmp/codeterm-dev-prebuilt${CT_SUFFIX}.log"
     if [ -n "$DEV_NOTIFY_TAB" ]; then
@@ -3143,10 +3214,11 @@ LOCK_STORM_PY
     if [ "$CT_DEV_WAIT" -eq 1 ]; then
       DEV_NOTIFY_STAGE=launch
       node scripts/dev-prep.mjs --launch-prebuilt \
-        --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT"
+        --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT" --record "$(dev_provenance_record)"
       HEALTH="$(dev_health_status)"
       EXPECTED_BUILD_SHA="$CODETERM_BUILD_SHA"
-      SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH")"
+      SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" server)"
+      node scripts/dev-prep.mjs --check-attachment --log "$PREBUILT_LOG" --api-port "$CT_PORT" --listener-pid "$(dev_listener_pid)"
       echo "Prebuilt dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
       if [ -n "$DEV_NOTIFY_TAB" ]; then
         dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$SHA" "$(dev_listener_pid)" "$(pwd -P)"
@@ -3164,7 +3236,7 @@ LOCK_STORM_PY
         DEV_NOTIFY_WAITER_PID=
         exec 3> >(report_read_stream "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CMD" launch "$INTERACTIVE_LOG" dev)
         DEV_NOTIFY_TEE_PID=$!
-        if node scripts/dev-prep.mjs --run-prebuilt --app "$(dev_app_path)" --log "$INTERACTIVE_LOG" >&3 2>&1; then
+        if node scripts/dev-prep.mjs --run-prebuilt --app "$(dev_app_path)" --record "$(dev_provenance_record)" --api-port "$CT_PORT" --log "$INTERACTIVE_LOG" >&3 2>&1; then
           DEV_NOTIFY_STATUS=0
         else
           DEV_NOTIFY_STATUS=$?
@@ -3194,49 +3266,22 @@ LOCK_STORM_PY
         dev_notify_exit_report "$DEV_NOTIFY_STATUS"
         exit "$DEV_NOTIFY_STATUS"
       else
-        exec node scripts/dev-prep.mjs --run-prebuilt --app "$(dev_app_path)" --log "/tmp/codeterm-dev${CT_SUFFIX}.interactive.log"
+        exec node scripts/dev-prep.mjs --run-prebuilt --app "$(dev_app_path)" --record "$(dev_provenance_record)" --api-port "$CT_PORT" --log "/tmp/codeterm-dev${CT_SUFFIX}.interactive.log"
       fi
     fi
     ;;
   dev)
     DEV_NOTIFY_STAGE=preflight
-    if [ "$CT_DEV_WAIT" -eq 1 ]; then
-      HEALTH="$(dev_health_status)"
-      HEALTH_FIELDS="$(printf '%s' "$HEALTH" | dev_health_fields 2>/dev/null || true)"
-      HEALTH_STATUS="$(printf '%s\n' "$HEALTH_FIELDS" | sed -n '1p')"
-      HEALTH_SHA="$(printf '%s\n' "$HEALTH_FIELDS" | sed -n '2p')"
-      HEALTH_API_PORT="$(printf '%s\n' "$HEALTH_FIELDS" | sed -n '4p')"
-      if [ "$HEALTH_STATUS" = "ok" ] && [ "$HEALTH_API_PORT" = "$CT_PORT" ]; then
-        SHA="$HEALTH_SHA"
-        if [ -n "$DEV_NOTIFY_TAB" ]; then
-          EXPECTED_BUILD_SHA="$CODETERM_BUILD_SHA"
-          if SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" 2>/dev/null)"; then
-            echo "Dev already ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
-            dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$SHA" "$(dev_listener_pid)" "$(pwd -P)"
-            exit 0
-          elif [ -n "$CT_INSTANCE" ]; then
-            DEV_NOTIFY_STAGE=stale-health
-            DEV_NOTIFY_LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
-            echo "ERROR: named dev listener is stale or wrong-lane; run CODETERM_INSTANCE=$CT_INSTANCE ./build.sh kill before retrying." >&2
-            exit 1
-          fi
-        else
-          echo "Dev already ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
-          exit 0
-        fi
-      fi
-    fi
     DEV_NOTIFY_STAGE=build
-    if named_dev_wait_isolated; then
-      prepare_named_dev_target
-    else
-      kill_dev || echo "WARNING: dev cleanup failed; continuing to build gateway acquisition." >&2
-    fi
+    kill_dev || echo "WARNING: dev cleanup failed; continuing to build gateway acquisition." >&2
+    if named_dev_isolated; then prepare_named_dev_target; fi
     enter_cargo_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist
     ensure_deps
     echo "Building CLI..."
-    cargo build --manifest-path cli/Cargo.toml
+    mkdir -p "$(tauri_debug_dir)/.domios-dev-build"
+    cargo build --manifest-path cli/Cargo.toml --message-format=json-render-diagnostics \
+      > "$(tauri_debug_dir)/.domios-dev-build/cli.jsonl"
     built_cli_artifact="$(cli_profile_binary debug)"
     built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
     # Every dev instance gets its own CLI; production updates its bundled CLI.

@@ -67,3 +67,12 @@ const pendingDeadline = restoreFailurePresentation(
 assert(pendingDeadline.view === "pending", "a runtime response deadline remains pending");
 assert(!pendingDeadline.showFailureBadge, "pending runtime deadline does not claim terminal failure");
 assert(!pendingDeadline.actions.retry, "pending runtime deadline does not offer retry");
+
+const workerFailure = restoreFailurePresentation(
+  { bootStage: "spawn_failed", agentType: "fixture-provider", protectedTab: false },
+  "opaque-policy-refusal", false,
+);
+assert(workerFailure.actions.retry, "failed Worker can restart its existing tab and lane");
+assert(!workerFailure.actions.startFreshAgent, "Worker recovery preserves provider identity");
+assert(workerFailure.view === "launch_failure", "Worker failure stays visible until recovery");
+assert(!missing.actions.retry, "missing exact session requires explicit fresh-session recovery");

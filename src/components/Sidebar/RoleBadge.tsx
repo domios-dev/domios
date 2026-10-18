@@ -1,4 +1,5 @@
 import { roleBadgeTestId } from "./orchestrationSections";
+import { roleDisplayWord } from "./roleDisplay";
 
 interface RoleBadgeProps {
   label: string;
@@ -15,7 +16,7 @@ export function RoleBadge({ label, title, className = "" }: RoleBadgeProps) {
       className={`sidebar-role-badge text-[10px] leading-3 font-normal text-[var(--ct-accent)] ${className}`}
       title={title}
     >
-      {label.charAt(0).toUpperCase() + label.slice(1).toLowerCase()}
+      {roleDisplayWord(label)}
     </span>
   );
 }

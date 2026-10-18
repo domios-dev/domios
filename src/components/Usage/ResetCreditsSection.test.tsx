@@ -11,7 +11,8 @@ async function main() {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   let calls = 0;
-  const model = new ResetCreditsModel(() => "fixture", async () => {calls++;return {outcome:"reset"};});
+  const selectedIds: (string|undefined)[] = [];
+  const model = new ResetCreditsModel(() => "fixture", async (_key,id) => {calls++;selectedIds.push(id);return {outcome:"reset"};});
   const button = (name:string) => {
     const match = [...document.querySelectorAll("button")].find(item => item.textContent === name);
     assert.ok(match, `button ${name}`); return match;
@@ -31,6 +32,23 @@ async function main() {
   assert.equal(calls,1);
   assert.ok(host.querySelector('[role="status"]'));
   assert.equal(model.outcome,"reset");
+  const rows = {availableCount:3,nextExpiry:null,credits:[
+    {id:"gift-a",title:"Fixture grant",description:"Fixture description",status:"available" as const,expiresAt:2_000_000_000_000},
+    {id:"gift-b",status:"available" as const,expiresAt:null},
+    {id:"used",status:"redeemed" as const,expiresAt:null},
+  ]};
+  await act(async () => root.render(<ResetCreditsSection model={model} resets={rows} />));
+  const first = host.querySelector<HTMLInputElement>('input[type="radio"][aria-label="Fixture grant · gift-a"]');
+  const second = host.querySelector<HTMLInputElement>('input[type="radio"][aria-label="gift-b"]');
+  assert.ok(first); assert.ok(second);
+  assert.equal(host.querySelectorAll('input[type="radio"]').length,3);
+  await act(async () => second.click());
+  assert.equal(second.checked,true);
+  assert.equal(first.checked,false);
+  await act(async () => button("Reset now").click());
+  assert.equal(calls,1);
+  await act(async () => button("Confirm reset").click());
+  assert.deepEqual(selectedIds,[undefined,"gift-b"]);
   await act(async () => root.unmount());
   console.log("PASS reset section accessible controls require confirmation and show outcome");
 }

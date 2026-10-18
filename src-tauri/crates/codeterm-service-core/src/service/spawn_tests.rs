@@ -699,6 +699,7 @@ fn agent_spec_roundtrips_json() {
 #[test]
 fn from_agent_params_carries_model_into_spec() {
     let params = SpawnAgentParams {
+        execution_mode: None,
         context_files: None,
         context_skills: None,
         agent: Some("codex".into()),
@@ -723,6 +724,7 @@ fn from_agent_params_carries_model_into_spec() {
         plan_task: None,
         authorized_gates: Vec::new(),
         execution_intent: None,
+        sandbox: None,
         provider_reserve_pct: None,
         workspace_id: None,
         force_tab: None,
@@ -785,6 +787,7 @@ fn to_agent_params_carries_model_as_dedicated_field() {
 #[test]
 fn planned_effort_survives_host_owned_params_spec_pipeline() {
     let params = SpawnAgentParams {
+        execution_mode: None,
         context_files: None,
         context_skills: None,
         agent: Some("claude".into()),
@@ -860,6 +863,7 @@ fn can_spawn_some_false_explicitly_overrides() {
 fn from_agent_params_preserves_can_spawn_option() {
     // --can-spawn=b explicitly". The spec must NOT collapse None → Some(false) (the pre-fix-#42 behavior that clobbered Orchestrator default to false on every spawn).
     let mut p = SpawnAgentParams {
+        execution_mode: None,
         context_files: None,
         context_skills: None,
         agent: Some("claude".into()),
@@ -884,6 +888,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         plan_task: None,
         authorized_gates: Vec::new(),
         execution_intent: None,
+        sandbox: None,
         provider_reserve_pct: None,
         workspace_id: None,
         force_tab: None,
@@ -935,6 +940,7 @@ fn from_agent_params_preserves_can_spawn_option() {
 #[test]
 fn from_agent_params_carries_activate_into_spec() {
     let mut p = SpawnAgentParams {
+        execution_mode: None,
         context_files: None,
         context_skills: None,
         agent: Some("claude".into()),
@@ -959,6 +965,7 @@ fn from_agent_params_carries_activate_into_spec() {
         plan_task: None,
         authorized_gates: Vec::new(),
         execution_intent: None,
+        sandbox: None,
         provider_reserve_pct: None,
         workspace_id: None,
         force_tab: None,

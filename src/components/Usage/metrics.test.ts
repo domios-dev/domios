@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics } from "./metrics";
+import { usagePillText, unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics } from "./metrics";
 
 const weeklyOnly = visibleUsageMetrics({
   session_pct: null,
@@ -27,3 +27,8 @@ assert.equal(unreportedBillingLabel({ ...subscription, weekly_pct: 0 }), null);
 assert.equal(unreportedBillingLabel({ ...subscription, limits_reported: true }), null);
 assert.equal(unreportedBillingLabel({ ...subscription, billing_mode: "api" }), null);
 assert.equal(unreportedBillingLabel({ ...subscription, billing_mode: "unknown" }), null);
+
+assert.equal(usagePillText({session_pct: null, weekly_pct: null}), "—");
+assert.equal(usagePillText({session_pct: null, weekly_pct: 22}), "— · 22%");
+assert.equal(usagePillText({session_pct: 22.4, weekly_pct: null}), "22% · —");
+assert.equal(usagePillText({session_pct: 0, weekly_pct: 10.6}), "0% · 11%");

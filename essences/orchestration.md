@@ -22,6 +22,8 @@ A bounce carries its reason and failing evidence. It returns work to a live Work
 
 A delivered task-bound report ends with one verdict reminder naming its plan, task, accept/bounce command and report time. The reminder is advisory and never blocks dispatch, integration or other work.
 
+Worker kinds add role prompting automatically with the same execution ability with or without a task. A task-bound kind follows the normal Worker lifecycle; a task-less kind works for its parent and gains no task-transition authority. Publication and tags require owner GO.
+
 ## Isolated work and verification
 
 A mutating Worker writes only its own isolated lane unless the Orchestrator explicitly opts one Worker into canonical. That opt-in is exclusive, and lane acceptance waits for its verdict. Lane Workers may run isolated checks that do not rebuild the whole project; full rebuilds, full suites, dev services, packaging and self-install stay out of lanes. The Orchestrator accepts on review and lands accepted lanes by real ancestry-preserving merges, then reruns each merged wave's focused selectors as one canonical batch; a canonical failure becomes a bounce or fix task rather than holding the acceptance. The broad gate runs once, on the release SHA. A lane is removed only after its ancestry is proven integrated.
@@ -42,7 +44,7 @@ Close refuses while a Team task is in progress or a Worker is working unless for
 
 Team and workspace closes keep a durable inventory. Recently Closed restores each close as one action; Undo uses the same record until its recorded deadline or the next close. Restoration keeps workspace folders, Team identities and membership, manager pairing and plan binding, exact per-tab sessions, tab order and panel state, and the enabled states of crons and Blueprints. Repeating a restore, including after restart, creates no duplicates. Utility shells return stopped and require an explicit rerun. Finalized Worker assignments stay finalized; retained dirty or unmerged lanes remain available, while removed clean merged lanes and their attempts are never recreated.
 
-With plan reminders enabled, an active execution plan with actionable work and no live task-bound Worker may nudge its idle Orchestrator. Lifecycle and idle events trigger the check. Like every automatic plan reminder, the nudge is sent only on the connected [Supporter's](supporter-agent.md) approval. The same stall episode produces at most one delivery attempt: a suppressed nudge leaves it eligible, and live work or a changed actionable set opens a new one. The nudge leaves dispatch and task decisions with the Orchestrator and never resumes a paused plan.
+The Orchestrator receives only its configured periodic heartbeat as an automatic plan reminder. Lifecycle, idle, report, dispatch, task and mode changes never produce extra reminders, and completed plans receive no automatic wrap-up. Reports, worker-lost notices and failures keep their own delivery channels.
 
 A validated blocked verdict sends no reminder to that recipient. It creates one host-authored owner notice per distinct blocker, with choices to wait, pause the plan or decide. The notice proposes pausing when its blocker stops every actionable task. After a reminder is accepted, unrelated plan changes do not repeat it for the same recipient; that recipient's task status, assignment, report or new owner message must change first.
 

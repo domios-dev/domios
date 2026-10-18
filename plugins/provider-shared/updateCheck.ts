@@ -108,7 +108,7 @@ export function checkProviderUpdate(
     const currentVersion = parseInstalled(installed);
     if (!currentVersion) return null;
     const metadata = startedJob(host.fetchStart(JSON.stringify({ url: metadataUrl, method: "GET", timeoutMs: 6000,
-      headers: { Accept: "application/vnd.npm.install-v1+json" },
+      headers: { Accept: compatibility ? "application/vnd.npm.install-v1+json" : "application/json" },
     })));
     if (!metadata) return null;
     return host.awaitJob(metadata, response => availableUpdate(currentVersion, response, compatibility));

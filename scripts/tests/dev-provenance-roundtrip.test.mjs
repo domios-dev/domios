@@ -9,7 +9,11 @@ const root = path.resolve(import.meta.dirname, '../..');
 const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8').replaceAll('\r\n', '\n');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 const functions = ['dev_provenance_record', 'write_dev_provenance', 'validate_dev_provenance',
-  'tauri_debug_dir', 'dev_app_path', 'dev_cli_path'].map(sourceFunction).join('\n');
+  'tauri_debug_dir', 'dev_resource_dir', 'dev_built_app_path', 'dev_app_path', 'dev_cli_path', 'named_dev_target_dir', 'named_dev_isolated'].map(sourceFunction).join('\n');
+
+const runtimeDebug = process.platform === 'win32' ? 'target/debug' : 'target/debug/.domios-dev-runtime';
+const resourceDebug = process.platform === 'win32' ? runtimeDebug : `${runtimeDebug}/lib/codeterm`;
+const clientDebug = process.platform === 'win32' ? runtimeDebug : `${runtimeDebug}/bin`;
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', ...options });
@@ -17,21 +21,32 @@ function run(command, args, options = {}) {
   return result.stdout.trim();
 }
 
+function splitResources(directory) {
+  const exe = process.platform === 'win32' ? '.exe' : '';
+  for (const name of [`domios-server/domios-server${exe}`, `cli/codeterm${exe}`, 'server-component.json',
+    'dist/index.html', 'skills/fixture.md', 'LICENSE', 'NOTICE', ...(process.platform === 'win32' ? ['conpty/x64/conpty.dll'] : [])]) {
+    const file = path.join(directory, name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `opaque split artifact: ${name}`, { mode: 0o755 });
+  }
+}
+
 function fixture() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-provenance-'));
   const checkout = path.join(directory, 'checkout');
-  for (const dir of ['scripts', 'target/debug', 'data/bin', 'dist']) {
+  for (const dir of ['scripts', clientDebug, 'data/bin', 'dist']) {
     fs.mkdirSync(path.join(checkout, dir), { recursive: true });
   }
-  for (const name of ['dev-prep.mjs', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'build-identity.cjs']) {
+  for (const name of ['dev-prep.mjs', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'windows-dev-desktop.cs', 'build-identity.cjs']) {
     fs.copyFileSync(path.join(root, 'scripts', name), path.join(checkout, 'scripts', name));
   }
   const exe = process.platform === 'win32' ? '.exe' : '';
-  for (const file of [`target/debug/codeterm${exe}`, `data/bin/codeterm${exe}`,
+  for (const file of [`${clientDebug}/codeterm${exe}`, `data/bin/codeterm${exe}`,
     'dist/index.html']) {
     fs.writeFileSync(path.join(checkout, file), `opaque artifact: ${file}`, { mode: 0o755 });
   }
   fs.writeFileSync(path.join(checkout, 'package.json'), '{"private":true}');
+  splitResources(path.join(checkout, resourceDebug));
   run('git', ['init', '-q'], { cwd: checkout });
   run('git', ['add', '.'], { cwd: checkout });
   run('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
@@ -40,7 +55,7 @@ function fixture() {
   return { directory, checkout, sha };
 }
 
-function provenance(checkout, cwd, target, sha, operation, launchSha = '') {
+function provenance(checkout, cwd, target, sha, operation, launchSha = '', instance = '') {
   return spawnSync(bash, ['-c', `set -euo pipefail
 ${functions}
 cd "$1"
@@ -48,11 +63,51 @@ CT_DATA_DIR="$2/data"
 CARGO_TARGET_DIR="$3/target"
 CARGO_BUILD_TARGET=
 CT_INSTANCE=fixture CT_PORT=7786 CT_VITE_PORT=1520 CT_CDP_PORT=9323 CT_IDENTIFIER=fixture.dev
+if [ -n "$6" ]; then
+  CT_INSTANCE="$6" CT_INSTANCE_KEY="$6"
+  CT_DATA_DIR="$2/data/$6"
+  CARGO_TARGET_DIR="$(named_dev_target_dir)"
+fi
 CODETERM_BUILD_SHA="$4"
 CT_DEV_PROVENANCE_SHA="$5"
 ${operation} "$4"
-`, '--', cwd, checkout, target, sha, launchSha], { encoding: 'utf8' });
+`, '--', cwd, checkout, target, sha, launchSha, instance], { encoding: 'utf8' });
 }
+
+test('two named instances persist and validate their own checkout artifact provenance', () => {
+  const { directory, checkout, sha } = fixture();
+  try {
+    fs.writeFileSync(path.join(checkout, '.gitignore'), 'src-tauri/target/\n');
+    const exe = process.platform === 'win32' ? '.exe' : '';
+    const records = [];
+    for (const instance of ['meshqa', 'welcomeqa']) {
+      const app = path.join(checkout, 'src-tauri/target/dev-instances', instance, process.platform === 'win32' ? `debug/codeterm${exe}` : `debug/.domios-dev-runtime/bin/codeterm${exe}`);
+      const cli = path.join(checkout, 'data', instance, `bin/codeterm${exe}`);
+      for (const file of [app, cli]) {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, instance, { mode: 0o755 });
+      }
+      splitResources(process.platform === 'win32' ? path.dirname(app) : path.resolve(path.dirname(app), '../lib/codeterm'));
+      const written = provenance(checkout, checkout, checkout, sha, 'write_dev_provenance', '', instance);
+      assert.equal(written.status, 0, written.stderr);
+      const checked = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', '', instance);
+      assert.equal(checked.status, 0, checked.stderr);
+      const record = JSON.parse(fs.readFileSync(path.join(checkout, 'data', instance, 'dev-build-provenance.json')));
+      assert.equal(record.instance.name, instance);
+      assert.equal(record.artifacts.app.path, fs.realpathSync.native(app));
+      records.push(record);
+    }
+    assert.notEqual(records[0].artifacts.app.path, records[1].artifacts.app.path);
+    fs.appendFileSync(records[1].artifacts.app.path, 'changed');
+    const unaffected = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', '', 'meshqa');
+    assert.equal(unaffected.status, 0, unaffected.stderr);
+    const changed = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', '', 'welcomeqa');
+    assert.equal(changed.status, 1);
+    assert.match(changed.stderr, /app artifact content mismatch/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test('utility identity capture tolerates non-Git directories and unavailable Git; stamping refuses', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-identity-no-git-'));
@@ -114,7 +169,7 @@ node -e 'const {resolveBuildIdentity}=require("./scripts/build-identity.cjs"); i
     const standalone = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance');
     assert.equal(standalone.status, 1);
     assert.match(standalone.stderr, /recorded build commit does not match/);
-    fs.appendFileSync(path.join(checkout, 'dist/index.html'), 'changed');
+    fs.appendFileSync(path.join(checkout, resourceDebug, 'dist/index.html'), 'changed');
     const tampered = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', sha);
     assert.equal(tampered.status, 1);
     assert.match(tampered.stderr, /frontend artifact content mismatch/);
@@ -170,7 +225,7 @@ function sourceFunction(name) {
 test('frontend rewritten with identical bytes is accepted; different bytes still refuse', () => {
   const { directory, checkout, sha } = fixture();
   try {
-    const dist = path.join(checkout, 'dist');
+    const dist = path.join(checkout, resourceDebug, 'dist');
     const written = provenance(checkout, checkout, checkout, sha, 'write_dev_provenance');
     assert.equal(written.status, 0, written.stderr);
     const original = fs.readFileSync(path.join(dist, 'index.html'));
@@ -196,6 +251,7 @@ ${sourceFunction('start_web_watch')}
 cd "$1"
 CT_SUFFIX="-watch-test-$$"
 kill_web_watch() { :; }
+dev_resource_dir() { echo target/debug/resources; }
 node() { printf '%s|%s\\n' "$CODETERM_FRONTEND_DEV" "$*" > args.txt; }
 nohup() { "$@"; }
 process_pid_for_cleanup() { echo "$1"; }
@@ -250,3 +306,33 @@ exit "$status"
     if (refusal !== 'none') assert.match(result.stderr, /refusing before stopping dev/);
   });
 }
+
+for (const [name, relative, message] of [
+  ['server', `domios-server/domios-server${process.platform === 'win32' ? '.exe' : ''}`, 'server artifact content mismatch'],
+  ['inventory', 'server-component.json', 'inventory artifact content mismatch'],
+  ['runtime resource', 'skills/fixture.md', 'resources artifact content mismatch'],
+]) {
+  test(`prebuilt refuses changed ${name} bytes`, () => {
+    const { directory, checkout, sha } = fixture();
+    try {
+      assert.equal(provenance(checkout, checkout, checkout, sha, 'write_dev_provenance').status, 0);
+      fs.appendFileSync(path.join(checkout, resourceDebug, relative), 'changed');
+      const result = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance');
+      assert.equal(result.status, 1);
+      assert.ok(result.stderr.includes(message), result.stderr);
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+  });
+}
+
+
+test('prebuilt refuses changed desktop execution helper source', () => {
+  const { directory, checkout, sha } = fixture();
+  try {
+    const written = provenance(checkout, checkout, checkout, sha, 'write_dev_provenance');
+    assert.equal(written.status, 0, written.stderr);
+    fs.appendFileSync(path.join(checkout, 'scripts/windows-dev-desktop.cs'), '\n');
+    const checked = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance');
+    assert.equal(checked.status, 1);
+    assert.match(checked.stderr, /source|input|dirty/);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});

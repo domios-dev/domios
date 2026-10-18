@@ -451,7 +451,8 @@ fn trust_disagreements_are_preserved() {
 
     // D3: agent.report says caller_session_id where inject_trusted_session says session_id.
     assert!(
-        agent_rs().contains("body[\"caller_session_id\"]"),
+        agent_rs().contains("CallerContext::from_env().report_body(")
+            && caller_context_rs().contains("body[\"caller_session_id\"]"),
         "D3: agent report must keep the caller_session_id key name"
     );
     assert!(

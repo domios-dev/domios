@@ -10,7 +10,7 @@ pub(super) fn assert_installed_descriptors() {
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
         .filter(|entry| entry.file_name().to_string_lossy().starts_with("provider-"))
-        .filter(|entry| entry.path().join("plugin.json").is_file())
+        .filter(|entry| declares_agent_provider(&entry.path().join("plugin.json")))
         .collect::<Vec<_>>();
     plugin_dirs.sort_by_key(|entry| entry.file_name());
 
@@ -105,4 +105,12 @@ pub(super) fn assert_installed_descriptors() {
             }
         }
     }
+}
+
+/// Chat-backend-only plugins (remote tasks) have no PTY launch to compare.
+fn declares_agent_provider(manifest: &std::path::Path) -> bool {
+    std::fs::read_to_string(manifest)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .is_some_and(|value| !value["capabilities"]["agentProvider"].is_null())
 }

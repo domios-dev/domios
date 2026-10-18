@@ -1,5 +1,5 @@
 import type { ChatSend, SendEcho, NormalizedChatMessage } from "@codeterm/chat-core";
-import { normalizeChatText, parseDomiosMessage, timestampMs } from "@codeterm/chat-core";
+import { matchesMatchedRow, normalizeChatText, parseDomiosMessage, timestampMs } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 import type { TabActivity } from "../../lib/tabActivity";
 import type { CapsuleRegistry } from "./composerCapsules";
@@ -13,7 +13,19 @@ export interface DeliveryDraft {
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
 }
-export type DeliverySend = ChatSend & { dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; draft?: DeliveryDraft };
+export type DeliverySend = ChatSend & { droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; draft?: DeliveryDraft };
+
+function sameMatchedRow(left: ChatSendStatus["matched_row"], right: ChatSendStatus["matched_row"]): boolean {
+  if (left == null || right == null) return left === right;
+  if (left.ordinal !== right.ordinal || left.source.source_session_id !== right.source.source_session_id) return false;
+  const a = left.source.record;
+  const b = right.source.record;
+  if (a.kind !== b.kind) return false;
+  return a.kind === "structured" && b.kind === "structured"
+    ? a.thread_id === b.thread_id && a.item_id === b.item_id
+    : a.kind === "jsonl" && b.kind === "jsonl"
+      && a.incarnation === b.incarnation && a.record_start === b.record_start && a.record_row === b.record_row;
+}
 
 export function deliveryState(send: DeliverySend): DeliveryState {
   if (send.status?.state === "failed" || (!send.status && send.requestFailed)) return "failed";
@@ -42,8 +54,16 @@ export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus):
   }
   if (send.status?.ledger_id === status.ledger_id && send.status.sequence === status.sequence
     && send.status.send_id === status.send_id && send.status.state === status.state
-    && send.status.pending_reason === status.pending_reason && send.status.error === status.error) return send;
-  return { ...send, status, requestFailed: false, requestUncertain: false, echo: status.state === "failed" ? undefined : send.echo };
+    && send.status.pending_reason === status.pending_reason && send.status.error === status.error
+    && sameMatchedRow(send.status.matched_row, status.matched_row)) return send;
+  return {
+    ...send,
+    matchedRow: status.matched_row ?? send.matchedRow,
+    status,
+    requestFailed: false,
+    requestUncertain: false,
+    echo: status.state === "failed" ? undefined : send.echo,
+  };
 }
 
 export type AdmissionEvidence = "present" | "absent" | "unknown";
@@ -51,7 +71,9 @@ export type AdmissionEvidence = "present" | "absent" | "unknown";
 export function reconcileAdmissionEvidence(send: DeliverySend, evidence: AdmissionEvidence): DeliverySend {
   if (send.status || deliveryState(send) === "delivered" || send.requestFailed) return send;
   const failed = evidence === "absent" && send.requestHadResponse === false;
-  return { ...send, requestFailed: failed, requestUncertain: !failed };
+  const uncertain = !failed;
+  if (send.requestFailed === failed && send.requestUncertain === uncertain) return send;
+  return { ...send, requestFailed: failed, requestUncertain: uncertain };
 }
 
 export function reconcileDeliverySnapshot(send: DeliverySend, statuses: readonly ChatSendStatus[]): DeliverySend {
@@ -66,7 +88,8 @@ export function reconcileDeliverySnapshot(send: DeliverySend, statuses: readonly
 export function sendForRow(sends: readonly DeliverySend[], row: NormalizedChatMessage): DeliverySend | undefined {
   if (row.type !== "user" && row.type !== "local_command") return;
   return sends.find((send) => send.id === row.id || (row.correlationId != null && send.correlationId === row.correlationId))
-    ?? sends.find((send) => deliveryState(send) !== "failed" && send.echo?.timestampMs === timestampMs(row.timestamp)
+    ?? sends.find((send) => send.matchedRow != null && matchesMatchedRow(row, send.matchedRow))
+    ?? sends.find((send) => !send.matchedRow && deliveryState(send) !== "failed" && send.echo?.timestampMs === timestampMs(row.timestamp)
       && send.echo.content === normalizeChatText(row.content).toLowerCase());
 }
 

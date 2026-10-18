@@ -3,10 +3,10 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 const { signIn, signOut, manage, openUrl, state } = vi.hoisted(() => ({
   signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openUrl: vi.fn(),
-  state: { signedIn: false },
+  state: { signedIn: false, sessionOnly: false },
 }));
 vi.mock("../Settings/useAccount", () => ({useAccount: () => ({model: state.signedIn
-  ? {kind:"signed_in",identity:{uid:"user",display_name:"Ada",email:"ada@example.test",provider:"fake"}}
+  ? {kind:"signed_in",sessionOnly:state.sessionOnly,identity:{uid:"user",display_name:"Ada",email:"ada@example.test",provider:"fake"}}
   : {kind:"signed_out"}, signIn, signOut})}));
 vi.mock("../Settings/useAccountPlan", () => ({useAccountPlan: () => ({
   plan:{plan:"pro",status:"active",stale:false,periodEnd:null,cancelAtPeriodEnd:false},error:null,manage,
@@ -84,4 +84,22 @@ for (const signedIn of [false,true]) it(`opens community links in the system bro
     }
     expect(openUrl).toHaveBeenCalledTimes(2);
   } finally {await act(async () => root.unmount());host.remove();state.signedIn=false;}
+});
+
+it("exposes the session-only storage warning in the account menu", async () => {
+  state.signedIn = true;
+  state.sessionOnly = true;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTray />));
+    await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
+    const warning = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+      .find(item => item.textContent?.includes("Signed in for this session only"));
+    expect(warning).toBeDefined();
+    expect(warning instanceof HTMLButtonElement && warning.disabled).toBe(true);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.signedIn = false; state.sessionOnly = false;
+  }
 });

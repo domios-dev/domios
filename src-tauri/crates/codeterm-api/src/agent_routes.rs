@@ -19,6 +19,7 @@ mod model_error;
 mod pair_headers;
 pub(crate) mod spawn_ownership;
 mod spawn_rejection;
+mod spawn_request;
 mod worker_transfer;
 
 pub(super) use pair_headers::create_orchestration_pair;
@@ -54,6 +55,7 @@ pub struct SpawnAgentBody {
     #[serde(default)]
     authorized_gates: Vec<String>,
     execution_intent: Option<codeterm_service_core::plan::ExecutionIntent>,
+    sandbox: Option<String>,
     provider_reserve_pct: Option<f32>,
     workspace_id: Option<String>,
     force_tab: Option<bool>,
@@ -85,6 +87,7 @@ pub struct SpawnAgentBody {
     #[serde(alias = "system")]
     system_prompt: Option<String>,
     preset: Option<String>,
+    execution_mode: Option<String>,
     charter: Option<String>,
     tick_interval_secs: Option<u64>,
     nudge_cooldown_secs: Option<u64>,
@@ -218,7 +221,7 @@ pub async fn forget_remote_worker(
 pub async fn spawn_agent(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Json(body): Json<SpawnAgentBody>,
+    Json(mut body): Json<SpawnAgentBody>,
 ) -> Result<Json<serde_json::Value>, SpawnRejection> {
     check_auth(&state, &headers).map_err(|(s, m)| SpawnRejection {
         status: s,
@@ -247,11 +250,11 @@ pub async fn spawn_agent(
     });
     let ownership = match spawning_peer {
         Some((peer_id, peer_name)) => Some(ownership_for_spawning_peer(
-            body.ownership,
+            body.ownership.take(),
             &peer_id,
             &peer_name,
         )),
-        None => body.ownership,
+        None => body.ownership.take(),
     };
     let role_probe = validate_spawn_role(body.role.clone(), body.role_profile.clone()).map_err(
         |(s, m)| SpawnRejection {
@@ -259,67 +262,7 @@ pub async fn spawn_agent(
             body: serde_json::json!({"ok": false, "error": {"code": "bad_request", "message": m}}),
         },
     )?;
-    let starter_prompt =
-        codeterm_service_core::service::starter_prompt_for_role(role_probe.role.as_deref());
-    let params = codeterm_service_core::service::SpawnAgentParams {
-        context_files: None,
-        context_skills: None,
-        agent: body.agent,
-        agent_name: body.agent_name,
-        args: body.args,
-        cwd: body.cwd,
-        provisioned_cwd: None,
-        title: body.title,
-        title_provenance: Some(
-            codeterm_service_core::service::SpawnIdentityProvenance::UserSupplied,
-        ),
-        description: body.description,
-        task_description_managed: false,
-        role: role_probe.role,
-        role_profile: role_probe.role_profile,
-        parent_tab_id: body.parent_tab_id,
-        plan_id: body.plan_id,
-        can_spawn: body.can_spawn,
-        task: body.task,
-        starter_prompt,
-        task_id: body.task_id,
-        task_launch_authority: None,
-        plan_skill_manifest: None,
-        plan_task: body.plan_task,
-        authorized_gates: body.authorized_gates,
-        execution_intent: body.execution_intent,
-        provider_reserve_pct: body.provider_reserve_pct,
-        workspace_id: body.workspace_id,
-        force_tab: body.force_tab,
-        existing_tab_id: None,
-        skip_orchestrator_onboarding: None,
-        report_target_tab_id: body.report_to.or(body.report_target_tab_id),
-        report_target_mesh_peer: body.origin_peer,
-        skip_permissions: None,
-        permission_bypass_authorization: None,
-        spawned_by_tab_id: body.spawned_by_tab_id,
-        team_id: body.team_id,
-        creator_tab_id: body.creator_tab_id,
-        ownership,
-        model: body.model,
-        planned_model: None,
-        planned_reasoning_effort: None,
-        reasoning_effort: body.reasoning_effort,
-        system_prompt: body.system_prompt,
-        preset: body.preset,
-        resume_session_id: None,
-        fork_session: false,
-        charter: body.charter,
-        tick_interval_secs: body.tick_interval_secs,
-        nudge_cooldown_secs: body.nudge_cooldown_secs,
-        max_actions_per_tick: body.max_actions_per_tick,
-        activate: body.activate,
-        audience: body.audience,
-        manager_bootstrap: None,
-        user_created: false,
-        structured_prompt_server: None,
-        remote_task_binding: None,
-    };
+    let params = spawn_request::into_params(body, role_probe, ownership);
     let cwd_params = params.clone();
     spawn_rejection::validate_spawn_cwd(
         &state.svc,

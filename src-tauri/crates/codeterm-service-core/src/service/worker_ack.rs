@@ -845,6 +845,10 @@ fn worker_lifecycle_notice(
         .unwrap_or_default();
     let action = match kind {
         "tab_state_spawn_ok" => TAB_STATE_SPAWN_OK_ACTION.to_string(),
+        "dispatch_ready" => format!(
+            "is ready for task {}",
+            task_id.as_deref().unwrap_or("unknown task")
+        ),
         "worker_ack" => format!(
             "acknowledged task {}",
             task_id.as_deref().unwrap_or("unknown task")

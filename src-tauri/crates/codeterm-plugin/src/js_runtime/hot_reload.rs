@@ -159,17 +159,21 @@ impl CapabilityRegistries {
                 )),
             );
         }
-        if caps.chat_backend.enabled() && caps.agent_runtime.is_none() {
+        if caps.chat_backend.enabled()
+            && (caps.agent_runtime.is_none() || caps.remote_task.is_some())
+        {
             self.chatbackend.register(
                 id.clone(),
                 Arc::new(super::JsChatBackend::from_manifest(vm.clone(), manifest)),
             );
         }
         if caps.chat_preprocessor.enabled() {
-            self.chat_preprocessor.register(
-                id.clone(),
-                Arc::new(super::JsChatPreprocessor::new(vm.clone(), id.clone())),
-            );
+            let mut preprocessor = super::JsChatPreprocessor::new(vm.clone(), id.clone());
+            if caps.agent_provider {
+                preprocessor = preprocessor.scoped_to_provider(id.clone());
+            }
+            self.chat_preprocessor
+                .register(id.clone(), Arc::new(preprocessor));
         }
         if let Some(receiver) = &caps.webhook_receiver {
             self.webhook_receiver.register(
@@ -745,6 +749,9 @@ impl HotReloadRegistry {
                     .push(manifest_path);
             }
         }
+        for (id, paths) in &mut candidates {
+            super::loader::order_system_candidates(id, paths);
+        }
         candidates
     }
 
@@ -1002,25 +1009,24 @@ fn warn_stage_conflicts(
     preprocessors: &dyn crate::chatpreprocessor::ChatPreprocessorPort,
 ) {
     let voice = transcribers.ids();
-    let text = preprocessors.preprocessor_ids();
-    let mut voice_ids: Vec<String> = Vec::new();
-    let mut text_ids: Vec<String> = Vec::new();
-    for id in &voice {
-        voice_ids.push(id.clone());
-    }
-    for id in &text {
-        text_ids.push(id.clone());
-    }
-    if voice_ids.len() > 1 {
+    let text = preprocessors.active_preprocessors();
+    if voice.len() > 1 {
         log::warn!(
             "[chatpipeline] voice slot grabbed by >1 stage ({}); they would run twice — uninstall one",
-            voice_ids.join(", ")
+            voice.join(", ")
         );
     }
-    if text_ids.len() > 1 {
+    let mut scopes: BTreeMap<Option<String>, Vec<String>> = BTreeMap::new();
+    for stage in text {
+        scopes
+            .entry(stage.provider_scope().map(str::to_owned))
+            .or_default()
+            .push(stage.id().to_string());
+    }
+    for ids in scopes.into_values().filter(|ids| ids.len() > 1) {
         log::warn!(
             "[chatpipeline] text slot grabbed by >1 stage ({}); they would run twice — uninstall one",
-            text_ids.join(", ")
+            ids.join(", ")
         );
     }
 }

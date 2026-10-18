@@ -1,7 +1,8 @@
-import { VIDEO_SNIFF_BYTES, attachmentKindForUpload, validateAttachment } from "@codeterm/chat-core";
+import { VIDEO_SNIFF_BYTES, attachmentKindForUpload, attachmentKindForPath, validateAttachment } from "@codeterm/chat-core";
 import { createAttachmentUploads, type AttachmentUpload } from "./attachmentUploadModel";
 import { addCapsule, capsuleSpans, type CapsuleRegistry, type ComposerCapsule } from "./composerCapsules";
 import { imageUploadName } from "./composerTransferModel";
+import { prepareBrowserUpload } from "./browserImageUpload";
 
 export interface ComposerUpload extends AttachmentUpload { label: string }
 
@@ -11,6 +12,9 @@ export function draftHasPendingUploads(text: string, registry: CapsuleRegistry):
 
 /** Rejects a video the host would not play before any byte is stored; the chip shows the error. */
 export async function validatedStore(store: (blob: Blob, name: string) => Promise<string>, blob: Blob, name: string): Promise<string> {
+  const prepared = await prepareBrowserUpload(blob, name);
+  blob = prepared.blob;
+  name = prepared.name;
   const kind = attachmentKindForUpload({ name, mime: blob.type });
   const head = kind === "video" ? new Uint8Array(await blob.slice(0, VIDEO_SNIFF_BYTES).arrayBuffer()) : undefined;
   const verdict = validateAttachment({ kind, size: blob.size, head });
@@ -44,7 +48,7 @@ export function createComposerUploads(deps: {
       const capsule = registry[label];
       if (capsule?.uploadId !== upload.id) return;
       const { uploadId: _uploadId, ...ready } = capsule;
-      deps.commit({ ...registry, [label]: { ...ready, path } });
+      deps.commit({ ...registry, [label]: { ...ready, path, kind: attachmentKindForPath(path) } });
     },
     publish: (uploads) => deps.publish(uploads.map((upload) => ({ ...upload, label: labels.get(upload.id)! }))),
   });

@@ -1,4 +1,11 @@
+use super::agent_runtime::{AgentUsageAction, ChildHistoryArgs};
 use clap::{Args, Subcommand};
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpawnLocation {
+    Local,
+    Cloud,
+}
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 pub enum SpawnRole {
@@ -117,6 +124,13 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
+    /// Read usage or consume a confirmed reset credit for an exact tab.
+    Usage {
+        #[command(subcommand)]
+        action: AgentUsageAction,
+    },
+    /// Read one recorded child's transcript under the exact parent binding.
+    ChildHistory(ChildHistoryArgs),
     /// Sign in to the tab's runtime provider without a terminal
     Login {
         #[arg(long, value_name = "TAB")]
@@ -250,6 +264,25 @@ pub enum AgentAction {
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
+    /// Continue this tab on another provider through a bounded handoff produced by the target.
+    SwitchProvider {
+        provider: String,
+        #[arg(long)]
+        tab: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        reasoning_effort: Option<String>,
+        /// Stop the current turn before switching. Otherwise a busy tab refuses.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Read a daemon-owned provider switch operation, including self-switch results.
+    SwitchProviderStatus {
+        operation: String,
+        #[arg(long)]
+        tab: Option<String>,
+    },
     /// List available agent providers (claude, codex, ...) with their
     /// display names, default models, and capability flags.
     Providers,
@@ -302,7 +335,7 @@ pub enum AgentAction {
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
         #[arg(long)]
         role: Option<SpawnRole>,
-        /// Worker kind/profile. Task-less builtins are tester and release_manager.
+        /// Worker prompt kind/profile, with or without a task: qa or release_manager.
         #[arg(long, alias = "role-profile")]
         kind: Option<String>,
         /// Parent tab ID. Required for Workers; for a Planner, resolved
@@ -355,6 +388,17 @@ pub enum AgentAction {
         /// Select a provider-owned preset supported by the target provider.
         #[arg(long)]
         preset: Option<String>,
+        /// Execution location declared by the provider. Remote tasks are one-shot tabs.
+        #[arg(long, value_enum)]
+        location: Option<SpawnLocation>,
+        /// Remote environment ID or unambiguous label; never inferred.
+        #[arg(
+            long,
+            requires = "location",
+            required_if_eq("location", "cloud"),
+            conflicts_with = "preset"
+        )]
+        environment: Option<String>,
         /// Watcher charter text.
         #[arg(long, allow_hyphen_values = true, conflicts_with = "charter_file")]
         charter: Option<String>,
@@ -390,10 +434,13 @@ pub enum AgentAction {
         /// Team whose Orchestrator is gone and carries no other spawn flag.
         #[arg(long, value_name = "TEAM_ID", conflicts_with = "plan_task")]
         team: Option<String>,
-        /// Declared execution intent. `mutating` requires a task binding;
-        /// `read_only` is also the task-less verification-Worker shape.
+        /// Declared execution intent. Plain mutating Workers require a task binding;
+        /// Worker kinds may mutate task-less and default to `mutating`.
         #[arg(long = "execution-intent", value_parser = ["read_only", "mutating"])]
         execution_intent: Option<String>,
+        /// Explicit OS confinement for this launch; Workers default to full access.
+        #[arg(long, value_parser = ["read-only", "workspace-write"])]
+        sandbox: Option<String>,
         /// Gate token this Worker may claim as executed; repeatable. Carried
         /// into its brief. For a task-bound Worker declare gates on the
         /// dispatch instead (`plan task dispatch --authorized-gate`).
@@ -846,13 +893,13 @@ mod tests {
             "--role",
             "Worker",
             "--kind",
-            "tester",
+            "qa",
             "--parent-tab",
             "parent_tab",
             "--authorized-gate",
             "./build.sh test-one app verifier",
         ])
-        .expect("task-less tester Worker spawn parses");
+        .expect("task-less qa Worker spawn parses");
         match action {
             AgentAction::Spawn {
                 role,
@@ -865,7 +912,7 @@ mod tests {
                 ..
             } => {
                 assert!(matches!(role, Some(SpawnRole::Worker)));
-                assert_eq!(kind.as_deref(), Some("tester"));
+                assert_eq!(kind.as_deref(), Some("qa"));
                 assert_eq!(parent.as_deref(), Some("parent_tab"));
                 assert!(plan.is_none());
                 assert!(plan_task.is_none());
@@ -1082,4 +1129,69 @@ pub enum ProviderCliAction {
     Install { provider: String },
     /// Run the manifest updater in a visible utility tab and report its result.
     Update { provider: String },
+}
+
+#[cfg(test)]
+mod sandbox_tests {
+    use crate::args::cli::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn worker_spawn_sandbox_is_explicit_and_off_by_default() {
+        for mode in [None, Some("read-only"), Some("workspace-write")] {
+            let mut args = vec![
+                "codeterm",
+                "agent",
+                "spawn",
+                "codex",
+                "--role",
+                "Worker",
+                "--plan",
+                "pl",
+                "--execution-intent",
+                "read_only",
+            ];
+            if let Some(mode) = mode {
+                args.extend(["--sandbox", mode]);
+            }
+            let parsed = Cli::try_parse_from(args).unwrap();
+            let crate::Commands::Agent {
+                action: super::AgentAction::Spawn { sandbox, .. },
+            } = parsed.command
+            else {
+                panic!("spawn");
+            };
+            assert_eq!(sandbox.as_deref(), mode);
+        }
+    }
+
+    #[test]
+    fn dispatch_sandbox_is_explicit_and_off_by_default() {
+        for mode in [None, Some("read-only"), Some("workspace-write")] {
+            let mut args = vec![
+                "codeterm",
+                "plan",
+                "task",
+                "dispatch",
+                "pl",
+                "task",
+                "--execution-intent",
+                "mutating",
+            ];
+            if let Some(mode) = mode {
+                args.extend(["--sandbox", mode]);
+            }
+            let parsed = Cli::try_parse_from(args).unwrap();
+            let crate::Commands::Plan {
+                action:
+                    crate::PlanAction::Task {
+                        action: crate::args::plan::PlanTaskAction::Dispatch { sandbox, .. },
+                    },
+            } = parsed.command
+            else {
+                panic!("dispatch");
+            };
+            assert_eq!(sandbox.as_deref(), mode);
+        }
+    }
 }

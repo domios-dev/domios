@@ -53,6 +53,9 @@ async function run() {
   assert(reportPrefix?.origin.kind === "tab" && reportPrefix.origin.report, "parser supplies the report origin used by the DOM fixture");
   const systemPrefix = framePrefix({ from: "system", context: "sYsTeM" }, "/agent-pad/pointer/opaque-dom-system-14.md");
   assert(systemPrefix?.origin.kind === "system", "parser supplies the System origin used by the DOM fixture");
+  const handoffFragments = ["opaque-instruction-71", "opaque-context-72", "opaque-history-73"];
+  const handoff = framePrefix({ from: "system", context: "provider-handoff" }, handoffFragments.join("\n\n"));
+  assert(handoff?.origin.kind === "system", "the complete handoff has a system origin");
   const tabPointerMessage: NormalizedChatMessage = {
     id: "parsed-tab-pointer-message",
     type: "user",
@@ -117,19 +120,34 @@ async function run() {
         <MessageBubble message={systemPointerMessage} origin={systemPrefix.origin} />
         <MessageBubble message={unmarkedPointerMessage} />
         <MessageBubble message={systemEvent} origin={{ kind: "system", context: "lifecycle" }} />
+        <section aria-label="handoff fixture"><MessageBubble
+          message={{ id: "handoff-71", type: "user", content: handoff.body, inboundKind: "system" }}
+          origin={handoff.origin}
+        /></section>
         <MessageBubble message={ordinaryUser} />
         <MessageBubble message={ordinaryAssistant} />
       </div>,
     );
   });
 
-  const cards = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-tool-call"]'));
+  const handoffRegion = host.querySelector('[aria-label="handoff fixture"]');
+  const handoffToggle = handoffRegion?.querySelector<HTMLButtonElement>('button[aria-expanded]');
+  assert(handoffToggle?.getAttribute("aria-expanded") === "false", "handoff uses the collapsed system disclosure");
+  for (const fragment of handoffFragments) assert(!handoffRegion?.textContent?.includes(fragment), "handoff body stays behind disclosure");
+  await act(async () => handoffToggle.click());
+  assert(handoffToggle.getAttribute("aria-expanded") === "true", "handoff disclosure opens");
+  for (const fragment of handoffFragments) assert(handoffRegion?.textContent?.includes(fragment), "all original fragments are readable in the system message");
+
+  const cards = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-tool-call"], [data-testid="chat-sent-to-card"]'));
   const send = cards.find((card) => card.textContent?.includes("Sent to"));
   const list = cards.find((card) => card.textContent?.includes("tab list"));
   const read = cards.find((card) => card.textContent?.includes("Read") && card.textContent.includes("coordination.ts"));
   const completedCommandCard = cards.find((card) => card.textContent?.includes("git status --short"));
   const edit = cards.find((card) => card.querySelector('[data-testid="toolcard-edit-summary"]'));
-  assert(send?.querySelector('[aria-label="Hide full command"]'), "outbound message should start expanded");
+  assert(send?.querySelector('[data-testid="chat-sent-message"]'), "outbound message body renders as the primary content");
+  assert(send?.textContent?.includes("Please review the change"), "short outbound message body is visible in the Sent-to card");
+  assert(!send?.querySelector('[data-testid="chat-sent-expand"]'), "short outbound message body needs no expand control");
+  assert(!send?.querySelector('[data-testid="raw-command-disclosure"]')?.hasAttribute("open"), "outbound raw command starts collapsed in technical details");
   assert(list?.querySelector('[aria-label="Show full command"]'), "ordinary operational command should start collapsed");
   assert(read?.querySelector('[aria-label="Expand tool details"]'), "completed read-only inspection should start collapsed");
   assert(!read?.textContent?.includes("private inspection output"), "collapsed read-only inspection should hide output");
@@ -189,7 +207,7 @@ async function run() {
   assert(editDetails?.style.maxHeight === "600px" && editDetails.style.overflowY === "hidden", "expanded code output should use the 600px preview cap");
   const rawDisclosures = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="raw-command-disclosure"]'));
   assert(rawDisclosures.length === 2, `raw command disclosures render only inside expanded tool cards: expected 2, got ${rawDisclosures.length}`);
-  assert(rawDisclosures.every((view) => view.closest('[data-testid="chat-tool-call"]')), "raw command disclosures live inside tool cards");
+  assert(rawDisclosures.every((view) => view.closest('[data-testid="chat-tool-call"], [data-testid="chat-sent-to-card"]')), "raw command disclosures live inside tool cards");
   assert(rawDisclosures.every((view) => !view.textContent?.includes("User formatted") && !view.textContent?.includes("Assistant formatted")), "ordinary messages have no raw command disclosure");
   const commandDisclosure = completedCommandCard?.querySelector<HTMLButtonElement>('[aria-label="Show full command"]');
   await act(async () => commandDisclosure?.click());

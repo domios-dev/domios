@@ -31,6 +31,7 @@ pub struct JsChatBackend {
     session_config: bool,
     context_owner: ContextOwner,
     agent_tasks: bool,
+    remote_task: Option<crate::remote_tasks::RemoteTaskCapability>,
     model_catalogue: ModelCatalogueCapability,
     model_catalogue_input_files: Vec<PathBuf>,
     session_exec_env: parking_lot::Mutex<HashMap<String, HashMap<String, String>>>,
@@ -50,6 +51,7 @@ impl JsChatBackend {
             session_config: false,
             context_owner: ContextOwner::Plugin,
             agent_tasks: false,
+            remote_task: None,
             model_catalogue: ModelCatalogueCapability::default(),
             model_catalogue_input_files: Vec::new(),
             session_exec_env: parking_lot::Mutex::new(HashMap::new()),
@@ -67,7 +69,9 @@ impl JsChatBackend {
             watcher_capable: manifest.capabilities.chat_backend_watcher_capable(),
             session_config: manifest.capabilities.chat_backend.session_config(),
             context_owner: manifest.capabilities.chat_backend.context_owner(),
-            agent_tasks: manifest.capabilities.chat_backend.agent_tasks,
+            agent_tasks: manifest.capabilities.chat_backend.agent_tasks
+                && manifest.capabilities.remote_task.is_none(),
+            remote_task: manifest.capabilities.remote_task.clone(),
             model_catalogue: manifest.model_catalogue.clone(),
             model_catalogue_input_files: manifest.model_catalogue.fingerprint_files(
                 super::host_credentials::declared_files(&manifest.credentials),
@@ -191,6 +195,10 @@ fn chatbackend_host_exec_env(
 }
 
 impl ChatBackendProvider for JsChatBackend {
+    fn remote_task_capability(&self) -> Option<crate::remote_tasks::RemoteTaskCapability> {
+        self.remote_task.clone()
+    }
+
     fn id(&self) -> &str {
         &self.id
     }

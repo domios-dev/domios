@@ -367,7 +367,11 @@ impl SocketClient {
             let used_headers: &[&str] = match method {
                 "agent.startup_ack" => &["x-codeterm-tab-id", "x-codeterm-binding-nonce"],
                 "agent.ack" | "tab.send_text" => &["x-codeterm-tab-id"],
-                "agent.report" => &["x-codeterm-tab-id"],
+                "agent.report" => &[
+                    "x-codeterm-tab-id",
+                    "x-codeterm-session-id",
+                    "x-codeterm-binding-nonce",
+                ],
                 _ => &[],
             };
             let identity_headers: reqwest::header::HeaderMap = headers

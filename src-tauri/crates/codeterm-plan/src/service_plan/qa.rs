@@ -283,7 +283,7 @@ impl PlanStore {
         plan_id: &str,
         note: &str,
         from: AgentRef,
-        tester_tab_id: Option<&str>,
+        qa_tab_id: Option<&str>,
         now_ms: u64,
     ) -> Result<Option<QaTransitionResult>, PlanError> {
         let note = require_note(note)?;
@@ -305,7 +305,7 @@ impl PlanStore {
             task.execution_attempts[attempt_index].reviewed_at = Some(now_ms);
             task.qa_state = Some(QaState::Running);
             task.status_changed_at = now_ms;
-            task.assigned_tab_id = tester_tab_id.map(str::to_string);
+            task.assigned_tab_id = qa_tab_id.map(str::to_string);
             task.updated_at = now_ms;
             task.milestones.push(qa_milestone(
                 mid.clone(),

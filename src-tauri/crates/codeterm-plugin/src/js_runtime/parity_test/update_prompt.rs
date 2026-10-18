@@ -151,6 +151,44 @@ impl AgentProvider for NativeUpdateFixture {
     fn update_command(&self, platform: &str) -> Option<String> {
         matches!(platform, "macos" | "linux" | "windows").then(|| self.command.into())
     }
+
+    fn provider_self_update_capability(
+        &self,
+    ) -> Option<crate::provider_self_update::ProviderSelfUpdateCapability> {
+        Some(crate::provider_self_update::ProviderSelfUpdateCapability {
+            npm_package: "@scope/fixture-cli".into(),
+            standalone_directory: "packages/standalone".into(),
+            standalone_args: vec!["update".into()],
+        })
+    }
+}
+
+#[test]
+fn parity_provider_self_update_capability() {
+    let native = NativeUpdateFixture {
+        id: "fixture",
+        command: "fixture update",
+    };
+    assert_eq!(
+        native.provider_self_update_capability(),
+        load_inline_js(
+            "fixture",
+            "module.exports.default = { providerSelfUpdateCapability: () => ({ npmPackage: \"@scope/fixture-cli\", standaloneDirectory: \"packages/standalone\", standaloneArgs: [\"update\"] }) };",
+        )
+        .provider_self_update_capability()
+    );
+    assert_eq!(
+        load_inline_js("fixture", "module.exports.default = {};").provider_self_update_capability(),
+        None
+    );
+    assert_eq!(
+        load_inline_js(
+            "fixture",
+            "module.exports.default = { providerSelfUpdateCapability: () => null };"
+        )
+        .provider_self_update_capability(),
+        None
+    );
 }
 
 #[test]

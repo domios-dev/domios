@@ -102,7 +102,7 @@ Test layers, commands and the runbook: `.agents/skills/testing/SKILL.md`.
 | `pnpm install --frozen-lockfile` fails with `ENOENT` for a package inside `node_modules/.pnpm` | The local pnpm virtual store contains a partial package directory, so the lockfile is valid but linking cannot read the package manifest | Run `pnpm install --frozen-lockfile --force`, verify the missing binary or package is present, then rerun the original test command |
 
 
-If `.\build.ps1 test` stops before the Rust summary with `os error 232` or "the
+If `./build.ps1 test` stops before the Rust summary with `os error 232` or "the
 pipe is being closed", the build command lost its stdout reader; this is a
 gateway logging failure, not a test verdict. The gateway now owns the `tee`
 reader, closes its writer descriptors after the final exit-status line, and

@@ -29,6 +29,8 @@ mod process_slot;
 pub(crate) mod projections;
 pub mod reset_credits;
 pub mod thread_history;
+pub(crate) mod update;
+pub use projections::for_tab as usage_for_tab;
 pub use projections::latest as projections_latest;
 pub(crate) mod prompt_answers;
 mod question_delivery;
@@ -47,6 +49,7 @@ pub fn requested_for_tab(svc: &crate::service::ServiceContext, tab: &str) -> boo
         .mux
         .read()
         .get_tab(tab)
+        .filter(|tab| tab.restorable_launch.execution_mode.is_none())
         .and_then(|tab| tab.agent_type.clone());
     provider.is_some_and(|provider| engine::requested(svc, &provider))
 }

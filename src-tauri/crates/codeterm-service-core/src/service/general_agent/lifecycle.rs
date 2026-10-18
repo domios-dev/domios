@@ -492,7 +492,9 @@ pub fn start_general_agent(
             provider: provider_name,
             permission_bypass,
             ownership: super::session_contract::LaunchOwnership::Main,
-            selection: Default::default(),
+            selection: super::session_contract::default_selection(
+                &svc.configuration().general_agent,
+            ),
         },
     );
 }

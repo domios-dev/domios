@@ -1,6 +1,8 @@
 use super::*;
 use codeterm_plugin::agent_runtime::RuntimeThreadParent;
 
+mod restore;
+
 #[test]
 fn child_read_authority_requires_exact_epoch_nonce_root_and_recorded_child() {
     let mut ctx = RuntimeContext {
@@ -84,4 +86,49 @@ fn metadata_is_epoch_scoped_and_observation_does_not_rebind_the_root() {
         .unwrap()
         .remove("agent_parent_thread_id");
     assert!(codeterm_plugin::agent_runtime::runtime_child("root", &item).is_none());
+}
+
+#[test]
+fn history_restores_only_own_root_relations_without_claiming_liveness() {
+    let mut context = RuntimeContext {
+        epoch: 2,
+        thread_id: Some("root".into()),
+        binding_nonce: "new".into(),
+        ..Default::default()
+    };
+    let mut maps = events::RuntimeMaps::default();
+    let row = |parent: &str| ChatMsg {
+        id: parent.into(),
+        tool_kind: Some("agent".into()),
+        tool_name: Some("agent_activity".into()),
+        tool_input: Some(
+            serde_json::json!({"agent_id":"child", "agent_parent_thread_id":parent, "agent_ordinal":1, "agent_state":"running", "agent_binding_nonce":"old", "agent_runtime_epoch":1}),
+        ),
+        ..Default::default()
+    };
+    restore_relations(&mut context, &mut maps, "foreign", &[row("root")]);
+    restore_relations(&mut context, &mut maps, "root", &[row("foreign")]);
+    assert!(maps.child(2, "child").is_none());
+    restore_relations(&mut context, &mut maps, "root", &[row("root")]);
+    let child = maps.child(2, "child").unwrap();
+    assert_eq!(child.status, "unknown");
+    assert!(maps.child(1, "child").is_none());
+    assert!(context.active_turns.is_empty());
+    let request = ChildHistoryRequest {
+        root_thread_id: "root".into(),
+        binding_nonce: "new".into(),
+        epoch: 2,
+        cursor: None,
+    };
+    assert!(authorize(&context, &request, &child, "child").is_ok());
+    assert!(authorize(
+        &context,
+        &ChildHistoryRequest {
+            epoch: 1,
+            ..request
+        },
+        &child,
+        "child"
+    )
+    .is_err());
 }

@@ -7,6 +7,18 @@ pub use codeterm_provider_ops::provider_update::*;
 
 mod idle;
 
+pub fn check_available(service: Arc<ServiceContext>, api_port: u16, allow_non_prod: bool) {
+    let weak = Arc::downgrade(&service);
+    service
+        .agent_registry
+        .observe_provider_changes(Arc::new(move |provider| {
+            if let Some(service) = weak.upgrade() {
+                refresh_available(service.as_ref(), provider);
+            }
+        }));
+    codeterm_provider_ops::provider_update::check_available(service, api_port, allow_non_prod);
+}
+
 impl ProviderUpdateHost for ServiceContext {
     fn providers(&self) -> Vec<Arc<dyn AgentProvider>> {
         self.agent_registry.all_provider_arcs()
@@ -41,6 +53,13 @@ impl ProviderUpdateHost for ServiceContext {
             serde_json::json!({
                 "provider": provider, "operation": "update", "summary": summary,
             }),
+        );
+    }
+
+    fn availability_changed(&self, provider: &str) {
+        self.ui.emit(
+            "provider-cli-update-available",
+            serde_json::json!({ "provider": provider }),
         );
     }
 }

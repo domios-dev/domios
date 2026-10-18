@@ -1,3 +1,4 @@
+pub use portable_pty::cmdbuilder::WindowsJobPolicy;
 use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize};
 use std::collections::HashMap;
 use std::io::Read;
@@ -395,6 +396,18 @@ fn apply_pty_env(cmd: &mut CommandBuilder, env_vars: &HashMap<String, String>) {
     }
 }
 
+pub fn shell_job_policy(
+    team_member: bool,
+    agent: bool,
+    purpose: crate::multiplexer::types::ShellPurpose,
+) -> WindowsJobPolicy {
+    if team_member && !agent && purpose == crate::multiplexer::types::ShellPurpose::Dev {
+        WindowsJobPolicy::AllowExplicitServerBreakaway
+    } else {
+        WindowsJobPolicy::Contained
+    }
+}
+
 pub fn build_session(
     spawn_gate: PtySpawnGate,
     command: Option<String>,
@@ -415,8 +428,30 @@ pub fn build_session_with_profile(
     env_vars: HashMap<String, String>,
     profile: Option<&super::shell_profiles::ShellProfile>,
 ) -> Result<BuiltSession, String> {
+    build_shell_session_with_policy(
+        spawn_gate,
+        command,
+        cwd,
+        cols,
+        rows,
+        env_vars,
+        profile,
+        WindowsJobPolicy::Contained,
+    )
+}
+
+pub fn build_shell_session_with_policy(
+    spawn_gate: PtySpawnGate,
+    command: Option<String>,
+    cwd: Option<String>,
+    cols: u16,
+    rows: u16,
+    env_vars: HashMap<String, String>,
+    profile: Option<&super::shell_profiles::ShellProfile>,
+    job_policy: WindowsJobPolicy,
+) -> Result<BuiltSession, String> {
     build_session_for_launch(
-        spawn_gate, command, cwd, cols, rows, env_vars, profile, None,
+        spawn_gate, command, cwd, cols, rows, env_vars, profile, None, job_policy,
     )
 }
 
@@ -437,6 +472,7 @@ pub fn build_direct_session(
         env_vars,
         None,
         Some((launch, env_unset)),
+        WindowsJobPolicy::Contained,
     )
 }
 
@@ -449,6 +485,7 @@ fn build_session_for_launch(
     env_vars: HashMap<String, String>,
     profile: Option<&super::shell_profiles::ShellProfile>,
     direct: Option<(super::shell_profiles::ShellLaunch, &[String])>,
+    job_policy: WindowsJobPolicy,
 ) -> Result<BuiltSession, String> {
     let is_direct = direct.is_some();
     let (direct_launch, env_unset) =
@@ -495,6 +532,7 @@ fn build_session_for_launch(
         }
     };
 
+    cmd.set_windows_job_policy(job_policy);
     let launch_cwd = launch.as_ref().map(|l| l.cwd.clone()).unwrap_or(cwd);
 
     cmd.env("CODETERM", "1");

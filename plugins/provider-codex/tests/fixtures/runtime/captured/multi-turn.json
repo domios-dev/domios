@@ -1357,7 +1357,8 @@
         "step": {
           "kind": "complete",
           "result": {
-            "kind": "initialized"
+            "kind": "initialized",
+            "binaryVersion": "0.162.1"
           },
           "events": [
             {
@@ -1394,7 +1395,9 @@
               "model": "gpt-6-luna",
               "effort": "low",
               "mode": "approval-required",
-              "serviceTier": {"id": "priority"}
+              "serviceTier": {
+                "id": "priority"
+              }
             }
           }
         }

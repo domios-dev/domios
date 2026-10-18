@@ -1,5 +1,6 @@
 import { sessionRecords, type SessionRecordInput } from "../../provider-shared/sessionRecords";
 import { buildCodexLaunchSpec, codexCommandFromSpec, CODEX_LAUNCH_CONFIG } from "./launchSpec";
+import {cloudExports} from "./cloud/plugin";
 import { runtimePlan, runtimeResponse, runtimeReduce } from "./runtime";
 import { runtimeStoredHistory, runtimeStoredRecords, storedHistoryAvailable } from "./runtimeStoredHistory";
 import { codexToolOutputText } from "./toolOutput";
@@ -26,7 +27,7 @@ import {
   responseKeysForIndex,
 } from "./prompt";
 import { fetchCodexUsage, parseCodexUsage } from "./usage";
-import { checkCodexUpdate } from "./update";
+import { checkCodexUpdate, codexSelfUpdateCapability } from "./update";
 import { execScriptCommands, summarizeExecScript, unwrapCommandExecution, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
@@ -185,6 +186,7 @@ function hasPromptAndStatusFooter(screen: string): boolean {
 }
 
 const plugin: PluginModule = {
+  ...cloudExports(host),
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimeStoredRecords,
@@ -298,6 +300,10 @@ const plugin: PluginModule = {
 
   checkForUpdate() {
     return checkCodexUpdate(host);
+  },
+
+  providerSelfUpdateCapability() {
+    return codexSelfUpdateCapability;
   },
 
   releaseTabLaunchArtifacts(tabId: string, instanceId: string): boolean {

@@ -34,14 +34,14 @@ fn saved_policy_round_trip_rejects_replacement_removal_and_cwd_changes() {
 }
 
 #[test]
-fn changed_root_diagnostic_names_the_recorded_or_added_path() {
+fn changed_root_diagnostic_names_the_added_path() {
     let mut saved = policy();
     saved.writable_roots = vec!["recorded-root".into()];
     let mut changed = saved.clone();
     changed.writable_roots = vec!["new-root".into()];
     assert!(validate_saved(Some(&saved), Some(&changed))
         .unwrap_err()
-        .contains("recorded-root"));
+        .contains("new-root"));
     changed.writable_roots.insert(0, "recorded-root".into());
     assert!(validate_saved(Some(&saved), Some(&changed))
         .unwrap_err()
@@ -185,7 +185,7 @@ fn task_bound_workers_require_explicit_execution_intent() {
 }
 
 #[test]
-fn task_intents_suppress_authorized_global_bypass() {
+fn task_intents_preserve_authorized_full_access_unless_sandbox_is_explicit() {
     let authorization = Some(
         crate::service::permission_policy::PermissionBypassAuthorization::for_test(
             "opaque-provider",
@@ -198,7 +198,14 @@ fn task_intents_suppress_authorized_global_bypass() {
             permission_bypass_authorization: authorization.clone(),
             ..Default::default()
         };
-        assert!(!params.permission_bypass_requested("opaque-provider"));
+        assert!(params.permission_bypass_requested("opaque-provider"));
+        for sandbox in ["read-only", "workspace-write"] {
+            let confined = SpawnAgentParams {
+                sandbox: Some(sandbox.into()),
+                ..params.clone()
+            };
+            assert!(!confined.permission_bypass_requested("opaque-provider"));
+        }
     }
 }
 
@@ -279,7 +286,7 @@ fn engine_guard_checks_open_resume_turn_and_controls_against_persisted_policy() 
 }
 
 #[test]
-fn restore_reapplies_saved_intent_and_cwd_above_requested_bypass() {
+fn restore_reapplies_saved_sandbox_without_overwriting_execution_authority() {
     let policy = policy();
     let params = SpawnAgentParams {
         agent: Some("opaque-provider".into()),
@@ -302,7 +309,7 @@ fn restore_reapplies_saved_intent_and_cwd_above_requested_bypass() {
     );
     assert_eq!(
         restored.params.execution_intent,
-        Some(ExecutionIntent::ReadOnly)
+        Some(ExecutionIntent::Mutating)
     );
     assert_eq!(restored.params.cwd, Some(policy.cwd));
     assert_eq!(restored.params.skip_permissions, Some(false));
@@ -339,6 +346,7 @@ fn tab_policy_survives_missing_restore_intent_and_refuses_weakening() {
     let params = SpawnAgentParams {
         agent: Some("opaque-provider".into()),
         execution_intent: Some(ExecutionIntent::ReadOnly),
+        sandbox: Some("read-only".into()),
         cwd: Some(directory.path().to_str().unwrap().into()),
         ..Default::default()
     };
@@ -347,6 +355,7 @@ fn tab_policy_survives_missing_restore_intent_and_refuses_weakening() {
         .unwrap();
     let restored = SpawnAgentParams {
         execution_intent: None,
+        sandbox: None,
         ..params.clone()
     };
     assert_eq!(
@@ -354,7 +363,7 @@ fn tab_policy_survives_missing_restore_intent_and_refuses_weakening() {
         Some(initial.clone())
     );
     let changed = SpawnAgentParams {
-        execution_intent: Some(ExecutionIntent::Mutating),
+        sandbox: Some("workspace-write".into()),
         ..params.clone()
     };
     assert!(for_launch(&fixture.service, &tab, "opaque-provider", &changed, false).is_err());
@@ -398,6 +407,7 @@ fn pty_fresh_and_resume_forward_the_declared_sandbox_without_bypass() {
     let params = SpawnAgentParams {
         cwd: Some(directory.path().to_str().unwrap().into()),
         execution_intent: Some(ExecutionIntent::ReadOnly),
+        sandbox: Some("read-only".into()),
         skip_permissions: Some(true),
         permission_bypass_authorization: Some(
             crate::service::permission_policy::PermissionBypassAuthorization::for_test(
@@ -448,4 +458,78 @@ fn pty_fresh_and_resume_forward_the_declared_sandbox_without_bypass() {
     )
     .is_empty());
     assert_eq!(launches.lock().len(), 1);
+}
+
+#[test]
+fn execution_authority_does_not_implicitly_request_os_confinement() {
+    for intent in [ExecutionIntent::ReadOnly, ExecutionIntent::Mutating] {
+        let params = SpawnAgentParams {
+            execution_intent: Some(intent),
+            ..Default::default()
+        };
+        assert!(
+            resolve_requested(&AgentRegistry::new(), "unregistered", &params, true)
+                .unwrap()
+                .is_none()
+        );
+        assert!(preflight(&AgentRegistry::new(), "unregistered", &params, false).is_ok());
+    }
+    assert_eq!(
+        requested_intent(Some("read-only")).unwrap(),
+        Some(ExecutionIntent::ReadOnly)
+    );
+    assert_eq!(
+        requested_intent(Some("workspace-write")).unwrap(),
+        Some(ExecutionIntent::Mutating)
+    );
+    assert!(requested_intent(Some("unknown")).is_err());
+}
+
+#[test]
+fn explicit_spawn_sandbox_survives_json_and_pty_spec_round_trip() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent":"opaque-provider", "role":"Worker", "sandbox":"read-only",
+        "execution_intent":"read_only"
+    }))
+    .unwrap();
+    let spec = crate::service::spawn::SpawnTabSpec::from_agent_params(params);
+    assert_eq!(
+        spec.to_agent_params().unwrap().sandbox.as_deref(),
+        Some("read-only")
+    );
+}
+
+#[test]
+fn restored_missing_and_unresolvable_roots_narrow_recorded_grants() {
+    let mut saved = policy();
+    saved.intent = ExecutionIntent::Mutating;
+    saved.writable_roots = vec![
+        "missing-cache".into(),
+        "unresolvable-cache".into(),
+        "lane".into(),
+    ];
+    let resolved = policy();
+    let mut resolved = ExecutionSandboxPolicy {
+        intent: ExecutionIntent::Mutating,
+        ..resolved
+    };
+    resolved.writable_roots = vec!["new-host-cache".into()];
+    let restored = restore_recorded(&saved, &resolved, |root| root == "lane").unwrap();
+    assert_eq!(restored.writable_roots, vec!["lane"]);
+    assert!(validate_saved(Some(&saved), Some(&restored)).is_ok());
+    assert_eq!(restored.environment, saved.environment);
+}
+
+#[test]
+fn restored_read_only_policy_never_acquires_host_grants() {
+    let saved = policy();
+    let mut resolved = saved.clone();
+    resolved.writable_roots = vec!["host-cache".into()];
+    let restored = restore_recorded(&saved, &resolved, |_| true).unwrap();
+    assert_eq!(restored, saved);
+    resolved.intent = ExecutionIntent::Mutating;
+    assert!(restore_recorded(&saved, &resolved, |_| true).is_err());
+    resolved = saved.clone();
+    resolved.runtime_mode = Some("full-access".into());
+    assert!(restore_recorded(&saved, &resolved, |_| true).is_err());
 }

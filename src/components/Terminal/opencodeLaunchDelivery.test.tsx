@@ -1,11 +1,14 @@
-import { expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { tabActivity } from "../../lib/tabActivity";
 import { ChatDeliveryState } from "./ChatDeliveryState";
 import { deliveryState } from "./chatDeliveryModel";
-import { observeDeliveryStatus, readChatSends, beginChatSendRetry, forgetChatSendsInMemory } from "./chatSendStore";
+import { observeDeliveryStatus, readChatSends, beginChatSendRetry, forgetChatSendsInMemory,
+  __setChatSendRepositoryForTest, ensureChatSendTabHydrated } from "./chatSendStore";
 import type { ChatSendStatus } from "./chatSendStatus";
+import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 
+beforeEach(() => __setChatSendRepositoryForTest(new MemoryChatSendRepository()));
 
 test("a lazy provider's ready composer ends Starting before a session exists", () => {
   const tab = { agent_type: "lazy-fixture", agent_session_id: null, agent_booting: false };
@@ -14,7 +17,7 @@ test("a lazy provider's ready composer ends Starting before a session exists", (
   expect(tabActivity({ ...tab, boot_stage: "agent_ready", pending_prompt: { question: "opaque", options: [] } }).kind).toBe("waiting-on-user");
 });
 
-test("continuation status hydrates one bubble and never enables retry of uncertain input", () => {
+test("continuation status hydrates one bubble and never enables retry of uncertain input", async () => {
   const status: ChatSendStatus = {
     tab_id: "continue-fixture", send_id: "continue-send", correlationId: "continue-send",
     state: "held", ledger_id: "ledger", sequence: 1, retained_from: 1, error: null,
@@ -23,6 +26,7 @@ test("continuation status hydrates one bubble and never enables retry of uncerta
   observeDeliveryStatus(status);
   observeDeliveryStatus({ ...status, state: "submit_unconfirmed", sequence: 2 });
   forgetChatSendsInMemory();
+  await ensureChatSendTabHydrated(status.tab_id);
   const sends = readChatSends(status.tab_id);
   expect(sends).toHaveLength(1);
   expect(sends[0].content).toBe(status.system_send!.content);

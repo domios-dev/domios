@@ -160,7 +160,7 @@ if (config.build.beforeBuildCommand) throw new Error("Tauri must not own release
 for (const index of [4, 5, 6, 8, 9]) {
   const path = process.argv[index];
   const entrypoint = fs.readFileSync(path, "utf8");
-  if (!entrypoint.includes("release-inputs")) {
+  if (!/release-(?:inputs|bundle)/.test(entrypoint)) {
     throw new Error(`${path} bypasses target-aware release input preparation`);
   }
 }

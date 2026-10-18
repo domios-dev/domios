@@ -84,7 +84,7 @@ fn send_due_plan_time_reminders_noting(
     for timed in targets {
         counter.record_time_tick(&timed.tab_id, now);
         let is_due = counter.time_nudge_due(&timed.tab_id, now, interval_secs);
-        if !is_due && matches!(timed.target, PlanReminderTarget::Worker) {
+        if !is_due {
             note(&timed.tab_id, &timed.target, TickFact::NotDue);
             continue;
         }
@@ -115,8 +115,6 @@ fn send_due_plan_time_reminders_noting(
     log::info!("[plan-reminder] tick: {candidates} candidate Tab(s), {due} due");
 }
 
-/// One scheduler pass over every automatic producer: mode change, timed Owner
-/// and Worker, and complete-plan wrap-up. Each uses the deterministic gate.
 fn run_reminder_tick(
     host: &impl ReminderHost,
     plans: &[Plan],
@@ -125,31 +123,6 @@ fn run_reminder_tick(
     interval_secs: u64,
 ) {
     host.gate().retain(&approval::scope_keys(plans));
-    for plan in plans {
-        let Some(owner) = non_empty(plan.owner.tab_id.as_deref()) else {
-            continue;
-        };
-        let mode = format!("{:?}:{:?}", plan.mode, plan.status);
-        if plan.mode != PlanMode::Execution
-            && host
-                .gate()
-                .mode_changed(&approval::scope_key(&plan.id, owner), &mode)
-        {
-            let mut request = ReminderRequest::owner(&plan.id, owner, ReminderKind::ModeChange);
-            request.delivery_observer = Some(
-                crate::service::messenger::DeliveryWriteObserver::PlanReminder {
-                    plan_id: Some(plan.id.clone()),
-                    tab_id: owner.to_string(),
-                    reminder_kind: "mode_change".into(),
-                    state_key: Some(mode.clone()),
-                    complete_wrapup_plan_id: None,
-                },
-            );
-            if let Err(error) = deliver_reminder(host, &request, now) {
-                log::warn!("[heartbeat-gate] mode transition unavailable: {error}");
-            }
-        }
-    }
     send_due_plan_time_reminders_noting(
         plans,
         counter,
@@ -158,43 +131,6 @@ fn run_reminder_tick(
         |tab_id, target, kind| deliver_target(host, counter, tab_id, target, kind, now),
         |tab_id, target, fact| record_target_tick(host, tab_id, target, now, fact),
     );
-    send_due_complete_wrapup_reminders(host, plans, counter, now, interval_secs);
-}
-
-fn send_due_complete_wrapup_reminders(
-    host: &impl ReminderHost,
-    plans: &[Plan],
-    counter: &TurnCounter,
-    now: u64,
-    interval_secs: u64,
-) {
-    for (tab_id, plan_id) in complete_wrapup_targets(plans) {
-        if !counter.complete_wrapup_due(&plan_id)
-            || !counter.time_nudge_due(&tab_id, now, interval_secs)
-        {
-            continue;
-        }
-        let mut request = ReminderRequest::owner(&plan_id, &tab_id, ReminderKind::CompleteWrapup);
-        request.delivery_observer = Some(
-            crate::service::messenger::DeliveryWriteObserver::PlanReminder {
-                plan_id: Some(plan_id.clone()),
-                tab_id: tab_id.clone(),
-                reminder_kind: "complete_wrapup".into(),
-                state_key: None,
-                complete_wrapup_plan_id: Some(plan_id.clone()),
-            },
-        );
-        match deliver_reminder(host, &request, now) {
-            Ok(true) => {
-                counter.mark_complete_wrapup_sent(&plan_id);
-                counter.mark_time_nudged(&tab_id, now);
-            }
-            Ok(false) => {}
-            Err(reason) => {
-                log::warn!("[plan-reminder] complete wrapup not delivered to {tab_id}: {reason}")
-            }
-        }
-    }
 }
 
 fn deliver_target(
@@ -447,16 +383,6 @@ struct LiveHost<'a> {
     plans: Option<&'a [Plan]>,
 }
 
-impl<'a> LiveHost<'a> {
-    fn new(svc: &'a ServiceContext) -> Self {
-        Self {
-            svc,
-            interval: svc.configuration().orchestration.nudge_interval_secs,
-            plans: None,
-        }
-    }
-}
-
 impl ReminderHost for LiveHost<'_> {
     fn gate(&self) -> &Gate {
         self.svc
@@ -648,22 +574,6 @@ impl ServiceContext {
         counter.retain_time_reminders(&deadline_tabs(&plans, counter));
     }
 
-    pub(super) fn deliver_plan_reminder_target(
-        &self,
-        tab_id: &str,
-        target: &PlanReminderTarget,
-        kind: NudgeKind,
-    ) -> Result<bool, String> {
-        deliver_target(
-            &LiveHost::new(self),
-            &self.plan_turn_counter,
-            tab_id,
-            target,
-            kind,
-            current_epoch_secs(),
-        )
-    }
-
     /// Host-authored reminder text; the model chose only whether it is useful.
     fn compose_plan_reminder(
         &self,
@@ -682,37 +592,8 @@ impl ServiceContext {
                 ),
                 transport: Transport::Automated,
             },
-            ReminderKind::CompleteWrapup => {
-                let mut text =
-                    crate::service::plan::complete_wrapup::complete_wrapup_message(&plan.id);
-                // A complete plan gets no heartbeat, so the release map boundary
-                // rides the one wrapup this plan is sent.
-                for line in crate::service::cartographer::digest_lines(
-                    plan,
-                    self.configuration().orchestration.map.enabled,
-                ) {
-                    text.push_str("\n\n");
-                    text.push_str(&line);
-                }
-                Emission {
-                    text,
-                    transport: Transport::Automated,
-                }
-            }
-            ReminderKind::Owner | ReminderKind::ModeChange | ReminderKind::StalledTeam => {
-                let mut text = if scope.kind == ReminderKind::StalledTeam {
-                    crate::service::plan::reminders::ORCHESTRATOR_STALLED_TEAM_REMINDER
-                        .replace(
-                            "{actionable}",
-                            &orchestrator_actionable_task_ids(plan).join(", "),
-                        )
-                        .replace(
-                            "{parked}",
-                            &crate::service::plan::reminders::parked_later_group_summary(plan),
-                        )
-                } else {
-                    String::new()
-                };
+            ReminderKind::Owner => {
+                let mut text = String::new();
                 let mode_transition = snapshot.hard.contains(&HardWake::ModeChange);
                 let plain = mode_transition && plan.mode != PlanMode::Execution;
                 if plain {
@@ -861,11 +742,8 @@ impl PlanReminderTarget {
         }
     }
 
-    fn request(&self, tab_id: &str, kind: NudgeKind) -> ReminderRequest {
+    fn request(&self, tab_id: &str, _kind: NudgeKind) -> ReminderRequest {
         match self {
-            Self::Owner { plan_id } if kind == NudgeKind::StalledTeam => {
-                ReminderRequest::owner(plan_id, tab_id, ReminderKind::StalledTeam)
-            }
             Self::Owner { plan_id } => ReminderRequest::owner(plan_id, tab_id, ReminderKind::Owner),
             Self::Worker => ReminderRequest::worker(tab_id),
         }
@@ -957,30 +835,10 @@ fn task_status_text(status: &TaskStatus) -> &'static str {
     }
 }
 
-/// Tabs whose scheduler deadline survives a pass: timed targets plus owners of
-/// complete plans still owed their one wrap-up.
-fn deadline_tabs(plans: &[Plan], counter: &TurnCounter) -> HashSet<String> {
+fn deadline_tabs(plans: &[Plan], _counter: &TurnCounter) -> HashSet<String> {
     timed_plan_reminder_targets(plans)
         .into_iter()
         .map(|target| target.tab_id)
-        .chain(
-            complete_wrapup_targets(plans)
-                .into_iter()
-                .filter(|(_, plan_id)| counter.complete_wrapup_due(plan_id))
-                .map(|(tab_id, _)| tab_id),
-        )
-        .collect()
-}
-
-fn complete_wrapup_targets(plans: &[Plan]) -> Vec<(String, String)> {
-    plans
-        .iter()
-        .filter(|plan| crate::service::plan::complete_wrapup::needs_complete_wrapup(plan))
-        .filter(|plan| !crate::service::plan::pause_operation::plan_notices_suppressed(plan))
-        .filter_map(|plan| {
-            let tab = non_empty(plan.owner.tab_id.as_deref())?;
-            Some((tab.to_string(), plan.id.clone()))
-        })
         .collect()
 }
 

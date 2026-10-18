@@ -14,7 +14,7 @@ pub enum NextActionKind {
     ConsiderStop,
     Dispatch,
     ClaimQa,
-    SpawnTester,
+    SpawnQA,
     ParkedForLaterGroups,
     Continue,
     ReviewWipBlocked,
@@ -104,7 +104,7 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
                 let kind = if lane.qa_state == Some(QaState::Queued) {
                     NextActionKind::ClaimQa
                 } else {
-                    NextActionKind::SpawnTester
+                    NextActionKind::SpawnQA
                 };
                 let message = if lane.qa_state == Some(QaState::Queued) {
                     format!(

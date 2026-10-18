@@ -39,7 +39,7 @@ export function request(endpoint,message,signal) {
 export function processInfo(pid) {
   requireValue(Number.isSafeInteger(pid) && pid > 0,'Invalid process ID');
   if (process.platform === 'win32') {
-    const code = `$p=Get-Process -Id ${pid} -ErrorAction Stop; [pscustomobject]@{pid=$p.Id;created=$p.StartTime.ToUniversalTime().ToString('o');privateBytes=$p.PrivateMemorySize64;workingSet=$p.WorkingSet64}|ConvertTo-Json -Compress`;
+    const code = `$p=Get-Process -Id ${pid} -ErrorAction Stop; [pscustomobject]@{pid=$p.Id;created=$p.StartTime.ToUniversalTime().ToString('o');createdFiletime=$p.StartTime.ToUniversalTime().ToFileTimeUtc().ToString();executable=$p.Path;privateBytes=$p.PrivateMemorySize64;workingSet=$p.WorkingSet64;cpuSeconds=$p.TotalProcessorTime.TotalSeconds}|ConvertTo-Json -Compress`;
     return JSON.parse(execFileSync('powershell.exe',['-NoLogo','-NoProfile','-Command',code],{encoding:'utf8',timeout:15_000}));
   }
   const helper = fileURLToPath(new URL('../../restart-endurance/',import.meta.url));
@@ -48,7 +48,7 @@ export function processInfo(pid) {
   requireValue(/^\d+$/.test(created),'Kernel process creation identity missing');
   const rss = execFileSync('ps',['-p',String(pid),'-o','rss='],{encoding:'utf8',timeout:5000}).trim();
   const workingSet = rss.length?Number(rss)*1024:null;
-  return {pid,created,privateBytes:null,workingSet:workingSet !== null && Number.isFinite(workingSet)?workingSet:null};
+  return {pid,created,privateBytes:null,cpuSeconds:null,workingSet:workingSet !== null && Number.isFinite(workingSet)?workingSet:null};
 }
 export function shellCommand(argv) {
   if (process.platform === 'win32') {

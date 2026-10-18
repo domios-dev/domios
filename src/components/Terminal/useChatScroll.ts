@@ -29,7 +29,7 @@ import { chatOverflowAnchorFor } from "./chatAnchorAuthority";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 import { chatRevealIndex } from "./chatAnchorModel";
 import { useChatScrollGesture } from "./useChatScrollGesture";
-import { chatScrollBookmark, chatScrollRestoreTarget, type ChatScrollState } from "./chatScrollMemory";
+import { chatScrollBookmark, chatScrollRestoreTarget, initialChatScrollAnchor, type ChatScrollState } from "./chatScrollMemory";
 import { isChatScrollReady } from "./chatScrollReadiness";
 
 const SHOW_SCROLL_DOWN_THRESHOLD_PX = 240;
@@ -95,14 +95,15 @@ export function useChatScroll({
   const sessionKeyRef = useRef(sessionKey);
   const restoredKeyRef = useRef("");
   const persisted = getPersistedChatScrollState(sessionKey);
-  const modeRef = useRef<ChatViewportMode>(persisted?.mode ?? "pinned");
+  const initial = initialChatScrollAnchor(persisted);
+  const modeRef = useRef<ChatViewportMode>(initial.pinned ? "pinned" : "detached");
   const prependSnapshotRef = useRef<PendingPrependSnapshot | null>(null);
   const prependVersionRef = useRef(prependVersion);
   prependVersionRef.current = prependVersion;
   const lastViewportRef = useRef<ChatViewportGeometry>({
-    scrollTop: persisted?.scrollTop ?? 0, scrollHeight: 0, clientHeight: 0,
+    scrollTop: initial.top, scrollHeight: 0, clientHeight: 0,
   });
-  const contentAnchorRef = useRef<ChatContentAnchor | null>(persisted?.anchor ?? null);
+  const contentAnchorRef = useRef<ChatContentAnchor | null>(initial.anchor);
   const visibleSnapshotRef = useRef<{ key: string; state: ChatScrollState | null }>({ key: sessionKey, state: persisted });
   const hookScrollTopRef = useRef<number | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
@@ -124,10 +125,11 @@ export function useChatScroll({
   if (sessionKeyRef.current !== sessionKey) {
     sessionKeyRef.current = sessionKey;
     const next = getPersistedChatScrollState(sessionKey);
-    modeRef.current = next?.mode ?? "pinned";
-    lastViewportRef.current = { scrollTop: next?.scrollTop ?? 0, scrollHeight: 0, clientHeight: 0 };
+    const initial = initialChatScrollAnchor(next);
+    modeRef.current = initial.pinned ? "pinned" : "detached";
+    lastViewportRef.current = { scrollTop: initial.top, scrollHeight: 0, clientHeight: 0 };
     prependSnapshotRef.current = null;
-    contentAnchorRef.current = next?.anchor ?? null;
+    contentAnchorRef.current = initial.anchor;
     visibleSnapshotRef.current = { key: sessionKey, state: next };
     hookScrollTopRef.current = null;
   }

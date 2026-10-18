@@ -14,7 +14,8 @@ import { formatSpend } from "./format";
 import { groupSpendSnapshot, hasGroupSpend } from "./groupSpend";
 import { UsageDetail, UsageSpendDetail } from "./UsageDetail";
 import { UsageHistoryModal } from "./UsageHistoryModal";
-import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics, type VisibleUsageMetric } from "./metrics";
+import type {UsageSnapshot} from "../../types/usage";
+import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics, usagePillText } from "./metrics";
 import { formatAge } from "../../lib/timeLabels";
 
 interface UsageBubbleProps {
@@ -81,7 +82,17 @@ export function UsageBubble({
     };
   }, []);
   const tokenSession = runtime?.billing_mode === "api" ? runtime : null;
-  const resetModel = tabId ? resetCreditsForTab(tabId, uid, key => invoke<ResetResponse>("agent_runtime_reset_credits", {tabId,request:{action:"redeem",confirmed:true,idempotencyKey:key}})) : null;
+  const resetModel = tabId ? resetCreditsForTab(tabId, uid, async (key, creditId) => {
+    const result = await invoke<ResetResponse>("agent_runtime_reset_credits", {tabId,request:{action:"redeem",confirmed:true,idempotencyKey:key,...(creditId ? {creditId} : {})}});
+    try {
+      await invoke("agent_runtime_reset_credits", {tabId,request:{action:"read"}});
+      const updated = await invoke<UsageSnapshot|null>("usage_latest", {provider,accountId:accountId ?? undefined});
+      await refetch();
+      return {...result,remainingCount:ownRuntimeUsage(updated,tabId,threadId)?.resets?.availableCount ?? null};
+    } catch {
+      return result;
+    }
+  }) : null;
   const [resetReadError, setResetReadError] = useState<string|null>(null);
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -184,7 +195,7 @@ export function UsageBubble({
           setOpen((v) => !v);
         }}
       >
-        {tokenSession ? <span>{runtimeTokenLabel(tokenSession)}</span> : billingLabel ? <span>{billingLabel}</span> : isSpend ? (
+        {tokenSession ? <span>{runtimeTokenLabel(tokenSession)}</span> : isSpend ? (
           <span className="glyph neutral">
             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M6 1.6v8.8M8 3.2H4.9a1.4 1.4 0 0 0 0 2.8h2.2a1.4 1.4 0 0 1 0 2.8H3.8" />
@@ -192,14 +203,7 @@ export function UsageBubble({
             <span className="pct">{spendLabel}</span>
           </span>
         ) : (
-          metrics.map((metric, index) => (
-            <UsageMetricGlyph
-              key={metric.key}
-              metric={metric}
-              state={metric.key === "session" ? sessionState : weeklyState}
-              separated={index > 0}
-            />
-          ))
+          <span>{usagePillText(active)}</span>
         )}
         {isStale && <span className="stale-age">·{formatAge(active.captured_at, now)}</span>}
       </button>
@@ -244,38 +248,3 @@ export function UsageBubble({
     </div>
   );
 }
-
-function UsageMetricGlyph({
-  metric,
-  state,
-  separated,
-}: {
-  metric: VisibleUsageMetric;
-  state: "neutral" | "warn" | "danger";
-  separated: boolean;
-}) {
-  return (
-    <>
-      {separated && <span className="sep" />}
-      <span className={`glyph ${state}`}>
-        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          {metric.key === "session" ? (
-            <>
-              <circle cx="6" cy="6" r="4.6" />
-              <path d="M6 3.4V6l1.7 1.1" />
-            </>
-          ) : (
-            <path d="M1 7.2 3 5l2.2 2.2L7.4 4l3.4 3.4" />
-          )}
-        </svg>
-        <span className="pct">{formatPct(metric.pct)}</span>
-      </span>
-    </>
-  );
-}
-
-function formatPct(pct: number | null | undefined): string {
-  if (pct == null) return "—";
-  return `${Math.round(pct)}%`;
-}
-

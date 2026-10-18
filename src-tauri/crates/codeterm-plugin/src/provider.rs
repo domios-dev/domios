@@ -242,6 +242,8 @@ pub use worker_lane_setting::*;
 #[serde(deny_unknown_fields)]
 pub struct ProviderDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_task: Option<crate::remote_tasks::RemoteTaskCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_runtime: Option<crate::agent_runtime::AgentRuntimeCapability>,
     #[serde(default)]
     pub supports_session_fork: bool,

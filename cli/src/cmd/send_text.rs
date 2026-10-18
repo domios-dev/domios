@@ -143,6 +143,26 @@ fn pad_file_path(value: &serde_json::Value) -> Option<&str> {
     value.get("pad_file").and_then(serde_json::Value::as_str)
 }
 
+fn send_text_json_response(
+    mut value: serde_json::Value,
+    outcome: &SendTextOutcome,
+    resolved_text: Option<&str>,
+) -> serde_json::Value {
+    if let Some(text) = resolved_text.filter(|_| {
+        matches!(
+            outcome,
+            SendTextOutcome::Success(_)
+                | SendTextOutcome::Pending {
+                    bytes_written: true,
+                    ..
+                }
+        )
+    }) {
+        value["sent_message"] = crate::cmd::resolved_text::resolved_text_evidence(text);
+    }
+    value
+}
+
 pub fn handle_send_text_result(
     json: bool,
     result: Result<serde_json::Value, String>,
@@ -162,19 +182,7 @@ pub fn handle_send_text_result(
                 std::process::exit(*exit_code);
             }
             if json {
-                let mut value = value;
-                if let Some(text) = resolved_text.filter(|_| {
-                    matches!(
-                        &outcome,
-                        SendTextOutcome::Success(_)
-                            | SendTextOutcome::Pending {
-                                bytes_written: true,
-                                ..
-                            }
-                    )
-                }) {
-                    value["sent_message"] = crate::cmd::resolved_text::resolved_text_evidence(text);
-                }
+                let value = send_text_json_response(value, &outcome, resolved_text);
                 println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 return;
             }

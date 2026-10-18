@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { backgroundWorkElapsed, composerBackgroundWorkBubble, composerBackgroundWorkItems, LONG_RUNNING_WORK_MS } from "./composerBackgroundWorkModel";
+import { backgroundCommandName, backgroundOwnsTool, backgroundWorkElapsed, composerBackgroundWorkBubble, composerBackgroundWorkItems, LONG_RUNNING_WORK_MS } from "./composerBackgroundWorkModel";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 const now = Date.parse("2026-10-17T12:00:00.000Z");
@@ -21,10 +21,10 @@ const process = {threadId:"root",processId:"process-1",itemId:"terminal-item",co
 test("maps running terminals and capable-provider subagents into one counted bubble", () => {
   const items = composerBackgroundWorkItems([
     agent("agent-item", LONG_RUNNING_WORK_MS + 1, {
-      agent_id:"child-thread",agent_call_id:"call-1",agent_state:"running",agent_description:"Inspect the launch path",agent_model:"model-x",agent_reasoning_effort:"high",
+      agent_id:"child-thread",agent_call_id:"call-1",agent_state:"running",agent_description:"Inspect the launch path",agent_model:"model-x",agent_reasoning_effort:"high",agent_binding_nonce:"nonce",agent_runtime_epoch:1,
     }),
     {id:"terminal-item",type:"tool_result",content:"build output",timestamp:new Date(now - LONG_RUNNING_WORK_MS - 2).toISOString()},
-  ], [process], now, { subagentsVisible: true, rootThreadId: "root" });
+  ], [process], now, { subagentsVisible: true, rootThreadId: "root", authority:{rootThreadId:"root",bindingNonce:"nonce",epoch:1} });
 
   assert.deepEqual(items.map(({kind,threadId}) => [kind,threadId]), [["terminal","root"],["agent","child-thread"]]);
   assert.equal(items[0].outputTail,"build output");
@@ -72,4 +72,32 @@ test("formats elapsed time without negative values", () => {
   assert.equal(backgroundWorkElapsed(-1), "0s");
   assert.equal(backgroundWorkElapsed(65_000), "1m");
   assert.equal(backgroundWorkElapsed(3_725_000), "1h 2m");
+});
+
+test("restored child activity stays unknown without elapsed time until current binding evidence arrives",()=>{
+  const input={agent_id:"child",agent_state:"started",agent_binding_nonce:"old",agent_runtime_epoch:2};
+  const options={subagentsVisible:true,rootThreadId:"root",authority:{rootThreadId:"root",bindingNonce:"new",epoch:3}};
+  const rows=[agent("child",60_000,input)];
+  assert.equal(composerBackgroundWorkItems(rows,[],now,options)[0].status,"unknown");
+  assert.equal(composerBackgroundWorkItems(rows,[],now,options)[0].elapsed,"");
+  const refreshed=[agent("child",60_000,{...input,agent_binding_nonce:"new",agent_runtime_epoch:3,agent_state:"running"})];
+  assert.equal(composerBackgroundWorkItems(refreshed,[],now,options)[0].status,"running");
+  assert.equal(composerBackgroundWorkItems(refreshed,[],now,options)[0].elapsed,"1m");
+});
+
+test("projects readable command names without long arguments",()=>{
+  assert.equal(backgroundCommandName('pwsh -NoProfile -File "C:\\work area\\cleanup-merged.ps1" -Lane example'),"cleanup-merged.ps1");
+  assert.equal(backgroundCommandName('bash -lc "node /work/build.mjs --flag value"'),"build.mjs");
+  assert.equal(backgroundCommandName(`node ${"x".repeat(40)}.mjs`).length,24);
+});
+
+test("deduplicates process identity while preserving distinct jobs and exact tool ownership",()=>{
+  const message:NormalizedChatMessage={id:process.itemId,type:"tool_call",content:"",timestamp:new Date(now-20_000).toISOString()};
+  const items=composerBackgroundWorkItems([message],[process,process,{...process,processId:"another"}],now);
+  assert.equal(items.length,2);
+  assert.equal(items[0].status,"running");
+  assert.equal(backgroundOwnsTool({id:process.itemId,sourceSessionId:"root"},items),true);
+  assert.equal(backgroundOwnsTool({id:process.itemId,sourceSessionId:"foreign"},items),false);
+  assert.equal(backgroundOwnsTool({id:"foreground"},items),false);
+  assert.equal(backgroundOwnsTool(undefined,items),false);
 });

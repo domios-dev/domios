@@ -25,6 +25,7 @@ export function useComposerUploads(deps: Omit<Parameters<typeof createComposerUp
   }, [owner]);
   return {
     uploads,
+    take: (ids: number[]) => controller().take(ids),
     add: (blob: Blob, name: string) => controller().add(blob, name),
     addFiles: async (files: Iterable<File>) => { await Promise.all(Array.from(files, (file) => controller().add(file, file.name || "file.bin"))); },
     retry: (id: number) => controller().retry(id),

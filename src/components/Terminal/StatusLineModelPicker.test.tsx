@@ -505,7 +505,7 @@ test("the protected General Agent exposes the shared model picker and switch han
 });
 
 
-test("speed segments apply once and a disabled tier cannot be selected", async () => {
+test("speed segments apply once and unavailable tiers are omitted", async () => {
   const calls = recordSwitches();
   const provider = {...descriptor("next_turn"),agent_runtime:{serviceTiers:[{id:"priority",name:"Fast",description:""},{id:"ultrafast",name:"Ultrafast",description:"",unavailableReason:"Not available on your plan"}]}};
   const view = await mount(provider,{id:null});
@@ -513,9 +513,8 @@ test("speed segments apply once and a disabled tier cannot be selected", async (
     await act(async () => view.trigger()!.click());
     const segment = (name:string) => Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(item => item.textContent === name)!;
     assert.ok(segment("Default"));
-    assert.equal(segment("Ultrafast").disabled,true);
+    assert.equal(segment("Ultrafast"),undefined);
     await act(async () => segment("Fast").click());
-    await act(async () => segment("Ultrafast").click());
     assert.equal(calls.length,0);
     await act(async () => button("Apply").click());
     assert.deepEqual(calls,[["tab","deep","high",undefined,{id:"priority"}]]);

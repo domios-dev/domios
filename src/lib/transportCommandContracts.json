@@ -61,6 +61,7 @@
     "answers": []
   },
   "commands": {
+    "agent_runtime_child_authority": [["GET", "/api/mux/state"]],
     "mux_get_state": [
       [
         "GET",
@@ -349,6 +350,9 @@
         "/api/agents/general/sessions"
       ]
     ],
+    "provider_switch_status": [["GET", "/api/tabs/tab/agent/switch-provider/?wait=false"]],
+    "read_provider_history": [["GET", "/api/tabs/tab/agent/provider-history?file="]],
+    "switch_agent_provider": [["POST", "/api/tabs/tab/agent/switch-provider"]],
     "restart_agent_tab": [
       [
         "POST",

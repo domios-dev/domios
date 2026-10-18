@@ -1,8 +1,7 @@
 use crate::agent::AgentRole;
 
 use super::builtins::{
-    self, CARTOGRAPHER, GENERAL_AGENT, ORCHESTRATOR, PLANNER, RELEASE_MANAGER, TESTER, WATCHER,
-    WORKER,
+    self, CARTOGRAPHER, GENERAL_AGENT, ORCHESTRATOR, PLANNER, QA, RELEASE_MANAGER, WATCHER, WORKER,
 };
 use super::query;
 use super::{RoleKindCapability, RoleKindDescriptor, RoleKindOrigin};
@@ -99,7 +98,7 @@ const ROWS: &[Row] = &[
         taskless_worker: false,
     },
     Row {
-        id: TESTER,
+        id: QA,
         anchors_team: false,
         requires_parent: true,
         manages: false,
@@ -202,7 +201,7 @@ fn every_builtin_matches_its_declared_capability_row() {
 
 #[test]
 fn taskless_worker_kinds_resolve_as_leaf_workers_without_task_authority() {
-    for kind in [TESTER, RELEASE_MANAGER] {
+    for kind in [QA, RELEASE_MANAGER] {
         let role = Some(AgentRole::Worker);
         assert_eq!(query::kind_id(role, Some(kind)), Some(kind));
         assert!(query::taskless_worker(role, Some(kind)), "{kind}");
@@ -214,18 +213,12 @@ fn taskless_worker_kinds_resolve_as_leaf_workers_without_task_authority() {
         assert!(!query::plan_edit(role, Some(kind)), "{kind}");
         assert!(!query::release(role, Some(kind)), "{kind}");
     }
-    assert!(!query::taskless_worker(
-        Some(AgentRole::Manager),
-        Some(TESTER)
-    ));
+    assert!(!query::taskless_worker(Some(AgentRole::Manager), Some(QA)));
 }
 
 #[test]
-fn only_the_tester_worker_kind_can_close_parent_handed_reviews() {
-    assert!(query::can_close_review(
-        Some(AgentRole::Worker),
-        Some(TESTER)
-    ));
+fn only_the_qa_worker_kind_can_close_parent_handed_reviews() {
+    assert!(query::can_close_review(Some(AgentRole::Worker), Some(QA)));
     assert!(!query::can_close_review(
         Some(AgentRole::Worker),
         Some(RELEASE_MANAGER)
@@ -234,10 +227,7 @@ fn only_the_tester_worker_kind_can_close_parent_handed_reviews() {
         Some(AgentRole::Worker),
         Some(WORKER)
     ));
-    assert!(!query::can_close_review(
-        Some(AgentRole::Manager),
-        Some(TESTER)
-    ));
+    assert!(!query::can_close_review(Some(AgentRole::Manager), Some(QA)));
 }
 
 #[test]

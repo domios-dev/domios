@@ -651,6 +651,55 @@ fn scan_reports_missing_entry_as_skipped() {
 }
 
 #[test]
+fn system_versions_drive_startup_and_watcher_priority() {
+    for (id, installed, workspace, expected) in [
+        ("codex", "1.14.6", "1.14.41", "1.14.41"),
+        ("codex", "1.14.42", "1.14.41", "1.14.42"),
+        ("shared", "1.14.42", "1.14.41", "1.14.41"),
+    ] {
+        let case = format!("{id}: installed={installed}, workspace={workspace}");
+        assert_eq!(
+            crate::system_plugins::is_system_id(id),
+            id == "codex",
+            "{case}"
+        );
+        let root = tempfile::tempdir().unwrap();
+        let installed_root = root.path().join("installed");
+        let workspace_root = root.path().join("workspace");
+        let mut paths = Vec::new();
+        for (directory, version) in [(&installed_root, installed), (&workspace_root, workspace)] {
+            let manifest_path = directory.join(id).join("plugin.json");
+            let mut manifest: serde_json::Value = serde_json::from_str(&min_manifest(id)).unwrap();
+            manifest["version"] = version.into();
+            write(&manifest_path, &manifest.to_string());
+            write(
+                &directory.join(id).join("plugin.js"),
+                &min_plugin_js(version),
+            );
+            assert_eq!(
+                PluginManifest::load(&manifest_path).unwrap().version,
+                version,
+                "{case}"
+            );
+            paths.push(manifest_path);
+        }
+        let (providers, report) = scan_roots(&[installed_root, workspace_root]);
+        assert_eq!(providers.len(), 1, "{case}: {report:?}");
+        assert_eq!(
+            providers[0].manifest().version,
+            expected,
+            "{case}: {report:?}"
+        );
+        order_system_candidates(id, &mut paths);
+        assert_eq!(
+            PluginManifest::load(paths.last().unwrap()).unwrap().version,
+            expected,
+            "{case}"
+        );
+    }
+}
+
+#[test]
 fn later_root_overrides_earlier_with_same_id() {
     let r1 = tempfile::tempdir().unwrap();
     let r2 = tempfile::tempdir().unwrap();

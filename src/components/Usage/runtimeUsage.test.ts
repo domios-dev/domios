@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
-import {ownRuntimeUsage,latestUsageSnapshot,runtimeLimitsSnapshot,runtimeTokenLabel,runtimeTokenBreakdown,runtimeAccountCreditsLabel} from "./runtimeUsage";
+import {ownRuntimeUsage,latestUsageSnapshot,runtimeLimitsSnapshot,runtimeTokenLabel,runtimeTokenBreakdown,runtimeAccountCreditsLabel,formatAccountCredits} from "./runtimeUsage";
 import type {UsageSnapshot,RuntimeUsageProjection} from "../../types/usage";
 const reading:RuntimeUsageProjection={tab_id:"own",thread_id:"thread",billing_mode:"subscription",token_usage:null,rate_limits:{captured_at:100,value:[{window:"primary",usedPercent:2,resetsAt:1000},{window:"secondary",usedPercent:0,resetsAt:2000}]}};
 const snapshot={provider:"fixture",captured_at:100,runtime_usage:[reading]} as UsageSnapshot;
 assert.equal(ownRuntimeUsage(snapshot,"foreign","thread"),null);
 assert.equal(ownRuntimeUsage(snapshot,"own","old"),null);
 assert.equal(ownRuntimeUsage(snapshot,"own","thread"),reading);
-assert.equal(runtimeAccountCreditsLabel({kind:"balance",balance:"123.4500"}),"Credits: 123.4500");
-assert.equal(runtimeAccountCreditsLabel({kind:"unlimited"}),"Credits: Unlimited");
+assert.equal(runtimeAccountCreditsLabel({kind:"balance",balance:"123.4500"}),"Account credits: 123.45");
+assert.equal(runtimeAccountCreditsLabel({kind:"unlimited"}),"Account credits: Unlimited");
 assert.equal(runtimeAccountCreditsLabel(undefined),null);
 const resets={availableCount:3,nextExpiry:null,credits:null};
 assert.deepEqual(runtimeLimitsSnapshot(snapshot,{...reading,resets}).resets,resets);
@@ -28,4 +28,11 @@ assert.equal(latestUsageSnapshot({...latest,runtime_usage:undefined})?.weekly_pc
 assert.equal(runtimeTokenLabel(api),"120 tokens");
 assert.equal(runtimeTokenBreakdown(api),"Session input: 100; cached input: 30; cache write: 0; output: 20");
 assert.equal(runtimeTokenLabel({...api,token_usage:{captured_at:200,value:{...api.token_usage.value,cost_micros:20000}}}),"120 tokens · $0.02");
+assert.equal(runtimeTokenLabel({...api, token_usage:null}), "—");
 console.log("PASS runtime usage: exact binding, windows, API tokens and optional cost");
+
+assert.equal(formatAccountCredits("53200.2300300000"), "53,200.23");
+assert.equal(formatAccountCredits("999.999"), "1,000");
+assert.equal(formatAccountCredits("9007199254740993.125"), "9,007,199,254,740,993.13");
+assert.equal(formatAccountCredits("0.0000000001"), "0");
+assert.equal(formatAccountCredits("invalid"), "—");

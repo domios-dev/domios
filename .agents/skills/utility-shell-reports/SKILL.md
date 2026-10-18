@@ -41,7 +41,7 @@ its persisted mesh return route. If there is no parent, build.sh raises a
 `failure` on startup errors).
 
 If a named instance is already running with stale health, stop it before
-restarting: `CODETERM_INSTANCE=<n> ./build.sh kill`.
+restarting: `CODETERM_DEV_INSTANCE=<n> CODETERM_DEV_API_PORT=<port> ./build.sh kill`.
 
 For a visible foreground dev process, omit `--wait`:
 
@@ -55,6 +55,11 @@ against the expected build and instance. It reports ready only after that proof,
 or reports failure at process exit or the single 600-second deadline.
 
 Run QA commands through a fresh report directory:
+
+Lane checks run directly as `build.ps1 lane-check <crate> --tests` in a Team
+utility shell. Do not wrap them in `qa-batch`: that verb prepends a canonical
+`check` before its supplied commands. If used accidentally in a lane, close
+that utility shell and restart with the authorized direct `lane-check` verb.
 
 ```bash
 scripts/qa-report.sh smoke 'true' 'node --test scripts/tests/dev-wait.test.mjs'
@@ -97,12 +102,12 @@ bash ./build.sh lane-recover keep <lane-branch> <worktree-path>
 bash ./build.sh lane-recover merge <lane-branch>
 ```
 
-`bash ./build.sh ...` runs unchanged on bash and PowerShell with Git Bash on PATH; `.\build.ps1 lane-recover keep <lane-branch> <worktree-path>` is the PowerShell-only form.
+`bash ./build.sh ...` runs unchanged on bash and PowerShell with Git Bash on PATH; `./build.ps1 lane-recover keep <lane-branch> <worktree-path>` is the PowerShell-only form.
 
 From PowerShell, use:
 
 ```powershell
-.\build.ps1 dev --wait
+./build.ps1 dev --wait
 ```
 
 Create one Team-bound QA tab for repeated reports, then restart it for each run:

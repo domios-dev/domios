@@ -1,22 +1,15 @@
 import assert from "node:assert/strict";
-import { generalInventorySections, projectUtilityShells } from "./generalOverviewModel";
+import { generalInventorySections, generalWorkspaceJobs, projectUtilityShells } from "./generalOverviewModel";
 import { daemon, owner, schedule, shell, tabs, teams, workspaces } from "./generalOverview.testdata";
 
-const sections = generalInventorySections({ resources: [daemon, schedule] }, "Local");
-assert.deepEqual(sections.services.rows.map((row) => row.resource), [daemon]);
-assert.deepEqual(sections.schedules.rows.map((row) => row.resource), [schedule]);
-const localSchedule = { ...schedule, id: "local", source_peer_id: undefined, source_peer: undefined };
-assert.deepEqual(generalInventorySections({ resources: [localSchedule, schedule] }, "Local").remoteSchedules.map((row) => row.resource), [schedule]);
-const empty = generalInventorySections({ resources: [] }, "Local");
-assert.deepEqual([empty.services.rows, empty.schedules.rows, empty.remoteSchedules], [[], [], []]);
-assert.equal(sections.services.rows[0].machineName, daemon.machine_name);
+const localDaemon = { ...daemon, source_peer_id: undefined, source_peer: undefined };
+const sections = generalInventorySections({ resources: [localDaemon, daemon, schedule] }, "Local");
+assert.deepEqual(sections.services.rows.map((row) => row.resource), [localDaemon]);
+assert.deepEqual(generalInventorySections({ resources: [daemon, schedule] }, "Local").services.rows, []);
+assert.deepEqual(generalInventorySections({ resources: [] }, "Local").services.rows, []);
 assert.equal(sections.services.rows[0].freshness, "offline");
 assert.equal(sections.services.rows[0].resource.capabilities?.delete?.unavailable_reason, "offline");
-const staleDaemon = { ...daemon, provenance: { freshness: "stale" as const, offline: false }, capabilities: { delete: { allowed: false, unavailable_reason: "stale" as const } } };
-const stale = generalInventorySections({ resources: [staleDaemon] }, "Local").services.rows[0];
-assert.equal(stale.freshness, "stale");
-assert.equal(stale.resource.capabilities?.delete?.unavailable_reason, "stale");
-console.log("✓ General rail sections own daemon and cron inventory separately with provenance intact");
+console.log("General includes local daemon registry only, preserving availability");
 
 const before = structuredClone({ workspaces, tabs, teams });
 const [row] = projectUtilityShells(workspaces, tabs, teams);
@@ -36,3 +29,12 @@ const [orphan] = projectUtilityShells(workspaces, { shell: { ...shell, parent_ta
 assert.deepEqual(orphan.owner, { id: "closed", name: "closed" });
 assert.deepEqual(orphan.team, { id: "team", name: "team" });
 console.log("✓ Projection follows isUtilityShell and keeps missing-owner identity without inventing a target");
+
+assert.equal(projectUtilityShells(workspaces, tabs, teams, "other").length, 0);
+assert.equal(projectUtilityShells(workspaces, tabs, teams, "project").length, 1);
+assert.equal(projectUtilityShells(workspaces, { ...tabs, shell: { ...shell, remote_peer_id: "remote" } }, teams, "project").length, 0);
+const generalJob = { kind: "cron" as const, cron: { workspace_id: "general" } as import("../../lib/types").CronJob, title: "General", active: true, state: "Enabled" };
+const projectJob = { ...generalJob, cron: { ...generalJob.cron, workspace_id: "project" } };
+assert.deepEqual(generalWorkspaceJobs([generalJob, projectJob], "general"), [generalJob]);
+assert.deepEqual(generalWorkspaceJobs([projectJob], "general"), []);
+console.log("General scope excludes foreign workspaces and remote shell proxies");
