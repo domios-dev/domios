@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
-import { runDevApp, windowsDevArguments } from '../dev-app-process.mjs';
+import { runDevApp, windowsDevArguments, nativeLocatorRecord } from '../dev-app-process.mjs';
 import { devRuntimeEnvironment } from '../dev-runtime-environment.mjs';
 
 for (const code of [0, 17]) {
@@ -211,4 +211,42 @@ test('split attachment proof refuses stale listener and dead native owner', () =
   for (const listener of ['', '0', '21']) assert.throws(() => proof(lines, '7786', listener, () => true), /listener/);
   for (const dead of [10, 20]) assert.throws(() => proof(lines, '7786', '20', pid => pid !== dead), /no longer live/);
   assert.throws(() => proof(lines, '7685', '20', () => true), /absent/);
+});
+
+test('native DEV locator binds active endpoint to selected instance and exact attached client',()=>{
+  const record={schema:3,instance:{cdpPort:'9341',apiPort:'7786',vitePort:'1531'}};
+  const attachment={client_pid:12,epoch:'epoch'};
+  const snapshot={client_process:{pid:12,created:'12345',executable:'C:/target/debug/codeterm.exe'},connection:{server_epoch:'epoch'},status:{status:'active',payload:{port:9341,view_generation:2}}};
+  const event={snapshot,navigation_generation:3,origin:'http://127.0.0.1:1531'};
+  const line=value=>'DOMIOS_DEV_NATIVE_LOCATOR '+JSON.stringify(value);
+  const result=nativeLocatorRecord(line(event),record,'C:/target/debug/codeterm.exe',attachment);
+  assert.deepEqual(result.nativeClient,{platform:'windows',snapshot,navigationGeneration:3,origin:event.origin});
+  for (const bad of [{...event,navigation_generation:0},{...event,origin:'http://127.0.0.1:7685'},
+    {...event,snapshot:{...snapshot,client_process:{...snapshot.client_process,pid:99}}},
+    {...event,snapshot:{...snapshot,status:{status:'active',payload:{port:9222,view_generation:2}}}}])
+    assert.throws(()=>nativeLocatorRecord(line(bad),record,'C:/target/debug/codeterm.exe',attachment));
+  assert.throws(()=>nativeLocatorRecord(line(event),record,'C:/foreign/codeterm.exe',attachment));
+  assert.throws(()=>nativeLocatorRecord(line(event),record,'C:/target/debug/codeterm.exe',{...attachment,epoch:'stale'}));
+  assert.equal(nativeLocatorRecord(line({...event,snapshot:{...snapshot,status:{status:'unsupported'}}}),record,'C:/target/debug/codeterm.exe',attachment).nativeClient,null);
+});
+
+test('native locator provenance clears previous launch and waits exact attachment before atomic adoption',()=>{
+  const source=fs.readFileSync(new URL('../dev-prep.mjs',import.meta.url),'utf8').replaceAll('\r\n','\n');
+  const definitions=['readinessSignal','nativeLocatorSink'].map(name=>source.match(new RegExp(`^function ${name}\\([^]*?^\\}`, 'm'))[0]).join('\n');
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'native-dev-locator-'));
+  const app=path.join(directory,'codeterm.exe'), record=path.join(directory,'provenance.json');
+  fs.writeFileSync(app,'fixture');
+  fs.writeFileSync(record,JSON.stringify({schema:3,instance:{apiPort:'7786',vitePort:'1531',cdpPort:'9341'},nativeClient:{stale:true}}));
+  try {
+    const factory=new Function('resolve','option','realpathSync','StringDecoder','process','writeFileSync','renameSync','readFileSync','nativeLocatorRecord',`${definitions}\nreturn nativeLocatorSink;`)(path.resolve,(options,key)=>options.get(key),fs.realpathSync,StringDecoder,process,fs.writeFileSync,fs.renameSync,fs.readFileSync,nativeLocatorRecord);
+    const consume=factory(new Map([['--app',app],['--record',record],['--api-port','7786']]));
+    assert.equal(JSON.parse(fs.readFileSync(record)).nativeClient,null);
+    const event={snapshot:{client_process:{pid:12,created:'12345',executable:app},connection:{server_epoch:'00000000-0000-0000-0000-000000000001'},status:{status:'active',payload:{port:9341,view_generation:2}}},navigation_generation:3,origin:'http://127.0.0.1:1531'};
+    const line='DOMIOS_DEV_NATIVE_LOCATOR '+JSON.stringify(event)+'\n';
+    consume(Buffer.from(line.slice(0,30))); consume(Buffer.from(line.slice(30)));
+    assert.equal(JSON.parse(fs.readFileSync(record)).nativeClient,null);
+    consume(Buffer.from('DOMIOS_DEV_ATTACHMENT '+JSON.stringify({protocol:2,client_pid:12,server_pid:24,epoch:event.snapshot.connection.server_epoch,api_address:'127.0.0.1:7786'})+'\n'));
+    assert.deepEqual(JSON.parse(fs.readFileSync(record)).nativeClient.snapshot,event.snapshot);
+    assert.deepEqual(fs.readdirSync(directory).sort(),['codeterm.exe','provenance.json']);
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
 });
