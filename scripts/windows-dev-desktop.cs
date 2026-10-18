@@ -17,7 +17,7 @@ public static class DevDesktop {
     const int MaximumText = 32768;
     static readonly string[] EnvironmentKeys = {
         "CODETERM_DEV", "CODETERM_DEV_INSTANCE", "CODETERM_DEV_API_PORT",
-        "CODETERM_DEV_WORKSPACE_ROOT", "CODETERM_WEB_DIST", "CODETERM_CLI_PATH"
+        "CODETERM_DEV_WORKSPACE_ROOT", "CODETERM_WEB_DIST", "CODETERM_CLI_PATH", "CODETERM_CDP_PORT"
     };
     [DllImport("user32.dll")] static extern IntPtr GetShellWindow();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
@@ -185,7 +185,12 @@ public static class DevDesktop {
                         try { reader.ReadByte(); } catch (IOException) { } catch (ObjectDisposedException) { } finally { cancellation.Cancel(); }
                     }, TaskCreationOptions.LongRunning);
                     try {
-                        int code = DevAppProcess.RunOwned(app, new string[0], output, cwd, environment, cancellation.Token);
+                        int port;
+                        if (!Int32.TryParse(environment["CODETERM_CDP_PORT"], out port) || port < 1024 || port > 65535 || port == 7685 ||
+                            port.ToString() == environment["CODETERM_DEV_API_PORT"])
+                            throw new InvalidDataException("DEV diagnostics port refused");
+                        environment.Remove("CODETERM_CDP_PORT");
+                        int code = DevAppProcess.RunOwned(app, new string[] { "--local-webview-diagnostics-port=" + port }, output, cwd, environment, cancellation.Token);
                         output.Complete(code);
                         return code;
                     } finally {
