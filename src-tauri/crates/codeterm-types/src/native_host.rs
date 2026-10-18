@@ -7,6 +7,20 @@ pub const MAX_NATIVE_HOST_FRAME_BYTES: usize = 32 * 1024;
 pub const MAX_PENDING_NATIVE_HOST_REQUESTS: usize = 64;
 pub const NATIVE_HOST_REQUEST_DEADLINE: Duration = Duration::from_secs(10);
 
+pub fn native_host_socket_address(bootstrap_address: &str) -> Option<String> {
+    let identity = bootstrap_address
+        .strip_prefix("domios-bootstrap-")?
+        .strip_suffix(".sock")?;
+    if identity.len() != 64
+        || !identity
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return None;
+    }
+    Some(format!("domios-native-host-{identity}.sock"))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeHostConnection {
@@ -360,5 +374,18 @@ mod tests {
 
         assert!(valid.is_well_formed());
         assert!(!invalid.is_well_formed());
+    }
+
+    #[test]
+    fn native_host_socket_address_reuses_the_exact_bootstrap_identity() {
+        let identity = "a".repeat(64);
+        assert_eq!(
+            native_host_socket_address(&format!("domios-bootstrap-{identity}.sock")),
+            Some(format!("domios-native-host-{identity}.sock"))
+        );
+        assert_eq!(
+            native_host_socket_address("domios-bootstrap-not-a-digest.sock"),
+            None
+        );
     }
 }

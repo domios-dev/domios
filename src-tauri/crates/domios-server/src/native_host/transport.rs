@@ -12,7 +12,7 @@ use codeterm_types::{
         NATIVE_HOST_PROTOCOL, NATIVE_HOST_REQUEST_DEADLINE,
     },
     server_bootstrap::{
-        ProcessProvenance, ServerComponentManifest, ServerIdentity, ServerReady,
+        ProcessProvenance, ServerComponentManifest, ServerReady,
     },
 };
 use interprocess::local_socket::{
@@ -21,7 +21,6 @@ use interprocess::local_socket::{
 };
 use parking_lot::{Mutex, RwLock};
 use serde::{de::DeserializeOwned, Serialize};
-use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     io,
@@ -113,7 +112,10 @@ where
         allowed_view_origins: HashSet<String>,
     ) -> io::Result<Self> {
         verify_component(&manifest, &ready)?;
-        let address = socket_address(&ready.identity)?;
+        let address = codeterm_types::native_host::native_host_socket_address(
+            &ready.bootstrap_address,
+        )
+        .ok_or_else(|| io::Error::other("Invalid native host bootstrap address"))?;
         let name = address.to_ns_name::<GenericNamespaced>()?;
         let options = ListenerOptions::new().name(name);
         #[cfg(unix)]
@@ -945,11 +947,6 @@ fn next_id(counter: &AtomicU64) -> Option<u64> {
             current.checked_add(1)
         })
         .ok()
-}
-
-fn socket_address(identity: &ServerIdentity) -> io::Result<String> {
-    let bytes = serde_json::to_vec(identity).map_err(io::Error::other)?;
-    Ok(format!("domios-native-host-{:x}.sock", Sha256::digest(bytes)))
 }
 
 fn pin_peer(stream: &Stream) -> io::Result<PinnedProcess> {
