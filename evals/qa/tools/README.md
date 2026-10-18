@@ -24,3 +24,19 @@ dev_run --as-tab "$OWNER" node evals/qa/tools/dev-request.mjs POST /api/crons "$
 ```
 
 All live changes require the caller's existing grant. No helper starts/stops an app, creates a named profile, sends a chat/bridge message, reads account secrets or consumes a reset. A bounded failure deadline can stop observation; it never makes a page ready. Parent reviews draft helper correctness and integration/catalogue registration before these are executed as a new gate.
+
+## Catalogue utility
+
+catalogue.mjs is a local metadata and release-record tool. It does not call DEV, production, Browser, or any live service.
+
+Run its unit coverage with `node --test evals/qa/tools/*.test.mjs`. The explicit wildcard works on Windows, where `node --test evals/qa/tools` is resolved as a module path instead of a test directory.
+
+    node evals/qa/tools/catalogue.mjs validate
+    node evals/qa/tools/catalogue.mjs list --id CUR-001
+    node evals/qa/tools/catalogue.mjs list --tier release-core --surface web --platform windows --area messaging
+    node evals/qa/tools/catalogue.mjs plan 1.14.9
+    node evals/qa/tools/catalogue.mjs matrix 1.14.9 target-check/evals/qa/1.14.9-run/results.json
+
+catalogue.json is the only case listing. catalogue.schema.json defines its fields; results.schema.json defines a run envelope and the strict five-value verdict enum. The validator also checks fixed case sections, metadata agreement, area links, ID continuity, and indexed folders. The release plan starts rows as NOT RUN. The matrix writer preserves result verdicts verbatim, fills missing active targets with NOT RUN, and rejects duplicate target rows across result files.
+
+Results belong under target-check/evals/qa/<stamp>/, with artifacts separated into target-check/evals/qa/<stamp>/<CUR-id>/. PASS and FAIL require evidence paths under that root. BLOCKED and NOT RUN require notes. OWNER-SKIPPED requires an explicit Owner decision note, which is repeated under the matrix's owner scope-outs section.
