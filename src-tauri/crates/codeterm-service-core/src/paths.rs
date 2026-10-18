@@ -1,4 +1,4 @@
-//! Re-export — implementation lives in `crates/codeterm-paths`.
+//! Re-export — implementation lives in `src-tauri/crates/codeterm-paths`.
 pub use codeterm_paths::*;
 
 use std::sync::OnceLock;

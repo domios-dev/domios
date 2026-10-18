@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 
+pub mod instance_identity;
 mod port_policy;
 pub use port_policy::{runtime_api_port, validate_listener_port, PRODUCTION_PORT};
 

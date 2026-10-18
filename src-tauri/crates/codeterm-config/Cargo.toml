@@ -8,7 +8,7 @@ edition = "2021"
 hostname = "0.4.2"
 url = "2"
 codeterm-mesh = { path = "../codeterm-mesh" }
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-util = { path = "../codeterm-util" }
 log = "0.4"
