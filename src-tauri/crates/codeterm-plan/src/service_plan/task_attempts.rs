@@ -1028,6 +1028,14 @@ impl PlanStore {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             super::task_dispatch::task_respawn_status(&plan.tasks[task_index].status)?;
+            if let Some(attempt) =
+                newer_live_respawn_attempt(&plan.tasks[task_index], &draft.source_attempt.id)
+            {
+                return Err(PlanError::DispatchInFlight {
+                    attempt_id: attempt.id.clone(),
+                    tab_id: attempt.executor_tab_id.clone(),
+                });
+            }
             if matches!(
                 plan.tasks[task_index].status,
                 TaskStatus::Pending | TaskStatus::Blocked
@@ -1167,4 +1175,18 @@ impl PlanStore {
             attempt: judged.expect("attempt set before successful write"),
         })
     }
+}
+
+pub(super) fn newer_live_respawn_attempt<'a>(
+    task: &'a crate::plan::Task,
+    source_attempt_id: &str,
+) -> Option<&'a crate::plan::TaskExecutionAttempt> {
+    let source_index = task
+        .execution_attempts
+        .iter()
+        .position(|attempt| attempt.id == source_attempt_id)?;
+    task.execution_attempts
+        .iter()
+        .skip(source_index + 1)
+        .find(|attempt| attempt.closed_at.is_none() && attempt.retired_at.is_none())
 }
