@@ -3,7 +3,17 @@ import type {RuntimeAccountCredits} from "@codeterm/plugin-sdk";
 
 export function runtimeAccountCreditsLabel(credits:RuntimeAccountCredits|null|undefined): string|null {
   if (!credits) return null;
-  return credits.kind === "unlimited" ? "Account credits: Unlimited" : `Account credits: ${credits.balance}`;
+  return credits.kind === "unlimited" ? "Account credits: Unlimited" : `Account credits: ${formatAccountCredits(credits.balance)}`;
+}
+
+export function formatAccountCredits(balance: string): string {
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(balance);
+  if (!match) return "—";
+  const fraction = (match[3] ?? "") + "000";
+  const cents = BigInt(match[2]) * 100n + BigInt(fraction.slice(0, 2)) + (fraction[2] >= "5" ? 1n : 0n);
+  const whole = new Intl.NumberFormat("en-US").format(cents / 100n);
+  const decimals = String(cents % 100n).padStart(2, "0").replace(/0+$/, "");
+  return `${match[1] && cents > 0n ? "−" : ""}${whole}${decimals ? `.${decimals}` : ""}`;
 }
 
 export function latestUsageSnapshot(snapshot: UsageSnapshot | null, tabId?: string, threadId?: string | null): UsageSnapshot | null {
@@ -35,7 +45,7 @@ export function runtimeLimitsSnapshot(snapshot:UsageSnapshot, reading:RuntimeUsa
 
 export function runtimeTokenLabel(reading:RuntimeUsageProjection): string {
   const tokens = reading.token_usage?.value;
-  if (!tokens) return "tokens not reported";
+  if (!tokens) return "—";
   const total = tokens.input_tokens + tokens.output_tokens;
   const cost = tokens.cost_micros == null ? "" : ` · $${(tokens.cost_micros / 1e6).toFixed(2)}`;
   return `${total.toLocaleString("en-US")} tokens${cost}`;
