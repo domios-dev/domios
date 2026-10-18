@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { backgroundWorkElapsed, composerBackgroundWorkBubble, composerBackgroundWorkItems, LONG_RUNNING_WORK_MS } from "./composerBackgroundWorkModel";
+import { backgroundCommandName, backgroundOwnsTool, backgroundWorkElapsed, composerBackgroundWorkBubble, composerBackgroundWorkItems, LONG_RUNNING_WORK_MS } from "./composerBackgroundWorkModel";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 const now = Date.parse("2026-10-17T12:00:00.000Z");
@@ -83,4 +83,21 @@ test("restored child activity stays unknown without elapsed time until current b
   const refreshed=[agent("child",60_000,{...input,agent_binding_nonce:"new",agent_runtime_epoch:3,agent_state:"running"})];
   assert.equal(composerBackgroundWorkItems(refreshed,[],now,options)[0].status,"running");
   assert.equal(composerBackgroundWorkItems(refreshed,[],now,options)[0].elapsed,"1m");
+});
+
+test("projects readable command names without long arguments",()=>{
+  assert.equal(backgroundCommandName('pwsh -NoProfile -File "C:\\work area\\cleanup-merged.ps1" -Lane example'),"cleanup-merged.ps1");
+  assert.equal(backgroundCommandName('bash -lc "node /work/build.mjs --flag value"'),"build.mjs");
+  assert.equal(backgroundCommandName(`node ${"x".repeat(40)}.mjs`).length,24);
+});
+
+test("deduplicates process identity while preserving distinct jobs and exact tool ownership",()=>{
+  const message:NormalizedChatMessage={id:process.itemId,type:"tool_call",content:"",timestamp:new Date(now-20_000).toISOString()};
+  const items=composerBackgroundWorkItems([message],[process,process,{...process,processId:"another"}],now);
+  assert.equal(items.length,2);
+  assert.equal(items[0].status,"running");
+  assert.equal(backgroundOwnsTool({id:process.itemId,sourceSessionId:"root"},items),true);
+  assert.equal(backgroundOwnsTool({id:process.itemId,sourceSessionId:"foreign"},items),false);
+  assert.equal(backgroundOwnsTool({id:"foreground"},items),false);
+  assert.equal(backgroundOwnsTool(undefined,items),false);
 });

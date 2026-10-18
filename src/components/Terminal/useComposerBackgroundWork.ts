@@ -6,7 +6,7 @@ import {
   composerBackgroundWorkItems,
   type ComposerBackgroundWorkItem,
 } from "./composerBackgroundWorkModel";
-import { useComposerBackgroundWorkMessages } from "./ComposerBackgroundWorkContext";
+import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { BackgroundProcessAuthority, BackgroundProcessSnapshot, BackgroundProcessEntry } from "../../lib/backgroundProcesses";
 
 interface BackgroundProcessState {
@@ -41,7 +41,7 @@ function useBackgroundProcessState(tabId: string) {
   );
 }
 
-function workRevision(messages: ReturnType<typeof useComposerBackgroundWorkMessages>): string {
+function workRevision(messages: readonly NormalizedChatMessage[]): string {
   return JSON.stringify(messages.flatMap((message) => {
     if (message.type !== "tool_call") return [];
     if (message.toolKind === "agent" && message.toolName === "agent_activity") {
@@ -57,8 +57,7 @@ function validSnapshot(snapshot: BackgroundProcessSnapshot, identity: Background
     && snapshot.epoch === identity.epoch;
 }
 
-export function useComposerBackgroundWork(tabId: string, supported: boolean, subagentsVisible: boolean) {
-  const messages = useComposerBackgroundWorkMessages();
+export function useComposerBackgroundWork(tabId: string, supported: boolean, subagentsVisible: boolean, messages: readonly NormalizedChatMessage[]) {
   const { identity, rootThreadId: parentThreadId, refreshKey } = useBackgroundProcessState(tabId);
   const revision = workRevision(messages);
   const [loaded, setLoaded] = useState<LoadedProcesses>({ identity: null, processes: [] });
