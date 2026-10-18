@@ -47,6 +47,7 @@ pub fn requested_for_tab(svc: &crate::service::ServiceContext, tab: &str) -> boo
         .mux
         .read()
         .get_tab(tab)
+        .filter(|tab| tab.restorable_launch.execution_mode.is_none())
         .and_then(|tab| tab.agent_type.clone());
     provider.is_some_and(|provider| engine::requested(svc, &provider))
 }

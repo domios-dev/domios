@@ -51,6 +51,10 @@ impl AgentProvider for JsProvider {
     ) -> Result<Vec<codeterm_types::agent::chat_types::ChatMsg>, String> {
         self.js_runtime_stored_records(session, window)
     }
+    fn remote_task_capability(&self) -> Option<crate::remote_tasks::RemoteTaskCapability> {
+        self.manifest.capabilities.remote_task.clone()
+    }
+
     fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
         self.manifest.capabilities.agent_runtime.clone()
     }

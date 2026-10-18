@@ -212,10 +212,10 @@ pub(super) fn handle(
     else {
         unreachable!("agent_spawn::handle received a non-spawn action")
     };
-    if environment.is_some() && location != Some(SpawnLocation::Remote) {
-        crate::cmd::print::fail(1, "--environment requires --location remote");
+    if environment.is_some() && location != Some(SpawnLocation::Cloud) {
+        crate::cmd::print::fail(1, "--environment requires --location cloud");
     }
-    let (agent, preset) = if location == Some(SpawnLocation::Remote) {
+    let (agent, preset, execution_mode) = if location == Some(SpawnLocation::Cloud) {
         if role.is_some()
             || unplanned
             || bound_task.is_some()
@@ -240,15 +240,15 @@ pub(super) fn handle(
             .unwrap_or_else(|error| {
                 crate::cmd::print::fail(1, format!("Could not read provider capabilities: {error}"))
             });
-        let (provider, preset) = super::agent::agent_remote::resolve_remote_spawn(
+        let (provider, preset, mode) = super::agent::agent_remote::resolve_remote_spawn(
             &descriptors,
             requested,
             environment.as_deref().unwrap_or_default(),
         )
         .unwrap_or_else(|error| crate::cmd::print::fail(1, error));
-        (Some(provider), Some(preset))
+        (Some(provider), Some(preset), Some(mode))
     } else {
-        (agent, preset)
+        (agent, preset, None)
     };
     let execution_intent = resolved_execution_intent(kind.as_deref(), execution_intent);
     let context = SpawnContext {
@@ -509,6 +509,9 @@ pub(super) fn handle(
     }
     if let Some(system_prompt) = system_prompt {
         body["system_prompt"] = serde_json::json!(system_prompt);
+    }
+    if let Some(mode) = execution_mode {
+        body["execution_mode"] = serde_json::json!(mode);
     }
     if let Some(preset) = preset {
         body["preset"] = serde_json::json!(preset);

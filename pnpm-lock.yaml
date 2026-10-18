@@ -283,8 +283,6 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
-  plugins/provider-codex-cloud: {}
-
   plugins/provider-cursor:
     dependencies:
       '@codeterm/chat-core':

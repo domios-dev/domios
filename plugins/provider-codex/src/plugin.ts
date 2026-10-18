@@ -1,5 +1,6 @@
 import { sessionRecords, type SessionRecordInput } from "../../provider-shared/sessionRecords";
 import { buildCodexLaunchSpec, codexCommandFromSpec, CODEX_LAUNCH_CONFIG } from "./launchSpec";
+import {cloudExports} from "./cloud/plugin";
 import { runtimePlan, runtimeResponse, runtimeReduce } from "./runtime";
 import { runtimeStoredHistory, runtimeStoredRecords, storedHistoryAvailable } from "./runtimeStoredHistory";
 import { codexToolOutputText } from "./toolOutput";
@@ -185,6 +186,7 @@ function hasPromptAndStatusFooter(screen: string): boolean {
 }
 
 const plugin: PluginModule = {
+  ...cloudExports(host),
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimeStoredRecords,

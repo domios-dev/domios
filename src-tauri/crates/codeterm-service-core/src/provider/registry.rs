@@ -144,6 +144,17 @@ impl ProviderRegistry {
     /// Transport routing for a spawn target. `None` ⇒ id is neither a known
     /// agent nor a registered chat backend.
     pub fn transport_of(&self, id: &str) -> Option<ProviderTransport> {
+        if let Some(provider) = self
+            .agents
+            .provider_arc(id)
+            .filter(|provider| provider.remote_task_capability().is_some())
+        {
+            return Some(if provider.agent_runtime().is_some() {
+                ProviderTransport::ChatBackend
+            } else {
+                ProviderTransport::Pty
+            });
+        }
         if self.chat_backends.get(id).is_some() {
             return Some(ProviderTransport::ChatBackend);
         }

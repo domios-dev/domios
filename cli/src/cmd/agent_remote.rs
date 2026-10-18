@@ -4,16 +4,11 @@ pub(crate) fn resolve_remote_spawn(
     descriptors: &Value,
     requested: &str,
     environment: &str,
-) -> Result<(String, String), String> {
+) -> Result<(String, String, String), String> {
     let providers = descriptors.as_array().ok_or("Invalid provider catalogue")?;
     let candidates: Vec<_> = providers
         .iter()
-        .filter(|provider| {
-            provider["transport"] == "chat_backend"
-                && provider["remote_task"].is_object()
-                && (provider["id"] == requested
-                    || provider["remote_task"]["localProviderId"] == requested)
-        })
+        .filter(|provider| provider["remote_task"].is_object() && provider["id"] == requested)
         .collect();
     let [provider] = candidates.as_slice() else {
         return Err("Choose a provider with one declared remote task backend".into());
@@ -28,6 +23,12 @@ pub(crate) fn resolve_remote_spawn(
     let environments = remote["environments"]
         .as_array()
         .ok_or("No remote environments are available; connect the owning account")?;
+    if environments.is_empty() {
+        return Err(
+            "No Cloud environments are available; connect the owning account and refresh providers"
+                .into(),
+        );
+    }
     let exact = environments.iter().find(|entry| entry["id"] == environment);
     let matches: Vec<_> = environments
         .iter()
@@ -46,7 +47,11 @@ pub(crate) fn resolve_remote_spawn(
         .as_str()
         .ok_or("Missing remote provider ID")?;
     let environment_id = selected["id"].as_str().ok_or("Missing environment ID")?;
-    Ok((provider_id.into(), environment_id.into()))
+    let mode = remote["mode"]
+        .as_str()
+        .filter(|mode| !mode.is_empty() && *mode != "local")
+        .ok_or("Missing Cloud execution mode")?;
+    Ok((provider_id.into(), environment_id.into(), mode.into()))
 }
 
 #[cfg(test)]
@@ -63,7 +68,7 @@ mod tests {
             "spawn",
             "fixture",
             "--location",
-            "remote"
+            "cloud"
         ])
         .is_err());
         assert!(crate::Cli::try_parse_from([
@@ -81,7 +86,7 @@ mod tests {
             "spawn",
             "fixture",
             "--location",
-            "remote",
+            "cloud",
             "--environment",
             "env",
         ])
@@ -97,31 +102,31 @@ mod tests {
         else {
             panic!("expected spawn")
         };
-        assert_eq!(location, Some(crate::args::agent::SpawnLocation::Remote));
+        assert_eq!(location, Some(crate::args::agent::SpawnLocation::Cloud));
         assert_eq!(environment.as_deref(), Some("env"));
     }
 
     #[test]
     fn remote_spawn_uses_capability_relationship_and_environment_identity() {
-        let catalogue = json!([{"id":"renamed-remote", "transport":"chat_backend", "remote_task":{
-            "localProviderId":"renamed-local", "availability":{"status":"available"},
+        let catalogue = json!([{"id":"renamed-provider", "transport":"chat_backend", "remote_task":{
+            "mode":"cloud","displayName":"Cloud", "availability":{"status":"available"},
             "environments":[{"id":"env-1","label":"Fixture environment"}]
         }}]);
         assert_eq!(
-            resolve_remote_spawn(&catalogue, "renamed-local", "fixture ENVIRONMENT").unwrap(),
-            ("renamed-remote".into(), "env-1".into())
+            resolve_remote_spawn(&catalogue, "renamed-provider", "fixture ENVIRONMENT").unwrap(),
+            ("renamed-provider".into(), "env-1".into(), "cloud".into())
         );
         assert!(resolve_remote_spawn(&catalogue, "foreign", "env-1").is_err());
-        assert!(resolve_remote_spawn(&catalogue, "renamed-local", "foreign").is_err());
+        assert!(resolve_remote_spawn(&catalogue, "renamed-provider", "foreign").is_err());
         let mut unavailable = catalogue.clone();
         unavailable[0]["remote_task"]["availability"] =
             json!({"status":"unavailable","reason":"fixture account unavailable"});
         assert_eq!(
-            resolve_remote_spawn(&unavailable, "renamed-local", "env-1").unwrap_err(),
+            resolve_remote_spawn(&unavailable, "renamed-provider", "env-1").unwrap_err(),
             "fixture account unavailable"
         );
         let mut empty = catalogue;
         empty[0]["remote_task"]["environments"] = json!([]);
-        assert!(resolve_remote_spawn(&empty, "renamed-local", "env-1").is_err());
+        assert!(resolve_remote_spawn(&empty, "renamed-provider", "env-1").is_err());
     }
 }

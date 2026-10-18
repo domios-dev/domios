@@ -243,6 +243,7 @@ fn explicit_orchestrator_task_still_starts_an_execution_turn() {
 
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
+        execution_mode: None,
         context_files: None,
         context_skills: None,
         agent: Some(agent.to_string()),
