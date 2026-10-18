@@ -172,3 +172,47 @@ fn process_split_contract_headless_output_contains_readiness_without_credentials
         }
     }
 }
+
+#[cfg(windows)]
+#[test]
+fn process_split_contract_private_bootstrap_handle_is_not_inherited() {
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::{
+        Foundation::{
+            DuplicateHandle, GetHandleInformation, DUPLICATE_SAME_ACCESS, HANDLE_FLAG_INHERIT,
+        },
+        System::Threading::GetCurrentProcess,
+    };
+    let source = tempfile::tempfile().unwrap();
+    let mut duplicate = std::ptr::null_mut();
+    let process = unsafe { GetCurrentProcess() };
+    assert_ne!(
+        unsafe {
+            DuplicateHandle(
+                process,
+                source.as_raw_handle(),
+                process,
+                &mut duplicate,
+                0,
+                1,
+                DUPLICATE_SAME_ACCESS,
+            )
+        },
+        0
+    );
+    let owned = unsafe { OwnedHandle::from_raw_handle(duplicate) };
+    let mut before = 0;
+    assert_ne!(
+        unsafe { GetHandleInformation(owned.as_raw_handle(), &mut before) },
+        0
+    );
+    assert_ne!(before & HANDLE_FLAG_INHERIT, 0);
+    exclude_bootstrap_handle_from_children(owned.as_raw_handle()).unwrap();
+    let mut after = 0;
+    assert_ne!(
+        unsafe { GetHandleInformation(owned.as_raw_handle(), &mut after) },
+        0
+    );
+    assert_eq!(after & HANDLE_FLAG_INHERIT, 0);
+    assert!(source.metadata().unwrap().is_file());
+}
