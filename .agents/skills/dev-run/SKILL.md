@@ -427,3 +427,13 @@ port; production selectors ignore it. There is no frontend paint prerequisite
 for service readiness. Titlebar close must preserve the exact server/session;
 explicit Quit requires the protected protocol2 cleanup reply plus pinned exit.
 Those are parent-owned native proof rows, not implied by staging unit tests.
+
+If the native client shows the unavailable document with no server/listener, a
+pre-split server log is not current client evidence. Debug client stderr writes
+at most 64 sanitized `DOMIOS_CLIENT_DIAGNOSTIC` records (fixed stages, IO kind,
+numeric OS/helper exit codes only). `ERROR: DOMIOS_DEV_FAILURE` is a finite
+terminal launch report; the supervisor rejects it immediately without extending
+the deadline or trying another launch. Inspect the last install/attach/launch
+boundary and exact nonsecret code, never helper stdout or API credentials.
+Helper stderr remains hidden; this diagnostic does not authorize another retry
+or imply that a previously timed-out server/client launch became ready.

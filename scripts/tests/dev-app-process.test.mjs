@@ -38,7 +38,7 @@ for (const code of [0, 17]) {
 test('DEV supervisor still sends READY from file output and disconnects exactly once', { timeout: 10_000 }, async () => {
   const source = fs.readFileSync(new URL('../dev-prep.mjs', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
   const supervisor = source.match(/^async function supervisePrebuilt\(options\) \{[\s\S]*?^\}/m)[0];
-  const readiness = source.match(/^function readinessSignal\(line, apiPort\) \{[\s\S]*?^\}/m)[0];
+  const readiness = source.match(/^function readinessSignal\(line, apiPort\) \{[\s\S]*?^\}/m)[0] + '\n' + source.match(/^function startupFailureSignal\(line\) \{[\s\S]*?^\}/m)[0];
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-app-ready-'));
   const messages = [];
   let disconnected = 0;
@@ -158,4 +158,31 @@ test('prebuilt attachment proof requires the bounded native event log', () => {
     fs.writeFileSync(log, Buffer.alloc(4 * 1024 * 1024 + 1));
     assert.throws(() => check(options), /bound/);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('finite client refusal is surfaced without reflecting error text or secrets', () => {
+  const source = fs.readFileSync(new URL('../dev-prep.mjs', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+  const definition = source.match(/^function startupFailureSignal\(line\) \{[\s\S]*?^\}/m)[0];
+  const signal = new Function(`${definition}\nreturn startupFailureSignal;`)();
+  const value = { stage: 'startup', status: 'refused', io_kind: null, os_error: null, exit_code: null };
+  const line = value => 'ERROR: DOMIOS_DEV_FAILURE ' + JSON.stringify(value);
+  assert.equal(signal(line(value)), 'Native client startup refused at startup');
+  for (const invalid of [{ ...value, token: 'secret' }, { ...value, stage: 'secret callback-url' }, { ...value, io_kind: 'secret' }, { ...value, status: 'ready' }]) assert.equal(signal(line(invalid)), null);
+  assert.equal(signal('ERROR: DOMIOS_DEV_FAILURE malformed secret'), null);
+});
+
+test('DEV supervisor reports terminal refusal immediately and cannot turn it into READY', async () => {
+  const source = fs.readFileSync(new URL('../dev-prep.mjs', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+  const definitions = ['readinessSignal', 'startupFailureSignal'].map(name => source.match(new RegExp(`^function ${name}\\([^]*?^\\}`, 'm'))[0]).join('\n');
+  const supervisor = source.match(/^async function supervisePrebuilt\(options\) \{[\s\S]*?^\}/m)[0];
+  const messages = [];
+  const state = { env: {}, connected: true, send: value => messages.push(value) };
+  const error = { stage: 'startup', status: 'refused', io_kind: null, os_error: null, exit_code: null };
+  const ready = { protocol: 2, client_pid: 1, server_pid: 2, epoch: '00000000-0000-0000-0000-000000000001', api_address: '127.0.0.1:7786' };
+  const execute = new Function('runDevApp', 'process', 'disconnectSupervisor', 'StringDecoder', 'resolve', 'option', 'repo', 'devRuntimeEnvironment', `${definitions}\n${supervisor}\nreturn supervisePrebuilt;`)(
+    async ({ onData }) => { onData(Buffer.from('ERROR: DOMIOS_DEV_FAILURE ' + JSON.stringify(error) + '\nDOMIOS_DEV_ATTACHMENT ' + JSON.stringify(ready) + '\n')); return { code: 0, signal: null }; },
+    state, () => { state.connected = false; }, StringDecoder, path.resolve, (options, key) => options.get(key), process.cwd(), env => env);
+  await execute(new Map([['--app', process.execPath], ['--log', 'fixture.log'], ['--api-port', '7786']]));
+  assert.deepEqual(messages, [{ type: 'failed', error: 'Native client startup refused at startup' }]);
+  assert.equal(state.exitCode, 1);
 });
