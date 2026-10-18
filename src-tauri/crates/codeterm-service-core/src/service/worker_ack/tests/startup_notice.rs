@@ -102,6 +102,26 @@ fn worker_ack_notice_is_a_short_single_line_with_agent_provider_and_attempt() {
 }
 
 #[test]
+fn dispatched_chat_backend_readiness_notice_names_ready_state_and_task() {
+    let notice = worker_lifecycle_notice(
+        "Router",
+        Some("codex"),
+        None,
+        &json!({
+            "kind": "dispatch_ready",
+            "plan_id": "pl_7lsisa",
+            "task_id": "task_cjymmf",
+            "attempt_id": "attempt_svwudi",
+        }),
+    );
+
+    assert_eq!(
+        notice,
+        "Agent Router (codex) is ready for task task_cjymmf, attempt attempt_svwudi."
+    );
+}
+
+#[test]
 fn startup_notice_treats_awaiting_owner_prompt_as_waiting() {
     let payload = json!({
         "kind": "agent_startup_overdue",

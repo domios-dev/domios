@@ -33,11 +33,26 @@ fn terminal_cleanup_requires_stopped_scenario_and_released_work() {
 }
 
 #[test]
-fn terminal_cleanup_retains_agent_authored_history_records() {
+fn terminal_cleanup_retains_team_owned_agent_authored_history_records() {
     let mut blueprint = job("blueprint", "creator", true, Some("done"));
     blueprint.agent_authored = true;
 
     assert!(terminal_roots(&[blueprint], &BTreeSet::new()).is_empty());
+}
+
+#[test]
+fn terminal_cleanup_removes_agent_authored_root_without_team_retention_scope() {
+    let mut blueprint = job("personal-blueprint", "creator", true, Some("done"));
+    blueprint.agent_authored = true;
+    blueprint.team_id = None;
+
+    assert_eq!(
+        terminal_roots(&[blueprint], &BTreeSet::new())
+            .iter()
+            .map(|job| job.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["personal-blueprint"]
+    );
 }
 
 #[test]
@@ -55,6 +70,9 @@ fn worker_cleanup_persists_removal_and_preserves_recurring_and_foreign_jobs() {
     ] {
         store.insert(job).unwrap();
     }
+    let mut team_blueprint = job("team-blueprint", "worker", true, Some("done"));
+    team_blueprint.agent_authored = true;
+    store.insert(team_blueprint).unwrap();
     let store = Arc::new(Mutex::new(store));
     remove_owned(&store, "worker").unwrap();
     let restored = Store::new(path, codeterm_cron::clock::MockClock::starting_at(1000));
@@ -64,7 +82,7 @@ fn worker_cleanup_persists_removal_and_preserves_recurring_and_foreign_jobs() {
             .iter()
             .map(|job| job.id.as_str())
             .collect::<Vec<_>>(),
-        vec!["foreign", "recurring"]
+        vec!["foreign", "recurring", "team-blueprint"]
     );
     remove_terminal(&store).unwrap();
     assert_eq!(
@@ -74,7 +92,7 @@ fn worker_cleanup_persists_removal_and_preserves_recurring_and_foreign_jobs() {
             .iter()
             .map(|job| job.id.as_str())
             .collect::<Vec<_>>(),
-        vec!["recurring"]
+        vec!["recurring", "team-blueprint"]
     );
 }
 
@@ -113,9 +131,12 @@ fn terminal_cleanup_keeps_stopped_agent_authored_blueprint_in_store() {
 
     remove_terminal(&store).unwrap();
 
-    let store = store.lock();
+    let mut store = store.lock();
     let retained = store
         .get("blueprint")
         .expect("stopped Blueprint record remains available");
     assert_eq!(super::super::amend::history(retained).versions.len(), 1);
+
+    store.remove_team("team").unwrap();
+    assert!(store.get("blueprint").is_none());
 }

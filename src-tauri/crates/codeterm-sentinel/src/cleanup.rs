@@ -22,7 +22,7 @@ pub fn one_shot(job: &Sentinel) -> bool {
 
 pub fn terminal_roots(jobs: &[Sentinel], leased: &BTreeSet<String>) -> Vec<Sentinel> {
     jobs.iter()
-        .filter(|root| root.is_scenario_root() && one_shot(root) && !root.agent_authored)
+        .filter(|root| root.is_scenario_root() && one_shot(root) && !retain_for_team(root))
         .filter(|root| {
             jobs.iter()
                 .filter(|job| job.id == root.id || job.scenario_id.as_deref() == Some(&root.id))
@@ -48,11 +48,20 @@ pub fn remove_owned(store: &Arc<Mutex<Store>>, tab: &str) -> Result<(), String> 
         current
             .list()
             .iter()
-            .filter(|job| job.is_scenario_root() && job.creator_tab_id == tab && one_shot(job))
+            .filter(|job| {
+                job.is_scenario_root()
+                    && job.creator_tab_id == tab
+                    && one_shot(job)
+                    && !retain_for_team(job)
+            })
             .cloned()
             .collect()
     };
     remove(store, roots, true)
+}
+
+fn retain_for_team(job: &Sentinel) -> bool {
+    job.agent_authored && job.team_id.is_some()
 }
 
 fn remove(store: &Arc<Mutex<Store>>, roots: Vec<Sentinel>, owned: bool) -> Result<(), String> {
