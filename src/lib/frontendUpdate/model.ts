@@ -30,7 +30,7 @@ export interface SwapState {
   safety: Safety;
   pending: Release | null;
   revision: number;
-  checkpoint: ClientCheckpoint;
+  checkpoint: CheckpointSnapshot;
   acknowledgedRevision: number | null;
   writing: CheckpointWrite | null;
   activating: string | null;
@@ -46,6 +46,7 @@ export type SwapEvent =
   | { type: "connection"; status: FrontendUpdateConnection }
   | { type: "safety"; safety: Safety }
   | { type: "edited"; checkpoint: ClientCheckpoint }
+  | { type: "editedSnapshot"; checkpoint: CheckpointSnapshot }
   | { type: "persisted"; write: CheckpointWrite }
   | { type: "activated"; ticket: Ticket }
   | { type: "failed" }
@@ -57,6 +58,14 @@ export type SwapEffect =
   | { type: "persist"; write: CheckpointWrite }
   | { type: "activate"; releaseId: string }
   | { type: "reload"; ticket: Ticket };
+
+type DeepReadonly<T> = T extends readonly (infer Value)[]
+  ? readonly DeepReadonly<Value>[]
+  : T extends object
+    ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> }
+    : T;
+
+export type CheckpointSnapshot = DeepReadonly<ClientCheckpoint>;
 
 export function compatible(release: Release, api: number): boolean {
   return Number.isSafeInteger(api) && api > 0
@@ -70,9 +79,9 @@ export function safeToSwap(safety: Safety, consented = false): boolean {
   return safety.pendingUploads === 0 && (!safety.focused || consented);
 }
 
-export function initialSwapState(apiVersion: number, checkpoint: ClientCheckpoint, safety: Safety, restoredRevision = 0): SwapState {
-  checkpointWrite(restoredRevision, checkpoint);
-  return { apiVersion, checkpoint: structuredClone(checkpoint), safety, pending: null,
+export function initialSwapState(apiVersion: number, checkpoint: ClientCheckpoint | CheckpointSnapshot, safety: Safety, restoredRevision = 0): SwapState {
+  const initial = checkpointWrite(restoredRevision, checkpoint as unknown as ClientCheckpoint);
+  return { apiVersion, checkpoint: initial.payload, safety, pending: null,
     connection: "connected",
     revision: restoredRevision, acknowledgedRevision: null, writing: null, activating: null,
     ticket: null, reloading: false, failed: false, consented: false, held: false };
@@ -102,6 +111,11 @@ export function swapEvent(current: SwapState, event: SwapEvent): { state: SwapSt
       state.checkpoint = structuredClone(event.checkpoint);
       state.revision += 1;
       break;
+    case "editedSnapshot":
+      if (state.checkpoint === event.checkpoint) break;
+      state.checkpoint = event.checkpoint;
+      state.revision += 1;
+      break;
     case "persisted":
       if (!state.writing || !checkpointAcknowledged(state.writing, event.write)) break;
       state.acknowledgedRevision = event.write.revision;
@@ -129,7 +143,7 @@ export function swapEvent(current: SwapState, event: SwapEvent): { state: SwapSt
   if (state.connection === "connected" && !state.held && !state.failed && state.pending && safeToSwap(state.safety, state.consented)) {
     if (state.acknowledgedRevision !== state.revision) {
       if (!state.writing) {
-        state.writing = checkpointWrite(state.revision, state.checkpoint);
+        state.writing = checkpointWrite(state.revision, state.checkpoint as ClientCheckpoint);
         effects.push({ type: "persist", write: state.writing });
       }
     } else if (state.ticket) {
