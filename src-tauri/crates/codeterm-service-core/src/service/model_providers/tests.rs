@@ -204,6 +204,39 @@ fn definition() -> ModelProviderDefinition {
 }
 
 #[test]
+fn launch_credentials_ignore_unrelated_missing_endpoint_and_name_relevant_lookup() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = adapter(dir.path().join("opencode.json"));
+    let provider = definition();
+    let store = store();
+
+    let default_model_env = launch_env(
+        &store,
+        "opencode",
+        &adapter,
+        std::slice::from_ref(&provider),
+        Some("opencode/beam-free"),
+    )
+    .unwrap();
+    assert!(default_model_env.is_empty());
+
+    let error = launch_env(
+        &store,
+        "opencode",
+        &adapter,
+        &[provider],
+        Some("demo/model-a"),
+    )
+    .unwrap_err();
+    assert!(matches!(&error, ModelProviderError::LaunchSetup(_)));
+    let message = error.to_string();
+    assert!(message.contains("launch secret lookup"));
+    assert!(message.contains("demo/model-a"));
+    assert!(message.contains("demo"));
+    assert!(message.contains("slot"));
+}
+
+#[test]
 fn model_provider_saved_secret_copy_is_owned_and_source_survives_removal() {
     let dir = tempfile::tempdir().unwrap();
     let adapter = adapter(dir.path().join("opencode.json"));
@@ -294,7 +327,7 @@ fn model_provider_add_launch_remove_preserves_foreign_config_and_secret_confinem
     assert!(!added.to_string().contains(&key));
     assert!(bytes.contains("{env:DOMIOS_PROVIDER_DEMO_KEY}"));
     let providers = adapter.read(&read_config(&adapter.path).unwrap()).unwrap();
-    let env = launch_env(&store, "arbitrary-plugin", &adapter, &providers).unwrap();
+    let env = launch_env(&store, "arbitrary-plugin", &adapter, &providers, None).unwrap();
     assert_eq!(
         env,
         HashMap::from([("DOMIOS_PROVIDER_DEMO_KEY".into(), key)])
@@ -369,10 +402,10 @@ fn model_provider_secret_ownership_refuses_foreign_secret_cleanup_and_launch() {
     .unwrap();
     let config = read_config(&adapter.path).unwrap();
     let providers = adapter.read(&config).unwrap();
-    assert_eq!(
-        launch_env(&store, "foreign-owner", &adapter, &providers).unwrap_err(),
-        ModelProviderError::SecretOwnership
-    );
+    let launch_error = launch_env(&store, "foreign-owner", &adapter, &providers, None).unwrap_err();
+    assert!(launch_error.to_string().contains("launch secret lookup"));
+    assert!(launch_error.to_string().contains("demo"));
+    assert!(launch_error.to_string().contains("slot"));
     assert_eq!(
         execute(
             &store,
@@ -631,7 +664,7 @@ fn model_provider_update_rewrites_endpoint_and_rotates_owned_key_outside_config(
     assert_eq!(providers[0].base_url, "http://localhost:4321/v1");
     assert_eq!(providers[0].models, vec!["model-b", "model-c"]);
     assert_eq!(providers[0].secret_name.as_deref(), Some("slot"));
-    let env = launch_env(&store, "owner", &adapter, &providers).unwrap();
+    let env = launch_env(&store, "owner", &adapter, &providers, None).unwrap();
     assert_eq!(
         env,
         HashMap::from([("DOMIOS_PROVIDER_DEMO_KEY".into(), rotated)])
