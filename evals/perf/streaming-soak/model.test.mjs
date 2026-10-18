@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {VERSION,functionalTailEvidence,measurementCapabilities,requireMeasurement,rendererMetrics,admitDevSurface,validateDevSurfaceTarget,segmentSeconds,validateIdentity,validateResume,cleanupPlan,abortReplayPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
+import {VERSION,functionalVisitTarget,functionalTailEvidence,measurementCapabilities,requireMeasurement,rendererMetrics,admitDevSurface,validateDevSurfaceTarget,segmentSeconds,validateIdentity,validateResume,cleanupPlan,abortReplayPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
 const run = '11111111-1111-1111-1111-111111111111';
 const identity = () => ({port:7686,dev:true,page:{origin:'http://127.0.0.1:7686',path:'/'},capabilities:measurementCapabilities('profile',1),build:'a'.repeat(40),entryHash:'b'.repeat(64),target:'page',boot:'boot',renderer:{pid:1,created:'r'},daemon:{pid:2,created:'d'}});
 const fixture = (tab,session) => ({run,tab,session,pty:'pty-'+tab});
@@ -179,4 +179,14 @@ test('abort replay is teardown-only with exact pending ownership and never makes
   assert.throws(()=>validateResume(cp,identity(),live),/never replay/);
   assert.deepEqual(cp.pending,original.pending);
   assert.deepEqual(cp.replay,original.replay);
+});
+
+test('functional seed and final reads select their target and return local before measured input',() => {
+  const calls=[['seed',false],['seed',true],['begin'],['step',true],['seed',false],['seed',true],['read'],['readOther'],['begin']];
+  assert.deepEqual(calls.map(([method,other])=>functionalVisitTarget(method,other)),['local','other','local',null,'local','other','local','other','local']);
+  const expected=[{id:'row',content:'tail',sourceMessageId:'source'}];
+  const projection={paintedTail:'row#4'};
+  const boundary={internalStore:'unavailable',authority:'backend_binding_only'};
+  assert.throws(()=>functionalTailEvidence(expected,{...boundary,projection,visibleSourceIds:[]}),/./);
+  assert.doesNotThrow(()=>functionalTailEvidence(expected,{...boundary,projection,visibleSourceIds:['source']}));
 });
