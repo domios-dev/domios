@@ -582,7 +582,7 @@ fn lazy_session_start_accepts_structural_composer_when_wrapper_name_is_absent() 
 #[test]
 fn owner_prompt_cleared_on_binding_provider_keeps_binding_path() {
     use crate::service::launch_readiness::{
-        LaunchAttempt, LaunchObservation, arm, observe, owner_prompt_cleared, owner_prompt_pending,
+        arm, observe, owner_prompt_cleared, owner_prompt_pending, LaunchAttempt, LaunchObservation,
     };
 
     let tab_id = "binding-owner-prompt-wake";

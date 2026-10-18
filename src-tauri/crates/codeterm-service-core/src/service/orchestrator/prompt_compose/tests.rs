@@ -92,11 +92,9 @@ fn planner_onboarding_remains_work_when_a_task_is_provided() {
         role_profile: Some("planner".into()),
         ..Default::default()
     };
-    assert!(
-        spawn_onboarding_task(&params)
-            .unwrap()
-            .contains(&crate::prompts::planner_suffix())
-    );
+    assert!(spawn_onboarding_task(&params)
+        .unwrap()
+        .contains(&crate::prompts::planner_suffix()));
 }
 
 /// Every launch composition, by capability class rather than provider id: a

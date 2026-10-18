@@ -3,7 +3,7 @@
 
 use std::{error::Error, sync::LazyLock};
 
-use super::types::{PeerAddress, address_tier};
+use super::types::{address_tier, PeerAddress};
 
 /// Outcome of one attempt against a peer address.
 ///
