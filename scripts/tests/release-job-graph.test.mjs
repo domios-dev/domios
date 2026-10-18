@@ -107,7 +107,11 @@ test('Mac jobs provision secret material before building and always clean up', (
     assert.doesNotMatch(read(path), /\.tauri\/codeterm\.key|login\.keychain|--password/);
   }
   assert.match(read('scripts/check-release-credentials-mac.sh'), /release-signing-material\.py check-identity/);
-  assert.match(read('scripts/release-macos-x86_64.sh'), /--keychain "\$RELEASE_KEYCHAIN" --sign "\$SIGN_ID"/);
+  const releasePreparation = read('build.sh');
+  assert.match(releasePreparation, /--keychain "\$RELEASE_KEYCHAIN"\s+--sign "\$APPLE_SIGNING_IDENTITY" src-tauri\/bundled-cli\/codeterm/);
+  assert.ok(releasePreparation.indexOf('--sign "$APPLE_SIGNING_IDENTITY" src-tauri/bundled-cli/codeterm') <
+    releasePreparation.indexOf('cargo build --release --manifest-path src-tauri/Cargo.toml -p domios-server'));
+  assert.match(read('scripts/release-macos-x86_64.sh'), /CODETERM_RELEASE_COMMON_STAGE=1/);
 });
 
 test('builds on machines no fast check uses overlap the fast checks; the rest wait for them', () => {
