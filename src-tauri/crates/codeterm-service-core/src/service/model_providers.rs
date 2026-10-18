@@ -544,10 +544,11 @@ impl ServiceContext {
             result["provider"] = json!(owner.id());
         }
         if changes {
-            crate::agent::model_catalog::invalidate(owner.id());
-            crate::async_runtime::spawn(async move {
-                let _ = crate::agent::model_catalog::refresh_models(owner, true).await;
-            });
+            crate::agent::model_catalog::invalidate_inputs(owner.id());
+            crate::agent::model_binary_watch::install(owner.clone());
+            let _ = crate::async_runtime::block_on(crate::agent::model_catalog::refresh_models(
+                owner, true,
+            ));
         }
         Ok(result)
     }

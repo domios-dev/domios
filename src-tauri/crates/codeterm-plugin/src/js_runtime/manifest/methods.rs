@@ -70,6 +70,9 @@ impl PluginManifest {
                 environment.validate()?;
             }
         }
+        for environment in &manifest.model_catalogue.config_file_environments {
+            environment.validate()?;
+        }
         if let Some(environment) = manifest
             .sessions
             .as_ref()
