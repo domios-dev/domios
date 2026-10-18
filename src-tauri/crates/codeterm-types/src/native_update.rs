@@ -641,9 +641,9 @@ mod tests {
     #[test]
     fn server_and_pair_updates_require_restart_authorization() {
         for action in [NativeUpdateAction::Server, NativeUpdateAction::Pair] {
-            let request = request(action, false);
+            let update_request = request(action, false);
             assert_eq!(
-                request.validate(),
+                update_request.validate(),
                 Err(NativeUpdateRefusal::RestartAuthorizationRequired)
             );
             assert_eq!(request(action, true).validate(), Ok(()));
@@ -701,7 +701,7 @@ mod tests {
         ));
     }
 
-    fn futures_poll_ready<T>(future: Pin<Box<dyn Future<Output = T> + Send + '_>>) -> T {
+    fn futures_poll_ready<T>(mut future: Pin<Box<dyn Future<Output = T> + Send + '_>>) -> T {
         use std::task::{Context, Poll, Wake, Waker};
         struct ReadyWake;
         impl Wake for ReadyWake {

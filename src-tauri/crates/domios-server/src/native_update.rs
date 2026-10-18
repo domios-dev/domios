@@ -545,11 +545,25 @@ fn record_event(
                     true,
                 ),
                 NativeUpdateState::Completed { .. }
-                | NativeUpdateState::InstalledAwaitingVerification { .. } => (
-                    NativeUpdateCoordinatorPhase::InstalledAwaitingVerification,
-                    UpdateStatusEffect::None,
-                    false,
-                ),
+                | NativeUpdateState::InstalledAwaitingVerification { .. } => {
+                    if matches!(source, EventSource::Reconciliation) {
+                        (
+                            NativeUpdateCoordinatorPhase::Held {
+                                reason: NativeUpdateHoldReason::ReconciliationIncomplete,
+                            },
+                            UpdateStatusEffect::Error(
+                                "Native install is awaiting replacement verification".into(),
+                            ),
+                            false,
+                        )
+                    } else {
+                        (
+                            NativeUpdateCoordinatorPhase::InstalledAwaitingVerification,
+                            UpdateStatusEffect::None,
+                            false,
+                        )
+                    }
+                }
                 NativeUpdateState::Admitted
                 | NativeUpdateState::InProgress { .. }
                 | NativeUpdateState::Uncertain { .. } => match source {
