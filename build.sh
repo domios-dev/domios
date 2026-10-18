@@ -640,16 +640,15 @@ else
 fi
 
 named_dev_target_dir() {
-  printf '%s\n' "$CT_DATA_DIR/target"
+  printf '%s\n' "$(pwd -P)/src-tauri/target/dev-instances/$CT_INSTANCE_KEY"
 }
 
-named_dev_wait_isolated() {
-  [ -n "$CT_INSTANCE" ] && [ "$CT_DEV_WAIT" = "1" ]
+named_dev_isolated() {
+  [ -n "$CT_INSTANCE" ]
 }
 
 prepare_named_dev_target() {
   export CARGO_TARGET_DIR="$(named_dev_target_dir)"
-  export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
   ct_verify_target_dir
   echo "[isolated-dev] cargo target=$CARGO_TARGET_DIR"
@@ -674,8 +673,8 @@ if [ "${CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY:-0}" = "1" ]; then
 fi
 
 if [ "${CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY:-0}" = "1" ]; then
-  if named_dev_wait_isolated; then
-    printf 'mode=isolated-named-wait\ntarget=%s\nbuild_gateway=required\n' "$(named_dev_target_dir)"
+  if named_dev_isolated; then
+    printf 'mode=isolated-named\ntarget=%s\nbuild_gateway=required\n' "$(named_dev_target_dir)"
   else
     printf 'mode=shared\nbuild_gateway=required\n'
   fi
@@ -3119,9 +3118,8 @@ LOCK_STORM_PY
     echo "Done."
     ;;
   dev-prebuilt)
-    if [ -n "$CT_INSTANCE" ] && [ -z "${CARGO_TARGET_DIR:-}" ]; then
+    if named_dev_isolated; then
       export CARGO_TARGET_DIR="$(named_dev_target_dir)"
-      export CODETERM_ALLOW_EXTERNAL_TARGET=1
     fi
     PREBUILT_LOG="/tmp/codeterm-dev-prebuilt${CT_SUFFIX}.log"
     if [ -n "$DEV_NOTIFY_TAB" ]; then
@@ -3240,11 +3238,8 @@ LOCK_STORM_PY
       fi
     fi
     DEV_NOTIFY_STAGE=build
-    if named_dev_wait_isolated; then
-      prepare_named_dev_target
-    else
-      kill_dev || echo "WARNING: dev cleanup failed; continuing to build gateway acquisition." >&2
-    fi
+    kill_dev || echo "WARNING: dev cleanup failed; continuing to build gateway acquisition." >&2
+    if named_dev_isolated; then prepare_named_dev_target; fi
     enter_cargo_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist
     ensure_deps
