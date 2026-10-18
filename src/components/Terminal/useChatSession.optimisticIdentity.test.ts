@@ -4,6 +4,7 @@ import type { ChatSendStatus } from "./chatSendStatus";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { test } from "vitest";
+import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 
 function assert(condition: unknown, label: string): asserts condition {
   if (!condition) throw new Error(label);
@@ -28,7 +29,10 @@ interface HookView {
 test("optimistic chat session preserves committed send identity across stream updates", async () => {
   setupHookDom();
   const bridge = await import("../../lib/bridge");
+  const sendStore = await import("./chatSendStore");
   const { useChatSession } = await import("./useChatSession");
+  sendStore.__setChatSendRepositoryForTest(new MemoryChatSendRepository());
+  await sendStore.ensureChatSendTabHydrated("tab");
 
   const listeners = new Map<string, Set<Handler>>();
   let confirmedStatuses: ChatSendStatus[] = [];
@@ -122,6 +126,12 @@ test("optimistic chat session preserves committed send identity across stream up
     sequence: 1,
     retained_from: 1,
     correlationId: chipToken,
+    matched_row: {
+      source: { source_session_id: "sid-1", record: {
+        kind: "structured", thread_id: "sid-1", item_id: "chip-echo",
+      } },
+      ordinal: 1,
+    },
   }];
   await act(async () => {
     for (const handler of listeners.get("tab-chat-msg-tab") ?? []) {
@@ -144,7 +154,7 @@ test("optimistic chat session preserves committed send identity across stream up
   await flush();
   const chipRows = v().allMessages.filter((row) => row.type === "user");
   assert(chipRows.length === 1, "chip-divergent optimistic and committed turns render one bubble");
-  assert(chipRows[0]?.id === "chip-echo", "the committed chip-bearing row wins by correlation id");
+  assert(chipRows[0]?.id === "chip-echo", "the committed item wins by its matched row identity");
 
   let firstId = "";
   await act(async () => {
@@ -202,6 +212,10 @@ test("optimistic chat session preserves committed send identity across stream up
     "two pending sends project in send order",
   );
 
-  await act(async () => root.unmount());
-  host.remove();
+  try {
+    await act(async () => root.unmount());
+  } finally {
+    host.remove();
+    sendStore.__setChatSendRepositoryForTest(null);
+  }
 });

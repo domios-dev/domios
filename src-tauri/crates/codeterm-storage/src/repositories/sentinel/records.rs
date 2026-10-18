@@ -297,6 +297,15 @@ pub struct SentinelCreate {
     pub associate: Vec<SentinelId>,
 }
 
+/// A terminal authored root that may be removed atomically to admit a new record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SentinelEviction {
+    pub id: SentinelId,
+    pub workspace_id: String,
+    pub team_id: Option<String>,
+    pub expected_revision: u64,
+}
+
 /// Exact existing state from an immutable interchange source; `version` is the observed head
 /// and `amendment` its own lineage, since earlier definitions are unavailable.
 #[derive(Debug, Clone, PartialEq, Eq)]

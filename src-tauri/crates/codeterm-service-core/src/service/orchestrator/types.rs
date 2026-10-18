@@ -186,6 +186,7 @@ pub struct SpawnAgentParams {
     #[serde(default, skip)]
     pub manager_bootstrap: Option<crate::service::role_identity::ManagerBootstrapInputs>,
     pub preset: Option<String>,
+    pub execution_mode: Option<String>,
     pub resume_session_id: Option<String>,
     #[serde(default, skip_deserializing)]
     pub fork_session: bool,

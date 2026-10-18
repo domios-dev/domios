@@ -33,6 +33,29 @@ fn terminal_cleanup_requires_stopped_scenario_and_released_work() {
 }
 
 #[test]
+fn terminal_cleanup_retains_team_owned_agent_authored_history_records() {
+    let mut blueprint = job("blueprint", "creator", true, Some("done"));
+    blueprint.agent_authored = true;
+
+    assert!(terminal_roots(&[blueprint], &BTreeSet::new()).is_empty());
+}
+
+#[test]
+fn terminal_cleanup_removes_agent_authored_root_without_team_retention_scope() {
+    let mut blueprint = job("personal-blueprint", "creator", true, Some("done"));
+    blueprint.agent_authored = true;
+    blueprint.team_id = None;
+
+    assert_eq!(
+        terminal_roots(&[blueprint], &BTreeSet::new())
+            .iter()
+            .map(|job| job.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["personal-blueprint"]
+    );
+}
+
+#[test]
 fn worker_cleanup_persists_removal_and_preserves_recurring_and_foreign_jobs() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sentinels.json");
@@ -47,6 +70,9 @@ fn worker_cleanup_persists_removal_and_preserves_recurring_and_foreign_jobs() {
     ] {
         store.insert(job).unwrap();
     }
+    let mut team_blueprint = job("team-blueprint", "worker", true, Some("done"));
+    team_blueprint.agent_authored = true;
+    store.insert(team_blueprint).unwrap();
     let store = Arc::new(Mutex::new(store));
     remove_owned(&store, "worker").unwrap();
     let restored = Store::new(path, codeterm_cron::clock::MockClock::starting_at(1000));
@@ -56,7 +82,7 @@ fn worker_cleanup_persists_removal_and_preserves_recurring_and_foreign_jobs() {
             .iter()
             .map(|job| job.id.as_str())
             .collect::<Vec<_>>(),
-        vec!["foreign", "recurring"]
+        vec!["foreign", "recurring", "team-blueprint"]
     );
     remove_terminal(&store).unwrap();
     assert_eq!(
@@ -66,7 +92,7 @@ fn worker_cleanup_persists_removal_and_preserves_recurring_and_foreign_jobs() {
             .iter()
             .map(|job| job.id.as_str())
             .collect::<Vec<_>>(),
-        vec!["recurring"]
+        vec!["recurring", "team-blueprint"]
     );
 }
 
@@ -89,4 +115,81 @@ fn stopped_watch_waits_for_cancelled_lease_release() {
     store.lock().release("root");
     remove_terminal(&store).unwrap();
     assert!(store.lock().get("root").is_none());
+}
+
+#[test]
+fn terminal_cleanup_keeps_stopped_agent_authored_blueprint_in_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut blueprint = job("blueprint", "creator", true, Some("done"));
+    blueprint.agent_authored = true;
+    let mut current = Store::new(
+        dir.path().join("sentinels.json"),
+        codeterm_cron::clock::MockClock::starting_at(1000),
+    );
+    current.insert(blueprint).unwrap();
+    let store = Arc::new(Mutex::new(current));
+
+    remove_terminal(&store).unwrap();
+
+    let mut store = store.lock();
+    let retained = store
+        .get("blueprint")
+        .expect("stopped Blueprint record remains available");
+    assert_eq!(super::super::amend::history(retained).versions.len(), 1);
+
+    store.remove_team("team").unwrap();
+    assert!(store.get("blueprint").is_none());
+}
+
+#[test]
+fn inserting_at_capacity_evicts_oldest_retained_stopped_agent_blueprint() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::new(
+        dir.path().join("blueprints.json"),
+        codeterm_cron::clock::MockClock::starting_at(1000),
+    );
+    store.jobs = (0..super::super::store::MAX_SENTINELS)
+        .map(|index| {
+            let mut blueprint = job(
+                &format!("retained-{index:03}"),
+                "creator",
+                true,
+                Some("done"),
+            );
+            blueprint.agent_authored = true;
+            blueprint
+        })
+        .collect();
+
+    let mut next = job("new-blueprint", "creator", false, None);
+    next.team_id = Some("team".into());
+    store.insert(next).unwrap();
+
+    assert!(store.get("retained-000").is_none());
+    assert!(store.get("retained-001").is_some());
+    assert!(store.get("new-blueprint").is_some());
+    assert_eq!(store.list().len(), super::super::store::MAX_SENTINELS);
+}
+
+#[test]
+fn insertion_at_capacity_refuses_when_all_blueprints_are_live() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::new(
+        dir.path().join("blueprints.json"),
+        codeterm_cron::clock::MockClock::starting_at(1000),
+    );
+    store.jobs = (0..super::super::store::MAX_SENTINELS)
+        .map(|index| {
+            let mut blueprint = job(&format!("live-{index:03}"), "creator", false, None);
+            blueprint.machine.paused = true;
+            blueprint
+        })
+        .collect();
+
+    let error = store
+        .insert(job("new-blueprint", "creator", false, None))
+        .unwrap_err();
+
+    assert!(error.contains("blueprint capacity reached"));
+    assert_eq!(store.list().len(), super::super::store::MAX_SENTINELS);
 }

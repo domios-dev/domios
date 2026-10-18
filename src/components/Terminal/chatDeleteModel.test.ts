@@ -2,8 +2,12 @@ import "./ChatComposer.composition.harness";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { canDeleteChatSend, visibleDeliveryRows, type DeliverySend } from "./chatDeliveryModel";
-import { addChatSend, observeChatSendDismissal, observeDeliveryStatus, forgetChatSendsInMemory, readChatSends, beginChatSendRetry } from "./chatSendStore";
+import { addChatSend, observeChatSendDismissal, observeDeliveryStatus, forgetChatSendsInMemory, readChatSends, beginChatSendRetry,
+  __setChatSendRepositoryForTest, ensureChatSendTabHydrated } from "./chatSendStore";
 import type { ChatSendStatus } from "./chatSendStatus";
+import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
+
+__setChatSendRepositoryForTest(new MemoryChatSendRepository());
 
 const status: ChatSendStatus = { send_id: "tx", tab_id: "delete", correlationId: "token", state: "held", error: null, ledger_id: "ledger", sequence: 1, retained_from: 1 };
 const send: DeliverySend = { id: "bubble", correlationId: "token", content: "opaque", sentAtMs: 42, status };
@@ -18,10 +22,11 @@ test("Delete is available only for retained undelivered user sends", () => {
   assert.equal(canDeleteChatSend({ ...send, status: { ...status, system_send: { content: "opaque", sent_at_ms: 42 } } }), false);
 });
 
-test("dismissal survives reload and late evidence without offering Retry or restoring the row", () => {
+test("dismissal survives reload and late evidence without offering Retry or restoring the row", async () => {
   addChatSend("delete", send);
   observeChatSendDismissal("delete", { send_id: "tx", send });
   forgetChatSendsInMemory();
+  await ensureChatSendTabHydrated("delete");
   observeDeliveryStatus({ ...status, state: "delivered" });
   const restored = readChatSends("delete");
   assert.equal(restored[0].dismissed, true);

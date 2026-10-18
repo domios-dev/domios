@@ -37,8 +37,13 @@ A mutating canonical Worker exists only through the explicit dispatch opt-in:
 
 ```bash
 codeterm plan task dispatch <plan> <task> --execution-intent mutating \
-  --canonical-writer --authorized-gate "<exact focused command>"
+  --canonical-writer --kind qa --authorized-gate "<exact focused command>"
 ```
+
+Use `--kind release_manager` for the same placement with the release-manager
+prompt. `--kind` preserves the built-in prompt profile without changing the
+task's saved `executor_role`; it grants no authority beyond the dispatch's
+explicit placement and authorized gates.
 
 Use it for sequential work that benefits from fast iteration; parallel source
 work stays in isolated lanes. The writer holds canonical exclusively: occupancy
@@ -236,4 +241,4 @@ advises only `codeterm team adopt-plan <team-id> <plan>`, which clears the flag.
 A workspace close passes its `force` through as `force_busy`. A workspace with
 no tabs and no Teams closes for any caller, even without tab identity.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

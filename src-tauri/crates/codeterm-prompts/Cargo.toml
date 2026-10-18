@@ -10,7 +10,7 @@ workspace = true
 [dependencies]
 codeterm-build-info = { path = "../codeterm-build-info" }
 codeterm-mem = { path = "../codeterm-mem", default-features = false }
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 codeterm-plan = { path = "../codeterm-plan" }
 codeterm-plugin = { path = "../codeterm-plugin" }
 codeterm-types = { path = "../codeterm-types" }

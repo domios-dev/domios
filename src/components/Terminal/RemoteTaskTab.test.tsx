@@ -6,9 +6,9 @@ import type {RemoteTaskBinding, RemoteTaskCapability} from "../../../packages/pl
 import type {RemoteTaskCall} from "./useRemoteTask";
 
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
-const capability: RemoteTaskCapability = {backend: "fixture", localProviderId: "fixture-local", environments: [], availability: {status: "available"}, followUp: false, cancel: false, applyDiff: false};
+const capability: RemoteTaskCapability = {backend: "fixture", mode: "cloud", displayName: "Cloud", environments: [], availability: {status: "available"}, followUp: false, cancel: false, applyDiff: false};
 const binding: RemoteTaskBinding = {
-  revision: 1, providerId: "fixture", backend: "fixture", environmentId: "environment", accountRef: "account", branch: "master", phase: "bound",
+  revision: 1, providerId: "fixture", executionMode: "cloud", backend: "fixture", environmentId: "environment", accountRef: "account", branch: "master", phase: "bound",
   snapshot: {taskId: "task", attempt: null, status: "ready", result: "Fixture README title", diff: null, error: null, cursor: null},
 };
 

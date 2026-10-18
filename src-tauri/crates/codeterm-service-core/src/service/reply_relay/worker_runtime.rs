@@ -131,12 +131,60 @@ impl ServiceContext {
         match result {
             Ok(()) => {
                 state.lock().mark_acknowledged(task.clone());
+                self.publish_tool_less_worker_ack(target, task);
                 self.emit_state_changed(MuxEmitCause::PlanTask);
             }
             Err(error) => {
                 log::warn!("[tool-less-worker] target={target} exact-turn ACK refused: {error}")
             }
         }
+    }
+
+    fn publish_tool_less_worker_ack(&self, worker_tab_id: &str, task: &WorkerTaskBinding) {
+        let Some(attempt) = self
+            .plan_store
+            .live_task_attempts_for_tab(worker_tab_id)
+            .into_iter()
+            .find(|binding| {
+                binding.plan_id == task.plan_id
+                    && binding.task_id == task.task_id
+                    && binding.attempt.id == task.attempt_id
+            })
+            .map(|binding| binding.attempt)
+        else {
+            return;
+        };
+        let Some(parent_tab_id) = attempt
+            .orchestrator_tab_id
+            .as_deref()
+            .or(attempt.parent_tab_id.as_deref())
+        else {
+            return;
+        };
+        let Some((worker_title, runtime_ready)) = self
+            .mux
+            .read()
+            .get_tab(worker_tab_id)
+            .map(|tab| (tab.title.clone(), tab.agent_session_id.is_some()))
+        else {
+            return;
+        };
+        self.publish_worker_lifecycle_report(
+            parent_tab_id,
+            worker_tab_id,
+            &worker_title,
+            &task.plan_id,
+            &task.task_id,
+            serde_json::json!({
+                "kind": "worker_ack",
+                "plan_id": task.plan_id,
+                "task_id": task.task_id,
+                "tab_id": worker_tab_id,
+                "attempt_id": task.attempt_id,
+                "acknowledged_at": attempt.acknowledged_at,
+                "state": if runtime_ready { "in_progress" } else { "awaiting_runtime_ready" },
+            }),
+        );
     }
 
     pub(super) fn observe_tool_less_startup_ack(&self, target: &str, binding: &RelayBinding) {

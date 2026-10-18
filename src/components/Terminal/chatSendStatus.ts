@@ -1,9 +1,15 @@
 import { invoke } from "../../lib/bridge";
-import { failChatSendRequest, observeDeliveryStatus, reconcileDeliveryStatuses, reconcileChatSendAdmission, recordChatSendAdmissionFailure, readChatSends, observeChatSendDismissal, beginChatSendDeletion, endChatSendDeletion, type ChatSendDismissal } from "./chatSendStore";
+import type { MatchedRow } from "@codeterm/chat-core";
+import { beginChatSendDeletion, chatSendTabHydrationState, endChatSendDeletion, ensureChatSendTabHydrated,
+  failChatSendRequest, observeChatSendDismissal, observeDeliveryStatus,
+  reconcileChatSendAdmission, reconcileDeliveryStatuses, readChatSends, recordChatSendAdmissionFailure,
+  type ChatSendDismissal } from "./chatSendStore";
 import type { AdmissionEvidence } from "./chatDeliveryModel";
 
 const activeAdmissions = new Set<string>();
 const admissionKey = (tabId: string, token: string) => JSON.stringify([tabId, token]);
+type ReconciliationRun = { phase: "hydrating" | "reading"; dirty: boolean; promise: Promise<ChatSendStatus[]> };
+const reconciliationRuns = new Map<string, ReconciliationRun>();
 
 export type ChatSendStatus = {
   send_id: string;
@@ -14,12 +20,39 @@ export type ChatSendStatus = {
   sequence: number;
   retained_from: number;
   correlationId?: string;
+  matched_row?: MatchedRow;
   pending_reason?: string;
   pad_file?: string;
   system_send?: { content: string; sent_at_ms: number };
 };
 
-export async function reconcileTrackedChatMessages(tabId: string): Promise<ChatSendStatus[]> {
+export function reconcileTrackedChatMessages(tabId: string): Promise<ChatSendStatus[]> {
+  const existing = reconciliationRuns.get(tabId);
+  if (existing) {
+    if (existing.phase === "reading") existing.dirty = true;
+    return existing.promise;
+  }
+  const run: ReconciliationRun = { phase: "hydrating", dirty: false, promise: Promise.resolve([]) };
+  const task = (async () => {
+    let statuses: ChatSendStatus[] = [];
+    do {
+      run.phase = "hydrating";
+      run.dirty = false;
+      await ensureChatSendTabHydrated(tabId);
+      if (chatSendTabHydrationState(tabId) !== "ready") return [];
+      run.phase = "reading";
+      statuses = await reconcileReadyChatMessages(tabId);
+    } while (run.dirty);
+    return statuses;
+  })().finally(() => {
+    if (reconciliationRuns.get(tabId) === run) reconciliationRuns.delete(tabId);
+  });
+  run.promise = task;
+  reconciliationRuns.set(tabId, run);
+  return task;
+}
+
+async function reconcileReadyChatMessages(tabId: string): Promise<ChatSendStatus[]> {
   const requested = readChatSends(tabId);
   const [statuses, dismissals] = await Promise.all([
     invoke<ChatSendStatus[]>("chat_send_status", { tabId }),

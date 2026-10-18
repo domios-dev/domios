@@ -54,19 +54,33 @@ impl SpawnTabSpec {
                 .get(&provider)
                 .map(|b| b.spawnable())
                 .unwrap_or(false);
-        if spawnable {
+        let remote = chatbackends
+            .descriptor(&provider)
+            .and_then(|d| d.remote_task);
+        let selected_remote = params
+            .execution_mode
+            .as_deref()
+            .is_some_and(|mode| remote.as_ref().is_some_and(|cap| cap.mode == mode));
+        if spawnable && (remote.is_none() || selected_remote) {
             let watcher = watcher_spec_from_params(&params);
             let role = params.role.clone();
             let role_profile = params.role_profile.clone();
             let can_spawn = params.can_spawn;
             let mut config = chatbackend_spawn_config(
-                params.system_prompt.as_deref(),
+                if selected_remote {
+                    params.task.as_deref()
+                } else {
+                    params.system_prompt.as_deref()
+                },
                 params.preset.as_deref(),
                 params.model.as_deref(),
                 params.role_profile.as_deref(),
                 params.charter.as_deref(),
                 params.tick_interval_secs,
             );
+            if let Some(mode) = &params.execution_mode {
+                config["executionMode"] = serde_json::json!(mode);
+            }
             if let Some(effort) = params.reasoning_effort.as_deref() {
                 config["effort"] = serde_json::json!(effort);
             }
@@ -232,6 +246,7 @@ impl SpawnTabSpec {
         let starter_prompt =
             starter_prompt_for_creation(agent.role.as_deref(), agent.task.as_deref());
         Ok(SpawnAgentParams {
+            execution_mode: None,
             context_files: None,
             context_skills: None,
             agent: Some(agent.provider.clone()),
@@ -433,6 +448,9 @@ impl ServiceContext {
             agent_cmd,
             params,
         )?;
+        if self.validate_remote_spawn(params)? {
+            return Ok(true);
+        }
         if super::agent_runtime::engine::requested(self, agent_cmd) {
             super::spawn_capability::validate_runtime_launch_arguments(
                 agent_cmd,
@@ -566,6 +584,7 @@ mod tests {
     #[test]
     fn worker_launch_has_no_manager_bootstrap() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            execution_mode: None,
             context_files: None,
             context_skills: None,
             agent: Some("worker-provider".into()),
@@ -596,6 +615,7 @@ mod tests {
     #[test]
     fn tab_name_contract_spawn_name_paths_keep_name_and_description_separate() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            execution_mode: None,
             context_files: None,
             context_skills: None,
             agent: Some("codex".into()),
@@ -621,6 +641,7 @@ mod tests {
     #[test]
     fn assigned_worker_task_authority_reaches_pty_spec() {
         let mut params = SpawnAgentParams {
+            execution_mode: None,
             context_files: None,
             context_skills: None,
             agent: Some("worker-provider".into()),
@@ -810,6 +831,7 @@ mod tests {
     #[test]
     fn team_attach_fields_round_trip_through_the_tab_spec() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            execution_mode: None,
             context_files: None,
             context_skills: None,
             agent: Some("claude".into()),

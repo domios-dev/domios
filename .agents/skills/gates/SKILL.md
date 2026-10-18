@@ -102,8 +102,8 @@ before cutting** — never per merge.
 The release Rust set is every `release`-tier Rust runner in
 `tests/catalogue.json` (`node scripts/test-catalogue.mjs select --tier release`):
 every src-tauri workspace member, the shell package as its lib plus
-`src-tauri/tests/main.rs`, `crates/mem-store`,
-`crates/codeterm-paths` and the CLI. `pty-fork` stays `manual`. Preflight runs it
+`src-tauri/tests/main.rs`, `crates/mem-store` and the CLI.
+`codeterm-paths` is a normal app workspace member. `pty-fork` stays `manual`. Preflight runs it
 through `./build.sh release-rust [runner-id...]`, which runs each runner's
 `./build.sh nextest <scope>` with its `budget_secs` as the cap, keeps going past
 a red runner, prints `release-rust: RED <ids>` per failure and one closing

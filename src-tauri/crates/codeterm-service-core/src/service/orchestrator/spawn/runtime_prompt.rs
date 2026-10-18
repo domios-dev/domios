@@ -19,7 +19,10 @@ fn compose_with(
     bootstrap: Option<&str>,
     fragments: RuntimeFragments<'_>,
 ) -> String {
-    let mut sections = vec![fragments.primer.to_string()];
+    let mut sections = vec![
+        fragments.primer.to_string(),
+        crate::prompts::AGENT_ROUTING_CONTRACT.trim().to_string(),
+    ];
     sections.extend(fragments.plugins.map(str::to_string));
     sections.push(fragments.authority.to_string());
     let (identity, assignment) = params
@@ -220,7 +223,9 @@ pub fn ensure_tab_runtime_prompt(
         .as_ref()
         .and_then(|config| config.get("systemPrompt"))
         .and_then(serde_json::Value::as_str);
+    let manager = tab.role == Some(crate::multiplexer::types::AgentRole::Manager);
     if current.is_some_and(|prompt| prompt.contains(ROLE_AUTHORITY))
+        && !manager
         && !tab
             .restorable_launch
             .execution_sandbox
@@ -244,7 +249,9 @@ pub fn ensure_tab_runtime_prompt(
             .as_ref()
             .and_then(|binding| binding.plan_id.clone()),
         cwd: tab.cwd.clone(),
-        system_prompt: current.map(str::to_string).or_else(|| saved_identity(&tab)),
+        system_prompt: (!manager)
+            .then(|| current.map(str::to_string).or_else(|| saved_identity(&tab)))
+            .flatten(),
         ..Default::default()
     };
     if params.plan_id.is_none() {

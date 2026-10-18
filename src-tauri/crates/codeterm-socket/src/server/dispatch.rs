@@ -1,5 +1,4 @@
 use super::*;
-use tauri::Manager;
 
 pub(super) fn dispatch(
     method: &str,
@@ -7,7 +6,6 @@ pub(super) fn dispatch(
     mux: &MuxState,
     _pty: &PtyState,
     _notif: &NotifState,
-    app: Option<&AppHandle>,
     _output_buf: &OutputBufferState,
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
@@ -50,13 +48,19 @@ pub(super) fn dispatch(
             )
         }
         "rest_api.status" | "rest_api.restart" => {
-            let control = host_app(app)?
-                .state::<codeterm_service_core::startup::RestApiControlState>()
-                .inner()
+            let control = svc
+                .try_ext::<codeterm_service_core::startup::RestApiControlState>()
+                .ok_or_else(|| JsonRpcError {
+                    code: -32603,
+                    message: "REST listener control is not installed".into(),
+                    data: None,
+                })?
                 .clone();
-            return tauri::async_runtime::block_on(rest_api::execute(method, &control));
+            return codeterm_service_core::async_runtime::block_on(rest_api::execute(
+                method, &control,
+            ));
         }
-        "api.request" => return local_api::dispatch(&params, host_app(app)?),
+        "api.request" => return local_api::dispatch(&params, svc),
         "system.identify" => {
             return Ok(serde_json::json!({
                 "name": "CodeTerm",
@@ -419,27 +423,24 @@ pub(super) fn dispatch_with_post_response(
     mux: &MuxState,
     pty: &PtyState,
     notif: &NotifState,
-    app: &AppHandle,
     output_buf: &OutputBufferState,
     svc: &ServiceState,
 ) -> Result<(serde_json::Value, Option<super::PostResponseAction>), JsonRpcError> {
     if method == "cron.complete" {
         return cron::dispatch_complete(&params, svc);
     }
-    dispatch(method, params, mux, pty, notif, Some(app), output_buf, svc)
-        .map(|result| (result, None))
+    dispatch(method, params, mux, pty, notif, output_buf, svc).map(|result| (result, None))
 }
 
 pub(crate) fn dispatch_service_rpc(
     method: &str,
     mut params: Option<serde_json::Value>,
     svc: &ServiceState,
-    app: Option<&AppHandle>,
 ) -> Result<serde_json::Value, JsonRpcError> {
     if let Some(object) = params.as_mut().and_then(serde_json::Value::as_object_mut) {
         object.remove("authenticated_mesh_peer_id");
     }
-    dispatch_service_rpc_inner(method, params, svc, app)
+    dispatch_service_rpc_inner(method, params, svc)
 }
 
 pub(crate) fn dispatch_mesh_rpc(
@@ -447,7 +448,6 @@ pub(crate) fn dispatch_mesh_rpc(
     mut params: Option<serde_json::Value>,
     svc: &ServiceState,
     peer_id: &str,
-    app: Option<&AppHandle>,
 ) -> Result<serde_json::Value, JsonRpcError> {
     if let Some(object) = params.as_mut().and_then(serde_json::Value::as_object_mut) {
         object.insert(
@@ -466,14 +466,13 @@ pub(crate) fn dispatch_mesh_rpc(
             data: None,
         });
     }
-    dispatch_service_rpc_inner(method, params, svc, app)
+    dispatch_service_rpc_inner(method, params, svc)
 }
 
 fn dispatch_service_rpc_inner(
     method: &str,
     params: Option<serde_json::Value>,
     svc: &ServiceState,
-    app: Option<&AppHandle>,
 ) -> Result<serde_json::Value, JsonRpcError> {
     dispatch(
         method,
@@ -481,7 +480,6 @@ fn dispatch_service_rpc_inner(
         &svc.mux,
         &svc.pty,
         &svc.notif,
-        app,
         &svc.output_buf,
         svc,
     )
@@ -562,19 +560,10 @@ mod tests {
                 "human_confirmed": true
             })),
             &Arc::new(fixture.service.clone()),
-            None,
         )
         .unwrap();
 
         assert_eq!(response["ok"], true);
         assert!(fixture.service.mux.read().get_tab(&tab_id).is_none());
     }
-}
-
-fn host_app(app: Option<&AppHandle>) -> Result<&AppHandle, JsonRpcError> {
-    app.ok_or_else(|| JsonRpcError {
-        code: -32603,
-        message: "host app is unavailable".into(),
-        data: None,
-    })
 }

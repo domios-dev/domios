@@ -21,6 +21,7 @@ fn attempt_model_fields_round_trip() {
                 .iter_mut()
                 .find(|task| task.id == task_id)
                 .unwrap();
+            task.interruption.execution_intent = crate::plan::ExecutionIntent::Mutating;
             let attempt = task
                 .execution_attempts
                 .iter_mut()
@@ -57,6 +58,10 @@ fn attempt_model_fields_round_trip() {
             },
         )
         .unwrap();
+    assert_eq!(
+        draft.execution_intent,
+        crate::plan::ExecutionIntent::Mutating
+    );
     assert_eq!(draft.provider, "codex");
     assert_eq!(draft.model.as_deref(), Some("gpt-6-luna"));
     assert_eq!(draft.reasoning_effort.as_deref(), Some("xhigh"));

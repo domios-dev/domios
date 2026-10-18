@@ -28,6 +28,21 @@ test("held queues and exact evidence delivers the same bubble", () => {
   assert.equal(delivered.id, queued.id);
 });
 
+test("same delivered ledger version accepts newly available exact row identity", () => {
+  const delivered = applyDeliveryStatus(send(), status("delivered", 4));
+  const matchedRow = {
+    source: { source_session_id: "own-session", record: {
+      kind: "structured" as const, thread_id: "own-session", item_id: "native-item",
+    } },
+    ordinal: 1,
+  };
+
+  const enriched = applyDeliveryStatus(delivered, { ...status("delivered", 4), matched_row: matchedRow });
+
+  assert.deepEqual(enriched.matchedRow, matchedRow);
+  assert.deepEqual(enriched.status?.matched_row, matchedRow);
+});
+
 test("uncertain writes show uncertainty and stale responses cannot downgrade evidence", () => {
   const uncertain = applyDeliveryStatus(send(), status("submit_unconfirmed", 3));
   assert.equal(deliveryState(uncertain), "uncertain");
@@ -117,6 +132,18 @@ test("interrupted admissions leave sending without turning ambiguous responses i
     const known = applyDeliveryStatus(send(), status(state, 1));
     assert.equal(reconcileAdmissionEvidence(known, "absent"), known);
   }
+});
+
+test("unchanged admission evidence reuses the same delivery record", () => {
+  const unknown = reconcileAdmissionEvidence(send(), "unknown");
+  assert.equal(unknown.requestUncertain, true);
+  assert.equal(reconcileAdmissionEvidence(unknown, "unknown"), unknown);
+
+  const withNoResponse = { ...unknown, requestHadResponse: false };
+  const failed = reconcileAdmissionEvidence(withNoResponse, "absent");
+  assert.equal(deliveryState(failed), "failed");
+  assert.notEqual(failed, withNoResponse);
+  assert.equal(reconcileAdmissionEvidence(failed, "absent"), failed);
 });
 
 test("two failed sends remain visible across reload alongside a similar new session turn", () => {
@@ -229,4 +256,38 @@ test("settlement wins over delayed written callbacks and still accepts exact del
   const settled = applyDeliveryStatus(written, status("submit_unconfirmed", 1));
   assert.equal(applyDeliveryStatus(settled, status("written", 1)), settled);
   assert.equal(deliveryState(applyDeliveryStatus(settled, status("delivered", 1))), "delivered");
+});
+
+test("matched row identity and attachments survive reload and keep delivered status on the exact row", () => {
+  const matchedRow = {
+    source: { source_session_id: "own-session", record: {
+      kind: "structured" as const, thread_id: "own-session", item_id: "native-item",
+    } },
+    ordinal: 1,
+  };
+  const delivered = applyDeliveryStatus({
+    ...send(),
+    content: "composer payload",
+    segments: [{ type: "text", text: "composer payload" }],
+    echoBoundary: { sourceSessionId: "own-session", sessionBindingNonce: "binding", lastRowId: null },
+  }, { ...status("delivered", 3), matched_row: matchedRow });
+  const restored = JSON.parse(JSON.stringify(delivered)) as DeliverySend;
+  const attachment = { id: "attachment", mimeType: "image/png", path: "/image.png" };
+  const transcript = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot",
+    authority: { sourceSessionId: "own-session", sessionBindingNonce: "binding" },
+    range: null,
+    rows: [{ id: "native-item", type: "user", content: "provider row", attachments: [attachment] }],
+  }).state;
+  const projection = projectTranscript(transcript, deliveryProjectionSends([restored]));
+  const row = projection.rows[0];
+
+  assert.equal(deliveryState(restored), "delivered");
+  assert.deepEqual(restored.matchedRow, matchedRow);
+  assert.deepEqual(projection.rows.map((message) => message.id), ["native-item"]);
+  assert.deepEqual(row.attachments, [attachment]);
+  assert.equal(sendForRow([restored], row), restored);
+  assert.equal(sendForRow([restored], {
+    id: "same-text-decoy", type: "user", content: "opaque", timestamp: "1000", sourceSessionId: "own-session",
+  }), undefined);
 });
