@@ -151,6 +151,9 @@ fn main_impl() {
         e.exit()
     });
     cmd::error_contract::set_json_mode(cli.json);
+    if let Commands::App { action } = &cli.command {
+        cmd::app::handle(action, cli.json, cli.mesh.is_some());
+    }
     if let Commands::Tab { action } = &mut cli.command {
         if let Err(error) = args::misc::normalize_required_tab_selector(action) {
             crate::cmd::print::fail(2, error.to_string());
@@ -254,6 +257,7 @@ fn main_impl() {
     }
 
     let result = match cli.command {
+        Commands::App { .. } => unreachable!(),
         Commands::Trace { .. } => unreachable!(),
         Commands::Identify => cmd::identify::handle(&mut client, cli.json, resolved_socket),
 

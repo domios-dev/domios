@@ -1,5 +1,5 @@
 //! With `--json` every command prints exactly one JSON value on stdout, and every
-//! failure is one error envelope with a closed `error.code`, whatever the cause.
+//! failure uses the shared error envelope, except the finite exact-Quit outcome contract.
 #[path = "support/codeterm_bin.rs"]
 mod codeterm_bin;
 
@@ -428,4 +428,14 @@ fn json_success_paths_print_one_object() {
     assert!(value["content"]
         .as_str()
         .is_some_and(|body| !body.is_empty()));
+}
+
+#[test]
+fn exact_quit_uses_its_finite_refusal_envelope_without_authorizing_replacement() {
+    let environment = CliEnv::new(None);
+    let output = run_cli(&environment, &json_args(&["app", "quit", "--exact"]));
+    assert!(!output.status.success());
+    let value = stdout_value(&output).unwrap();
+    assert_eq!(value, json!({"outcome":"refused","reason":"no_instance"}));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("stub-token"));
 }

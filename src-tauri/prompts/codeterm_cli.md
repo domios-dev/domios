@@ -105,3 +105,5 @@ Relocate a workspace after its folder moves: `codeterm workspace set-cwd <worksp
 Repair a moved Plan project without its old folder: `codeterm plan set-project <plan> <path>`. It validates the target host folder and preserves Plan, task, Team and attempt identities.
 
 Voice notes arrive as `<domios type="attachment" kind="voice" path="<file>" label="voice" />` plus `<transcript>…</transcript>`: the transcript is the message, the path its audio. `status="untranscribed"` carries a failure note instead. Older notes (bare text after the frame, or `-=-codeterm:voice file=<path>-=-`) are read-only legacy.
+
+For cold replacement, `codeterm app quit --exact --json` must confirm cleanup and pinned process exits.

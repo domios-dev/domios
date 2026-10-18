@@ -65,6 +65,11 @@ pub struct Cli {
     reason = "Clap command enums keep parsed options inline."
 )]
 pub enum Commands {
+    /// Control the exact local native application and server lifecycle
+    App {
+        #[command(subcommand)]
+        action: super::app::AppAction,
+    },
     /// Sign in, inspect identity or sign out on this machine
     Account {
         #[command(subcommand)]
