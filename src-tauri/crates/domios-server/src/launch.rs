@@ -102,7 +102,9 @@ pub fn spawn_detached(executable: &Path) -> io::Result<Child> {
 pub fn ensure_detached() -> io::Result<()> {
     #[cfg(windows)]
     {
-        use windows_sys::Win32::System::Threading::{GetCurrentProcess, IsProcessInJob};
+        use windows_sys::Win32::System::{
+            JobObjects::IsProcessInJob, Threading::GetCurrentProcess,
+        };
         let mut in_job = 0;
         if unsafe { IsProcessInJob(GetCurrentProcess(), std::ptr::null_mut(), &mut in_job) } == 0 {
             return Err(io::Error::last_os_error());

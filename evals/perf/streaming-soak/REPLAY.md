@@ -65,6 +65,11 @@ losslessly; opaque envelopes refuse instead of dropping their data.
 
 ## Parent execution: pin the build and entry
 
+If `inspect` refuses `identify --json`, verify the selected DEV instance's own
+`bin/codeterm` artifact. The bench library ignores inherited `CODETERM_CLI_PATH`;
+a production caller's CLI can have a different protocol. Repair the DEV CLI
+through the existing build workflow, never route the bench through production.
+
 Parent starts the named canonical DEV through the build/dev skills, enables its
 existing frontend test mode (`VITE_CODETERM_TEST=1` at startup or the DEV-only
 `?e2e` entry), verifies the actual health build, and forbids HMR during a run.
