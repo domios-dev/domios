@@ -163,6 +163,7 @@
   "src/lib/terminalFrameGate.test.ts",
   "src/lib/outputRetention.test.ts",
   "src/lib/outputStream.attach.test.ts",
+  "src/lib/outputStream.reconnect.test.ts",
   "src/lib/transport/orchestration.test.ts",
   "src/lib/transport/capabilities.test.ts",
   "src/lib/frontendUpdate/model.test.ts",
