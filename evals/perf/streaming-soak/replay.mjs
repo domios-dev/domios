@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 import {evaluate} from '../renderer-memory/cdp.mjs';
 import {atomic,readJson} from './io.mjs';
 import {visit,sample} from './runtime.mjs';
-import {muxBindings,requireValue} from './model.mjs';
+import {muxBindings,requireValue,requireMeasurement} from './model.mjs';
 import {outsideRepository,validateReplay,ownedRows,prefixRow,assertComplete,REPLAY_LIMITS} from './replay-model.mjs';
 import {distribution,summarizeCpu,traceCollector} from './replay-metrics.mjs';
 import {installReplayPage} from './replay-page.mjs';
@@ -18,9 +18,10 @@ export async function runReplay(rt,cp,out,flags,save) {
   requireValue(fs.statSync(fixturePath).size <= 2*REPLAY_LIMITS.sourceBytes,'Prepared fixture exceeds read budget');
   let replay;
   try { replay = validateReplay(readJson(fixturePath)); } catch { throw Error('Invalid prepared replay; content withheld'); }
-  const segments = Number(flags.segments??3), mode = flags.control??'stream', profile = flags.profile??'both', probe = flags.probe??'composer';
+  const segments = Number(flags.segments??3), mode = flags.control??'stream', profile = flags.profile??(rt.identity.capabilities.purpose === 'functional'?'none':'both'), probe = flags.probe??'composer';
   requireValue(Number.isInteger(segments) && segments >= 1 && segments <= REPLAY_LIMITS.segments,'segments must be 1..8');
   requireValue(['stream','quiet','other','mux'].includes(mode) && ['none','cpu','trace','both'].includes(profile) && ['composer','mesh'].includes(probe),'Expected control stream|quiet|other|mux, probe composer|mesh and profile none|cpu|trace|both');
+  if (profile !== 'none') requireMeasurement(rt.identity,profile === 'cpu'?'cpu':'trace');
   requireValue(segments*replay.ends.length <= REPLAY_LIMITS.events && segments*(replay.wireBytes+Buffer.byteLength(JSON.stringify(replay.rows))) <= REPLAY_LIMITS.wireBytes,'Total replay event/byte budget exceeded');
   const [f,otherFixture] = cp.fixtures;
   if (probe === 'composer') { await visit(rt,cp,otherFixture); await visit(rt,cp,f); }
@@ -77,7 +78,7 @@ export async function runReplay(rt,cp,out,flags,save) {
       const values = Object.fromEntries(Object.entries(page.values).map(([key,value]) => [key,distribution(value)]));
       requireValue(values.inputToSecondFrame.count === replay.ends.length && values.captureToDocumentBubble.count === replay.ends.length,'Every owned edit must have handler and frame evidence');
       report.segments.push({number:segment,values,longTaskPeaks:page.longTasks,timeline:page.timeline,graphMutations:page.graphMutations,eventTimingSupported:page.hasEventTiming,longTaskSupported:page.hasLongTask,
-        draftCharacters:page.draftCharacters,completeness,baseline,after,rendererMetrics:metricDelta(beforeMetrics,afterMetrics),...measurements});
+        draftCharacters:page.draftCharacters,completeness,baseline,after,pageMetrics:metricDelta(beforeMetrics,afterMetrics),...measurements});
       atomic(path.join(out,'replay-profile.json'),report);
     }
     const final = muxBindings(await rt.api('/api/mux/state'))[f.tab];
@@ -92,7 +93,8 @@ export async function runReplay(rt,cp,out,flags,save) {
 
   function call(method,...args) { return evaluate(rt.cdp,`window.__streamingSoakReplay.${method}(${args.map(arg => JSON.stringify(arg)).join(',')})`); }
   async function profiledSegment(segment) {
-    const trace = traceCollector(200_000,{pid:rt.identity.renderer.pid}), cpu = profile === 'cpu' || profile === 'both', tracing = profile === 'trace' || profile === 'both';
+    const tracing = profile === 'trace' || profile === 'both';
+    const trace = tracing?traceCollector(200_000,{pid:rt.identity.renderer.pid}):null, cpu = profile === 'cpu' || profile === 'both';
     let cpuStarted = false, traceStarted = false, off = () => {}, removeComplete = () => {}, traceDone, cpuResult = null;
     try {
       if (cpu) {
@@ -119,7 +121,7 @@ export async function runReplay(rt,cp,out,flags,save) {
         await Promise.all([call('step',wire,mode),probe === 'composer'?rt.cdp.send('Input.insertText',{text:'x'}):
           rt.cdp.send('Input.dispatchMouseEvent',{type:'mouseWheel',...point,deltaX:0,deltaY:index%2?20:-20})]);
         await call('acknowledge');
-        requireValue(!trace.isOverflow(),'Trace event budget exceeded');
+        requireValue(!trace?.isOverflow(),'Trace event budget exceeded');
       }
     } finally {
       const cleanup = await Promise.allSettled([
@@ -130,8 +132,8 @@ export async function runReplay(rt,cp,out,flags,save) {
       if (cpu) await rt.cdp.send('Profiler.disable');
       for (const result of cleanup) if (result.status === 'rejected') throw result.reason;
     }
-    requireValue(!trace.result().overflow,'Trace event budget exceeded');
-    return {cpu:cpuResult,trace:tracing?trace.result():null};
+    requireValue(!trace?.result().overflow,'Trace event budget exceeded');
+    return {cpu:cpuResult,trace:tracing?trace.result():null,processAttribution:rt.identity.capabilities};
   }
 }
 function metricDelta(before,after) {
