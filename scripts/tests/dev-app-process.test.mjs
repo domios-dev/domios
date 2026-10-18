@@ -43,7 +43,7 @@ test('DEV supervisor still sends READY from file output and disconnects exactly 
   const messages = [];
   let disconnected = 0;
   const fakeProcess = { env: {}, connected: true, send: value => messages.push(value) };
-  const signal = 'REST API generation opaque health-proven on http://127.0.0.1:7786/';
+  const signal = 'DOMIOS_DEV_ATTACHMENT ' + JSON.stringify({ protocol: 2, client_pid: 10, server_pid: 20, epoch: '00000000-0000-0000-0000-000000000001', api_address: '127.0.0.1:7786' });
   const script = `const fs=require('node:fs'); if (process.platform !== 'win32' && ![1,2].every(fd => fs.fstatSync(fd).isFile())) process.exit(91); fs.writeSync(2, ${JSON.stringify(signal + '\n')});`;
   const execute = new Function('runDevApp', 'process', 'disconnectSupervisor', 'StringDecoder', 'resolve', 'option', 'repo', 'devRuntimeEnvironment',
     `${readiness}\n${supervisor}\nreturn supervisePrebuilt;`)(
@@ -127,5 +127,35 @@ test('DEV app launch accepts an empty argument list', { timeout: 10_000 }, async
     const result = await runDevApp({ app: process.execPath, log: path.join(directory, 'app.log'),
       cwd: directory, env: process.env });
     assert.equal(result.code, 0, fs.readFileSync(path.join(directory, 'app.log'), 'utf8'));
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('DEV readiness refuses monolith logs and malformed or same-process attachment', () => {
+  const source = fs.readFileSync(new URL('../dev-prep.mjs', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+  const definition = source.match(/^function readinessSignal\(line, apiPort\) \{[\s\S]*?^\}/m)[0];
+  const check = new Function('process', `${definition}\nreturn readinessSignal;`)({ env: {} });
+  const status = { protocol: 2, client_pid: 10, server_pid: 20, epoch: '00000000-0000-0000-0000-000000000001', api_address: '127.0.0.1:7786' };
+  const line = value => 'DOMIOS_DEV_ATTACHMENT ' + JSON.stringify(value);
+  assert.equal(check(line(status), '7786'), true);
+  assert.equal(check(line({ ...status, api_address: '[::1]:7786' }), '7786'), true);
+  for (const value of [{ ...status, protocol: 1 }, { ...status, server_pid: 10 }, { ...status, api_address: '127.0.0.1:7685' }, { ...status, token: 'forbidden' }]) assert.equal(check(line(value), '7786'), false);
+  assert.equal(check('REST API generation old health-proven on http://127.0.0.1:7786/', '7786'), false);
+});
+
+test('prebuilt attachment proof requires the bounded native event log', () => {
+  const source = fs.readFileSync(new URL('../dev-prep.mjs', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+  const definitions = ['readinessSignal', 'checkAttachment'].map(name => source.match(new RegExp(`^function ${name}\\([^]*?^\\}`, 'm'))[0]).join('\n');
+  const check = new Function('process', 'resolve', 'option', 'lstatSync', 'readFileSync', `${definitions}\nreturn checkAttachment;`)(
+    { env: {} }, path.resolve, (options, key) => options.get(key), fs.lstatSync, fs.readFileSync);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-attachment-proof-'));
+  try {
+    const log = path.join(directory, 'client.log');
+    const options = new Map([['--log', log], ['--api-port', '7786']]);
+    fs.writeFileSync(log, 'REST API generation old health-proven on http://127.0.0.1:7786/\n');
+    assert.throws(() => check(options), /absent/);
+    fs.appendFileSync(log, 'DOMIOS_DEV_ATTACHMENT ' + JSON.stringify({ protocol: 2, client_pid: 10, server_pid: 20, epoch: '00000000-0000-0000-0000-000000000001', api_address: '127.0.0.1:7786' }) + '\n');
+    assert.doesNotThrow(() => check(options));
+    fs.writeFileSync(log, Buffer.alloc(4 * 1024 * 1024 + 1));
+    assert.throws(() => check(options), /bound/);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });

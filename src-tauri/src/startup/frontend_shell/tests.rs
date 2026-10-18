@@ -121,6 +121,32 @@ fn frontend_shell_contract_confines_navigation_and_remote_capabilities() {
 }
 
 #[test]
+fn frontend_shell_contract_binds_root_acknowledgement_to_document_generation() {
+    let url = Url::parse("http://127.0.0.1:7686/index.html?keep=1&__codeterm_client_view=old#tab")
+        .unwrap();
+    let generation = ClientViewGeneration {
+        view: 7,
+        navigation: 11,
+    };
+    let prepared = with_root_generation(&url, generation);
+
+    assert_eq!(root_generation_from_url(&prepared), Some(generation));
+    assert_eq!(
+        prepared
+            .query_pairs()
+            .filter(|(name, _)| name == CLIENT_VIEW_QUERY)
+            .count(),
+        1
+    );
+    assert!(navigation_allowed(
+        &prepared,
+        Some("http://127.0.0.1:7686"),
+        &unavailable_url().unwrap(),
+        &fallback_url().unwrap()
+    ));
+}
+
+#[test]
 fn frontend_shell_contract_navigation_diagnostics_omit_query_secrets_and_recovery_html() {
     let secret = "opaque-fixture";
     let url = Url::parse(&format!(

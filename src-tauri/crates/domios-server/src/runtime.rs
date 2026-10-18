@@ -10,18 +10,37 @@ use codeterm_service_core::{
     startup::RestApiPhase,
     PathOwnership, ResolvedInstancePaths,
 };
+use codeterm_types::native_update::{NativeUpdateRequest, NativeUpdateResult};
 use std::{io, sync::Arc};
 
-struct ServerEvents(codeterm_events::EventBroadcasterState);
+type NativeEndpoint =
+    crate::native_host::NativeHostEndpoint<NativeUpdateRequest, NativeUpdateResult>;
+type NativeServer = crate::native_host::NativeHostServer<NativeUpdateRequest, NativeUpdateResult>;
+type NativeEventPort = Arc<parking_lot::RwLock<Option<NativeEndpoint>>>;
+
+struct ServerEvents {
+    events: codeterm_events::EventBroadcasterState,
+    native: NativeEventPort,
+}
 impl UiEvents for ServerEvents {
     fn emit(&self, event: &str, payload: serde_json::Value) {
-        self.0.publish_generic(
+        self.events.publish_generic(
             event,
             codeterm_events::web_safe_event_payload(event, payload),
         );
     }
-    fn emit_native(&self, _: &str, _: serde_json::Value) {}
-    fn emit_to(&self, _: &str, _: &str, _: serde_json::Value) {}
+    fn emit_native(&self, event: &str, payload: serde_json::Value) {
+        let endpoint = self.native.read().clone();
+        if let Some(endpoint) = endpoint {
+            endpoint.emit_native(event, payload);
+        }
+    }
+    fn emit_to(&self, target: &str, event: &str, payload: serde_json::Value) {
+        let endpoint = self.native.read().clone();
+        if let Some(endpoint) = endpoint {
+            endpoint.emit_to(target, event, payload);
+        }
+    }
 }
 
 pub fn ownership_registry() -> io::Result<std::path::PathBuf> {
@@ -45,6 +64,7 @@ pub fn run(
     let process = process::own()?;
     let provenance = process.provenance()?;
     let resources = options.resources.canonicalize()?;
+    let native_inventory = crate::native_inventory::load(&resources)?;
     let shell = Arc::new(ProcessShell {
         paths: ProcessPaths {
             executable: provenance.executable.clone(),
@@ -57,9 +77,17 @@ pub fn run(
         },
         native: Arc::new(NoShell),
     });
+    let frontend_dev_url = development_frontend_origin(
+        cfg!(debug_assertions),
+        matches!(
+            &options.instance,
+            codeterm_types::server_bootstrap::InstanceSelector::Development { .. }
+        ),
+        env!("SERVER_DEV_FRONTEND_ORIGIN"),
+    )?;
     let worker_cli = crate::resources::pin_worker_cli(shell.as_ref(), env!("SERVER_CLI_SHA256"))?;
     codeterm_build_info::install(env!("BUILD_SHA"), env!("BUILD_HASH"));
-    codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
+    codeterm_build_info::install_version(env!("DOMIOS_VERSION"));
     crate::bundle::install();
     codeterm_orchestration::register_orchestration();
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -87,10 +115,16 @@ pub fn run(
     note(&mut audit, "crash")?;
     codeterm_service_core::crash::record_startup();
     note(&mut audit, "config-credential-hook-state")?;
+    let native_events: NativeEventPort = Arc::new(parking_lot::RwLock::new(None));
     let running = crate::composition::compose_observed(
-        |events| Arc::new(ServerEvents(events)),
+        |events| {
+            Arc::new(ServerEvents {
+                events,
+                native: native_events.clone(),
+            })
+        },
         shell,
-        None,
+        frontend_dev_url.clone(),
         Some(resources.clone()),
         worker_observer,
     )
@@ -133,8 +167,96 @@ pub fn run(
             resources,
         })
     })?;
+    let native_server = native_inventory
+        .map(|manifest| {
+            let origins = codeterm_service_core::startup::frontend_shell_declared_frontend_origins(
+                &running.states.config.lock().api,
+                frontend_dev_url.as_ref(),
+            )
+            .into_iter()
+            .collect();
+            runtime.block_on(async { NativeServer::bind(ready.clone(), manifest, origins) })
+        })
+        .transpose();
+    let native_server = match optional_native_listener(native_server) {
+        Ok(server) => server,
+        Err(error) => {
+            if let Err(cleanup) = shutdown(&running) {
+                log::error!("[native-host] refused startup cleanup failed: {cleanup}");
+            }
+            runtime.shutdown_timeout(std::time::Duration::from_secs(6));
+            return Err(error);
+        }
+    };
+    if let Some(server) = &native_server {
+        *native_events.write() = Some(server.endpoint());
+    }
     let token = running.states.config.lock().api.token.clone();
-    if let Err(error) = acknowledge(&ready, token.as_deref()) {
+    let control_result = continue_after_ack(acknowledge(&ready, token.as_deref()), || {
+        runtime.block_on(async {
+            let control = channel::serve(listener, ready, token);
+            tokio::select! {
+                result = control => result.map(Some),
+                result = shutdown_signal() => result.map(|_| None),
+                result = serve_native(native_server, native_events) => result.map(|_| None),
+            }
+        })
+    });
+    let result = finish_server_control(
+        control_result,
+        || shutdown(&running),
+        |completion, cleanup| runtime.block_on(completion.complete(cleanup)),
+    );
+    runtime.shutdown_timeout(std::time::Duration::from_secs(6));
+    drop(process);
+    let _ = owner;
+    result
+}
+
+fn finish_server_control<T>(
+    control: io::Result<Option<T>>,
+    cleanup: impl FnOnce() -> io::Result<()>,
+    complete: impl FnOnce(T, io::Result<()>) -> io::Result<()>,
+) -> io::Result<()> {
+    let cleanup = cleanup();
+    match control {
+        Ok(Some(completion)) => complete(completion, cleanup),
+        Ok(None) => cleanup,
+        Err(error) => cleanup.and(Err(error)),
+    }
+}
+
+fn development_frontend_origin(
+    debug: bool,
+    development: bool,
+    origin: &str,
+) -> io::Result<Option<url::Url>> {
+    if !debug || !development || origin.is_empty() {
+        return Ok(None);
+    }
+    let url = url::Url::parse(origin).map_err(io::Error::other)?;
+    codeterm_service_core::startup::frontend_shell_development_frontend(true, Some(&url))
+        .map_err(io::Error::other)
+}
+
+fn optional_native_listener<T>(
+    result: Result<Option<T>, crate::native_host::NativeHostBindError>,
+) -> io::Result<Option<T>> {
+    match result {
+        Ok(server) => Ok(server),
+        Err(crate::native_host::NativeHostBindError::InventoryRejected(error)) => Err(error),
+        Err(crate::native_host::NativeHostBindError::ListenerUnavailable(error)) => {
+            log::debug!("[native-host] listener unavailable; headless service retained: {error}");
+            Ok(None)
+        }
+    }
+}
+
+fn continue_after_ack<T>(
+    acknowledgement: io::Result<()>,
+    serve: impl FnOnce() -> io::Result<T>,
+) -> io::Result<T> {
+    if let Err(error) = acknowledgement {
         if !matches!(
             error.kind(),
             io::ErrorKind::BrokenPipe
@@ -145,18 +267,17 @@ pub fn run(
         }
         log::debug!("[bootstrap] launch observer disconnected after service readiness");
     }
-    let control_result = runtime.block_on(async {
-        let control = channel::serve(listener, ready, token);
-        tokio::select! {
-            result = control => result,
-            result = shutdown_signal() => result,
+    serve()
+}
+
+async fn serve_native(server: Option<NativeServer>, events: NativeEventPort) -> io::Result<()> {
+    if let Some(server) = server {
+        if let Err(error) = server.serve().await {
+            log::debug!("[native-host] listener unavailable; headless service retained: {error}");
         }
-    });
-    let shutdown_result = shutdown(&running);
-    runtime.shutdown_timeout(std::time::Duration::from_secs(6));
-    drop(process);
-    let _ = owner;
-    control_result.and(shutdown_result)
+        *events.write() = None;
+    }
+    std::future::pending().await
 }
 
 async fn shutdown_signal() -> io::Result<()> {
@@ -242,4 +363,116 @@ fn note(sink: &mut Option<std::fs::File>, phase: &str) -> io::Result<()> {
         file.sync_all()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn server_events_redact_generic_web_payloads() {
+        let events = Arc::new(codeterm_events::EventBroadcaster::new());
+        let mut web = events.subscribe();
+        let ui = ServerEvents {
+            events,
+            native: Arc::new(parking_lot::RwLock::new(None)),
+        };
+        ui.emit(
+            "config-changed",
+            serde_json::json!({ "api": { "token": "secret", "port": 1234 } }),
+        );
+        match web.try_recv().unwrap().event {
+            codeterm_events::SystemEvent::Generic { event_type, data } => {
+                assert_eq!(event_type, "config-changed");
+                assert_eq!(
+                    data,
+                    serde_json::json!({ "api": { "token": null, "port": 1234 } })
+                );
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+        assert!(web.try_recv().is_err());
+    }
+
+    #[test]
+    fn server_events_keep_native_audiences_off_web() {
+        let events = Arc::new(codeterm_events::EventBroadcaster::new());
+        let mut web = events.subscribe();
+        let ui = ServerEvents {
+            events,
+            native: Arc::new(parking_lot::RwLock::new(None)),
+        };
+        ui.emit_native("native-probe", serde_json::json!({ "native": true }));
+        ui.emit_to("main", "targeted-probe", serde_json::Value::Null);
+        assert!(web.try_recv().is_err());
+    }
+
+    #[test]
+    fn development_frontend_requires_a_debug_development_server_and_loopback_origin() {
+        let value = "http://127.0.0.1:1420";
+        assert!(development_frontend_origin(false, true, value)
+            .unwrap()
+            .is_none());
+        assert!(development_frontend_origin(true, false, value)
+            .unwrap()
+            .is_none());
+        assert!(development_frontend_origin(true, true, "https://foreign.invalid").is_err());
+        assert_eq!(
+            development_frontend_origin(true, true, value)
+                .unwrap()
+                .unwrap()
+                .origin()
+                .ascii_serialization(),
+            value
+        );
+    }
+
+    #[test]
+    fn process_split_contract_native_listener_failure_is_distinct_from_inventory_rejection() {
+        use crate::native_host::NativeHostBindError;
+        for kind in [io::ErrorKind::PermissionDenied, io::ErrorKind::Other] {
+            let unavailable = optional_native_listener::<()>(Err(
+                NativeHostBindError::ListenerUnavailable(io::Error::from(kind)),
+            ));
+            assert!(unavailable.unwrap().is_none());
+            let rejected = optional_native_listener::<()>(Err(
+                NativeHostBindError::InventoryRejected(io::Error::from(kind)),
+            ));
+            assert!(rejected.is_err());
+        }
+    }
+
+    #[test]
+    fn process_split_contract_readiness_ack_failure_still_runs_cleanup_once() {
+        let controls = Cell::new(0);
+        let cleanups = Cell::new(0);
+        let control = continue_after_ack(Err(io::Error::from(io::ErrorKind::InvalidData)), || {
+            controls.set(controls.get() + 1);
+            Ok(None::<()>)
+        });
+        let result = finish_server_control(
+            control,
+            || {
+                cleanups.set(cleanups.get() + 1);
+                Ok(())
+            },
+            |_, _| panic!("No shutdown was admitted"),
+        );
+        assert!(result.is_err());
+        assert_eq!(controls.get(), 0);
+        assert_eq!(cleanups.get(), 1);
+    }
+
+    #[test]
+    fn process_split_contract_launcher_disconnect_keeps_service_control_independent() {
+        let controls = Cell::new(0);
+        let result = continue_after_ack(Err(io::Error::from(io::ErrorKind::BrokenPipe)), || {
+            controls.set(controls.get() + 1);
+            Ok(42)
+        })
+        .unwrap();
+        assert_eq!(result, 42);
+        assert_eq!(controls.get(), 1);
+    }
 }

@@ -1411,6 +1411,14 @@ Taking the parent of a literal trailing `..` selects `src-tauri/crates/plugins`
 instead of the repository `plugins/` directory. Source review caught and fixed
 this extraction path error; no native build failure was executed in that lane.
 
+If the crate-version guard flags the independent server's release version, do
+not carry the app version in its shared library package or exempt it from the
+guard. Keep its Cargo version at `0.0.0`; the server build script injects
+`DOMIOS_VERSION` from the existing `src-tauri/tauri.conf.json` release source,
+tracks that input, and installs it through `codeterm_build_info` at startup.
+Parent canonical refreshes lockfiles and verifies the shipped version; a source
+guard pass alone is not built artifact identity proof.
+
 Parent canonical Team QA owns all Rust and native execution for this slice:
 
 ```bash
@@ -1459,3 +1467,41 @@ that can create the independent server. Report Windows, Linux and macOS native
 rows separately. An unrun probe, successful source check or fake fixture is never
 a native process PASS. Probe receipts contain no API credential; the credential
 travels only over private inherited pipes or authenticated local IPC.
+
+### Human headless start
+
+The server's `start` entry uses the same detached child, protected bootstrap pipes,
+readiness acknowledgement and process-provenance check as private `launch`:
+
+```bash
+./domios-server/domios-server start --production --json
+# Windows: .\domios-server\domios-server.exe start --production --json
+```
+
+The common resource root defaults to the executable's parent-parent directory;
+`--resources PATH` selects an explicit resource root. The packaged layout contains
+`domios-server/`, `cli/`, `dist/`, `skills/` and target runtime resources together.
+The CLI digest must already be bound into the server build. A missing or mismatched
+resource refuses startup; the entry does not install, relocate data or launch a
+native client. Final release staging/signing and actual packaged-start proof remain
+required before this source entry establishes a supported release artifact.
+
+A debug artifact instead requires `start --development --port PORT`, optionally
+`--instance NAME`. Production and debug selectors cannot cross; inherited launch
+selectors are scrubbed by the server before resolving its instance. There is no
+implicit selector, credential option, probe option or production test command.
+`--json` emits only `ServerReady`; ordinary output shows the token-free frontend
+address and process/instance identity. Private `launch`, `serve`, `attach` and
+`observe` still require inherited pipes and retain their protected DTOs.
+
+Open the reported address and authenticate through the existing WebGate with the
+API credential obtained privately from the server's protected local configuration.
+Never copy a credential into an argv, URL, build receipt or console log. WebGate
+checks authenticated workspace access; `/manifest-bootstrap` already requires a
+bearer and is not first-use pairing. No tokenless remote/browser pairing is provided.
+Native enrollment remains the authenticated client attachment contract, independently
+pinned to the intended server artifact; human status does not authorize native powers.
+
+Focused pure coverage is `./build.sh test-one domios-server process_split_contract_headless`.
+Actual production/debug start, refusal and frontend-authentication proofs are
+parent-owned platform rows; source fixtures and compilation do not execute them.

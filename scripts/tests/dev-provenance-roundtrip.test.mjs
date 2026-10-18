@@ -17,6 +17,16 @@ function run(command, args, options = {}) {
   return result.stdout.trim();
 }
 
+function splitResources(directory) {
+  const exe = process.platform === 'win32' ? '.exe' : '';
+  for (const name of [`domios-server/domios-server${exe}`, `cli/codeterm${exe}`, 'server-component.json',
+    'dist/index.html', 'skills/fixture.md', 'LICENSE', 'NOTICE', ...(process.platform === 'win32' ? ['conpty/x64/conpty.dll'] : [])]) {
+    const file = path.join(directory, name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `opaque split artifact: ${name}`, { mode: 0o755 });
+  }
+}
+
 function fixture() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-provenance-'));
   const checkout = path.join(directory, 'checkout');
@@ -32,6 +42,7 @@ function fixture() {
     fs.writeFileSync(path.join(checkout, file), `opaque artifact: ${file}`, { mode: 0o755 });
   }
   fs.writeFileSync(path.join(checkout, 'package.json'), '{"private":true}');
+  splitResources(path.join(checkout, 'target/debug'));
   run('git', ['init', '-q'], { cwd: checkout });
   run('git', ['add', '.'], { cwd: checkout });
   run('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
@@ -72,6 +83,7 @@ test('two named instances persist and validate their own checkout artifact prove
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, instance, { mode: 0o755 });
       }
+      splitResources(path.dirname(app));
       const written = provenance(checkout, checkout, checkout, sha, 'write_dev_provenance', '', instance);
       assert.equal(written.status, 0, written.stderr);
       const checked = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', '', instance);
@@ -153,7 +165,7 @@ node -e 'const {resolveBuildIdentity}=require("./scripts/build-identity.cjs"); i
     const standalone = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance');
     assert.equal(standalone.status, 1);
     assert.match(standalone.stderr, /recorded build commit does not match/);
-    fs.appendFileSync(path.join(checkout, 'dist/index.html'), 'changed');
+    fs.appendFileSync(path.join(checkout, 'target/debug/dist/index.html'), 'changed');
     const tampered = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', sha);
     assert.equal(tampered.status, 1);
     assert.match(tampered.stderr, /frontend artifact content mismatch/);
@@ -209,7 +221,7 @@ function sourceFunction(name) {
 test('frontend rewritten with identical bytes is accepted; different bytes still refuse', () => {
   const { directory, checkout, sha } = fixture();
   try {
-    const dist = path.join(checkout, 'dist');
+    const dist = path.join(checkout, 'target/debug/dist');
     const written = provenance(checkout, checkout, checkout, sha, 'write_dev_provenance');
     assert.equal(written.status, 0, written.stderr);
     const original = fs.readFileSync(path.join(dist, 'index.html'));
@@ -235,6 +247,7 @@ ${sourceFunction('start_web_watch')}
 cd "$1"
 CT_SUFFIX="-watch-test-$$"
 kill_web_watch() { :; }
+tauri_debug_dir() { echo target/debug; }
 node() { printf '%s|%s\\n' "$CODETERM_FRONTEND_DEV" "$*" > args.txt; }
 nohup() { "$@"; }
 process_pid_for_cleanup() { echo "$1"; }
@@ -287,5 +300,22 @@ exit "$status"
       assert.match(log, /cannot execute pnpm\nERROR: prebuilt dev runtime prerequisites/);
     }
     if (refusal !== 'none') assert.match(result.stderr, /refusing before stopping dev/);
+  });
+}
+
+for (const [name, relative, message] of [
+  ['server', `domios-server/domios-server${process.platform === 'win32' ? '.exe' : ''}`, 'server artifact content mismatch'],
+  ['inventory', 'server-component.json', 'inventory artifact content mismatch'],
+  ['runtime resource', 'skills/fixture.md', 'resources artifact content mismatch'],
+]) {
+  test(`prebuilt refuses changed ${name} bytes`, () => {
+    const { directory, checkout, sha } = fixture();
+    try {
+      assert.equal(provenance(checkout, checkout, checkout, sha, 'write_dev_provenance').status, 0);
+      fs.appendFileSync(path.join(checkout, 'target/debug', relative), 'changed');
+      const result = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance');
+      assert.equal(result.status, 1);
+      assert.ok(result.stderr.includes(message), result.stderr);
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
   });
 }

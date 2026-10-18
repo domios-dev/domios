@@ -1,4 +1,4 @@
-use super::super::protocol::ProcessProvenance;
+use codeterm_types::server_bootstrap::ProcessProvenance;
 use std::{
     io,
     os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
