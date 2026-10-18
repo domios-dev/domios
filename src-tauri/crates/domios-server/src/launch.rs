@@ -214,7 +214,35 @@ pub fn install_selectors(options: &LaunchOptions) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn exclude_bootstrap_handle_from_children(
+    handle: windows_sys::Win32::Foundation::HANDLE,
+) -> io::Result<()> {
+    use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
+    if unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn exclude_bootstrap_stdio_from_children() -> io::Result<()> {
+    use windows_sys::Win32::{
+        Foundation::INVALID_HANDLE_VALUE,
+        System::Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
+    };
+    for kind in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        let handle = unsafe { GetStdHandle(kind) };
+        if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
+            exclude_bootstrap_handle_from_children(handle)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn spawn_detached(executable: &Path) -> io::Result<Child> {
+    #[cfg(windows)]
+    exclude_bootstrap_stdio_from_children()?;
     let mut command = Command::new(executable.canonicalize()?);
     command
         .arg("serve")

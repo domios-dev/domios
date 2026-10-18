@@ -501,3 +501,17 @@ it to the exact canonical client-derived root. Symlink/junction and foreign-root
 candidates still refuse. Only the verified physical root is created/staged; no global
 drive mapping is changed. Rebuild through the supported DEV operation after this
 source correction; COM/client/server startup remains a separate native proof.
+
+### Independent server is live but native helper reaches its deadline
+
+Public health alone cannot complete native attachment. If launch has started but the
+caller still refuses, inspect sanitized `response_newline`, `response_eof` and
+`helper_exited` phases. Newline plus helper exit without EOF identifies an open writer;
+server debug logs bracket native listener binding and inherited readiness ACK. No
+payload, token or reply contents are recorded. Do not increase deadlines or retry attach.
+
+Windows launcher standard handles are made non-inheritable before spawning the server,
+which retains its explicit private stdin/stdout. This prevents those original helper
+handles from extending the caller pipe lifetime. Exact bounded one-line plus EOF and
+successful helper exit remain mandatory. The prior deadline is not reclassified as
+success; parent native execution must establish the actual handle/ACK outcome.
