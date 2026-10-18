@@ -2,6 +2,20 @@ use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, path::PathBuf};
 
 pub const BOOTSTRAP_PROTOCOL: u32 = 1;
+pub const API_VERSION: u32 = 3;
+pub const SERVER_COMPONENT_SCHEMA: u32 = 1;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServerComponentManifest {
+    pub schema: u32,
+    pub server_build: String,
+    pub server_executable: PathBuf,
+    pub server_sha256: String,
+    pub client_sha256: String,
+    pub api_version: u32,
+    pub bootstrap_protocol: u32,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
