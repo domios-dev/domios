@@ -77,6 +77,92 @@ fn attempt_model_fields_round_trip() {
 }
 
 #[test]
+fn respawn_from_a_source_attempt_is_single_use_while_replacement_is_live() {
+    let (_dir, store, plan_id, task_id) = super::bound_report_store();
+    let source_attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+        .id
+        .clone();
+    let request = || task_attempts::TaskRespawnRequest {
+        attempt_id: source_attempt_id.clone(),
+        ..Default::default()
+    };
+
+    let first = store
+        .build_task_respawn_draft(&plan_id, &task_id, request())
+        .unwrap();
+    let first_reservation = store
+        .reserve_task_respawn_startup(&plan_id, &task_id, &source_attempt_id, &first.attempt_id)
+        .unwrap();
+    let first_created = store
+        .record_task_respawn_attempt(
+            &plan_id,
+            &task_id,
+            "worker-first-respawn",
+            &first,
+            Some("worker"),
+            4,
+        )
+        .unwrap();
+    drop(first_reservation);
+
+    let second = store
+        .build_task_respawn_draft(&plan_id, &task_id, request())
+        .unwrap();
+    let result = store.reserve_task_respawn_startup(
+        &plan_id,
+        &task_id,
+        &source_attempt_id,
+        &second.attempt_id,
+    );
+
+    assert!(matches!(
+        result,
+        Err(PlanError::DispatchInFlight { attempt_id, tab_id })
+            if attempt_id == first_created.attempt.id && tab_id == "worker-first-respawn"
+    ));
+    let task = store.show_task(&task_id).unwrap().task;
+    assert_eq!(
+        task.execution_attempts
+            .iter()
+            .filter(|attempt| attempt.closed_at.is_none())
+            .count(),
+        1
+    );
+    assert_eq!(
+        task.assigned_tab_id.as_deref(),
+        Some("worker-first-respawn")
+    );
+
+    store
+        .with_plan(&plan_id, 6, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == first_created.attempt.id)
+                .unwrap()
+                .closed_at = Some(6);
+            Ok(())
+        })
+        .unwrap();
+    let after_loss = store
+        .build_task_respawn_draft(&plan_id, &task_id, request())
+        .unwrap();
+    let recovered_reservation = store
+        .reserve_task_respawn_startup(
+            &plan_id,
+            &task_id,
+            &source_attempt_id,
+            &after_loss.attempt_id,
+        )
+        .unwrap();
+    drop(recovered_reservation);
+}
+
+#[test]
 fn respawn_keeps_persona() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());

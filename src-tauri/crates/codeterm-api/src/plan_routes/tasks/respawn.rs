@@ -141,6 +141,11 @@ pub async fn task_respawn(
         )
     })?;
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let _respawn_reservation = state
+        .svc
+        .plan_store
+        .reserve_task_respawn_startup(&id, &tid, &draft.source_attempt.id, &draft.attempt_id)
+        .map_err(plan_err)?;
     let description =
         codeterm_service_core::service::task_tab_description(&original_task.name, None);
     let spawn = state
