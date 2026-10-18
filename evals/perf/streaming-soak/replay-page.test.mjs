@@ -9,7 +9,7 @@ test('controlled frames prove replay harness input/tail acknowledgements and met
     EventTarget:window.EventTarget,CustomEvent:window.CustomEvent,MutationObserver:window.MutationObserver,
     PerformanceObserver:class { static supportedEntryTypes = []; },requestAnimationFrame:callback => { frames.push(callback); return frames.length; }};
   for (const [key,value] of Object.entries(globals)) { originals.set(key,Object.getOwnPropertyDescriptor(globalThis,key)); Object.defineProperty(globalThis,key,{value,configurable:true,writable:true}); }
-  window.document.body.innerHTML = '<section data-testid="tab-session-chat" data-tab-id="local" data-snapshot-ready="true"><textarea aria-label="Message composer"></textarea></section>';
+  window.document.body.innerHTML = '<section data-testid="tab-session-chat" data-tab-id="local"><textarea aria-label="Message composer"></textarea></section>';
   const data = new Map([
     ['local:s',{authority:{sourceSessionId:'s',sessionBindingNonce:'n'},rows:[],evictedOlder:0}],
     ['other:o',{authority:{sourceSessionId:'o',sessionBindingNonce:'p'},rows:[],evictedOlder:0}],
