@@ -346,3 +346,11 @@ its visible DOM/internal store/durable storage evidence remains explicitly unava
 Selected local and final selected-tail checks still require the exact visible source ID.
 The actual tail signature is row id plus # plus JavaScript content length, matching
 paintTailSignature; no monitor snapshot is converted into invented DOM rows.
+
+
+Replay visits explicitly distinguish setup from replay phase. Initial authority
+mount retains the original synthetic history marker. Seed routing, begin/local
+return, final reads and after-return use replay phase: exact selected owned mount
+remains required, while dispatch/final-read retain exact replay tail evidence.
+The setup marker may disappear after normalized reseed/virtualization; requiring it
+then caused a pre-input readiness refusal, not proof of app storage failure.
