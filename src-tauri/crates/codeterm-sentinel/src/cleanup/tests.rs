@@ -41,6 +41,18 @@ fn terminal_cleanup_retains_team_owned_agent_authored_history_records() {
 }
 
 #[test]
+fn retained_stopped_agent_blueprint_is_valid_persisted_history() {
+    let mut blueprint = job("blueprint", "creator", true, Some("done"));
+    blueprint.agent_authored = true;
+
+    assert!(super::super::store::validate(vec![blueprint]).is_ok());
+
+    let mut live = job("live", "creator", false, Some("done"));
+    live.agent_authored = true;
+    assert!(super::super::store::validate(vec![live]).is_err());
+}
+
+#[test]
 fn terminal_cleanup_removes_agent_authored_root_without_team_retention_scope() {
     let mut blueprint = job("personal-blueprint", "creator", true, Some("done"));
     blueprint.agent_authored = true;
