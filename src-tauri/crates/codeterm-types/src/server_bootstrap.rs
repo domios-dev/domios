@@ -22,6 +22,7 @@ pub struct ServerComponentManifest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ClientIdentity {
+    None,
     Sha256 {
         sha256: String,
     },
