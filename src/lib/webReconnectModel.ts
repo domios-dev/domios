@@ -20,13 +20,25 @@ export function transitionWebReconnect(
 
 export const RECONNECT_FIRST_MS = 1_000;
 export const RECONNECT_CAP_MS = 15_000;
+export const RECONNECT_HIDDEN_FIRST_MS = 15_000;
+export const RECONNECT_HIDDEN_CAP_MS = 60_000;
+export const HEALTHY_STREAM_MS = 30_000;
 
 /** A lost stream gets a bounded attempt schedule: elapsed time only triggers the next
- *  probe, and only a real connection counts as recovery. */
-export function reconnectDelay(backoffMs: number, random: number): number {
-  return backoffMs / 2 + random * (backoffMs / 2);
+ *  probe, and only a frame or sustained open period counts as recovery. */
+export function reconnectDelay(backoffMs: number, random: number, hidden = false): number {
+  const floor = hidden ? RECONNECT_HIDDEN_FIRST_MS : RECONNECT_FIRST_MS;
+  const cap = hidden ? RECONNECT_HIDDEN_CAP_MS : RECONNECT_CAP_MS;
+  const boundedBackoff = Math.min(Math.max(backoffMs, floor), cap);
+  return boundedBackoff / 2 + random * (boundedBackoff / 2);
 }
 
-export function nextReconnectBackoff(backoffMs: number): number {
-  return Math.min(backoffMs * 2, RECONNECT_CAP_MS);
+export function nextReconnectBackoff(backoffMs: number, hidden = false): number {
+  const floor = hidden ? RECONNECT_HIDDEN_FIRST_MS : RECONNECT_FIRST_MS;
+  const cap = hidden ? RECONNECT_HIDDEN_CAP_MS : RECONNECT_CAP_MS;
+  return Math.min(Math.max(backoffMs, floor) * 2, cap);
+}
+
+export function shouldResetReconnectBackoff(sawRealFrame: boolean, openDurationMs: number): boolean {
+  return sawRealFrame || openDurationMs >= HEALTHY_STREAM_MS;
 }
