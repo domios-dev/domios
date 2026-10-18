@@ -47,6 +47,33 @@ pub struct StagedTeamClose {
     closed_roots: Vec<String>,
 }
 
+pub(super) trait TeamLaneCleanupIo {
+    fn worktree_exists(&mut self, path: &str) -> bool;
+    fn branch_exists(&mut self, lane: &TeamCloseLane, branch: &str) -> Result<bool, String>;
+    fn hold_reason(&mut self, lane: &TeamCloseLane) -> Option<String>;
+    fn remove_lane(&mut self, lane: &TeamCloseLane) -> Result<(), String>;
+}
+
+struct GitTeamLaneCleanup;
+
+impl TeamLaneCleanupIo for GitTeamLaneCleanup {
+    fn worktree_exists(&mut self, path: &str) -> bool {
+        Path::new(path).exists()
+    }
+
+    fn branch_exists(&mut self, lane: &TeamCloseLane, branch: &str) -> Result<bool, String> {
+        branch_exists(lane, branch)
+    }
+
+    fn hold_reason(&mut self, lane: &TeamCloseLane) -> Option<String> {
+        lane_hold_reason(lane)
+    }
+
+    fn remove_lane(&mut self, lane: &TeamCloseLane) -> Result<(), String> {
+        cleanup_lane(lane)
+    }
+}
+
 #[cfg(any(test, feature = "test-support"))]
 pub fn close_team_with_state_change(
     mux: &mut MultiplexerState,
@@ -75,7 +102,33 @@ pub(super) fn close_team_with_state_change_using<F>(
     team_id: &str,
     caller: &TeamMutationCaller,
     now_ms: u64,
+    close_member: F,
+) -> Result<(Team, CloseTeamCleanup, Vec<String>), String>
+where
+    F: FnMut(&mut MultiplexerState, &str) -> Result<Vec<String>, String>,
+{
+    close_team_with_state_change_using_lane_cleanup(
+        mux,
+        events,
+        plan_store,
+        team_id,
+        caller,
+        now_ms,
+        close_member,
+        &mut GitTeamLaneCleanup,
+    )
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub(super) fn close_team_with_state_change_using_lane_cleanup<F>(
+    mux: &mut MultiplexerState,
+    events: &codeterm_events::EventBroadcaster,
+    plan_store: &PlanStore,
+    team_id: &str,
+    caller: &TeamMutationCaller,
+    now_ms: u64,
     mut close_member: F,
+    cleanup_io: &mut impl TeamLaneCleanupIo,
 ) -> Result<(Team, CloseTeamCleanup, Vec<String>), String>
 where
     F: FnMut(&mut MultiplexerState, &str) -> Result<Vec<String>, String>,
@@ -105,7 +158,7 @@ where
     };
     let (team, cleanup) = commit_staged_team_close(mux, staged)?;
     codeterm_service_core::service::publish_mux_state_changed(events);
-    finish_team_lane_cleanup(plan_store, &lanes, now_ms)?;
+    finish_team_lane_cleanup_using(plan_store, &lanes, now_ms, cleanup_io)?;
     Ok((team, cleanup, changed_plan_ids))
 }
 
@@ -232,16 +285,24 @@ pub(super) fn finish_team_lane_cleanup(
     lanes: &[TeamCloseLane],
     now_ms: u64,
 ) -> Result<TeamCloseInventory, String> {
+    finish_team_lane_cleanup_using(plan_store, lanes, now_ms, &mut GitTeamLaneCleanup)
+}
+
+fn finish_team_lane_cleanup_using(
+    plan_store: &PlanStore,
+    lanes: &[TeamCloseLane],
+    now_ms: u64,
+    cleanup_io: &mut impl TeamLaneCleanupIo,
+) -> Result<TeamCloseInventory, String> {
     let existing_lanes: Vec<_> = lanes
         .iter()
         .filter(|lane| {
             lane.worktree_path
                 .as_deref()
-                .is_some_and(|path| Path::new(path).exists())
-                || lane
-                    .branch
-                    .as_deref()
-                    .is_some_and(|branch| matches!(branch_exists(lane, branch), Ok(true)))
+                .is_some_and(|path| cleanup_io.worktree_exists(path))
+                || lane.branch.as_deref().is_some_and(|branch| {
+                    matches!(cleanup_io.branch_exists(lane, branch), Ok(true))
+                })
         })
         .cloned()
         .collect();
@@ -249,7 +310,7 @@ pub(super) fn finish_team_lane_cleanup(
         .iter()
         .cloned()
         .map(|mut lane| {
-            lane.hold_reason = lane_hold_reason(&lane);
+            lane.hold_reason = cleanup_io.hold_reason(&lane);
             lane
         })
         .collect();
@@ -263,12 +324,12 @@ pub(super) fn finish_team_lane_cleanup(
         if lane
             .worktree_path
             .as_deref()
-            .map_or(true, |path| !Path::new(path).exists())
+            .map_or(true, |path| !cleanup_io.worktree_exists(path))
         {
             if let Some(branch) = lane
                 .branch
                 .as_deref()
-                .filter(|branch| matches!(branch_exists(lane, branch), Ok(true)))
+                .filter(|branch| matches!(cleanup_io.branch_exists(lane, branch), Ok(true)))
             {
                 inventory.orphan_branches.push(branch.to_string());
             }
@@ -276,7 +337,7 @@ pub(super) fn finish_team_lane_cleanup(
         let failure = if let Some(reason) = &lane.hold_reason {
             Some(reason.clone())
         } else {
-            cleanup_lane(lane).err()
+            cleanup_io.remove_lane(lane).err()
         };
         let record = TeamCloseLaneRecord {
             path: lane.worktree_path.clone(),
