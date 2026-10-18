@@ -18,7 +18,9 @@ pub(crate) fn project_timeline(segments: Vec<TimelineSegment>) -> Vec<ChatMsg> {
         if let (Some(previous), Some(boundary)) =
             (previous_session_id.as_deref(), segment.boundary_before)
         {
-            output.push(boundary_message(previous, &segment.session_id, boundary));
+            let mut message = boundary_message(previous, &segment.session_id, boundary);
+            message.seq = sequence(output.len());
+            output.push(message);
         }
         for mut message in segment.messages {
             if segment.read_only {
