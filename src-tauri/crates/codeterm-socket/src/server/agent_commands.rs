@@ -137,6 +137,11 @@ pub(super) fn dispatch(
         .and_then(Value::as_bool)
         .unwrap_or(false)
     {
+        log::debug!(
+            "[agent_command] refresh trigger source=command provider={} method={}",
+            id,
+            method
+        );
         codeterm_service_core::agent::model_catalog::invalidate(&id);
         if let Some(provider) = svc.agent_registry.provider_arc(&id) {
             codeterm_service_core::async_runtime::spawn(async move {

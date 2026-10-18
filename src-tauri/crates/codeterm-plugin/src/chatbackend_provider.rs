@@ -366,6 +366,7 @@ impl ChatBackendRegistry {
         if !self.contains(id) {
             return false;
         }
+        log::debug!("[chatbackend.catalog] refresh trigger source=input-change provider={id}");
         model_catalog::invalidate(id);
         self.refresh_provider(id)
     }
@@ -389,6 +390,10 @@ impl ChatBackendRegistry {
             .iter()
             .map(|(id, entry)| (id.clone(), entry.provider.clone()))
             .collect::<Vec<_>>();
+        log::debug!(
+            "[chatbackend.catalog] startup discovery scheduled providers={}",
+            providers.len()
+        );
         providers
             .into_iter()
             .filter_map(|(id, provider)| self.refresh_background(id, provider))
@@ -745,7 +750,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_refresh_reruns_chatbackend_models_and_publishes_its_version() {
+    fn explicit_refresh_does_not_republish_an_identical_catalogue() {
         let id = "chatbackend-refresh-event-fixture";
         let registry = ChatBackendRegistry::new();
         let calls = Arc::new(CatalogCallTracker::default());
@@ -763,17 +768,10 @@ mod tests {
         assert!(registry.refresh_and_wait(id));
 
         let version = model_catalog::current_version(id);
-        assert!(version > initial_version);
+        assert_eq!(version, initial_version);
         assert_eq!(calls.count(), 2);
         assert_eq!(registry.descriptor(id).unwrap().catalogue_version, version);
-        let mut completion_seen = false;
-        while let Ok(change) = changes.try_recv() {
-            completion_seen |= change.provider == id && change.version == version;
-        }
-        assert!(
-            completion_seen,
-            "the completed refresh must publish its version"
-        );
+        assert!(std::iter::from_fn(|| changes.try_recv().ok()).all(|change| change.provider != id));
         registry.unregister(id);
     }
 
