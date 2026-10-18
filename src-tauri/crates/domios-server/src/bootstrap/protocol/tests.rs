@@ -170,6 +170,10 @@ fn process_split_contract_observe_preflight_refuses_effects_before_attach_execut
         process: ready.process.clone(),
         epoch: ready.epoch.clone(),
     });
+    request.protocol = 1;
+    assert!(with_observation_preflight(&request, attach).is_err());
+    assert_eq!(executions.get(), 0);
+    request.protocol = BOOTSTRAP_PROTOCOL;
     assert_eq!(with_observation_preflight(&request, attach).unwrap(), 42);
     assert_eq!(executions.get(), 1);
 }

@@ -234,27 +234,54 @@ enum QuitFeedback {
     Uncertain,
 }
 
-static LAST_QUIT_FEEDBACK: std::sync::Mutex<Option<QuitFeedback>> = std::sync::Mutex::new(None);
+#[derive(Default)]
+struct QuitFeedbackState {
+    generation: u64,
+    current: Option<(u64, QuitFeedback)>,
+}
 
-fn new_quit_feedback(previous: &mut Option<QuitFeedback>, next: QuitFeedback) -> bool {
-    if *previous == Some(next) {
-        return false;
+static LAST_QUIT_FEEDBACK: std::sync::Mutex<QuitFeedbackState> =
+    std::sync::Mutex::new(QuitFeedbackState {
+        generation: 0,
+        current: None,
+    });
+
+fn new_quit_feedback(state: &mut QuitFeedbackState, next: QuitFeedback) -> Option<u64> {
+    if state.current.is_some_and(|(_, feedback)| feedback == next) {
+        return None;
     }
-    *previous = Some(next);
-    true
+    state.generation = state.generation.checked_add(1)?;
+    state.current = Some((state.generation, next));
+    Some(state.generation)
+}
+
+fn finish_quit_feedback(state: &mut QuitFeedbackState, generation: u64) {
+    if state
+        .current
+        .is_some_and(|(current, _)| current == generation)
+    {
+        state.current = None;
+    }
+}
+
+fn complete_quit_dialog(generation: u64) {
+    let mut state = LAST_QUIT_FEEDBACK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    finish_quit_feedback(&mut state, generation);
 }
 
 fn show_quit_feedback(app: &codeterm_host_runtime::app_runtime::AppHandle, feedback: QuitFeedback) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
-    let should_show = {
+    let generation = {
         let mut previous = LAST_QUIT_FEEDBACK
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         new_quit_feedback(&mut previous, feedback)
     };
-    if !should_show {
+    let Some(generation) = generation else {
         return;
-    }
+    };
     let message = match feedback {
         QuitFeedback::Waiting => "Domios is waiting for the current exit operation. The app remains open until completion is confirmed.",
         QuitFeedback::Refused => "This quit request was refused before being sent. The app remains open. Reconnect to the server before trying again.",
@@ -267,14 +294,9 @@ fn show_quit_feedback(app: &codeterm_host_runtime::app_runtime::AppHandle, feedb
             .message(message)
             .title("Domios shutdown")
             .kind(MessageDialogKind::Warning)
-            .show(|_| {});
+            .show(move |_| complete_quit_dialog(generation));
     }) {
-        let mut previous = LAST_QUIT_FEEDBACK
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if *previous == Some(feedback) {
-            *previous = None;
-        }
+        complete_quit_dialog(generation);
         log::error!("[client] shutdown feedback could not be shown: {error}");
     }
 }
@@ -458,16 +480,30 @@ mod process_split_contract_client_composition {
 
     #[test]
     fn quit_feedback_only_repeats_for_a_new_state_transition() {
-        let mut previous = None;
+        let mut previous = QuitFeedbackState::default();
         for state in [
             QuitFeedback::Refused,
             QuitFeedback::Waiting,
             QuitFeedback::Uncertain,
         ] {
-            assert!(new_quit_feedback(&mut previous, state));
-            assert!(!new_quit_feedback(&mut previous, state));
+            assert!(new_quit_feedback(&mut previous, state).is_some());
+            assert!(new_quit_feedback(&mut previous, state).is_none());
         }
-        assert!(new_quit_feedback(&mut previous, QuitFeedback::Refused));
+        assert!(new_quit_feedback(&mut previous, QuitFeedback::Refused).is_some());
+    }
+
+    #[test]
+    fn distinct_quit_dialog_attempts_repeat_feedback_without_stale_completion() {
+        let mut state = QuitFeedbackState::default();
+        let first = new_quit_feedback(&mut state, QuitFeedback::Refused).unwrap();
+        assert!(new_quit_feedback(&mut state, QuitFeedback::Refused).is_none());
+        finish_quit_feedback(&mut state, first);
+        let second = new_quit_feedback(&mut state, QuitFeedback::Refused).unwrap();
+        assert_ne!(first, second);
+        finish_quit_feedback(&mut state, first);
+        assert!(new_quit_feedback(&mut state, QuitFeedback::Refused).is_none());
+        finish_quit_feedback(&mut state, second);
+        assert!(new_quit_feedback(&mut state, QuitFeedback::Refused).is_some());
     }
 
     fn manifest() -> serde_json::Value {
