@@ -89,47 +89,92 @@ pub fn bind(identity: &super::protocol::ServerIdentity) -> io::Result<Listener> 
     options.create_tokio()
 }
 
+pub struct ShutdownCompletion {
+    stream: Stream,
+    peer: PinnedProcess,
+    reply: AttachReply,
+}
+
+impl ShutdownCompletion {
+    pub async fn complete(self, cleanup: io::Result<()>) -> io::Result<()> {
+        after_successful_cleanup(cleanup, || async move {
+            self.peer.ensure_alive()?;
+            let mut stream = self.stream;
+            tokio::time::timeout(FAILURE_DEADLINE, write_frame(&mut stream, &self.reply))
+                .await
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::TimedOut, "Shutdown completion deadline")
+                })?
+        })
+        .await
+    }
+}
+
+pub(crate) async fn after_successful_cleanup<T, F, Fut>(
+    cleanup: io::Result<()>,
+    send: F,
+) -> io::Result<T>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = io::Result<T>>,
+{
+    cleanup?;
+    send().await
+}
+
 pub async fn serve(
     listener: Listener,
     ready: ServerReady,
     token: Option<String>,
-) -> io::Result<()> {
+) -> io::Result<ShutdownCompletion> {
     let ready = Arc::new(ready);
     let (shutdown, mut stopped) = tokio::sync::mpsc::channel(1);
     loop {
         let stream = tokio::select! {
             result = listener.accept() => result?,
-            _ = stopped.recv() => return Ok(()),
+            completion = stopped.recv() => return completion.ok_or_else(|| io::Error::other("Shutdown admission channel closed")),
         };
         let ready = ready.clone();
         let token = token.clone();
         let shutdown = shutdown.clone();
         tokio::spawn(async move {
-            if let Ok(Ok(true)) =
+            if let Ok(Ok(Some(completion))) =
                 tokio::time::timeout(FAILURE_DEADLINE, reply(stream, &ready, token)).await
             {
-                let _ = shutdown.send(()).await;
+                let _ = shutdown.try_send(completion);
             }
         });
     }
 }
 
-async fn reply(mut stream: Stream, ready: &ServerReady, token: Option<String>) -> io::Result<bool> {
+async fn reply(
+    mut stream: Stream,
+    ready: &ServerReady,
+    token: Option<String>,
+) -> io::Result<Option<ShutdownCompletion>> {
     let peer = pin_peer(&stream)?;
     verify_peer(&peer, &ready.process.executable)?;
     let request: AttachRequest = read_frame(&mut stream).await?;
     validate_attach(&request, ready)?;
     peer.ensure_alive()?;
-    write_frame(
-        &mut stream,
-        &AttachReply {
-            challenge: request.challenge,
-            ready: ready.clone(),
-            api_token: token,
+    let response = AttachReply {
+        challenge: request.challenge,
+        ready: ready.clone(),
+        api_token: if request.operation == BootstrapOperation::Inspect {
+            token
+        } else {
+            None
         },
-    )
-    .await?;
-    Ok(request.operation == BootstrapOperation::Shutdown)
+    };
+    if request.operation == BootstrapOperation::Shutdown {
+        return Ok(Some(ShutdownCompletion {
+            stream,
+            peer,
+            reply: response,
+        }));
+    }
+    write_frame(&mut stream, &response).await?;
+    Ok(None)
 }
 
 pub async fn attach(
@@ -146,7 +191,9 @@ pub async fn attach(
         write_frame(&mut stream, request).await?;
         let reply = read_frame(&mut stream).await?;
         validate_reply(request, &reply, &provenance)?;
-        peer.ensure_alive()?;
+        if request.operation == BootstrapOperation::Inspect {
+            peer.ensure_alive()?;
+        }
         Ok((reply, peer))
     })
     .await

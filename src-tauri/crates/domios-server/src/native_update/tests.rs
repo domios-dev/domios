@@ -29,12 +29,24 @@ fn components(client_digest: &str) -> ServerComponentManifest {
     ServerComponentManifest {
         schema: SERVER_COMPONENT_SCHEMA,
         server_build: "server-old".into(),
-        server_executable: PathBuf::from("C:/Domios/domios-server.exe"),
+        server_executable: PathBuf::from(if cfg!(windows) {
+            "domios-server/domios-server.exe"
+        } else {
+            "domios-server/domios-server"
+        }),
         server_sha256: "a".repeat(64),
         client_sha256: client_digest.into(),
         api_version: API_VERSION,
         bootstrap_protocol: BOOTSTRAP_PROTOCOL,
     }
+}
+
+fn resource_root() -> PathBuf {
+    PathBuf::from(if cfg!(windows) {
+        "C:/Domios/resources"
+    } else {
+        "/domios/resources"
+    })
 }
 
 fn request() -> NativeUpdateRequest {
@@ -47,7 +59,7 @@ fn request() -> NativeUpdateRequest {
     let process = ProcessProvenance {
         pid: 41,
         created: "start-41".into(),
-        executable: current.server_executable.clone(),
+        executable: resource_root().join(&current.server_executable),
     };
     NativeUpdateRequest {
         operation_id: NativeUpdateOperationId::new(Uuid::from_u128(17)).unwrap(),
@@ -78,7 +90,7 @@ fn ready_for(request: &NativeUpdateRequest) -> ServerReady {
         api_address: "127.0.0.1:7686".parse().expect("valid test address"),
         socket_address: "socket".into(),
         bootstrap_address: "bootstrap".into(),
-        resources: PathBuf::from("C:/Domios/resources"),
+        resources: resource_root(),
     }
 }
 

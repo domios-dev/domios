@@ -170,15 +170,113 @@ fn client_exit_confirmed() -> bool {
         .is_some_and(|status| status.phase == crash::exit::ClientExitPhase::Confirmed)
 }
 
-fn request_client_quit(_: &codeterm_host_runtime::app_runtime::AppHandle) {
-    let Ok(ticket) = crash::exit::begin_client_exit(crash::exit::ClientExitReason::ExplicitQuit)
-    else {
+fn request_client_quit(app: &codeterm_host_runtime::app_runtime::AppHandle) {
+    use crate::host_ports::{
+        native_client::{ExactServerShutdownResult, NativeHostClientSlot},
+        ServerApiAttachmentSlot,
+    };
+    let ticket = match crash::exit::begin_client_exit(crash::exit::ClientExitReason::ExplicitQuit) {
+        Ok(ticket) => ticket,
+        Err(_) => {
+            let feedback = if crash::exit::client_exit_status()
+                .is_some_and(|status| status.phase == crash::exit::ClientExitPhase::Uncertain)
+            {
+                QuitFeedback::Uncertain
+            } else {
+                QuitFeedback::Waiting
+            };
+            show_quit_feedback(app, feedback);
+            return;
+        }
+    };
+    let native = app
+        .try_state::<NativeHostClientSlot>()
+        .map(|slot| slot.inner().clone());
+    let api = app
+        .try_state::<ServerApiAttachmentSlot>()
+        .map(|slot| slot.inner().clone());
+    let (Some(native), Some(api)) = (native, api) else {
+        crash::exit::refuse_client_exit_before_dispatch(ticket);
+        log::debug!("[client] quit refused before dispatch: authenticated attachment unavailable");
+        show_quit_feedback(app, QuitFeedback::Refused);
         return;
     };
-    log::debug!(
-        "[client] quit refused before dispatch: exact server shutdown transport unavailable"
-    );
-    crash::exit::refuse_client_exit_before_dispatch(ticket);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match native.request_exact_server_shutdown(&api).await {
+            ExactServerShutdownResult::Confirmed {
+                server,
+                client_generation,
+            } => {
+                log::debug!("[client] exact server exit observed; epoch={} client_generation={client_generation}", server.epoch);
+                if crash::exit::confirm_client_exit(ticket) {
+                    app.exit(0);
+                }
+            }
+            ExactServerShutdownResult::RefusedBeforeDispatch(reason) => {
+                crash::exit::refuse_client_exit_before_dispatch(ticket);
+                log::debug!("[client] quit refused before dispatch: {reason:?}");
+                show_quit_feedback(&app, QuitFeedback::Refused);
+            }
+            ExactServerShutdownResult::UncertainAfterDispatch(reason) => {
+                crash::exit::mark_client_exit_uncertain(ticket);
+                log::debug!("[client] exact server exit remains uncertain: {reason:?}");
+                show_quit_feedback(&app, QuitFeedback::Uncertain);
+            }
+        }
+    });
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QuitFeedback {
+    Waiting,
+    Refused,
+    Uncertain,
+}
+
+static LAST_QUIT_FEEDBACK: std::sync::Mutex<Option<QuitFeedback>> = std::sync::Mutex::new(None);
+
+fn new_quit_feedback(previous: &mut Option<QuitFeedback>, next: QuitFeedback) -> bool {
+    if *previous == Some(next) {
+        return false;
+    }
+    *previous = Some(next);
+    true
+}
+
+fn show_quit_feedback(app: &codeterm_host_runtime::app_runtime::AppHandle, feedback: QuitFeedback) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    let should_show = {
+        let mut previous = LAST_QUIT_FEEDBACK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        new_quit_feedback(&mut previous, feedback)
+    };
+    if !should_show {
+        return;
+    }
+    let message = match feedback {
+        QuitFeedback::Waiting => "Domios is waiting for the current exit operation. The app remains open until completion is confirmed.",
+        QuitFeedback::Refused => "This quit request was refused before being sent. The app remains open. Reconnect to the server before trying again.",
+        QuitFeedback::Uncertain => "Domios could not confirm that the server finished saving and shutting down. The app remains open. Do not repeat shutdown while its outcome is uncertain.",
+    };
+    let handle = app.clone();
+    if let Err(error) = app.run_on_main_thread(move || {
+        handle
+            .dialog()
+            .message(message)
+            .title("Domios shutdown")
+            .kind(MessageDialogKind::Warning)
+            .show(|_| {});
+    }) {
+        let mut previous = LAST_QUIT_FEEDBACK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if *previous == Some(feedback) {
+            *previous = None;
+        }
+        log::error!("[client] shutdown feedback could not be shown: {error}");
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -358,12 +456,26 @@ mod process_split_contract_client_composition {
     use super::*;
     use std::ffi::OsStr;
 
+    #[test]
+    fn quit_feedback_only_repeats_for_a_new_state_transition() {
+        let mut previous = None;
+        for state in [
+            QuitFeedback::Refused,
+            QuitFeedback::Waiting,
+            QuitFeedback::Uncertain,
+        ] {
+            assert!(new_quit_feedback(&mut previous, state));
+            assert!(!new_quit_feedback(&mut previous, state));
+        }
+        assert!(new_quit_feedback(&mut previous, QuitFeedback::Refused));
+    }
+
     fn manifest() -> serde_json::Value {
         serde_json::json!({
             "schema": 1, "server_build": "independent-server-build",
             "server_executable": "domios-server/domios-server",
             "server_sha256": "a".repeat(64), "client_sha256": "b".repeat(64),
-            "api_version": 3, "bootstrap_protocol": 1,
+            "api_version": 3, "bootstrap_protocol": codeterm_types::server_bootstrap::BOOTSTRAP_PROTOCOL,
         })
     }
 
