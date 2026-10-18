@@ -328,6 +328,7 @@ dependencies = [
  "codeterm-paths",
  "codeterm-plugin",
  "codeterm-plugins",
+ "codeterm-process-identity",
  "codeterm-types",
  "codeterm-wire",
  "deunicode",
@@ -487,6 +488,17 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "uuid",
+]
+
+[[package]]
+name = "codeterm-process-identity"
+version = "0.0.0"
+dependencies = [
+ "codeterm-types",
+ "core-foundation 0.10.1",
+ "libc",
+ "security-framework",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

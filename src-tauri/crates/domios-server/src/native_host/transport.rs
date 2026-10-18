@@ -229,6 +229,25 @@ where
     UpdateRequest: Serialize + DeserializeOwned + Send + 'static,
     UpdateResult: Serialize + DeserializeOwned + Send + 'static,
 {
+    pub fn quit_client(
+        &self,
+    ) -> Result<Option<codeterm_types::app_quit::QuitClient>, codeterm_types::app_quit::QuitRefusal>
+    {
+        let Some(session) = self.active.read().clone() else {
+            return Ok(None);
+        };
+        if session.retired.load(Ordering::Acquire)
+            || self.active_generation.load(Ordering::Acquire) != session.connection.generation
+            || session.process.provenance().ok().as_ref() != Some(&session.client_process)
+        {
+            return Err(codeterm_types::app_quit::QuitRefusal::Unavailable);
+        }
+        Ok(Some(codeterm_types::app_quit::QuitClient {
+            connection: session.connection.clone(),
+            process: session.client_process.clone(),
+        }))
+    }
+
     pub fn connection(&self) -> Option<NativeHostConnection> {
         self.active
             .read()

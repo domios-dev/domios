@@ -727,6 +727,15 @@ pub(super) fn create_router_with_preview_admission(
             "/api/account/plan/refresh",
             post(super::account_routes::refresh_plan),
         )
+        .route(
+            "/api/app/quit/snapshot",
+            get(super::app_quit_routes::snapshot),
+        )
+        .route(
+            "/api/app/quit",
+            post(super::app_quit_routes::request)
+                .layer(axum::extract::DefaultBodyLimit::max(32 * 1024)),
+        )
         .route("/api/account/status", get(super::account_routes::status))
         .route("/api/account/login", post(super::account_routes::login))
         .route(

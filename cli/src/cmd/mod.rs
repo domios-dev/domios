@@ -108,3 +108,5 @@ pub(crate) fn render_workspace_map(
         caller_tab_id,
     )
 }
+
+pub mod app;
