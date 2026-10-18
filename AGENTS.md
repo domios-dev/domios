@@ -233,6 +233,8 @@ After parallel Rust refactors, grep for nested `.lock()` to verify ordering.
 
 ## Async runtime & hot-path discipline (perf — learned the hard way)
 
+**Never block frontend input, scrolling, streaming, or rendering with large synchronous serialization, deep copies, parsing, or storage writes.** Keep updates incremental; use asynchronous per-record storage such as IndexedDB for large or growing data, and reserve localStorage for small bounded values.
+
 Blocking/heavy work on the Tauri async runtime starves ALL IPC and freezes the WHOLE UI (every tab + sidebar), not just the caller. A 3-4s full-UI freeze on every tab switch was `plugin_manager_snapshot` forking CLI subprocesses (including a network `channel diff`) on the async runtime.
 
 - **The daemon NEVER shells out to its own `codeterm` CLI.** Call the in-process function. A daemon forking its own CLI that reconnects to it is an architecture smell — and slow (process start + IPC + network per call).
@@ -423,4 +425,4 @@ Read `essences/begin_here.md` before editing any doc. Bump the `<!-- revision: N
 - `prod-docs/` — exactly the docs embedded in the binary and read with `codeterm docs <NAME>`, one `prod-docs/<NAME>.md` per registry entry: for example `prod-docs/API.md`, `prod-docs/CONFIG.md`, `prod-docs/MESH.md`, `prod-docs/MEMORY.md`, `prod-docs/TAB-LIFECYCLE.md`. Its audience is a production agent using Domios; a doc about Domios's own source (prompt sources, detection internals, file layout) is useless there because that agent cannot edit the binary, so it lives in `.agents/skills/` or `essences/`.
 - `.agents/skills/` — step-by-step procedures (dev run, dev testing, gates, release, prompt evaluation, lane cleanup); not a docs area.
 
-<!-- revision: 40 -->
+<!-- revision: 41 -->
