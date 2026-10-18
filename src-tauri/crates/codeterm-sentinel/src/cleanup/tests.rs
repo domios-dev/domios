@@ -33,6 +33,14 @@ fn terminal_cleanup_requires_stopped_scenario_and_released_work() {
 }
 
 #[test]
+fn terminal_cleanup_retains_agent_authored_history_records() {
+    let mut blueprint = job("blueprint", "creator", true, Some("done"));
+    blueprint.agent_authored = true;
+
+    assert!(terminal_roots(&[blueprint], &BTreeSet::new()).is_empty());
+}
+
+#[test]
 fn worker_cleanup_persists_removal_and_preserves_recurring_and_foreign_jobs() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sentinels.json");
@@ -89,4 +97,25 @@ fn stopped_watch_waits_for_cancelled_lease_release() {
     store.lock().release("root");
     remove_terminal(&store).unwrap();
     assert!(store.lock().get("root").is_none());
+}
+
+#[test]
+fn terminal_cleanup_keeps_stopped_agent_authored_blueprint_in_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut blueprint = job("blueprint", "creator", true, Some("done"));
+    blueprint.agent_authored = true;
+    let mut current = Store::new(
+        dir.path().join("sentinels.json"),
+        codeterm_cron::clock::MockClock::starting_at(1000),
+    );
+    current.insert(blueprint).unwrap();
+    let store = Arc::new(Mutex::new(current));
+
+    remove_terminal(&store).unwrap();
+
+    let store = store.lock();
+    let retained = store
+        .get("blueprint")
+        .expect("stopped Blueprint record remains available");
+    assert_eq!(super::super::amend::history(retained).versions.len(), 1);
 }
