@@ -91,6 +91,41 @@ fn process_split_contract_headless_explicit_selector_and_resource_layout() {
 }
 
 #[test]
+fn process_split_contract_release_isolated_verification_mode_parses_explicit_roots() {
+    let data = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    let executable = std::env::current_dir()
+        .unwrap()
+        .join("fixture/domios-server/domios-server");
+    let args = vec![
+        "--verify-isolated".to_string(),
+        "--data-dir".to_string(),
+        data.path().display().to_string(),
+        "--config-dir".to_string(),
+        config.path().display().to_string(),
+        "--port".to_string(),
+        "18765".to_string(),
+    ];
+
+    let start = human_start_options(&args, &executable, false).unwrap();
+    let expected_bind: std::net::SocketAddr = "127.0.0.1:18765".parse().unwrap();
+    assert_eq!(start.mode, HumanStartMode::IsolatedVerification);
+    assert!(!start.json);
+    assert!(matches!(
+        start.options.instance,
+        InstanceSelector::IsolatedVerification { data_dir: ref selected_data, config_dir: ref selected_config, bind }
+            if selected_data.as_path() == data.path()
+                && selected_config.as_path() == config.path()
+                && bind == expected_bind
+    ));
+    assert!(human_start_options(&args, &executable, true).is_err());
+
+    let mut non_loopback = args.clone();
+    non_loopback.extend(["--host".to_string(), "0.0.0.0".to_string()]);
+    assert!(human_start_options(&non_loopback, &executable, false).is_err());
+}
+
+#[test]
 fn process_split_contract_headless_refuses_ambiguous_or_privileged_options() {
     for args in [
         vec![],
@@ -171,6 +206,17 @@ fn process_split_contract_headless_output_contains_readiness_without_credentials
             );
         }
     }
+
+    let mut ready_line = Vec::new();
+    write_isolated_ready(&mut ready_line, &reply.ready).unwrap();
+    let ready_line = String::from_utf8(ready_line).unwrap();
+    assert_eq!(ready_line.lines().count(), 1);
+    let ready: serde_json::Value = serde_json::from_str(&ready_line).unwrap();
+    assert_eq!(ready["type"], "READY");
+    assert_eq!(ready["build"], reply.ready.build);
+    assert_eq!(ready["port"], 18886);
+    assert!(!ready_line.contains(reply.api_token.as_ref().unwrap()));
+    assert!(!ready_line.contains(&reply.challenge));
 }
 
 #[cfg(windows)]
