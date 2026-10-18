@@ -6,7 +6,7 @@ import {randomUUID,createHash} from 'node:crypto';
 import {fixtureRecord} from '../chat-memory/fixture.mjs';
 import {analyzeGraph,snapshotGraph,heapDiff} from './heap.mjs';
 import {declareControl,plateau} from './oracle.mjs';
-import {VERSION,requireValue,requireMeasurement,segmentSeconds,validateResume,cleanupPlan,sampleDue,acknowledge,validateFileOwnership,muxBindings} from './model.mjs';
+import {VERSION,requireValue,requireMeasurement,segmentSeconds,validateResume,cleanupPlan,abortReplayPlan,sampleDue,acknowledge,validateFileOwnership,muxBindings} from './model.mjs';
 import {atomic,readJson,waitFile,request,shellCommand} from './io.mjs';
 import {attach,dcJson,visit,sample,beginCleanupObservation,cleanupCommandCompleted,waitCleanupObservation,disposeCleanupObservation} from './runtime.mjs';
 import {prepareReplay,compareReplays,outsideRepository,REPLAY_LIMITS} from './replay-model.mjs';
@@ -14,7 +14,7 @@ import {runReplay,repositoryRoot} from './replay.mjs';
 
 const [command,...args] = process.argv.slice(2);
 const flags = Object.fromEntries(args.reduce((all,key,i) => key.startsWith('--')?[...all,[key.slice(2),args[i+1]]]:all,[]));
-requireValue(['inspect','setup','pulse','sample','finish','cleanup','analyze','diff','prepare-replay','replay','compare-replay'].includes(command),'Expected inspect|setup|pulse|sample|finish|cleanup|analyze|diff|prepare-replay|replay|compare-replay');
+requireValue(['inspect','setup','pulse','sample','finish','cleanup','abort-replay','analyze','diff','prepare-replay','replay','compare-replay'].includes(command),'Expected inspect|setup|pulse|sample|finish|cleanup|abort-replay|analyze|diff|prepare-replay|replay|compare-replay');
 const purpose = flags.purpose??'profile';
 requireValue(['functional','profile'].includes(purpose),'--purpose functional|profile required');
 if (purpose === 'functional') {
@@ -56,15 +56,18 @@ async function execute() {
   if (command === 'inspect') { atomic(path.join(out,'identity.json'),rt.identity); return; }
   if (command === 'setup') return setup();
   cp = readJson(checkpoint);
+  if (command === 'abort-replay') requireValue(!cp.abort && cp.cleanup == null,'Abort already admitted or cleanup started; owner review required');
   if (command === 'cleanup') requireValue(cp.cleanup?.status !== 'running','Interrupted cleanup requires owner review; do not retry this checkpoint');
   const state = await rt.api('/api/mux/state'), bindings = muxBindings(state);
   requireValue(state.workspaces.some(w => w.id === cp.workspace.id && w.cwd === cp.workspace.cwd),'Workspace identity drift');
-  if (command === 'cleanup') cleanupPlan(cp,rt.identity,bindings);
+  if (command === 'abort-replay') abortReplayPlan(cp,rt.identity,bindings);
+  else if (command === 'cleanup') cleanupPlan(cp,rt.identity,bindings);
   else validateResume(cp,rt.identity,bindings);
   verifyFiles();
   requireValue(cp.mode !== 'replay' || flags.snapshot !== 'yes','Replay never captures heap snapshots or unrelated private prompt contents');
   const config = readJson(path.join(out,'emitter.json'));
   requireValue(config.run === cp.run && config.token === cp.token && config.endpoint === cp.endpoint,'Emitter ownership drift');
+  if (command === 'abort-replay') { cp.abort = {status:'running',startedAt:Date.now(),reason:'unfinished_replay_teardown_only'}; save(); }
   const message = (op,extra={}) => ({version:VERSION,run:cp.run,token:cp.token,op,...extra});
   if (cp.stopping && fs.existsSync(config.exit)) {
     cp.exit = readJson(config.exit);
@@ -107,7 +110,7 @@ async function execute() {
     await sample(rt,cp,out,'segment-'+cp.segment.number); save(); return;
   }
   if (command === 'sample') { await sample(rt,cp,out,'manual-'+Date.now(),{snapshot:flags.snapshot === 'yes'}); save(); return; }
-  if (command === 'finish' || command === 'cleanup') {
+  if (command === 'finish' || command === 'cleanup' || command === 'abort-replay') {
     if (!cp.exit) {
       cp.stopping = true; save();
       const ack = await request(cp.endpoint,message('stop'),AbortSignal.any([signal,AbortSignal.timeout(20_000)])); acknowledge(cp.batch,ack);
@@ -122,7 +125,7 @@ async function execute() {
       else if (cp.mode === 'load') atomic(path.join(out,'plateau.json'),plateau(samples,cp.control));
       return;
     }
-    const tabs = cleanupPlan(cp,rt.identity,muxBindings(await rt.api('/api/mux/state')));
+    const tabs = (command === 'abort-replay' ? abortReplayPlan : cleanupPlan)(cp,rt.identity,muxBindings(await rt.api('/api/mux/state')));
     await beginCleanupObservation(rt,tabs,cp.workspace.id);
     cp.cleanup = {status:'running',startedAt:Date.now(),tabs}; save();
     try {
@@ -138,7 +141,9 @@ async function execute() {
       fs.unlinkSync(cp.junction);
       for (const f of cp.fixtures) fs.unlinkSync(f.path);
       fs.rmdirSync(cp.history);
-      cp.cleanup.status = 'complete'; cp.stage = 'cleaned'; cp.cleanedAt = Date.now(); save();
+      cp.cleanup.status = 'complete'; cp.stage = command === 'abort-replay' ? 'aborted' : 'cleaned'; cp.cleanedAt = Date.now();
+      if (command === 'abort-replay') { cp.abort.status = 'complete'; cp.abort.completedAt = cp.cleanedAt; }
+      save();
     } finally { await disposeCleanupObservation(rt).catch(() => {}); }
   }
 }
@@ -218,7 +223,7 @@ async function terminalEvidence(batch) {
   })`);
 }
 
-if (['prepare-replay','compare-replay','replay'].includes(command) || flags.mode === 'replay') outsideRepository(out,repositoryRoot);
+if (['prepare-replay','compare-replay','replay','abort-replay'].includes(command) || flags.mode === 'replay') outsideRepository(out,repositoryRoot);
 fs.mkdirSync(out,{recursive:true,mode:0o700});
 requireValue(command !== 'setup' || !fs.existsSync(checkpoint),'Refuse existing checkpoint; resume with pulse');
 const lock = path.join(out,'runner.lock');

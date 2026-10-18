@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {VERSION,functionalTailEvidence,measurementCapabilities,requireMeasurement,rendererMetrics,admitDevSurface,validateDevSurfaceTarget,segmentSeconds,validateIdentity,validateResume,cleanupPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
+import {VERSION,functionalTailEvidence,measurementCapabilities,requireMeasurement,rendererMetrics,admitDevSurface,validateDevSurfaceTarget,segmentSeconds,validateIdentity,validateResume,cleanupPlan,abortReplayPlan,validateFileOwnership,emitterDecision,sampleDue,acknowledge,muxBindings} from './model.mjs';
 const run = '11111111-1111-1111-1111-111111111111';
 const identity = () => ({port:7686,dev:true,page:{origin:'http://127.0.0.1:7686',path:'/'},capabilities:measurementCapabilities('profile',1),build:'a'.repeat(40),entryHash:'b'.repeat(64),target:'page',boot:'boot',renderer:{pid:1,created:'r'},daemon:{pid:2,created:'d'}});
 const fixture = (tab,session) => ({run,tab,session,pty:'pty-'+tab});
@@ -156,4 +156,27 @@ test('bundled functional completion requires observed owned tail and never claim
   assert.equal(result.authority.available,false);
   for (const patch of [{projection:{paintedTail:'foreign#4'}},{visibleSourceIds:[]},{internalStore:'verified'}])
     assert.throws(() => functionalTailEvidence(rows,{...observed,...patch}));
+});
+
+test('abort replay is teardown-only with exact pending ownership and never makes replay resumable',() => {
+  const cp=checkpoint(); cp.mode='replay'; cp.fixtures.push(fixture('other','other-session'));
+  cp.pending={replay:'fingerprint'}; cp.replay={status:'running',fingerprint:'fingerprint'};
+  const live={...bindings(),other:{workspace_id:'owned',agent_session_id:'other-session',pty_id:'pty-other'}};
+  const original=structuredClone(cp);
+  assert.deepEqual(abortReplayPlan(cp,identity(),live),['chat','other','terminal']);
+  assert.deepEqual(cp,original);
+  assert.throws(()=>validateResume(cp,identity(),live),/never replay/);
+  assert.throws(()=>cleanupPlan(cp,identity(),live),/never replay/);
+  assert.throws(()=>abortReplayPlan(cp,{...identity(),boot:'replacement'},live),/identity drift/);
+  assert.throws(()=>abortReplayPlan(cp,identity(),{...live,foreign:{workspace_id:'owned'}}),/Foreign/);
+  for (const field of ['agent_session_id','pty_id','session_binding_nonce','workspace_id']) {
+    assert.throws(()=>abortReplayPlan(cp,identity(),{...live,other:{...live.other,[field]:'rebound'}}),/drift/);
+  }
+  assert.throws(()=>abortReplayPlan({...cp,pending:{replay:'wrong'}},identity(),live),/unfinished replay/);
+  cp.abort={status:'running'};
+  assert.throws(()=>validateResume({...cp,pending:null},identity(),live),/never replay/);
+  cp.abort.status='complete'; cp.stage='aborted';
+  assert.throws(()=>validateResume(cp,identity(),live),/never replay/);
+  assert.deepEqual(cp.pending,original.pending);
+  assert.deepEqual(cp.replay,original.replay);
 });
