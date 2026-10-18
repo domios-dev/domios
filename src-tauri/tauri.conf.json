@@ -52,6 +52,8 @@
       "../LICENSE": "LICENSE",
       "../NOTICE": "NOTICE",
       "../skills": "skills",
+      "../target/domios-package/server-component.json": "server-component.json",
+      "../target/domios-package/domios-server/": "domios-server/",
       "bundled-cli/*": "cli/",
       "conpty/x64/*": "conpty/x64/",
       "conpty/arm64/*": "conpty/arm64/"
