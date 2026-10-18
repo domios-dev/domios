@@ -28,7 +28,7 @@ extern "C-unwind" fn should_terminate(_: *mut AnyObject, _: Sel, _: *mut AnyObje
 static QUIT_CALLBACK: std::sync::OnceLock<fn() -> QuitDecision> = std::sync::OnceLock::new();
 
 fn configured_quit_callback() -> fn() -> QuitDecision {
-    *QUIT_CALLBACK.get_or_init(server_quit_decision)
+    *QUIT_CALLBACK.get_or_init(|| server_quit_decision as fn() -> QuitDecision)
 }
 
 fn dispatch_quit_decision(decision: QuitDecision) -> usize {
