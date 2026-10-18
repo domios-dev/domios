@@ -55,14 +55,20 @@ impl ServiceContext {
         .to_string();
         let context = crate::service::launch_diagnostics::redact_secrets(&context);
         let context = provider_handoff::input::inert_json(&context);
-        let available = provider_handoff::input::MAX_INPUT_BYTES
-            .saturating_sub(INSTRUCTIONS.len() + context.len() + 4);
+        let available = provider_handoff::input::MAX_INPUT_BYTES.saturating_sub(
+            INSTRUCTIONS.len()
+                + context.len()
+                + 4
+                + provider_handoff::input::system_message_overhead(),
+        );
         let recent = provider_handoff::input::recent_messages(messages);
         let history = provider_handoff::input::select_history_literal(&recent, available);
-        provider_handoff::input::assemble(provider_handoff::input::HandoffFragments {
-            instructions: INSTRUCTIONS,
-            context: &context,
-            history: &history,
-        })
+        let payload =
+            provider_handoff::input::assemble(provider_handoff::input::HandoffFragments {
+                instructions: INSTRUCTIONS,
+                context: &context,
+                history: &history,
+            })?;
+        provider_handoff::input::system_message(&payload)
     }
 }
