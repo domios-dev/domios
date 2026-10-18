@@ -1,5 +1,5 @@
 use codeterm_types::server_bootstrap::{
-    AttachReply, AttachRequest, BootstrapOperation, ServerReady,
+    AttachReply, AttachRequest, BootstrapOperation, ServerReady, BOOTSTRAP_PROTOCOL,
 };
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
@@ -162,9 +162,7 @@ fn client_exit_gate() -> &'static ClientExitGate {
     CLIENT_EXIT_GATE.get_or_init(ClientExitGate::default)
 }
 
-pub fn begin_client_exit(
-    reason: ClientExitReason,
-) -> Result<ClientExitTicket, ClientExitRefusal> {
+pub fn begin_client_exit(reason: ClientExitReason) -> Result<ClientExitTicket, ClientExitRefusal> {
     client_exit_gate().begin(reason)
 }
 
@@ -194,7 +192,8 @@ pub fn is_exact_server_shutdown_reply(
     reply: &AttachReply,
 ) -> bool {
     request.operation == BootstrapOperation::Shutdown
-        && request.protocol == expected.protocol
+        && request.protocol == BOOTSTRAP_PROTOCOL
+        && expected.protocol == BOOTSTRAP_PROTOCOL
         && request.api_version == expected.api_version
         && request.build == expected.build
         && request.identity == expected.identity
@@ -212,14 +211,12 @@ pub fn is_exact_server_shutdown_reply(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codeterm_types::server_bootstrap::{
-        ProcessProvenance, ServerExpectation, ServerIdentity,
-    };
+    use codeterm_types::server_bootstrap::{ProcessProvenance, ServerExpectation, ServerIdentity};
     use std::{net::SocketAddr, path::PathBuf};
 
     fn ready(epoch: &str, pid: u32) -> ServerReady {
         ServerReady {
-            protocol: 1,
+            protocol: BOOTSTRAP_PROTOCOL,
             api_version: 3,
             build: "server-build".to_string(),
             instance_id: "split-oracle-quit".to_string(),
@@ -354,6 +351,28 @@ mod tests {
             &expected,
             &shutdown_request(&expected, "challenge-1"),
             &reply(&expected, "challenge-stale")
+        ));
+    }
+
+    #[test]
+    fn shutdown_reply_requires_the_current_shared_bootstrap_protocol() {
+        let expected = ready("epoch-old", 41);
+        let previous_protocol = BOOTSTRAP_PROTOCOL.saturating_sub(1);
+        let mut previous_ready = expected.clone();
+        previous_ready.protocol = previous_protocol;
+        let previous_request = shutdown_request(&previous_ready, "challenge-1");
+        assert!(!is_exact_server_shutdown_reply(
+            &previous_ready,
+            &previous_request,
+            &reply(&previous_ready, "challenge-1")
+        ));
+
+        let mut previous_request = shutdown_request(&expected, "challenge-1");
+        previous_request.protocol = previous_protocol;
+        assert!(!is_exact_server_shutdown_reply(
+            &expected,
+            &previous_request,
+            &reply(&expected, "challenge-1")
         ));
     }
 }
