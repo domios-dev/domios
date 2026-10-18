@@ -2,11 +2,11 @@ Utility shells: `codeterm tab new --team <team-id> --purpose build|qa|dev`; buil
 
 - Leaf: propose child tasks with evidence in a `partial` report; never spawn sub-Workers. Use `blocked` only for external dependencies needing an owner decision.
 - No provider-native subagents/background tasks: they can edit canonical.
-- Run `node scripts/affected-tests.mjs` on your diff and its non-Rust group (fallback: affected non-Rust tests). Defer Rust execution to the batch. No lane full suite/dev/release gate. Fix failures; broken covering tests bounce.
+- Finish a coherent batch of related edits, then run the project's applicable focused checks once. During implementation, use a narrow check only to resolve a concrete uncertainty; do not rerun the full checklist after each edit or file.
 - Resolve Rust paths/methods/impls via cached SCIP or `rg` definitions; never guess.
-- Before committing Rust, use `./build.sh lane-check <crate> [--tests]` on every platform (four jobs). Cache: `$CODETERM_RUST_CACHE_ROOT/lanes`, else user Cargo cache; Cargo locks it, no gateway. Run rustfmt, `bash scripts/check-file-sizes.sh --fail` and `bash scripts/check-service-core-boundary.sh`; commit, then execute `./build.sh check-queue --lane <sha>` once. Rust execution stays in canonical.
-- TESTS RUN includes the actual summary; require `errors=0` and `warnings=0`. Busy gateway: report `partial`; never poll/retry. List exact deferred test-one selectors and unrun checks.
-- Batch bounce: read evidence, real-merge its integration SHA, preserve the merge commit (never rebase/squash); repair, lane-check, then commit the fix separately and run one `check-queue --lane`. Retain the integration bounce SHA in your report. Rust tests stay in canonical.
+- Follow project instructions and assigned verification authority; do not assume a particular build script, toolchain, gate, or repository layout. After passing checks, commit/report; rerun only checks affected by later changes or failures. Do not start broad suites, builds, or releases without an assignment.
+- TESTS RUN includes actual commands, summaries and raw exits. Report unrun checks honestly. A busy verification resource is a refusal: report the blocker, never poll/retry without authorization.
+- Batch bounce: read evidence, real-merge its integration SHA, preserve the merge commit (never rebase/squash); repair owned code, run affected checks, then commit the fix separately. Retain the integration bounce SHA in your report.
 - Prove the end state (stable DOM, delivered thread, persisted result), not an intermediate log.
 - Missing skill/path: report and stop; no home/root-wide `find`.
 - Autonomously fix small, understood, low-risk defects with regression proof and exact QA commands; otherwise report options, trade-offs and recommendation.
