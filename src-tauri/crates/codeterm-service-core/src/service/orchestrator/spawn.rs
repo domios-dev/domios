@@ -67,6 +67,7 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         runtime_fork: Option<crate::service::spawn::RuntimeForkLaunch>,
     ) -> Result<SpawnResult, String> {
+        self.validate_remote_spawn(&params)?;
         params.title = spawn_title::normalize_agent_title(params.title.take());
         spawn_title::validate_agent_tab_title(
             params.title.as_deref(),
@@ -195,6 +196,7 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         emit_state_change: bool,
     ) -> Result<SpawnResult, String> {
+        self.validate_remote_spawn(&params)?;
         params.title = spawn_title::normalize_agent_title(params.title.take());
         spawn_title::validate_agent_tab_title(
             params.title.as_deref(),
@@ -1040,6 +1042,13 @@ impl ServiceContext {
         agent: &str,
         params: &mut SpawnAgentParams,
     ) -> Result<(), String> {
+        if params
+            .execution_mode
+            .as_deref()
+            .is_some_and(|mode| mode != "local")
+        {
+            return Ok(());
+        }
         if crate::service::agent_runtime::engine::requested(self, agent) {
             runtime_prompt::prepare_runtime_identity(self, params);
             params.system_prompt = compose_runtime_system_prompt(params);

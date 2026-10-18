@@ -29,6 +29,10 @@ macro_rules! agent_provider_runtime_defaults {
         ) -> Option<SessionObservations> {
             None
         }
+        fn remote_task_capability(&self) -> Option<crate::remote_tasks::RemoteTaskCapability> {
+            None
+        }
+
         fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
             None
         }

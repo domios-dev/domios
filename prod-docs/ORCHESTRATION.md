@@ -127,6 +127,16 @@ Worker kinds are prompt-only: they add role guidance, not machine access or exec
 - `qa`: browser verification; may accept or bounce only an exact in-review task handed off by its parent, with an evidence note.
 - `release_manager`: current-release coordination; publication requires owner authorization.
 
+For task-bound canonical mutation, the Orchestrator dispatches the task with
+`--execution-intent mutating --canonical-writer` and may add `--kind qa` or
+`--kind release_manager` to select the Worker prompt without changing the saved
+`executor_role`. For task-bound work, the parent-authorized dispatch reserves
+the attempt and keeps the existing exclusive writer check. Direct `agent spawn
+--plan-task` remains refused for task-bound canonical mutation. Task-less kinds
+with Plan context retain parent-directed placement behavior; they do not reserve
+task attempts or participate in canonical writer occupancy, so the parent
+coordinates those writes. Read-only verification remains allowed there.
+
 Bind `--plan-task <task>` with explicit `--execution-intent` for Worker ACK, lane and status lifecycle. Task-less kinds default to mutating intent, work for their parent and report without `--status`; Kinds grant no plan-state authority. QA review delegation is explicit. Publication and tags require owner GO. Neither kind spawns children.
 
 Before each wave: check provider headroom (reuse live Workers near95%), map disjoint task/file/branch/oracle/gate ownership, run plan doctor. Give Workers `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, checkout and exact acceptance/test commands; ACK first, report last. On a Full-access paired peer, `codeterm plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating` creates an origin attempt and peer lane. Judge the persisted origin report; merge its exact accepted SHA to the clean dispatch-time branch.
@@ -166,4 +176,4 @@ A `[provider access lost]` notice means recover the login or respawn on another 
 
 Confined mutating Workers persist host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR/TEMP/TMP use lane-local `.codeterm-tmp`. Task-bound spawns require explicit read_only or mutating intent. Older task tabs without saved confinement retain their behavior.
 
-<!-- revision: 130 -->
+<!-- revision: 134 -->

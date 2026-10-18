@@ -6,7 +6,7 @@ import {listenerIdentity} from '../../core-journeys/lib/listener.mjs';
 import {connect,evaluate,pageTarget,takeHeapSnapshot} from '../renderer-memory/cdp.mjs';
 import {FIND_TERMINALS} from '../renderer-memory/terminals.mjs';
 import {processInfo} from './io.mjs';
-import {requireValue,chatVisitEvidence,validateIdentity,admitDevSurface,validateDevSurfaceTarget,measurementCapabilities,requireMeasurement,rendererMetrics} from './model.mjs';
+import {requireValue,validateNativeLocatorEvidence,chatVisitEvidence,validateIdentity,admitDevSurface,validateDevSurfaceTarget,measurementCapabilities,requireMeasurement,rendererMetrics} from './model.mjs';
 import {functionalReplayPrerequisites,ownedBrowserSelection} from './replay-page.mjs';
 import {ownedChatComposerMounted} from './readiness.mjs';
 import {cleanupStateComplete,installCleanupObserverPage,createFunctionalCleanupObserver} from './cleanup-observation.mjs';
@@ -35,6 +35,13 @@ export async function attach(signal,options={}) {
     const targets = (await response.json()).filter(t => t.id === options.target && t.type === 'page');
     requireValue(targets.length === 1,'Exactly one explicit Browser page target required');
     target = targets[0];
+  } else if (admission.locator) {
+    requireValue(process.platform === 'win32','Native locator unsupported on this platform');
+    const response=await fetch(`http://127.0.0.1:${cdpPort}/json/list`,{signal});
+    requireValue(response.ok,'Native diagnostic target list unavailable');
+    const generation=`${admission.locator.snapshot.status.payload.view_generation}:${admission.locator.navigationGeneration}`;
+    const targets=(await response.json()).filter(t=>t.type==='page' && new URL(t.url).origin===origin && new URL(t.url).searchParams.get('__codeterm_client_view')===generation);
+    requireValue(targets.length===1,'Exactly one native view incarnation required'); target=targets[0];
   } else target = await pageTarget(cdpPort,vitePort);
   validateDevSurfaceTarget(admission,target);
   const cdp = await connect(target.webSocketDebuggerUrl);
@@ -59,6 +66,7 @@ export async function attach(signal,options={}) {
     }
     const native = await evaluate(cdp,'Boolean(window.__TAURI_INTERNALS__)');
     requireValue(native === (surface === 'native'),'Requested surface does not match native bridge presence');
+    const nativeClient = admission.locator ? validateNativeLocatorEvidence(admission.locator,processInfo(admission.locator.snapshot.client_process.pid),await evaluate(cdp,"window.__TAURI_INTERNALS__.invoke('native_webview_diagnostics_snapshot')")) : null;
     const htmlResponse = await fetch(target.url,{signal});
     requireValue(htmlResponse.ok && new URL(htmlResponse.url).origin === origin,'Entry HTML unavailable or redirected outside DEV');
     const htmlBytes = Buffer.from(await htmlResponse.arrayBuffer());
@@ -73,7 +81,7 @@ export async function attach(signal,options={}) {
     }
     const identity = validateIdentity({port:7686,dev:true,surface,capabilities,browser:{product:version.Browser??null,protocol:version['Protocol-Version']??null,userAgent:version['User-Agent']??null,v8:version['V8-Version']??null},
       page:{origin:new URL(target.url).origin,path:new URL(target.url).pathname,testMode:new URL(target.url).searchParams.has('e2e')},build:health.build_sha,entryHash:hash.digest('hex'),
-      target:target.id,boot:health.boot_id,renderer:renderer?{pid:renderer.pid,created:renderer.created}:null,daemon:{pid:daemon.pid,created:daemon.created}});
+      ...(nativeClient?{nativeClient}:{}),target:target.id,boot:health.boot_id,renderer:renderer?{pid:renderer.pid,created:renderer.created}:null,daemon:{pid:daemon.pid,created:daemon.created}});
     return {identity,cdp,api,signal,close:() => cdp.close()};
   } catch (error) { cdp.close(); throw error; }
   finally { browser?.close(); }

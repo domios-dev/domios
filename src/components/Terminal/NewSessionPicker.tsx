@@ -55,7 +55,7 @@ export function NewSessionPicker({
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],
   );
-  const visibleProviders = useMemo(() => menuProviders.filter(provider => !provider.remote_task), [menuProviders]);
+  const visibleProviders = useMemo(() => menuProviders, [menuProviders]);
   const [execution, setExecution] = useState({providerId: "", location: "local" as ExecutionLocation, environmentId: ""});
   const allowedModes = allowedNewSessionModes(section);
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
@@ -88,11 +88,9 @@ export function NewSessionPicker({
       return;
     }
     const restored = readPersistedNewSessionChoice(visibleProviders);
-    const initialRemote = menuProviders.find(provider => provider.id === initialProviderId)?.remote_task;
-    const initialLocalId = initialRemote?.localProviderId ?? initialProviderId;
+    const initialLocalId = initialProviderId;
     if (initialLocalId && visibleProviders.some((provider) => provider.id === initialLocalId)) {
       const provider = visibleProviders.find((candidate) => candidate.id === initialLocalId);
-      if (initialRemote && section === "workspace") setExecution({providerId: initialLocalId, location: "remote", environmentId: ""});
       setChoice({
         mode: "single",
         providerId: initialLocalId,
@@ -188,9 +186,14 @@ export function NewSessionPicker({
     modelId: string | undefined,
     effortId?: string,
     preset?: string,
+    executionMode?: string,
   ) => {
-    if (disabledProviderIds.has(providerId)) return;
+    if (!executionMode && disabledProviderIds.has(providerId)) return;
     const targetCwd = section === "general" ? workspaceCwd ?? selectedWorkspace?.cwd : selectedWorkspace?.cwd ?? workspaceCwd;
+    if (executionMode) {
+      await finishSpawn(() => spawnAgentTab(workspaceId, providerId, targetCwd ?? undefined, undefined, undefined, preset, undefined, executionMode));
+      return;
+    }
     await finishSpawn(() =>
       spawnAgentTab(
         workspaceId,
@@ -206,9 +209,9 @@ export function NewSessionPicker({
 
   const runSingleSpawn = useCallback(async () => {
     if (choice.mode !== "single") return;
-    if (location === "remote") {
+    if (location === "cloud") {
       const target = remoteSpawnSelection(menuProviders, choice.providerId, environmentId);
-      await runProviderSpawn(target.providerId, undefined, undefined, target.preset);
+      await runProviderSpawn(target.providerId, undefined, undefined, target.preset, target.executionMode);
       return;
     }
     await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset);
@@ -247,7 +250,7 @@ export function NewSessionPicker({
         await runSingleSpawn();
       }
     };
-    if (location === "remote" || agentConfig?.full_access !== undefined) {
+    if (location === "cloud" || agentConfig?.full_access !== undefined) {
       void start();
       return;
     }
@@ -308,10 +311,10 @@ export function NewSessionPicker({
     });
   }, [section]);
 
-  const remoteCanStart = location === "remote" && remote?.remote_task?.availability.status === "available"
+  const remoteCanStart = location === "cloud" && remote?.remote_task?.availability.status === "available"
     && remote.remote_task.environments.some(environment => environment.id === environmentId);
   const canStart = choice.mode === "single"
-    ? location === "remote" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId)
+    ? location === "cloud" ? remoteCanStart : choice.providerId.length > 0 && !disabledProviderIds.has(choice.providerId)
     : choice.orchestratorProviderId.length > 0
       && choice.plannerProviderId.length > 0
       && !disabledProviderIds.has(choice.orchestratorProviderId)
@@ -452,7 +455,7 @@ export function NewSessionPicker({
           </div>
         </div>
 
-        {location !== "remote" && agentConfig?.full_access === undefined && (
+        {location !== "cloud" && agentConfig?.full_access === undefined && (
           <label className="relative mt-4 flex cursor-pointer items-start gap-2.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] px-3 py-2.5">
             <input
               type="checkbox"

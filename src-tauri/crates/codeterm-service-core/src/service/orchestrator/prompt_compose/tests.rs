@@ -206,6 +206,20 @@ fn spawned_worker_receives_the_codeterm_primer() {
     assert!(composed.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
 }
 
+#[test]
+fn every_spawned_recipient_receives_the_routing_contract_once() {
+    let contract = crate::prompts::AGENT_ROUTING_CONTRACT.trim();
+    assert!(!contract.is_empty());
+
+    for (recipient, composed) in every_launch_composition() {
+        assert_eq!(
+            composed.matches(contract).count(),
+            1,
+            "{recipient} must receive the routing contract exactly once"
+        );
+    }
+}
+
 /// A task narrows the doctrine its worker runs under through the existing
 /// identity-overlay seam: `Task.role_guidance` is composed into an identity
 /// block (`worker_identity::attach_worker_identity`), delimited by
@@ -440,19 +454,24 @@ fn utility_guidance_reaches_managers_and_roleless_but_not_workers() {
 fn built_in_plugins_section_follows_the_primer_and_is_absent_without_contributors() {
     const SECTION: &str = "Built-in plugins:\n- OPAQUE_CORE_LINE_q7";
     let primer = crate::prompts::AGENT_CODETERM_PRIMER.trim();
+    let routing_contract = crate::prompts::AGENT_ROUTING_CONTRACT.trim();
     let after_primer = format!("{primer}\n\n{SECTION}\n\n");
 
     let plain = super::agent_system_prompt_with_plugins(Some("opaque-task"), None);
     assert!(!plain.contains("Built-in plugins:"));
+    assert_eq!(plain.matches(routing_contract).count(), 1);
     let with = super::agent_system_prompt_with_plugins(Some("opaque-task"), Some(SECTION));
     assert!(with.starts_with(&after_primer));
+    assert!(with.find(SECTION) < with.find(routing_contract));
     assert_eq!(with.replacen(&format!("{SECTION}\n\n"), "", 1), plain);
 
     let worker_plain = super::worker_agent_system_prompt_with_plugins(None, "opaque", None, None);
     assert!(!worker_plain.contains("Built-in plugins:"));
+    assert_eq!(worker_plain.matches(routing_contract).count(), 1);
     let worker =
         super::worker_agent_system_prompt_with_plugins(None, "opaque", None, Some(SECTION));
     assert_eq!(worker.matches(&after_primer).count(), 1);
+    assert!(worker.find(SECTION) < worker.find(routing_contract));
     assert_eq!(
         worker.replacen(&format!("{SECTION}\n\n"), "", 1),
         worker_plain
