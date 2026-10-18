@@ -352,9 +352,7 @@ async fn invalid_immediate_observation_holds_once_without_retrying_cursor() {
             &status.phase,
             NativeUpdateCoordinatorPhase::Held {
                 reason: NativeUpdateHoldReason::PostDispatchUncertain(
-                    NativeUpdateUncertainty::InvalidReplyAfterDispatch(
-                        NativeUpdateRefusal::WrongOperation
-                    )
+                    NativeUpdateUncertainty::InvalidReplyAfterDispatch
                 )
             }
         ) && !status.worker_running
@@ -402,9 +400,7 @@ async fn wrong_epoch_observation_is_post_dispatch_uncertain() {
             &status.phase,
             NativeUpdateCoordinatorPhase::Held {
                 reason: NativeUpdateHoldReason::PostDispatchUncertain(
-                    NativeUpdateUncertainty::InvalidReplyAfterDispatch(
-                        NativeUpdateRefusal::ExpectedServerMismatch
-                    )
+                    NativeUpdateUncertainty::InvalidReplyAfterDispatch
                 )
             }
         ) && !status.worker_running

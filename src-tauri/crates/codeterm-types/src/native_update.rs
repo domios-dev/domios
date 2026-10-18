@@ -112,7 +112,7 @@ pub enum NativeUpdateUncertainty {
     CancelledAfterDispatch,
     DeadlineAfterDispatch,
     DisconnectedAfterDispatch,
-    InvalidReplyAfterDispatch(NativeUpdateRefusal),
+    InvalidReplyAfterDispatch,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,7 +140,8 @@ pub enum NativeUpdateDispatchOutcome {
     UncertainAfterExecution { reason: NativeUpdateUncertainty },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "observation", content = "payload", rename_all = "snake_case")]
 pub enum NativeUpdateObservationOutcome {
     Reply(NativeUpdateResult),
     NoNewEvidence,
@@ -490,9 +491,9 @@ fn same_server_artifact(left: &ServerComponentManifest, right: &ServerComponentM
 #[cfg(test)]
 mod tests {
     use super::{
-        ExpectedServer, NativeUpdateAction, NativeUpdateExecutor, NativeUpdateOperationId,
-        NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult, NativeUpdateState,
-        NativeUpdateUncertainty, NativeUpdateVerification,
+        ExpectedServer, NativeUpdateAction, NativeUpdateExecutor, NativeUpdateObservationOutcome,
+        NativeUpdateOperationId, NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult,
+        NativeUpdateStage, NativeUpdateState, NativeUpdateUncertainty, NativeUpdateVerification,
     };
     use crate::{
         native_host::NativeHostConnection,
@@ -574,6 +575,48 @@ mod tests {
             identity: request.expected_server.identity.clone(),
             server_epoch: server_epoch.into(),
             generation,
+        }
+    }
+
+    #[test]
+    fn observation_outcomes_round_trip_with_finite_tags() {
+        let request = request(NativeUpdateAction::ClientOnly, false);
+        let reply = NativeUpdateResult {
+            operation_id: request.operation_id,
+            sequence: 1,
+            connection: connection_for(&request, 1, &request.expected_server.incarnation.epoch),
+            state: NativeUpdateState::InProgress {
+                stage: NativeUpdateStage::Applying,
+            },
+        };
+        let outcomes = [
+            (NativeUpdateObservationOutcome::Reply(reply), "reply"),
+            (
+                NativeUpdateObservationOutcome::NoNewEvidence,
+                "no_new_evidence",
+            ),
+            (
+                NativeUpdateObservationOutcome::Unavailable {
+                    reason: NativeUpdateUncertainty::InvalidReplyAfterDispatch,
+                },
+                "unavailable",
+            ),
+        ];
+
+        for (outcome, expected_tag) in outcomes {
+            let encoded = serde_json::to_value(&outcome).unwrap();
+            assert_eq!(encoded["observation"], expected_tag);
+            match expected_tag {
+                "reply" => assert_eq!(encoded["payload"]["sequence"], 1),
+                "no_new_evidence" => {
+                    assert!(encoded.get("payload").is_none());
+                    assert!(encoded.get("sequence").is_none());
+                }
+                "unavailable" => assert!(encoded["payload"].get("sequence").is_none()),
+                _ => unreachable!(),
+            }
+            let decoded: NativeUpdateObservationOutcome = serde_json::from_value(encoded).unwrap();
+            assert_eq!(decoded, outcome);
         }
     }
 
