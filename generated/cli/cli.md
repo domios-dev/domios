@@ -2833,7 +2833,7 @@ Persist a remote Worker's in-review report on the origin plan
 
 #### `codeterm plan task respawn`
 
-Respawn a worker from one prior execution attempt
+Respawn a worker from one prior attempt, inheriting its recorded execution intent and provider/model
 
 - `--attempt`
 - `--model`
