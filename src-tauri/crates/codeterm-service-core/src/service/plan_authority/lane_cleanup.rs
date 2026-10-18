@@ -39,6 +39,9 @@ fn owned_utility_can_clean(
         && plan.owner.tab_id.as_deref() == Some(owner.id.as_str())
         && plan.owner.session_id.is_some()
         && plan.owner.session_id == owner.agent_session_id
+        && owner.session_binding_nonce.as_deref().is_some_and(|nonce| {
+            !nonce.is_empty() && owner.reported_session_binding_nonce.as_deref() == Some(nonce)
+        })
         && owner.team_id.as_deref() == Some(team)
         && owner.has_team_orchestrator_authority()
         && codeterm_types::agent::role_kind::plan_approval(
