@@ -26,7 +26,7 @@ node scripts/release-stage.mjs stage-full --target x86_64-apple-darwin \
   --cargo-log release-artifacts/build-logs/x86_64-apple-darwin/server.jsonl \
   --tree-log release-artifacts/build-logs/x86_64-apple-darwin/closure.txt \
   --client-file src-tauri/target/x86_64-apple-darwin/release/codeterm
-pnpm tauri bundle --target x86_64-apple-darwin --bundles app,dmg
+pnpm tauri bundle --target x86_64-apple-darwin --features "${CODETERM_RELEASE_FEATURES:-embeddings}" --bundles app,dmg
 unset CARGO_BUILD_TARGET
 
 # 6b. Arch assertion: fail before notarize if CLI or GUI is wrong arch.
