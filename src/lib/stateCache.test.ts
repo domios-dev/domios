@@ -1,105 +1,175 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { configureDaemonTransport } from "./daemonBootstrap";
+import type {
+  FrontendCacheChanges,
+  FrontendCacheCommit,
+  FrontendCacheManifest,
+  FrontendCacheRecord,
+  FrontendCacheSnapshot,
+  FrontendCacheStorage,
+} from "./frontendCacheRecords";
+import type { MultiplexerState, Tab } from "./types";
 
-// A test file with no top-level `import`/`export` is a global SCRIPT to TS,
-// so its helpers collide with every sibling script's helpers. Keep this.
-export {};
+class FakeStorage implements FrontendCacheStorage {
+  private readonly rows = new Map<string, { manifest: FrontendCacheManifest; records: Map<string, FrontendCacheRecord> }>();
+  recordWrites = 0;
+  recordDeletes = 0;
+  manifestWrites = 0;
+  persistedBytes = 0;
+  failWrites = false;
 
-class FakeStorage {
-  private map = new Map<string, string>();
-  getItem(key: string): string | null {
-    return this.map.has(key) ? this.map.get(key)! : null;
+  async read(scope: string): Promise<FrontendCacheSnapshot | null> {
+    const snapshot = this.rows.get(scope);
+    return snapshot ? structuredClone({ manifest: snapshot.manifest, records: [...snapshot.records.values()] }) : null;
   }
-  setItem(key: string, value: string): void {
-    this.map.set(key, value);
+
+  async commit(scope: string, expectedRevision: number, manifest: FrontendCacheManifest, changes: FrontendCacheChanges): Promise<FrontendCacheCommit> {
+    if (this.failWrites) throw new Error("quota exceeded");
+    const current = this.rows.get(scope);
+    if ((current?.manifest.revision ?? 0) !== expectedRevision) return "conflict";
+    const records = new Map(current?.records ?? []);
+    for (const row of changes.deletes) {
+      if (records.delete(`${row.kind}\u0000${row.id}`)) this.recordDeletes++;
+    }
+    for (const row of changes.upserts) {
+      records.set(`${row.kind}\u0000${row.id}`, structuredClone(row));
+      this.recordWrites++;
+      this.persistedBytes += new TextEncoder().encode(JSON.stringify(row)).byteLength;
+    }
+    assert.equal(records.size, manifest.recordCount);
+    this.manifestWrites++;
+    this.rows.set(scope, { manifest: structuredClone(manifest), records });
+    return "committed";
   }
-  removeItem(key: string): void {
-    this.map.delete(key);
+
+  async clear(scope: string, expectedRevision?: number): Promise<boolean> {
+    const current = this.rows.get(scope);
+    if (expectedRevision !== undefined && (current?.manifest.revision ?? 0) !== expectedRevision) return false;
+    return this.rows.delete(scope);
   }
-  clear(): void {
-    this.map.clear();
-  }
-  keys(): string[] {
-    return [...this.map.keys()];
+
+  seed(scope: string, manifest: FrontendCacheManifest, records: FrontendCacheRecord[]): void {
+    this.rows.set(scope, { manifest, records: new Map(records.map((row) => [`${row.kind}\u0000${row.id}`, row])) });
   }
 }
 
-const fakeLocalStorage = new FakeStorage();
-(globalThis as unknown as { window: unknown }).window = {
-  location: { protocol: "http:", host: "localhost:7686" },
+const globals = globalThis as unknown as {
+  window: { location: { protocol: string; host: string; origin: string } };
+  localStorage: { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void };
+  sessionStorage: { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void };
+  __BUILD_HASH__?: string;
 };
-(globalThis as unknown as { localStorage: unknown }).localStorage = fakeLocalStorage;
-(globalThis as unknown as { sessionStorage: unknown }).sessionStorage = new FakeStorage();
-// No indexedDB global — exercises the "storage unavailable" degrade path too.
+const values = new Map<string, string>();
+const storage = {
+  getItem: (key: string) => values.get(key) ?? null,
+  setItem: (key: string, value: string) => values.set(key, value),
+  removeItem: (key: string) => values.delete(key),
+};
+globals.window = { location: { protocol: "http:", host: "localhost:7686", origin: "http://localhost:7686" } };
+globals.localStorage = storage;
+globals.sessionStorage = storage;
+globals.__BUILD_HASH__ = "build-1";
+configureDaemonTransport({ origin: "http://localhost:7686", token: "account-a" });
 
-let passed = 0;
-let failed = 0;
-function assert(label: string, cond: unknown) {
-  if (cond) {
-    console.log(`  ✓ ${label}`);
-    passed++;
-  } else {
-    console.error(`  ✗ ${label}`);
-    failed++;
+function sampleState(tabCount: number): MultiplexerState & { activeTabIds: Record<string, string | null> } {
+  const tabs: Record<string, Tab> = {};
+  const tabIds = Array.from({ length: tabCount }, (_, index) => `tab-${index}`);
+  for (const id of tabIds) {
+    tabs[id] = {
+      id,
+      title: `terminal ${id}`,
+      pty_id: id,
+      cwd: "C:/workspace",
+      tab_type: "Terminal",
+      agent_session_id: `session-${id}`,
+      description: "session preview ".repeat(32),
+    } as unknown as Tab;
   }
+  return {
+    workspaces: [{ id: "workspace-a", name: "Workspace A", tabs: tabIds, active_tab_id: "tab-0", cwd: "C:/workspace" }],
+    tabs,
+    teams: [],
+    active_workspace_id: "workspace-a",
+    focused_tab_id: "tab-0",
+    generation: 7,
+    tab_statuses: Object.fromEntries(tabIds.map((id) => [id, "Working"])),
+    activeTabIds: { "workspace-a": null },
+  };
 }
 
-async function main() {
-  const { loadCachedStateSync, saveStateSnapshot, clearStateSnapshot, createWriteGate } =
-    await import("./stateCache");
-  const { IS_WEB } = await import("./webApi");
+test("state cache persists one changed tab record and skips identical semantic refreshes", async () => {
+  const { setFrontendCacheStorageForTests } = await import("./frontendCacheRecords");
+  const fake = new FakeStorage();
+  setFrontendCacheStorageForTests(fake);
+  const { loadCachedStateAsync, loadCachedStateSync, saveStateSnapshot, clearStateSnapshot } = await import("./stateCache");
+  const first = sampleState(72);
+  const initial = await saveStateSnapshot(first);
+  assert.equal(initial?.recordWrites, 146);
+  assert.equal(loadCachedStateSync()?.tabs["tab-0"].title, "terminal tab-0");
+  assert.equal((await loadCachedStateAsync())?.tab_statuses?.["tab-0"], "Working");
+  assert.equal((await loadCachedStateAsync())?.workspaces[0].active_tab_id, null);
+  const baselineBytes = fake.persistedBytes;
 
-  assert("IS_WEB resolves true under the faked window", IS_WEB === true);
+  const changed = sampleState(72);
+  changed.tabs["tab-41"] = { ...changed.tabs["tab-41"], title: "changed terminal" };
+  const next = await saveStateSnapshot(changed);
+  assert.equal(next?.recordWrites, 1);
+  assert.equal(next?.recordDeletes, 0);
+  const changedBytes = fake.persistedBytes - baselineBytes;
+  assert.ok(changedBytes < baselineBytes / 40);
+  const writes = fake.recordWrites;
+  const unchanged = await saveStateSnapshot(changed);
+  assert.equal(unchanged?.recordWrites, 0);
+  assert.equal(unchanged?.manifestWrites, 0);
+  assert.equal(fake.recordWrites, writes);
+  console.log(`synthetic 72-tab cache: 146 records/${baselineBytes} record bytes -> 1 record/${changedBytes} bytes -> 0 records/0 bytes on identical refresh`);
 
-  function sampleState(active: string) {
-    return {
-      workspaces: [{ id: active, name: "W", tabs: [], active_tab_id: null, cwd: null }],
-      tabs: {},
-      active_workspace_id: active,
-      focused_tab_id: null,
-      generation: 7,
-    } as Parameters<typeof saveStateSnapshot>[0];
-  }
+  fake.failWrites = true;
+  const live = sampleState(72);
+  live.tabs["tab-41"] = { ...live.tabs["tab-41"], title: "live despite quota" };
+  await saveStateSnapshot(live);
+  assert.equal(loadCachedStateSync()?.tabs["tab-41"].title, "live despite quota");
+  fake.failWrites = false;
+  await clearStateSnapshot();
+  assert.equal(loadCachedStateSync(), null);
+});
 
-  console.log("stateCache: save/load round-trip:");
-  fakeLocalStorage.clear();
-  (globalThis as unknown as { __BUILD_HASH__?: string }).__BUILD_HASH__ = "build-1";
-  saveStateSnapshot(sampleState("ws-a"));
-  const loaded = loadCachedStateSync();
-  assert("round-trips the saved state", loaded?.active_workspace_id === "ws-a");
+test("state cache refuses changed namespace, build and schema before hydration", async () => {
+  const { frontendCacheScope, setFrontendCacheStorageForTests } = await import("./frontendCacheRecords");
+  const fake = new FakeStorage();
+  setFrontendCacheStorageForTests(fake);
+  const { loadCachedStateAsync, saveStateSnapshot } = await import("./stateCache");
+  await saveStateSnapshot(sampleState(1));
+  const scope = frontendCacheScope("codeterm:state-cache");
+  assert.ok(scope);
 
-  console.log("\nstateCache: version-mismatch drop:");
-  (globalThis as unknown as { __BUILD_HASH__?: string }).__BUILD_HASH__ = "build-2";
-  const afterBuildBump = loadCachedStateSync();
-  assert("build-hash mismatch drops the cache instead of migrating", afterBuildBump === null);
-  assert("mismatched entry is cleared, not left behind", loadCachedStateSync() === null);
+  configureDaemonTransport({ origin: "http://localhost:7686", token: "account-b" });
+  assert.equal(await loadCachedStateAsync(), null);
+  configureDaemonTransport({ origin: "http://localhost:7686", token: "account-a" });
+  globals.window.location.host = "localhost:7687";
+  globals.window.location.origin = "http://localhost:7687";
+  configureDaemonTransport({ origin: "http://localhost:7687", token: "account-a" });
+  assert.equal(await loadCachedStateAsync(), null);
+  globals.window.location.host = "localhost:7686";
+  globals.window.location.origin = "http://localhost:7686";
+  configureDaemonTransport({ origin: "http://localhost:7686", token: "account-a" });
+  storage.setItem("codeterm-web-relay-peer:http://localhost:7686", "peer-b");
+  assert.equal(await loadCachedStateAsync(), null);
+  storage.removeItem("codeterm-web-relay-peer:http://localhost:7686");
 
-  fakeLocalStorage.clear();
-  (globalThis as unknown as { __BUILD_HASH__?: string }).__BUILD_HASH__ = "build-1";
-  saveStateSnapshot(sampleState("ws-b"));
-  const key = fakeLocalStorage.keys()[0];
-  const raw = JSON.parse(fakeLocalStorage.getItem(key)!);
-  raw.schemaVersion = 999;
-  fakeLocalStorage.setItem(key, JSON.stringify(raw));
-  assert("schema-version mismatch drops the cache", loadCachedStateSync() === null);
-
-  console.log("\nstateCache: clearStateSnapshot:");
-  saveStateSnapshot(sampleState("ws-c"));
-  assert("state is cached before clear", loadCachedStateSync() !== null);
-  clearStateSnapshot();
-  assert("state is gone after clear", loadCachedStateSync() === null);
-
-  console.log("\nstateCache: write gate (stale-write gate):");
-  const gate = createWriteGate(true);
-  assert("starts locked when constructed locked", gate.canWrite() === false);
-  gate.unlock();
-  assert("unlock() opens the gate", gate.canWrite() === true);
-  gate.lock();
-  assert("lock() closes the gate again", gate.canWrite() === false);
-
-  const defaultGate = createWriteGate();
-  assert("defaults to unlocked", defaultGate.canWrite() === true);
-
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) throw new Error(`${failed} test(s) failed`);
-}
-
-void main();
+  globals.__BUILD_HASH__ = "build-2";
+  assert.equal(await loadCachedStateAsync(), null);
+  assert.equal(await fake.read(scope!), null);
+  globals.__BUILD_HASH__ = "build-1";
+  await saveStateSnapshot(sampleState(1));
+  const snapshot = await fake.read(scope!);
+  assert.ok(snapshot);
+  fake.seed(scope!, {
+    ...snapshot!.manifest,
+    metadata: { ...snapshot!.manifest.metadata, schemaVersion: 999 },
+  }, snapshot!.records);
+  setFrontendCacheStorageForTests(fake);
+  assert.equal(await loadCachedStateAsync(), null);
+  assert.equal(await fake.read(scope!), null);
+});

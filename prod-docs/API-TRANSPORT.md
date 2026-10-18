@@ -194,7 +194,7 @@ Missing `protocol_version` is refused, including relayed reports. Update peer CL
 | `agent.startup_hold` | `{caller_tab_id, tab_id, attempt_id}` | Cancel automatic cleanup for one inspected startup attempt. Authority is the tuple `(creator_tab_id, team_id, child_tab_id, attempt_id)`: only the attempt's recorded creator may hold it, the child must still run that exact attempt, and a pair-leased attempt must still sit in its leased Team. No role bypasses this; a General Agent may hold only children it spawned. The result carries `authority: {creator_tab_id, child_tab_id, attempt_id, team_id}`; a refusal returns `-32603` whose `data` carries `{held:false, reason, caller_tab_id, child_tab_id, attempt_id, authority}` with `reason` one of `unknown_child_tab`, `no_supervised_attempt`, `creator_mismatch`, `attempt_replaced`, `team_mismatch`. |
 | `plan.task.attempts` | `{plan_id, task_id}` | List execution attempts for one plan task; each carries the requested and provider-resolved model ids, the bound session's `session_model` (null until detected), and `model_identity_mismatch` when the session reports a different model |
 | `plan.task.attempt.show` | `{plan_id, task_id, attempt_id}` | Show one historical task attempt |
-| `plan.task.respawn` | `{plan_id, task_id, attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Spawn a new Worker from one prior task attempt, recording a new live attempt. Returns `state: "awaiting_dispatch_ready"` and `readiness.awaiting_event: "dispatch_ready"`; runtime readiness precedes the Worker-ACK phase. Respawning a blocked task atomically reopens it, recording its previous block reason; a held review task may be respawned via the review-hold recovery path. |
+| `plan.task.respawn` | `{plan_id, task_id, attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Spawn a new Worker from one prior task attempt, inheriting its recorded execution intent, provider, resolved model, and lane unless provider/model are explicitly overridden. Returns `state: "awaiting_dispatch_ready"` and `readiness.awaiting_event: "dispatch_ready"`; runtime readiness precedes the Worker-ACK phase. Respawning a blocked task atomically reopens it, recording its previous block reason; a held review task may be respawned via the review-hold recovery path. |
 | `cron.list` | `{workspace_id?}` | List cron jobs |
 | `cron.get` | `{id}` | Get cron job by ID |
 | `cron.create` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?}` | Create cron job |
@@ -235,4 +235,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 53 -->
+<!-- revision: 55 -->

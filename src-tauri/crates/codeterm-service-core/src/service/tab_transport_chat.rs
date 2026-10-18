@@ -286,7 +286,7 @@ pub struct ChatBackendTransport<'a> {
 
 impl TabTransport for ChatBackendTransport<'_> {
     fn send(&self, text: &str, _enter: bool) -> Result<(), String> {
-        if super::agent_runtime::engine::requested(self.svc, &self.plugin_id) {
+        if super::agent_runtime::requested_for_tab(self.svc, &self.tab_id) {
             return super::agent_runtime::transport::send(self.svc, &self.tab_id, text, None)
                 .map_err(|error| error.ledger_message());
         }
@@ -312,7 +312,7 @@ impl TabTransport for ChatBackendTransport<'_> {
     }
 
     fn kill(&self) -> Result<(), String> {
-        if super::agent_runtime::engine::requested(self.svc, &self.plugin_id) {
+        if super::agent_runtime::requested_for_tab(self.svc, &self.tab_id) {
             return super::agent_runtime::transport::interrupt(self.svc, &self.tab_id);
         }
         self.svc
@@ -338,7 +338,7 @@ impl TabTransport for ChatBackendTransport<'_> {
 
 impl ChatBackendTransport<'_> {
     fn transcript_text(&self) -> Result<String, String> {
-        if super::agent_runtime::engine::requested(self.svc, &self.plugin_id) {
+        if super::agent_runtime::requested_for_tab(self.svc, &self.tab_id) {
             return super::agent_runtime::transport::snapshot(self.svc, &self.tab_id).map(
                 |(_, messages)| {
                     messages
@@ -444,8 +444,14 @@ impl ServiceContext {
                     plugin_id,
                     old_session,
                 );
-                let config = crate::service::tab_chat::chatbackend_history::read_meta(&path)
-                    .unwrap_or(serde_json::Value::Null);
+                let mut config = crate::service::tab_chat::chatbackend_history::read_meta(&path)
+                    .unwrap_or_else(|| serde_json::json!({}));
+                let mode = self
+                    .mux
+                    .read()
+                    .get_tab(tab_id)
+                    .and_then(|tab| tab.restorable_launch.execution_mode.clone());
+                super::remote_execution::restore_config(&mut config, mode.as_deref())?;
                 self.chatbackend_open_session(plugin_id, tab_id, config.clone())
                     .map(|session| (session, config))
             },
@@ -594,13 +600,22 @@ impl ServiceContext {
 
     /// Tear down a plugin session (best-effort).
     pub fn chatbackend_close(&self, plugin_id: &str, session_id: &str) -> Result<(), String> {
-        if super::agent_runtime::engine::requested(self, plugin_id) {
-            let tabs = self.mux.read().snapshot().tabs;
-            for tab in tabs.values().filter(|tab| {
-                tab.agent_type.as_deref() == Some(plugin_id)
+        let runtime_tabs: Vec<_> = self
+            .mux
+            .read()
+            .snapshot()
+            .tabs
+            .values()
+            .filter(|tab| {
+                tab.restorable_launch.execution_mode.is_none()
+                    && tab.agent_type.as_deref() == Some(plugin_id)
                     && tab.agent_session_id.as_deref() == Some(session_id)
-            }) {
-                super::agent_runtime::engine::stop_blocking(self, &tab.id)?;
+            })
+            .map(|tab| tab.id.clone())
+            .collect();
+        if !runtime_tabs.is_empty() && super::agent_runtime::engine::requested(self, plugin_id) {
+            for tab in runtime_tabs {
+                super::agent_runtime::engine::stop_blocking(self, &tab)?;
             }
             return Ok(());
         }

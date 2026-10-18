@@ -86,7 +86,7 @@ test("General agent eligibility follows PTY or agent runtime capabilities", () =
   const remote = {
     ...runtime, id: "remote-task",
     remote_task: {
-      backend: "remote", localProviderId: runtime.id, environments: [],
+      backend: "remote", mode: "cloud", displayName: "Cloud", environments: [],
       availability: {status: "available" as const}, followUp: false, cancel: false, applyDiff: false,
     },
   };

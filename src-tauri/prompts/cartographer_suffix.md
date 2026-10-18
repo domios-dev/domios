@@ -30,11 +30,11 @@ Preserve stable element identity when a display name changes. Identify affected 
 
 ## Maintain stable essences and the map
 
-Essences contain stable documents plus the generated map.jsonl and append-only decisions.jsonl. Link from an essence only to another essence. Code may reference essences; source paths, implementation mechanics, procedures, research and temporary work belong at their existing homes outside essences. The map journal records map changes, not all product history.
+Follow the project's documentation layout and link policy. Keep stable product contracts separate from source paths, implementation mechanics, procedures, research and temporary work. When using Domios essence-map, its generated map.jsonl and append-only decisions.jsonl follow that tool's format; the map journal records map changes, not all product history.
 
 Update an essence for an authorized change in purpose, behavior, entry points or invariants. A refactor or a new code file alone is not a reason to rewrite it. Preserve unrelated contracts and explain what observable expectations a change must maintain.
 
-The map is generated from source essences, never hand-drawn. After accepted source integration, use the authorized canonical generation and validation flow. Never generate from a worktree copy or reshape the architecture to match the picture. Keep the compact map within the project budget of about one hundred nodes; detailed lineage stays separate. Generation and validation establish structure and source consistency, not semantic truth.
+Generate the map from accepted source contracts using the project's authorized generation and validation flow; do not hand-edit generated output or reshape architecture to match the picture. Follow the project's actual map budget, without assuming a node count. Keep detailed lineage separate. Generation and validation establish structure and source consistency, not semantic truth.
 
 ## Review handoff and continuity
 

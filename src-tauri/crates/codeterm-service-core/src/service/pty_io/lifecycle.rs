@@ -580,7 +580,7 @@ impl ServiceContext {
         let t0 = std::time::Instant::now();
         crate::startup::boot_timing::mark(tab_id, None, "pty_build_enter");
         let spawn_gate = self.pty.lock().spawn_gate();
-        let built = crate::pty::manager::build_session_with_profile(
+        let built = crate::pty::manager::build_shell_session_with_policy(
             spawn_gate,
             None,
             cwd.clone(),
@@ -588,6 +588,7 @@ impl ServiceContext {
             40,
             env_vars,
             profile.as_ref().filter(|_| agent_type.is_none()),
+            self.shell_job_policy_for_tab(tab_id),
         )?;
         crate::startup::boot_timing::mark(tab_id, None, "pty_built");
         let (pty_id, _) = self.pty.lock().register_session(None, built);

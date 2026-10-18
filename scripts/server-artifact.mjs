@@ -1,8 +1,10 @@
 // Builds the isolated server oracle from Cargo artifact messages; no test feature union is accepted.
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync, writeFileSync, mkdirSync, copyFileSync, cpSync, chmodSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync, mkdirSync, copyFileSync, cpSync, chmodSync, lstatSync, readdirSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+const { bundledCliName } = createRequire(import.meta.url)('./bundle-cli.js');
 
 export const SERVER_FEATURES = ['domios-server/embeddings'];
 export function assertServerClosure(packages) {
@@ -43,8 +45,109 @@ export function stageResources(cliLog, repo, output) {
   if (process.platform === 'win32') cpSync(path.join(repo, 'src-tauri/conpty'), path.join(output, 'conpty'), { recursive: true });
   return createHash('sha256').update(readFileSync(target)).digest('hex');
 }
+function regular(file) {
+  const stat = lstatSync(file);
+  if (!stat.isFile() || stat.size === 0) throw new Error(`Expected a non-empty regular artifact: ${file}`);
+  return realpathSync.native(file);
+}
+function ensureDirectory(directory) {
+  try {
+    const stat = lstatSync(directory);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Resource directory is not owned regular storage: ${directory}`);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    ensureDirectory(path.dirname(directory));
+    mkdirSync(directory);
+  }
+}
+function copyResource(source, destination) {
+  const stat = lstatSync(source);
+  if (stat.isSymbolicLink()) throw new Error(`Resource links are not accepted: ${source}`);
+  try {
+    if (lstatSync(destination).isSymbolicLink()) throw new Error(`Resource destination is a link: ${destination}`);
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (stat.isDirectory()) {
+    ensureDirectory(destination);
+    for (const name of readdirSync(source).sort()) copyResource(path.join(source, name), path.join(destination, name));
+  } else if (stat.isFile()) {
+    ensureDirectory(path.dirname(destination));
+    copyFileSync(source, destination);
+  } else throw new Error(`Resource is not a regular file or directory: ${source}`);
+}
+export function resolveDevResourceRoot(resourceRoot, expectedRoot, {
+  paths = path, stat = lstatSync, canonical = realpathSync.native, prepare = ensureDirectory,
+} = {}) {
+  function resolveDirectory(directory) {
+    const parent = paths.dirname(directory);
+    const resolvedParent = parent === directory ? undefined : resolveDirectory(parent);
+    try {
+      const entry = stat(directory);
+      if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error('DEV resource directory must not be a symlink or junction');
+      return canonical(directory);
+    } catch (error) {
+      if (error.code !== 'ENOENT' || resolvedParent === undefined) throw error;
+      return paths.join(resolvedParent, paths.basename(directory));
+    }
+  }
+  if (resolveDirectory(paths.resolve(resourceRoot)) !== expectedRoot) {
+    throw new Error('DEV resource root must derive from the native client artifact directory');
+  }
+  prepare(expectedRoot);
+  if (canonical(expectedRoot) !== expectedRoot) throw new Error('DEV resource root identity changed during staging');
+  return expectedRoot;
+}
+
+export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resourceRoot, client, build }) {
+  if (!/^[a-f0-9]{40}$/.test(build)) throw new Error('Expected exact DEV source build identity');
+  const builtClient = regular(client);
+  const expectedRoot = process.platform === 'win32' ? path.dirname(builtClient) : path.join(path.dirname(builtClient), '.domios-dev-runtime/lib/codeterm');
+  const root = resolveDevResourceRoot(resourceRoot, expectedRoot);
+  const clientFile = process.platform === 'win32' ? builtClient : path.resolve(root, '../../bin', path.basename(builtClient));
+  const server = artifactReceipt({ cargoLog, treeLog, build, resources: root });
+  if (path.dirname(server.executable) !== path.dirname(builtClient)) throw new Error('DEV server and client must share the exact Cargo artifact directory');
+  if (path.basename(builtClient) !== `codeterm${process.platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected DEV client artifact filename');
+  const messages = readFileSync(cargoLog, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
+  const message = messages.find(row => row.reason === 'compiler-artifact' && row.executable && realpathSync.native(row.executable) === server.executable);
+  if (realpathSync.native(message.target.src_path) !== realpathSync.native(path.join(repo, 'src-tauri/crates/domios-server/src/main.rs'))) throw new Error('Server artifact has a foreign source target');
+  const cliMessages = readFileSync(cliLog, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
+  if (!cliMessages.some(row => row.reason === 'build-finished' && row.success)) throw new Error('CLI build did not finish');
+  const cli = regular(workerArtifact(cliMessages, repo));
+  const workerDigest = createHash('sha256').update(readFileSync(cli)).digest('hex');
+  const provenance = messages.filter(row => row.reason === 'build-script-executed' && row.package_id.includes('domios-server'));
+  if (provenance.length !== 1) throw new Error('Expected one exact server build-script receipt');
+  const environment = Object.fromEntries(provenance[0].env);
+  if (environment.BUILD_SHA !== build || environment.SERVER_CLI_SHA256 !== workerDigest) throw new Error('Server build or CLI binding differs from staged artifacts');
+  const contract = readFileSync(path.join(repo, 'src-tauri/crates/codeterm-types/src/server_bootstrap.rs'), 'utf8');
+  const constant = name => {
+    const match = contract.match(new RegExp(`pub const ${name}: u32 = ([0-9]+);`));
+    if (!match) throw new Error(`Missing shared bootstrap contract ${name}`);
+    return Number(match[1]);
+  };
+  if (clientFile !== builtClient) copyResource(builtClient, clientFile);
+  if (createHash('sha256').update(readFileSync(clientFile)).digest('hex') !== createHash('sha256').update(readFileSync(builtClient)).digest('hex')) throw new Error('Staged client differs from the built native artifact');
+  copyResource(cli, path.join(root, 'cli', path.basename(cli)));
+  copyResource(cli, path.join(root, 'cli', bundledCliName()));
+  if (process.platform === 'win32') copyResource(path.join(repo, 'src-tauri/conpty'), path.join(root, 'conpty'));
+  const serverRelative = `domios-server/${path.basename(server.executable)}`;
+  const stagedServer = path.join(repo, 'target/domios-package', serverRelative);
+  copyResource(regular(server.executable), stagedServer);
+  const { createManifest } = await import('./package-server-component-manifest.mjs');
+  const manifestFile = await createManifest({ cwd: repo, serverFile: stagedServer, clientFile,
+    serverBuild: build, serverExecutable: serverRelative, apiVersion: constant('API_VERSION'), bootstrapProtocol: constant('BOOTSTRAP_PROTOCOL') });
+  for (const name of ['dist', 'skills', 'LICENSE', 'NOTICE']) copyResource(path.join(repo, name), path.join(root, name));
+  copyResource(stagedServer, path.join(root, serverRelative));
+  const sourceManifest = path.join(repo, 'target/domios-package/server-component.json');
+  const temporary = path.join(root, 'server-component.json.partial');
+  copyResource(sourceManifest, temporary);
+  renameSync(temporary, path.join(root, 'server-component.json'));
+  return { manifest: JSON.parse(readFileSync(manifestFile, 'utf8')), worker_cli_sha256: workerDigest, resource_root: root };
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  if (process.argv[2] === 'stage-resources') {
+  if (process.argv[2] === 'stage-dev') {
+    const [cargoLog, treeLog, cliLog, repo, resourceRoot, client, build] = process.argv.slice(3);
+    await stageDevResources({ cargoLog, treeLog, cliLog, repo, resourceRoot, client, build });
+  } else if (process.argv[2] === 'stage-resources') {
     const [cliLog, repo, output] = process.argv.slice(3);
     process.stdout.write(stageResources(cliLog, repo, output));
   } else {

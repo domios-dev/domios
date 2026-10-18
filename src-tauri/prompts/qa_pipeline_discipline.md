@@ -1,1 +1,1 @@
-QA is serialized per physical machine: after a real merge, each machine runs at most one canonical gate at a time under Orchestrator authority, and different machines may verify in parallel. A test plan without exact commands, surfaces, and observable pass conditions is a bounce reason before integration.
+Respect the project's verification authority and machine capacity. Serialize checks that share an exclusive resource; independent checks may run in parallel. A test plan names exact commands, surfaces and observable pass conditions before integration.

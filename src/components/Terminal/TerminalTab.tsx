@@ -160,6 +160,7 @@ export const TerminalTab = memo(function TerminalTab({
     isFocused,
     resizeEnabled: terminalVisible && isVisible,
     resizeClientId,
+    isRemote: Boolean(tab?.remote_peer_id),
   });
 
   const shell = useShellIntegration({
@@ -192,6 +193,7 @@ export const TerminalTab = memo(function TerminalTab({
 
   const activateTerminal = useTerminalActivationResize({
     active: isVisible && terminalVisible,
+    viewerLocalGeometry: Boolean(tab?.remote_peer_id),
     isFocused,
     termReady: termReady && terminalIoReady,
     tabId,

@@ -27,6 +27,8 @@ impl ReasoningEffortIdentity {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RestorableLaunchParameters {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution_sandbox: Option<codeterm_types::plan::ExecutionSandboxPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed_provider: Option<String>,
@@ -62,7 +64,8 @@ pub struct RestorableLaunchParameters {
 
 impl RestorableLaunchParameters {
     pub fn is_empty(&self) -> bool {
-        self.execution_sandbox.is_none()
+        self.execution_mode.is_none()
+            && self.execution_sandbox.is_none()
             && self.failed_provider.is_none()
             && self.structured_runtime_mode.is_none()
             && self.context_files.is_none()

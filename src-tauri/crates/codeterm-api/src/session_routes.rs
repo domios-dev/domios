@@ -485,6 +485,7 @@ pub async fn resume_session_api(
     let spawn_params = codeterm_service_core::service::SpawnAgentParams {
         agent: Some(meta.provider.clone()),
         remote_task_binding: None,
+        execution_mode: None,
         context_files: None,
         context_skills: None,
         fork_session: false,

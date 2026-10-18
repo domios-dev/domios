@@ -1,4 +1,4 @@
-import { RECONNECT_FIRST_MS } from "./webReconnectModel";
+import { RECONNECT_FIRST_MS, RECONNECT_HIDDEN_FIRST_MS } from "./webReconnectModel";
 import assert from "node:assert/strict";
 
 class MemoryStorage {
@@ -121,10 +121,19 @@ async function main(): Promise<void> {
     const eofReady = requested();
     browser.dispatchEvent(new Event("online"));
     await eofReady;
-    const eofConnection = requested();
+    const eofWait = waiting();
     streams[3].close();
-    await eofConnection;
-    assert.equal(streams.length, 5, "clean EOF reconnects without a timer or a frame");
+    await eofWait;
+    assert.equal(streams.length, 4, "clean EOF waits instead of immediately opening another stream");
+    assert.equal(deadlines.size, 1, "clean EOF uses the shared bounded retry timer");
+    documentTarget.hidden = true;
+    documentTarget.dispatchEvent(new Event("visibilitychange"));
+    assert.ok([...deadlines.values()][0].delay >= RECONNECT_HIDDEN_FIRST_MS / 2 - 100, "hidden page uses the longer retry floor");
+    const wakeVisibleConnection = requested();
+    documentTarget.hidden = false;
+    documentTarget.dispatchEvent(new Event("visibilitychange"));
+    await wakeVisibleConnection;
+    assert.equal(streams.length, 5, "becoming visible wakes the scheduled retry");
     events.__resetWebEventsForTest();
     assert.equal(deadlines.size, 0);
     browser.dispatchEvent(new Event("online"));

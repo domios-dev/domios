@@ -22,6 +22,8 @@ export interface TranscriptSegment {
   kind: TranscriptBatchKind;
   /** `null` for events with no paging window. */
   range: TranscriptRange | null;
+  /** Unranged archived provider rows belong before the current session windows. */
+  placement?: "oldest";
   rows: NormalizedChatMessage[];
 }
 
@@ -40,6 +42,7 @@ export interface TranscriptBatch {
   kind: TranscriptBatchKind;
   authority: TranscriptAuthority;
   range: TranscriptRange | null;
+  placement?: "oldest";
   rows: NormalizedChatMessage[];
 }
 
@@ -112,6 +115,7 @@ export function transcriptBackfillCursor(state: TranscriptState): number | null 
 
 function orderedSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
   return [...segments].sort((left, right) => {
+    if (left.placement !== right.placement) return left.placement === "oldest" ? -1 : 1;
     const leftStart = left.range?.start ?? Number.MAX_SAFE_INTEGER;
     const rightStart = right.range?.start ?? Number.MAX_SAFE_INTEGER;
     return leftStart - rightStart;
@@ -170,10 +174,13 @@ function committed(
   };
 }
 
-function unrangedRows(state: TranscriptState): NormalizedChatMessage[] {
+function unrangedRows(
+  state: TranscriptState,
+  placement?: TranscriptSegment["placement"],
+): NormalizedChatMessage[] {
   const rows: NormalizedChatMessage[] = [];
   for (const segment of state.segments) {
-    if (segment.range == null) rows.push(...segment.rows);
+    if (segment.range == null && segment.placement === placement) rows.push(...segment.rows);
   }
   return rows;
 }
@@ -182,14 +189,17 @@ function withUnrangedRows(
   state: TranscriptState,
   kind: TranscriptBatchKind,
   rows: NormalizedChatMessage[],
+  placement?: TranscriptSegment["placement"],
 ): TranscriptSegment[] {
   return [
-    ...state.segments.filter((segment) => segment.range != null),
-    { kind, range: null, rows },
+    ...state.segments.filter((segment) => segment.range != null || segment.placement !== placement),
+    { kind, range: null, placement, rows },
   ];
 }
 
 function reduceItems(state: TranscriptState, batch: TranscriptBatch): TranscriptResult {
+  const oldest = state.segments.filter((segment) => segment.placement === "oldest");
+  const currentSegments = state.segments.filter((segment) => segment.placement !== "oldest");
   const ranges = state.segments.flatMap((segment) => segment.range?.unit === "items" ? [segment.range] : []);
   if (batch.range != null) ranges.push(batch.range);
   const range: TranscriptRange = {
@@ -197,10 +207,13 @@ function reduceItems(state: TranscriptState, batch: TranscriptBatch): Transcript
     start: Math.min(...ranges.map((entry) => entry.start)),
     end: Math.max(...ranges.map((entry) => entry.end)),
   };
-  const previous = transcriptRows(state);
+  const previous = transcriptRows({ ...state, segments: currentSegments });
   const incoming = ownedRows(batch.authority, batch.rows);
   const rows = batch.kind === "backfill" ? mergeById(incoming, previous) : mergeById(previous, incoming);
-  return { state: { ...state, segments: [{ kind: batch.kind, range, rows }] }, outcome: "adopted" };
+  return {
+    state: { ...state, segments: [...oldest, { kind: batch.kind, range, rows }] },
+    outcome: "adopted",
+  };
 }
 
 function reduceSnapshot(
@@ -209,8 +222,16 @@ function reduceSnapshot(
   limit: number,
 ): TranscriptResult {
   if (!isRange(batch.range)) {
-    const rows = mergeById(unrangedRows(state), ownedRows(batch.authority, batch.rows));
-    return committed(state, withUnrangedRows(state, "snapshot", rows), "adopted", limit);
+    const rows = mergeById(
+      unrangedRows(state, batch.placement),
+      ownedRows(batch.authority, batch.rows),
+    );
+    return committed(
+      state,
+      withUnrangedRows(state, "snapshot", rows, batch.placement),
+      "adopted",
+      limit,
+    );
   }
   const range = batch.range;
   // Nothing proves which rows of a segment straddling the window end were
@@ -350,6 +371,9 @@ export function reduceTranscript(
     }))
     : state.segments;
   const based: TranscriptState = { ...state, segments, authority: batch.authority };
+  if (batch.placement === "oldest" && batch.range == null) {
+    return reduceSnapshot(based, batch, limit);
+  }
   if (batch.range?.unit === "items" || (batch.range == null && based.segments.some((segment) => segment.range?.unit === "items"))) {
     return reduceItems(based, batch);
   }

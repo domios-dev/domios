@@ -122,7 +122,7 @@ sqlite-vec = { version = "0.1.9", optional = true }
 ndarray = { version = "0.17", optional = true }
 hnsw_rs = { version = "0.3", optional = true }
 codeterm-mem-store = { path = "../../../crates/mem-store" }
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 codeterm-plugins = { path = "../codeterm-plugins" }
 
 [features]

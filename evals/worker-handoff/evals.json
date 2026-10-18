@@ -73,7 +73,7 @@
     {
       "id": 7,
       "name": "lane-typechecks-before-integration-clippy",
-      "prompt": "Dry-run only: tools are unavailable. You are a Worker in an isolated lane. You changed Rust library code and tests in codeterm-service-core. Show the complete command sequence: pre-commit verification, resulting owned commit abcdef123, its single integration check, then readiness report. Nothing has executed yet; the following receipts are fixture outcomes for the checks in your sequence, not earlier executions to skip or repeat. Local crate check: exit 0. Integration check: check-queue: sha=abcdef123 lane=1 exit=0 wall=4s, errors=0 and warnings=0. Your deferred canonical selector is ./build.sh test-one app opaque_selector. Preserve those outcomes in the report; claim no execution beyond this dry-run sequence.",
+      "prompt": "Project-specific verification contract supplied by this repository: before committing, run rustfmt, bash scripts/check-file-sizes.sh --fail, bash scripts/check-service-core-boundary.sh, and ./build.sh lane-check codeterm-service-core --tests (four Cargo jobs); after committing run exactly one ./build.sh check-queue --lane <owned-sha>, require zero errors/warnings, and defer Rust execution tests to the Orchestrator in canonical. Dry-run only: tools are unavailable. You are a Worker in an isolated lane. You changed Rust library code and tests in codeterm-service-core. Show the complete command sequence: pre-commit verification, resulting owned commit abcdef123, its single integration check, then readiness report. Nothing has executed yet; the following receipts are fixture outcomes for the checks in your sequence, not earlier executions to skip or repeat. Local crate check: exit 0. Integration check: check-queue: sha=abcdef123 lane=1 exit=0 wall=4s, errors=0 and warnings=0. Your deferred canonical selector is ./build.sh test-one app opaque_selector. Preserve those outcomes in the report; claim no execution beyond this dry-run sequence.",
       "expected_output": "Type-checks the touched library and tests locally with four jobs before committing, then uses one integration Clippy gateway check and defers execution tests.",
       "expectations": [
         "Runs rustfmt and bash scripts/check-file-sizes.sh --fail and bash scripts/check-service-core-boundary.sh before one executable ./build.sh check-queue --lane abcdef123 invocation for this committed lane SHA. Repeating that command in TESTS RUN as supplied evidence is not a second execution",
@@ -95,13 +95,37 @@
     {
       "id": 9,
       "name": "received-batch-bounce-preserves-integration-ancestry",
-      "prompt": "Dry-run only: tools are unavailable. You have received a batch bounce for an error in your own codeterm-service-core file at integration SHA fedcba321. Your lane tip is abcdef123. You have not repaired the failure or verified a new commit. State the exact next actions and the evidence you preserve; do not execute or invent a fix in this dry run. Give a prose plan, not speculative repair commands or a fictional readiness report. Name the local checks and the one post-commit gateway check; the deferred selector is ./build.sh test-one app opaque_selector for canonical.",
+      "prompt": "Project-specific verification contract supplied by this repository: before committing, run rustfmt, bash scripts/check-file-sizes.sh --fail, bash scripts/check-service-core-boundary.sh, and ./build.sh lane-check codeterm-service-core --tests (four Cargo jobs); after committing run exactly one ./build.sh check-queue --lane <owned-sha>, require zero errors/warnings, and defer Rust execution tests to the Orchestrator in canonical. Dry-run only: tools are unavailable. You have received a batch bounce for an error in your own codeterm-service-core file at integration SHA fedcba321. Your lane tip is abcdef123. You have not repaired the failure or verified a new commit. State the exact next actions and the evidence you preserve; do not execute or invent a fix in this dry run. Give a prose plan, not speculative repair commands or a fictional readiness report. Name the local checks and the one post-commit gateway check; the deferred selector is ./build.sh test-one app opaque_selector for canonical.",
       "expected_output": "Reads the supplied failure, preserves integration ancestry through a real merge, repairs owned code, and records the bounce SHA before renewed readiness.",
       "expectations": [
         "Reads the batch failure evidence and treats fedcba321 as the supplied integration bounce SHA",
         "Integrates fedcba321 into the lane through a real git merge, never rebase, cherry-pick, squash or patch-copy",
         "Retains fedcba321 in the next report and requires an owned repair commit and verification before renewed in_review; does not claim a repair or successful test already exists",
         "After repairing, type-checks the touched crate locally before committing, using CARGO_BUILD_JOBS=4 cargo check or the equivalent build.sh lane-check (which caps four jobs), then uses one check-queue --lane for the new commit. Explicitly defers Rust execution tests to canonical; no lane test-one, nextest or full build."
+      ],
+      "response_mode": "text"
+    },
+    {
+      "id": 10,
+      "name": "coherent-edits-before-final-checks",
+      "prompt": "Dry-run only; no tools. You maintain a generic Python application. Its project contract requires a formatter, a focused parser test, and a boundary check before commit. A rename must update the parser, two callers and their fixtures together. You have edited only the parser; there is no failure or uncertainty to investigate. State the next steps concisely, including when to run checks. No work or checks have executed beyond that one edit.",
+      "expected_output": "Completes all related edits before one applicable check batch, without per-file verification or Domios repository commands.",
+      "expectations": [
+        "Completes the remaining callers and fixtures before running the final formatter, parser test and boundary check together once; does not insert the checklist after each edit or each file.",
+        "Uses the supplied Python project contract without inventing Domios development commands such as build.sh, lane-check, check-queue, Cargo or native platform gates.",
+        "Does not skip final verification or claim that unexecuted work or checks passed."
+      ],
+      "response_mode": "text"
+    },
+    {
+      "id": 11,
+      "name": "rerun-only-affected-proof",
+      "prompt": "Dry-run only; no tools. A completed application change passed its formatter, pure parser tests and dependency-boundary check. Final review found one parser edge case. You correct only parser behavior and its focused test, adding no imports, dependencies or files. What do you verify now and when do you stop? If the focused test fails, how does that affect your next step? Answer concisely; do not claim any check has executed after the correction.",
+      "expected_output": "Checks the corrected parser and formatting, reruns failed relevant checks after repair, and stops after passing without restarting unrelated validation.",
+      "expectations": [
+        "Runs the affected parser tests and applicable formatting checks; retains the earlier dependency-boundary evidence rather than rerunning the entire unrelated checklist or a broad suite without cause.",
+        "If the focused test fails, repairs the defect and reruns relevant failed checks rather than skipping verification or rerunning indefinitely after success.",
+        "After relevant checks pass, proceeds to commit/report instead of adding speculative validation loops."
       ],
       "response_mode": "text"
     }

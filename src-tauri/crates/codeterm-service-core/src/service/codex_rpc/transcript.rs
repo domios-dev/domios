@@ -218,6 +218,7 @@ pub fn start(
         offset: total as u64,
         pending: false,
         messages: Some(messages.into_iter().skip(start).collect()),
+        archived_messages: None,
         cursor: None,
         source_session_id: Some(thread),
         session_binding_nonce: nonce,

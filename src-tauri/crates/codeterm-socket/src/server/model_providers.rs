@@ -20,17 +20,17 @@ fn prepare(
     method: &str,
     params: Option<Value>,
 ) -> Result<(Option<String>, ModelProviderRequest), JsonRpcError> {
-    let action = match method {
-        "model_provider.preset.add" => "preset_add",
-        "model_provider.preset.remove" => "preset_remove",
-        "model_provider.preset.list" => "preset_list",
-        "model_provider.add" => "add",
-        "model_provider.add_from_secret" => "add_from_secret",
-        "model_provider.update" => "update",
-        "model_provider.discover" => "discover",
-        "model_provider.remove" => "remove",
-        "model_provider.list" => "list",
-        "model_provider.test" => "test",
+    let (action, fields): (&str, &[&str]) = match method {
+        "model_provider.preset.add" => ("preset_add", &["preset"]),
+        "model_provider.preset.remove" => ("preset_remove", &["name"]),
+        "model_provider.preset.list" => ("preset_list", &[]),
+        "model_provider.add" => ("add", &["provider", "value"]),
+        "model_provider.add_from_secret" => ("add_from_secret", &["provider", "source_secret"]),
+        "model_provider.update" => ("update", &["provider", "value"]),
+        "model_provider.discover" => ("discover", &["kind", "base_url", "value", "source_secret"]),
+        "model_provider.remove" => ("remove", &["name"]),
+        "model_provider.list" => ("list", &[]),
+        "model_provider.test" => ("test", &["name"]),
         _ => {
             return Err(JsonRpcError {
                 code: -32601,
@@ -39,7 +39,10 @@ fn prepare(
             })
         }
     };
-    let mut params = params.unwrap_or_else(|| json!({}));
+    let mut params = match params {
+        Some(Value::Null) | None => json!({}),
+        Some(params) => params,
+    };
     let object = params.as_object_mut().ok_or_else(invalid)?;
     let harness = match object.remove("harness") {
         None => None,
@@ -52,6 +55,9 @@ fn prepare(
         }
     };
     if object.contains_key("action") {
+        return Err(invalid());
+    }
+    if object.keys().any(|key| !fields.contains(&key.as_str())) {
         return Err(invalid());
     }
     object.insert("action".into(), json!(action));

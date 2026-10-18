@@ -212,6 +212,7 @@ pub fn start(
         offset: window.end,
         pending: false,
         messages: Some(window.messages),
+        archived_messages: None,
         cursor: None,
         source_session_id: Some(window.session),
         session_binding_nonce: window.nonce,

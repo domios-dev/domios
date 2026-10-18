@@ -103,7 +103,7 @@ import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { ChatDeliveryState } from "./ChatDeliveryState";
 import { canDeleteChatSend, deliveryPresentation, sendForRow } from "./chatDeliveryModel";
-import { beginChatSendRetry, failChatSendRequest, useChatSends } from "./chatSendStore";
+import { beginChatSendRetry, failChatSendRequest, useChatSendSnapshot } from "./chatSendStore";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
@@ -212,7 +212,7 @@ function TabSessionChatBody({
   }
 
   const touchMode = useTouchOptimizedUi();
-  const deliverySends = useChatSends(tabId);
+  const { sends: deliverySends } = useChatSendSnapshot(tabId);
   const { expand: expandDeliveryTasks, plansSink: deliveryPlansSink } = useDsTasksExpander(tabId);
   const tabBlockHost = useTabChatBlockHost(tabId);
   const lastStopAtRef = useRef(0);

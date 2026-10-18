@@ -1,0 +1,30 @@
+{
+  "skill_name": "agent-lifetime-reasoning",
+  "description": "Choices under sustained use and proportional implementation effort, without timing slogans.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "design-for-sustained-session",
+      "response_mode": "text",
+      "prompt": "Choose an implementation for a browser work queue. A session starts with 20 items; users keep it open for days, add thousands of items, and receive frequent status updates. Option A synchronously serializes every item to localStorage on each update and takes 10 minutes to implement. Option B keeps current items in memory and asynchronously persists changed records with bounded retention and explicit failure handling; it takes 25 minutes. Give a concise recommendation and the main implementation boundaries. Do not run commands.",
+      "expectations": [
+        "Chooses asynchronous changed-record persistence rather than synchronously rewriting the growing collection",
+        "Accounts for cumulative repeated work and retention under long sessions, rather than judging only the initial 20-item case",
+        "Keeps interaction usable on storage failure and addresses pending writes or interrupted persistence",
+        "Explains concrete consequences without announcing compliance with a time-awareness instruction or claiming agents are universally faster than humans"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "proportional-complete-fix",
+      "response_mode": "text",
+      "prompt": "A settings dialog displays the wrong label because two call sites independently format the same enum. Both are identified. A shared existing formatter already handles every enum case. Reusing it in those two places and checking the affected cases takes 8 minutes. Hardcoding the currently reported label takes 3 minutes. A new extensible formatting framework takes several hours. What should you do? Answer in two sentences; do not run commands.",
+      "expectations": [
+        "Chooses the existing shared formatter for both affected call sites and focused verification",
+        "Rejects the one-label patch without proposing the unnecessary new framework",
+        "Considers recurrence or maintenance consequences rather than treating shortest immediate implementation as sufficient",
+        "Does not announce internal time-awareness rules or make unsupported agent-versus-human speed claims"
+      ]
+    }
+  ]
+}

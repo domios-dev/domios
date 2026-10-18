@@ -21,6 +21,41 @@ fn staged_model_selection_is_visible_but_never_restores_execution() {
 }
 
 #[test]
+fn provider_handoff_reference_survives_tab_persistence() {
+    let mut tab = tab_with("handoff-tab", TabBacking::Pty);
+    tab.archive_provider_handoff(
+        "previous-provider",
+        "C:/previous-workspace",
+        "previous-session",
+        ContextEpochTransport::ChatBackend,
+    );
+
+    let serialized = serde_json::to_value(&tab).unwrap();
+    let archive = &serialized["context_epoch_archives"][0];
+    assert_eq!(archive["provider"], "previous-provider");
+    assert_eq!(archive["cwd"], "C:/previous-workspace");
+    assert_eq!(archive["session_id"], "previous-session");
+    assert_eq!(archive["transport"], "chat_backend");
+    assert_eq!(archive["boundary"], "provider_handoff");
+
+    let restored: Tab = serde_json::from_value(serialized).unwrap();
+    assert_eq!(restored.context_epoch_archives, tab.context_epoch_archives);
+}
+
+#[test]
+fn old_context_epoch_references_default_to_agent_context_reset() {
+    let archive: ContextEpochArchive = serde_json::from_value(serde_json::json!({
+        "provider": "previous-provider",
+        "cwd": "C:/previous-workspace",
+        "session_id": "previous-session"
+    }))
+    .unwrap();
+
+    assert_eq!(archive.transport, ContextEpochTransport::AgentProvider);
+    assert_eq!(archive.boundary, ContextEpochBoundary::ContextReset);
+}
+
+#[test]
 fn taskless_gate_grants_are_visible_to_authorization_but_not_wire_deserializable() {
     let mut tab = tab_with("taskless-worker", TabBacking::Pty);
     tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
