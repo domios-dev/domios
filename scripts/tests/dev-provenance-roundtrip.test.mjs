@@ -9,7 +9,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8').replaceAll('\r\n', '\n');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 const functions = ['dev_provenance_record', 'write_dev_provenance', 'validate_dev_provenance',
-  'tauri_debug_dir', 'dev_app_path', 'dev_cli_path'].map(sourceFunction).join('\n');
+  'tauri_debug_dir', 'dev_app_path', 'dev_cli_path', 'named_dev_target_dir', 'named_dev_isolated'].map(sourceFunction).join('\n');
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', ...options });
@@ -40,7 +40,7 @@ function fixture() {
   return { directory, checkout, sha };
 }
 
-function provenance(checkout, cwd, target, sha, operation, launchSha = '') {
+function provenance(checkout, cwd, target, sha, operation, launchSha = '', instance = '') {
   return spawnSync(bash, ['-c', `set -euo pipefail
 ${functions}
 cd "$1"
@@ -48,11 +48,50 @@ CT_DATA_DIR="$2/data"
 CARGO_TARGET_DIR="$3/target"
 CARGO_BUILD_TARGET=
 CT_INSTANCE=fixture CT_PORT=7786 CT_VITE_PORT=1520 CT_CDP_PORT=9323 CT_IDENTIFIER=fixture.dev
+if [ -n "$6" ]; then
+  CT_INSTANCE="$6" CT_INSTANCE_KEY="$6"
+  CT_DATA_DIR="$2/data/$6"
+  CARGO_TARGET_DIR="$(named_dev_target_dir)"
+fi
 CODETERM_BUILD_SHA="$4"
 CT_DEV_PROVENANCE_SHA="$5"
 ${operation} "$4"
-`, '--', cwd, checkout, target, sha, launchSha], { encoding: 'utf8' });
+`, '--', cwd, checkout, target, sha, launchSha, instance], { encoding: 'utf8' });
 }
+
+test('two named instances persist and validate their own checkout artifact provenance', () => {
+  const { directory, checkout, sha } = fixture();
+  try {
+    fs.writeFileSync(path.join(checkout, '.gitignore'), 'src-tauri/target/\n');
+    const exe = process.platform === 'win32' ? '.exe' : '';
+    const records = [];
+    for (const instance of ['meshqa', 'welcomeqa']) {
+      const app = path.join(checkout, 'src-tauri/target/dev-instances', instance, `debug/codeterm${exe}`);
+      const cli = path.join(checkout, 'data', instance, `bin/codeterm${exe}`);
+      for (const file of [app, cli]) {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, instance, { mode: 0o755 });
+      }
+      const written = provenance(checkout, checkout, checkout, sha, 'write_dev_provenance', '', instance);
+      assert.equal(written.status, 0, written.stderr);
+      const checked = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', '', instance);
+      assert.equal(checked.status, 0, checked.stderr);
+      const record = JSON.parse(fs.readFileSync(path.join(checkout, 'data', instance, 'dev-build-provenance.json')));
+      assert.equal(record.instance.name, instance);
+      assert.equal(record.artifacts.app.path, fs.realpathSync.native(app));
+      records.push(record);
+    }
+    assert.notEqual(records[0].artifacts.app.path, records[1].artifacts.app.path);
+    fs.appendFileSync(records[1].artifacts.app.path, 'changed');
+    const unaffected = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', '', 'meshqa');
+    assert.equal(unaffected.status, 0, unaffected.stderr);
+    const changed = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', '', 'welcomeqa');
+    assert.equal(changed.status, 1);
+    assert.match(changed.stderr, /app artifact content mismatch/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test('utility identity capture tolerates non-Git directories and unavailable Git; stamping refuses', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-identity-no-git-'));
