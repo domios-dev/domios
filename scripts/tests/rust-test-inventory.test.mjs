@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { diffInventories, evalCfg, facadeMatch, lexRust, loadInventory, parseCargoToml, parseRenames, scanWorkspace } from "../rust-test-inventory.mjs";
+import { diffInventories, evalCfg, facadeMatch, lexRust, loadInventory, parseCargoToml, parseRenames, scanCommit, scanWorkspace } from "../rust-test-inventory.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = path.join(here, "fixtures", "rust-test-inventory");
@@ -317,9 +317,10 @@ function gateRepo(t) {
     assert.equal(r.status, 0, r.stderr);
     return r.stdout.trim();
   };
-  const commit = (fixture, message) => {
+  const commit = (fixture, message, prepare = () => {}) => {
     for (const e of readdirSync(repo)) if (e !== ".git") rmSync(path.join(repo, e), { recursive: true, force: true });
     cpSync(path.join(fixtures, fixture), repo, { recursive: true });
+    prepare(repo);
     git("add", "-A");
     git("commit", "-qm", message);
     return git("rev-parse", "HEAD");
@@ -347,4 +348,40 @@ test("gate scans the merge-base and HEAD from git objects: a crate move exits 0,
   assert.equal(reviewed.status, 0, reviewed.stdout + reviewed.stderr);
   assert.match(reviewed.stdout, /renamed \(reviewed\): 1\b/);
   assert.equal(readdirSync(tmpdir()).filter((e) => e.startsWith("rti-gate-") && !e.startsWith("rti-gate-repo-")).length, 0);
+});
+
+test("root crate inventory preserves archived moves and still refuses deletion", (t) => {
+  const g = gateRepo(t);
+  const base = g.commit("move-before", "before root move");
+  const moveToRoot = (duplicateRoute = false, deleted = false) => (repo) => {
+    mkdirSync(path.join(repo, "crates"));
+    renameSync(path.join(repo, "src-tauri/crates/fixture-core"), path.join(repo, "crates/fixture-core"));
+    writeFileSync(path.join(repo, "src-tauri/Cargo.toml"), [
+      '[package]\nname = "fixture-app"',
+      '[workspace]',
+      `members = ["."${duplicateRoute ? ', "../crates/fixture-core"' : ""}]`,
+    ].join("\n"));
+    if (deleted) writeFileSync(path.join(repo, "crates/fixture-core/src/parser.rs"), "");
+  };
+  g.commit("move-after", "move into independent root crate", moveToRoot());
+  const rootTests = (inv) => rows(inv).filter((row) => row.startsWith("fixture-core|parser::tests|"));
+  const expected = ["fixture-core|parser::tests|parses_body", "fixture-core|parser::tests|parses_header"];
+  assert.deepEqual(rootTests(scanWorkspace(g.repo)), expected);
+  assert.deepEqual(rootTests(scanCommit(g.repo, "HEAD")), expected);
+  const moved = g.gate(base);
+  assert.equal(moved.status, 0, moved.stdout + moved.stderr);
+  assert.match(moved.stdout, /moved: 2\b/);
+  g.commit("move-after", "duplicate discovery route", moveToRoot(true));
+  assert.deepEqual(rootTests(scanWorkspace(g.repo)), expected);
+  assert.deepEqual(rootTests(scanCommit(g.repo, "HEAD")), expected);
+  g.commit("move-after", "delete moved tests", moveToRoot(true, true));
+  const deleted = g.gate(base);
+  assert.equal(deleted.status, 1, deleted.stdout + deleted.stderr);
+  assert.match(deleted.stdout, /lost: 2\b/);
+  g.commit("move-after", "malformed root manifest", (repo) => {
+    moveToRoot()(repo);
+    writeFileSync(path.join(repo, "crates/fixture-core/Cargo.toml"), "[package]\nname = 42\n");
+  });
+  assert.throws(() => scanWorkspace(g.repo), /Root crate manifest has no package name/);
+  assert.throws(() => scanCommit(g.repo, "HEAD"), /Root crate manifest has no package name/);
 });

@@ -16,15 +16,19 @@ pub fn run(
     // Forward CLI-shaped argv to the bundled CLI before Tauri/logging init, otherwise GUI single-instance silently swallows the args (issue #51).
     startup::forward_to_cli_if_invoked();
 
-    let path_owner = match codeterm_service_core::ResolvedInstancePaths::current()
-        .and_then(|paths| paths.try_acquire(&domios_server::ownership_registry()?))
-    {
-        Ok(owner) => owner,
-        Err(error) => {
-            eprintln!("Domios startup refused before initialization: {error}");
-            return;
-        }
-    };
+    let path_owner =
+        match codeterm_service_core::ResolvedInstancePaths::current().and_then(|paths| {
+            codeterm_service_core::PathOwnership::try_acquire(
+                paths,
+                &domios_server::ownership_registry()?,
+            )
+        }) {
+            Ok(owner) => owner,
+            Err(error) => {
+                eprintln!("Domios startup refused before initialization: {error}");
+                return;
+            }
+        };
 
     // crash originates (tokio worker, Tauri main, FFI thread, signal handler).
     crash::install();
