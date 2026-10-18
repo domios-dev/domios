@@ -1,6 +1,6 @@
 mod cli_shim;
 pub(crate) mod desktop_lifecycle;
-mod frontend_shell;
+pub(crate) mod frontend_shell;
 mod native_notification;
 #[cfg(test)]
 mod stall_tests;
@@ -9,8 +9,6 @@ mod window;
 mod window_events;
 
 pub(crate) use cli_shim::forward_to_cli_if_invoked;
-pub(crate) use codeterm_service_core::startup::wait_for_frontend_ready_until;
-pub(crate) use domios_server::startup::setup_logging;
 pub(crate) use native_notification::native_notification;
 pub(crate) use user_path::run_user_path_repair_if_invoked;
 pub(crate) use window::build_system_tray;
