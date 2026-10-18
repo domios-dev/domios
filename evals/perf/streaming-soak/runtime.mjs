@@ -111,6 +111,8 @@ export async function visit(rt,cp,fixture) {
   requireValue([...cp.fixtures,cp.terminal].some(owned => owned?.tab === fixture.tab),'Visit target is not an owned fixture');
   if (rt.identity.surface === 'chrome') {
     const selection = action => `(${ownedBrowserSelection.toString()})(document,${JSON.stringify(cp.workspace.id)},${JSON.stringify(fixture.tab)},${JSON.stringify(action)})`;
+    await evaluate(rt.cdp,selection('workspace-reveal'));
+    await observe(rt,selection('workspace-ready'),'owned workspace control appearance after optional expansion');
     await evaluate(rt.cdp,selection('workspace'));
     await observe(rt,`[...document.querySelectorAll('[data-testid="workspace-detail"]')].some(node=>node.dataset.workspaceId===${JSON.stringify(cp.workspace.id)}&&!node.hidden)`,'owned workspace selection');
     await evaluate(rt.cdp,selection('tab'));
