@@ -126,6 +126,10 @@ pub enum NativeHostOperation<UpdateRequest> {
     CopyImageToClipboard { path: PathBuf },
     DebianPreflight,
     NativeUpdate { request: UpdateRequest },
+    ObserveNativeUpdate {
+        operation_id: crate::native_update::NativeUpdateOperationId,
+        after_sequence: u64,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -295,6 +299,14 @@ mod tests {
 
         assert_eq!(value["operation"], "native_update");
         assert_eq!(value["payload"]["request"], "transaction");
+        let observation = NativeHostOperation::<String>::ObserveNativeUpdate {
+            operation_id: crate::native_update::NativeUpdateOperationId::new(Uuid::new_v4())
+                .unwrap(),
+            after_sequence: 8,
+        };
+        let value = serde_json::to_value(observation).unwrap();
+        assert_eq!(value["operation"], "observe_native_update");
+        assert_eq!(value["payload"]["after_sequence"], 8);
         assert!(serde_json::from_value::<NativeHostOperation<String>>(json!({
             "operation": "invoke",
             "payload": { "name": "focus_window" }

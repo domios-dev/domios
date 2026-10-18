@@ -11,6 +11,9 @@ use codeterm_types::{
         MAX_NATIVE_HOST_FRAME_BYTES, MAX_PENDING_NATIVE_HOST_REQUESTS,
         NATIVE_HOST_PROTOCOL, NATIVE_HOST_REQUEST_DEADLINE,
     },
+    native_update::{
+        NativeUpdateExecutor, NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult,
+    },
     server_bootstrap::{
         ProcessProvenance, ServerComponentManifest, ServerReady,
     },
@@ -47,17 +50,23 @@ pub struct NativeHostServer<UpdateRequest, UpdateResult> {
 }
 
 pub struct NativeHostEndpoint<UpdateRequest, UpdateResult> {
-    active: Arc<RwLock<Option<Arc<Session<UpdateRequest, UpdateResult>>>>>,
-    next_request_id: Arc<AtomicU64>,
-    next_event_id: Arc<AtomicU64>,
+    pub(super) active: Arc<RwLock<Option<Arc<Session<UpdateRequest, UpdateResult>>>>>,
+    pub(super) active_generation: Arc<AtomicU64>,
+    pub(super) next_request_id: Arc<AtomicU64>,
+    pub(super) next_event_id: Arc<AtomicU64>,
+    pub(super) ready: ServerReady,
+    pub(super) manifest: ServerComponentManifest,
 }
 
 impl<UpdateRequest, UpdateResult> Clone for NativeHostEndpoint<UpdateRequest, UpdateResult> {
     fn clone(&self) -> Self {
         Self {
             active: self.active.clone(),
+            active_generation: self.active_generation.clone(),
             next_request_id: self.next_request_id.clone(),
             next_event_id: self.next_event_id.clone(),
+            ready: self.ready.clone(),
+            manifest: self.manifest.clone(),
         }
     }
 }
@@ -72,27 +81,28 @@ struct AcceptState<UpdateRequest, UpdateResult> {
     pending_attaches: Arc<Semaphore>,
 }
 
-struct Session<UpdateRequest, UpdateResult> {
-    connection: NativeHostConnection,
-    client_process: ProcessProvenance,
-    process: PinnedProcess,
+pub(super) struct Session<UpdateRequest, UpdateResult> {
+    pub(super) connection: NativeHostConnection,
+    pub(super) client_process: ProcessProvenance,
+    pub(super) process: PinnedProcess,
+    pub(super) active_generation: Arc<AtomicU64>,
     allowed_view_origins: HashSet<String>,
     control: mpsc::Sender<Frame<UpdateRequest, UpdateResult>>,
     events: mpsc::Sender<NativeHostEvent>,
-    state: Mutex<SessionState<UpdateResult>>,
+    pub(super) state: Mutex<SessionState<UpdateResult>>,
     shutdown: watch::Sender<bool>,
-    retired: AtomicBool,
+    pub(super) retired: AtomicBool,
 }
 
-struct SessionState<UpdateResult> {
-    view: Option<NativeViewBinding>,
-    pending: HashMap<NativeHostRequestId, Pending<UpdateResult>>,
+pub(super) struct SessionState<UpdateResult> {
+    pub(super) view: Option<NativeViewBinding>,
+    pub(super) pending: HashMap<NativeHostRequestId, Pending<UpdateResult>>,
 }
 
-struct Pending<UpdateResult> {
-    scope: NativeHostScope,
-    reply: Option<oneshot::Sender<NativeHostReply<UpdateResult>>>,
-    dispatched: bool,
+pub(super) struct Pending<UpdateResult> {
+    pub(super) scope: NativeHostScope,
+    pub(super) reply: Option<oneshot::Sender<NativeHostReply<UpdateResult>>>,
+    pub(super) dispatched: bool,
 }
 
 struct PendingCallGuard<UpdateRequest, UpdateResult> {
@@ -137,8 +147,11 @@ where
             listener,
             endpoint: NativeHostEndpoint {
                 active: Arc::new(RwLock::new(None)),
+                active_generation: Arc::new(AtomicU64::new(0)),
                 next_request_id: Arc::new(AtomicU64::new(1)),
                 next_event_id: Arc::new(AtomicU64::new(1)),
+                ready: ready.clone(),
+                manifest: manifest.clone(),
             },
             ready,
             manifest,
@@ -184,6 +197,14 @@ where
     }
 }
 
+impl NativeHostEndpoint<NativeUpdateRequest, NativeUpdateResult> {
+    pub fn active_native_update_executor(
+        &self,
+    ) -> Result<Arc<dyn NativeUpdateExecutor>, NativeUpdateRefusal> {
+        super::enrollment::active_native_update_executor(self)
+    }
+}
+
 impl<UpdateRequest, UpdateResult> NativeHostEndpoint<UpdateRequest, UpdateResult>
 where
     UpdateRequest: Serialize + DeserializeOwned + Send + 'static,
@@ -211,6 +232,30 @@ where
         else {
             return NativeHostCompletion::Rejected(NativeHostRejection::NotAttached);
         };
+        let Some(request_id) = next_id(&self.next_request_id) else {
+            return NativeHostCompletion::Rejected(NativeHostRejection::RequestIdsExhausted);
+        };
+        session
+            .request(NativeHostRequestId(request_id), scope, operation)
+            .await
+    }
+
+    pub(super) async fn request_captured(
+        &self,
+        session: &Arc<Session<UpdateRequest, UpdateResult>>,
+        scope: NativeHostScope,
+        operation: NativeHostOperation<UpdateRequest>,
+    ) -> NativeHostCompletion<NativeHostResult<UpdateResult>> {
+        if session.retired.load(Ordering::Acquire)
+            || self.active_generation.load(Ordering::Acquire) != session.connection.generation
+            || !self
+                .active
+                .read()
+                .as_ref()
+                .is_some_and(|active| Arc::ptr_eq(active, session))
+        {
+            return NativeHostCompletion::Rejected(NativeHostRejection::NotAttached);
+        }
         let Some(request_id) = next_id(&self.next_request_id) else {
             return NativeHostCompletion::Rejected(NativeHostRejection::RequestIdsExhausted);
         };
@@ -272,6 +317,7 @@ where
                 .as_ref()
                 .is_some_and(|current| Arc::ptr_eq(current, session))
             {
+                self.active_generation.store(0, Ordering::Release);
                 active.take()
             } else {
                 None
@@ -344,6 +390,7 @@ where
             connection,
             client_process: enrollment.client_process,
             process,
+            active_generation: self.endpoint.active_generation.clone(),
             allowed_view_origins: self.allowed_view_origins.clone(),
             control: control_tx,
             events: event_tx,
@@ -427,6 +474,9 @@ where
         if attaching.as_ref() != Some(connection) {
             return Err(io::Error::other("Native enrollment reservation expired"));
         }
+        self.endpoint
+            .active_generation
+            .store(connection.generation, Ordering::Release);
         let previous = self.endpoint.active.write().replace(session);
         *attaching = None;
         Ok(previous)
@@ -438,12 +488,12 @@ where
     UpdateRequest: Serialize + DeserializeOwned + Send + 'static,
     UpdateResult: Serialize + DeserializeOwned + Send + 'static,
 {
-    async fn request(
+    pub(super) async fn request(
         self: &Arc<Self>,
         request_id: NativeHostRequestId,
         scope: NativeHostScope,
         operation: NativeHostOperation<UpdateRequest>,
-    ) -> Completion<UpdateResult> {
+    ) -> NativeHostCompletion<NativeHostResult<UpdateResult>> {
         let (reply_tx, reply_rx) = oneshot::channel();
         {
             let mut state = self.state.lock();
@@ -694,7 +744,7 @@ where
         }
     }
 
-    fn accept_reply(&self, reply: NativeHostReply<UpdateResult>) {
+    pub(super) fn accept_reply(&self, reply: NativeHostReply<UpdateResult>) {
         if self.retired.load(Ordering::Acquire) || reply.connection != self.connection {
             return;
         }
@@ -716,10 +766,12 @@ where
         }
     }
 
-    fn mark_dispatched(&self, request_id: NativeHostRequestId) -> bool {
+    pub(super) fn mark_dispatched(&self, request_id: NativeHostRequestId) -> bool {
         let completion = {
             let mut state = self.state.lock();
-            if self.retired.load(Ordering::Acquire) {
+            if self.retired.load(Ordering::Acquire)
+                || self.active_generation.load(Ordering::Acquire) != self.connection.generation
+            {
                 return false;
             }
             let Some(call) = state.pending.get(&request_id) else {
@@ -806,7 +858,7 @@ where
         self.complete_view_revocation(replies, cancellations);
     }
 
-    fn release_view(&self, session_id: uuid::Uuid) {
+    pub(super) fn release_view(&self, session_id: uuid::Uuid) {
         let (replies, cancellations) = {
             let mut state = self.state.lock();
             if !state

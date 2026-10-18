@@ -13,15 +13,15 @@ use codeterm_types::{
         API_VERSION, BOOTSTRAP_PROTOCOL, SERVER_COMPONENT_SCHEMA,
     },
 };
-use super::transport::{Pending, Session, SessionState};
-use parking_lot::Mutex;
+use super::transport::{NativeHostEndpoint, Pending, Session, SessionState};
+use parking_lot::{Mutex, RwLock};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
     sync::{
-        atomic::AtomicBool,
+        atomic::{AtomicBool, AtomicU64},
         Arc,
     },
 };
@@ -123,6 +123,7 @@ fn session(view: Option<NativeViewBinding>) -> Arc<Session<String, String>> {
         connection,
         client_process,
         process,
+        active_generation: Arc::new(AtomicU64::new(9)),
         allowed_view_origins: HashSet::from(["http://127.0.0.1:7686".into()]),
         control,
         events,
@@ -133,6 +134,30 @@ fn session(view: Option<NativeViewBinding>) -> Arc<Session<String, String>> {
         shutdown,
         retired: AtomicBool::new(false),
     })
+}
+
+#[test]
+fn native_update_executor_is_unavailable_without_an_active_enrollment() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("server-fixture.bin");
+    let (manifest, ready) = server_fixture(path, b"server fixture image");
+    let endpoint = NativeHostEndpoint::<
+        codeterm_types::native_update::NativeUpdateRequest,
+        codeterm_types::native_update::NativeUpdateResult,
+    > {
+        active: Arc::new(RwLock::new(None)),
+        active_generation: Arc::new(AtomicU64::new(0)),
+        next_request_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),
+        next_event_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),
+        ready,
+        manifest,
+    };
+
+    assert!(endpoint.connection().is_none());
+    assert_eq!(
+        endpoint.active_native_update_executor().err(),
+        Some(codeterm_types::native_update::NativeUpdateRefusal::NativeHostUnavailable)
+    );
 }
 
 #[test]
@@ -239,6 +264,25 @@ async fn releasing_view_rejects_queued_calls_before_dispatch() {
     );
     assert!(!session.mark_dispatched(request_id));
     assert!(!session.state.lock().pending.contains_key(&request_id));
+}
+
+#[tokio::test]
+async fn replaced_connection_generation_cannot_dispatch_queued_work() {
+    let session = session(None);
+    let request_id = NativeHostRequestId(19);
+    let (reply, _response) = oneshot::channel();
+    session.state.lock().pending.insert(
+        request_id,
+        Pending {
+            scope: NativeHostScope::Client,
+            reply: Some(reply),
+            dispatched: false,
+        },
+    );
+    session.active_generation.store(10, std::sync::atomic::Ordering::Release);
+
+    assert!(!session.mark_dispatched(request_id));
+    assert!(!session.state.lock().pending[&request_id].dispatched);
 }
 
 #[tokio::test]
