@@ -45,3 +45,130 @@ fn process_split_contract_ordinary_bootstrap_omits_probe_alias() {
         .get("probe_identity_alias")
         .is_none());
 }
+
+fn human_options(args: &[&str], development: bool) -> io::Result<HumanStart> {
+    let executable = std::env::current_dir()?.join("fixture/domios-server/domios-server");
+    human_start_options(
+        &args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
+        &executable,
+        development,
+    )
+}
+
+#[test]
+fn process_split_contract_headless_explicit_selector_and_resource_layout() {
+    let production = human_options(&["--production", "--json"], false).unwrap();
+    assert!(matches!(
+        production.options.instance,
+        InstanceSelector::Production
+    ));
+    assert_eq!(
+        production.options.resources,
+        std::env::current_dir().unwrap().join("fixture")
+    );
+    assert!(production.json);
+    assert!(production.options.probe_sink.is_none());
+    assert!(production.options.probe_identity_alias.is_none());
+    let development = human_options(
+        &[
+            "--development",
+            "--port",
+            "18886",
+            "--instance",
+            "fixture",
+            "--resources",
+            "selected",
+        ],
+        true,
+    )
+    .unwrap();
+    assert!(
+        matches!(development.options.instance, InstanceSelector::Development { instance: Some(name), port: 18886 } if name == "fixture")
+    );
+    assert_eq!(development.options.resources, PathBuf::from("selected"));
+    assert!(!development.json);
+    assert!(human_options(&["--development", "--port", "18886"], true).is_ok());
+}
+
+#[test]
+fn process_split_contract_headless_refuses_ambiguous_or_privileged_options() {
+    for args in [
+        vec![],
+        vec!["--production", "--development"],
+        vec!["--production", "--production"],
+        vec!["--production", "--port", "18886"],
+        vec!["--production", "--instance", "fixture"],
+        vec!["--production", "--resources"],
+        vec!["--production", "--resources", ""],
+        vec!["--production", "--resources", "--json"],
+        vec!["--production", "--json", "--json"],
+        vec!["--production", "--resources", "one", "--resources", "two"],
+        vec!["--production", "--token", "opaque"],
+        vec!["--production", "--data", "elsewhere"],
+        vec!["--production", "--probe-sink", "elsewhere"],
+    ] {
+        assert!(human_options(&args, false).is_err(), "{args:?}");
+    }
+}
+
+#[test]
+fn process_split_contract_headless_matches_artifact_and_dev_port_policy() {
+    assert!(human_options(&["--production"], true).is_err());
+    assert!(human_options(&["--development", "--port", "18886"], false).is_err());
+    for args in [
+        vec!["--development"],
+        vec!["--development", "--port", "0"],
+        vec!["--development", "--port", "7685"],
+        vec!["--development", "--port", "65536"],
+        vec!["--development", "--port", "invalid"],
+        vec!["--development", "--port", "18886", "--instance", "../other"],
+    ] {
+        assert!(human_options(&args, true).is_err(), "{args:?}");
+    }
+}
+
+#[test]
+fn process_split_contract_headless_output_contains_readiness_without_credentials() {
+    use crate::bootstrap::protocol::{
+        AttachReply, ProcessProvenance, ServerReady, BOOTSTRAP_PROTOCOL,
+    };
+    let reply = AttachReply {
+        challenge: "private-challenge-sentinel".into(),
+        api_token: Some("private-token-sentinel".into()),
+        ready: ServerReady {
+            protocol: BOOTSTRAP_PROTOCOL,
+            api_version: codeterm_types::server_bootstrap::API_VERSION,
+            build: "fixture-build".into(),
+            instance_id: "fixture-instance".into(),
+            identity: ServerIdentity {
+                data: "fixture/data".into(),
+                config: "fixture/config".into(),
+            },
+            epoch: "fixture-epoch".into(),
+            process: ProcessProvenance {
+                pid: 42,
+                created: "fixture-created".into(),
+                executable: "fixture/server".into(),
+            },
+            api_address: "127.0.0.1:18886".parse().unwrap(),
+            socket_address: "fixture/socket".into(),
+            bootstrap_address: "fixture/bootstrap".into(),
+            resources: "fixture/resources".into(),
+        },
+    };
+    for json in [false, true] {
+        let mut output = Vec::new();
+        write_human_ready(&mut output, &reply.ready, json).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(!output.contains(reply.api_token.as_ref().unwrap()));
+        assert!(!output.contains(&reply.challenge));
+        assert!(output.contains(&reply.ready.epoch));
+        assert!(output.contains(&reply.ready.api_address.to_string()));
+        if json {
+            assert_eq!(
+                serde_json::from_str::<ServerReady>(&output).unwrap(),
+                reply.ready
+            );
+        }
+    }
+}
