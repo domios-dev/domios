@@ -8,7 +8,7 @@ export function useAccount() {
   const acting = useRef(false);
   async function request(action: "status" | "login" | "logout", signal?: AbortSignal, hint?: LoginHint): Promise<AccountStatus> {
     const response = await localFetch(action === "login" ? accountLoginPath(hint) : `/api/account/${action}`, { method: action === "status" ? "GET" : "POST", signal });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error("Account request failed");
     return response.json() as Promise<AccountStatus>;
   }
   useEffect(() => {
@@ -36,13 +36,27 @@ export function useAccount() {
     const generation = ++active.current;
     acting.current = true;
     setModel({ kind: "pending" });
+    let changed = false;
     try {
       const status = await request(action, undefined, hint);
       if (generation === active.current) setModel(accountModel(status));
-      window.dispatchEvent(new Event("domios:account-changed"));
+      changed = true;
     } catch (error) {
-      if (generation === active.current) setModel(accountFailure(error));
-    } finally { acting.current = false; }
+      let failure = accountFailure(error);
+      if (action === "login") {
+        try {
+          const status = await request("status");
+          if (status.last_sign_in_failure) {
+            failure = accountModel(status);
+            changed = true;
+          }
+        } catch { failure = accountFailure(error); }
+      }
+      if (generation === active.current) setModel(failure);
+    } finally {
+      acting.current = false;
+      if (changed) window.dispatchEvent(new Event("domios:account-changed"));
+    }
   }
   return { model, signIn: (hint?: LoginHint) => act("login", hint), signOut: () => act("logout") };
 }
