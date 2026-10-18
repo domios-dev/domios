@@ -73,24 +73,26 @@ test("only the observed negative is unselectable", () => {
   assert(isProviderSelectable(FIXTURE[3]), "an absent field is not a veto");
 });
 
-test("General agent eligibility excludes chat backends before rendering or preselection", () => {
-  const chatBackend = {
-    ...mkProvider("lmstudio", null, "available"),
+test("General agent eligibility follows PTY or agent runtime capabilities", () => {
+  const runtime = {
+    ...mkProvider("runtime-agent", "runtime-cli", "available"),
     transport: "chat_backend" as const,
+    agent_runtime: {},
   };
-  const providers = [
-    mkProvider("claude", "claude", "unavailable"),
-    mkProvider("codex", "codex", "available"),
-  ];
-  const eligible = generalAgentProviders([chatBackend, ...providers]);
-  assert(eligible.length === 2, "only PTY providers remain eligible");
+  const missingRuntime = { ...runtime, id: "missing-runtime", availability: "unavailable" as const };
+  const pty = mkProvider("terminal-agent", "terminal-cli", "available");
+  const missingPty = mkProvider("missing-terminal", "terminal-cli", "unavailable");
+  const plainChat = { ...mkProvider("plain-chat", null, "available"), transport: "chat_backend" as const };
+  const eligible = generalAgentProviders([missingPty, runtime, pty, missingRuntime, plainChat]);
   assert(
-    eligible.every((provider) => provider.transport === "pty"),
-    "all eligible providers use PTY",
+    eligible.map((provider) => provider.id).join(",") === "missing-terminal,runtime-agent,terminal-agent,missing-runtime",
+    "PTY and runtime providers remain in order; plain chat cannot host General",
   );
+  assert(!isProviderSelectable(missingPty), "missing PTY remains install-only");
+  assert(!isProviderSelectable(missingRuntime), "missing runtime remains install-only");
   assert(
-    preselectProviderId(eligible) === "codex",
-    "a chat backend cannot be preselected as the General agent",
+    preselectProviderId(eligible) === runtime.id,
+    "an available runtime can be preselected ahead of PTY providers",
   );
 });
 
