@@ -971,13 +971,7 @@ pub fn launch_agent_in_background_with_env(
             provider_readiness,
             provider_readiness.requires_composer(),
         );
-        let user_composer_required = user_input::requires_composer(
-            &svc,
-            &agent_cmd,
-            &tab_id,
-            origin,
-            resume_session_id.as_deref(),
-        );
+        let user_composer_required = user_input::requires_composer(&svc, &agent_cmd, &tab_id);
         let launch_input_readiness = if !structured
             && (fallback_spec.is_some() || session_starts_on_first_turn || user_composer_required)
         {

@@ -12,18 +12,10 @@ fn should_latch_user_input(
     lazy_session && evidence == LaunchInputEvidence::ProviderComposer && current_launch && plain
 }
 
-pub(super) fn requires_composer(
-    svc: &ServiceContext,
-    provider: &str,
-    tab: &str,
-    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
-    resume_session_id: Option<&str>,
-) -> bool {
-    let restored_resume =
-        super::startup_readiness::restored_resume_has_session(origin, resume_session_id);
+pub(super) fn requires_composer(svc: &ServiceContext, provider: &str, tab: &str) -> bool {
     svc.agent_registry
         .with_provider(provider, |provider| {
-            provider.session_starts_on_first_user_turn() && !restored_resume
+            provider.session_starts_on_first_user_turn()
         })
         .unwrap_or(false)
         && lifecycle::delivery_state(tab) == DeliveryState::Plain

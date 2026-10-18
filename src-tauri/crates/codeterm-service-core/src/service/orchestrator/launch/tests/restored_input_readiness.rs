@@ -39,8 +39,6 @@ fn fresh_lazy_session_accepts_input_at_provider_ready() {
         &harness.service,
         "resume-first-turn-fixture",
         &tab_id,
-        crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
-        None,
     ));
     assert!(!launch_waits_for_first_turn_binding(
         &harness.service,
@@ -158,11 +156,9 @@ fn restored_retained_session_does_not_wait_for_a_lazy_first_turn() {
         false,
         crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
     ));
-    assert!(!super::user_input::requires_composer(
+    assert!(super::user_input::requires_composer(
         &harness.service,
         "resume-first-turn-fixture",
         &tab_id,
-        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
-        Some("01a1507e-4cd1-7603-b5ad-2c14efde0072"),
     ));
 }
