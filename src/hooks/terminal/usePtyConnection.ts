@@ -57,6 +57,12 @@ export function usePtyConnection({
   onFrameReady,
   onConnectionStateChange,
 }: UsePtyConnectionOptions): UsePtyConnectionReturn {
+  const currentCallbacks = {
+    onPtySpawned, onShellReady, onOutputChunk,
+    onHistoryReplayStateChange, onFrameReady, onConnectionStateChange,
+  };
+  const callbacks = useRef(currentCallbacks);
+  callbacks.current = currentCallbacks;
   const tabCwd = useMuxSelector(
     (s) => s.tabs[tabId]?.cwd ?? null,
     (a, b) => a === b,
@@ -101,8 +107,8 @@ export function usePtyConnection({
     if (!term || !termReady || !shouldAttachTerminalOutput(ioEnabled, renderEnabled)) return;
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
-    onConnectionStateChange?.(false);
-    onHistoryReplayStateChange?.(false);
+    callbacks.current.onConnectionStateChange?.(false);
+    callbacks.current.onHistoryReplayStateChange?.(false);
 
     const connect = async () => {
       let id = ptyId;
@@ -113,34 +119,34 @@ export function usePtyConnection({
           predictedId: uid(), cwd, tabId,
         });
         if (disposed) return;
-        onPtySpawned?.(tabId, id);
-        onShellReady();
+        callbacks.current.onPtySpawned?.(tabId, id);
+        callbacks.current.onShellReady();
       }
       if (disposed) return;
       connectedPtyRef.current = id;
       const sink: TabOutputSink = {
-        onReady() { if (!disposed) onConnectionStateChange?.(true); },
+        onReady() { if (!disposed) callbacks.current.onConnectionStateChange?.(true); },
         onReplayComplete() {
           if (disposed) return;
-          onConnectionStateChange?.(true);
+          callbacks.current.onConnectionStateChange?.(true);
           return writeTerminalOutputAndWait(term, "", () => {
-            if (termRef.current === term) onFrameReady?.(id);
+            if (termRef.current === term) callbacks.current.onFrameReady?.(id);
           });
         },
         onOutput: (text) => {
           if (disposed) return;
           const written = writeTerminalOutputAndWait(term, text, () => {
-            if (termRef.current === term) onFrameReady?.(id);
+            if (termRef.current === term) callbacks.current.onFrameReady?.(id);
           });
-          onOutputChunk(text);
+          callbacks.current.onOutputChunk(text);
           return written;
         },
         onBytes: (bytes) => {
           if (disposed) return;
           const written = writeTerminalOutputAndWait(term, bytes, () => {
-            if (termRef.current === term) onFrameReady?.(id);
+            if (termRef.current === term) callbacks.current.onFrameReady?.(id);
           });
-          onOutputChunk(new TextDecoder().decode(bytes.slice(-200)));
+          callbacks.current.onOutputChunk(new TextDecoder().decode(bytes.slice(-200)));
           return written;
         },
         onTruncated: (from) => {
@@ -149,10 +155,10 @@ export function usePtyConnection({
         onEnded: () => {
           if (disposed) return;
           connectedPtyRef.current = null;
-          onConnectionStateChange?.(false);
+          callbacks.current.onConnectionStateChange?.(false);
         },
         onStreamError: () => {
-          if (!disposed) onConnectionStateChange?.(false);
+          if (!disposed) callbacks.current.onConnectionStateChange?.(false);
         },
       };
       unsubscribe = subscribeTabOutput(tabId, sink, term, id);
@@ -160,15 +166,15 @@ export function usePtyConnection({
     void connect().catch((error: unknown) => {
       if (disposed) return;
       console.warn("Failed to setup PTY:", error);
-      onConnectionStateChange?.(false);
+      callbacks.current.onConnectionStateChange?.(false);
     });
     return () => {
       disposed = true;
       unsubscribe?.();
       connectedPtyRef.current = null;
-      onConnectionStateChange?.(false);
+      callbacks.current.onConnectionStateChange?.(false);
     };
-  }, [ptyId, tabId, termReady, ioEnabled, renderEnabled, onPtySpawned, onConnectionStateChange, onHistoryReplayStateChange, onFrameReady, onShellReady, onOutputChunk, connectedPtyRef, termRef]);
+  }, [ptyId, tabId, termReady, ioEnabled, renderEnabled, connectedPtyRef, termRef]);
 
   return { writePty };
 }
