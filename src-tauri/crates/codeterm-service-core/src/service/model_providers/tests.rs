@@ -207,7 +207,8 @@ fn definition() -> ModelProviderDefinition {
 fn launch_credentials_ignore_unrelated_missing_endpoint_and_name_relevant_lookup() {
     let dir = tempfile::tempdir().unwrap();
     let adapter = adapter(dir.path().join("opencode.json"));
-    let provider = definition();
+    let mut provider = definition();
+    provider.key_env = Some("DOMIOS_PROVIDER_DEMO_KEY".into());
     let store = store();
 
     let default_model_env = launch_env(
@@ -228,12 +229,14 @@ fn launch_credentials_ignore_unrelated_missing_endpoint_and_name_relevant_lookup
         Some("demo/model-a"),
     )
     .unwrap_err();
-    assert!(matches!(&error, ModelProviderError::LaunchSetup(_)));
-    let message = error.to_string();
-    assert!(message.contains("launch secret lookup"));
-    assert!(message.contains("demo/model-a"));
-    assert!(message.contains("demo"));
-    assert!(message.contains("slot"));
+    assert!(matches!(
+        &error,
+        ModelProviderError::LaunchSecretNotFound {
+            model,
+            endpoint_id,
+            secret_name,
+        } if model == "demo/model-a" && endpoint_id == "demo" && secret_name == "slot"
+    ));
 }
 
 #[test]
