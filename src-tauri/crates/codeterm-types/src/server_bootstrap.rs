@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, path::PathBuf};
 
-pub const BOOTSTRAP_PROTOCOL: u32 = 1;
+/// Protocol 2 Shutdown replies attest successful required cleanup before process exit.
+pub const BOOTSTRAP_PROTOCOL: u32 = 2;
 pub const API_VERSION: u32 = 3;
 pub const SERVER_COMPONENT_SCHEMA: u32 = 1;
 pub const BOOTSTRAP_ATTACH_UNAVAILABLE_EXIT_CODE: i32 = 4;
