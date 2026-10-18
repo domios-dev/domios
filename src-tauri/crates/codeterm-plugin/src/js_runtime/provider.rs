@@ -12,6 +12,7 @@ mod manifest_sessions;
 mod prompt_parse;
 mod reply_relay;
 mod runtime_hooks;
+mod self_update;
 mod session_content;
 mod session_delta;
 mod session_records;

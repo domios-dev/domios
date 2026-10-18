@@ -371,7 +371,7 @@ export function projectTranscript(
   sends: readonly ChatSend[] = [],
 ): TranscriptProjection {
   const committedRows = transcriptRows(state);
-  const { echoes, pending } = reconcileSends(sends, committedRows);
+  const { echoes, pending } = reconcileSends(sends, committedRows, state.authority);
   const projectedCommittedRows = projectTranscriptParts(committedRows, sends);
   return { rows: placePendingSends(projectedCommittedRows, pending), pending, echoes };
 }

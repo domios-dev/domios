@@ -20,6 +20,7 @@ import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { reconnectTabSession, restartTabSession, tabSessionActionView } from "./tabSessionActions";
 import { buildTabMenu, type TabMenuAction, type TabMenuContext } from "./tabMenuModel";
 import { performTabMenuAction } from "./tabMenuActions";
+import { useProviderSwitchDialog } from "../Sidebar/ProviderSwitchDialog";
 import { useTelegramThreadMenu } from "./useTelegramThreadMenu";
 import { ReceiverTargetMarks } from "./ReceiverTargetMark";
 import { BlueprintOwnerCloseDialog } from "../Sidebar/BlueprintOwnerCloseDialog";
@@ -111,6 +112,7 @@ export function TabTopBar({
   const [reconnectError, setReconnectError] = useState<string | null>(null);
   const [closeBlueprints, setCloseBlueprints] = useState<string[] | null>(null);
   const menuTab = tabMenu?.tab ?? null;
+  const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(menuTab);
   const onRename = tabMenu?.onRename;
   const canReconnect = menuTab ? tabSessionActionView(menuTab).canReconnect : false;
   const pluginTabMenu = usePluginTabMenu();
@@ -195,7 +197,7 @@ export function TabTopBar({
       return;
     }
     setReconnectError(null);
-    performTabMenuAction(tabId, action, { sessionBindingNonce: menuTab?.session_binding_nonce, rename: () => setRenaming(true), close: tabMenu?.onClose })
+    performTabMenuAction(tabId, action, { sessionBindingNonce: menuTab?.session_binding_nonce, switchProvider: openProviderSwitch, rename: () => setRenaming(true), close: tabMenu?.onClose })
       .catch((error) => setReconnectError(errorMessage(error)));
   };
 
@@ -263,6 +265,7 @@ export function TabTopBar({
           />
         )}
       </div>
+      {providerSwitchDialog}
       {closeBlueprints && tabMenu && <BlueprintOwnerCloseDialog
         owner={`Tab ${menuTab?.title ?? "Tab"}`}
         blueprints={closeBlueprints}

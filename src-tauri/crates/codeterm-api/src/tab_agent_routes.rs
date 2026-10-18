@@ -43,6 +43,18 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             "/api/tabs/{id}/agent/fork",
             post(super::agent_fork_routes::fork),
         )
+        .route(
+            "/api/tabs/{id}/agent/switch-provider",
+            post(super::agent_provider_switch_routes::switch_provider),
+        )
+        .route(
+            "/api/tabs/{id}/agent/switch-provider/{operation}",
+            get(super::agent_provider_switch_routes::switch_status),
+        )
+        .route(
+            "/api/tabs/{id}/agent/provider-history",
+            get(super::agent_provider_switch_routes::provider_history),
+        )
         .route("/api/tabs/{id}/timeout", post(tab_routes::set_timeout))
         .route("/api/tabs/{id}/focus", post(tab_routes::focus_tab))
         .route("/api/tabs/{id}/close", post(tab_routes::close_tab))

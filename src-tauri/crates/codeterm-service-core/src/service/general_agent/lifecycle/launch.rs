@@ -31,7 +31,7 @@ pub(super) fn start(
             Some(&svc.mem),
         )
     });
-    let model_resolution = (ownership == LaunchOwnership::FreshSession).then(|| {
+    let model_resolution = session_id.is_none().then(|| {
         crate::service::spawn::resolve_fresh_agent_model_with_notice(
             &svc.configuration(),
             &svc.agent_registry,

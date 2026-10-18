@@ -5,7 +5,7 @@ import { ChildTranscriptScope } from "./ChildTranscriptScope";
 import { chatLayoutTokens } from "./chatLayoutTokens";
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
 import { heldMessagesForLaunch } from "./chatSetupModel";
-import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
+import { useComposerPresentation } from "./useComposerPresentation";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeResponseDeadlinePending, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
@@ -31,7 +31,6 @@ import {
   MessageBubble,
   MessageTimeFrame,
   OutboundReportCard,
-  sessionIntentFromMessages,
 } from "@codeterm/chat-ui";
 import { ChatBlockHostProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
@@ -349,7 +348,9 @@ function TabSessionChatBody({
   // reachability); remote PTY/output channel state never gates it.
   const runtimeDeadlinePending = runtimeResponseDeadlinePending(runtime.state);
   const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null && !runtimeDeadlinePending;
-  const runtimeBadge = <AgentRuntimeBanner tabId={tabId} state={runtime.state} startupOwned={!snapshotReady || bootSetupView.kind === "starting"} iconSvg={provider?.iconSvg} onRetry={() => { void runtime.retry(); }} />;
+  const { runtimeBadge, sessionIntent } = useComposerPresentation({ tabId, nonce: tab?.session_binding_nonce ?? null,
+    state: runtime.state, retry: runtime.retry, startupOwned: !snapshotReady || bootSetupView.kind === "starting",
+    iconSvg: provider?.iconSvg, messages: allMessages });
   const runtimeReplacement = runtimeUnavailable ? runtimeBadge : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
@@ -421,6 +422,7 @@ function TabSessionChatBody({
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
   const [pendingThreadRevertTurn, setPendingThreadRevertTurn] = useState<string | null>(null);
+  const [attachSlot, setAttachSlot] = useState<HTMLDivElement | null>(null);
   const [contextSlot, setContextSlot] = useState<HTMLDivElement | null>(null);
   const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
   const runThreadHistory = useLatestCallback(async (action: "fork" | "revert", turnId: string, confirmed = false) => {
@@ -558,6 +560,7 @@ function TabSessionChatBody({
     enabled: !loading && !error,
     onError: showComposerError,
   });
+  const pasteIntoComposer = useLatestCallback(handlePasteEvent, [tabId]);
 
   // Names change far more rarely than the transcript that carries them; keep the
   // map (and resolveTabName below) stable while streaming only appends content.
@@ -658,7 +661,6 @@ function TabSessionChatBody({
   const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId, prepareMessage: mountedWindow.prepareMessage, contentVersion: mountedContentVersion });
   const jumpToQuoted = useLatestCallback((messageId: string) => { requestChatMessageReveal(tabId, messageId); }, [tabId]);
 
-  const sessionIntent = useMemo(() => sessionIntentFromMessages(allMessages), [allMessages]);
   // The rails are content, so they answer to the same authority the setup view
   // does: a body that still owns a loading or failed state emits no rail rows.
   const railsVisible = chatRailsVisible(setupView);
@@ -1048,7 +1050,8 @@ function TabSessionChatBody({
         </div>
       )}
       </div>
-      <ChatComposerSurface view={setupView}>
+      <ComposerBackgroundWorkProvider tabId={tabId} messages={allMessages}>
+      <ChatComposerSurface view={setupView} providerId={tabProvider ?? undefined} tabId={tabId}>
       {isWatcherTab && watcherSpec ? (
         runtimeReplacement ?? <WatcherReadOnlyBar
           watcher={watcherSpec}
@@ -1058,6 +1061,7 @@ function TabSessionChatBody({
       <>
       <div ref={setContextSlot} className="ct-ctx-slot" />
       <div className="ct-composer-status w-full">
+        <div ref={setAttachSlot} className="ct-composer-mobile-attach" />
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}
@@ -1097,7 +1101,6 @@ function TabSessionChatBody({
           void runThreadHistory("revert", turnId, true);
         }}
       />}
-      <ComposerBackgroundWorkProvider messages={allMessages}>
         {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
           tabId={tabId}
           tabProvider={tabProvider}
@@ -1110,11 +1113,12 @@ function TabSessionChatBody({
           addAttachments={addAttachments}
           removeAttachment={removeAttachment}
           clearAttachments={clearAttachments}
-          handlePasteEvent={handlePasteEvent}
+          handlePasteEvent={pasteIntoComposer}
           inlineAttachmentSink={inlineSinkRef}
           pluginError={!runtimeUnavailable && effectiveChatBackend ? error : null}
           sessionIntent={sessionIntent}
           contextSlot={contextSlot}
+          attachSlot={attachSlot}
           onWillSendMessage={willSendMessage}
           addOptimistic={addOptimistic}
           updateOptimistic={updateOptimistic}
@@ -1122,10 +1126,10 @@ function TabSessionChatBody({
           showComposerError={showComposerError}
           onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
         />}
-      </ComposerBackgroundWorkProvider>
       </>
       )}
       </ChatComposerSurface>
+      </ComposerBackgroundWorkProvider>
     </div>
     </PluginNameProvider>
     </ChatBlockHostProvider>

@@ -53,6 +53,7 @@ codeterm-events = { path = "crates/codeterm-events" }
 codeterm-frontend-bundle = { path = "crates/codeterm-frontend-bundle" }
 log = { version = "0.4", features = ["release_max_level_info"] }
 fern = "0.7"
+shell-words = "1"
 parking_lot = "0.12"
 png = "0.17"
 dirs = "6"
@@ -61,6 +62,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
 

@@ -1077,6 +1077,12 @@ impl AgentProvider for JsProvider {
         self.manifest.updater.get(platform).cloned()
     }
 
+    fn provider_self_update_capability(
+        &self,
+    ) -> Option<crate::provider_self_update::ProviderSelfUpdateCapability> {
+        self.js_self_update_capability()
+    }
+
     fn update_prompt_availability(&self, screen: &str) -> Option<ProviderUpdateAvailability> {
         self.update_prompt_availability_from_js(screen)
     }
@@ -1133,18 +1139,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {
-        if !self.has_custom_settings_schema {
-            let mut fields = manifest_settings_sections(&self.manifest);
-            if self.auth_status_probe().is_some() {
-                fields.push(provider::structured_signals_section());
-            }
-            return fields;
-        }
-        // Cached: describe() polls hit this; the plugin schema is a pure constant.
-        self.schema_cache
-            .get_or_init(|| self.compute_schemas())
-            .0
-            .clone()
+        capabilities::settings_schema(self)
     }
 
     fn notifications_schema(&self) -> Vec<SettingField> {

@@ -136,17 +136,53 @@ fn build_config_availability_and_overrides() {
         project_id: Some("test-project"),
         app_id: Some("test-app"),
         redeem_url: Some("https://example.test/redeem"),
+        ..Vendor::default()
     });
     assert!(available(&configured));
     assert_eq!(configured.provider, "firebase");
     assert_eq!(configured.api_key, "test-key");
-    assert_eq!(
-        configured.signin_url,
-        "https://test-project.web.app/signin/"
-    );
+    assert_eq!(configured.signin_url, "https://auth.domios.dev/signin/");
     assert_eq!(configured.redeem_url, "https://example.test/redeem");
     assert_eq!(
         crate::adapters::configured(&fixture_config()).unwrap().id(),
         "firebase"
     );
+}
+
+#[test]
+fn hosted_signin_url_preserves_protocol_with_default_and_override() {
+    for (signin_url, host) in [
+        (None, "auth.domios.dev"),
+        (Some("  "), "auth.domios.dev"),
+        (Some("https://qa.example.test/signin/"), "qa.example.test"),
+    ] {
+        let config = config_from_build(crate::build_config::Vendor {
+            signin_url,
+            ..crate::build_config::Vendor::default()
+        });
+        for (mode, expected_mode) in [(LoginMode::Signin, "signin"), (LoginMode::Signup, "signup")]
+        {
+            let flow = flow().with_hint(LoginHint {
+                provider: Some(LoginProvider::Email),
+                mode: Some(mode),
+            });
+            let url = flow.signin_url(&config.signin_url).unwrap();
+            assert_eq!(url.scheme(), "https");
+            assert_eq!(url.host_str(), Some(host));
+            assert_eq!(url.path(), "/signin/");
+            assert_eq!(
+                url.query_pairs().into_owned().collect::<Vec<_>>(),
+                vec![
+                    ("state".into(), "fixture-state-matching".into()),
+                    (
+                        "code_challenge".into(),
+                        LoginFlow::challenge("fixture-verifier"),
+                    ),
+                    ("redirect_uri".into(), "domios://auth/callback".into()),
+                    ("provider".into(), "email".into()),
+                    ("mode".into(), expected_mode.into()),
+                ]
+            );
+        }
+    }
 }

@@ -1,7 +1,7 @@
 import { readUpdateIntent, UPDATE_INTENT_KEY } from "../updatePanelModel";
 import type { TransportClient } from "../transportClient";
 import { restoreComposerDrafts } from "./drafts";
-import { setPersistedChatScrollState, type ChatScrollState } from "../../components/Terminal/chatViewport";
+import { getPersistedChatScrollState, setPersistedChatScrollState, type ChatScrollState } from "../../components/Terminal/chatViewport";
 import { frontendSignals, setCheckpointRestorer } from "./appState";
 import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT, type FrontendRuntimeOptions, type FrontendUpdateOffer } from "./runtime";
 
@@ -29,7 +29,9 @@ export async function initializeBrowserFrontendUpdates(client: TransportClient, 
   setCheckpointRestorer(value => {
     const restored = restoreComposerDrafts(value, localStorage);
     for (const [key, scroll] of Object.entries(restored.scroll)) {
-      if (scroll.chat) setPersistedChatScrollState(key, JSON.parse(scroll.chat) as ChatScrollState);
+      const local = getPersistedChatScrollState(key);
+      if (local) scroll.chat = JSON.stringify(local);
+      else if (scroll.chat) setPersistedChatScrollState(key, JSON.parse(scroll.chat) as ChatScrollState);
     }
     return restored;
   });

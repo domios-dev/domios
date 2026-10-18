@@ -1,4 +1,8 @@
 export interface ProviderCliStatus {
+  display_name?: string | null;
+  latest_version?: string | null;
+  update_refusal?: string | null;
+  update_job?: { tab_id: string; state: "running" | "succeeded" | "failed"; summary: string } | null;
   update_summary?: string | null;
   detected_version?: string | null;
   version_probe?: "pending" | "detected" | "missing" | "unreadable" | "failed" | "timeout" | "invalid" | "saturated";

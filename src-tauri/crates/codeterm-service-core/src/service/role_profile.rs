@@ -247,7 +247,7 @@ fn json_string_list(params: &serde_json::Value, key: &str) -> Vec<String> {
 #[cfg(test)]
 mod normalization_tests {
     use codeterm_types::agent::role_kind::builtins::{
-        CARTOGRAPHER, GENERAL_AGENT, RELEASE_MANAGER, TESTER,
+        CARTOGRAPHER, GENERAL_AGENT, QA, RELEASE_MANAGER,
     };
 
     use super::*;
@@ -362,7 +362,7 @@ mod normalization_tests {
 
     #[test]
     fn worker_kinds_normalize_and_promote_from_task_executor_roles() {
-        for kind in [TESTER, RELEASE_MANAGER] {
+        for kind in [QA, RELEASE_MANAGER] {
             assert_eq!(
                 normalized("Worker", Some(kind)),
                 (Some("Worker".into()), Some(kind.into()))

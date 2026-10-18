@@ -59,16 +59,7 @@ fn parse_relay_response(response: serde_json::Value) -> Result<serde_json::Value
         .get("data")
         .cloned()
         .unwrap_or(serde_json::Value::Null);
-    if let Some(error) = data.get("error") {
-        let error = serde_json::from_value(error.clone()).map_err(|e| {
-            SocketCallError::Transport(format!("invalid mesh RPC error response: {e}"))
-        })?;
-        return Err(SocketCallError::Rpc(error));
-    }
-    Ok(data
-        .get("result")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null))
+    parse_rpc_data(data)
 }
 
 fn parse_rpc_data(data: serde_json::Value) -> Result<serde_json::Value, SocketCallError> {
@@ -78,16 +69,37 @@ fn parse_rpc_data(data: serde_json::Value) -> Result<serde_json::Value, SocketCa
         })?;
         return Err(SocketCallError::Rpc(error));
     }
-    Ok(data
+    let result = data
         .get("result")
         .cloned()
-        .unwrap_or(serde_json::Value::Null))
+        .unwrap_or(serde_json::Value::Null);
+    if result.get("ok").and_then(serde_json::Value::as_bool) == Some(false) {
+        let reason = result
+            .get("error")
+            .and_then(|error| error.as_str().or_else(|| error.get("message")?.as_str()))
+            .unwrap_or("remote RPC result refused the request");
+        return Err(SocketCallError::Transport(reason.to_string()));
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{parse_relay_response, parse_rpc_data, rpc_request_body};
     use crate::client::SocketCallError;
+
+    #[test]
+    fn refused_remote_rpc_result_is_an_error() {
+        let reason = "rpc-result-refusal-token";
+        let error = parse_rpc_data(serde_json::json!({
+            "result": {"ok": false, "error": {"message": reason}}
+        }))
+        .unwrap_err();
+        let SocketCallError::Transport(message) = error else {
+            panic!("expected refused result");
+        };
+        assert_eq!(message, reason);
+    }
 
     #[test]
     fn version_skew_mesh_request_presents_the_protocol_integer() {

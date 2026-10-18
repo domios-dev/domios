@@ -6,6 +6,7 @@ pub enum RuntimeRestartMode {
     Resume,
     ModelSwitch,
     AuthorizedFresh,
+    ProviderSwitch,
 }
 
 #[derive(Debug, Clone)]
@@ -15,6 +16,7 @@ pub struct RuntimeRestartBinding {
     pub attempt_id: String,
     pub executor_tab_id: String,
     pub provider: String,
+    pub target_provider: Option<String>,
     pub old_thread: String,
     pub old_nonce: String,
     pub new_thread: String,
@@ -42,8 +44,19 @@ fn permits_rebind(request: &RuntimeRestartBinding, attempt: &TaskExecutionAttemp
         && attempt.session_id.as_deref() == Some(request.old_thread.as_str())
         && attempt.session_binding_nonce.as_deref() == Some(request.old_nonce.as_str())
         && attempt.retired_at.is_none()
+        && (request.target_provider.is_none()
+            || (request.mode == RuntimeRestartMode::ProviderSwitch
+                && request
+                    .target_provider
+                    .as_deref()
+                    .is_some_and(|target| !target.is_empty() && target != request.provider)))
+        && (request.mode != RuntimeRestartMode::ProviderSwitch || request.target_provider.is_some())
+        && (request.mode != RuntimeRestartMode::ProviderSwitch || attempt.closed_at.is_none())
         && (request.old_thread == request.new_thread
-            || (request.mode == RuntimeRestartMode::AuthorizedFresh && attempt.closed_at.is_none()))
+            || (matches!(
+                request.mode,
+                RuntimeRestartMode::AuthorizedFresh | RuntimeRestartMode::ProviderSwitch
+            ) && attempt.closed_at.is_none()))
         && (request.mode != RuntimeRestartMode::AuthorizedFresh
             || request.old_thread != request.new_thread)
 }
@@ -61,6 +74,17 @@ fn resolve_runtime_restart_attempt(
         return None;
     }
     let mut rebound = attempt.clone();
+    if let Some(target) = &request.target_provider {
+        rebound.provider = Some(target.clone());
+        rebound.agent_type = Some(target.clone());
+        rebound.model = None;
+        rebound.requested_model = None;
+        rebound.provider_resolved_model = None;
+        rebound.session_model = None;
+        rebound.reasoning_effort = None;
+        rebound.actual_reasoning_effort = None;
+        rebound.model_identity_mismatch = None;
+    }
     rebound.session_id = Some(request.new_thread.clone());
     rebound.session_binding_nonce = Some(request.new_nonce.clone());
     Some(rebound)
@@ -143,6 +167,7 @@ mod tests {
             attempt_id: "attempt".into(),
             executor_tab_id: "tab".into(),
             provider: "opaque-provider".into(),
+            target_provider: None,
             old_thread: "thread".into(),
             old_nonce: "old".into(),
             new_thread: "thread".into(),
@@ -187,6 +212,31 @@ mod tests {
         assert!(
             resolve_runtime_restart_attempt(&request(), &attempt(), "foreign-tab", "new").is_none()
         );
+    }
+
+    #[test]
+    fn provider_switch_carries_exact_attempt_and_refuses_stale_authority() {
+        let mut request = RuntimeRestartBinding {
+            mode: RuntimeRestartMode::ProviderSwitch,
+            target_provider: Some("target-provider".into()),
+            new_thread: "target-thread".into(),
+            ..request()
+        };
+        let before = attempt();
+        let after = resolve_runtime_restart_attempt(&request, &before, "tab", "new").unwrap();
+        assert_eq!(after.id, before.id);
+        assert_eq!(after.executor_tab_id, before.executor_tab_id);
+        assert_eq!(after.provider.as_deref(), Some("target-provider"));
+        assert_eq!(after.session_id.as_deref(), Some("target-thread"));
+        assert!(resolve_runtime_restart_attempt(&request, &after, "tab", "new").is_none());
+        request.mode = RuntimeRestartMode::Resume;
+        assert!(!permits_rebind(&request, &before));
+        request.mode = RuntimeRestartMode::ProviderSwitch;
+        let mut closed = before;
+        closed.closed_at = Some(1);
+        assert!(!permits_rebind(&request, &closed));
+        request.new_thread = request.old_thread.clone();
+        assert!(!permits_rebind(&request, &closed));
     }
 
     #[test]

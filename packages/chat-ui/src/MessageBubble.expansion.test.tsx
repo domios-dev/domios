@@ -53,6 +53,9 @@ async function run() {
   assert(reportPrefix?.origin.kind === "tab" && reportPrefix.origin.report, "parser supplies the report origin used by the DOM fixture");
   const systemPrefix = framePrefix({ from: "system", context: "sYsTeM" }, "/agent-pad/pointer/opaque-dom-system-14.md");
   assert(systemPrefix?.origin.kind === "system", "parser supplies the System origin used by the DOM fixture");
+  const handoffFragments = ["opaque-instruction-71", "opaque-context-72", "opaque-history-73"];
+  const handoff = framePrefix({ from: "system", context: "provider-handoff" }, handoffFragments.join("\n\n"));
+  assert(handoff?.origin.kind === "system", "the complete handoff has a system origin");
   const tabPointerMessage: NormalizedChatMessage = {
     id: "parsed-tab-pointer-message",
     type: "user",
@@ -117,11 +120,23 @@ async function run() {
         <MessageBubble message={systemPointerMessage} origin={systemPrefix.origin} />
         <MessageBubble message={unmarkedPointerMessage} />
         <MessageBubble message={systemEvent} origin={{ kind: "system", context: "lifecycle" }} />
+        <section aria-label="handoff fixture"><MessageBubble
+          message={{ id: "handoff-71", type: "user", content: handoff.body, inboundKind: "system" }}
+          origin={handoff.origin}
+        /></section>
         <MessageBubble message={ordinaryUser} />
         <MessageBubble message={ordinaryAssistant} />
       </div>,
     );
   });
+
+  const handoffRegion = host.querySelector('[aria-label="handoff fixture"]');
+  const handoffToggle = handoffRegion?.querySelector<HTMLButtonElement>('button[aria-expanded]');
+  assert(handoffToggle?.getAttribute("aria-expanded") === "false", "handoff uses the collapsed system disclosure");
+  for (const fragment of handoffFragments) assert(!handoffRegion?.textContent?.includes(fragment), "handoff body stays behind disclosure");
+  await act(async () => handoffToggle.click());
+  assert(handoffToggle.getAttribute("aria-expanded") === "true", "handoff disclosure opens");
+  for (const fragment of handoffFragments) assert(handoffRegion?.textContent?.includes(fragment), "all original fragments are readable in the system message");
 
   const cards = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-tool-call"], [data-testid="chat-sent-to-card"]'));
   const send = cards.find((card) => card.textContent?.includes("Sent to"));

@@ -7,7 +7,7 @@ const listeners = vi.hoisted(() => ({ onMouseDown: vi.fn(), onTouchStart: vi.fn(
 
 vi.mock("@dnd-kit/sortable", async (original) => ({
   ...await original<typeof import("@dnd-kit/sortable")>(),
-  useSortable: () => ({ setNodeRef: vi.fn(), attributes: {}, listeners, transform: null, isDragging: false }),
+  useSortable: ({ disabled }: { disabled?: boolean }) => ({ setNodeRef: vi.fn(), attributes: { "aria-disabled": disabled }, listeners, transform: null, isDragging: false }),
 }));
 vi.mock("@dnd-kit/core", async (original) => ({
   ...await original<typeof import("@dnd-kit/core")>(),
@@ -49,4 +49,17 @@ it("keeps mouse, touch and keyboard activation out of editors while ordinary row
     await act(async () => root.unmount());
     host.remove();
   }
+});
+
+it("disabling protected-tab drag keeps nested tab actions enabled", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const clicked = vi.fn();
+  try {
+    await act(async () => root.render(<SortableRow id="main" disabled data={{ group: "tab", groupKey: "general" }}><button onClick={clicked}>Tab actions</button></SortableRow>));
+    const action = host.querySelector("button")!;
+    expect(action.closest('[aria-disabled="true"]')).toBeNull();
+    await act(async () => action.click());
+    expect(clicked).toHaveBeenCalledTimes(1);
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });

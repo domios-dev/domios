@@ -82,6 +82,12 @@ macro_rules! agent_provider_catalogue_tail {
             None
         }
 
+        fn provider_self_update_capability(
+            &self,
+        ) -> Option<crate::provider_self_update::ProviderSelfUpdateCapability> {
+            None
+        }
+
         fn supports_update_check(&self) -> bool {
             false
         }

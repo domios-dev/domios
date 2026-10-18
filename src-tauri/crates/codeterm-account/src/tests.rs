@@ -115,7 +115,12 @@ async fn login_failure_deadline_returns_timeout() {
         Status {
             provider: "fake".into(),
             identity: None,
-            pending: false
+            pending: false,
+            session_only: false,
+            last_sign_in_failure: Some(SignInFailure {
+                stage: SignInStage::Callback,
+                error: Error::Timeout
+            }),
         }
     );
     assert!(store.0.lock().await.is_none());

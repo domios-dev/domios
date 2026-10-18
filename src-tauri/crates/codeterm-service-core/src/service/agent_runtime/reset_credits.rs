@@ -12,6 +12,8 @@ pub enum ResetCreditsRequest {
         #[serde(rename = "idempotencyKey")]
         idempotency_key: uuid::Uuid,
         confirmed: bool,
+        #[serde(rename = "creditId")]
+        credit_id: Option<String>,
     },
 }
 
@@ -49,6 +51,9 @@ pub async fn operate(
             _ => Err("Reset credits are unsupported by the installed provider".into()),
         };
     }
+    let before_count = super::projections::for_tab(svc, tab)
+        .ok()
+        .and_then(|usage| usage["runtime_usage"][0]["resets"]["availableCount"].as_u64());
     let (action, value) = operation(request)?;
     let _permit = session
         .gate
@@ -75,7 +80,14 @@ pub async fn operate(
     .map_err(|error| error.to_string())?;
     engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
     match result {
-        RuntimeResult::ResetCreditConsumed { outcome } => Ok(json!({"outcome":outcome})),
+        RuntimeResult::ResetCreditConsumed { outcome } => {
+            let remaining_count = super::projections::for_tab(svc, tab)
+                .ok()
+                .and_then(|usage| usage["runtime_usage"][0]["resets"]["availableCount"].as_u64());
+            Ok(
+                json!({"outcome":outcome,"beforeCount":before_count,"remainingCount":remaining_count}),
+            )
+        }
         RuntimeResult::Done if action == "readResetCredits" => Ok(json!({"supported":true})),
         _ => Err("Unexpected reset credit response".into()),
     }
@@ -93,10 +105,17 @@ fn operation(request: ResetCreditsRequest) -> Result<(&'static str, Value), Stri
         ResetCreditsRequest::Redeem {
             idempotency_key,
             confirmed: true,
-        } if idempotency_key.get_version_num() == 4 => (
-            "redeemResetCredit",
-            json!({"idempotencyKey":idempotency_key}),
-        ),
+            credit_id,
+        } if idempotency_key.get_version_num() == 4 => {
+            let mut value = json!({"idempotencyKey":idempotency_key});
+            if let Some(id) = credit_id {
+                if id.trim().is_empty() {
+                    return Err("Reset credit identifier is empty".into());
+                }
+                value["creditId"] = json!(id);
+            }
+            ("redeemResetCredit", value)
+        }
         _ => return Err("Reset requires explicit confirmation and a confirmation UUID".into()),
     };
     Ok(selected)
@@ -118,22 +137,26 @@ mod tests {
         let key = uuid::Uuid::parse_str("12345678-1234-4123-8123-123456789abc").unwrap();
         assert!(operation(ResetCreditsRequest::Redeem {
             idempotency_key: key,
-            confirmed: false
+            confirmed: false,
+            credit_id: None,
         })
         .is_err());
         assert!(operation(ResetCreditsRequest::Redeem {
             idempotency_key: uuid::Uuid::nil(),
-            confirmed: true
+            confirmed: true,
+            credit_id: None,
         })
         .is_err());
         let a = operation(ResetCreditsRequest::Redeem {
             idempotency_key: key,
             confirmed: true,
+            credit_id: None,
         })
         .unwrap();
         let b = operation(ResetCreditsRequest::Redeem {
             idempotency_key: key,
             confirmed: true,
+            credit_id: None,
         })
         .unwrap();
         assert_eq!(a, b);
@@ -142,5 +165,16 @@ mod tests {
             operation(ResetCreditsRequest::Read).unwrap().1,
             json!({"details":true})
         );
+    }
+    #[test]
+    fn selected_reset_credit_round_trips_and_empty_selection_is_refused() {
+        let request = json!({"action":"redeem","idempotencyKey":"12345678-1234-4123-8123-123456789abc","confirmed":true,"creditId":"opaque-credit"});
+        let selected: ResetCreditsRequest = serde_json::from_value(request.clone()).unwrap();
+        let (_, value) = operation(selected).unwrap();
+        assert_eq!(value["creditId"], "opaque-credit");
+        assert_eq!(value["idempotencyKey"], request["idempotencyKey"]);
+        let mut empty = request;
+        empty["creditId"] = json!("");
+        assert!(operation(serde_json::from_value(empty).unwrap()).is_err());
     }
 }

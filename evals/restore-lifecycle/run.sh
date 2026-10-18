@@ -160,8 +160,8 @@ restart_dev() {
   echo "== [$label] full dev stop (reboot analogue) and start"
   (
     cd "$REPO_ROOT" || exit 1
-    CODETERM_INSTANCE="$EVAL_LIB_RESOLVED_INSTANCE" CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" bash build.sh kill
-    CODETERM_INSTANCE="$EVAL_LIB_RESOLVED_INSTANCE" CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" bash build.sh dev-prebuilt --wait
+    CODETERM_DEV_INSTANCE="$EVAL_LIB_RESOLVED_INSTANCE" CODETERM_DEV_API_PORT="$EVAL_LIB_DEV_API_PORT" bash build.sh kill
+    CODETERM_DEV_INSTANCE="$EVAL_LIB_RESOLVED_INSTANCE" CODETERM_DEV_API_PORT="$EVAL_LIB_DEV_API_PORT" bash build.sh dev-prebuilt --wait
   ) || fail "[$label] dev restart"
 }
 

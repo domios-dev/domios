@@ -677,14 +677,14 @@ mod tests {
     #[test]
     fn worker_kinds_default_to_mutating_and_support_task_bindings() {
         assert_eq!(
-            resolved_execution_intent(Some("tester"), None).as_deref(),
+            resolved_execution_intent(Some("qa"), None).as_deref(),
             Some(MUTATING)
         );
         assert_eq!(
             resolved_execution_intent(Some("release_manager"), None).as_deref(),
             Some(MUTATING)
         );
-        for kind in ["tester", "release_manager"] {
+        for kind in ["qa", "release_manager"] {
             for has_plan_task in [false, true] {
                 assert!(
                     validate_spawn_context(&SpawnContext {

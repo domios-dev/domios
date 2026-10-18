@@ -6,7 +6,22 @@ mod prerequisites;
 pub use prerequisites::{missing_prerequisite_hint, CommandPrerequisite};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct ProviderCliUpdateJob {
+    pub tab_id: String,
+    pub state: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct ProviderCliStatus {
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub update_job: Option<ProviderCliUpdateJob>,
+    #[serde(default)]
+    pub latest_version: Option<String>,
+    #[serde(default)]
+    pub update_refusal: Option<String>,
     #[serde(default)]
     pub update_summary: Option<String>,
     #[serde(default)]
@@ -68,6 +83,10 @@ pub fn status_from_probe(
         BinResolution::Unknown => (None, None),
     };
     ProviderCliStatus {
+        display_name: None,
+        update_job: None,
+        latest_version: None,
+        update_refusal: None,
         update_summary: None,
         detected_version: None,
         version_probe: crate::provider_version::ProbeStatus::Pending,
@@ -87,6 +106,10 @@ pub fn status_from_probe(
 
 pub fn no_cli() -> ProviderCliStatus {
     ProviderCliStatus {
+        display_name: None,
+        update_job: None,
+        latest_version: None,
+        update_refusal: None,
         update_summary: None,
         detected_version: None,
         version_probe: crate::provider_version::ProbeStatus::Missing,

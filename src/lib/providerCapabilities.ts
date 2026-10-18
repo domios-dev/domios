@@ -17,6 +17,12 @@ export function cachedSlashCommands(snapshot:ProbeSnapshot | null | undefined):S
     description: command.description ?? "", argumentHint: command.argument_hint ?? undefined,
   }));
 }
+export function slashCommandsEqual(a: readonly SlashCommandSuggestion[], b: readonly SlashCommandSuggestion[]): boolean {
+  return a === b || (a.length === b.length && a.every((command, index) => {
+    const other = b[index];
+    return command.name === other.name && command.description === other.description && command.argumentHint === other.argumentHint;
+  }));
+}
 export function capabilityBadge(snapshot:ProbeSnapshot | null | undefined):string | null {
   if (!snapshot) return null;
   if (snapshot.status==="pending") return "Provider capabilities pending";

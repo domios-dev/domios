@@ -68,9 +68,7 @@ pub(crate) fn caller_resolved_spawn_cwd(cwd: &str, caller_cwd: Option<&std::path
     }
 }
 
-/// Resolve the spawn task body from `--task` / `--task-file`. `--task-file`
-/// reads the file verbatim (or stdin when the value is `-`), so the body never
-/// passes through the caller's shell — backticks and $(...) survive byte-exact.
+/// `--task-file` (or stdin for `-`) is read verbatim, bypassing the caller's shell.
 pub fn resolve_spawn_task<R: Read>(
     task: Option<String>,
     task_file: Option<String>,
@@ -318,6 +316,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
     };
     match action {
+        AgentAction::Usage { action } => {
+            super::agent_runtime::handle_usage(&local_http, &base, json, action)
+        }
+        AgentAction::ChildHistory(args) => {
+            super::agent_runtime::handle_child_history(&local_http, &base, json, args)
+        }
         AgentAction::Login {
             tab,
             device,
@@ -891,6 +895,37 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     crate::cmd::print::fail(1, e.to_string());
                 }
             }
+        }
+        AgentAction::SwitchProviderStatus { tab, operation } => {
+            let tab_id = resolve_tab(client, tab);
+            crate::cmd::agent_provider_switch::status(
+                &local_http,
+                &base,
+                &tab_id,
+                &operation,
+                json,
+            );
+        }
+        AgentAction::SwitchProvider {
+            tab,
+            provider,
+            model,
+            reasoning_effort,
+            force,
+        } => {
+            let tab_id = resolve_tab(client, tab);
+            crate::cmd::agent_provider_switch::run(
+                &local_http,
+                &base,
+                &tab_id,
+                crate::cmd::agent_provider_switch::SwitchProviderRequest {
+                    provider,
+                    model,
+                    reasoning_effort,
+                    force,
+                },
+                json,
+            );
         }
         AgentAction::Fork { tab } => {
             let tab_id = resolve_tab(client, tab);

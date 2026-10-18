@@ -564,7 +564,7 @@ case "$CMD" in
 esac
 
 # --- Per-worktree dev instance isolation ---
-# CODETERM_INSTANCE (optional) names a dev instance so multiple worktrees can
+# CODETERM_DEV_INSTANCE names a dev instance so multiple worktrees can
 # run ./build.sh dev concurrently without colliding. Unset = canonical defaults
 # (.codeterm-dev / 7686 / 1420). See AGENTS.md "Process safety".
 CT_INSTANCE="${CODETERM_INSTANCE:-}"
@@ -574,15 +574,14 @@ CT_CDP_PORT="${CODETERM_CDP_PORT:-}"
 CT_INSTANCE_HASH=""
 case "$CMD" in
   dev|dev-prebuilt|kill|e2e|e2e:llm)
-    if [ "$CT_PORT" = "7685" ]; then
-      if [ -n "$CT_INSTANCE" ]; then
-        echo "ERROR: refusing to run $CMD against prod port 7685 (CODETERM_INSTANCE=$CT_INSTANCE)." >&2
-        echo "Pick a non-prod CODETERM_API_PORT for this dev instance." >&2
-        exit 2
-      fi
-      echo "WARNING: ignoring inherited CODETERM_API_PORT=7685 for $CMD; using dev port 7686." >&2
-      CT_PORT=7686
-    fi
+    CT_DEV_SELECTION="$(node scripts/dev-instance-policy.mjs)" || exit $?
+    CT_INSTANCE="${CT_DEV_SELECTION%:*}"
+    CT_PORT="${CT_DEV_SELECTION##*:}"
+    CT_VITE_PORT="${CODETERM_DEV_VITE_PORT:-}"
+    CT_CDP_PORT="${CODETERM_DEV_CDP_PORT:-}"
+    export CODETERM_DEV_INSTANCE="$CT_INSTANCE"
+    export CODETERM_DEV_API_PORT="$CT_PORT"
+    unset CODETERM_API_URL CODETERM_API_TOKEN CODETERM_SOCKET_PATH CODETERM_DATA_DIR
     ;;
 esac
 if [ -n "$CT_INSTANCE" ]; then
@@ -611,14 +610,6 @@ else
 fi
 CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
 DEV_NOTIFY_LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
-case "$CMD" in
-  dev|dev-prebuilt)
-    if [ -n "$CT_INSTANCE" ] && [ "$CT_PORT" = "7686" ]; then
-      echo "ERROR: named dev instance '$CT_INSTANCE' requires its own non-default CODETERM_API_PORT." >&2
-      exit 2
-    fi
-    ;;
-esac
 # Export so the spawned daemon + its child PTYs inherit the instance identity.
 export CODETERM_INSTANCE="$CT_INSTANCE"
 export CODETERM_API_PORT="$CT_PORT"
@@ -649,16 +640,15 @@ else
 fi
 
 named_dev_target_dir() {
-  printf '%s\n' "$CT_DATA_DIR/target"
+  printf '%s\n' "$(pwd -P)/src-tauri/target/dev-instances/$CT_INSTANCE_KEY"
 }
 
-named_dev_wait_isolated() {
-  [ -n "$CT_INSTANCE" ] && [ "$CT_DEV_WAIT" = "1" ]
+named_dev_isolated() {
+  [ -n "$CT_INSTANCE" ]
 }
 
 prepare_named_dev_target() {
   export CARGO_TARGET_DIR="$(named_dev_target_dir)"
-  export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
   ct_verify_target_dir
   echo "[isolated-dev] cargo target=$CARGO_TARGET_DIR"
@@ -683,8 +673,8 @@ if [ "${CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY:-0}" = "1" ]; then
 fi
 
 if [ "${CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY:-0}" = "1" ]; then
-  if named_dev_wait_isolated; then
-    printf 'mode=isolated-named-wait\ntarget=%s\nbuild_gateway=required\n' "$(named_dev_target_dir)"
+  if named_dev_isolated; then
+    printf 'mode=isolated-named\ntarget=%s\nbuild_gateway=required\n' "$(named_dev_target_dir)"
   else
     printf 'mode=shared\nbuild_gateway=required\n'
   fi
@@ -2863,6 +2853,11 @@ EOF
     sg_run bash scripts/check-build-gateway-owner-reap.sh
     sg_run bash scripts/check-build-check-queue.sh
     sg_run bash scripts/check-build-script-head.sh
+    if command -v python3 >/dev/null 2>&1; then
+      sg_run python3 scripts/check-lf-working-tree.py
+    else
+      sg_run python scripts/check-lf-working-tree.py
+    fi
     sg_run bash scripts/check-shared-sccache.sh
     for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
       sg_run bash "scripts/$sg"
@@ -3123,9 +3118,8 @@ LOCK_STORM_PY
     echo "Done."
     ;;
   dev-prebuilt)
-    if [ -n "$CT_INSTANCE" ] && [ -z "${CARGO_TARGET_DIR:-}" ]; then
+    if named_dev_isolated; then
       export CARGO_TARGET_DIR="$(named_dev_target_dir)"
-      export CODETERM_ALLOW_EXTERNAL_TARGET=1
     fi
     PREBUILT_LOG="/tmp/codeterm-dev-prebuilt${CT_SUFFIX}.log"
     if [ -n "$DEV_NOTIFY_TAB" ]; then
@@ -3234,7 +3228,7 @@ LOCK_STORM_PY
           elif [ -n "$CT_INSTANCE" ]; then
             DEV_NOTIFY_STAGE=stale-health
             DEV_NOTIFY_LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
-            echo "ERROR: named dev listener is stale or wrong-lane; run CODETERM_INSTANCE=$CT_INSTANCE ./build.sh kill before retrying." >&2
+            echo "ERROR: named dev listener is stale or wrong-lane; run CODETERM_DEV_INSTANCE=$CT_INSTANCE CODETERM_DEV_API_PORT=$CT_PORT ./build.sh kill before retrying." >&2
             exit 1
           fi
         else
@@ -3244,11 +3238,8 @@ LOCK_STORM_PY
       fi
     fi
     DEV_NOTIFY_STAGE=build
-    if named_dev_wait_isolated; then
-      prepare_named_dev_target
-    else
-      kill_dev || echo "WARNING: dev cleanup failed; continuing to build gateway acquisition." >&2
-    fi
+    kill_dev || echo "WARNING: dev cleanup failed; continuing to build gateway acquisition." >&2
+    if named_dev_isolated; then prepare_named_dev_target; fi
     enter_cargo_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist
     ensure_deps

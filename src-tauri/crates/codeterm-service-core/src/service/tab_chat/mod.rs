@@ -676,7 +676,10 @@ pub fn tab_chat_snapshot(
     tab_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
-    let (messages, _) = tab_transcript_snapshot(svc, tab_id, 0)?;
+    let (mut messages, _) = tab_transcript_snapshot(svc, tab_id, 0)?;
+    if let Some(notice) = svc.provider_switch_notice(tab_id) {
+        messages.insert(0, notice);
+    }
     Ok(restore_notice::snapshot(
         &svc.lifecycle_journal,
         tab_id,

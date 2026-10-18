@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
-import {ResetCreditsModel, resetCreditsState, resetCreditsForTab, clearResetCreditsForTab} from "./resetCreditsModel";
+import {ResetCreditsModel, resetCreditsState, resetCreditsForTab, clearResetCreditsForTab, resetBalanceLabel, availableResetCredits, resetCreditLabel} from "./resetCreditsModel";
 
 async function main() {
   assert.deepEqual(resetCreditsState(undefined), {visible:false,disabled:true});
   const empty = {availableCount:0,nextExpiry:null,credits:null};
   const available = {...empty,availableCount:2};
+  assert.equal(resetBalanceLabel(2,1),"Reset credits: 2 before · 1 after");
+  assert.equal(resetBalanceLabel(2,null),"Reset credits: 2 before · unconfirmed after");
+  const observed = new ResetCreditsModel(() => "observed", async () => ({outcome:"reset",remainingCount:1}));
+  observed.request(available);
+  await observed.confirm();
+  assert.equal(observed.beforeCount,2);
+  assert.equal(observed.afterCount,1);
+  const unconfirmed = new ResetCreditsModel(() => "unconfirmed", async () => ({outcome:"reset"}));
+  unconfirmed.request(available);
+  await unconfirmed.confirm();
+  assert.equal(unconfirmed.afterCount,null);
   assert.deepEqual(resetCreditsState(empty), {visible:true,disabled:true});
   const keys:string[] = [];
   let uuidCalls = 0;
@@ -71,6 +82,32 @@ async function main() {
   const syncFailure = new ResetCreditsModel(() => "sync-key", () => {throw new Error("synchronous transport failure");});
   syncFailure.request(available); await syncFailure.confirm();
   assert.equal(syncFailure.key,"sync-key"); assert.equal(syncFailure.inFlight,null); assert.equal(syncFailure.busy,false);
+  const credits = {...available,credits:[
+    {id:"first",title:"Weekly grant",status:"available" as const,expiresAt:2000000000000},
+    {id:"second",status:"available" as const,expiresAt:null},
+    {id:"used",status:"redeemed" as const,expiresAt:null},
+  ]};
+  assert.deepEqual(availableResetCredits(credits).map(credit => credit.id),["first","second"]);
+  assert.equal(availableResetCredits({...credits,credits:[...credits.credits,credits.credits[0]]}).length,2);
+  assert.equal(resetCreditLabel(credits.credits[0]),"Weekly grant");
+  assert.equal(resetCreditLabel(credits.credits[1]),"second");
+  const selectedCalls: (string|undefined)[][] = [];
+  let failSelection = true;
+  const selection = new ResetCreditsModel(() => "selected-key",async (key,id) => {
+    selectedCalls.push([key,id]);
+    if (failSelection) {failSelection=false;throw new Error("uncertain");}
+    return {outcome:"reset"};
+  });
+  selection.select(credits,"missing"); assert.equal(selection.selectedCreditId,null);
+  selection.select(credits,"second"); assert.equal(selection.selectedCreditId,"second");
+  assert.equal(resetCreditsState(available,"second").disabled,true);
+  selection.request(available); assert.equal(selection.confirming,false);
+  selection.request(credits); selection.select(credits,"first");
+  assert.equal(selection.pendingCredit?.id,"second");
+  await selection.confirm(); selection.select(credits,"first"); await selection.retry();
+  assert.deepEqual(selectedCalls,[["selected-key","second"],["selected-key","second"]]);
+  selection.select(credits,null); selection.request(credits); await selection.confirm();
+  assert.equal(selectedCalls[2][1],undefined);
   console.log("PASS reset model: visibility, zero count, cancellation, confirmation, retry UUID and duplicate exclusion");
 }
 void main();

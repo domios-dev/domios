@@ -292,7 +292,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 ),
                 None,
             ),
-            crate::TabAction::Timeout { .. } => unsupported("utility shell timeouts require a local owning agent"),
+            crate::TabAction::Timeout { .. } => unsupported("utility shell timeouts require a local owning agent; ask an agent running on the target peer to create or manage the shell with --timeout"),
             crate::TabAction::Current { .. } => ("GET".into(), "/api/tabs".into(), None),
             crate::TabAction::New {
                 timeout,
@@ -311,7 +311,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 chat_backend,
                 config,
             } => {
-                if timeout.is_some() { return unsupported("utility shell timeouts require a local owning agent"); }
+                if timeout.is_some() { return unsupported("utility shell timeouts require a local owning agent; ask an agent running on the target peer to create or manage the shell with --timeout"); }
                 if *list_shells { return ("GET".into(), "/api/shells".into(), None); }
                 let mut body = serde_json::json!({ "purpose": purpose, "description": description, "icon": icon, "shell": shell });
                 if let Some(w) = workspace {
@@ -363,7 +363,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             }
             crate::TabAction::Restart { tab, cwd, cmd, timeout } => {
                 if timeout.is_some() {
-                    return unsupported("remote tab restart does not support --timeout");
+                    return unsupported("remote tab restart does not support --timeout; ask an agent running on the target peer to restart the shell with --timeout");
                 }
                 if cmd.is_some() {
                     return unsupported("remote tab restart does not support --cmd; restart then use codeterm tab exec");

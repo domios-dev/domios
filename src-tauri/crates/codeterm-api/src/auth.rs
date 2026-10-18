@@ -68,6 +68,13 @@ fn peer_protocol_allowed(version: u16, path: &str) -> bool {
         || matches!(path, "/api/mesh/announce" | "/api/mesh/sync")
 }
 
+fn requires_mesh_network(method: &Method, path: &str) -> bool {
+    path.starts_with("/api/mesh/")
+        && path != "/api/mesh/ping"
+        && path != "/api/mesh/enabled"
+        && !(method == Method::GET && path == "/api/mesh/inventory")
+}
+
 fn remote_network_allowed(mesh_enabled: bool, address: Option<SocketAddr>) -> bool {
     mesh_enabled || address.is_none_or(|address| address.ip().is_loopback())
 }
@@ -352,7 +359,7 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
     }
 
     // /api/mesh/enabled (the local on/off switch — it MUST stay reachable to turn mesh back on; still token-gated, peers rejected below).
-    if path.starts_with("/api/mesh/") && path != "/api/mesh/ping" && path != "/api/mesh/enabled" {
+    if requires_mesh_network(&method, &path) {
         let mesh_enabled = state.config.lock().mesh.enabled;
         if !mesh_enabled {
             log::warn!(
@@ -794,6 +801,18 @@ mod tests {
             "POST",
             "/api/tabs/tab-with-dashes_and_underscores/send"
         ));
+    }
+
+    #[test]
+    fn local_inventory_read_does_not_require_mesh_network() {
+        assert!(!requires_mesh_network(&Method::GET, "/api/mesh/inventory"));
+        assert!(requires_mesh_network(&Method::POST, "/api/mesh/inventory"));
+        assert!(requires_mesh_network(&Method::GET, "/api/mesh/peers"));
+        assert!(requires_mesh_network(
+            &Method::GET,
+            "/api/mesh/inventory/other"
+        ));
+        assert!(!bearer_exempt(&Method::GET, "/api/mesh/inventory"));
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use super::agent_runtime::{AgentUsageAction, ChildHistoryArgs};
 use clap::{Args, Subcommand};
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -123,6 +124,13 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
+    /// Read usage or consume a confirmed reset credit for an exact tab.
+    Usage {
+        #[command(subcommand)]
+        action: AgentUsageAction,
+    },
+    /// Read one recorded child's transcript under the exact parent binding.
+    ChildHistory(ChildHistoryArgs),
     /// Sign in to the tab's runtime provider without a terminal
     Login {
         #[arg(long, value_name = "TAB")]
@@ -256,6 +264,25 @@ pub enum AgentAction {
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
+    /// Continue this tab on another provider through a bounded handoff produced by the target.
+    SwitchProvider {
+        provider: String,
+        #[arg(long)]
+        tab: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        reasoning_effort: Option<String>,
+        /// Stop the current turn before switching. Otherwise a busy tab refuses.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Read a daemon-owned provider switch operation, including self-switch results.
+    SwitchProviderStatus {
+        operation: String,
+        #[arg(long)]
+        tab: Option<String>,
+    },
     /// List available agent providers (claude, codex, ...) with their
     /// display names, default models, and capability flags.
     Providers,
@@ -308,7 +335,7 @@ pub enum AgentAction {
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
         #[arg(long)]
         role: Option<SpawnRole>,
-        /// Worker prompt kind/profile, with or without a task: tester or release_manager.
+        /// Worker prompt kind/profile, with or without a task: qa or release_manager.
         #[arg(long, alias = "role-profile")]
         kind: Option<String>,
         /// Parent tab ID. Required for Workers; for a Planner, resolved
@@ -866,13 +893,13 @@ mod tests {
             "--role",
             "Worker",
             "--kind",
-            "tester",
+            "qa",
             "--parent-tab",
             "parent_tab",
             "--authorized-gate",
             "./build.sh test-one app verifier",
         ])
-        .expect("task-less tester Worker spawn parses");
+        .expect("task-less qa Worker spawn parses");
         match action {
             AgentAction::Spawn {
                 role,
@@ -885,7 +912,7 @@ mod tests {
                 ..
             } => {
                 assert!(matches!(role, Some(SpawnRole::Worker)));
-                assert_eq!(kind.as_deref(), Some("tester"));
+                assert_eq!(kind.as_deref(), Some("qa"));
                 assert_eq!(parent.as_deref(), Some("parent_tab"));
                 assert!(plan.is_none());
                 assert!(plan_task.is_none());

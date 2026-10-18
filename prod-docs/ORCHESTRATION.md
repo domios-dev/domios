@@ -87,6 +87,11 @@ Worker death during `in_progress` (tab closed/crashed or agent exited) pushes `[
 9. **Clean up as you go:** when a task is accepted or cancelled, close its Worker tab, crons and idle utility shells (stop dev processes first),
    prune lanes with `codeterm plan lanes <plan> --clean --confirm`, and record cleanup.
 
+The live Plan Orchestrator may run confirmed lane cleanup (including `--fetch`)
+from its own Team utility shell. The daemon verifies the shell's launch binding,
+recorded creator and Team against the Plan's live bound owner; a utility shell
+needs no agent session or plan rebind. Other Team members gain no cleanup authority.
+
 `actionable: false` tab hints are observations, never instructions to answer, notify or mutate. Actionable events require two agreeing strong observations of one launch.
 
 Discovery must lead to decisions and implementation, review or verification; research alone is incomplete.
@@ -118,12 +123,12 @@ Task-less verification reports omit `--status` and `--task`; execution intent st
 
 ## Worker kinds
 
-Worker kinds are prompt-only: they add role guidance, not machine access or execution ability. Both support assigned mutations with or without a task. Use `agent spawn --role Worker --kind tester|release_manager --parent-tab <tab>`; see `--help` for flags.
+Worker kinds are prompt-only: they add role guidance, not machine access or execution ability. Both support assigned mutations with or without a task. Use `agent spawn --role Worker --kind qa|release_manager --parent-tab <tab>`; see `--help` for flags.
 
-- `tester`: browser verification; may accept or bounce only an exact in-review task handed off by its parent, with an evidence note.
+- `qa`: browser verification; may accept or bounce only an exact in-review task handed off by its parent, with an evidence note.
 - `release_manager`: current-release coordination; publication requires owner authorization.
 
-Bind `--plan-task <task>` with explicit `--execution-intent` for Worker ACK, lane and status lifecycle. Task-less kinds default to mutating intent, work for their parent and report without `--status`; Kinds grant no plan-state authority. Tester review delegation is explicit. Publication and tags require owner GO. Neither kind spawns children.
+Bind `--plan-task <task>` with explicit `--execution-intent` for Worker ACK, lane and status lifecycle. Task-less kinds default to mutating intent, work for their parent and report without `--status`; Kinds grant no plan-state authority. QA review delegation is explicit. Publication and tags require owner GO. Neither kind spawns children.
 
 Before each wave: check provider headroom (reuse live Workers near95%), map disjoint task/file/branch/oracle/gate ownership, run plan doctor. Give Workers `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, checkout and exact acceptance/test commands; ACK first, report last. On a Full-access paired peer, `codeterm plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating` creates an origin attempt and peer lane. Judge the persisted origin report; merge its exact accepted SHA to the clean dispatch-time branch.
 
@@ -162,4 +167,4 @@ A `[provider access lost]` notice means recover the login or respawn on another 
 
 Confined mutating Workers persist host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR/TEMP/TMP use lane-local `.codeterm-tmp`. Task-bound spawns require explicit read_only or mutating intent. Older task tabs without saved confinement retain their behavior.
 
-<!-- revision: 127 -->
+<!-- revision: 129 -->
