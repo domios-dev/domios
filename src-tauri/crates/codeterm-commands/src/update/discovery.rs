@@ -50,7 +50,7 @@ pub async fn check(
                 )
                 .is_ok()
             {
-                codeterm_service_core::async_runtime::spawn(async move {
+                tauri::async_runtime::spawn(async move {
                     if let Err(error) = job.await {
                         log::debug!("[update] background discovery failed: {error}");
                     }

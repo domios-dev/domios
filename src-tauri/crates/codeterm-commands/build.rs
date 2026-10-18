@@ -1,6 +1,6 @@
 fn main() {
     // Test binaries link tauri too; they need the Common Controls v6 manifest that tauri-winres omits.
-    #[cfg(all(windows, feature = "desktop"))]
+    #[cfg(windows)]
     {
         let manifest =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../windows-app-manifest.xml");

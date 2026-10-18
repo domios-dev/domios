@@ -827,7 +827,7 @@ mod tests {
                 "task_id": task_id,
                 "message": "REPORT NOT SENT: canonical checkout is dirty. Original report: in_review",
             })),
-            &service,)
+            &service, None)
         .unwrap();
 
         assert_eq!(response["accepted"], false);
@@ -943,6 +943,7 @@ mod tests {
             "agent.ack",
             Some(serde_json::json!({ "tab_id": worker_tab_id })),
             &service,
+            None,
         )
         .unwrap();
 

@@ -97,7 +97,6 @@ pub struct SeqEvent {
     pub seq: u64,
     pub event: SystemEvent,
     pub frame: Arc<EncodedFrame>,
-    pub public: bool,
 }
 
 #[derive(Debug)]
@@ -182,18 +181,13 @@ struct ReplayRing {
 }
 
 impl ReplayRing {
-    fn push(&mut self, event: SystemEvent, now: Instant, public: bool) -> SeqEvent {
+    fn push(&mut self, event: SystemEvent, now: Instant) -> SeqEvent {
         let seq = self.next_seq;
         self.next_seq = seq + 1;
         let frame = Arc::new(EncodedFrame::new(seq, &self.boot_id, &event));
         self.encoded_events += 1;
         self.retained_bytes += frame.size;
-        let event = SeqEvent {
-            seq,
-            event,
-            frame,
-            public,
-        };
+        let event = SeqEvent { seq, event, frame };
         self.entries.push_back(RingEntry {
             seq,
             at: now,
@@ -380,17 +374,6 @@ impl EventBroadcaster {
         });
     }
 
-    /// Service-only signals share ordering and replay, without exposing native payloads to SSE or webhooks.
-    pub fn publish_internal(&self, event_type: &str, data: serde_json::Value) {
-        self.send_bus_with_visibility(
-            SystemEvent::Generic {
-                event_type: event_type.to_owned(),
-                data,
-            },
-            false,
-        );
-    }
-
     /// The single bus fan-out choke point — every published event passes here.
     /// Allocating the D1 cursor and publishing it are ONE critical section, so
     /// delivery order == seq order; the subscriber's `seq <= replayed_max`
@@ -398,12 +381,8 @@ impl EventBroadcaster {
     /// does not prevent. `ring` stays a leaf and `broadcast::send` is
     /// synchronous and non-blocking, so the guard never spans an `.await`.
     fn send_bus(&self, event: SystemEvent) {
-        self.send_bus_with_visibility(event, true);
-    }
-
-    fn send_bus_with_visibility(&self, event: SystemEvent, public: bool) {
         let mut ring = self.ring.lock();
-        let event = ring.push(event, Instant::now(), public);
+        let event = ring.push(event, Instant::now());
         let _ = self.system_bus.send(event);
     }
 
@@ -411,11 +390,6 @@ impl EventBroadcaster {
     /// its own receiver; slow subscribers lag and must handle `Lagged`.
     pub fn subscribe(&self) -> broadcast::Receiver<SeqEvent> {
         self.system_bus.subscribe()
-    }
-
-    pub fn subscribe_from_now(&self) -> (broadcast::Receiver<SeqEvent>, u64) {
-        let ring = self.ring.lock();
-        (self.system_bus.subscribe(), ring.next_seq.saturating_sub(1))
     }
 
     pub fn broadcast(&self, event_type: &str, data: serde_json::Value) {
@@ -695,18 +669,13 @@ mod tests {
             boot_id: "test".into(),
         };
         let t0 = Instant::now();
-        ring.push(SystemEvent::MuxStateChanged, t0, true);
-        ring.push(
-            SystemEvent::MuxStateChanged,
-            t0 + Duration::from_secs(1),
-            true,
-        );
+        ring.push(SystemEvent::MuxStateChanged, t0);
+        ring.push(SystemEvent::MuxStateChanged, t0 + Duration::from_secs(1));
         assert_eq!(ring.entries.len(), 2);
         // now = t0 + 121s; seq1 age 121s (>120) evicted, seq2 age 120s (not >120) kept.
         ring.push(
             SystemEvent::MuxStateChanged,
             t0 + RING_MAX_AGE + Duration::from_secs(1),
-            true,
         );
         assert_eq!(ring.entries.len(), 2);
         assert_eq!(ring.entries.front().unwrap().seq, 2);

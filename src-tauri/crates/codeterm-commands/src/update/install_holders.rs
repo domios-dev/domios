@@ -1,9 +1,8 @@
-#[cfg(any(test, all(windows, feature = "desktop")))]
+#[cfg(any(windows, test))]
 mod model;
-#[cfg(all(windows, any(test, feature = "desktop")))]
+#[cfg(windows)]
 mod windows;
 
-#[cfg(feature = "desktop")]
 pub(super) async fn check_before_shutdown(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<(), String> {
@@ -26,7 +25,6 @@ pub(super) async fn check_before_shutdown(
     }
 }
 
-#[cfg(feature = "desktop")]
 pub(super) async fn release_before_installer() -> Result<(), String> {
     #[cfg(windows)]
     return tokio::task::spawn_blocking(|| windows::inspect(true, None))

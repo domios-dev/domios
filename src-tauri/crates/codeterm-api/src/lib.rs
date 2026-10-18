@@ -92,8 +92,3 @@ mod core_contract_tests;
 
 #[cfg(test)]
 mod rest_liveness_tests;
-
-#[cfg(test)]
-mod process_split_contract;
-#[cfg(any(test, feature = "test-support"))]
-pub mod test_support;

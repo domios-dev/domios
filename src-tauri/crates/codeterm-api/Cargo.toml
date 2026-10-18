@@ -11,6 +11,7 @@ workspace = true
 name = "codeterm_api"
 
 [dependencies]
+codeterm-host-runtime = { path = "../codeterm-host-runtime" }
 codeterm-commands = { path = "../codeterm-commands" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-orchestration = { path = "../codeterm-orchestration" }
@@ -21,7 +22,8 @@ codeterm-billing = { path = "../codeterm-billing" }
 codeterm-analytics = { path = "../codeterm-analytics" }
 codeterm-frontend-bundle = { path = "../codeterm-frontend-bundle" }
 tempfile = "3"
-tokio = { version = "1", features = ["full"] }
+tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
+tokio = { version = "1", features = ["full", "test-util"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -65,11 +67,8 @@ codeterm-paths = { path = "../../../crates/codeterm-paths" }
 codeterm-plugins = { path = "../codeterm-plugins" }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["test-util"] }
+codeterm-host-runtime = { path = "../codeterm-host-runtime", features = ["test-support"] }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
 codeterm-orchestration = { path = "../codeterm-orchestration", features = ["test-support"] }
 codeterm-sentinel-host = { path = "../codeterm-sentinel-host", features = ["test-support"] }
 mockito = "1"
-
-[features]
-test-support = ["codeterm-service-core/test-support"]

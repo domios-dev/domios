@@ -13,7 +13,7 @@ async fn account_routes_local_journey_persists_and_deletes_credential() {
         http::Request,
     };
     use tower::ServiceExt;
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+    let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
     );
     *fixture.service.secrets.write().await =
@@ -83,7 +83,7 @@ async fn account_plan_routes_local_journey() {
     };
     use std::sync::Arc;
     use tower::ServiceExt;
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
+    let fixture = codeterm_host_runtime::test_fixture::HostFixture::new(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
     );
     *fixture.service.secrets.write().await =

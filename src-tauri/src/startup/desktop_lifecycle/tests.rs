@@ -60,8 +60,8 @@ fn activation_during_native_creation_cannot_create_another_window() {
 fn close_invalidates_only_the_frontend_and_waits_for_native_destruction() {
     let app = fixture();
     show_or_create_with(app.handle(), authenticated_window).unwrap();
-    let window = app.get_webview_window("main").unwrap();
-    assert!(close_requested(&window.as_ref().window()));
+    let window = app.get_window("main").unwrap();
+    assert!(close_requested(&window));
     show_or_create_with(app.handle(), |_| {
         panic!("creation before native destruction")
     })
