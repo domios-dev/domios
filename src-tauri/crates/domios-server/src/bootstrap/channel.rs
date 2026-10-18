@@ -13,6 +13,57 @@ use sha2::{Digest, Sha256};
 use std::{io, path::Path, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[derive(Debug)]
+struct EndpointUnavailable(io::Error);
+
+impl std::fmt::Display for EndpointUnavailable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Bootstrap endpoint is unavailable")
+    }
+}
+
+impl std::error::Error for EndpointUnavailable {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+pub fn helper_exit_code(error: &io::Error) -> i32 {
+    if error
+        .get_ref()
+        .is_some_and(|inner| inner.is::<EndpointUnavailable>())
+    {
+        codeterm_types::server_bootstrap::BOOTSTRAP_ATTACH_UNAVAILABLE_EXIT_CODE
+    } else if error.kind() == io::ErrorKind::AlreadyExists {
+        3
+    } else {
+        1
+    }
+}
+
+pub(crate) fn classify_connect_error(
+    request: &AttachRequest,
+    intended_build: &str,
+    error: io::Error,
+) -> io::Error {
+    if request.operation == BootstrapOperation::Inspect
+        && request.expected.is_none()
+        && request.protocol == super::protocol::BOOTSTRAP_PROTOCOL
+        && request.api_version == codeterm_types::server_bootstrap::API_VERSION
+        && request.build == intended_build
+        && !request.challenge.is_empty()
+        && request.challenge.len() <= 128
+        && matches!(
+            error.kind(),
+            io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+        )
+    {
+        io::Error::new(io::ErrorKind::NotConnected, EndpointUnavailable(error))
+    } else {
+        error
+    }
+}
+
 pub fn address(identity: &super::protocol::ServerIdentity) -> io::Result<String> {
     let bytes = serde_json::to_vec(identity).map_err(io::Error::other)?;
     Ok(format!("domios-bootstrap-{:x}.sock", Sha256::digest(bytes)))
@@ -87,7 +138,9 @@ pub async fn attach(
 ) -> io::Result<(AttachReply, PinnedProcess)> {
     tokio::time::timeout(FAILURE_DEADLINE, async {
         let address = address(&request.identity)?;
-        let mut stream = Stream::connect(address.to_ns_name::<GenericNamespaced>()?).await?;
+        let mut stream = Stream::connect(address.to_ns_name::<GenericNamespaced>()?)
+            .await
+            .map_err(|error| classify_connect_error(request, env!("BUILD_SHA"), error))?;
         let peer = pin_peer(&stream)?;
         let provenance = verify_peer(&peer, executable)?;
         write_frame(&mut stream, request).await?;

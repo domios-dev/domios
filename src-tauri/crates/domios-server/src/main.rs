@@ -12,11 +12,7 @@ use std::io::{self, BufRead, Read, Write};
 fn main() {
     if let Err(error) = execute() {
         eprintln!("domios-server refused: {error}");
-        std::process::exit(if error.kind() == io::ErrorKind::AlreadyExists {
-            3
-        } else {
-            1
-        });
+        std::process::exit(channel::helper_exit_code(&error));
     }
 }
 
