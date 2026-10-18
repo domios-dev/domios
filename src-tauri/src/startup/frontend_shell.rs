@@ -37,7 +37,7 @@ use codeterm_service_core::startup::{
 };
 use serde::Serialize;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -68,6 +68,7 @@ struct ShellSupervisor {
     navigation: Arc<AtomicU64>,
     view_generation: AtomicU64,
     active_view_generation: AtomicU64,
+    observer_started: std::sync::atomic::AtomicBool,
     root_render: ClientRootRenderLatch,
     development_frontend: Option<Url>,
     windows: tokio::sync::watch::Sender<WindowEpoch>,
@@ -215,6 +216,7 @@ pub fn initialize(
         navigation: Arc::new(AtomicU64::new(0)),
         view_generation: AtomicU64::new(0),
         active_view_generation: AtomicU64::new(0),
+        observer_started: std::sync::atomic::AtomicBool::new(false),
         root_render,
         windows: tokio::sync::watch::channel(WindowEpoch::default()).0,
         capability_origins: Default::default(),
@@ -642,6 +644,13 @@ async fn frontend_url(
 }
 
 pub fn start(app: codeterm_host_runtime::app_runtime::AppHandle) {
+    if app
+        .state::<ShellSupervisor>()
+        .observer_started
+        .swap(true, Ordering::AcqRel)
+    {
+        return;
+    }
     let mut windows = app.state::<ShellSupervisor>().windows.subscribe();
     tauri::async_runtime::spawn(async move {
         loop {
@@ -694,14 +703,31 @@ pub fn start(app: codeterm_host_runtime::app_runtime::AppHandle) {
 pub fn retry(app: &codeterm_host_runtime::app_runtime::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let Some(window) = app.get_webview_window("main") else {
-            return;
-        };
         let Some(attachment) = app
             .try_state::<ServerApiAttachmentSlot>()
             .and_then(|slot| slot.current())
         else {
-            show_unavailable(&window);
+            match crate::host_ports::native_client::retry_initialize_client(app.clone()).await {
+                Ok(initialized) => {
+                    if let Err(error) =
+                        recover_for_attachment(app.clone(), &initialized.ready).await
+                    {
+                        log::error!("[frontend-shell] attachment recovery failed: {error}");
+                        if let Some(window) = app.get_webview_window("main") {
+                            show_unavailable(&window);
+                        }
+                    }
+                }
+                Err(error) => {
+                    log::error!("[frontend-shell] client retry refused: {error}");
+                    if let Some(window) = app.get_webview_window("main") {
+                        show_unavailable(&window);
+                    }
+                }
+            }
+            return;
+        };
+        let Some(window) = app.get_webview_window("main") else {
             return;
         };
         let identity = attachment.identity().clone();
@@ -725,6 +751,155 @@ pub fn retry(app: &codeterm_host_runtime::app_runtime::AppHandle) {
             }
         }
     });
+}
+
+pub(crate) async fn recover_for_attachment(
+    app: codeterm_host_runtime::app_runtime::AppHandle,
+    expected: &codeterm_types::server_bootstrap::ServerReady,
+) -> Result<(), String> {
+    ensure_server_attachment(&app, expected)?;
+    let Some(window) = app.get_webview_window("main") else {
+        crate::deep_links::register_deep_links(&app).map_err(|error| error.to_string())?;
+        run_on_main_thread(app.clone(), |handle| {
+            crate::startup::desktop_lifecycle::show_or_create(&handle)
+                .map_err(|error| error.to_string())
+        })
+        .await?;
+        ensure_server_attachment(&app, expected)?;
+        start(app);
+        return Ok(());
+    };
+    let unavailable = unavailable_url().map_err(|error| error.to_string())?;
+    let current_url = window.url().map_err(|error| error.to_string())?;
+    if !same_navigation_document(&current_url, &unavailable) {
+        start(app);
+        return Ok(());
+    }
+
+    crate::deep_links::register_deep_links(&app).map_err(|error| error.to_string())?;
+    let (old_view, old_navigation, before, mut windows) = {
+        let supervisor = app.state::<ShellSupervisor>();
+        (
+            supervisor.active_view_generation.load(Ordering::Acquire),
+            supervisor.navigation.load(Ordering::Acquire),
+            *supervisor.windows.borrow(),
+            supervisor.windows.subscribe(),
+        )
+    };
+    if old_view == 0 || !before.available {
+        return Err("Unavailable frontend generation is no longer active".into());
+    }
+    let close_window = window.clone();
+    run_on_main_thread(app.clone(), move |handle| {
+        let state = handle.state::<ShellSupervisor>();
+        let live_url = close_window.url().map_err(|error| error.to_string())?;
+        if !same_navigation_document(&live_url, &unavailable)
+            || state.active_view_generation.load(Ordering::Acquire) != old_view
+            || state.navigation.load(Ordering::Acquire) != old_navigation
+        {
+            return Err("Unavailable frontend generation was replaced".into());
+        }
+        close_window.destroy().map_err(|error| error.to_string())
+    })
+    .await?;
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let epoch = *windows.borrow_and_update();
+            if epoch.generation > before.generation && !epoch.available {
+                return Ok::<(), String>(());
+            }
+            windows.changed().await.map_err(|error| error.to_string())?;
+        }
+    })
+    .await
+    .map_err(|_| "Unavailable frontend destruction deadline elapsed".to_string())??;
+    ensure_server_attachment(&app, expected)?;
+
+    run_on_main_thread(app.clone(), |handle| {
+        crate::startup::desktop_lifecycle::show_or_create(&handle)
+            .map_err(|error| error.to_string())
+    })
+    .await?;
+    ensure_server_attachment(&app, expected)?;
+    let new_view = app
+        .state::<ShellSupervisor>()
+        .active_view_generation
+        .load(Ordering::Acquire);
+    if new_view <= old_view {
+        return Err("Recovered frontend did not advance its view generation".into());
+    }
+    start(app);
+    Ok(())
+}
+
+fn ensure_server_attachment(
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    expected: &codeterm_types::server_bootstrap::ServerReady,
+) -> Result<(), String> {
+    if app
+        .try_state::<ServerApiAttachmentSlot>()
+        .and_then(|slot| slot.current())
+        .is_some_and(|current| current.ready() == expected)
+    {
+        Ok(())
+    } else {
+        Err("Authenticated server attachment changed during frontend recovery".into())
+    }
+}
+
+async fn run_on_main_thread<T: Send + 'static>(
+    app: codeterm_host_runtime::app_runtime::AppHandle,
+    action: impl FnOnce(codeterm_host_runtime::app_runtime::AppHandle) -> Result<T, String>
+        + Send
+        + 'static,
+) -> Result<T, String> {
+    const QUEUED: u8 = 0;
+    const RUNNING: u8 = 1;
+    const CANCELLED: u8 = 2;
+    const COMPLETED: u8 = 3;
+
+    let (sender, mut receiver) = tokio::sync::oneshot::channel();
+    let action_app = app.clone();
+    let phase = Arc::new(AtomicU8::new(QUEUED));
+    let scheduled_phase = phase.clone();
+    app.run_on_main_thread(move || {
+        if scheduled_phase
+            .compare_exchange(QUEUED, RUNNING, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        let result = action(action_app);
+        scheduled_phase.store(COMPLETED, Ordering::Release);
+        let _ = sender.send(result);
+    })
+    .map_err(|error| error.to_string())?;
+    match tokio::time::timeout(Duration::from_secs(10), receiver).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => {
+            if phase
+                .compare_exchange(QUEUED, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                Err("Main-thread frontend action was cancelled before execution".into())
+            } else {
+                Err("Main-thread frontend action outcome is uncertain after execution began".into())
+            }
+        }
+        Err(_) => {
+            if phase
+                .compare_exchange(QUEUED, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return Err("Main-thread frontend action deadline elapsed before execution".into());
+            }
+            match receiver.try_recv() {
+                Ok(result) => result,
+                Err(_) => Err("Main-thread frontend action acknowledgement is uncertain".into()),
+            }
+        }
+    }
 }
 
 fn same_server_attachment(
