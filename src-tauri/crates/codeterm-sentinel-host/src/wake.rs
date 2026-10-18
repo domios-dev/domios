@@ -281,6 +281,7 @@ mod tests {
             MockClock::starting_at(1_000),
         );
         let params: Create = serde_json::from_value(serde_json::json!({
+            "name":"cron-run-watch",
             "observe":{"kind":"cron_run","id":cron_id}, "question":"state", "buckets":["waiting"],
             "matches":{"waiting":".*"}
         }))
