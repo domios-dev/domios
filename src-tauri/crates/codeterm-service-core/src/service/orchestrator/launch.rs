@@ -563,12 +563,12 @@ pub fn launch_agent_in_background_with_env(
         let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
         let session_starts_on_first_turn = !structured
             && (binding_turn_planned
-                || startup_readiness::launch_waits_for_first_turn_binding(
+                || startup_readiness::launch_waits_for_first_turn_binding_with_resume_session(
                     &svc,
-                    &tab_id,
                     &agent_cmd,
                     has_startup_task_turn,
                     origin,
+                    resume_session_id.as_deref(),
                 ));
 
         let (tab_agent_type, existing_binding_nonce) = {
@@ -971,7 +971,13 @@ pub fn launch_agent_in_background_with_env(
             provider_readiness,
             provider_readiness.requires_composer(),
         );
-        let user_composer_required = user_input::requires_composer(&svc, &agent_cmd, &tab_id);
+        let user_composer_required = user_input::requires_composer(
+            &svc,
+            &agent_cmd,
+            &tab_id,
+            origin,
+            resume_session_id.as_deref(),
+        );
         let launch_input_readiness = if !structured
             && (fallback_spec.is_some() || session_starts_on_first_turn || user_composer_required)
         {
