@@ -18,6 +18,8 @@ console.log("12 passed, 0 failed");
 
 assert.equal(reconnectDelay(RECONNECT_FIRST_MS, 0), 500);
 assert.equal(reconnectDelay(RECONNECT_FIRST_MS, 1), 1_000);
+assert.equal(reconnectDelay(RECONNECT_CAP_MS, 0), RECONNECT_CAP_MS / 2);
+assert.equal(reconnectDelay(RECONNECT_CAP_MS, 1), RECONNECT_CAP_MS);
 let backoff = RECONNECT_FIRST_MS;
 for (let attempt = 0; attempt < 10; attempt++) backoff = nextReconnectBackoff(backoff);
 assert.equal(backoff, RECONNECT_CAP_MS);
