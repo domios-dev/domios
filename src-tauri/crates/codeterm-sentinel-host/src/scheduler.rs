@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use serde_json::json;
-use tauri::Manager;
 
 use super::{
     classify, machine, probe,
@@ -65,6 +64,11 @@ pub struct Handle {
 }
 
 impl Handle {
+    #[cfg(test)]
+    pub(super) fn wake_generation(&self) -> u64 {
+        *self.wake.0.lock().unwrap()
+    }
+
     pub(crate) fn cancel_tab_owned_runs(&self, tab_id: &str) -> usize {
         self.store.lock().cancel_tab_owned_runs(tab_id)
     }
@@ -181,7 +185,7 @@ pub fn start(
     svc: ServiceState,
     clock: SharedClock,
     storage: &codeterm_service_core::storage::Storage,
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    data_dir: &Path,
 ) -> Option<codeterm_service_core::ports::sentinel::SentinelPorts> {
     let _ = super::command::START_TRACE.set(|id| {
         codeterm_service_core::flow_trace::record(id, "blueprint.started", "", "", "command", None);
@@ -205,20 +209,19 @@ pub fn start(
             return None;
         }
     }
-    crate::service_adapter::graph::install_invalidations(&svc, handle.store.clone(), app);
-    wake::listen_any(svc.clone(), handle.clone(), app);
-    app.manage(handle.clone());
+    assert!(svc
+        .register_host_extension(std::sync::Arc::new(wake::subscribe(&svc, handle.clone())))
+        .is_ok());
     assert!(svc
         .register_host_extension(Arc::new(handle.clone()))
         .is_ok());
     let ports = super::ports_impl::ports(&handle);
     assert!(svc.set_ext(ports.clone()).is_ok());
-    app.manage(ports.clone());
     if let Err(error) = handle.store.lock().ensure_available() {
         log::error!("[blueprint] subsystem unavailable: {error}");
         return Some(ports);
     }
-    if let Err(error) = super::input::sweep_orphans(&codeterm_service_core::paths::data_dir()) {
+    if let Err(error) = super::input::sweep_orphans(data_dir) {
         log::error!("[blueprint-input] startup orphan sweep failed: {error}");
     }
     let store = handle.store.clone();

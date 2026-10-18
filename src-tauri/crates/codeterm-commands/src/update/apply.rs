@@ -1,13 +1,18 @@
+#[cfg(feature = "desktop")]
 use tauri_plugin_updater::UpdaterExt;
+#[cfg(any(test, feature = "desktop"))]
 use url::Url;
 
-use super::channel::{
-    default_endpoints_for_install_method, immutable_endpoint_for_release, Channel,
-};
+use super::channel::Channel;
+#[cfg(feature = "desktop")]
+use super::channel::{default_endpoints_for_install_method, immutable_endpoint_for_release};
+#[cfg(any(test, feature = "desktop"))]
 use super::debian_verify::{
     inspect_package_state, staged_package_name, DebianInstallOutcome, DebianPackageState,
 };
+#[cfg(feature = "desktop")]
 use super::manifest;
+#[cfg(feature = "desktop")]
 use super::shutdown;
 use super::{InstallMethod, UpdatePhase, UpdateState};
 
@@ -95,7 +100,8 @@ mod update_apply_phase_tests {
     }
 }
 
-pub(super) async fn check_and_apply(
+#[cfg(feature = "desktop")]
+pub(crate) async fn check_and_apply(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
@@ -110,6 +116,7 @@ pub(super) async fn check_and_apply(
 
 /// Filesystem copies and, on Windows, a `reg` subprocess: never on the Tauri
 /// async runtime, where it would stall every other tab's IPC.
+#[cfg(feature = "desktop")]
 async fn refresh_bundled_cli_off_runtime(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<(), String> {
@@ -125,6 +132,7 @@ async fn refresh_bundled_cli_off_runtime(
     .map_err(|e| format!("bundled CLI refresh task failed: {e}"))
 }
 
+#[cfg(feature = "desktop")]
 async fn resolve_manifest_endpoint(opts: &ApplyOptions) -> Result<String, String> {
     if let Some(url) = &opts.manifest_url {
         return Ok(url.clone());
@@ -140,6 +148,7 @@ async fn resolve_manifest_endpoint(opts: &ApplyOptions) -> Result<String, String
     Ok(default_endpoints_for_install_method(opts.channel, &opts.install_method)[0].clone())
 }
 
+#[cfg(feature = "desktop")]
 async fn check_and_apply_plugin(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
     opts: ApplyOptions,
@@ -283,6 +292,7 @@ async fn check_and_apply_plugin(
 }
 
 #[cfg(windows)]
+#[cfg(feature = "desktop")]
 fn restart_after_plugin_install(
     _: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<ApplyResult, String> {
@@ -291,6 +301,7 @@ fn restart_after_plugin_install(
 }
 
 #[cfg(not(windows))]
+#[cfg(feature = "desktop")]
 fn restart_after_plugin_install(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<ApplyResult, String> {
@@ -298,6 +309,7 @@ fn restart_after_plugin_install(
     app.restart()
 }
 
+#[cfg(feature = "desktop")]
 async fn check_and_apply_deb(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
     opts: ApplyOptions,
@@ -323,6 +335,7 @@ async fn check_and_apply_deb(
     Ok(ApplyResult::Restarting)
 }
 
+#[cfg(feature = "desktop")]
 pub async fn check_stage_deb_update(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
     opts: &ApplyOptions,
@@ -408,7 +421,8 @@ where
     }
 }
 
-pub(super) async fn install_staged_deb_and_restart(
+#[cfg(feature = "desktop")]
+pub(crate) async fn install_staged_deb_and_restart(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
     version: String,
     path: std::path::PathBuf,
@@ -432,14 +446,17 @@ pub(super) async fn install_staged_deb_and_restart(
     app.restart()
 }
 
+#[cfg(any(test, feature = "desktop"))]
 pub fn debian_preflight_status() -> DebianPreflight {
     debian_preflight_status_with(&RealCommandRunner)
 }
 
+#[cfg(any(test, feature = "desktop"))]
 fn debian_preflight_status_with(runner: &dyn CommandRunner) -> DebianPreflight {
     debian_preflight_status_with_session(runner, has_graphical_session())
 }
 
+#[cfg(any(test, feature = "desktop"))]
 fn debian_preflight_status_with_session(
     runner: &dyn CommandRunner,
     graphical_session: bool,
@@ -470,6 +487,7 @@ fn debian_preflight_status_with_session(
     }
 }
 
+#[cfg(feature = "desktop")]
 fn debian_status_code(status: &DebianElevationStatus) -> &'static str {
     match status {
         DebianElevationStatus::Ready => "ready",
@@ -478,6 +496,7 @@ fn debian_status_code(status: &DebianElevationStatus) -> &'static str {
     }
 }
 
+#[cfg(any(test, feature = "desktop"))]
 async fn stage_deb_atomically_async(
     bytes: Vec<u8>,
     version: String,
@@ -487,6 +506,7 @@ async fn stage_deb_atomically_async(
         .map_err(|e| format!("staging worker failed: {}", e))?
 }
 
+#[cfg(any(test, feature = "desktop"))]
 fn stage_deb_atomically(bytes: &[u8], version: &str) -> Result<std::path::PathBuf, String> {
     let dir = std::env::temp_dir().join("codeterm-updater");
     std::fs::create_dir_all(&dir)
@@ -511,6 +531,7 @@ fn stage_deb_atomically(bytes: &[u8], version: &str) -> Result<std::path::PathBu
     Ok(final_path)
 }
 
+#[cfg(feature = "desktop")]
 async fn install_verified_deb_async(
     path: std::path::PathBuf,
     version: String,
@@ -518,6 +539,7 @@ async fn install_verified_deb_async(
     install_verified_deb_with_async(path, version, RealCommandRunner, has_graphical_session()).await
 }
 
+#[cfg(any(test, feature = "desktop"))]
 async fn install_verified_deb_with_async<R>(
     path: std::path::PathBuf,
     version: String,
@@ -534,6 +556,7 @@ where
     .map_err(|e| format!("installer worker failed: {}", e))?
 }
 
+#[cfg(any(test, feature = "desktop"))]
 fn install_verified_deb_with(
     path: &std::path::Path,
     target_version: &str,
@@ -591,11 +614,13 @@ fn install_verified_deb_with(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(any(test, feature = "desktop"))]
 enum DebianElevation {
     Pkexec,
     PasswordlessSudo,
 }
 
+#[cfg(any(test, feature = "desktop"))]
 fn resolve_debian_elevation(
     runner: &dyn CommandRunner,
     graphical_session: bool,
@@ -609,6 +634,7 @@ fn resolve_debian_elevation(
     }
 }
 
+#[cfg(any(test, feature = "desktop"))]
 fn run_elevated(
     runner: &dyn CommandRunner,
     elevation: &DebianElevation,
@@ -629,6 +655,7 @@ fn run_elevated(
     }
 }
 
+#[cfg(any(test, feature = "desktop"))]
 fn debian_install_failure_message(
     path: &std::path::Path,
     target_version: &str,
@@ -662,11 +689,13 @@ fn debian_install_failure_message(
     )
 }
 
+#[cfg(any(test, feature = "desktop"))]
 fn has_graphical_session() -> bool {
     std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(any(test, feature = "desktop"))]
 pub(super) struct CommandResult {
     pub(super) success: bool,
     pub(super) code: Option<i32>,
@@ -674,14 +703,17 @@ pub(super) struct CommandResult {
     pub(super) stderr: String,
 }
 
+#[cfg(any(test, feature = "desktop"))]
 pub(super) trait CommandRunner {
     fn exists(&self, program: &str) -> bool;
     fn run(&self, program: &str, args: &[&str]) -> CommandResult;
     fn run_with_env(&self, program: &str, args: &[&str], env: &[(&str, &str)]) -> CommandResult;
 }
 
+#[cfg(any(test, feature = "desktop"))]
 struct RealCommandRunner;
 
+#[cfg(any(test, feature = "desktop"))]
 impl CommandRunner for RealCommandRunner {
     fn exists(&self, program: &str) -> bool {
         which::which(program).is_ok()
@@ -696,6 +728,7 @@ impl CommandRunner for RealCommandRunner {
     }
 }
 
+#[cfg(any(test, feature = "desktop"))]
 fn run_command(program: &str, args: &[&str], env: &[(&str, &str)]) -> CommandResult {
     let mut command = std::process::Command::new(program);
     command.args(args).envs(env.iter().copied());
@@ -716,6 +749,7 @@ fn run_command(program: &str, args: &[&str], env: &[(&str, &str)]) -> CommandRes
     }
 }
 
+#[cfg(feature = "desktop")]
 async fn diagnose_no_update(endpoint: &str, local_version: &str) {
     match manifest::fetch(endpoint).await {
         Ok(m) => {
@@ -752,6 +786,7 @@ async fn diagnose_no_update(endpoint: &str, local_version: &str) {
 /// The Debian updater must never hand `dpkg -i` anything but the `.deb` bytes
 /// it was verified to fetch. `Url::path()` is percent-encoded but unaffected
 /// here since GitHub release asset names are already URL-safe.
+#[cfg(any(test, feature = "desktop"))]
 fn is_debian_package_url(url: &Url) -> bool {
     url.path().ends_with(".deb")
 }

@@ -228,6 +228,17 @@ impl std::ops::Not for FireStart {
 }
 
 fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> FireStart {
+    fire_job_with_spawn(cron_state, service, spec, |spec| service.spawn_tab(spec))
+}
+
+fn fire_job_with_spawn(
+    cron_state: &CronState,
+    service: &ServiceState,
+    spec: &FireSpec,
+    spawn: impl FnOnce(
+        crate::service::spawn::SpawnTabSpec,
+    ) -> Result<crate::service::spawn::TabHandle, String>,
+) -> FireStart {
     let job_id = spec.job_id.as_str();
     let agent = spec.agent.as_str();
     let model = spec.model.as_deref();
@@ -311,7 +322,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
         },
     );
 
-    match service.spawn_tab(spawn_spec) {
+    match spawn(spawn_spec) {
         Ok(handle) => {
             crate::flow_trace::record(&run_id, "cron.spawned", &handle.tab_id, "", "spawned", None);
             log::info!(
@@ -365,12 +376,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
                 );
             }
 
-            crate::service::cron::emit_cron_fired(
-                service.ui.as_ref(),
-                job_id,
-                &run_id,
-                &handle.tab_id,
-            );
+            crate::service::cron::emit_cron_fired(service, job_id, &run_id, &handle.tab_id);
         }
         Err(e) => {
             log::error!("Cron agent spawn failed: job={}, error={}", job_id, e);
@@ -429,6 +435,10 @@ pub(crate) fn record_fire_start(cron_state: &CronState, job_id: &str, run_id: &s
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
+
+#[cfg(test)]
+#[path = "scheduler/process_split_contract.rs"]
+mod process_split_contract;
 
 #[cfg(test)]
 mod tests {

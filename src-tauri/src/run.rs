@@ -110,7 +110,7 @@ pub fn run(
 
             // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
-            codeterm_socket::register_socket(app_handle.clone());
+            codeterm_socket::register_socket();
 
             // remainder; timed + already expired → drop the snapshot.
             keepawake::reap_orphaned_children_on_startup();
