@@ -1,5 +1,5 @@
 use super::WinChild;
-use crate::cmdbuilder::CommandBuilder;
+use crate::cmdbuilder::{CommandBuilder, WindowsJobPolicy};
 use crate::win::procthreadattr::ProcThreadAttributeList;
 use anyhow::{bail, ensure, Error};
 use filedescriptor::{FileDescriptor, OwnedHandle};
@@ -23,7 +23,7 @@ use winapi::um::winbase::{
 use winapi::um::wincon::COORD;
 use winapi::um::winnt::{
     JobObjectExtendedLimitInformation, HANDLE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 use winapi::um::winuser::SW_HIDE;
 
@@ -162,7 +162,7 @@ impl PsuedoCon {
     }
 
     pub fn spawn_command(&self, cmd: CommandBuilder) -> anyhow::Result<WinChild> {
-        let job = create_tab_job()?;
+        let job = create_tab_job(cmd.windows_job_policy())?;
         let mut si = conpty_startup_info();
 
         let mut attrs = ProcThreadAttributeList::with_capacity(1)?;
@@ -335,7 +335,7 @@ mod tests {
     }
 }
 
-fn create_tab_job() -> anyhow::Result<OwnedHandle> {
+fn create_tab_job(policy: WindowsJobPolicy) -> anyhow::Result<OwnedHandle> {
     let raw = unsafe { CreateJobObjectW(ptr::null_mut(), ptr::null()) };
     if raw.is_null() {
         bail!("CreateJobObjectW failed: {}", IoError::last_os_error());
@@ -343,6 +343,9 @@ fn create_tab_job() -> anyhow::Result<OwnedHandle> {
     let job = unsafe { OwnedHandle::from_raw_handle(raw as _) };
     let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { mem::zeroed() };
     limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if policy == WindowsJobPolicy::AllowExplicitServerBreakaway {
+        limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_BREAKAWAY_OK;
+    }
     let configured = unsafe {
         SetInformationJobObject(
             job.as_raw_handle() as _,
