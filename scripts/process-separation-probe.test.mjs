@@ -42,7 +42,7 @@ test('artifact selection rejects missing, duplicate and test executable evidence
   } finally { rmSync(root, { recursive: true }); }
 });
 test('control requests bind challenge and exact intended server incarnation', () => {
-  const ready = { protocol: 1, api_version: 3, build: 'artifact', identity: { data: '/data', config: '/data/config' }, epoch: 'boot', process: { pid: 7, created: 'born', executable: '/server' } };
+  const ready = { protocol: 2, api_version: 3, build: 'artifact', identity: { data: '/data', config: '/data/config' }, epoch: 'boot', process: { pid: 7, created: 'born', executable: '/server' } };
   const first = attachRequest(ready), second = attachRequest(ready);
   assert.notEqual(first.challenge, second.challenge);
   assert.deepEqual(first.expected, { process: ready.process, epoch: ready.epoch });
