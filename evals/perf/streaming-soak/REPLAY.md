@@ -125,16 +125,28 @@ ResizeObserver work; useMeshData refreshes on mesh/service events. No graph
 algorithm repair follows from source inspection alone.
 
 Every live invocation has the existing eight-minute failure deadline and lock.
-Each step waits for input and explicit tail paint-opportunity/frame signals;
-no sleeps, polling cadence or synthetic readiness delay. The pace follows the
-consumer's acknowledgements. This does not recreate unbounded real-world burst
-arrival pressure. Page instrumentation has a 450-second failure lifetime and
-stops frame sampling when a sample budget fails; runner loss cannot leave an
+Setup waits for the owned chat root and accessible composer to mount. Replay
+then checks the transcript store's exact source session and nonce before any
+dispatch; the `snapshotReady` display attribute is not used as an authority
+signal. The runner keeps its 20-second DOM evidence deadline. Each step waits
+for input and explicit tail paint-opportunity/frame signals; no sleeps, polling
+cadence or synthetic readiness delay. The pace follows the consumer's
+acknowledgements. This does not recreate unbounded real-world burst arrival
+pressure. Page instrumentation has a 450-second failure lifetime and stops
+frame sampling when a sample budget fails; runner loss cannot leave an
 unbounded sampler. Expiry removes the test handle and makes the run fail.
 `pending` is persisted before replay; interruption refuses
 replay and needs parent review of the ownership journal, not another run in the
 same checkpoint. Successful replay is single-use. Complete/finish/cleanup each
 owned run before the next control to keep mounted baseline counts fixed.
+
+Cleanup subscribes to `mux-state-changed` before closing owned tabs/workspace.
+Each bounded event triggers one `mux_get_state` read; cleanup completes only
+after a shaped snapshot confirms every owned tab and the owned workspace are
+absent. The 20-second observation deadline is a failure bound, not an API
+latency measurement. A timeout leaves `cleanup.status: running`, does not mark
+the checkpoint cleaned, and requires parent review; do not retry or edit that
+journal.
 
 ## Native/Chrome and before/after
 
@@ -152,7 +164,9 @@ The native surface uses only the DEV-advertised CDP endpoint. A Chrome endpoint
 must differ from that endpoint; native bridge presence must match the surface.
 Identity includes browser product/version/User-Agent/V8/protocol, page path and
 test-mode flag, full backend build SHA, served HTML/entry hash, boot/page IDs,
-renderer/daemon PID and creation times. The entry hash is not a hash of all HMR
+renderer/API-listener-owner PID and creation times. The listener owner is not
+native-client CPU or lock attribution; this runner does not currently identify
+the native wrapper PID. The entry hash is not a hash of all HMR
 modules: record the exact loaded checkout/build/entry and harness SHA separately.
 
 Repeat the same immutable fixture, chunk plan, history, controls, probe,
