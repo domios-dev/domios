@@ -471,3 +471,22 @@ The provenance record, watcher and static server use that same derived resource 
 macOS authenticated installed inventory location remains Unsupported; staging is not
 proof of macOS startup. Parent native Linux proof must verify actual resource lookup,
 exact staged hashes and authenticated attachment for host and target-qualified output.
+
+### Automatic Windows DEV launch from an older host job
+
+`build.ps1 dev` uses the existing `build.sh` build/stage operation once, then its
+Windows DEV launcher asks the current user's Explorer desktop automation object to
+start a finite hidden execution helper. This is DEV-only; no host install/restart,
+elevation, scheduled task, global job edit or general broker is involved. An absent
+interactive desktop, wrong user/session, remaining helper job membership, invalid
+staged client or failed private pipe refuses launch. COM return is never readiness.
+
+The operation pipe permits only the current user, has bounded input/output frames,
+and transmits only whitelisted nonsecret DEV settings. Client bootstrap/API credentials
+never enter launcher argv/log/files. The native client still verifies component bytes,
+authenticates and pins its server; existing authenticated attachment supplies readiness.
+The helper owns the native client handle. Controller cancellation/disconnect terminates
+that client only; supported scoped `build.sh kill` remains the DEV server cleanup path.
+Titlebar close/tray lifetime differs from explicit controller cancellation. Parent QA
+must verify actual desktop launch, exact pair/renderer ownership, titlebar/session
+survival and protocol2 Quit cleanup. Source fixtures do not prove those native rows.

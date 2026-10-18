@@ -4,7 +4,15 @@ import { closeSync, fstatSync, mkdirSync, openSync, readSync, watch, writeSync }
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export function runDevApp({ app, args = [], log, cwd, env, onData = () => {} }) {
+export function windowsDevArguments({ wrapper, app, args, interactiveDesktop, env }) {
+  if (interactiveDesktop && (args.length !== 0 || env.CODETERM_DEV !== '1')) {
+    throw new Error('Interactive Windows DEV requires explicit development intent and no arbitrary client arguments');
+  }
+  return ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', wrapper, '-App', app,
+    ...(interactiveDesktop ? ['-InteractiveDesktop'] : [])];
+}
+
+export function runDevApp({ app, args = [], log, cwd, env, interactiveDesktop = false, onData = () => {} }) {
   return new Promise((resolveExit, rejectExit) => {
     mkdirSync(dirname(log), { recursive: true });
     // Rust stdio requires synchronous handles; libuv child pipes are overlapped on Windows.
@@ -52,7 +60,7 @@ export function runDevApp({ app, args = [], log, cwd, env, onData = () => {} }) 
     try {
       if (windows) {
         const wrapper = fileURLToPath(new URL('./windows-dev-app.ps1', import.meta.url));
-        child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', wrapper, '-App', app], {
+        child = spawn('powershell.exe', windowsDevArguments({ wrapper, app, args, interactiveDesktop, env }), {
           cwd, env: { ...env, CODETERM_DEV_APP_ARGS: JSON.stringify(args) },
           stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
         });
