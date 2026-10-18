@@ -13,13 +13,13 @@ Use `codeterm <command> --help` for the installed CLI contract.
 
 ### Remote task locations
 
-`agent providers --json` exposes an optional `remote_task` capability on a non-PTY backend. Its `localProviderId` names the related local provider; `availability` and `environments` determine whether Remote can start. A declared location does not establish live account access.
+`agent providers --json` exposes an optional `remote_task` capability on the provider itself. Its `mode` identifies an explicit execution location; `availability` and `environments` determine whether Cloud can start. A declared location does not establish live account access.
 
 ```bash
-codeterm agent spawn <provider> --location remote --environment <environment-id> --description "Remote task"
+codeterm agent spawn <provider> --location cloud --environment <environment-id> --description "Remote task"
 ```
 
-Choose an environment explicitly; an unambiguous label is also accepted. Local remains the default. Remote opens a one-task tab, with a branch and prompt chosen there, or `--task` supplies its first task on `master`. Local model controls, roles and Worker bindings are refused for remote tasks. Run this command on the machine that owns the provider; remote task spawning through `--mesh` is unavailable.
+Choose an environment explicitly; an unambiguous label is also accepted. Local remains the default. Cloud opens a one-task tab, with a branch and prompt chosen there, or `--task` supplies its first task on `master`. Local model controls, roles and Worker bindings are refused for remote tasks. Run this command on the machine that owns the provider; remote task spawning through `--mesh` is unavailable.
 
 The task tab shows the persisted result and diff and offers explicit Refresh. Restoring a tab reads its existing task identity; it never creates another task. Unconfirmed creation must be checked in the provider's task list before another task is submitted. Unsupported follow-up, cancellation and patch application are never substituted with terminal commands or another billed backend. An empty environment list asks you to connect the owning account and refresh providers.
 
@@ -212,4 +212,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 46 -->
+<!-- revision: 47 -->

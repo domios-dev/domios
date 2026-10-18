@@ -21,7 +21,7 @@ export class RemoteTaskFileStorage implements RemoteTaskStorage {
     const binding = JSON.parse(raw) as RemoteTaskBinding;
     if (!binding || !Number.isSafeInteger(binding.revision) || binding.revision < 0
       || !["creating", "create_uncertain", "bound"].includes(binding.phase)
-      || ![binding.providerId, binding.backend, binding.environmentId, binding.accountRef, binding.branch].every(value => typeof value === "string" && value.length > 0)
+      || ![binding.providerId, binding.executionMode, binding.backend, binding.environmentId, binding.accountRef, binding.branch].every(value => typeof value === "string" && value.length > 0)
       || (binding.phase === "bound" && (!binding.snapshot || typeof binding.snapshot.taskId !== "string" || !binding.snapshot.taskId))) {
       throw new Error("Stored remote task binding is invalid; creation was not repeated");
     }

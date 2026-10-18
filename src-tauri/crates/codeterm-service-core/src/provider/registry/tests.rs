@@ -269,3 +269,53 @@ fn runtime_capability_selects_chat_transport_and_retains_cli_controls() {
             .required
     );
 }
+
+#[test]
+fn remote_mode_keeps_one_provider_and_its_default_local_transport() {
+    use crate::agent::provider::AgentProvider;
+    for runtime in [false, true] {
+        let id = if runtime {
+            "opaque-local-runtime"
+        } else {
+            "opaque-local-pty"
+        };
+        let mut value = serde_json::json!({"id":id,"version":"0.1.0","displayName":"Fixture",
+        "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true},"remoteTask":{
+            "mode":"opaque-cloud","displayName":"Fixture Cloud","backend":"fixture","availability":{"status":"unavailable","reason":"fixture"},
+            "environments":[],"followUp":false,"cancel":false,"applyDiff":false
+        }}});
+        if runtime {
+            value["capabilities"]["agentRuntime"] = serde_json::json!({"runtime":"stdio-jsonrpc","command":{"binary":"opaque-cli","args":[]},"requestMethods":{"initialize":["initialize"]},"notificationMethods":[]});
+        }
+        let manifest = serde_json::from_value(value).unwrap();
+        let vm = Arc::new(
+            codeterm_plugin::js_runtime::PluginVm::from_source(
+                id,
+                "module.exports.default={};".into(),
+            )
+            .unwrap(),
+        );
+        let backend =
+            codeterm_plugin::js_runtime::JsChatBackend::from_manifest(vm.clone(), &manifest);
+        let provider = codeterm_plugin::js_runtime::JsProvider::new(manifest, vm);
+        assert!(provider.remote_task_capability().is_some());
+        let agents = Arc::new(AgentRegistry::new());
+        agents.register_provider(Box::new(provider));
+        let backends = Arc::new(ChatBackendRegistry::new());
+        backends.register(id, Arc::new(backend));
+        let registry = ProviderRegistry::new(agents, backends);
+        let descriptors = registry.describe_all();
+        assert_eq!(descriptors.len(), 1);
+        assert_eq!(descriptors[0].id, id);
+        assert_eq!(descriptors[0].agent_runtime.is_some(), runtime);
+        assert!(descriptors[0].remote_task.is_some());
+        assert_eq!(
+            registry.transport_of(id),
+            Some(if runtime {
+                ProviderTransport::ChatBackend
+            } else {
+                ProviderTransport::Pty
+            })
+        );
+    }
+}

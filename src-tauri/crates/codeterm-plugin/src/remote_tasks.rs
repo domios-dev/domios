@@ -2,7 +2,8 @@
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RemoteTaskCapability {
     pub backend: String,
-    pub local_provider_id: String,
+    pub mode: String,
+    pub display_name: String,
     pub availability: RemoteTaskAvailability,
     pub environments: Vec<RemoteEnvironment>,
     pub follow_up: bool,
