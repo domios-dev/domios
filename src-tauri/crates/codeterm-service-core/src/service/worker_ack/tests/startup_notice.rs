@@ -97,6 +97,7 @@ fn worker_ack_notice_is_a_short_single_line_with_agent_provider_and_attempt() {
     assert!(notice.contains("opencode"));
     assert!(notice.contains("task_g94uu5"));
     assert!(notice.contains("attempt_rjd7ab"));
+    assert!(notice.contains("acknowledged task task_g94uu5"));
     assert!(notice.len() < 180);
 }
 

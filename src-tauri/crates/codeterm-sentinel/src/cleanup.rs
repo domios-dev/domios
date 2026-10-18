@@ -22,7 +22,7 @@ pub fn one_shot(job: &Sentinel) -> bool {
 
 pub fn terminal_roots(jobs: &[Sentinel], leased: &BTreeSet<String>) -> Vec<Sentinel> {
     jobs.iter()
-        .filter(|root| root.is_scenario_root() && one_shot(root))
+        .filter(|root| root.is_scenario_root() && one_shot(root) && !root.agent_authored)
         .filter(|root| {
             jobs.iter()
                 .filter(|job| job.id == root.id || job.scenario_id.as_deref() == Some(&root.id))
