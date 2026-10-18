@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { clampFloatingPosition } from "./floatingPosition";
@@ -137,6 +137,7 @@ interface DropdownMenuProps {
   contextMenuTargetRef?: RefObject<HTMLElement | null>;
   menuLabel?: string;
   menuTestId?: string;
+  disabled?: boolean;
   /** Pixel cap on the open menu; content beyond it scrolls internally. */
   maxHeight?: number;
   onOpenChange?: (open: boolean) => void;
@@ -155,12 +156,13 @@ export function DropdownMenu({
   contextMenuTargetRef,
   menuLabel = "Actions",
   menuTestId,
+  disabled,
   maxHeight,
   onOpenChange,
 }: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set<string>());
-  const focusOnOpenRef = useRef(false);
+  const focusOnOpenRef = useRef<"first" | "last" | false>(false);
   const pendingFocusRef = useRef<PendingFocus | null>(null);
   const onOpenChangeRef = useRef(onOpenChange);
   const triggerRef = useRef<HTMLDivElement>(null);
@@ -172,6 +174,7 @@ export function DropdownMenu({
   const openSourceRef = useRef<"trigger" | "context">("trigger");
   const contextPointRef = useRef({ x: 0, y: 0 });
   const descriptionIdBase = useId();
+  const menuId = useId();
   const activeSubmenu = submenuKey === null
     ? undefined
     : leafItems(items).find((item) => item.submenu !== undefined && itemKey(item) === submenuKey)?.submenu;
@@ -225,7 +228,7 @@ export function DropdownMenu({
     }
     announceOpen();
     openSourceRef.current = "trigger";
-    focusOnOpenRef.current = focusFirstItem;
+    focusOnOpenRef.current = focusFirstItem ? "first" : false;
     pendingFocusRef.current = null;
     setSubmenuKey(null);
     setPageDirection(null);
@@ -282,8 +285,9 @@ export function DropdownMenu({
 
   useEffect(() => {
     if (!open || !pos || !focusOnOpenRef.current) return;
+    const focus = focusOnOpenRef.current;
     focusOnOpenRef.current = false;
-    moveFocus("Home");
+    moveFocus(focus === "last" ? "End" : "Home");
   }, [moveFocus, open, pos]);
 
   useEffect(() => {
@@ -376,9 +380,17 @@ export function DropdownMenu({
       enterSubmenu(itemKey(item));
       return;
     }
-    if (!item.keepOpen) setOpen(false);
+    if (!item.keepOpen) closeMenu(true);
     item.onClick?.();
   };
+
+  const triggerWithPopup = isValidElement(trigger)
+    ? cloneElement(trigger as ReactElement<Record<string, unknown>>, {
+      "aria-haspopup": "menu",
+      "aria-expanded": open,
+      "aria-controls": menuId,
+    })
+    : trigger;
 
   const submenuParentAt = (element: EventTarget): DropdownMenuItem | undefined => {
     const key = (element as HTMLElement).getAttribute?.("data-menu-key");
@@ -392,12 +404,19 @@ export function DropdownMenu({
     <>
       <div
         ref={triggerRef}
-        onPointerDown={toggle}
+        onPointerDown={disabled ? undefined : toggle}
         onPointerUp={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(event) => {
+          if (disabled) return;
           if ((event.key === "Enter" || event.key === " ") && !event.repeat) {
             toggle(event, true);
+            return;
+          }
+          if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+            event.preventDefault();
+            toggle(event, true);
+            if (event.key === "ArrowUp") focusOnOpenRef.current = "last";
             return;
           }
           if (!open || (event.key !== "Escape" && event.key !== "ArrowDown")) return;
@@ -408,12 +427,14 @@ export function DropdownMenu({
         }}
         className={className}
       >
-        {trigger}
+        {triggerWithPopup}
       </div>
+      {(!open || !pos) && <div id={menuId} role="menu" aria-label={menuLabel} hidden />}
       {open && pos && createPortal(
         <>
           <div
             ref={menuRef}
+            id={menuId}
             role="menu"
             aria-label={menuLabel}
             data-testid={menuTestId}
@@ -549,6 +570,11 @@ function DropdownMenuRow({
         e.stopPropagation();
         onActivate();
       }}
+      onKeyDown={(event) => {
+        if ((event.key !== "Enter" && event.key !== " ") || event.repeat) return;
+        event.preventDefault();
+        onActivate();
+      }}
       className="ct-menu-row"
     >
       {item.icon && <span className="ct-menu-row__icon">{item.icon}</span>}
@@ -596,8 +622,7 @@ export interface DropdownSelectOption {
  * (escapes transform/overflow-hidden ancestors and layers cleanly above the
  * WebGL xterm canvas), so it replaces native `<select>` without the native
  * popup's compositor flicker over the canvas. The trigger shows the current
- * selection; each option sets its value on click, the selected one carries a
- * check.
+ * selection; each option sets its value on click and exposes its checked state.
  */
 export function DropdownSelect({
   options,
@@ -636,6 +661,7 @@ export function DropdownSelect({
     badge: o.badge,
     disabled: o.disabled,
     icon: o.value === value ? <Check size={14} /> : <span className="w-3.5 h-3.5" />,
+    selected: o.value === value,
     onClick: () => onChange(o.value),
     "data-testid": testId ? `${testId}-option-${o.value}` : undefined,
   });
@@ -654,8 +680,7 @@ export function DropdownSelect({
       data-testid={testId}
       data-value={value}
       disabled={disabled}
-      aria-haspopup="listbox"
-      aria-label={ariaLabel ?? (prefix ? `${prefix}: ${label}` : undefined)}
+      aria-label={ariaLabel ? `${ariaLabel}: ${label}` : prefix ? `${prefix}: ${label}` : undefined}
       className={`flex items-center gap-2 w-full min-w-0 px-3 py-1.5 rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40 ${className ?? ""}`}
     >
       {leading}
@@ -678,13 +703,13 @@ export function DropdownSelect({
     </button>
   );
 
-  if (disabled) return trigger;
   return (
     <DropdownMenu
       items={items}
       trigger={trigger}
       className="w-full min-w-0"
       maxHeight={menuMaxHeight}
+      disabled={disabled}
     />
   );
 }
