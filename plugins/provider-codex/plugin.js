@@ -37,8 +37,8 @@ function* sessionRecords(input, accepts) {
     return;
   }
   const lines = String(input || "").split("\n");
-  for (let row2 = 0; row2 < lines.length; row2++) {
-    const line = lines[row2];
+  for (let row3 = 0; row3 < lines.length; row3++) {
+    const line = lines[row3];
     if (!line || accepts && !accepts(line)) continue;
     let value;
     try {
@@ -46,7 +46,7 @@ function* sessionRecords(input, accepts) {
     } catch {
       continue;
     }
-    yield { row: row2, value };
+    yield { row: row3, value };
   }
 }
 
@@ -135,18 +135,18 @@ function enumerateSessions() {
   }));
 }
 function findSession(sessionId) {
-  const row2 = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
-  if (!row2) return null;
+  const row3 = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
+  if (!row3) return null;
   const store = codexSessionStore();
   return {
     sessionId,
     provider: "codex",
-    projectPath: resolveThreadCwd(sessionId, row2),
-    title: trimmedField(row2, "name") || trimmedField(row2, "title"),
+    projectPath: resolveThreadCwd(sessionId, row3),
+    title: trimmedField(row3, "name") || trimmedField(row3, "title"),
     summary: null,
     filePath: store ? store.indexPath : codexStateDbPath() || "",
-    createdTs: unixSeconds(row2.created_at),
-    modifiedTs: unixSeconds(row2.updated_at)
+    createdTs: unixSeconds(row3.created_at),
+    modifiedTs: unixSeconds(row3.updated_at)
   };
 }
 function detectSessionModel(_cwd, sessionId) {
@@ -179,8 +179,8 @@ function queryThreadRow(sessionId, sql) {
   const db = codexStateDbPath();
   if (!db || !host.fs.fileExists(db)) return null;
   try {
-    const rows = host.fs.sqliteQuery(db, sql, [sessionId]);
-    return rows.length > 0 ? rows[0] : null;
+    const rows2 = host.fs.sqliteQuery(db, sql, [sessionId]);
+    return rows2.length > 0 ? rows2[0] : null;
   } catch (_) {
     return null;
   }
@@ -188,8 +188,8 @@ function queryThreadRow(sessionId, sql) {
 function unixSeconds(value) {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
 }
-function trimmedField(row2, field) {
-  const value = row2 ? row2[field] : null;
+function trimmedField(row3, field) {
+  const value = row3 ? row3[field] : null;
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 function codexStateDbPath() {
@@ -260,12 +260,12 @@ var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
 function readThreadCwd(sessionId) {
   return resolveThreadCwd(sessionId, threadRow(sessionId));
 }
-function resolveThreadCwd(sessionId, row2) {
-  if (!row2) {
+function resolveThreadCwd(sessionId, row3) {
+  if (!row3) {
     logUnresolvedCwd(sessionId, "no_row");
     return null;
   }
-  const cwd = trimmedField(row2, "cwd");
+  const cwd = trimmedField(row3, "cwd");
   if (!cwd) {
     logUnresolvedCwd(sessionId, "no_cwd");
     return null;
@@ -308,15 +308,15 @@ function detectCodexLaunchSession(evidence) {
   const db = codexStateDbPath();
   if (!db || !host.fs.fileExists(db)) return null;
   const since = Math.floor(Math.max(0, Number(evidence.launchedAtMs) || 0) / 1e3);
-  const rows = host.fs.sqliteQuery(
+  const rows2 = host.fs.sqliteQuery(
     db,
     "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT " + CANDIDATE_THREADS,
     [since]
   );
   const matches = [];
-  for (let i = 0; i < rows.length; i++) {
-    const id = typeof rows[i].id === "string" ? rows[i].id : "";
-    const path = typeof rows[i].rollout_path === "string" ? rows[i].rollout_path : "";
+  for (let i = 0; i < rows2.length; i++) {
+    const id = typeof rows2[i].id === "string" ? rows2[i].id : "";
+    const path = typeof rows2[i].rollout_path === "string" ? rows2[i].rollout_path : "";
     if (!id || !path || matches.indexOf(id) !== -1) continue;
     if (rolloutCarriesMarker(path, id, marker)) matches.push(id);
   }
@@ -346,8 +346,8 @@ function rolloutCarriesMarker(path, id, marker) {
     if (payload.role !== "developer" && payload.role !== "user") continue;
     const content = Array.isArray(payload.content) ? payload.content : [];
     for (let j = 0; j < content.length; j++) {
-      const text6 = content[j] && content[j].text;
-      if (typeof text6 === "string" && text6.indexOf(marker) !== -1) return true;
+      const text7 = content[j] && content[j].text;
+      if (typeof text7 === "string" && text7.indexOf(marker) !== -1) return true;
     }
   }
   return false;
@@ -421,160 +421,6 @@ function codexCommandFromSpec(spec) {
   return unset + [spec.program, ...spec.args].map((value) => /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(value) ? value : quote(value)).join(" ");
 }
 
-// plugins/provider-codex/src/runtimeGoal.ts
-var statuses = /* @__PURE__ */ new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
-function goalIntent(raw, thread) {
-  if (!raw || typeof raw !== "object") return null;
-  const goal = raw;
-  if (thread && goal.threadId !== thread) return null;
-  if (typeof goal.objective !== "string" || !goal.objective.trim()) return null;
-  return { goal: goal.objective, ...typeof goal.status === "string" && statuses.has(goal.status) ? { goalStatus: goal.status } : {} };
-}
-function goalPlan(threadId, value) {
-  const action = value && typeof value === "object" && !Array.isArray(value) ? value.action : void 0;
-  const status = action === "pause" ? "paused" : action === "resume" ? "active" : action === "complete" ? "complete" : void 0;
-  if (action !== "read" && action !== "cancel" && !status) throw new Error("Unsupported goal action");
-  const method = action === "read" ? "thread/goal/get" : action === "cancel" ? "thread/goal/clear" : "thread/goal/set";
-  return { action: { kind: "request", call: { method, params: { threadId, ...action !== "read" ? { origin: "user" } : {}, ...status ? { status } : {} } } }, state: { goalAction: String(action) } };
-}
-function goalResponse(threadId, state, reply) {
-  const refuse = (message) => ({ kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false });
-  if (reply.kind === "error") return refuse(reply.error.message);
-  const value = reply.value;
-  if (!value || typeof value !== "object") return refuse("Goal response is invalid");
-  if (state.goalAction === "cancel") return value.cleared === true ? { kind: "continue", plan: { ...goalPlan(threadId, { action: "read" }), state: { goalAction: "verifyCancel" } } } : refuse("Goal removal was not confirmed");
-  if (!("goal" in value)) return refuse("Goal response is missing");
-  if (state.goalAction === "verifyCancel" && value.goal !== null) return refuse("Goal still exists after removal");
-  const intent = goalIntent(value.goal, threadId);
-  if (value.goal !== null && (!intent || !intent.goalStatus)) return refuse("Goal identity or status is invalid");
-  const expected = state.goalAction === "pause" ? "paused" : state.goalAction === "resume" ? "active" : state.goalAction === "complete" ? "complete" : void 0;
-  if (expected && intent?.goalStatus !== expected) return refuse("Goal status was not confirmed");
-  return { kind: "complete", result: { kind: "goal", threadId, intent } };
-}
-
-// plugins/provider-codex/src/runtimeVersion.ts
-function runtimeBinaryVersion(userAgent) {
-  if (typeof userAgent !== "string") return void 0;
-  return userAgent.match(/^[^\s/]+\/(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?=\s|$)/)?.[0].split("/")[1];
-}
-function initializedResult(state) {
-  const binaryVersion = typeof state.binaryVersion === "string" ? state.binaryVersion : void 0;
-  return { kind: "initialized", ...binaryVersion ? { binaryVersion } : {} };
-}
-
-// plugins/provider-codex/src/runtimeProtocol.ts
-function object(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
-function text(value) {
-  return typeof value === "string" && value.length > 0 ? value : void 0;
-}
-function list(value) {
-  return Array.isArray(value) ? value : [];
-}
-function userThread(value, expected) {
-  const thread = object(object(value).thread);
-  const id = text(thread.id);
-  if (!id || expected && expected !== id || thread.parentThreadId != null || object(thread.source).subAgent != null || String(thread.threadSource ?? "").toLowerCase().startsWith("subagent")) return void 0;
-  return id;
-}
-function steerRefused(error, turn) {
-  return error.code === -32600 && error.data == null && (error.message === "no active turn to steer" || error.message.startsWith(`expected active turn id \`${turn}\` but found \``) && error.message.endsWith("`"));
-}
-function archivedResume(message) {
-  const words = message.toLowerCase().split(/\s+/).map((word) => word.replace(/^[`"']+|[`"'.:;,]+$/g, ""));
-  return words.some((word, index) => word === "codex" && words[index + 1] === "unarchive" || word === "session" && !!words[index + 1] && words[index + 2] === "is" && words[index + 3] === "archived");
-}
-var serverRequestMethods = [
-  "item/commandExecution/requestApproval",
-  "item/fileChange/requestApproval",
-  "item/permissions/requestApproval",
-  "item/tool/requestUserInput",
-  "mcpServer/elicitation/request"
-];
-
-// plugins/provider-codex/src/runtimeHistoryBounds.ts
-var HISTORY_CHUNK_BYTES = 512 * 1024;
-var ITEM_BYTES = 64 * 1024;
-var STRING_BYTES = 16 * 1024;
-function utf8Bytes2(value) {
-  try {
-    return unescape(encodeURIComponent(value)).length;
-  } catch {
-    return value.length + (value.match(/[\u0080-\u07ff]/g)?.length ?? 0) + 2 * (value.match(/[\u0800-\uffff]/g)?.length ?? 0) - 2 * (value.match(/[\ud800-\udbff][\udc00-\udfff]/g)?.length ?? 0);
-  }
-}
-function serializedBytes(value) {
-  return utf8Bytes2(JSON.stringify(value));
-}
-function boundedString(value) {
-  const scrubbed = value.replace(
-    /data:image\/[^\s"'<>]*;base64,[A-Za-z0-9+/=_-]*/gi,
-    (image) => `[image omitted: ${utf8Bytes2(image)} bytes]`
-  );
-  const bytes = utf8Bytes2(scrubbed);
-  if (bytes <= STRING_BYTES) return scrubbed;
-  return `${scrubbed.slice(0, 2048)}
-[content truncated: ${bytes} bytes total]`;
-}
-function sanitizeHistory(value) {
-  return JSON.parse(JSON.stringify(value, (_key, entry) => {
-    if (typeof entry === "string") return boundedString(entry);
-    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-      const item = entry;
-      if (item.type === "image" && typeof item.data === "string" && !item.data.startsWith("[image omitted:")) {
-        const { data, ...rest } = item;
-        return { ...rest, data: `[image omitted: ${utf8Bytes2(data)} bytes]` };
-      }
-      if (item.type === "imageGeneration" && typeof item.result === "string" && !item.result.startsWith("[image omitted:")) {
-        return { ...item, result: `[image omitted: ${utf8Bytes2(item.result)} bytes]` };
-      }
-    }
-    return entry;
-  }));
-}
-function historyItem(value) {
-  const sanitized = sanitizeHistory(value);
-  const bytes = serializedBytes(sanitized);
-  return bytes <= ITEM_BYTES ? sanitized : { id: sanitized.id, type: "error", message: `[history item omitted: ${bytes} serialized bytes]` };
-}
-function boundHistoryRows(rows) {
-  const bounded = rows.map((row2) => {
-    const sanitized = sanitizeHistory(row2);
-    const bytes2 = serializedBytes(sanitized);
-    if (sanitized.attachments) {
-      sanitized.attachments = sanitized.attachments.map((attachment) => {
-        if (!attachment.url?.startsWith("[image omitted:")) return attachment;
-        sanitized.content += `
-${attachment.url}`;
-        const { url, ...chip } = attachment;
-        return chip;
-      });
-    }
-    if (bytes2 <= ITEM_BYTES) return sanitized;
-    return { id: row2.id, seq: row2.seq, type: "system", content: `[history item omitted: ${bytes2} serialized bytes]` };
-  });
-  const bytes = serializedBytes(bounded);
-  return bytes <= ITEM_BYTES || !rows.length ? bounded : [{ id: rows[0].id, seq: rows[0].seq, type: "system", content: `[history item omitted: ${bytes} serialized bytes]` }];
-}
-
-// plugins/provider-codex/src/canonicalJson.ts
-function canonicalJson(value, indentation = 0) {
-  const normalized = JSON.parse(JSON.stringify(value ?? null));
-  const gap = " ".repeat(Math.max(0, Math.min(10, Math.trunc(indentation))));
-  const render = (node, depth) => {
-    if (node === null || typeof node !== "object") return JSON.stringify(node);
-    const parts = Array.isArray(node) ? node.map((entry) => render(entry, depth + 1)) : Object.keys(node).sort().map((key) => `${JSON.stringify(key)}:${gap ? " " : ""}${render(node[key], depth + 1)}`);
-    const [open, close] = Array.isArray(node) ? ["[", "]"] : ["{", "}"];
-    if (!parts.length) return open + close;
-    return gap ? `${open}
-${gap.repeat(depth + 1)}${parts.join(`,
-${gap.repeat(depth + 1)}`)}
-${gap.repeat(depth)}${close}` : open + parts.join(",") + close;
-  };
-  return render(normalized, 0);
-}
-
 // packages/plugin-sdk/src/fileDiffs.ts
 function recordedPatchDiff(path, patch, kind) {
   if (!path.trim()) return [];
@@ -601,6 +447,111 @@ function recordedPatchDiff(path, patch, kind) {
     hunks
   }];
 }
+
+// packages/plugin-sdk/src/remoteTasks.ts
+var RemoteTaskController = class {
+  constructor(storage, backend) {
+    this.storage = storage;
+    this.backend = backend;
+  }
+  create(tabId, providerId, environment, branch, prompt) {
+    if (this.backend.capability.availability.status !== "available") {
+      throw new Error(this.backend.capability.availability.reason);
+    }
+    if (!branch.trim() || !prompt.trim()) throw new Error("A branch and task are required");
+    const environments = this.backend.environments();
+    if (!environments.some((row3) => row3.id === environment.id && row3.accountRef === environment.accountRef)) {
+      throw new Error("Choose an environment available to this account");
+    }
+    const claim = {
+      revision: 0,
+      providerId,
+      executionMode: this.backend.capability.mode,
+      backend: this.backend.capability.backend,
+      environmentId: environment.id,
+      accountRef: environment.accountRef,
+      branch,
+      phase: "creating",
+      snapshot: null
+    };
+    if (!this.storage.compareExchange(tabId, null, claim)) {
+      throw new Error("This tab already has a remote task; creation was not repeated");
+    }
+    let acknowledgement;
+    try {
+      acknowledgement = this.backend.create({ environmentId: environment.id, accountRef: environment.accountRef, branch, prompt });
+      if (!acknowledgement.taskId) throw new Error("Missing remote task acknowledgement");
+    } catch {
+      const uncertain = { ...claim, revision: 1, phase: "create_uncertain" };
+      this.storage.compareExchange(tabId, claim.revision, uncertain);
+      return uncertain;
+    }
+    const bound = {
+      ...claim,
+      revision: 1,
+      phase: "bound",
+      snapshot: { taskId: acknowledgement.taskId, attempt: null, status: "pending", result: "", diff: null, cursor: null, error: null }
+    };
+    if (!this.storage.compareExchange(tabId, claim.revision, bound)) {
+      throw new Error("Remote creation was acknowledged but its binding could not be saved; do not submit again");
+    }
+    return bound;
+  }
+  restore(tabId) {
+    const binding = this.storage.read(tabId);
+    if (!binding) return null;
+    if (binding.executionMode !== this.backend.capability.mode) throw new Error("Remote execution mode does not match the stored tab");
+    if (binding.backend !== this.backend.capability.backend) throw new Error("Remote backend does not match the stored tab");
+    if (binding.phase !== "bound" || !binding.snapshot) {
+      if (binding.phase === "create_uncertain") return binding;
+      const uncertain = { ...binding, revision: binding.revision + 1, phase: "create_uncertain" };
+      if (!this.storage.compareExchange(tabId, binding.revision, uncertain)) return this.storage.read(tabId);
+      return uncertain;
+    }
+    const snapshot = this.backend.read(binding);
+    if (snapshot.taskId !== binding.snapshot.taskId) throw new Error("Remote response belongs to a different task");
+    const updated = { ...binding, revision: binding.revision + 1, snapshot };
+    if (!this.storage.compareExchange(tabId, binding.revision, updated)) return this.storage.read(tabId);
+    return updated;
+  }
+};
+
+// packages/plugin-sdk/src/remoteTaskStorage.ts
+var RemoteTaskFileStorage = class {
+  constructor(fs, root) {
+    this.fs = fs;
+    this.root = root;
+  }
+  path(tabId) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(tabId)) throw new Error("Invalid remote tab storage identity");
+    return `${this.root}/${tabId}.json`;
+  }
+  read(tabId) {
+    return this.readFile(this.path(tabId));
+  }
+  readFile(path) {
+    const raw = this.fs.readFile(path);
+    if (raw === null) return null;
+    const binding = JSON.parse(raw);
+    if (!binding || !Number.isSafeInteger(binding.revision) || binding.revision < 0 || !["creating", "create_uncertain", "bound"].includes(binding.phase) || ![binding.providerId, binding.executionMode, binding.backend, binding.environmentId, binding.accountRef, binding.branch].every((value) => typeof value === "string" && value.length > 0) || binding.phase === "bound" && (!binding.snapshot || typeof binding.snapshot.taskId !== "string" || !binding.snapshot.taskId)) {
+      throw new Error("Stored remote task binding is invalid; creation was not repeated");
+    }
+    return binding;
+  }
+  compareExchange(tabId, revision, next) {
+    const path = this.path(tabId);
+    if (!this.fs.makeDirs(this.root)) throw new Error("Remote task storage is unavailable");
+    const lock = this.fs.lockFile(`${path}.lock`);
+    if (!lock) throw new Error("Remote task storage is busy; creation was not repeated");
+    try {
+      if ((this.readFile(path)?.revision ?? null) !== revision) return false;
+      if (!this.fs.writeFileAtomic(path, JSON.stringify(next))) throw new Error("Remote task binding could not be saved");
+      return true;
+    } finally {
+      this.fs.unlockFile(lock);
+    }
+  }
+};
 
 // packages/plugin-sdk/src/activityLabel.ts
 var MAX_LABEL_CHARS = 60;
@@ -762,30 +713,345 @@ function activityLabel(tool) {
   return clip(unwrapped) || "Working";
 }
 
+// plugins/provider-codex/src/cloud/backend.ts
+var row = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+var rows = (value) => Array.isArray(value) ? value.map(row) : [];
+var text = (value) => typeof value === "string" ? value : null;
+function cloudTaskRequest(environmentId, branch, prompt) {
+  return {
+    new_task: { environment_id: environmentId, branch, run_environment_in_qa_mode: false },
+    input_items: [{ type: "message", role: "user", content: [{ content_type: "text", text: prompt }] }]
+  };
+}
+function cloudTaskSnapshot(value, binding) {
+  const details = row(value);
+  const task = row(details.task);
+  const taskId = text(task.id);
+  if (!taskId || taskId !== binding.snapshot?.taskId) throw new Error("Cloud task response does not match this tab");
+  if (task.environment_id !== void 0 && task.environment_id !== binding.environmentId) throw new Error("Cloud task environment does not match this tab");
+  const assistant = row(details.current_assistant_turn);
+  const error = row(assistant.error);
+  const display2 = row(details.task_status_display ?? task.task_status_display);
+  const turn = row(display2.latest_turn_status_display);
+  const status = text(turn.turn_status) ?? text(assistant.turn_status) ?? text(display2.state);
+  const output = rows(assistant.output_items);
+  const result = output.filter((item) => item.type === "message").flatMap(
+    (item) => Array.isArray(item.content) ? item.content.map((fragment) => typeof fragment === "string" ? fragment : text(row(fragment).text) ?? "") : []
+  ).filter(Boolean).join("\n");
+  const diffs = [...rows(row(details.current_diff_task_turn).output_items), ...output];
+  const diff = diffs.map((item) => text(row(item.output_diff).diff) ?? text(item.diff)).find(Boolean) ?? null;
+  const failed = Object.keys(error).length > 0 || ["failed", "cancelled", "error"].includes(status ?? "");
+  return {
+    taskId,
+    attempt: text(assistant.id),
+    status: failed ? "error" : ["completed", "ready", "applied"].includes(status ?? "") ? "ready" : status === "in_progress" ? "running" : "pending",
+    result,
+    diff,
+    cursor: null,
+    error: failed ? text(error.message) ?? "Remote task failed" : null
+  };
+}
+function cloudTaskBackend(capability, transport) {
+  return {
+    capability,
+    environments: () => capability.environments,
+    create(input) {
+      const response = row(transport.request("POST", "/wham/tasks", input.accountRef, cloudTaskRequest(input.environmentId, input.branch, input.prompt)));
+      const taskId = text(row(response.task).id) ?? text(response.id);
+      if (!taskId) throw new Error("Cloud did not acknowledge a task identity");
+      return { taskId };
+    },
+    read(binding) {
+      if (!binding.snapshot) throw new Error("Cloud task identity is missing");
+      return cloudTaskSnapshot(transport.request("GET", `/wham/tasks/${encodeURIComponent(binding.snapshot.taskId)}`, binding.accountRef), binding);
+    }
+  };
+}
+
+// plugins/provider-codex/src/cloud/chatBackend.ts
+function taskMessages(binding) {
+  if (!binding) return [];
+  if (binding.phase !== "bound" || !binding.snapshot) {
+    return [{ id: "remote-create-uncertain", type: "assistant", content: "Remote task creation is unconfirmed. Check your Cloud task list before submitting another task. This tab will not resubmit it." }];
+  }
+  const task = binding.snapshot;
+  const content = [
+    `Remote task: ${task.status}`,
+    task.error,
+    task.result,
+    task.diff ? `\`\`\`diff
+${task.diff}
+\`\`\`` : task.status === "ready" ? "No diff was produced." : null
+  ].filter(Boolean).join("\n\n");
+  return [{ id: `${task.taskId}:${binding.revision}`, type: "assistant", content }];
+}
+function remoteChatBackend(storage, backend, providerId) {
+  const controller = new RemoteTaskController(storage, backend);
+  const sessions = /* @__PURE__ */ new Map();
+  return {
+    openSession(ctx) {
+      if (ctx.config?.executionMode !== backend.capability.mode) throw new Error("Choose the declared Cloud execution mode");
+      if (backend.capability.availability.status === "unavailable") throw new Error(backend.capability.availability.reason);
+      const saved = storage.read(ctx.tabId);
+      if (saved && saved.providerId !== providerId) throw new Error("Stored task belongs to another provider");
+      const existing = controller.restore(ctx.tabId);
+      if (!existing && !backend.capability.environments.some((environment) => environment.id === ctx.preset)) {
+        throw new Error("Choose a Cloud environment before opening a remote task");
+      }
+      sessions.set(ctx.tabId, ctx);
+      if (!existing && ctx.systemPrompt?.trim()) {
+        const environment = backend.capability.environments.find((environment2) => environment2.id === ctx.preset);
+        if (!environment) throw new Error("The selected environment is unavailable");
+        try {
+          controller.create(ctx.tabId, providerId, environment, "master", ctx.systemPrompt);
+        } catch (error) {
+          if (!storage.read(ctx.tabId)) throw error;
+        }
+      }
+      return { sessionId: ctx.tabId };
+    },
+    sendMessage(sessionId, prompt) {
+      const ctx = sessions.get(sessionId);
+      if (!ctx) throw new Error("Remote task tab is not open");
+      const environment = backend.capability.environments.find((environment2) => environment2.id === ctx.preset);
+      if (!environment) throw new Error("The selected environment is unavailable");
+      controller.create(sessionId, providerId, environment, "master", prompt);
+    },
+    poll(sessionId, cursor) {
+      if (!sessions.has(sessionId)) throw new Error("Remote task tab is not open");
+      const binding = storage.read(sessionId);
+      const messages = taskMessages(binding);
+      const next = JSON.stringify(messages);
+      return { messages: cursor === next ? [] : messages, cursor: next, done: binding?.snapshot?.status === "ready" || binding?.snapshot?.status === "error" };
+    },
+    closeSession(sessionId) {
+      sessions.delete(sessionId);
+    },
+    listModels: () => [],
+    listPresets: () => backend.capability.environments.map((environment) => ({ id: environment.id, name: environment.label })),
+    viewCall(method, args) {
+      const input = args;
+      const sessionId = input?.sessionId;
+      if (!sessionId) throw new Error("Remote task tab is not open");
+      if (method === "read") {
+        const binding = storage.read(sessionId);
+        if (binding && (binding.executionMode !== backend.capability.mode || binding.providerId !== providerId)) throw new Error("Stored execution mode does not match Cloud");
+        return binding;
+      }
+      if (method === "refresh") return controller.restore(sessionId);
+      if (method === "submit") {
+        if (!sessions.has(sessionId)) throw new Error("Remote task tab must reopen before submission");
+        const environment = backend.capability.environments.find((environment2) => environment2.id === sessions.get(sessionId)?.preset);
+        if (!environment) throw new Error("The selected environment is unavailable");
+        return controller.create(sessionId, providerId, environment, input?.branch ?? "master", input?.prompt ?? "");
+      }
+      throw new Error("This remote task operation is unsupported");
+    }
+  };
+}
+
+// plugins/provider-codex/src/cloud/plugin.ts
+function cloudExports(host2) {
+  let backend;
+  const get = () => {
+    if (backend) return backend;
+    const manifest = JSON.parse(host2.manifestJson() ?? "{}");
+    const root = host2.fs.expandHome("~/.codeterm/codex/tasks");
+    if (!root) throw new Error("Cloud task storage is unavailable");
+    backend = remoteChatBackend(new RemoteTaskFileStorage(host2.fs, root), cloudTaskBackend(manifest.capabilities.remoteTask, {
+      request() {
+        throw new Error("Live Cloud access has not been verified");
+      }
+    }), manifest.id);
+    return backend;
+  };
+  return {
+    openSession: (ctx) => get().openSession(ctx),
+    sendMessage: (session, text7) => get().sendMessage(session, text7),
+    poll: (session, cursor) => get().poll(session, cursor),
+    closeSession: (session) => get().closeSession(session),
+    viewCall: (method, args) => get().viewCall(method, args)
+  };
+}
+
+// plugins/provider-codex/src/runtimeGoal.ts
+var statuses = /* @__PURE__ */ new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
+function goalIntent(raw, thread) {
+  if (!raw || typeof raw !== "object") return null;
+  const goal = raw;
+  if (thread && goal.threadId !== thread) return null;
+  if (typeof goal.objective !== "string" || !goal.objective.trim()) return null;
+  return { goal: goal.objective, ...typeof goal.status === "string" && statuses.has(goal.status) ? { goalStatus: goal.status } : {} };
+}
+function goalPlan(threadId, value) {
+  const action = value && typeof value === "object" && !Array.isArray(value) ? value.action : void 0;
+  const status = action === "pause" ? "paused" : action === "resume" ? "active" : action === "complete" ? "complete" : void 0;
+  if (action !== "read" && action !== "cancel" && !status) throw new Error("Unsupported goal action");
+  const method = action === "read" ? "thread/goal/get" : action === "cancel" ? "thread/goal/clear" : "thread/goal/set";
+  return { action: { kind: "request", call: { method, params: { threadId, ...action !== "read" ? { origin: "user" } : {}, ...status ? { status } : {} } } }, state: { goalAction: String(action) } };
+}
+function goalResponse(threadId, state, reply) {
+  const refuse = (message) => ({ kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false });
+  if (reply.kind === "error") return refuse(reply.error.message);
+  const value = reply.value;
+  if (!value || typeof value !== "object") return refuse("Goal response is invalid");
+  if (state.goalAction === "cancel") return value.cleared === true ? { kind: "continue", plan: { ...goalPlan(threadId, { action: "read" }), state: { goalAction: "verifyCancel" } } } : refuse("Goal removal was not confirmed");
+  if (!("goal" in value)) return refuse("Goal response is missing");
+  if (state.goalAction === "verifyCancel" && value.goal !== null) return refuse("Goal still exists after removal");
+  const intent = goalIntent(value.goal, threadId);
+  if (value.goal !== null && (!intent || !intent.goalStatus)) return refuse("Goal identity or status is invalid");
+  const expected = state.goalAction === "pause" ? "paused" : state.goalAction === "resume" ? "active" : state.goalAction === "complete" ? "complete" : void 0;
+  if (expected && intent?.goalStatus !== expected) return refuse("Goal status was not confirmed");
+  return { kind: "complete", result: { kind: "goal", threadId, intent } };
+}
+
+// plugins/provider-codex/src/runtimeVersion.ts
+function runtimeBinaryVersion(userAgent) {
+  if (typeof userAgent !== "string") return void 0;
+  return userAgent.match(/^[^\s/]+\/(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?=\s|$)/)?.[0].split("/")[1];
+}
+function initializedResult(state) {
+  const binaryVersion = typeof state.binaryVersion === "string" ? state.binaryVersion : void 0;
+  return { kind: "initialized", ...binaryVersion ? { binaryVersion } : {} };
+}
+
+// plugins/provider-codex/src/runtimeProtocol.ts
+function object(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function text2(value) {
+  return typeof value === "string" && value.length > 0 ? value : void 0;
+}
+function list(value) {
+  return Array.isArray(value) ? value : [];
+}
+function userThread(value, expected) {
+  const thread = object(object(value).thread);
+  const id = text2(thread.id);
+  if (!id || expected && expected !== id || thread.parentThreadId != null || object(thread.source).subAgent != null || String(thread.threadSource ?? "").toLowerCase().startsWith("subagent")) return void 0;
+  return id;
+}
+function steerRefused(error, turn) {
+  return error.code === -32600 && error.data == null && (error.message === "no active turn to steer" || error.message.startsWith(`expected active turn id \`${turn}\` but found \``) && error.message.endsWith("`"));
+}
+function archivedResume(message) {
+  const words = message.toLowerCase().split(/\s+/).map((word) => word.replace(/^[`"']+|[`"'.:;,]+$/g, ""));
+  return words.some((word, index) => word === "codex" && words[index + 1] === "unarchive" || word === "session" && !!words[index + 1] && words[index + 2] === "is" && words[index + 3] === "archived");
+}
+var serverRequestMethods = [
+  "item/commandExecution/requestApproval",
+  "item/fileChange/requestApproval",
+  "item/permissions/requestApproval",
+  "item/tool/requestUserInput",
+  "mcpServer/elicitation/request"
+];
+
+// plugins/provider-codex/src/runtimeHistoryBounds.ts
+var HISTORY_CHUNK_BYTES = 512 * 1024;
+var ITEM_BYTES = 64 * 1024;
+var STRING_BYTES = 16 * 1024;
+function utf8Bytes2(value) {
+  try {
+    return unescape(encodeURIComponent(value)).length;
+  } catch {
+    return value.length + (value.match(/[\u0080-\u07ff]/g)?.length ?? 0) + 2 * (value.match(/[\u0800-\uffff]/g)?.length ?? 0) - 2 * (value.match(/[\ud800-\udbff][\udc00-\udfff]/g)?.length ?? 0);
+  }
+}
+function serializedBytes(value) {
+  return utf8Bytes2(JSON.stringify(value));
+}
+function boundedString(value) {
+  const scrubbed = value.replace(
+    /data:image\/[^\s"'<>]*;base64,[A-Za-z0-9+/=_-]*/gi,
+    (image) => `[image omitted: ${utf8Bytes2(image)} bytes]`
+  );
+  const bytes = utf8Bytes2(scrubbed);
+  if (bytes <= STRING_BYTES) return scrubbed;
+  return `${scrubbed.slice(0, 2048)}
+[content truncated: ${bytes} bytes total]`;
+}
+function sanitizeHistory(value) {
+  return JSON.parse(JSON.stringify(value, (_key, entry) => {
+    if (typeof entry === "string") return boundedString(entry);
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      const item = entry;
+      if (item.type === "image" && typeof item.data === "string" && !item.data.startsWith("[image omitted:")) {
+        const { data, ...rest } = item;
+        return { ...rest, data: `[image omitted: ${utf8Bytes2(data)} bytes]` };
+      }
+      if (item.type === "imageGeneration" && typeof item.result === "string" && !item.result.startsWith("[image omitted:")) {
+        return { ...item, result: `[image omitted: ${utf8Bytes2(item.result)} bytes]` };
+      }
+    }
+    return entry;
+  }));
+}
+function historyItem(value) {
+  const sanitized = sanitizeHistory(value);
+  const bytes = serializedBytes(sanitized);
+  return bytes <= ITEM_BYTES ? sanitized : { id: sanitized.id, type: "error", message: `[history item omitted: ${bytes} serialized bytes]` };
+}
+function boundHistoryRows(rows2) {
+  const bounded = rows2.map((row3) => {
+    const sanitized = sanitizeHistory(row3);
+    const bytes2 = serializedBytes(sanitized);
+    if (sanitized.attachments) {
+      sanitized.attachments = sanitized.attachments.map((attachment) => {
+        if (!attachment.url?.startsWith("[image omitted:")) return attachment;
+        sanitized.content += `
+${attachment.url}`;
+        const { url, ...chip } = attachment;
+        return chip;
+      });
+    }
+    if (bytes2 <= ITEM_BYTES) return sanitized;
+    return { id: row3.id, seq: row3.seq, type: "system", content: `[history item omitted: ${bytes2} serialized bytes]` };
+  });
+  const bytes = serializedBytes(bounded);
+  return bytes <= ITEM_BYTES || !rows2.length ? bounded : [{ id: rows2[0].id, seq: rows2[0].seq, type: "system", content: `[history item omitted: ${bytes} serialized bytes]` }];
+}
+
+// plugins/provider-codex/src/canonicalJson.ts
+function canonicalJson(value, indentation = 0) {
+  const normalized = JSON.parse(JSON.stringify(value ?? null));
+  const gap = " ".repeat(Math.max(0, Math.min(10, Math.trunc(indentation))));
+  const render = (node, depth) => {
+    if (node === null || typeof node !== "object") return JSON.stringify(node);
+    const parts = Array.isArray(node) ? node.map((entry) => render(entry, depth + 1)) : Object.keys(node).sort().map((key) => `${JSON.stringify(key)}:${gap ? " " : ""}${render(node[key], depth + 1)}`);
+    const [open, close] = Array.isArray(node) ? ["[", "]"] : ["{", "}"];
+    if (!parts.length) return open + close;
+    return gap ? `${open}
+${gap.repeat(depth + 1)}${parts.join(`,
+${gap.repeat(depth + 1)}`)}
+${gap.repeat(depth)}${close}` : open + parts.join(",") + close;
+  };
+  return render(normalized, 0);
+}
+
 // plugins/provider-codex/src/runtimeDiffs.ts
 function runtimeFileDiffs(changes) {
   return list(changes).map(object).flatMap((change) => {
-    const path = text(change.path);
+    const path = text2(change.path);
     const kind = object(change.kind);
-    const diff = text(change.diff);
+    const diff = text2(change.diff);
     if (!path || diff === void 0) return [];
     const selected = kind.type === "update" ? "modify" : kind.type === "add" ? "add" : kind.type === "delete" ? "delete" : void 0;
     if (!selected) return [];
-    let rows;
-    if (/^Binary files|^GIT binary patch/m.test(diff)) rows = [{ path, kind: selected, binary: true, additions: 0, deletions: 0, hunks: [] }];
+    let rows2;
+    if (/^Binary files|^GIT binary patch/m.test(diff)) rows2 = [{ path, kind: selected, binary: true, additions: 0, deletions: 0, hunks: [] }];
     else if (selected === "add" || selected === "delete") {
       const lines = diff.replace(/\n$/, "").split("\n");
       const add = selected === "add";
-      rows = [{
+      rows2 = [{
         path,
         kind: selected,
         additions: add ? lines.length : 0,
         deletions: add ? 0 : lines.length,
         hunks: [{ oldStart: add ? 0 : 1, oldLines: add ? 0 : lines.length, newStart: add ? 1 : 0, newLines: add ? lines.length : 0, lines: lines.map((line) => (add ? "+" : "-") + line) }]
       }];
-    } else rows = recordedPatchDiff(path, diff, "modify");
-    const movePath = text(kind.move_path);
-    return rows.map((row2) => ({ ...row2, ...movePath ? { kind: "rename", movePath } : {} }));
+    } else rows2 = recordedPatchDiff(path, diff, "modify");
+    const movePath = text2(kind.move_path);
+    return rows2.map((row3) => ({ ...row3, ...movePath ? { kind: "rename", movePath } : {} }));
   });
 }
 
@@ -793,14 +1059,14 @@ function runtimeFileDiffs(changes) {
 function nativeOption(value) {
   if (typeof value === "string") return { value, label: value };
   const option = object(value);
-  const label = text(option.label) ?? text(option.title);
-  const id = text(option.value) ?? text(option.id) ?? label;
+  const label = text2(option.label) ?? text2(option.title);
+  const id = text2(option.value) ?? text2(option.id) ?? label;
   return label && id ? { value: id, label } : void 0;
 }
 function runtimeQuestions(value) {
   return list(value).map(object).map((question, index) => ({
-    id: text(question.id) ?? String(index),
-    text: text(question.title) ?? text(question.question) ?? "Choose an answer",
+    id: text2(question.id) ?? String(index),
+    text: text2(question.title) ?? text2(question.question) ?? "Choose an answer",
     options: list(question.options).flatMap((option) => {
       const parsed = nativeOption(option);
       return parsed ? [parsed] : [];
@@ -821,14 +1087,14 @@ function answersMatch(questions, raw) {
     const values = answer.values;
     if (new Set(values).size !== values.length || values.some((value) => typeof value !== "string" || !question.options.some((option) => option.value === value))) return false;
     if (!question.multiSelect && values.length > 1) return false;
-    const freeText = text(answer.text);
+    const freeText = text2(answer.text);
     if (answer.text !== void 0 && (!freeText || question.allowFreeText === false)) return false;
     return values.length > 0 || !!freeText;
   });
 }
 function reconcileHistoryQuestions(threadId, raw, previous) {
   const item = object(raw);
-  const itemId = text(item.id);
+  const itemId = text2(item.id);
   if (item.type === "agentMessage" && item.delivery === "async" && itemId && list(item.questions).length) {
     const old = previous.find((question2) => question2.itemId === itemId);
     const question = { threadId, itemId, questions: runtimeQuestions(item.questions), response: "message", ...old?.resolved ? { resolved: true } : {} };
@@ -848,8 +1114,8 @@ function reconcileHistoryQuestions(threadId, raw, previous) {
 // plugins/provider-codex/src/fileDiffs.ts
 var LINE_MARKERS = " +-\\";
 var HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
-function splitLines(text6) {
-  const lines = text6.split("\n");
+function splitLines(text7) {
+  const lines = text7.split("\n");
   if (lines[lines.length - 1] === "") lines.pop();
   return lines;
 }
@@ -958,95 +1224,95 @@ function display(value) {
 }
 function runtimeItem(raw, seq, previous) {
   const item = object(raw);
-  const id = text(item.id);
+  const id = text2(item.id);
   if (!id) return void 0;
-  const row2 = { id, seq: previous?.seq ?? seq, type: "tool_call", content: "" };
-  if (previous?.timestamp) row2.timestamp = previous.timestamp;
+  const row3 = { id, seq: previous?.seq ?? seq, type: "tool_call", content: "" };
+  if (previous?.timestamp) row3.timestamp = previous.timestamp;
   switch (item.type) {
     case "userMessage": {
-      row2.type = "user";
-      row2.content = list(item.content).map(object).filter((p) => p.type === "text").map((p) => p.text).join("\n");
+      row3.type = "user";
+      row3.content = list(item.content).map(object).filter((p) => p.type === "text").map((p) => p.text).join("\n");
       const attachments = list(item.content).map(object).flatMap((p, index) => {
         if (p.type !== "image" && p.type !== "localImage") return [];
-        const url = text(p.url);
+        const url = text2(p.url);
         const data = url?.match(/^data:([^;]+);base64,(.*)$/);
         return [{
           id: `${id}-image-${index}`,
           mimeType: data?.[1] ?? "image/png",
           ...data ? { data: data[2] } : url ? { url } : {},
-          ...text(p.path) ? { path: String(p.path) } : {}
+          ...text2(p.path) ? { path: String(p.path) } : {}
         }];
       });
-      if (attachments.length) row2.attachments = attachments;
-      return row2;
+      if (attachments.length) row3.attachments = attachments;
+      return row3;
     }
     case "toolFlow":
-      return { ...row2, type: "tool_flow", content: String(item.state ?? "") };
+      return { ...row3, type: "tool_flow", content: String(item.state ?? "") };
     case "sessionIntent":
-      return { ...row2, type: "custom", sessionIntent: { ...text(item.title) ? { title: String(item.title) } : {}, ...text(item.objective) ? { goal: String(item.objective) } : {} } };
+      return { ...row3, type: "custom", sessionIntent: { ...text2(item.title) ? { title: String(item.title) } : {}, ...text2(item.objective) ? { goal: String(item.objective) } : {} } };
     case "sleep":
-      row2.toolSummary = `Wait ${item.durationMs} ms`;
+      row3.toolSummary = `Wait ${item.durationMs} ms`;
       break;
     case "agentMessage":
     case "plan":
-      row2.type = "assistant";
-      row2.content = typeof item.text === "string" ? item.text : previous?.content ?? "";
+      row3.type = "assistant";
+      row3.content = typeof item.text === "string" ? item.text : previous?.content ?? "";
       if (item.delivery === "async" && list(item.questions).length) {
-        row2.toolInput = item;
-        row2.interactive = runtimeQuestions(item.questions).map((question) => ({ type: "question", id: question.id, toolUseId: id, prompt: question.text, options: question.options.map((option) => ({ ...option })), multiSelect: question.multiSelect ?? false }));
+        row3.toolInput = item;
+        row3.interactive = runtimeQuestions(item.questions).map((question) => ({ type: "question", id: question.id, toolUseId: id, prompt: question.text, options: question.options.map((option) => ({ ...option })), multiSelect: question.multiSelect ?? false }));
       }
-      return row2;
+      return row3;
     case "reasoning":
-      row2.type = "thinking";
-      row2.collapsed = true;
-      row2.content = list(item.summary).join("\n") || list(item.content).join("\n");
-      return row2;
+      row3.type = "thinking";
+      row3.collapsed = true;
+      row3.content = list(item.summary).join("\n") || list(item.content).join("\n");
+      return row3;
     case "contextCompaction":
-      return { ...row2, type: "system", content: "context compacted", systemSubtype: "contextCompaction", timelineMarker: { kind: "context_compaction" } };
+      return { ...row3, type: "system", content: "context compacted", systemSubtype: "contextCompaction", timelineMarker: { kind: "context_compaction" } };
     case "error":
-      return { ...row2, type: "system", content: String(item.message ?? ""), systemSubtype: "api_error" };
+      return { ...row3, type: "system", content: String(item.message ?? ""), systemSubtype: "api_error" };
     case "hookPrompt":
     case "enteredReviewMode":
     case "exitedReviewMode":
-      return { ...row2, type: "system", systemSubtype: String(item.type), content: item.type === "hookPrompt" ? list(item.fragments).map(object).map((p) => p.text ?? "").join("\n") : String(item.review ?? "") };
+      return { ...row3, type: "system", systemSubtype: String(item.type), content: item.type === "hookPrompt" ? list(item.fragments).map(object).map((p) => p.text ?? "").join("\n") : String(item.review ?? "") };
     case "commandExecution":
-      row2.toolKind = "command";
-      row2.toolDetail = activityCommand({ toolInput: item });
-      row2.toolSummary = activityLabel(row2);
-      if (typeof item.aggregatedOutput === "string") row2.toolResult = item.aggregatedOutput;
-      else if (previous?.toolResult !== void 0) row2.toolResult = previous.toolResult;
-      if (typeof item.exitCode === "number") row2.toolExitCode = item.exitCode;
-      if (item.status === "interrupted") row2.toolInterrupted = true;
+      row3.toolKind = "command";
+      row3.toolDetail = activityCommand({ toolInput: item });
+      row3.toolSummary = activityLabel(row3);
+      if (typeof item.aggregatedOutput === "string") row3.toolResult = item.aggregatedOutput;
+      else if (previous?.toolResult !== void 0) row3.toolResult = previous.toolResult;
+      if (typeof item.exitCode === "number") row3.toolExitCode = item.exitCode;
+      if (item.status === "interrupted") row3.toolInterrupted = true;
       break;
     case "fileChange":
-      row2.toolKind = "edit";
-      row2.fileDiffs = runtimeFileDiffs(item.changes);
-      row2.toolEdits = diffEdits(row2.fileDiffs);
-      row2.toolSummary = list(item.changes).map(object).map((p) => p.path).join("\n");
-      row2.toolDetail = row2.toolSummary;
+      row3.toolKind = "edit";
+      row3.fileDiffs = runtimeFileDiffs(item.changes);
+      row3.toolEdits = diffEdits(row3.fileDiffs);
+      row3.toolSummary = list(item.changes).map(object).map((p) => p.path).join("\n");
+      row3.toolDetail = row3.toolSummary;
       break;
     case "mcpToolCall":
     case "dynamicToolCall": {
-      const prefix = text(item.server) ?? text(item.namespace);
-      row2.toolKind = "generic";
-      row2.toolName = [prefix, text(item.tool)].filter(Boolean).join(" \xB7 ");
-      row2.toolInput = item.arguments ?? null;
-      row2.toolSummary = display(item.arguments);
-      row2.toolTitle = row2.toolName;
-      if (item.result != null || item.contentItems != null) row2.toolResult = toolOutput(item.result ?? item.contentItems);
+      const prefix = text2(item.server) ?? text2(item.namespace);
+      row3.toolKind = "generic";
+      row3.toolName = [prefix, text2(item.tool)].filter(Boolean).join(" \xB7 ");
+      row3.toolInput = item.arguments ?? null;
+      row3.toolSummary = display(item.arguments);
+      row3.toolTitle = row3.toolName;
+      if (item.result != null || item.contentItems != null) row3.toolResult = toolOutput(item.result ?? item.contentItems);
       if (item.error != null) {
-        row2.toolResult = display(item.error);
-        row2.toolError = true;
+        row3.toolResult = display(item.error);
+        row3.toolError = true;
       }
-      if (item.success === false || object(item.result).isError === true) row2.toolError = true;
+      if (item.success === false || object(item.result).isError === true) row3.toolError = true;
       break;
     }
     case "functionCallOutput":
-      return { ...row2, type: "tool_result", toolId: id, toolName: String(item.name ?? ""), toolResult: display(item.output) };
+      return { ...row3, type: "tool_result", toolId: id, toolName: String(item.name ?? ""), toolResult: display(item.output) };
     case "webSearch":
-      row2.toolKind = "web";
-      row2.toolSummary = String(item.query ?? "");
-      row2.toolRichResult = json({
+      row3.toolKind = "web";
+      row3.toolSummary = String(item.query ?? "");
+      row3.toolRichResult = json({
         kind: "web",
         query: item.query,
         action: object(item.action).type,
@@ -1054,29 +1320,29 @@ function runtimeItem(raw, seq, previous) {
         pattern: object(item.action).pattern,
         resultCount: Array.isArray(item.results) ? item.results.length : void 0
       });
-      if (item.results != null) row2.toolResult = display(item.results);
+      if (item.results != null) row3.toolResult = display(item.results);
       break;
     case "imageView":
     case "imageGeneration":
-      row2.toolKind = "image";
-      row2.toolSummary = String(item.savedPath ?? item.path ?? item.revisedPrompt ?? "");
-      row2.toolRichResult = json({ kind: "image", origin: item.type === "imageGeneration" ? "generated" : "viewed", path: item.savedPath ?? item.path, prompt: item.revisedPrompt, status: item.status });
-      if (text(item.result)) row2.toolResult = String(item.result).startsWith("data:") || String(item.result).startsWith("[image omitted:") || item.type === "imageView" ? String(item.result) : `data:image/png;base64,${item.result}`;
+      row3.toolKind = "image";
+      row3.toolSummary = String(item.savedPath ?? item.path ?? item.revisedPrompt ?? "");
+      row3.toolRichResult = json({ kind: "image", origin: item.type === "imageGeneration" ? "generated" : "viewed", path: item.savedPath ?? item.path, prompt: item.revisedPrompt, status: item.status });
+      if (text2(item.result)) row3.toolResult = String(item.result).startsWith("data:") || String(item.result).startsWith("[image omitted:") || item.type === "imageView" ? String(item.result) : `data:image/png;base64,${item.result}`;
       break;
     case "collabAgentToolCall":
     case "subAgentActivity": {
       if (item.type === "collabAgentToolCall" && !list(item.receiverThreadIds).length) {
         if (item.tool === "spawnAgent") return void 0;
-        row2.toolKind = "generic";
-        row2.toolName = text(item.tool) ?? "collabAgentToolCall";
+        row3.toolKind = "generic";
+        row3.toolName = text2(item.tool) ?? "collabAgentToolCall";
         break;
       }
       const agent = String(item.agentThreadId ?? list(item.receiverThreadIds)[0] ?? id);
       const status = String(item.kind ?? object(object(item.agentsStates)[agent]).status ?? "");
-      row2.toolKind = "agent";
-      row2.toolName = "agent_activity";
-      row2.toolSummary = agent;
-      row2.toolInput = json({
+      row3.toolKind = "agent";
+      row3.toolName = "agent_activity";
+      row3.toolSummary = agent;
+      row3.toolInput = json({
         agent_id: agent,
         agent_path: item.agentPath,
         agent_state: { pendingInit: "started", errored: "failed", shutdown: "closed" }[status] ?? status,
@@ -1090,35 +1356,35 @@ function runtimeItem(raw, seq, previous) {
       break;
     }
     case "planUpdate":
-      row2.toolName = "update_plan";
-      row2.toolSummary = String(item.explanation ?? "");
-      row2.toolResult = display(item.plan);
+      row3.toolName = "update_plan";
+      row3.toolSummary = String(item.explanation ?? "");
+      row3.toolResult = display(item.plan);
       break;
     default:
       return void 0;
   }
-  row2.toolId = id;
-  row2.toolName ?? (row2.toolName = String(item.type));
-  row2.toolInput ?? (row2.toolInput = item);
-  if (row2.toolSummary !== void 0) row2.toolArgs = row2.toolKind === "command" ? row2.toolDetail : row2.toolSummary;
-  row2.collapsed = true;
-  if (typeof item.durationMs === "number") row2.toolDurationMs = item.durationMs;
-  if (row2.toolError == null) {
-    if (typeof item.exitCode === "number") row2.toolError = item.exitCode !== 0;
-    else if (["failed", "declined", "error"].includes(String(item.status))) row2.toolError = true;
-    else if (item.status === "completed") row2.toolError = false;
+  row3.toolId = id;
+  row3.toolName ?? (row3.toolName = String(item.type));
+  row3.toolInput ?? (row3.toolInput = item);
+  if (row3.toolSummary !== void 0) row3.toolArgs = row3.toolKind === "command" ? row3.toolDetail : row3.toolSummary;
+  row3.collapsed = true;
+  if (typeof item.durationMs === "number") row3.toolDurationMs = item.durationMs;
+  if (row3.toolError == null) {
+    if (typeof item.exitCode === "number") row3.toolError = item.exitCode !== 0;
+    else if (["failed", "declined", "error"].includes(String(item.status))) row3.toolError = true;
+    else if (item.status === "completed") row3.toolError = false;
   }
-  return row2;
+  return row3;
 }
 function runtimeItems(raw, seq) {
   const item = object(raw);
   const receivers = list(item.receiverThreadIds);
   if (item.type === "collabAgentToolCall" && receivers.length) return receivers.flatMap((receiver, index) => {
-    const row3 = runtimeItem({ ...item, id: `${item.id}:${receiver}`, receiverThreadIds: [receiver], ...item.tool === "spawnAgent" ? { ordinal: index + 1 } : {} }, seq + index);
-    return row3 ? [row3] : [];
+    const row4 = runtimeItem({ ...item, id: `${item.id}:${receiver}`, receiverThreadIds: [receiver], ...item.tool === "spawnAgent" ? { ordinal: index + 1 } : {} }, seq + index);
+    return row4 ? [row4] : [];
   });
-  const row2 = runtimeItem(raw, seq);
-  return row2 ? [row2] : [];
+  const row3 = runtimeItem(raw, seq);
+  return row3 ? [row3] : [];
 }
 
 // plugins/provider-codex/src/actionTitle.ts
@@ -1128,7 +1394,7 @@ function clip2(value) {
   if (compact2.length <= MAX_TITLE_CHARS) return compact2;
   return compact2.substring(0, MAX_TITLE_CHARS - 3).trimEnd() + "...";
 }
-function text2(value) {
+function text3(value) {
   return typeof value === "string" ? value : "";
 }
 function baseName(path) {
@@ -1141,8 +1407,8 @@ function commandHead(command) {
   return tokens.slice(0, width).join(" ");
 }
 function actionTitle(fields) {
-  const summary = text2(fields.tool_summary);
-  const detail = text2(fields.tool_detail);
+  const summary = text3(fields.tool_summary);
+  const detail = text3(fields.tool_detail);
   if (fields.tool_kind === "command") {
     const more = /\(\+(\d+) more\)$/.exec(summary);
     return clip2(commandHead(detail || summary) + (more ? ` +${more[1]}` : ""));
@@ -1150,7 +1416,7 @@ function actionTitle(fields) {
   if (fields.tool_kind === "read" && summary) return clip2(`Read ${baseName(summary)}`);
   if (fields.tool_kind === "edit") {
     const edits = Array.isArray(fields.tool_edits) ? fields.tool_edits : [];
-    const paths = edits.map((edit) => text2(edit && edit.path)).filter((path, index, all) => path && all.indexOf(path) === index);
+    const paths = edits.map((edit) => text3(edit && edit.path)).filter((path, index, all) => path && all.indexOf(path) === index);
     if (paths.length > 0) return clip2(`Patched ${baseName(paths[0])}` + (paths.length > 1 ? ` +${paths.length - 1}` : ""));
   }
   return clip2(summary || "Tool activity");
@@ -1168,20 +1434,20 @@ var AGENT_STATES = {
   shutdown: "closed",
   closed: "closed"
 };
-function text3(value) {
+function text4(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 function record2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
-function row(uuid, blocks, ts, timestamp) {
+function row2(uuid, blocks, ts, timestamp) {
   if (blocks.length === 0) return null;
   return { role: "assistant", ...uuid ? { uuid } : {}, blocks, ts, timestamp };
 }
 function agentBlock(fields, summary, turnId) {
   const input = {};
   for (const key in fields) if (fields[key]) input[key] = fields[key];
-  const flowId = text3(turnId);
+  const flowId = text4(turnId);
   return { kind: "tool_use", data: {
     name: "agent_activity",
     input,
@@ -1193,7 +1459,7 @@ function agentBlock(fields, summary, turnId) {
 }
 function thoughtRow(id, summaries, ts, timestamp) {
   const blocks = summaries.filter((summary) => typeof summary === "string" && summary.trim() !== "").map((summary) => ({ kind: "thinking", data: { text: summary } }));
-  return row(text3(id) ? `reasoning-${text3(id)}` : "", blocks, ts, timestamp);
+  return row2(text4(id) ? `reasoning-${text4(id)}` : "", blocks, ts, timestamp);
 }
 function reasoningItemRow(item, ts, timestamp) {
   return thoughtRow(item.id, Array.isArray(item.summary_text) ? item.summary_text : [], ts, timestamp);
@@ -1207,12 +1473,12 @@ function reasoningResponseRow(payload, ts, timestamp) {
   return thoughtRow(payload.id, summaries, ts, timestamp);
 }
 function subAgentRow(item, id, turnId, ts, timestamp) {
-  const agentId = text3(item.agent_thread_id);
-  const agentPath = text3(item.agent_path);
+  const agentId = text4(item.agent_thread_id);
+  const agentPath = text4(item.agent_path);
   if (!agentId && !agentPath) return null;
-  const state = AGENT_STATES[text3(item.kind)] ?? "unknown";
+  const state = AGENT_STATES[text4(item.kind)] ?? "unknown";
   const block = agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId);
-  return row(text3(id) ? `agent-${text3(id)}` : "", [block], ts, timestamp);
+  return row2(text4(id) ? `agent-${text4(id)}` : "", [block], ts, timestamp);
 }
 function collabCallRow(item, turnId, ts, timestamp) {
   const receivers = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids : [];
@@ -1221,22 +1487,22 @@ function collabCallRow(item, turnId, ts, timestamp) {
   const seen = [];
   const blocks = [];
   for (const receiver of receivers) {
-    const agentId = text3(receiver);
+    const agentId = text4(receiver);
     if (!agentId || seen.indexOf(agentId) !== -1) continue;
     seen.push(agentId);
-    const agentPath = text3(agents.find((entry) => entry !== null && text3(entry.thread_id) === agentId)?.agent_path);
-    const state = AGENT_STATES[text3(record2(states?.[agentId])?.status)] ?? "unknown";
+    const agentPath = text4(agents.find((entry) => entry !== null && text4(entry.thread_id) === agentId)?.agent_path);
+    const state = AGENT_STATES[text4(record2(states?.[agentId])?.status)] ?? "unknown";
     blocks.push(agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId));
   }
-  return row(text3(item.id) ? `collab-${text3(item.id)}` : "", blocks, ts, timestamp);
+  return row2(text4(item.id) ? `collab-${text4(item.id)}` : "", blocks, ts, timestamp);
 }
 function agentMessageRow(payload, ts, timestamp) {
-  const from = text3(payload.author);
-  const to = text3(payload.recipient);
+  const from = text4(payload.author);
+  const to = text4(payload.recipient);
   if (!from || !to || from === to) return null;
   const turnId = record2(payload.internal_chat_message_metadata_passthrough)?.turn_id;
   const block = agentBlock({ message_from: from, message_to: to }, `${from} \u2192 ${to}`, turnId);
-  return row(text3(payload.id) ? `agent-message-${text3(payload.id)}` : "", [block], ts, timestamp);
+  return row2(text4(payload.id) ? `agent-message-${text4(payload.id)}` : "", [block], ts, timestamp);
 }
 
 // plugins/provider-codex/src/execWrapper.ts
@@ -1406,7 +1672,7 @@ function summarizeExecScript(raw) {
 }
 
 // plugins/provider-codex/src/richResults.ts
-function text4(value) {
+function text5(value) {
   return typeof value === "string" ? value : "";
 }
 function record3(value) {
@@ -1415,12 +1681,12 @@ function record3(value) {
 function webFields(source) {
   const action = record3(source.action);
   const rich = { kind: "web" };
-  const query = text4(source.query) || text4(action?.query);
+  const query = text5(source.query) || text5(action?.query);
   if (query) rich.query = query;
-  const actionName = text4(source.action) || text4(action?.type);
+  const actionName = text5(source.action) || text5(action?.type);
   if (actionName) rich.action = actionName;
-  if (text4(action?.url)) rich.url = text4(action?.url);
-  if (text4(action?.pattern)) rich.pattern = text4(action?.pattern);
+  if (text5(action?.url)) rich.url = text5(action?.url);
+  if (text5(action?.pattern)) rich.pattern = text5(action?.pattern);
   if (Array.isArray(source.results)) rich.resultCount = source.results.length;
   return rich;
 }
@@ -1438,14 +1704,14 @@ function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts
       tool_title: summary,
       ...detail ? { tool_detail: detail } : {},
       tool_rich_result: rich,
-      ...text4(turnId) ? { tool_flow_id: text4(turnId) } : {},
+      ...text5(turnId) ? { tool_flow_id: text5(turnId) } : {},
       tool_status: failed ? "error" : "success"
     } }]
   };
 }
 function webSearchEndResult(payload, ts, timestamp) {
   const source = record3(payload);
-  const id = text4(source?.call_id);
+  const id = text5(source?.call_id);
   if (!source || !id) return null;
   const rich = webFields(source);
   const summary = rich.query || rich.url || "";
@@ -1454,12 +1720,12 @@ function webSearchEndResult(payload, ts, timestamp) {
 }
 function imageGenerationEndResult(payload, ts, timestamp) {
   const source = record3(payload);
-  const id = text4(source?.call_id);
+  const id = text5(source?.call_id);
   if (!source || !id) return null;
   const rich = { kind: "image", origin: "generated" };
-  const status = text4(source.status);
-  const path = text4(source.saved_path);
-  const prompt = text4(source.revised_prompt);
+  const status = text5(source.status);
+  const path = text5(source.saved_path);
+  const prompt = text5(source.revised_prompt);
   if (status) rich.status = status;
   if (path) rich.path = path;
   if (prompt) rich.prompt = prompt;
@@ -1467,15 +1733,15 @@ function imageGenerationEndResult(payload, ts, timestamp) {
   return resultMessage(`result-${id}`, id, "image_generation", rich, summary, path || prompt, status === "failed" || status === "error", source.turn_id, ts, timestamp);
 }
 function imageViewResult(item, ts, timestamp, turnId) {
-  const id = text4(item.id);
-  const path = text4(item.path);
+  const id = text5(item.id);
+  const path = text5(item.path);
   if (!id || !path) return null;
   const rich = { kind: "image", origin: "viewed", path };
   return resultMessage(`activity-${id}`, id, "image_view", rich, baseName(path) || path, path, false, turnId, ts, timestamp);
 }
 function extensionResult(item, ts, timestamp, turnId) {
-  const id = text4(item.id);
-  if (!id || !text4(item.kind).startsWith("web.")) return null;
+  const id = text5(item.id);
+  if (!id || !text5(item.kind).startsWith("web.")) return null;
   const rich = webFields(item);
   const summary = rich.query || rich.url || rich.action || "";
   if (!summary) return null;
@@ -1489,13 +1755,13 @@ function parsedReadTitle(value) {
   for (const entry of value) {
     if (!entry || typeof entry !== "object") return "";
     const parsed = entry;
-    const name = text5(parsed.name) || baseName(text5(parsed.path));
+    const name = text6(parsed.name) || baseName(text6(parsed.path));
     if (parsed.type !== "read" || !name) return "";
     if (names.indexOf(name) === -1) names.push(name);
   }
   return actionTitle({ tool_summary: `Read ${names[0]}` + (names.length > 1 ? ` +${names.length - 1}` : "") });
 }
-function text5(value) {
+function text6(value) {
   return typeof value === "string" ? value : "";
 }
 function exactOutcomeNumber(value, nonnegative) {
@@ -1524,16 +1790,16 @@ function commandOutcome(item) {
 function completedActivity(value, ts, timestamp, turnId) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value;
-  const id = text5(item.id);
+  const id = text6(item.id);
   if (!id) return null;
-  const flow = text5(turnId) ? { tool_flow_id: text5(turnId) } : {};
+  const flow = text6(turnId) ? { tool_flow_id: text6(turnId) } : {};
   const message = { role: "assistant", uuid: `activity-${id}`, blocks: [], ts, timestamp };
   if (item.type === "CommandExecution") {
     const command = commandText(item.command);
     if (!command || item.status !== "completed" && item.status !== "failed") return null;
     const exitCode = exactOutcomeNumber(item.exit_code, false);
     const failed = item.status === "failed" || exitCode !== void 0 && exitCode !== 0;
-    const output = text5(item.aggregated_output) || [text5(item.stdout), text5(item.stderr)].filter(Boolean).join("\n");
+    const output = text6(item.aggregated_output) || [text6(item.stdout), text6(item.stderr)].filter(Boolean).join("\n");
     const fields2 = { tool_kind: "command", tool_summary: command, tool_detail: command };
     const outcome2 = commandOutcome(item);
     message.blocks = [
@@ -1574,7 +1840,7 @@ function completedActivity(value, ts, timestamp, turnId) {
         ...diffs.length > 0 ? { file_diffs: diffs } : {},
         tool_status: failed ? "error" : "success"
       } },
-      { kind: "tool_result", data: { tool_use_id: id, content: [text5(item.stdout), text5(item.stderr)].filter(Boolean).join("\n"), is_error: failed } }
+      { kind: "tool_result", data: { tool_use_id: id, content: [text6(item.stdout), text6(item.stderr)].filter(Boolean).join("\n"), is_error: failed } }
     ];
     return message;
   }
@@ -1600,18 +1866,18 @@ function storedHistoryAvailable(sessionId, head) {
 }
 function projectHistoryItem(raw, seq, turn, timestamp, parent) {
   const source = object(raw);
-  const rows = source.historyTruncated === true ? [{ id: String(source.id), seq, type: "system", content: "[content truncated: history item exceeds display budget]" }] : boundHistoryRows(runtimeItems(historyItem(raw), seq));
-  for (const row2 of rows) {
+  const rows2 = source.historyTruncated === true ? [{ id: String(source.id), seq, type: "system", content: "[content truncated: history item exceeds display budget]" }] : boundHistoryRows(runtimeItems(historyItem(raw), seq));
+  for (const row3 of rows2) {
     const spawn = source.type === "collabAgentToolCall" && source.tool === "spawnAgent" && source.senderThreadId === parent;
     const started = source.type === "subAgentActivity" && source.kind === "started" && (source.senderThreadId == null || source.senderThreadId === parent);
-    if (parent && (spawn || started) && row2.toolKind === "agent") {
-      const input = object(row2.toolInput);
-      row2.toolInput = json({ ...input, agent_parent_thread_id: parent, agent_ordinal: input.agent_ordinal ?? 1 });
+    if (parent && (spawn || started) && row3.toolKind === "agent") {
+      const input = object(row3.toolInput);
+      row3.toolInput = json({ ...input, agent_parent_thread_id: parent, agent_ordinal: input.agent_ordinal ?? 1 });
     }
-    row2.toolFlowId = turn;
-    if (typeof timestamp === "number" && Number.isFinite(timestamp)) row2.timestamp = new Date(timestamp).toISOString();
+    row3.toolFlowId = turn;
+    if (typeof timestamp === "number" && Number.isFinite(timestamp)) row3.timestamp = new Date(timestamp).toISOString();
   }
-  return rows;
+  return rows2;
 }
 function recordedItem(raw) {
   const item = Object.fromEntries(Object.entries(object(raw)).map(([key, value]) => [
@@ -1666,21 +1932,21 @@ function runtimeStoredRecords(sessionId, records) {
   }));
 }
 function projectStoredRecords(sessionId, records) {
-  const rows = /* @__PURE__ */ new Map();
+  const rows2 = /* @__PURE__ */ new Map();
   for (const raw of records) {
     const record5 = object(raw);
     const payload = object(record5.payload);
-    if (record5.type === "session_meta" && text(payload.id) !== sessionId) throw new Error("Stored session identity differs");
+    if (record5.type === "session_meta" && text2(payload.id) !== sessionId) throw new Error("Stored session identity differs");
     if (record5.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
-    const turn = text(payload.turn_id);
-    if (!turn || !text(object(payload.item).id)) throw new Error("Stored runtime item identity missing");
-    const projected = projectHistoryItem(recordedItem(payload.item), rows.size, turn, payload.started_at_ms ?? payload.completed_at_ms, sessionId);
-    for (const row2 of projected) {
-      row2.seq = rows.get(row2.id)?.seq ?? rows.size;
-      rows.set(row2.id, row2);
+    const turn = text2(payload.turn_id);
+    if (!turn || !text2(object(payload.item).id)) throw new Error("Stored runtime item identity missing");
+    const projected = projectHistoryItem(recordedItem(payload.item), rows2.size, turn, payload.started_at_ms ?? payload.completed_at_ms, sessionId);
+    for (const row3 of projected) {
+      row3.seq = rows2.get(row3.id)?.seq ?? rows2.size;
+      rows2.set(row3.id, row3);
     }
   }
-  return [...rows.values()];
+  return [...rows2.values()];
 }
 
 // plugins/provider-codex/src/runtimeHistoryPager.ts
@@ -1695,7 +1961,7 @@ function decode(op) {
   if (!op.cursor) return { pager: 1, thread: op.threadId, stage: "turns", cursor: null, historyItemLimit: 16 };
   if (!op.cursor.startsWith(PREFIX) || op.cursor.length > 128 * 1024) failure("Invalid history checkpoint");
   const position = JSON.parse(op.cursor.slice(PREFIX.length));
-  if (position.pager !== 1 || position.thread !== op.threadId || !["turns", "items", "goal"].includes(position.stage) || position.cursor !== null && typeof position.cursor !== "string" || position.stage === "items" && !text(object(position.turn).id)) failure("History checkpoint differs from bound thread");
+  if (position.pager !== 1 || position.thread !== op.threadId || !["turns", "items", "goal"].includes(position.stage) || position.cursor !== null && typeof position.cursor !== "string" || position.stage === "items" && !text2(object(position.turn).id)) failure("History checkpoint differs from bound thread");
   position.historyItemLimit ?? (position.historyItemLimit = 16);
   if (!Number.isSafeInteger(position.historyItemLimit) || position.historyItemLimit < 1 || position.historyItemLimit > 16) failure("Invalid history item limit");
   return position;
@@ -1707,7 +1973,7 @@ function pagedHistoryPlan(op) {
   return { action: { kind: "request", call: { ...call, params: call.params } }, state };
 }
 function nextCursor(value, previous) {
-  const next = text(value.nextCursor) ?? null;
+  const next = text2(value.nextCursor) ?? null;
   if (next && (next.length > 4096 || next === previous)) failure("History RPC cursor did not advance");
   return next;
 }
@@ -1735,7 +2001,7 @@ function pagedHistoryResponse(op, raw, reply) {
   }
   const value = object(reply.value);
   if (state.stage === "goal") {
-    const goal = text(object(value.goal).objective);
+    const goal = text2(object(value.goal).objective);
     return finish(op, goal ? [{ id: "thread:goal", seq: 0, type: "custom", content: "", sessionIntent: goalIntent(value.goal) ?? { goal } }] : [], [], []);
   }
   if (!Array.isArray(value.data)) failure("History page has no data array");
@@ -1744,7 +2010,7 @@ function pagedHistoryResponse(op, raw, reply) {
     if (value.data.length > 1) failure("History turn page exceeds requested limit");
     const turn = object(value.data[0]);
     if (!value.data.length) return finish(op, [], [], [], next ? { ...state, cursor: next } : { ...state, stage: "goal", cursor: null });
-    if (!text(turn.id) || String(turn.id).length > 4096) failure("History turn identity missing or oversized");
+    if (!text2(turn.id) || String(turn.id).length > 4096) failure("History turn identity missing or oversized");
     const position2 = {
       pager: 1,
       thread: op.threadId,
@@ -1762,14 +2028,14 @@ function pagedHistoryResponse(op, raw, reply) {
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > value.data.length) failure("History item offset is invalid");
   for (let index = offset; index < value.data.length; index++) {
     const record5 = object(value.data[index]), item = record5.item ?? record5;
-    const rows = projectHistoryItem(item, 0, state.turn.id, record5.startedAtMs ?? record5.completedAtMs, op.threadId);
+    const rows2 = projectHistoryItem(item, 0, state.turn.id, record5.startedAtMs ?? record5.completedAtMs, op.threadId);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, item, questions);
     const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record5.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(item).status));
-    const opened = active ? rows.map((item2) => ({ turnId: state.turn.id, item: item2 })) : [];
-    const used = serializedBytes({ rows, opened, questions: nextQuestions });
+    const opened = active ? rows2.map((item2) => ({ turnId: state.turn.id, item: item2 })) : [];
+    const used = serializedBytes({ rows: rows2, opened, questions: nextQuestions });
     if (bytes + used > HISTORY_CHUNK_BYTES && index > offset) return finish(op, items, openItems, questions, { ...state, offset: index });
     bytes += used;
-    items.unshift(...rows);
+    items.unshift(...rows2);
     openItems.unshift(...opened);
     questions = nextQuestions;
   }
@@ -1780,13 +2046,13 @@ function pagedHistoryResponse(op, raw, reply) {
 // plugins/provider-codex/src/runtimeLogin.ts
 function loginPlan(raw) {
   const value = object(raw);
-  if (value.action === "cancel" && text(value.loginId)) return {
+  if (value.action === "cancel" && text2(value.loginId)) return {
     action: { kind: "request", call: { method: "account/login/cancel", params: { loginId: String(value.loginId) } } },
     state: { stage: "loginCancel", loginId: String(value.loginId) }
   };
   const types = { browser: "chatgpt", device: "chatgptDeviceCode", apiKey: "apiKey" };
   const method = String(value.method);
-  if (!["browser", "device", "apiKey"].includes(method) || method === "apiKey" && !text(value.apiKey)) throw { code: "invalid_schema", message: "Invalid login request" };
+  if (!["browser", "device", "apiKey"].includes(method) || method === "apiKey" && !text2(value.apiKey)) throw { code: "invalid_schema", message: "Invalid login request" };
   return { action: { kind: "request", call: { method: "account/login/start", params: json({ type: types[method], ...method === "apiKey" ? { apiKey: value.apiKey } : {} }) } }, state: { stage: "loginStart", method } };
 }
 function loginResponse(state, value) {
@@ -1795,16 +2061,16 @@ function loginResponse(state, value) {
     return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "canceled", loginId: String(state.loginId) } }] };
   }
   if (state.method === "apiKey" && value.type === "apiKey") return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "completed", method: "apiKey" } }] };
-  const loginId = text(value.loginId);
-  const url = text(value.authUrl) ?? text(value.verificationUrl);
+  const loginId = text2(value.loginId);
+  const url = text2(value.authUrl) ?? text2(value.verificationUrl);
   if (!loginId || !url || !["chatgpt", "chatgptDeviceCode"].includes(String(value.type))) throw { code: "invalid_schema", message: "Invalid login start result" };
   const method = state.method === "device" ? "device" : "browser";
-  const userCode = text(value.userCode);
+  const userCode = text2(value.userCode);
   if (method === "device" && !userCode) throw { code: "invalid_schema", message: "Missing device code" };
   return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "pending", method, loginId, url, ...userCode ? { userCode } : {} } }] };
 }
 function loginCompleted(value) {
-  const loginId = text(value.loginId);
+  const loginId = text2(value.loginId);
   return { kind: "authLogin", login: { status: value.success === true ? "completed" : "failed", ...loginId ? { loginId } : {}, ...value.success === true ? {} : { error: "Sign-in did not complete. Try again." } } };
 }
 
@@ -1818,15 +2084,15 @@ function resetCredits(raw) {
   if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return void 0;
   const credits = Array.isArray(summary.credits) ? summary.credits.flatMap((rawCredit) => {
     const credit = object(rawCredit);
-    const id = text(credit.id);
+    const id = text2(credit.id);
     if (!id) return [];
     const status = credit.status === "available" || credit.status === "redeeming" || credit.status === "redeemed" ? credit.status : "unknown";
     return [{
       id,
       status,
       expiresAt: expiry(credit.expiresAt),
-      ...text(credit.title) ? { title: text(credit.title) } : {},
-      ...text(credit.description) ? { description: text(credit.description) } : {}
+      ...text2(credit.title) ? { title: text2(credit.title) } : {},
+      ...text2(credit.description) ? { description: text2(credit.description) } : {}
     }];
   }) : null;
   const expiries = credits?.filter((credit) => credit.status === "available" && credit.expiresAt !== null).map((credit) => credit.expiresAt) ?? [];
@@ -1867,13 +2133,13 @@ function accountAuth(value) {
   const response = object(value);
   if (response.account === null && response.requiresOpenaiAuth === true) return { kind: "auth", state: "signedOut" };
   const account = object(response.account);
-  if (text(account.type)) return { kind: "auth", state: "signedIn", billingMode: account.type === "apiKey" ? "api" : account.type === "chatgpt" || account.type === "chatgptAuthTokens" ? "subscription" : "unknown" };
+  if (text2(account.type)) return { kind: "auth", state: "signedIn", billingMode: account.type === "apiKey" ? "api" : account.type === "chatgpt" || account.type === "chatgptAuthTokens" ? "subscription" : "unknown" };
   return { kind: "auth", state: "unknown" };
 }
 function notificationAuth(value) {
   const params = object(value);
   if (params.authMode === null) return { kind: "auth", state: "signedOut" };
-  if (text(params.authMode)) return { kind: "auth", state: "signedIn", billingMode: params.authMode === "apiKey" ? "api" : params.authMode === "chatgpt" || params.authMode === "chatgptAuthTokens" ? "subscription" : "unknown" };
+  if (text2(params.authMode)) return { kind: "auth", state: "signedIn", billingMode: params.authMode === "apiKey" ? "api" : params.authMode === "chatgpt" || params.authMode === "chatgptAuthTokens" ? "subscription" : "unknown" };
   return { kind: "auth", state: "unknown" };
 }
 
@@ -1969,10 +2235,10 @@ function historyThread(ctx, value, expected) {
   if (expected === ctx.threadId) return userThread(value, expected) !== void 0;
   if (!descendantThread(ctx, expected)) return false;
   const thread = object(object(value).thread);
-  if (text(thread.id) !== expected) return false;
+  if (text2(thread.id) !== expected) return false;
   const parent = ctx.threadParents.find((entry) => entry.threadId === expected)?.parentThreadId;
-  const declared = text(thread.parentThreadId);
-  const source = text(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
+  const declared = text2(thread.parentThreadId);
+  const source = text2(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
   return (declared !== void 0 || source !== void 0) && (declared === void 0 || declared === parent) && (source === void 0 || source === parent);
 }
 
@@ -2027,7 +2293,7 @@ function runtimeAnswer(method, params, id, answer) {
     const answers = {};
     if (answer.kind === "cancel") fail("Questions cannot be cancelled without an answer");
     for (const q of questions) {
-      const key = text(q.id);
+      const key = text2(q.id);
       if (!key) fail("Missing question id");
       const selected = list(q.options).flatMap((o) => {
         const parsed = nativeOption(o);
@@ -2077,7 +2343,7 @@ function restoreContextItems(raw) {
     entries.set(entry.key, entry);
   }
   const context = value;
-  const item = (role, text6) => ({ type: "message", role, content: [{ type: "input_text", text: text6 }] });
+  const item = (role, text7) => ({ type: "message", role, content: [{ type: "input_text", text: text7 }] });
   const items = context.instructions ? [item("developer", context.instructions)] : [];
   for (const entry of entries.values()) items.push(item(entry.kind === "application" ? "developer" : "user", entry.value));
   if (!items.length) invalid2("Empty restoreContext");
@@ -2128,12 +2394,12 @@ function codexReportedSettings(raw) {
   const thread = object(settings.thread);
   const tier = settings.serviceTier !== void 0 ? settings.serviceTier : thread.serviceTier;
   const serviceTier = tier === void 0 ? void 0 : tier === null || typeof tier === "string" ? { id: tier === "default" ? null : tier === "fast" ? "priority" : tier } : void 0;
-  const model = text(settings.model) ?? text(thread.model);
-  const effort = text(settings.reasoningEffort) ?? text(settings.effort) ?? text(thread.reasoningEffort) ?? text(thread.effort);
+  const model = text2(settings.model) ?? text2(thread.model);
+  const effort = text2(settings.reasoningEffort) ?? text2(settings.effort) ?? text2(thread.reasoningEffort) ?? text2(thread.effort);
   const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;
   const approval = settings.approvalPolicy ?? thread.approvalPolicy;
   const reviewer = settings.approvalsReviewer ?? thread.approvalsReviewer;
-  const mode = text(settings.mode) ?? text(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "never" && sandbox === "readOnly" ? "read-only" : approval === "never" && sandbox === "workspaceWrite" ? "workspace-write" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
+  const mode = text2(settings.mode) ?? text2(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "never" && sandbox === "readOnly" ? "read-only" : approval === "never" && sandbox === "workspaceWrite" ? "workspace-write" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
   return { ...serviceTier !== void 0 ? { serviceTier } : {}, ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} };
 }
 function codexEffectiveSettings(requested, reply) {
@@ -2159,10 +2425,10 @@ function modelServiceTiers(models, requirements) {
   const result = /* @__PURE__ */ Object.create(null);
   for (const raw of list(models)) {
     const model = object(raw);
-    const id = text(model.model) ?? text(model.id);
+    const id = text2(model.model) ?? text2(model.id);
     if (!id) continue;
     const advertised = list(model.serviceTiers).map(object).flatMap((tier) => {
-      const tierId = text(tier.id), name = text(tier.name), description = text(tier.description);
+      const tierId = text2(tier.id), name = text2(tier.name), description = text2(tier.description);
       if (!tierId || !name || typeof tier.description !== "string") return [];
       const allowed = knownRequirements && (tierId === "flex" || (tierId === "ultrafast" ? ultra : fast));
       return [{ id: tierId, name, description: description ?? "", ...!allowed ? { unavailableReason: knownRequirements ? "Disabled by your administrator" : "Availability not confirmed" } : {} }];
@@ -2206,18 +2472,18 @@ function runtimeError(value, willRetry = false) {
   const info = error.codexErrorInfo;
   const infoObject = object(info);
   const code = typeof info === "string" ? info : Object.keys(infoObject)[0];
-  const message = text(error.additionalDetails) ?? text(error.message) ?? "Provider request failed";
+  const message = text2(error.additionalDetails) ?? text2(error.message) ?? "Provider request failed";
   const status = statusCode(error.status) ?? statusCode(error.statusCode) ?? statusCode(error.httpStatusCode) ?? statusCode(infoObject.httpStatusCode) ?? nestedStatus(infoObject);
   return { message, metadata: { ...code ? { code } : {}, class: runtimeClass(code, status), retryable: willRetry } };
 }
 
 // plugins/provider-codex/src/runtimeAbandonedTurns.ts
 function pendingCall(state) {
-  return Object.values(state.items).find((row2) => row2.toolFlowId === state.activeTurnId && row2.toolStatus === "running");
+  return Object.values(state.items).find((row3) => row3.toolFlowId === state.activeTurnId && row3.toolStatus === "running");
 }
 function runningCallStatus(state) {
-  const row2 = pendingCall(state);
-  return row2 ? activityLabel(row2) : void 0;
+  const row3 = pendingCall(state);
+  return row3 ? activityLabel(row3) : void 0;
 }
 function abandonOpenTurn(state, threadId, nextTurnId) {
   const previous = state.activeTurnId;
@@ -2225,39 +2491,39 @@ function abandonOpenTurn(state, threadId, nextTurnId) {
   state.completed.push(previous);
   (state.abandoned ?? (state.abandoned = [])).push(previous);
   const events = [];
-  for (const row3 of Object.values(state.items)) {
-    if (row3.toolFlowId !== previous || row3.toolStatus !== "running") continue;
-    const abandoned = { ...row3, toolStatus: "abandoned", toolInterrupted: true };
-    state.items[row3.id] = abandoned;
+  for (const row4 of Object.values(state.items)) {
+    if (row4.toolFlowId !== previous || row4.toolStatus !== "running") continue;
+    const abandoned = { ...row4, toolStatus: "abandoned", toolInterrupted: true };
+    state.items[row4.id] = abandoned;
     events.push({ kind: "chatItem", threadId, item: abandoned });
   }
-  const row2 = { id: `${previous}:abandoned`, seq: ++state.seq, type: "system", content: "Turn interrupted by a new turn", systemSubtype: "turn_abandoned", toolFlowId: previous };
-  state.items[row2.id] = row2;
-  events.push({ kind: "chatItem", threadId, item: row2 }, { kind: "turnState", threadId, turnId: previous, state: "idle", ...{ detail: "interrupted" } });
+  const row3 = { id: `${previous}:abandoned`, seq: ++state.seq, type: "system", content: "Turn interrupted by a new turn", systemSubtype: "turn_abandoned", toolFlowId: previous };
+  state.items[row3.id] = row3;
+  events.push({ kind: "chatItem", threadId, item: row3 }, { kind: "turnState", threadId, turnId: previous, state: "idle", ...{ detail: "interrupted" } });
   return events;
 }
-function stampToolLifecycle(row2, previous, method, params) {
-  if (row2.type !== "tool_call") return row2;
+function stampToolLifecycle(row3, previous, method, params) {
+  if (row3.type !== "tool_call") return row3;
   if (previous?.toolStatus === "abandoned") return previous;
   const raw = params.item;
   const suppliedStart = params.startedAtMs;
   const suppliedEnd = params.completedAtMs;
   const started = previous?.toolStartedAtMs ?? (typeof suppliedStart === "number" ? suppliedStart : void 0);
-  if (started === void 0) delete row2.toolStartedAtMs;
-  else row2.toolStartedAtMs = started;
-  row2.toolStatus = previous?.toolStatus ?? "running";
+  if (started === void 0) delete row3.toolStartedAtMs;
+  else row3.toolStartedAtMs = started;
+  row3.toolStatus = previous?.toolStatus ?? "running";
   if (method === "item/completed") {
-    row2.toolStatus = raw?.status === "interrupted" ? "interrupted" : row2.toolError ? "failed" : "completed";
-    if (typeof suppliedEnd === "number") row2.toolCompletedAtMs = suppliedEnd;
-    else delete row2.toolCompletedAtMs;
+    row3.toolStatus = raw?.status === "interrupted" ? "interrupted" : row3.toolError ? "failed" : "completed";
+    if (typeof suppliedEnd === "number") row3.toolCompletedAtMs = suppliedEnd;
+    else delete row3.toolCompletedAtMs;
   }
-  return row2;
+  return row3;
 }
 function interruptPendingCalls(state, threadId, turnId) {
-  return Object.values(state.items).flatMap((row2) => {
-    if (row2.toolFlowId !== turnId || row2.toolStatus !== "running") return [];
-    const interrupted = { ...row2, toolStatus: "interrupted", toolInterrupted: true };
-    state.items[row2.id] = interrupted;
+  return Object.values(state.items).flatMap((row3) => {
+    if (row3.toolFlowId !== turnId || row3.toolStatus !== "running") return [];
+    const interrupted = { ...row3, toolStatus: "interrupted", toolInterrupted: true };
+    state.items[row3.id] = interrupted;
     return [{ kind: "chatItem", threadId, item: interrupted }];
   });
 }
@@ -2268,7 +2534,7 @@ function update(previous, activity) {
   const input = object(previous.toolInput);
   const patch = Object.fromEntries(Object.entries(object(activity.toolInput)).filter(([, value]) => value != null));
   delete patch.agent_call_id;
-  if (!text(patch.agent_state)) delete patch.agent_state;
+  if (!text2(patch.agent_state)) delete patch.agent_state;
   if (TERMINAL_STATES.includes(String(input.agent_state)) && !TERMINAL_STATES.includes(String(patch.agent_state))) delete patch.agent_state;
   return { ...previous, toolInput: { ...input, ...patch } };
 }
@@ -2277,20 +2543,20 @@ function reduceRuntimeAgents(state, items, parents, parent, raw, seq) {
   if (item.type !== "collabAgentToolCall" && item.type !== "subAgentActivity") return void 0;
   const spawn = item.type === "collabAgentToolCall" && item.tool === "spawnAgent";
   if (spawn && !list(item.receiverThreadIds).length) return [];
-  const rows = runtimeItems(item, seq);
-  return rows.flatMap((row2) => {
-    const agent = text(object(row2.toolInput).agent_id);
-    if (!agent) return [row2];
+  const rows2 = runtimeItems(item, seq);
+  return rows2.flatMap((row3) => {
+    const agent = text2(object(row3.toolInput).agent_id);
+    if (!agent) return [row3];
     const existing = state.rows[agent];
     const previous = existing ? items[existing] : void 0;
-    if (previous) return [update(previous, row2)];
+    if (previous) return [update(previous, row3)];
     const started = item.type === "subAgentActivity" && item.kind === "started";
-    if (!spawn && !started) return [row2];
-    state.rows[agent] = row2.id;
+    if (!spawn && !started) return [row3];
+    state.rows[agent] = row3.id;
     parents[agent] = parent;
     state.ordinal += 1;
-    row2.toolInput = { ...object(row2.toolInput), agent_parent_thread_id: parent, agent_ordinal: state.ordinal };
-    return [row2];
+    row3.toolInput = { ...object(row3.toolInput), agent_parent_thread_id: parent, agent_ordinal: state.ordinal };
+    return [row3];
   });
 }
 
@@ -2330,19 +2596,19 @@ function capText(value, cap) {
   const body = value.startsWith(TRUNCATED) ? value.slice(TRUNCATED.length) : value;
   return TRUNCATED + body.slice(body.length - (cap - TRUNCATED.length));
 }
-function capRow(row2, cap) {
+function capRow(row3, cap) {
   let capped;
   for (const key of HEAVY) {
-    const value = row2[key];
+    const value = row3[key];
     if (typeof value !== "string" || value.length <= cap) continue;
-    capped ?? (capped = { ...row2 });
+    capped ?? (capped = { ...row3 });
     capped[key] = capText(value, cap);
   }
-  if (row2.toolInput !== void 0 && JSON.stringify(row2.toolInput).length > cap) {
-    capped ?? (capped = { ...row2 });
+  if (row3.toolInput !== void 0 && JSON.stringify(row3.toolInput).length > cap) {
+    capped ?? (capped = { ...row3 });
     delete capped.toolInput;
   }
-  return capped ?? row2;
+  return capped ?? row3;
 }
 function isRetired(state, id) {
   return !!state.retired?.includes(id);
@@ -2354,11 +2620,11 @@ function markClosed(state, id) {
   if (state.open) state.open = state.open.filter((open) => open !== id);
   if (state.reasoning) delete state.reasoning[id];
 }
-function retire(row2) {
-  const slim = { id: row2.id, seq: row2.seq, type: row2.type, content: "" };
-  if (row2.timestamp) slim.timestamp = row2.timestamp;
-  if (row2.toolFlowId) slim.toolFlowId = row2.toolFlowId;
-  if (row2.toolStatus) slim.toolStatus = row2.toolStatus;
+function retire(row3) {
+  const slim = { id: row3.id, seq: row3.seq, type: row3.type, content: "" };
+  if (row3.timestamp) slim.timestamp = row3.timestamp;
+  if (row3.toolFlowId) slim.toolFlowId = row3.toolFlowId;
+  if (row3.toolStatus) slim.toolStatus = row3.toolStatus;
   return slim;
 }
 function tail(values) {
@@ -2368,18 +2634,18 @@ function compactState(state) {
   const agents = new Set(Object.values(state.agents?.rows ?? {}));
   const done = new Set(state.completed);
   const open = new Set((state.open ?? []).filter((id) => {
-    const row2 = state.items[id];
-    return row2 && (!row2.toolStatus || row2.toolStatus === "running") && !(row2.toolFlowId && done.has(row2.toolFlowId));
+    const row3 = state.items[id];
+    return row3 && (!row3.toolStatus || row3.toolStatus === "running") && !(row3.toolFlowId && done.has(row3.toolFlowId));
   }));
   state.open = [...open];
   const retired = new Set(state.retired ?? []);
-  for (const [id, row2] of Object.entries(state.items)) {
+  for (const [id, row3] of Object.entries(state.items)) {
     if (agents.has(id)) continue;
-    if (row2.toolStatus === "running" || open.has(id)) {
-      state.items[id] = capRow(row2, STATE_TEXT_CAP);
+    if (row3.toolStatus === "running" || open.has(id)) {
+      state.items[id] = capRow(row3, STATE_TEXT_CAP);
       retired.delete(id);
     } else {
-      state.items[id] = retire(row2);
+      state.items[id] = retire(row3);
       retired.add(id);
     }
   }
@@ -2422,7 +2688,7 @@ function fitTotal(state) {
   }
   for (let cap = STATE_TEXT_CAP / 2; cap >= MIN_RUNNING_CAP; cap = Math.floor(cap / 2)) {
     if (utf8Bytes3(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
-    for (const [id, row2] of Object.entries(state.items)) state.items[id] = capRow(row2, cap);
+    for (const [id, row3] of Object.entries(state.items)) state.items[id] = capRow(row3, cap);
     for (const parts of Object.values(state.reasoning ?? {})) {
       parts.summary = parts.summary.map((part) => capText(part, cap));
       parts.content = parts.content.map((part) => capText(part, cap));
@@ -2452,8 +2718,8 @@ function coalesce(events) {
   });
   return events.filter((event, index) => event.kind !== "chatItem" || last.get(JSON.stringify([event.threadId, event.item.id])) === index);
 }
-function shrinkRow(row2, cap) {
-  const result = { ...row2 };
+function shrinkRow(row3, cap) {
+  const result = { ...row3 };
   let shortened = false;
   for (const field of TEXT_FIELDS) {
     const value = result[field];
@@ -2517,7 +2783,7 @@ function usage(params) {
 }
 function sendEvidence(ctx, item, turnId) {
   if (item.type !== "userMessage" || !turnId) return void 0;
-  const sendId = text(item.clientId);
+  const sendId = text2(item.clientId);
   const claim = ctx.claimedSends.find((c) => c.sendId === sendId && c.threadId === ctx.threadId);
   if (!claim) return void 0;
   const parts = list(item.content).map(object);
@@ -2531,67 +2797,67 @@ function sendEvidence(ctx, item, turnId) {
     if (expected.url) return image.type === "image" && image.url === expected.url;
     return !!expected.path && image.type === "localImage" && image.path === expected.path;
   })) return void 0;
-  return { kind: "sendEvidence", threadId: claim.threadId, sendId: claim.sendId, turnId, ...text(item.id) ? { itemId: text(item.id) } : {} };
+  return { kind: "sendEvidence", threadId: claim.threadId, sendId: claim.sendId, turnId, ...text2(item.id) ? { itemId: text2(item.id) } : {} };
 }
-function stamp(state, row2, params) {
-  const previous = state.items[row2.id];
-  row2.seq = previous?.seq ?? ++state.seq;
+function stamp(state, row3, params) {
+  const previous = state.items[row3.id];
+  row3.seq = previous?.seq ?? ++state.seq;
   const ms = params.startedAtMs ?? params.completedAtMs;
-  if (previous?.timestamp) row2.timestamp = previous.timestamp;
-  else if (typeof ms === "number" && Number.isFinite(ms)) row2.timestamp = new Date(ms).toISOString();
-  const turnId = text(params.turnId) ?? text(object(params.turn).id);
-  if (turnId && !row2.toolFlowId) row2.toolFlowId = turnId;
-  if (row2.toolKind === "agent" && row2.toolName === "agent_activity") {
-    row2.toolInput = json({ ...object(row2.toolInput), agent_binding_nonce: state.bindingNonce, agent_runtime_epoch: state.epoch });
+  if (previous?.timestamp) row3.timestamp = previous.timestamp;
+  else if (typeof ms === "number" && Number.isFinite(ms)) row3.timestamp = new Date(ms).toISOString();
+  const turnId = text2(params.turnId) ?? text2(object(params.turn).id);
+  if (turnId && !row3.toolFlowId) row3.toolFlowId = turnId;
+  if (row3.toolKind === "agent" && row3.toolName === "agent_activity") {
+    row3.toolInput = json({ ...object(row3.toolInput), agent_binding_nonce: state.bindingNonce, agent_runtime_epoch: state.epoch });
   }
-  state.items[row2.id] = row2;
-  return row2;
+  state.items[row3.id] = row3;
+  return row3;
 }
 function mapItem(state, method, params) {
   const raw = object(params.item);
-  const id = text(raw.id) ?? text(params.itemId);
+  const id = text2(raw.id) ?? text2(params.itemId);
   if (!id) return void 0;
   const retired = isRetired(state, id);
   const previous = retired ? void 0 : state.items[id];
   if (method === "item/started" || method === "item/completed") {
     if (method === "item/started") markOpen(state, id);
     else markClosed(state, id);
-    const row3 = runtimeItem(raw, state.seq + 1, previous);
-    return row3 ? stamp(state, stampToolLifecycle(row3, previous, method, params), params) : void 0;
+    const row4 = runtimeItem(raw, state.seq + 1, previous);
+    return row4 ? stamp(state, stampToolLifecycle(row4, previous, method, params), params) : void 0;
   }
-  const delta = text(params.delta) ?? text(params.message);
+  const delta = text2(params.delta) ?? text2(params.message);
   if (!delta || retired) return void 0;
   markOpen(state, id);
-  const row2 = previous ? { ...previous } : { id, seq: state.seq + 1, type: "assistant", content: "" };
+  const row3 = previous ? { ...previous } : { id, seq: state.seq + 1, type: "assistant", content: "" };
   switch (method) {
     case "item/agentMessage/delta":
     case "item/plan/delta":
-      row2.type = "assistant";
-      row2.content += delta;
+      row3.type = "assistant";
+      row3.content += delta;
       break;
     case "item/reasoning/textDelta":
     case "item/reasoning/summaryTextDelta":
-      row2.type = "thinking";
-      row2.collapsed = true;
-      row2.content += delta;
+      row3.type = "thinking";
+      row3.collapsed = true;
+      row3.content += delta;
       break;
     case "item/commandExecution/outputDelta":
     case "item/fileChange/outputDelta":
-      row2.type = "tool_call";
-      row2.toolKind = method === "item/commandExecution/outputDelta" ? "command" : "edit";
-      row2.toolId = id;
-      row2.toolResult = (row2.toolResult ?? "") + delta;
+      row3.type = "tool_call";
+      row3.toolKind = method === "item/commandExecution/outputDelta" ? "command" : "edit";
+      row3.toolId = id;
+      row3.toolResult = (row3.toolResult ?? "") + delta;
       break;
     case "item/mcpToolCall/progress":
-      row2.type = "tool_call";
-      row2.toolKind = "generic";
-      row2.toolId = id;
-      row2.toolDetail = delta;
+      row3.type = "tool_call";
+      row3.toolKind = "generic";
+      row3.toolId = id;
+      row3.toolDetail = delta;
       break;
     default:
       return void 0;
   }
-  return stamp(state, stampToolLifecycle(row2, previous, method, params), params);
+  return stamp(state, stampToolLifecycle(row3, previous, method, params), params);
 }
 function runtimeReduce(ctx, raw, frames) {
   var _a;
@@ -2615,8 +2881,8 @@ function runtimeReduce(ctx, raw, frames) {
     state.parents ?? (state.parents = Object.fromEntries(ctx.threadParents.map((parent) => [parent.threadId, parent.parentThreadId])));
     if (frame.kind === "notification" && frame.method === "thread/started") {
       const thread = object(params.thread);
-      const id = text(thread.id);
-      const parent = text(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
+      const id = text2(thread.id);
+      const parent = text2(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
       if (id && parent && (parent === ctx.threadId || Object.prototype.hasOwnProperty.call(state.parents, parent))) state.parents[id] = parent;
       continue;
     }
@@ -2627,7 +2893,7 @@ function runtimeReduce(ctx, raw, frames) {
         if (agents) for (const activity of agents) events.push({ kind: "chatItem", threadId: ctx.threadId, item: stamp(state, activity, params) });
       }
       const threadId2 = params.threadId;
-      const turnId2 = text(object(params.turn).id) ?? text(params.turnId);
+      const turnId2 = text2(object(params.turn).id) ?? text2(params.turnId);
       if (!turnId2) continue;
       state.childActive ?? (state.childActive = {});
       state.childCompleted ?? (state.childCompleted = []);
@@ -2653,7 +2919,7 @@ function runtimeReduce(ctx, raw, frames) {
     if (ctx.threadId && (params.threadId === ctx.threadId || descendant) && frame.kind === "request") {
       if (!serverRequestMethods.includes(frame.method)) continue;
       const prompt = runtimePrompt(frame.method, params, frame.requestId);
-      const turnId2 = descendant ? ctx.activeTurnId : text(params.turnId);
+      const turnId2 = descendant ? ctx.activeTurnId : text2(params.turnId);
       if (prompt) events.push({ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, prompt }, { kind: "turnState", threadId: ctx.threadId, state: "needs_input", detail: requestDetail(frame.method), ...turnId2 ? { turnId: turnId2 } : {} });
       continue;
     }
@@ -2663,7 +2929,7 @@ function runtimeReduce(ctx, raw, frames) {
     }
     if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
     const threadId = ctx.threadId;
-    const turnId = text(params.turnId) ?? text(object(params.turn).id);
+    const turnId = text2(params.turnId) ?? text2(object(params.turn).id);
     if (turnId && state.abandoned?.includes(turnId)) continue;
     switch (frame.method) {
       case "turn/started": {
@@ -2684,7 +2950,7 @@ function runtimeReduce(ctx, raw, frames) {
         delete state.activeTurnId;
         delete state.compacting;
         const failure2 = object(object(params.turn).error);
-        if (text(failure2.message)) {
+        if (text2(failure2.message)) {
           const error = runtimeError(failure2);
           events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: "api_error", toolInput: error.metadata }, params) });
         }
@@ -2702,14 +2968,14 @@ function runtimeReduce(ctx, raw, frames) {
         break;
       }
       case "item/fileChange/patchUpdated": {
-        const id = text(params.itemId);
+        const id = text2(params.itemId);
         if (!id || !Array.isArray(params.changes) || isRetired(state, id)) break;
         const previous = state.items[id];
-        const row2 = runtimeItem({ id, type: "fileChange", changes: params.changes, status: "inProgress" }, state.seq + 1, previous);
-        if (!row2) break;
+        const row3 = runtimeItem({ id, type: "fileChange", changes: params.changes, status: "inProgress" }, state.seq + 1, previous);
+        if (!row3) break;
         markOpen(state, id);
-        if (previous?.toolResult !== void 0) row2.toolResult = previous.toolResult;
-        events.push({ kind: "chatItem", threadId, item: stamp(state, row2, params) });
+        if (previous?.toolResult !== void 0) row3.toolResult = previous.toolResult;
+        events.push({ kind: "chatItem", threadId, item: stamp(state, row3, params) });
         break;
       }
       case "thread/tokenUsage/updated": {
@@ -2726,7 +2992,7 @@ function runtimeReduce(ctx, raw, frames) {
         if (typeof params.requestId === "string" || typeof params.requestId === "number") events.push({ kind: "promptResolved", threadId, requestId: params.requestId });
         break;
       case "model/rerouted": {
-        const model = text(params.toModel);
+        const model = text2(params.toModel);
         if (model) {
           events.push({ kind: "controlsConfirmed", threadId, settings: { model } });
           events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId ?? "thread"}:model-rerouted`, seq: state.seq + 1, type: "system", content: `Model changed to ${model}`, systemSubtype: "model_rerouted", toolInput: params }, params) });
@@ -2737,18 +3003,18 @@ function runtimeReduce(ctx, raw, frames) {
         events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: {} }, params) });
         break;
       case "turn/diff/updated": {
-        const diff = text(params.diff);
+        const diff = text2(params.diff);
         if (diff && turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:diff`, seq: state.seq + 1, type: "tool_call", content: "", toolKind: "edit", toolName: "turn_diff", toolResult: diff, collapsed: true }, params) });
         break;
       }
       case "thread/goal/updated": {
-        const goal = text(object(params.goal).objective);
+        const goal = text2(object(params.goal).objective);
         if (goal) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: goalIntent(params.goal) ?? { goal } }, params) });
         break;
       }
       case "turn/plan/updated": {
-        const row2 = runtimeItem({ id: `${turnId}:plan`, type: "planUpdate", plan: params.plan, explanation: params.explanation }, state.seq + 1);
-        if (row2) events.push({ kind: "chatItem", threadId, item: stamp(state, row2, params) });
+        const row3 = runtimeItem({ id: `${turnId}:plan`, type: "planUpdate", plan: params.plan, explanation: params.explanation }, state.seq + 1);
+        if (row3) events.push({ kind: "chatItem", threadId, item: stamp(state, row3, params) });
         break;
       }
       case "error": {
@@ -2757,7 +3023,7 @@ function runtimeReduce(ctx, raw, frames) {
         break;
       }
       default: {
-        let row2;
+        let row3;
         const rawItem = object(params.item);
         if (frame.method === "item/started" || frame.method === "item/completed") {
           state.agents ?? (state.agents = { rows: /* @__PURE__ */ Object.create(null), ordinal: 0 });
@@ -2768,7 +3034,7 @@ function runtimeReduce(ctx, raw, frames) {
           }
         }
         if (frame.method === "item/completed" && rawItem.type === "agentMessage" && rawItem.delivery === "async" && list(rawItem.questions).length) {
-          const itemId = text(rawItem.id);
+          const itemId = text2(rawItem.id);
           state.questions ?? (state.questions = []);
           if (itemId && !state.questions.includes(itemId)) {
             state.questions.push(itemId);
@@ -2776,7 +3042,7 @@ function runtimeReduce(ctx, raw, frames) {
           }
           continue;
         }
-        const compactionId = rawItem.type === "contextCompaction" ? text(rawItem.id) : void 0;
+        const compactionId = rawItem.type === "contextCompaction" ? text2(rawItem.id) : void 0;
         if (compactionId && frame.method === "item/started" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) {
           if (state.compacting === compactionId || state.compacted.includes(compactionId)) continue;
           state.compacting = compactionId;
@@ -2787,7 +3053,7 @@ function runtimeReduce(ctx, raw, frames) {
           delete state.compacting;
           if (turnId && state.activeTurnId === turnId) events.push({ kind: "turnState", threadId, turnId, state: "working" });
         }
-        const reasoningId = text(rawItem.id) ?? text(params.itemId);
+        const reasoningId = text2(rawItem.id) ?? text2(params.itemId);
         if (reasoningId && (rawItem.type === "reasoning" || frame.method.startsWith("item/reasoning/"))) {
           if (frame.method !== "item/completed" && isRetired(state, reasoningId)) continue;
           state.reasoning ?? (state.reasoning = {});
@@ -2805,13 +3071,13 @@ function runtimeReduce(ctx, raw, frames) {
             const index = Number(params.summaryIndex ?? params.contentIndex ?? 0);
             if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts[stream][index] = (parts[stream][index] ?? "") + String(params.delta ?? "");
           }
-          row2 = stamp(state, { id: reasoningId, seq: state.seq + 1, type: "thinking", content: parts.summary.filter(Boolean).join("\n") || parts.content.join("\n"), collapsed: true }, params);
+          row3 = stamp(state, { id: reasoningId, seq: state.seq + 1, type: "thinking", content: parts.summary.filter(Boolean).join("\n") || parts.content.join("\n"), collapsed: true }, params);
           if (frame.method === "item/completed") markClosed(state, reasoningId);
           else markOpen(state, reasoningId);
-        } else row2 = mapItem(state, frame.method, params);
-        if (row2) {
-          events.push({ kind: "chatItem", threadId, item: row2 });
-          if (row2.type === "tool_call" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) events.push({ kind: "turnState", threadId, ...state.activeTurnId ? { turnId: state.activeTurnId } : {}, state: "working", ...{ statusLine: runningCallStatus(state) ?? "" } });
+        } else row3 = mapItem(state, frame.method, params);
+        if (row3) {
+          events.push({ kind: "chatItem", threadId, item: row3 });
+          if (row3.type === "tool_call" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) events.push({ kind: "turnState", threadId, ...state.activeTurnId ? { turnId: state.activeTurnId } : {}, state: "working", ...{ statusLine: runningCallStatus(state) ?? "" } });
         }
         if (frame.method === "item/started" || frame.method === "item/completed") {
           const evidence = sendEvidence(ctx, object(params.item), turnId);
@@ -2820,7 +3086,7 @@ function runtimeReduce(ctx, raw, frames) {
             events.push(evidence);
           }
           const item = object(params.item);
-          const id = text(item.id);
+          const id = text2(item.id);
           if (frame.method === "item/completed" && item.type === "contextCompaction" && id && !state.compacted.includes(id)) {
             state.compacted.push(id);
             events.push({ kind: "contextCompacted", threadId, itemId: id });
@@ -2880,8 +3146,8 @@ function turnParams(ctx, op) {
   };
 }
 function threadHistoryPlan(ctx, thread, value) {
-  const action = text(object(value).action);
-  const turnId = text(object(value).turnId);
+  const action = text2(object(value).action);
+  const turnId = text2(object(value).turnId);
   if (action !== "fork" && action !== "revert" || !turnId || turnId.length > 4096) fail2("invalid_schema", "Invalid thread history action");
   if (ctx.activeTurnId) fail2("provider_refused", "Thread history cannot change during an active turn");
   return request(
@@ -2896,14 +3162,14 @@ function forkThreadPlan(ctx, op) {
 }
 function threadHistoryTurns(ctx, op, state, value) {
   const controlThread = op.kind === "control" ? op.threadId : void 0;
-  const thread = text(state.sourceThreadId) ?? controlThread ?? ctx.threadId;
-  const action = text(state.action);
-  const turnId = text(state.turnId);
+  const thread = text2(state.sourceThreadId) ?? controlThread ?? ctx.threadId;
+  const action = text2(state.action);
+  const turnId = text2(state.turnId);
   if (!thread || !action || !turnId || !Array.isArray(value.data) || value.data.length > 8) return refused("Invalid thread history page");
   let targetFound = state.targetFound === true;
   for (const raw of value.data) {
     const turn = object(raw);
-    const id = text(turn.id);
+    const id = text2(turn.id);
     if (!id || id.length > 4096) return refused("Thread history turn identity missing");
     if (targetFound) {
       if (action === "revert") return continuation(request("thread/revert", { threadId: thread, beforeTurnId: id }, { stage: "thread/revert", turnId }));
@@ -2918,7 +3184,7 @@ function threadHistoryTurns(ctx, op, state, value) {
     ));
     targetFound = true;
   }
-  const next = text(value.nextCursor);
+  const next = text2(value.nextCursor);
   if (next && (next.length > 4096 || next === state.cursor)) return refused("Thread history cursor did not advance");
   if (next) return continuation(request(
     "thread/turns/list",
@@ -2983,7 +3249,7 @@ function planOperation(ctx, op) {
     case "control": {
       if (op.action === "readResetCredits") return request("account/rateLimits/read", { excludeResetCreditDetails: object(op.value).details !== true });
       if (op.action === "redeemResetCredit") {
-        const key = text(object(op.value).idempotencyKey);
+        const key = text2(object(op.value).idempotencyKey);
         if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) fail2("invalid_schema", "A confirmation UUID is required");
         const creditId = object(op.value).creditId;
         if (creditId != null && (typeof creditId !== "string" || !creditId.trim())) fail2("invalid_schema", "Reset credit identifier is invalid");
@@ -3044,7 +3310,7 @@ function respondOperation(ctx, op, raw, reply) {
     if (op.kind === "control" && op.action === "serviceTiers") return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: { serviceTierAvailability: {} } }] };
     const smaller = object(reply.error.data).historyPageLimit;
     if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))
-      return historyItems(op, { ...state, historyItemLimit: smaller }, text(state.cursor));
+      return historyItems(op, { ...state, historyItemLimit: smaller }, text2(state.cursor));
     if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" } };
     if (op.kind === "initialize" && state.stage === "initializeLimits") return { kind: "complete", result: initializedResult(state), events: [state.auth] };
     if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
@@ -3082,7 +3348,7 @@ function respondOperation(ctx, op, raw, reply) {
     case "readHistory":
       return historyResponse(op, state, value);
     case "submitTurn": {
-      const turnId = text(object(value.turn).id) ?? text(value.turnId);
+      const turnId = text2(object(value.turn).id) ?? text2(value.turnId);
       return { kind: "complete", result: { kind: "turnAccepted", threadId: op.threadId, sendId: op.sendId, ...turnId ? { turnId } : {} } };
     }
     case "interrupt": {
@@ -3101,7 +3367,7 @@ function respondOperation(ctx, op, raw, reply) {
         if (state.stage === "serviceTiers") {
           const models = [...list(state.models), ...list(value.data)];
           const cursors = list(state.cursors);
-          const cursor = text(value.nextCursor);
+          const cursor = text2(value.nextCursor);
           if (models.length > 1e3 || cursor && (cursors.includes(cursor) || cursors.length >= 10)) return refused("Invalid model catalogue pagination");
           if (cursor) return continuation(request("model/list", { includeHidden: true, limit: 100, cursor }, { stage: "serviceTiers", models, cursors: [...cursors, cursor] }));
           return continuation(request("configRequirements/read", {}, { stage: "tierRequirements", models }));
@@ -3132,7 +3398,7 @@ function respondOperation(ctx, op, raw, reply) {
 }
 function historyResponse(op, state, value) {
   if (state.stage === "goal") {
-    const objective = text(object(sanitizeHistory(object(value.goal))).objective);
+    const objective = text2(object(sanitizeHistory(object(value.goal))).objective);
     if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: goalIntent(value.goal) ?? { goal: objective } }];
     return historyComplete(op, state);
   }
@@ -3145,7 +3411,7 @@ function historyResponse(op, state, value) {
       status: turn2.status === "inProgress" ? "inProgress" : "completed",
       startedAt: typeof turn2.startedAt === "number" && Number.isFinite(turn2.startedAt) ? turn2.startedAt : null
     }));
-    const next2 = text(value.nextCursor);
+    const next2 = text2(value.nextCursor);
     if (next2 && (next2.length > 4096 || next2 === op.cursor)) return refused("Repeated history cursor");
     const collected2 = { ...state, turns: turns2, nextCursor: next2, index: 0, stage: "items" };
     if (!turns2.length) return historyGoal(op, collected2);
@@ -3154,10 +3420,10 @@ function historyResponse(op, state, value) {
   if (state.stage !== "items") return refused("Invalid history state");
   const turns = list(state.turns).map(object);
   const turn = turns[Number(state.index)];
-  if (!turn || !text(turn.id)) return refused("Missing history turn id");
+  if (!turn || !text2(turn.id)) return refused("Missing history turn id");
   const mapped = collectHistoryItems(op, { ...state, items: [], openItems: [], questions: [] }, turn, value.data);
-  if (mapped.offset != null) return streamHistory(op, historyItems(op, mapped, text(state.cursor)), mapped);
-  const next = text(value.nextCursor);
+  if (mapped.offset != null) return streamHistory(op, historyItems(op, mapped, text2(state.cursor)), mapped);
+  const next = text2(value.nextCursor);
   if (next && (next.length > 4096 || next === state.cursor)) return refused("Repeated history cursor");
   const collected = { ...mapped };
   if (next) return streamHistory(op, historyItems(op, { ...collected, cursor: next }, next), collected);
@@ -3176,26 +3442,26 @@ function collectHistoryItems(op, state, turn, entries) {
     const rawItem = historyItem(record5.item ?? record5);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
     const timestamp = record5.startedAtMs ?? record5.completedAtMs;
-    const rows = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp, op.threadId);
+    const rows2 = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp, op.threadId);
     const active = turn.status === "inProgress" && turn.startedAt != null && record5.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
-    const opened = active ? rows.map((item) => ({ turnId: String(turn.id), item })) : [];
-    const rowBytes = serializedBytes(rows) + serializedBytes(opened) + serializedBytes(nextQuestions);
+    const opened = active ? rows2.map((item) => ({ turnId: String(turn.id), item })) : [];
+    const rowBytes = serializedBytes(rows2) + serializedBytes(opened) + serializedBytes(nextQuestions);
     if (bytes + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
     bytes += rowBytes;
     questions = nextQuestions;
-    seq += rows.length;
-    items.push(...rows);
+    seq += rows2.length;
+    items.push(...rows2);
     openItems.push(...opened);
   }
   return { ...state, items, openItems, seq, questions, offset: null };
 }
 function historyItems(op, state, cursor) {
   const turn = object(list(state.turns)[Number(state.index)]);
-  if (!text(turn.id)) return refused("Missing history turn id");
+  if (!text2(turn.id)) return refused("Missing history turn id");
   return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: Number(state.historyItemLimit ?? 100), cursor }, { ...state, historyItemLimit: Number(state.historyItemLimit ?? 100), cursor: cursor ?? null }));
 }
 function historyGoal(op, state) {
-  if (text(state.nextCursor)) return historyComplete(op, state);
+  if (text2(state.nextCursor)) return historyComplete(op, state);
   return streamHistory(op, continuation(request("thread/goal/get", { threadId: op.threadId }, { ...state, stage: "goal" })), state);
 }
 function historyComplete(op, state) {
@@ -3204,7 +3470,7 @@ function historyComplete(op, state) {
     threadId: op.threadId,
     items: list(state.items),
     openItems: list(state.openItems),
-    ...text(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {},
+    ...text2(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {},
     ...list(state.questions).length ? { questions: list(state.questions) } : {},
     ...op.order ? { order: op.order } : {}
   } };
@@ -3571,8 +3837,8 @@ function parseMenuOptions(screen) {
   }
   return options;
 }
-function joinWrappedLabel(label, row2) {
-  const continuation2 = row2.trim();
+function joinWrappedLabel(label, row3) {
+  const continuation2 = row3.trim();
   const pathBoundary = /[\\/]$/.test(label);
   return `${label}${pathBoundary ? "" : " "}${continuation2}`;
 }
@@ -3649,8 +3915,8 @@ function questionForMenu(lines, firstLine) {
   }
   return "Permission required";
 }
-function normalizeLines(text6) {
-  return String(text6 || "").replace(/\r*\n|\r/g, "\n").split("\n");
+function normalizeLines(text7) {
+  return String(text7 || "").replace(/\r*\n|\r/g, "\n").split("\n");
 }
 function lastMeaningfulLineIndex(lines) {
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -3716,8 +3982,8 @@ function parseCodexUsage(rawText, nowMs) {
       raw_text: raw
     };
   }
-  const text6 = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
-  const lines = text6.split("\n");
+  const text7 = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
+  const lines = text7.split("\n");
   const limits = parseCodexLimits(lines, nowMs);
   const session = limits.find((line) => line.family === "general") ?? limits.find((line) => line.family === "legacy-session");
   const weekly = limits.find((line) => line.family === "weekly");
@@ -3819,8 +4085,8 @@ function codexPctToUsed(value, mode) {
   return Math.min(100, Math.max(0, pct));
 }
 var CODEX_MODEL_NAME_RE = /\b(?:gpt|opus|haiku|sonnet|claude|codex|o\d|gemini)\b.*\d+\.\d+/i;
-function codexLimitFamily(text6, sectionHeader) {
-  const lower = String(text6 || "").toLowerCase();
+function codexLimitFamily(text7, sectionHeader) {
+  const lower = String(text7 || "").toLowerCase();
   const hasGeneral = /\bgeneral\b/.test(lower);
   const hasWeekly = /\bweekly\b/.test(lower);
   const hasSession = /\b5(?:\s*|-\s*)(?:h|hour|hours)\b/.test(lower);
@@ -4097,23 +4363,23 @@ function withDataUrl(image, url) {
   if (!match) return image;
   return { ...image, mediaType: match[1], data: match[2] };
 }
-function extractInlineImages(text6, images) {
-  return text6.replace(INLINE_IMAGE, (_whole, name, path) => {
+function extractInlineImages(text7, images) {
+  return text7.replace(INLINE_IMAGE, (_whole, name, path) => {
     images.push(imageFromTag(name, path));
     return "";
   });
 }
-function stripPlaceholders(text6, images) {
-  if (images.length === 0) return text6;
+function stripPlaceholders(text7, images) {
+  if (images.length === 0) return text7;
   const names = new Set(images.map((image) => image.name).filter(Boolean));
-  return text6.replace(PLACEHOLDER, (token) => names.has(token) ? "" : token).split("\n").map((line) => line.replace(/[ \t]{2,}/g, " ").trim()).join("\n").trim();
+  return text7.replace(PLACEHOLDER, (token) => names.has(token) ? "" : token).split("\n").map((line) => line.replace(/[ \t]{2,}/g, " ").trim()).join("\n").trim();
 }
 function parseCodexUserContent(content) {
   const images = [];
   if (typeof content === "string") {
     return { text: stripPlaceholders(extractInlineImages(content, images), images), images };
   }
-  let text6 = "";
+  let text7 = "";
   let open = null;
   for (const item of content ?? []) {
     if (!item) continue;
@@ -4138,10 +4404,10 @@ function parseCodexUserContent(content) {
       open = null;
       continue;
     }
-    text6 += extractInlineImages(item.text, images);
+    text7 += extractInlineImages(item.text, images);
   }
   if (open) images.push(open);
-  return { text: stripPlaceholders(text6, images), images };
+  return { text: stripPlaceholders(text7, images), images };
 }
 function codexImageBlock(image) {
   const source = { media_type: image.mediaType };
@@ -5028,31 +5294,31 @@ function hasAdequateCodexHookTimeout(entry) {
     return typeof timeout === "number" && Number.isFinite(timeout) && timeout >= CODEX_HOOK_TIMEOUT_SECS;
   });
 }
-function codexHookContentHash(text6) {
+function codexHookContentHash(text7) {
   let hash = 2166136261;
-  for (let i = 0; i < text6.length; i++) {
-    hash ^= text6.charCodeAt(i);
+  for (let i = 0; i < text7.length; i++) {
+    hash ^= text7.charCodeAt(i);
     hash = hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24)) >>> 0;
   }
   return ("0000000" + hash.toString(16)).slice(-8);
 }
-function isOwnedCodexHookScriptContent(text6) {
-  return text6.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
+function isOwnedCodexHookScriptContent(text7) {
+  return text7.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
 }
-function isCurrentCodexHookScriptContent(text6) {
-  if (!isOwnedCodexHookScriptContent(text6)) return false;
-  if (text6.indexOf("codeterm-profile-cleanup-v1") !== -1) return false;
-  if (text6.indexOf("codeterm-%CODETERM_TAB_ID%.config.toml") !== -1) return false;
-  if (/:\d{2,5}/.test(text6)) return false;
-  if (text6.indexOf("CODETERM_API_PORT") !== -1 || /127\.0\.0\.1|localhost/i.test(text6)) return false;
+function isCurrentCodexHookScriptContent(text7) {
+  if (!isOwnedCodexHookScriptContent(text7)) return false;
+  if (text7.indexOf("codeterm-profile-cleanup-v1") !== -1) return false;
+  if (text7.indexOf("codeterm-%CODETERM_TAB_ID%.config.toml") !== -1) return false;
+  if (/:\d{2,5}/.test(text7)) return false;
+  if (text7.indexOf("CODETERM_API_PORT") !== -1 || /127\.0\.0\.1|localhost/i.test(text7)) return false;
   for (let i = 0; i < CODEX_HOOK_SCRIPT_CONTRACT.length; i++) {
-    if (text6.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
+    if (text7.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
   }
   return true;
 }
 function isOwnedCodexWindowsHookScript(path) {
-  const text6 = host.fs.readFile(path);
-  return typeof text6 === "string" && isOwnedCodexHookScriptContent(text6);
+  const text7 = host.fs.readFile(path);
+  return typeof text7 === "string" && isOwnedCodexHookScriptContent(text7);
 }
 
 // plugins/provider-codex/src/appServer.ts
@@ -5784,8 +6050,8 @@ function restoreIntegrationFiles(snapshots) {
 function codexHookTrustContext(hooksPath) {
   const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return null;
-  const text6 = String(host.fs.readFile(cfg) || "");
-  const block = findCodexHookTrustBlock(text6, hooksPath);
+  const text7 = String(host.fs.readFile(cfg) || "");
+  const block = findCodexHookTrustBlock(text7, hooksPath);
   if (block == null) return null;
   const hooks = host.fs.readJson(hooksPath)?.hooks;
   const labels = [];
@@ -5793,13 +6059,13 @@ function codexHookTrustContext(hooksPath) {
   if ((hooks?.Stop || []).some(isCodetermCodexHook)) labels.push("stop");
   const script = codexWindowsHookScriptPath();
   const scriptText = script && host.fs.fileExists(script) ? String(host.fs.readFile(script) || "") : "";
-  const trustFingerprint = codexHookContentHash(hookTrustConfigSections(text6));
+  const trustFingerprint = codexHookContentHash(hookTrustConfigSections(text7));
   const hookFingerprint = codexHookContentHash([
     ownedContentHash(hooks?.SessionStart, hooks?.Stop, scriptText),
     labels.join(",")
   ].join(String.fromCharCode(0)));
   const fingerprint = codexHookContentHash([trustFingerprint, hookFingerprint].join(String.fromCharCode(0)));
-  return { config: text6, block, labels, fingerprint, hookFingerprint, trustFingerprint };
+  return { config: text7, block, labels, fingerprint, hookFingerprint, trustFingerprint };
 }
 function hookTrustConfigSections(config) {
   const sections = [];
@@ -5889,39 +6155,39 @@ function refreshCodexHookTrustState(hooksPath, then = (verdict) => verdict) {
 function enableExistingCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
-  const text6 = String(host.fs.readFile(cfg) || "");
-  if (!text6) return { state: "missing", changed: false, write_failed: false };
-  const span = findCodexHookTrustBlockSpan(text6, hooksPath);
+  const text7 = String(host.fs.readFile(cfg) || "");
+  if (!text7) return { state: "missing", changed: false, write_failed: false };
+  const span = findCodexHookTrustBlockSpan(text7, hooksPath);
   if (!span) return { state: "missing", changed: false, write_failed: false };
-  const block = text6.substring(span.start, span.end);
+  const block = text7.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
     const current = codexHookTrustState(hooksPath);
     const state = current === "enabled" || current === "trusted" ? current : "unknown";
     return { state, changed: false, write_failed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
-  const next = text6.substring(0, span.start) + nextBlock + text6.substring(span.end);
+  const next = text7.substring(0, span.start) + nextBlock + text7.substring(span.end);
   return host.fs.writeFile(cfg, next) ? { state: "enabled", changed: true, write_failed: false } : { state: "unknown", changed: false, write_failed: true };
 }
 function disableOwnedCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return true;
-  const text6 = host.fs.readFile(cfg);
-  if (typeof text6 !== "string") return false;
-  const span = findCodexHookTrustBlockSpan(text6, hooksPath);
+  const text7 = host.fs.readFile(cfg);
+  if (typeof text7 !== "string") return false;
+  const span = findCodexHookTrustBlockSpan(text7, hooksPath);
   if (!span) return true;
-  const block = text6.substring(span.start, span.end);
+  const block = text7.substring(span.start, span.end);
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)true(\s*(?:\n|$))/, "$1$2false$3");
   if (nextBlock === block) return true;
-  const next = text6.substring(0, span.start) + nextBlock + text6.substring(span.end);
+  const next = text7.substring(0, span.start) + nextBlock + text7.substring(span.end);
   return host.fs.writeFile(cfg, next);
 }
-function findCodexHookTrustBlock(text6, hooksPath) {
-  const span = findCodexHookTrustBlockSpan(text6, hooksPath);
-  return span ? text6.substring(span.start, span.end) : null;
+function findCodexHookTrustBlock(text7, hooksPath) {
+  const span = findCodexHookTrustBlockSpan(text7, hooksPath);
+  return span ? text7.substring(span.start, span.end) : null;
 }
-function findCodexHookTrustBlockSpan(text6, hooksPath) {
-  const lines = text6.split("\n");
+function findCodexHookTrustBlockSpan(text7, hooksPath) {
+  const lines = text7.split("\n");
   const marker = normalizeCodexHookKey(hooksPath + ":session_start:");
   let offset = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -5930,7 +6196,7 @@ function findCodexHookTrustBlockSpan(text6, hooksPath) {
     const rawKey = hookTrustKeyFromHeader(trimmed);
     if (rawKey !== null && normalizeCodexHookKey(rawKey).startsWith(marker)) {
       const start = offset;
-      let end = text6.length;
+      let end = text7.length;
       let scanOffset = offset + line.length + 1;
       for (let j = i + 1; j < lines.length; j++) {
         const t = lines[j].trim();
@@ -6047,6 +6313,7 @@ function hasPromptAndStatusFooter(screen) {
   });
 }
 var plugin = {
+  ...cloudExports(host),
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimeStoredRecords,
@@ -6063,23 +6330,23 @@ var plugin = {
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
   },
-  detectFromOutput(text6) {
-    const t = String(text6 || "");
+  detectFromOutput(text7) {
+    const t = String(text7 || "");
     for (let i = 0; i < OUTPUT_FINGERPRINTS.length; i++) {
       if (t.indexOf(OUTPUT_FINGERPRINTS[i]) !== -1) return true;
     }
     return false;
   },
   screenHasTui(screen) {
-    const text6 = String(screen || "");
-    const lower = text6.toLowerCase();
+    const text7 = String(screen || "");
+    const lower = text7.toLowerCase();
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
-    return hasPromptAndStatusFooter(text6);
+    return hasPromptAndStatusFooter(text7);
   },
-  isOutputNoise(text6) {
-    const trimmed = String(text6 || "").trim();
+  isOutputNoise(text7) {
+    const trimmed = String(text7 || "").trim();
     if (!trimmed) return true;
     for (let i = 0; i < trimmed.length; i++) {
       const c = trimmed[i];
@@ -6094,8 +6361,8 @@ var plugin = {
     return c.indexOf("Would you like") !== -1 || c.indexOf("approve") !== -1 || c.indexOf("run the following") !== -1 || c.indexOf("make the following") !== -1 || c.indexOf("grant these permissions") !== -1 || // screen off the auto-approve path; the universal numbered parser then extracts.
     c.indexOf("to confirm") !== -1 || c.indexOf("esc to go back") !== -1 || c.indexOf("Select Model") !== -1 || c.indexOf("Select Reasoning") !== -1 || c.indexOf("\u203A") !== -1 || c.indexOf("\u276F") !== -1;
   },
-  detectEvents(text6) {
-    const t = String(text6 || "");
+  detectEvents(text7) {
+    const t = String(text7 || "");
     const events = [];
     if (t.indexOf("Would you like to run the following command") !== -1 || t.indexOf("Would you like to make the following edits") !== -1 || t.indexOf("Do you want to approve network access") !== -1 || t.indexOf("Would you like to grant these permissions") !== -1) {
       events.push("permission_request");
@@ -6103,11 +6370,11 @@ var plugin = {
     return events;
   },
   updatePromptSafeChoice,
-  parsePrompt(text6) {
-    return parseCodexPrompt(String(text6 || ""));
+  parsePrompt(text7) {
+    return parseCodexPrompt(String(text7 || ""));
   },
-  parseDirectoryTrustPrompt(text6) {
-    return parseCodexFolderTrustPrompt(String(text6 || ""));
+  parseDirectoryTrustPrompt(text7) {
+    return parseCodexFolderTrustPrompt(String(text7 || ""));
   },
   buildPromptResponse(optionIndex, screen) {
     return responseKeysForIndex(optionIndex, String(screen || ""));
@@ -6479,8 +6746,8 @@ function hasUsefulFunctionCall(name, input, args) {
 function isInternalOrchestrationCall(name) {
   return name === "send_message" || name === "spawn_agent" || name === "followup_task" || name === "interrupt_agent" || name === "list_agents";
 }
-function classifyCodexSystemText(text6) {
-  const trimmed = String(text6 || "").trim();
+function classifyCodexSystemText(text7) {
+  const trimmed = String(text7 || "").trim();
   if (!trimmed) return null;
   if (trimmed.indexOf("<turn_aborted>") === 0 && trimmed.indexOf("</turn_aborted>") !== -1) {
     return "turn_aborted";
@@ -6506,20 +6773,20 @@ function parseSessionDelta(chunk, context) {
   const out = [];
   const commandPairing = commandPairingState(context);
   const activityIds = /* @__PURE__ */ new Set();
-  const pushOnce = (row2) => {
-    if (!row2 || row2.uuid && activityIds.has(row2.uuid)) return;
-    if (row2.uuid) activityIds.add(row2.uuid);
-    out.push(row2);
+  const pushOnce = (row3) => {
+    if (!row3 || row3.uuid && activityIds.has(row3.uuid)) return;
+    if (row3.uuid) activityIds.add(row3.uuid);
+    out.push(row3);
   };
   let stamped = 0;
-  const stampRows = (row2) => {
-    for (; stamped < out.length; stamped++) out[stamped].recordIndex = row2;
+  const stampRows = (row3) => {
+    for (; stamped < out.length; stamped++) out[stamped].recordIndex = row3;
   };
   let hadInvalid = false;
   let previousRow = -1;
-  for (const { row: row2, value: v } of sessionRecords(chunk)) {
+  for (const { row: row3, value: v } of sessionRecords(chunk)) {
     stampRows(previousRow);
-    previousRow = row2;
+    previousRow = row3;
     if (!validateEntry(v)) {
       if (!hadInvalid) {
         if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
@@ -6603,29 +6870,29 @@ function parseSessionDelta(chunk, context) {
     if (p.type === "message") {
       const role = p.role === "assistant" ? "assistant" : p.role === "user" ? "user" : null;
       if (!role) continue;
-      let text6 = "";
+      let text7 = "";
       let images = [];
       if (role === "user") {
-        ({ text: text6, images } = parseCodexUserContent(p.content));
+        ({ text: text7, images } = parseCodexUserContent(p.content));
       } else if (Array.isArray(p.content)) {
         for (let j = 0; j < p.content.length; j++) {
           const c = p.content[j];
-          if (c && typeof c.text === "string") text6 += c.text;
+          if (c && typeof c.text === "string") text7 += c.text;
         }
       } else if (typeof p.content === "string") {
-        text6 = p.content;
+        text7 = p.content;
       }
       if (images.length > 0) {
-        const textBlocks = text6 ? [{ kind: "text", data: { text: text6 } }] : [];
+        const textBlocks = text7 ? [{ kind: "text", data: { text: text7 } }] : [];
         out.push({ role, blocks: [...textBlocks, ...images.map(codexImageBlock)], ts, timestamp: tsIso });
         continue;
       }
-      if (!text6) continue;
-      const systemSubtype = classifyCodexSystemText(text6);
+      if (!text7) continue;
+      const systemSubtype = classifyCodexSystemText(text7);
       if (systemSubtype) {
         out.push({
           role: "system",
-          blocks: [{ kind: "text", data: { text: text6, subtype: systemSubtype } }],
+          blocks: [{ kind: "text", data: { text: text7, subtype: systemSubtype } }],
           sourceType: v.type,
           sourceSubtype: systemSubtype,
           ts,
@@ -6633,7 +6900,7 @@ function parseSessionDelta(chunk, context) {
         });
         continue;
       }
-      out.push({ role, blocks: [{ kind: "text", data: { text: text6 } }], ts, timestamp: tsIso });
+      out.push({ role, blocks: [{ kind: "text", data: { text: text7 } }], ts, timestamp: tsIso });
     } else if (p.type === "function_call") {
       let input = {};
       try {
@@ -6729,10 +6996,10 @@ function parseSessionDelta(chunk, context) {
   stampRows(previousRow);
   return { messages: out };
 }
-function parseSessionMessages(text6) {
+function parseSessionMessages(text7) {
   const out = [];
   let hadInvalid = false;
-  for (const { value: v } of sessionRecords(text6)) {
+  for (const { value: v } of sessionRecords(text7)) {
     if (!isValidCodexSessionMessage(v)) {
       if (!hadInvalid) {
         if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
