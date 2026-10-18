@@ -23,13 +23,34 @@ pub fn one_shot(job: &Sentinel) -> bool {
 pub fn terminal_roots(jobs: &[Sentinel], leased: &BTreeSet<String>) -> Vec<Sentinel> {
     jobs.iter()
         .filter(|root| root.is_scenario_root() && one_shot(root) && !retain_for_team(root))
-        .filter(|root| {
-            jobs.iter()
-                .filter(|job| job.id == root.id || job.scenario_id.as_deref() == Some(&root.id))
-                .all(|job| job.machine.stopped && !leased.contains(&job.id))
-        })
+        .filter(|root| terminal_graph(jobs, root, leased))
         .cloned()
         .collect()
+}
+
+pub(crate) fn oldest_capacity_candidate(
+    jobs: &[Sentinel],
+    leased: &BTreeSet<String>,
+    excluded: &BTreeSet<String>,
+) -> Option<Sentinel> {
+    jobs.iter()
+        .find(|root| {
+            root.is_scenario_root()
+                && one_shot(root)
+                && retain_for_team(root)
+                && terminal_graph(jobs, root, leased)
+                && !jobs.iter().any(|job| {
+                    (job.id == root.id || job.scenario_id.as_deref() == Some(&root.id))
+                        && excluded.contains(&job.id)
+                })
+        })
+        .cloned()
+}
+
+fn terminal_graph(jobs: &[Sentinel], root: &Sentinel, leased: &BTreeSet<String>) -> bool {
+    jobs.iter()
+        .filter(|job| job.id == root.id || job.scenario_id.as_deref() == Some(&root.id))
+        .all(|job| job.machine.stopped && !leased.contains(&job.id))
 }
 
 pub fn remove_terminal(store: &Arc<Mutex<Store>>) -> Result<(), String> {
