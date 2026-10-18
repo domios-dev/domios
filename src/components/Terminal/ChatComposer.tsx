@@ -10,7 +10,6 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSPr
 import { ComposerBubbleRow } from "./ComposerBubbles";
 import { ComposerUploadNotices } from "./ComposerUploadNotices";
 import { ComposerDock } from "./ComposerDock";
-import { ProviderUpdateBubble } from "./ProviderUpdateBubble";
 import { useComposerLayout } from "./useComposerLayout";
 import { evaluateWhen } from "../../lib/evaluateWhen";
 import { ComposerActions } from "./ComposerActions";
@@ -176,7 +175,6 @@ function recordComposerIgnoredKey(key: string): void {
 
 function ChatComposerImpl({
   tabId,
-  tabProvider,
   currentPtyId,
   pendingPrompt,
   attachments,
@@ -520,7 +518,6 @@ function ChatComposerImpl({
 
   return (
     <ComposerDock mode={composerLayout.mode} ref={shellRef}>
-      {tabProvider && <ProviderUpdateBubble providerId={tabProvider} callerTabId={tabId} />}
       {contextSlot && createPortal(
         <ComposerContextHeader
           pluginError={pluginError}
