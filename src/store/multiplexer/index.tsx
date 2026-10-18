@@ -697,12 +697,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const reopenClosed = useCallback(async (workspaceId: string, index = 0) => {
     try {
-      guardedInvoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
-      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       const tabInfo = await reopenClosedTab(workspaceId, index);
       dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabInfo.tab_id] });
-      await guardedInvoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id }).catch(() => {});
-      dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
+      guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId: tabInfo.tab_id }).catch(() => {});
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
+      dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.tab_id });
       guardedInvoke("mux_set_focused_tab", { tabId: tabInfo.tab_id }).catch(() => {});
       refreshFromBackend();
     } catch (e) {
