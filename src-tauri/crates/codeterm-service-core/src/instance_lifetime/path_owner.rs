@@ -72,9 +72,37 @@ impl PathOwnership {
 }
 
 fn resolve_path(path: &Path) -> io::Result<PathBuf> {
-    let absolute = std::path::absolute(path)?;
+    let absolute = if path.is_absolute() {
+        path.to_owned()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    if !absolute.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Instance path has no absolute filesystem root",
+        ));
+    }
+    let mut components = absolute.components().peekable();
     let mut resolved = PathBuf::new();
-    for component in absolute.components() {
+    while matches!(
+        components.peek(),
+        Some(Component::Prefix(_) | Component::RootDir)
+    ) {
+        if let Some(component) = components.next() {
+            resolved.push(component.as_os_str());
+        }
+    }
+    resolved = resolved.canonicalize()?;
+    let mut missing = 0usize;
+    let mut directory = true;
+    for component in components {
+        if !directory {
+            return Err(io::Error::new(
+                io::ErrorKind::NotADirectory,
+                "Instance path traverses a file",
+            ));
+        }
         match component {
             Component::ParentDir => {
                 if !resolved.pop() {
@@ -82,17 +110,21 @@ fn resolve_path(path: &Path) -> io::Result<PathBuf> {
                         "Instance path escapes its filesystem root",
                     ));
                 }
+                missing = missing.saturating_sub(1);
             }
             Component::CurDir => {}
             component => {
                 resolved.push(component.as_os_str());
-                match resolved.canonicalize() {
-                    Ok(path) => resolved = path,
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                        if std::fs::symlink_metadata(&resolved).is_ok() {
-                            return Err(io::Error::other("Instance path has a dangling alias"));
-                        }
+                if missing > 0 {
+                    missing += 1;
+                    continue;
+                }
+                match std::fs::symlink_metadata(&resolved) {
+                    Ok(_) => {
+                        resolved = resolved.canonicalize()?;
+                        directory = resolved.metadata()?.is_dir();
                     }
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => missing = 1,
                     Err(error) => return Err(error),
                 }
             }
@@ -114,12 +146,14 @@ fn lock_key(path: &Path) -> io::Result<String> {
 }
 
 fn create_registry(root: &Path) -> io::Result<()> {
-    let mut builder = std::fs::DirBuilder::new();
+    let builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
-    {
+    let builder = {
         use std::os::unix::fs::DirBuilderExt;
+        let mut builder = builder;
         builder.mode(0o700);
-    }
+        builder
+    };
     match builder.create(root) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}

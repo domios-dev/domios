@@ -1,4 +1,4 @@
-pub const API_VERSION: u32 = 3;
+pub use codeterm_types::server_bootstrap::API_VERSION;
 pub const BUNDLED_MIN_API_VERSION: u32 = 3;
 pub const BUNDLED_MAX_API_VERSION: u32 = 3;
 pub const BUNDLED_FRONTEND_VERSION: &str = "1.14.6";
