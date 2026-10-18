@@ -114,27 +114,45 @@ export function reconcileSends(
     if (send.matchedRow) {
       const matchedRow = send.matchedRow;
       const sourceSessionId = matchedRow.source.source_session_id;
-      if (send.echoBoundary
-        ? send.echoBoundary.sourceSessionId !== sourceSessionId
-        : sourceSessionId !== authority?.sourceSessionId) {
-        if (!send.echo) pending.push(send);
+      const record = matchedRow.source.record;
+      if (record.kind === "structured") {
+        if (send.echoBoundary
+          ? send.echoBoundary.sourceSessionId !== sourceSessionId
+          : sourceSessionId !== authority?.sourceSessionId) {
+          if (!send.echo) pending.push(send);
+          continue;
+        }
+        const index = users.find((candidate) => !recorded.has(candidate)
+          && matchesMatchedRow(rows[candidate], matchedRow));
+        if (index == null && !send.echo) pending.push(send);
+        else if (index != null) {
+          recorded.add(index);
+          claim(send, index);
+        }
         continue;
       }
-      const record = matchedRow.source.record;
-      const index = users.find((candidate) => {
-        if (recorded.has(candidate)) return false;
-        const row = rows[candidate];
-        if (record.kind === "structured") return matchesMatchedRow(row, matchedRow);
-        return send.correlationId != null
-          && row.sourceSessionId === sourceSessionId
-          && row.correlationId === send.correlationId;
-      });
-      if (index == null && !send.echo) pending.push(send);
-      else if (index != null) {
-        recorded.add(index);
-        claim(send, index);
+      if (send.echo) {
+        if (send.echoBoundary
+          ? send.echoBoundary.sourceSessionId !== sourceSessionId
+          : sourceSessionId !== authority?.sourceSessionId) continue;
+        const index = users.find((candidate) => !recorded.has(candidate)
+          && rows[candidate].sourceSessionId === sourceSessionId
+          && send.correlationId != null
+          && rows[candidate].correlationId === send.correlationId);
+        if (index != null) {
+          recorded.add(index);
+          claim(send, index);
+        }
+        continue;
       }
-      continue;
+      const boundary = send.echoBoundary;
+      if (!boundary
+        || boundary.sourceSessionId !== sourceSessionId
+        || boundary.sourceSessionId !== authority?.sourceSessionId
+        || boundary.sessionBindingNonce !== authority?.sessionBindingNonce) {
+        pending.push(send);
+        continue;
+      }
     }
     if (send.echoBoundary && (send.echoBoundary.sourceSessionId !== authority?.sourceSessionId
       || send.echoBoundary.sessionBindingNonce !== authority?.sessionBindingNonce)) {

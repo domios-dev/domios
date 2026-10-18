@@ -124,6 +124,23 @@ test("JSONL status enrichment preserves an already reconciled echo", () => {
   assert.equal(result.pending.length, 0);
 });
 
+test("a first JSONL status keeps the prior bounded append-window reconciliation", () => {
+  const request: ChatSend = {
+    ...send("send-a"),
+    correlationId: undefined,
+    matchedRow: { source: { source_session_id: "own-session", record: {
+      kind: "jsonl", incarnation: "file-generation", record_start: 40, record_row: 0,
+    } }, ordinal: 1 },
+  };
+
+  assert.deepEqual(projectTranscript(history, [request]).pending.map((row) => row.id), ["send-a"]);
+  const result = projectTranscript(append(history, [user("jsonl-first")]), [request]);
+
+  assert.deepEqual(result.rows.map((row) => row.id), ["history", "jsonl-first"]);
+  assert.equal(result.pending.length, 0);
+  assert.equal(result.echoes.size, 1);
+});
+
 test("a JSONL claim joins by exact correlation only inside its source session", () => {
   const matchedRow = { source: { source_session_id: "own-session", record: {
     kind: "jsonl" as const, incarnation: "file-generation", record_start: 40, record_row: 0,
