@@ -1,9 +1,10 @@
 use super::*;
 use notify::event::{AccessKind, CreateKind, DataChange, RemoveKind};
+use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[test]
-fn scoped_data_events_advance_generation_with_preserved_size_and_mtime() {
+fn scoped_data_events_trigger_once_with_preserved_size_and_mtime() {
     let dir = tempfile::tempdir().unwrap();
     for name in ["config", "auth"] {
         let path = dir.path().join(name);
@@ -18,14 +19,11 @@ fn scoped_data_events_advance_generation_with_preserved_size_and_mtime() {
             .unwrap()
             .set_times(std::fs::FileTimes::new().set_modified(modified))
             .unwrap();
-        assert!(input_stamps(&targets) == stamps);
+        assert!(!same_input_stamps(&input_stamps(&targets), &stamps));
         let event = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content)))
             .add_path(path.clone());
-        let id = format!("preserved-metadata-{name}-fixture");
-        let before = model_catalog::current_version(&id);
         assert!(accept_input_event(&event, &targets, &mut stamps));
-        model_catalog::invalidate_inputs(&id);
-        assert!(model_catalog::current_version(&id) > before);
+        assert!(!accept_input_event(&event, &targets, &mut stamps));
         let unchanged = Event::new(EventKind::Modify(ModifyKind::Metadata(
             MetadataKind::WriteTime,
         )))
@@ -35,6 +33,35 @@ fn scoped_data_events_advance_generation_with_preserved_size_and_mtime() {
             .add_path(dir.path().join("unrelated"));
         assert!(!accept_input_event(&unrelated, &targets, &mut stamps));
     }
+}
+
+#[test]
+fn input_change_gate_coalesces_duplicate_content_and_accepts_same_metadata_edits() {
+    let modified = Some(std::time::UNIX_EPOCH);
+    let previous = InputStamp {
+        len: 6,
+        modified: modified.clone(),
+        content_digest: Some(Sha256::digest(b"before").into()),
+    };
+    let changed = InputStamp {
+        len: 6,
+        modified,
+        content_digest: Some(Sha256::digest(b"latest").into()),
+    };
+    let identical_rewrite = InputStamp {
+        len: 6,
+        modified: Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1)),
+        content_digest: Some(Sha256::digest(b"latest").into()),
+    };
+
+    assert!(!same_input_stamps(
+        &[Some(previous)],
+        &[Some(changed.clone())]
+    ));
+    assert!(same_input_stamps(
+        &[Some(changed)],
+        &[Some(identical_rewrite)]
+    ));
 }
 
 #[tokio::test]
@@ -112,8 +139,9 @@ async fn native_config_and_auth_events_refresh_the_warm_authoritative_catalogue(
 fn refresh_requests_coalesce_input_events_and_preserve_forced_work() {
     let mut queue = RefreshRequests::default();
     assert!(queue.begin("fixture", false));
-    assert!(!queue.begin("fixture", true));
-    assert!(!queue.begin("fixture", false));
+    for _ in 0..19 {
+        assert!(!queue.begin("fixture", true));
+    }
     assert_eq!(queue.next("fixture"), Some(true));
     assert_eq!(queue.next("fixture"), None);
     assert!(queue.begin("fixture", false));

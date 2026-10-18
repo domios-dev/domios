@@ -32,6 +32,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 
 use crate::provider::{AgentProvider, ModelAvailability, ModelInfo, ReasoningEffortInfo};
@@ -265,8 +266,14 @@ fn effort_registry() -> &'static RwLock<HashMap<String, RegisteredEfforts>> {
     REG.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-fn versions() -> &'static RwLock<HashMap<String, u64>> {
-    static VERSIONS: OnceLock<RwLock<HashMap<String, u64>>> = OnceLock::new();
+#[derive(Default)]
+struct PublishedCatalogue {
+    version: u64,
+    digest: Option<[u8; 32]>,
+}
+
+fn versions() -> &'static RwLock<HashMap<String, PublishedCatalogue>> {
+    static VERSIONS: OnceLock<RwLock<HashMap<String, PublishedCatalogue>>> = OnceLock::new();
     VERSIONS.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
@@ -283,7 +290,7 @@ pub fn current_version(provider_id: &str) -> u64 {
     versions()
         .read()
         .get(provider_id)
-        .copied()
+        .map(|published| published.version)
         .unwrap_or_default()
 }
 
@@ -291,9 +298,9 @@ pub fn version_snapshot() -> Vec<ModelCatalogueChanged> {
     let mut changes = versions()
         .read()
         .iter()
-        .map(|(provider, version)| ModelCatalogueChanged {
+        .map(|(provider, published)| ModelCatalogueChanged {
             provider: provider.clone(),
-            version: *version,
+            version: published.version,
         })
         .collect::<Vec<_>>();
     changes.sort_by(|left, right| left.provider.cmp(&right.provider));
@@ -306,17 +313,53 @@ fn advance_version(versions: &mut HashMap<String, u64>, provider_id: &str) -> u6
     *version
 }
 
-pub fn invalidate(provider_id: &str) -> ModelCatalogueChanged {
-    let version = {
-        let mut versions = versions().write();
-        advance_version(&mut versions, provider_id)
-    };
-    let change = ModelCatalogueChanged {
+fn publish_digest(
+    versions: &mut HashMap<String, PublishedCatalogue>,
+    provider_id: &str,
+    digest: [u8; 32],
+) -> Option<ModelCatalogueChanged> {
+    let published = versions.entry(provider_id.to_string()).or_default();
+    if published.digest == Some(digest) {
+        return None;
+    }
+    published.version = published.version.saturating_add(1);
+    published.digest = Some(digest);
+    Some(ModelCatalogueChanged {
         provider: provider_id.to_string(),
-        version,
+        version: published.version,
+    })
+}
+
+fn catalogue_digest(provider_id: &str) -> [u8; 32] {
+    let catalogue = serde_json::json!({
+        "available_models": resolve_models(provider_id),
+        "default_model": resolve_default(provider_id),
+        "reasoning_efforts": resolve_reasoning_efforts(provider_id),
+        "default_reasoning_effort": resolve_default_reasoning_effort(provider_id),
+    });
+    Sha256::digest(serde_json::to_vec(&catalogue).expect("model catalogue serializes")).into()
+}
+
+pub fn invalidate(provider_id: &str) -> ModelCatalogueChanged {
+    let digest = catalogue_digest(provider_id);
+    let change = {
+        let mut versions = versions().write();
+        publish_digest(&mut versions, provider_id, digest)
     };
-    let _ = change_sender().send(change.clone());
-    change
+    if let Some(change) = change {
+        log::debug!(
+            "[model_catalog] published changed catalogue provider={} version={}",
+            change.provider,
+            change.version
+        );
+        let _ = change_sender().send(change.clone());
+        change
+    } else {
+        ModelCatalogueChanged {
+            provider: provider_id.to_string(),
+            version: current_version(provider_id),
+        }
+    }
 }
 
 pub fn reject_model(provider: &str, model: &str) {
@@ -626,8 +669,8 @@ pub async fn refresh_models(
 pub async fn refresh_after_catalogue_input_change(
     provider: Arc<dyn AgentProvider>,
 ) -> Option<Vec<ModelInfo>> {
-    log::info!(
-        "[model_catalog] {} catalogue input changed - re-probing",
+    log::debug!(
+        "[model_catalog] refresh trigger source=input-change provider={}",
         provider.id()
     );
     refresh_models(provider, true).await

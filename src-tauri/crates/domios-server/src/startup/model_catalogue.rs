@@ -27,6 +27,10 @@ pub(crate) fn forward_changes(
 
 pub(crate) fn refresh_providers(registry: &agent::registry::AgentRegistry) {
     let providers = registry.all_provider_arcs();
+    log::debug!(
+        "[model_catalog] refresh trigger source=startup providers={}",
+        providers.len()
+    );
     for provider in &providers {
         agent::model_catalog::prime_from_cache(provider.id());
         agent::model_binary_watch::install(provider.clone());
