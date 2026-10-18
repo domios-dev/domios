@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { act, createElement, useRef } from "react";
+import { act, createElement, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { Terminal } from "@xterm/xterm";
@@ -43,6 +43,7 @@ test("mounted bare relay terminals open one composite stream each despite the lo
   };
   const store = createMuxStateStore(() => ({ tabs: {} }) as unknown as ExtendedState);
   function Probe({ tabId }: { tabId: string }) {
+    const [, setReady] = useState(false);
     const termRef = useRef({
       buffer: { active: { type: "normal", viewportY: 0, baseY: 0 } },
       scrollToBottom() {}, scrollToLine() {},
@@ -58,7 +59,7 @@ test("mounted bare relay terminals open one composite stream each despite the lo
     usePtyConnection({
       termRef, connectedPtyRef, tabId, ptyId: `pty-${tabId}`, termReady: true,
       onShellReady() {}, onOutputChunk() {},
-      onConnectionStateChange(value) { ready.set(tabId, value); },
+      onConnectionStateChange(value) { ready.set(tabId, value); setReady(value); },
       onFrameReady(value) { frameReady.set(tabId, value); },
     });
     return null;
@@ -79,6 +80,9 @@ test("mounted bare relay terminals open one composite stream each despite the lo
       assert.equal(urls[0].searchParams.has("since"), false);
       assert.equal(ready.get(tabId), false);
     }
+    await act(async () => root.render(createElement(MuxStateStoreContext.Provider, { value: store },
+      tabIds.map((tabId) => createElement(Probe, { key: tabId, tabId })))));
+    assert.equal(requests.length, tabIds.length, "new callback identities retain the original subscriptions");
     const emptyTab = tabIds[0];
     await act(async () => controllers.get(emptyTab)!.enqueue(new TextEncoder().encode(
       `data: ${JSON.stringify({ tab_id: emptyTab, pty_id: `pty-${emptyTab}`, boot: "boot", offset: 0, replay_complete: true })}\n\n`,
@@ -105,6 +109,7 @@ test("mounted bare relay terminals open one composite stream each despite the lo
       assert.deepEqual(writes.get(tabId), ["history", "live"]);
       assert.equal(ready.get(tabId), true);
     }
+    assert.equal(requests.length, tabIds.length, "readiness rerenders retain the original subscriptions");
     output.resetOutputStream();
     assert.equal(requests.length, tabIds.length, "relay mode never opens a local aggregate");
   } finally {
