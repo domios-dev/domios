@@ -60,6 +60,7 @@ const inputPathspecs = [
   "scripts/dev-instance-policy.mjs",
   "scripts/windows-dev-app.ps1",
   "scripts/windows-dev-app.cs",
+  "scripts/windows-dev-desktop.cs",
   "scripts/bundle-cli.js",
   "scripts/build-artifacts.cjs",
   "scripts/frontend-build.mjs",
@@ -444,7 +445,7 @@ async function supervisePrebuilt(options) {
   let ready = false;
   let startupFailed = false;
   try {
-    const { code, signal } = await runDevApp({ app, log, cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
+    const { code, signal } = await runDevApp({ app, log, interactiveDesktop: true, cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
       const lines = `${partial}${decoder.write(chunk)}`.split(/\r?\n/);
       partial = lines.pop() ?? "";
       const failure = lines.map(startupFailureSignal).find(Boolean);
@@ -473,7 +474,7 @@ async function supervisePrebuilt(options) {
 
 async function runPrebuilt(options) {
   const { code, signal } = await runDevApp({
-    app: resolve(option(options, "--app")), log: resolve(option(options, "--log")),
+    app: resolve(option(options, "--app")), log: resolve(option(options, "--log")), interactiveDesktop: true,
     cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => process.stdout.write(chunk),
   });
   process.exitCode = code ?? (signal ? 1 : 0);
