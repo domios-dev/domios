@@ -76,3 +76,41 @@ test("a backfill batch precedes kept item rows despite reused local ordinals", (
     "older-0", "older-1", "older-2", "recent-0", "recent-1", "recent-2",
   ]);
 });
+
+test("archived provider rows stay before current-session backfill pages", () => {
+  const authority = { sourceSessionId: "current-session", sessionBindingNonce: "binding" };
+  let state = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot",
+    authority,
+    range: { start: 100, end: 200 },
+    rows: [row("current-tail", 1)],
+  }).state;
+  state = reduceTranscript(state, {
+    kind: "snapshot",
+    authority,
+    range: null,
+    placement: "oldest",
+    rows: [row("previous-message", 1), row("handoff", 2)],
+  }).state;
+
+  const backfill = reduceTranscript(state, {
+    kind: "backfill",
+    authority,
+    range: { start: 0, end: 100 },
+    rows: [row("current-handoff", 0)],
+  });
+  assert.equal(backfill.outcome, "adopted");
+  assert.deepEqual(transcriptRows(backfill.state).map(message => message.id), [
+    "previous-message", "handoff", "current-handoff", "current-tail",
+  ]);
+
+  const refresh = reduceTranscript(backfill.state, {
+    kind: "snapshot",
+    authority,
+    range: { start: 100, end: 200 },
+    rows: [row("current-tail", 1, "refreshed")],
+  });
+  assert.deepEqual(transcriptRows(refresh.state).map(message => message.id), [
+    "previous-message", "handoff", "current-handoff", "current-tail",
+  ]);
+});

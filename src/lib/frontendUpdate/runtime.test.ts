@@ -47,24 +47,74 @@ function fixture(patch = {}, payload = checkpoint, pending: typeof release | nul
   return { client, options, signals, calls, events, navigated, stored, restored, end: (reason: StreamEnd["reason"]) => end({reason}), subscriptions: () => subscriptions, disposals: () => disposals, receive: (name: string, data: unknown) => receive(name, data) };
 }
 
+it("updates one draft and scroll branch without cloning unrelated checkpoint data", () => {
+  const drafts: ClientCheckpoint["drafts"] = {
+    target: { text: "before", attachmentIds: [], replyTo: null },
+  };
+  const scroll: ClientCheckpoint["scroll"] = {};
+  for (let index = 0; index < 64; index++) {
+    const key = `retained-${index}`;
+    drafts[key] = {
+      text: "x".repeat(8_000), attachmentIds: [`attachment-${index}`], replyTo: null,
+      capsules: Object.fromEntries(Array.from({ length: 8 }, (_, capsule) => {
+        const label = `image-${capsule}`;
+        return [label, { label, kind: "image" as const, path: `/uploads/${index}/${capsule}.png` }];
+      })),
+    };
+    scroll[key] = { terminal: `terminal-${index}`, chat: `chat-${index}` };
+  }
+  const signals = createFrontendSignals({ activeWorkspaceId: "w", activeTabId: "target", drafts, scroll }, safety, () => {});
+  const clone = vi.spyOn(globalThis, "structuredClone");
+  let publications = 0;
+  const unsubscribe = signals.subscribe(change => { if (change.type === "checkpoint") publications += 1; });
+  try {
+    const before = signals.checkpointView();
+    const retainedDraft = before.drafts["retained-0"];
+    const retainedScroll = before.scroll["retained-0"];
+    clone.mockClear();
+    signals.editDraft("target", "after");
+    signals.editScroll("target", "chat", "new-anchor");
+    expect(clone).not.toHaveBeenCalled();
+    expect(publications).toBe(2);
+    const changed = signals.checkpointView();
+    expect(changed.drafts.target.text).toBe("after");
+    expect(changed.scroll.target.chat).toBe("new-anchor");
+    expect(changed.drafts["retained-0"]).toBe(retainedDraft);
+    expect(changed.scroll["retained-0"]).toBe(retainedScroll);
+    signals.editDraft("target", "after");
+    signals.editScroll("target", "chat", "new-anchor");
+    expect(publications).toBe(2);
+    const external = signals.checkpoint();
+    external.drafts.target.text = "external mutation";
+    external.scroll.target.chat = "external mutation";
+    expect(signals.checkpointView().drafts.target.text).toBe("after");
+    expect(signals.checkpointView().scroll.target.chat).toBe("new-anchor");
+  } finally {
+    unsubscribe();
+    clone.mockRestore();
+  }
+});
+
 describe("frontend runtime integration", () => {
-  it("reconnects a clean generation end, waits for recovery after failure, and stops on disposal", async () => {
+  it("waits for event-stream recovery after EOF or failure and stops on disposal", async () => {
     const f = fixture();
     const runtime = await initializeFrontendUpdateRuntime(f.client, f.options);
     expect(runtime.snapshot().connection).toBe("connected");
     f.end("eof");
     await Promise.resolve();
-    expect(f.subscriptions()).toBe(2);
-    expect(runtime.snapshot().connection).toBe("reconnecting");
+    expect(f.subscriptions()).toBe(1);
+    expect(runtime.snapshot().connection).toBe("unavailable");
     expect(runtime.snapshot().revision).toBe(9);
+    f.options.events.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
+    expect(runtime.snapshot().connection).toBe("reconnecting");
+    expect(f.subscriptions()).toBe(2);
+    f.receive("frontend-status", { apiVersion: API, pending: null, quarantined: [] });
+    expect(runtime.snapshot().connection).toBe("connected");
     f.end("http");
-    await Promise.resolve();
     expect(runtime.snapshot().connection).toBe("unavailable");
     expect(f.subscriptions()).toBe(2);
     f.options.events.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
     expect(runtime.snapshot().connection).toBe("reconnecting");
-    f.receive("frontend-status", { apiVersion: API, pending: null, quarantined: [] });
-    expect(runtime.snapshot().connection).toBe("connected");
     expect(f.subscriptions()).toBe(3);
     runtime.dispose();
     f.end("eof");
@@ -90,6 +140,22 @@ describe("frontend runtime integration", () => {
     f.receive("frontend-status", { apiVersion: API, pending: null, quarantined: [] });
     expect(runtime.snapshot().connection).toBe("connected");
     expect(runtime.snapshot().checkpoint).toEqual(latest);
+    runtime.dispose();
+  });
+  it("propagates local branch edits and isolates mutable runtime snapshots", async () => {
+    const f = fixture();
+    const runtime = await initializeFrontendUpdateRuntime(f.client, f.options);
+    const initialRevision = runtime.snapshot().revision;
+    f.signals.editDraft("t", "latest local edit");
+    f.signals.editScroll("t", "chat", "latest anchor");
+    const current = runtime.snapshot();
+    expect(current.checkpoint.drafts.t.text).toBe("latest local edit");
+    expect(current.checkpoint.scroll.t.chat).toBe("latest anchor");
+    expect(current.revision).toBe(initialRevision + 2);
+    current.checkpoint.drafts.t.text = "external mutation";
+    current.checkpoint.scroll.t.chat = "external mutation";
+    expect(runtime.snapshot().checkpoint.drafts.t.text).toBe("latest local edit");
+    expect(runtime.snapshot().checkpoint.scroll.t.chat).toBe("latest anchor");
     runtime.dispose();
   });
   it("keeps an incompatible frontend API unavailable and ignores update offers", async () => {

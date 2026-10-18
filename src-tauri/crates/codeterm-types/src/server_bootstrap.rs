@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, path::PathBuf};
 
-pub const BOOTSTRAP_PROTOCOL: u32 = 1;
+/// Protocol 2 Shutdown replies attest successful required cleanup before process exit.
+pub const BOOTSTRAP_PROTOCOL: u32 = 2;
 pub const API_VERSION: u32 = 3;
-pub const SERVER_COMPONENT_SCHEMA: u32 = 1;
+pub const SERVER_COMPONENT_SCHEMA: u32 = 2;
+pub const BOOTSTRAP_ATTACH_UNAVAILABLE_EXIT_CODE: i32 = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -12,9 +14,22 @@ pub struct ServerComponentManifest {
     pub server_build: String,
     pub server_executable: PathBuf,
     pub server_sha256: String,
-    pub client_sha256: String,
+    pub client_identity: ClientIdentity,
     pub api_version: u32,
     pub bootstrap_protocol: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ClientIdentity {
+    Sha256 {
+        sha256: String,
+    },
+    MacosDesignatedRequirement {
+        requirement: String,
+        team_id: String,
+        identifier: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -62,6 +62,7 @@ pub struct TaskAttemptView {
 pub struct TaskRespawnDraft {
     pub plan_id: String,
     pub task_id: String,
+    pub execution_intent: crate::plan::ExecutionIntent,
     pub attempt_id: String,
     pub source_attempt: TaskExecutionAttempt,
     pub provider: String,
@@ -962,12 +963,18 @@ impl PlanStore {
             .cloned()
             .ok_or(PlanError::TaskNotFound)?;
         let (task_provider, task_model) = split_provider_model(task.model.as_deref());
+        let source_provider = source.provider.clone().or(source.agent_type.clone());
         let provider = request
             .provider
-            .or(source.provider.clone())
+            .or(source_provider.clone())
             .or(task_provider)
             .unwrap_or_else(|| "claude".into());
-        let model = request.model.or(source.model.clone()).or(task_model);
+        let model = request
+            .model
+            .or(source.model.clone())
+            .or(source.provider_resolved_model.clone())
+            .or(source.requested_model.clone())
+            .or_else(|| source_provider.is_none().then_some(task_model).flatten());
         let reasoning_effort = source.reasoning_effort.clone();
         let report_command = task_report_command(plan_id, &task.id);
         let manifest = super::plan_skills::plan_skill_manifest(self, plan_id)?;
@@ -991,6 +998,7 @@ impl PlanStore {
         Ok(TaskRespawnDraft {
             plan_id: plan.id,
             task_id: task.id.clone(),
+            execution_intent: task.interruption.execution_intent.clone(),
             attempt_id: gen_attempt_id(),
             source_attempt: source.clone(),
             provider,
@@ -1026,6 +1034,14 @@ impl PlanStore {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             super::task_dispatch::task_respawn_status(&plan.tasks[task_index].status)?;
+            if let Some(attempt) =
+                newer_live_respawn_attempt(&plan.tasks[task_index], &draft.source_attempt.id)
+            {
+                return Err(PlanError::DispatchInFlight {
+                    attempt_id: attempt.id.clone(),
+                    tab_id: attempt.executor_tab_id.clone(),
+                });
+            }
             if matches!(
                 plan.tasks[task_index].status,
                 TaskStatus::Pending | TaskStatus::Blocked
@@ -1165,4 +1181,18 @@ impl PlanStore {
             attempt: judged.expect("attempt set before successful write"),
         })
     }
+}
+
+pub(super) fn newer_live_respawn_attempt<'a>(
+    task: &'a crate::plan::Task,
+    source_attempt_id: &str,
+) -> Option<&'a crate::plan::TaskExecutionAttempt> {
+    let source_index = task
+        .execution_attempts
+        .iter()
+        .position(|attempt| attempt.id == source_attempt_id)?;
+    task.execution_attempts
+        .iter()
+        .skip(source_index + 1)
+        .find(|attempt| attempt.closed_at.is_none() && attempt.retired_at.is_none())
 }

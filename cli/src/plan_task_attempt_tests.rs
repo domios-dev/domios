@@ -62,3 +62,36 @@ fn plan_task_attempts_and_respawn_parse() {
         _ => panic!("expected plan task respawn"),
     }
 }
+
+#[test]
+fn worker_loss_recovery_command_parses_without_repeating_execution_intent() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "task",
+        "respawn",
+        "pl_opaque_a",
+        "task_opaque_b",
+        "--attempt",
+        "attempt_opaque_c",
+    ])
+    .expect("the worker-loss recovery command parses from its recorded attempt");
+    let Commands::Plan {
+        action:
+            PlanAction::Task {
+                action:
+                    PlanTaskAction::Respawn {
+                        attempt,
+                        provider,
+                        model,
+                        ..
+                    },
+            },
+    } = parsed.command
+    else {
+        panic!("expected plan task respawn");
+    };
+    assert_eq!(attempt, "attempt_opaque_c");
+    assert!(provider.is_none());
+    assert!(model.is_none());
+}

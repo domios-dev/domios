@@ -729,6 +729,12 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/account/status", get(super::account_routes::status))
         .route("/api/account/login", post(super::account_routes::login))
+        .route(
+            "/api/account/callback",
+            post(super::account_routes::callback).layer(axum::extract::DefaultBodyLimit::max(
+                super::account_routes::MAX_CALLBACK_REQUEST_BYTES,
+            )),
+        )
         .route("/api/account/logout", post(super::account_routes::logout))
         .route("/api/update/check", get(updater_routes::check_update))
         .route(

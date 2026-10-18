@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import test from 'node:test';
@@ -17,6 +18,8 @@ for (const [platform, extension] of [['linux-gnu', ''], ['darwin', ''], ['msys',
   for (const target of ['', 'opaque-target']) {
     test(`DEV builds and installs its dev CLI artifact: ${platform}, target=${target || 'host'}`, () => {
       assert.ok(start > 0 && end > start);
+      const logs = mkdtempSync(path.join(os.tmpdir(), 'dev-cli-profile-'));
+      try {
       const result = spawnSync(bash, ['-c', `set -eu
         set -- dev
         ${helpers}
@@ -24,6 +27,7 @@ for (const [platform, extension] of [['linux-gnu', ''], ['darwin', ''], ['msys',
         CARGO_TARGET_DIR='cache root'
         CARGO_BUILD_TARGET=${target}
         CT_DATA_DIR='dev data'
+        tauri_debug_dir() { printf '%s' '${logs.replaceAll('\\', '/')}'; }
         cargo() { printf 'cargo %s\\n' "$*"; }
         cli_file_sha256_or_status() { printf opaque-hash; }
         install_cli_to() { printf 'installed:%s:%s:%s\\n' "$1" "$2" "$3"; }
@@ -34,17 +38,22 @@ for (const [platform, extension] of [['linux-gnu', ''], ['darwin', ''], ['msys',
       assert.equal(result.status, 0, result.stderr);
       const directory = `cache root/${target ? target + '/' : ''}`;
       assert.deepEqual(result.stdout.trim().split(/\r?\n/), [
-        'Building CLI...', 'cargo build --manifest-path cli/Cargo.toml',
+        'Building CLI...',
         `installed:dev data/bin:${directory}debug/codeterm${extension}:opaque-hash`,
         `bundled:${directory}debug/codeterm${extension}`,
         `production:${directory}release/codeterm${extension}`,
       ]);
+      assert.equal(readFileSync(path.join(logs, '.domios-dev-build/cli.jsonl'), 'utf8').trim(), 'cargo build --manifest-path cli/Cargo.toml --message-format=json-render-diagnostics');
+      } finally { rmSync(logs, { recursive: true, force: true }); }
     });
   }
 }
 
 test('a failed DEV CLI build stops before installing an artifact', () => {
+  const logs = mkdtempSync(path.join(os.tmpdir(), 'dev-cli-failure-'));
+  try {
   const result = spawnSync(bash, ['-c', `set -eu
+    tauri_debug_dir() { printf '%s' '${logs.replaceAll('\\', '/')}'; }
     set -- dev
     cargo() { return 41; }
     install_cli_to() { printf unexpected-install; }
@@ -52,4 +61,24 @@ test('a failed DEV CLI build stops before installing an artifact', () => {
   `], { cwd: root, encoding: 'utf8' });
   assert.equal(result.status, 41, result.stderr);
   assert.doesNotMatch(result.stdout, /unexpected-install/);
+  } finally { rmSync(logs, { recursive: true, force: true }); }
 });
+
+for (const platform of ['linux-gnu', 'darwin', 'msys']) {
+  for (const target of ['', 'opaque-target']) {
+    test(`DEV layout retains raw Cargo outputs and derives staged paths: ${platform}/${target || 'host'}`, () => {
+      const layout = ['tauri_debug_dir', 'dev_resource_dir', 'dev_built_app_path', 'dev_app_path']
+        .map(name => source.match(new RegExp(`^${name}\\(\\) \\{[^]*?^\\}`, 'm'))[0]).join('\n');
+      const result = spawnSync(bash, ['-c', `set -eu
+${layout}
+OSTYPE=${platform} CARGO_TARGET_DIR='cache root' CARGO_BUILD_TARGET=${target}
+printf '%s\\n' "$(dev_built_app_path)" "$(dev_app_path)" "$(dev_resource_dir)"
+`], { cwd: root, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      const directory = `cache root/${target ? target + '/' : ''}debug`;
+      assert.deepEqual(result.stdout.trim().split(/\r?\n/), platform === 'msys'
+        ? [`${directory}/codeterm.exe`, `${directory}/codeterm.exe`, directory]
+        : [`${directory}/codeterm`, `${directory}/.domios-dev-runtime/bin/codeterm`, `${directory}/.domios-dev-runtime/lib/codeterm`]);
+    });
+  }
+}

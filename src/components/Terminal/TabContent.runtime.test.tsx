@@ -18,11 +18,11 @@ vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ pr
 
 it("routes a non-PTY task tab through its backing provider even without a local agent identity", async () => {
   const tab: Tab = {id: "remote-layout", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null,
-    backing: {kind: "chat_backend", plugin_id: "remote-fixture", session_id: "remote-session"}};
+    agent_runtime_config: {executionMode: "cloud"}, backing: {kind: "chat_backend", plugin_id: "remote-fixture", session_id: "remote-session"}};
   const descriptor: ProviderDescriptor = {
     schema_version: 1, id: "remote-fixture", display_name: "Remote fixture", transport: "chat_backend", system_prompt_delivery: "external",
     available_models: [], settings_schema: [], notifications_schema: [], supports_lazy_skills: false, has_hooks: false,
-    remote_task: {backend: "fixture", localProviderId: "local-fixture", availability: {status: "available"}, environments: [], followUp: false, cancel: false, applyDiff: false},
+    remote_task: {backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"}, environments: [], followUp: false, cancel: false, applyDiff: false},
   };
   const state: ExtendedState = {workspaces: [], tabs: {[tab.id]: tab}, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
     notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: []};

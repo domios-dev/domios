@@ -6,6 +6,9 @@ use std::io;
 pub const FAILURE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 pub fn validate_observation(request: &AttachRequest) -> io::Result<()> {
+    if request.protocol != BOOTSTRAP_PROTOCOL {
+        return Err(io::Error::other("Bootstrap protocol mismatch"));
+    }
     if request.operation != BootstrapOperation::Inspect || request.expected.is_none() {
         return Err(io::Error::other(
             "Observation requires Inspect and exact expected incarnation",

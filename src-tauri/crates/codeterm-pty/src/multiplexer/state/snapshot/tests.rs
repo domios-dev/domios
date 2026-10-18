@@ -1072,6 +1072,7 @@ fn requested_and_actual_model_identity_round_trips_through_snapshot() {
 fn restorable_launch_parameters_round_trip_in_snapshot() {
     let (mut state, tab_id) = MultiplexerState::new();
     let launch = crate::multiplexer::types::RestorableLaunchParameters {
+        execution_mode: Some("fixture-cloud".into()),
         execution_sandbox: Some(codeterm_types::plan::ExecutionSandboxPolicy {
             intent: codeterm_types::plan::ExecutionIntent::ReadOnly,
             cwd: "/opaque-lane".into(),

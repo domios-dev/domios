@@ -42,6 +42,9 @@ pub struct ChatStartResult {
     /// and listens on `tab-chat-msg-{id}` for deltas. `None` = JSONL provider.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub messages: Option<Vec<crate::agent::chat_types::ChatMsg>>,
+    /// Read-only rows from prior provider sessions, ordered before this session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived_messages: Option<Vec<crate::agent::chat_types::ChatMsg>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
     pub source_session_id: Option<String>,

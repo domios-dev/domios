@@ -6,8 +6,11 @@ use crate::{
     },
 };
 use serde::{Deserialize, Serialize};
-use std::future::Future;
-use std::pin::Pin;
+use std::{
+    future::Future,
+    path::{Component, Path},
+    pin::Pin,
+};
 use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -50,6 +53,30 @@ pub struct ExpectedServer {
     pub incarnation: ServerExpectation,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeUpdateAttachment {
+    pub connection: NativeHostConnection,
+    pub client_process: ProcessProvenance,
+}
+
+impl NativeUpdateAttachment {
+    pub fn validate_for(&self, request: &NativeUpdateRequest) -> Result<(), NativeUpdateRefusal> {
+        if self.connection.instance_id.trim().is_empty()
+            || self.connection.generation == 0
+            || !valid_process(&self.client_process)
+        {
+            return Err(NativeUpdateRefusal::NativeHostUnavailable);
+        }
+        if self.connection.identity != request.expected_server.identity
+            || self.connection.server_epoch != request.expected_server.incarnation.epoch
+        {
+            return Err(NativeUpdateRefusal::ExpectedServerMismatch);
+        }
+        Ok(())
+    }
+}
+
 impl PartialEq for ExpectedServer {
     fn eq(&self, other: &Self) -> bool {
         self.components == other.components
@@ -88,6 +115,7 @@ pub enum NativeUpdateUncertainty {
     CancelledAfterDispatch,
     DeadlineAfterDispatch,
     DisconnectedAfterDispatch,
+    InvalidReplyAfterDispatch,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,6 +136,21 @@ pub enum NativeUpdateRefusal {
     DurableHandoffUnavailable,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NativeUpdateDispatchOutcome {
+    Reply(NativeUpdateResult),
+    RefusedBeforeExecution { reason: NativeUpdateRefusal },
+    UncertainAfterExecution { reason: NativeUpdateUncertainty },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "observation", content = "payload", rename_all = "snake_case")]
+pub enum NativeUpdateObservationOutcome {
+    Reply(NativeUpdateResult),
+    NoNewEvidence,
+    Unavailable { reason: NativeUpdateUncertainty },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeUpdateInstallReceipt {
@@ -126,17 +169,27 @@ pub struct NativeUpdateVerification {
 #[serde(tag = "state", content = "payload", rename_all = "snake_case")]
 pub enum NativeUpdateState {
     Admitted,
-    InProgress { stage: NativeUpdateStage },
-    Uncertain { reason: NativeUpdateUncertainty },
+    InProgress {
+        stage: NativeUpdateStage,
+    },
+    Uncertain {
+        reason: NativeUpdateUncertainty,
+    },
     /// The broker's physical installation receipt; replacement health is not implied.
-    Completed { install: NativeUpdateInstallReceipt },
-    InstalledAwaitingVerification { install: NativeUpdateInstallReceipt },
+    Completed {
+        install: NativeUpdateInstallReceipt,
+    },
+    InstalledAwaitingVerification {
+        install: NativeUpdateInstallReceipt,
+    },
     /// The replacement client re-enrolled and the pinned server still reports ready.
     Verified {
         install: NativeUpdateInstallReceipt,
         verification: NativeUpdateVerification,
     },
-    Rejected { reason: NativeUpdateRefusal },
+    Rejected {
+        reason: NativeUpdateRefusal,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,8 +236,7 @@ impl NativeUpdateResult {
                     return Err(NativeUpdateRefusal::ExpectedServerMismatch);
                 }
             }
-            NativeUpdateState::Admitted
-            | NativeUpdateState::Rejected { .. } => {
+            NativeUpdateState::Admitted | NativeUpdateState::Rejected { .. } => {
                 if request.action.requires_server_handoff()
                     && self.connection.server_epoch != request.expected_server.incarnation.epoch
                 {
@@ -217,14 +269,13 @@ impl NativeUpdateResult {
             {
                 return Err(NativeUpdateRefusal::ExpectedServerMismatch);
             }
-            let reconnect_transition = matches!(
-                &previous.state,
-                NativeUpdateState::Completed { .. }
-            ) && matches!(
-                &self.state,
-                NativeUpdateState::InstalledAwaitingVerification { .. }
-                    | NativeUpdateState::Verified { .. }
-            );
+            let reconnect_transition =
+                matches!(&previous.state, NativeUpdateState::Completed { .. })
+                    && matches!(
+                        &self.state,
+                        NativeUpdateState::InstalledAwaitingVerification { .. }
+                            | NativeUpdateState::Verified { .. }
+                    );
             let verified_transition = matches!(&self.state, NativeUpdateState::Verified { .. })
                 && !matches!(
                     &previous.state,
@@ -290,7 +341,11 @@ fn validate_verification(
         || server.build != request.staged_components.server_build
         || server.api_version != request.staged_components.api_version
         || server.protocol != request.staged_components.bootstrap_protocol
-        || server.process.executable != request.staged_components.server_executable
+        || !resource_executable_matches(
+            &server.resources,
+            &request.staged_components.server_executable,
+            &server.process.executable,
+        )
     {
         return Err(NativeUpdateRefusal::InvalidStagedManifest);
     }
@@ -315,18 +370,28 @@ fn valid_process(process: &ProcessProvenance) -> bool {
         && !process.executable.as_os_str().is_empty()
 }
 
-pub type NativeUpdateResultFuture = Pin<Box<dyn Future<Output = NativeUpdateResult> + Send>>;
+pub type NativeUpdateObservationFuture =
+    Pin<Box<dyn Future<Output = NativeUpdateObservationOutcome> + Send>>;
+pub type NativeUpdateDispatchFuture =
+    Pin<Box<dyn Future<Output = NativeUpdateDispatchOutcome> + Send>>;
 
 pub trait NativeUpdateExecutor: Send + Sync {
-    /// Starts one physical execution; the server must call this only once per operation.
-    fn dispatch(&self, request: NativeUpdateRequest) -> NativeUpdateResultFuture;
+    /// Returns only the exact active authenticated attachment captured by this executor.
+    fn captured_attachment(&self) -> Option<NativeUpdateAttachment>;
+
+    /// Starts once after rechecking that this exact authenticated attachment is still active.
+    fn dispatch(
+        &self,
+        request: NativeUpdateRequest,
+        attachment: NativeUpdateAttachment,
+    ) -> NativeUpdateDispatchFuture;
 
     /// Observes a later event without replaying work; the adapter binds its authenticated connection.
     fn observe(
         &self,
         operation_id: NativeUpdateOperationId,
         after_sequence: u64,
-    ) -> NativeUpdateResultFuture;
+    ) -> NativeUpdateObservationFuture;
 }
 
 impl NativeUpdateRequest {
@@ -340,11 +405,16 @@ impl NativeUpdateRequest {
             .map_err(|()| NativeUpdateRefusal::InvalidStagedManifest)?;
         if self.expected_server.incarnation.epoch.trim().is_empty()
             || self.expected_server.incarnation.process.pid == 0
-            || self.expected_server.incarnation.process.created.trim().is_empty()
+            || self
+                .expected_server
+                .incarnation
+                .process
+                .created
+                .trim()
+                .is_empty()
             || self.expected_server.identity.data.as_os_str().is_empty()
             || self.expected_server.identity.config.as_os_str().is_empty()
-            || self.expected_server.components.server_executable
-                != self.expected_server.incarnation.process.executable
+            || !valid_process(&self.expected_server.incarnation.process)
         {
             return Err(NativeUpdateRefusal::ExpectedServerMismatch);
         }
@@ -353,10 +423,8 @@ impl NativeUpdateRequest {
                 if self.restart_authorized {
                     return Err(NativeUpdateRefusal::UnexpectedRestartAuthorization);
                 }
-                if !same_server_artifact(
-                    &self.expected_server.components,
-                    &self.staged_components,
-                ) {
+                if !same_server_artifact(&self.expected_server.components, &self.staged_components)
+                {
                     return Err(NativeUpdateRefusal::ClientOnlyChangesServer);
                 }
             }
@@ -364,8 +432,8 @@ impl NativeUpdateRequest {
                 if !self.restart_authorized {
                     return Err(NativeUpdateRefusal::RestartAuthorizationRequired);
                 }
-                if self.expected_server.components.client_sha256
-                    != self.staged_components.client_sha256
+                if self.expected_server.components.client_identity
+                    != self.staged_components.client_identity
                     || self.expected_server.components.api_version
                         != self.staged_components.api_version
                     || self.expected_server.components.bootstrap_protocol
@@ -394,7 +462,11 @@ impl NativeUpdateRequest {
             && expected.incarnation.epoch == ready.epoch
             && expected.incarnation.process == ready.process
             && ready.build == expected.components.server_build
-            && ready.process.executable == expected.components.server_executable
+            && resource_executable_matches(
+                &ready.resources,
+                &expected.components.server_executable,
+                &ready.process.executable,
+            )
             && ready.api_version == expected.components.api_version
             && ready.protocol == expected.components.bootstrap_protocol
     }
@@ -403,19 +475,83 @@ impl NativeUpdateRequest {
 fn validate_manifest(manifest: &ServerComponentManifest) -> Result<(), ()> {
     if manifest.schema != SERVER_COMPONENT_SCHEMA
         || manifest.server_build.is_empty()
-        || manifest.server_executable.as_os_str().is_empty()
+        || !valid_server_executable(&manifest.server_executable)
         || manifest.api_version != API_VERSION
         || manifest.bootstrap_protocol != BOOTSTRAP_PROTOCOL
         || !valid_sha256(&manifest.server_sha256)
-        || !valid_sha256(&manifest.client_sha256)
+        || !valid_client_identity(&manifest.client_identity)
     {
         return Err(());
     }
     Ok(())
 }
 
+fn is_strict_resource_relative_path(path: &Path) -> bool {
+    let mut components = path.components();
+    matches!(components.next(), Some(Component::Normal(_)))
+        && components.all(|component| matches!(component, Component::Normal(_)))
+}
+
+fn valid_server_executable(path: &Path) -> bool {
+    if cfg!(target_os = "macos") {
+        path == Path::new("../MacOS/domios-server")
+    } else {
+        is_strict_resource_relative_path(path)
+    }
+}
+
+fn valid_client_identity(identity: &crate::server_bootstrap::ClientIdentity) -> bool {
+    use crate::server_bootstrap::ClientIdentity;
+    match identity {
+        ClientIdentity::Sha256 { sha256 } => !cfg!(target_os = "macos") && valid_sha256(sha256),
+        ClientIdentity::MacosDesignatedRequirement { requirement, team_id, identifier } => {
+            cfg!(target_os = "macos")
+                && team_id.len() == 10
+                && team_id.bytes().all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+                && identifier == "com.codeterm.app"
+                && requirement == &format!("anchor apple generic and identifier \"com.codeterm.app\" and certificate leaf[subject.OU] = \"{team_id}\"")
+        }
+    }
+}
+
+fn resource_executable_matches(root: &Path, relative: &Path, executable: &Path) -> bool {
+    if !is_clean_absolute_path(root) || !valid_server_executable(relative) {
+        return false;
+    }
+    if cfg!(target_os = "macos") {
+        root.file_name().is_some_and(|name| name == "Resources")
+            && root
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "Contents")
+            && root
+                .parent()
+                .and_then(Path::parent)
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "CodeTerm.app")
+            && root
+                .parent()
+                .is_some_and(|contents| contents.join("MacOS/domios-server") == executable)
+    } else {
+        root.join(relative) == executable
+    }
+}
+
+fn is_clean_absolute_path(path: &Path) -> bool {
+    path.is_absolute()
+        && path.components().all(|component| {
+            matches!(
+                component,
+                Component::Prefix(_) | Component::RootDir | Component::Normal(_)
+            )
+        })
+}
+
 fn valid_sha256(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn same_server_artifact(left: &ServerComponentManifest, right: &ServerComponentManifest) -> bool {
@@ -429,15 +565,16 @@ fn same_server_artifact(left: &ServerComponentManifest, right: &ServerComponentM
 #[cfg(test)]
 mod tests {
     use super::{
-        ExpectedServer, NativeUpdateAction, NativeUpdateExecutor, NativeUpdateOperationId,
-        NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult, NativeUpdateState,
-        NativeUpdateUncertainty, NativeUpdateVerification,
+        ExpectedServer, NativeUpdateAction, NativeUpdateAttachment, NativeUpdateExecutor,
+        NativeUpdateInstallReceipt, NativeUpdateObservationOutcome, NativeUpdateOperationId,
+        NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult, NativeUpdateStage,
+        NativeUpdateState, NativeUpdateUncertainty, NativeUpdateVerification,
     };
     use crate::{
         native_host::NativeHostConnection,
         server_bootstrap::{
-            ProcessProvenance, ServerComponentManifest, ServerExpectation, ServerIdentity,
-            ServerReady, API_VERSION, BOOTSTRAP_PROTOCOL, SERVER_COMPONENT_SCHEMA,
+            ClientIdentity, ProcessProvenance, ServerComponentManifest, ServerExpectation,
+            ServerIdentity, ServerReady, API_VERSION, BOOTSTRAP_PROTOCOL, SERVER_COMPONENT_SCHEMA,
         },
     };
     use std::{future::Future, path::PathBuf, pin::Pin};
@@ -447,9 +584,23 @@ mod tests {
         ServerComponentManifest {
             schema: SERVER_COMPONENT_SCHEMA,
             server_build: server_build.into(),
-            server_executable: PathBuf::from("C:/Domios/domios-server.exe"),
+            server_executable: if cfg!(target_os = "macos") {
+                PathBuf::from("../MacOS/domios-server")
+            } else {
+                PathBuf::from("bin/domios-server.exe")
+            },
             server_sha256: "a".repeat(64),
-            client_sha256: client_digest.into(),
+            client_identity: if cfg!(target_os = "macos") {
+                ClientIdentity::MacosDesignatedRequirement {
+                    requirement: "anchor apple generic and identifier \"com.codeterm.app\" and certificate leaf[subject.OU] = \"JMMWQ9LWF7\"".into(),
+                    team_id: "JMMWQ9LWF7".into(),
+                    identifier: "com.codeterm.app".into(),
+                }
+            } else {
+                ClientIdentity::Sha256 {
+                    sha256: client_digest.into(),
+                }
+            },
             api_version: API_VERSION,
             bootstrap_protocol: BOOTSTRAP_PROTOCOL,
         }
@@ -462,7 +613,14 @@ mod tests {
             NativeUpdateAction::Server => components("server-new", "b".repeat(64).as_str()),
             NativeUpdateAction::Pair => components("server-new", "c".repeat(64).as_str()),
         };
-        let executable = current.server_executable.clone();
+        let executable = if cfg!(target_os = "macos") {
+            resource_root()
+                .parent()
+                .unwrap()
+                .join("MacOS/domios-server")
+        } else {
+            resource_root().join(&current.server_executable)
+        };
         NativeUpdateRequest {
             operation_id: NativeUpdateOperationId::new(Uuid::from_u128(17)).unwrap(),
             action,
@@ -499,7 +657,47 @@ mod tests {
             api_address: "127.0.0.1:7686".parse().expect("valid test address"),
             socket_address: "socket".into(),
             bootstrap_address: "bootstrap".into(),
-            resources: PathBuf::from("C:/Domios/resources"),
+            resources: resource_root(),
+        }
+    }
+
+    fn resource_root() -> PathBuf {
+        #[cfg(windows)]
+        {
+            PathBuf::from(r"C:\Domios\resources")
+        }
+        #[cfg(not(windows))]
+        {
+            if cfg!(target_os = "macos") {
+                PathBuf::from("/Applications/CodeTerm.app/Contents/Resources")
+            } else {
+                PathBuf::from("/opt/domios/resources")
+            }
+        }
+    }
+
+    #[test]
+    fn manifest_client_identity_and_server_location_are_platform_bound() {
+        let mut manifest = components("server-build", &"b".repeat(64));
+        assert!(super::validate_manifest(&manifest).is_ok());
+        if cfg!(target_os = "macos") {
+            manifest.server_executable = PathBuf::from("domios-server/domios-server");
+            assert!(super::validate_manifest(&manifest).is_err());
+            manifest.server_executable = PathBuf::from("../MacOS/domios-server");
+            manifest.client_identity = ClientIdentity::Sha256 {
+                sha256: "b".repeat(64),
+            };
+            assert!(super::validate_manifest(&manifest).is_err());
+        } else {
+            manifest.server_executable = PathBuf::from("../MacOS/domios-server");
+            assert!(super::validate_manifest(&manifest).is_err());
+            manifest.server_executable = PathBuf::from("bin/domios-server.exe");
+            manifest.client_identity = ClientIdentity::MacosDesignatedRequirement {
+                requirement: "anchor apple generic and identifier \"com.codeterm.app\" and certificate leaf[subject.OU] = \"JMMWQ9LWF7\"".into(),
+                team_id: "JMMWQ9LWF7".into(),
+                identifier: "com.codeterm.app".into(),
+            };
+            assert!(super::validate_manifest(&manifest).is_err());
         }
     }
 
@@ -516,22 +714,75 @@ mod tests {
         }
     }
 
+    #[test]
+    fn observation_outcomes_round_trip_with_finite_tags() {
+        let request = request(NativeUpdateAction::ClientOnly, false);
+        let reply = NativeUpdateResult {
+            operation_id: request.operation_id,
+            sequence: 1,
+            connection: connection_for(&request, 1, &request.expected_server.incarnation.epoch),
+            state: NativeUpdateState::InProgress {
+                stage: NativeUpdateStage::Applying,
+            },
+        };
+        let outcomes = [
+            (NativeUpdateObservationOutcome::Reply(reply), "reply"),
+            (
+                NativeUpdateObservationOutcome::NoNewEvidence,
+                "no_new_evidence",
+            ),
+            (
+                NativeUpdateObservationOutcome::Unavailable {
+                    reason: NativeUpdateUncertainty::InvalidReplyAfterDispatch,
+                },
+                "unavailable",
+            ),
+        ];
+
+        for (outcome, expected_tag) in outcomes {
+            let encoded = serde_json::to_value(&outcome).unwrap();
+            assert_eq!(encoded["observation"], expected_tag);
+            match expected_tag {
+                "reply" => assert_eq!(encoded["payload"]["sequence"], 1),
+                "no_new_evidence" => {
+                    assert!(encoded.get("payload").is_none());
+                    assert!(encoded.get("sequence").is_none());
+                }
+                "unavailable" => assert!(encoded["payload"].get("sequence").is_none()),
+                _ => unreachable!(),
+            }
+            let decoded: NativeUpdateObservationOutcome = serde_json::from_value(encoded).unwrap();
+            assert_eq!(decoded, outcome);
+        }
+    }
+
     struct Port;
 
     impl NativeUpdateExecutor for Port {
-        fn dispatch(&self, request: NativeUpdateRequest) -> super::NativeUpdateResultFuture {
+        fn captured_attachment(&self) -> Option<NativeUpdateAttachment> {
+            let request = request(NativeUpdateAction::ClientOnly, false);
+            Some(NativeUpdateAttachment {
+                connection: connection_for(&request, 1, &request.expected_server.incarnation.epoch),
+                client_process: ProcessProvenance {
+                    pid: 72,
+                    created: "start-72".into(),
+                    executable: PathBuf::from("C:/Domios/domios.exe"),
+                },
+            })
+        }
+
+        fn dispatch(
+            &self,
+            request: NativeUpdateRequest,
+            attachment: NativeUpdateAttachment,
+        ) -> super::NativeUpdateDispatchFuture {
             Box::pin(async move {
-                let connection = connection_for(
-                    &request,
-                    1,
-                    &request.expected_server.incarnation.epoch,
-                );
-                NativeUpdateResult {
+                super::NativeUpdateDispatchOutcome::Reply(NativeUpdateResult {
                     operation_id: request.operation_id,
                     sequence: 1,
-                    connection,
+                    connection: attachment.connection,
                     state: NativeUpdateState::Admitted,
-                }
+                })
             })
         }
 
@@ -539,9 +790,9 @@ mod tests {
             &self,
             operation_id: NativeUpdateOperationId,
             after_sequence: u64,
-        ) -> super::NativeUpdateResultFuture {
+        ) -> super::NativeUpdateObservationFuture {
             Box::pin(async move {
-                NativeUpdateResult {
+                super::NativeUpdateObservationOutcome::Reply(NativeUpdateResult {
                     operation_id,
                     sequence: after_sequence + 1,
                     connection: NativeHostConnection {
@@ -556,7 +807,7 @@ mod tests {
                     state: NativeUpdateState::Uncertain {
                         reason: NativeUpdateUncertainty::DisconnectedAfterDispatch,
                     },
-                }
+                })
             })
         }
     }
@@ -590,9 +841,9 @@ mod tests {
     #[test]
     fn server_and_pair_updates_require_restart_authorization() {
         for action in [NativeUpdateAction::Server, NativeUpdateAction::Pair] {
-            let request = request(action, false);
+            let update_request = request(action, false);
             assert_eq!(
-                request.validate(),
+                update_request.validate(),
                 Err(NativeUpdateRefusal::RestartAuthorizationRequired)
             );
             assert_eq!(request(action, true).validate(), Ok(()));
@@ -602,7 +853,17 @@ mod tests {
     #[test]
     fn server_only_update_preserves_client_artifact_and_protocol_pair() {
         let mut request = request(NativeUpdateAction::Server, true);
-        request.staged_components.client_sha256 = "c".repeat(64);
+        request.staged_components.client_identity = if cfg!(target_os = "macos") {
+            ClientIdentity::MacosDesignatedRequirement {
+                requirement: "anchor apple generic and identifier \"com.codeterm.app\" and certificate leaf[subject.OU] = \"ABCDEFGHIJ\"".into(),
+                team_id: "ABCDEFGHIJ".into(),
+                identifier: "com.codeterm.app".into(),
+            }
+        } else {
+            ClientIdentity::Sha256 {
+                sha256: "c".repeat(64),
+            }
+        };
         assert_eq!(
             request.validate(),
             Err(NativeUpdateRefusal::ServerOnlyChangesClientOrCompatibility)
@@ -626,15 +887,123 @@ mod tests {
     }
 
     #[test]
+    fn current_server_match_resolves_manifest_path_under_exact_ready_resource_root() {
+        let request = request(NativeUpdateAction::ClientOnly, false);
+        let installed = request.expected_server.components.clone();
+        let ready = ready_for(&request);
+        assert!(request.matches_current_server(&ready, &installed));
+
+        let mut wrong_root = ready.clone();
+        wrong_root.resources = resource_root().join("other");
+        assert!(!request.matches_current_server(&wrong_root, &installed));
+
+        let mut traversing_root = ready.clone();
+        traversing_root.resources = resource_root().join("../outside");
+        assert!(!request.matches_current_server(&traversing_root, &installed));
+
+        let mut wrong_executable_request = request.clone();
+        wrong_executable_request
+            .expected_server
+            .components
+            .server_executable = PathBuf::from("bin/other-server.exe");
+        let wrong_executable_manifest = wrong_executable_request.expected_server.components.clone();
+        assert!(
+            !wrong_executable_request.matches_current_server(&ready, &wrong_executable_manifest,)
+        );
+    }
+
+    #[test]
+    fn manifest_executable_must_stay_inside_the_resource_root() {
+        let mut expected_request = request(NativeUpdateAction::ClientOnly, false);
+        expected_request
+            .expected_server
+            .components
+            .server_executable = PathBuf::from("../outside/domios-server.exe");
+        assert_eq!(
+            expected_request.validate(),
+            Err(NativeUpdateRefusal::InvalidServerManifest)
+        );
+
+        let mut staged_request = request(NativeUpdateAction::ClientOnly, false);
+        staged_request.staged_components.server_executable =
+            PathBuf::from("bin/../../outside/domios-server.exe");
+        assert_eq!(
+            staged_request.validate(),
+            Err(NativeUpdateRefusal::InvalidStagedManifest)
+        );
+
+        let mut matching_request = request(NativeUpdateAction::ClientOnly, false);
+        matching_request
+            .expected_server
+            .components
+            .server_executable = PathBuf::from("../outside/domios-server.exe");
+        assert!(!matching_request.matches_current_server(
+            &ready_for(&matching_request),
+            &matching_request.expected_server.components,
+        ));
+    }
+
+    #[test]
+    fn replacement_verification_resolves_relative_executable_against_ready_root() {
+        let request = request(NativeUpdateAction::ClientOnly, false);
+        let server = ready_for(&request);
+        let install = NativeUpdateInstallReceipt {
+            installed_components: request.staged_components.clone(),
+            client_process: ProcessProvenance {
+                pid: 72,
+                created: "start-72".into(),
+                executable: PathBuf::from("/opt/domios/domios.exe"),
+            },
+        };
+        let result_for = |server: ServerReady| NativeUpdateResult {
+            operation_id: request.operation_id,
+            sequence: 1,
+            connection: connection_for(&request, 2, &server.epoch),
+            state: NativeUpdateState::Verified {
+                install: install.clone(),
+                verification: NativeUpdateVerification {
+                    client_process: install.client_process.clone(),
+                    server,
+                },
+            },
+        };
+
+        assert_eq!(result_for(server.clone()).validate_for(&request), Ok(()));
+
+        let mut wrong_root = server.clone();
+        wrong_root.resources = resource_root().join("other");
+        assert_eq!(
+            result_for(wrong_root).validate_for(&request),
+            Err(NativeUpdateRefusal::InvalidStagedManifest)
+        );
+
+        let mut wrong_executable = server;
+        wrong_executable.process.executable = resource_root().join("bin/other-server.exe");
+        assert_eq!(
+            result_for(wrong_executable).validate_for(&request),
+            Err(NativeUpdateRefusal::InvalidStagedManifest)
+        );
+    }
+
+    #[test]
     fn executor_port_is_object_safe_and_waits_on_operation_sequence() {
         let port: &dyn NativeUpdateExecutor = &Port;
         let request = request(NativeUpdateAction::ClientOnly, false);
         let request_id = request.operation_id;
-        let first = futures_poll_ready(port.dispatch(request));
+        let attachment = port.captured_attachment().unwrap();
+        attachment.validate_for(&request).unwrap();
+        let first = futures_poll_ready(port.dispatch(request, attachment));
+        let super::NativeUpdateDispatchOutcome::Reply(first) = first else {
+            panic!("the attached test executor replies");
+        };
         assert_eq!(first.sequence, 1);
         assert!(matches!(first.state, NativeUpdateState::Admitted));
 
-        let next = futures_poll_ready(port.observe(request_id, first.sequence));
+        let NativeUpdateObservationOutcome::Reply(next) =
+            futures_poll_ready(port.observe(request_id, first.sequence))
+        else {
+            panic!("the attached test executor replies to observation");
+        };
         assert_eq!(next.operation_id, request_id);
         assert_eq!(next.sequence, 2);
         assert!(matches!(
@@ -645,7 +1014,7 @@ mod tests {
         ));
     }
 
-    fn futures_poll_ready<T>(future: Pin<Box<dyn Future<Output = T> + Send + '_>>) -> T {
+    fn futures_poll_ready<T>(mut future: Pin<Box<dyn Future<Output = T> + Send + '_>>) -> T {
         use std::task::{Context, Poll, Wake, Waker};
         struct ReadyWake;
         impl Wake for ReadyWake {

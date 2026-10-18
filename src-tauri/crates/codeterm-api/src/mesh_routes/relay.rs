@@ -7,6 +7,7 @@ use axum::{
     response::Response,
     Json,
 };
+use std::sync::LazyLock;
 
 fn sync_input_for_access<'a>(
     full_access: bool,
@@ -324,7 +325,9 @@ fn recurrence_capability_refusal(peer_name: &str, version: Option<&str>) -> Stri
     format!(
         "Peer '{}' (version {}) does not advertise delayed_recurrence; update the peer or send a one-shot explicitly",
         peer_name,
-        version.filter(|version| !version.trim().is_empty()).unwrap_or("unknown")
+        version
+            .filter(|version| !version.trim().is_empty())
+            .unwrap_or("unknown")
     )
 }
 
@@ -600,6 +603,16 @@ pub(crate) fn local_forward_deadline(method: &str, path: &str) -> std::time::Dur
     }
 }
 
+fn local_forward_http_client() -> reqwest::Client {
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap_or_default()
+    });
+    CLIENT.clone()
+}
+
 /// A locally generated relay failure that carries a delivery code the sender can
 /// branch on. `bytes_written` is `None` when the outcome is genuinely unknown —
 /// absent never means "nothing happened".
@@ -776,12 +789,8 @@ async fn perform_relay_unredacted(
         )
     })?;
 
-    let client = reqwest::Client::builder()
-        .timeout(local_forward_deadline(&cmd.method, &cmd.path))
-        // off the whitelisted path — forward the redirect verbatim instead.
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .unwrap_or_default();
+    let client = local_forward_http_client();
+    let deadline = local_forward_deadline(&cmd.method, &cmd.path);
     let req = match cmd.method.to_uppercase().as_str() {
         "GET" => client.get(&local_url),
         "POST" => client.post(&local_url).json(&body),
@@ -792,12 +801,13 @@ async fn perform_relay_unredacted(
             return Err((
                 StatusCode::BAD_REQUEST,
                 format!("Unsupported method: {}", cmd.method),
-            ))
+            ));
         }
     };
 
     let resp = match req
         .header("Authorization", format!("Bearer {}", signed_token))
+        .timeout(deadline)
         .send()
         .await
     {
@@ -1146,6 +1156,9 @@ mod peer_resolution_tests;
 mod tests;
 
 #[cfg(test)]
+mod delivery_error_tests;
+
+#[cfg(test)]
 mod command_round_trip_tests;
 
 #[cfg(test)]
@@ -1154,3 +1167,7 @@ mod owner_gate_tests;
 #[cfg(test)]
 #[path = "relay/sync_access_tests.rs"]
 mod sync_access_tests;
+
+#[cfg(test)]
+#[path = "relay/connection_reuse_tests.rs"]
+mod connection_reuse_tests;

@@ -102,7 +102,9 @@ fn should_install_bundled_cli(is_dev: bool) -> bool {
 }
 
 /// Resolve the bundled CLI inside the app's Resources. None in dev (no bundle).
-pub fn resolve_bundled_cli_src(shell: &dyn crate::ports::host::Shell) -> Option<std::path::PathBuf> {
+pub fn resolve_bundled_cli_src(
+    shell: &dyn crate::ports::host::Shell,
+) -> Option<std::path::PathBuf> {
     let resource_dir = shell.resource_dir().ok()?;
     bundled_cli_resource_names().into_iter().find_map(|name| {
         let path = resource_dir.join(name);

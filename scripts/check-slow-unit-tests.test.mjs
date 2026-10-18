@@ -230,6 +230,30 @@ test('a slow test keeps its baseline across a crate move, whatever the crate is 
   assert.match(checkSlowTests([renamed], document, document, [renamed])[0], /new slow unit/);
 });
 
+test('moved api, socket, and commands tests retain their source-module allowance', () => {
+  const oldKeys = [
+    'api::plan_routes::tasks::tests::refusal',
+    'socket::server::agent::tests::refusal',
+    'service::tab_chat::identity_tests::uuidless',
+  ];
+  const moved = [
+    entry('plan_routes::tasks::tests::refusal', 1.6),
+    { ...entry('server::agent::tests::refusal', 1.6), binary: 'codeterm-socket' },
+    { ...entry('commands::identity_tests::uuidless', 1.6), binary: 'codeterm-commands' },
+  ];
+  const allowances = baseline(...oldKeys.map((key) => slow(key, 1.5)));
+  assert.deepEqual(checkSlowTests(moved, allowances, allowances, moved), []);
+
+  const ambiguous = baseline(
+    slow('service::tab_chat::identity_tests::uuidless', 1.5),
+    slow('plugin::identity_tests::uuidless', 1.5),
+  );
+  assert.match(
+    checkSlowTests([moved[2]], ambiguous, ambiguous, [moved[2]])[0],
+    /new slow unit/,
+  );
+});
+
 test('an ambiguous facade match gives no allowance', () => {
   const document = baseline(slow('alpha::tests::slow', 3), slow('beta::tests::slow', 3));
   const moved = { binary: 'codeterm-alpha', test: 'tests::slow', measuredSeconds: 3 };

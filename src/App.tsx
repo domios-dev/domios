@@ -7,6 +7,7 @@ import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
 import { useFrontendApp } from "./lib/frontendUpdate/useFrontendApp";
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke, IS_WEB } from "./lib/bridge";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { buildTeamActions } from "./lib/teamActions";
 import { selectAiHelperTab } from "./lib/aiHelperFocus";
 import { getCurrentTabUiMode, resolveInitialTabUiMode } from "./lib/clientTabUiMode";
@@ -249,19 +250,61 @@ function AppInner() {
   const larkReadyRef = useRef(larkCapture.ready);
   larkReadyRef.current = larkCapture.ready;
   useEffect(() => {
-    if (!IS_WEB) {
-      void (async () => {
-        frontendBootDiagnostic("ready-request");
-        await larkReadyRef.current;
-        const generation = await invoke<number>("frontend_readiness_generation");
-        const accepted = await invoke<boolean>("frontend_ready", { generation });
-        frontendBootDiagnostic(accepted ? "ready-accepted" : "ready-rejected");
-        if (!accepted) throw new Error("frontend readiness generation was replaced");
-      })().catch((error) => {
-        frontendBootDiagnostic("ready-failed");
-        console.warn("Unable to report frontend readiness", error);
+    if (IS_WEB || !("__TAURI_INTERNALS__" in window)) return;
+    const injectedView = (window as Window & {
+      __CODETERM_CLIENT_VIEW_GENERATION__?: {
+        viewGeneration: number;
+        navigationGeneration: number;
+      };
+    }).__CODETERM_CLIENT_VIEW_GENERATION__;
+    const clientUrl = new URL(window.location.href);
+    const [viewText, navigationText] =
+      clientUrl.searchParams.get("__codeterm_client_view")?.split(":") ?? [];
+    const clientView = injectedView ?? (viewText && navigationText
+      ? { viewGeneration: Number(viewText), navigationGeneration: Number(navigationText) }
+      : undefined);
+    if (
+      clientView &&
+      Number.isSafeInteger(clientView.viewGeneration) &&
+      Number.isSafeInteger(clientView.navigationGeneration)
+    ) {
+      void tauriInvoke<boolean>("frontend_view_root_ready", {
+        viewGeneration: clientView.viewGeneration,
+        navigationGeneration: clientView.navigationGeneration,
+      }).then((accepted) => {
+        frontendBootDiagnostic(accepted ? "client-root-accepted" : "client-root-rejected");
+        const currentUrl = new URL(window.location.href);
+        const currentGenerations = currentUrl.searchParams.getAll("__codeterm_client_view");
+        if (
+          accepted &&
+          currentGenerations.length === 1 &&
+          currentGenerations[0] === `${clientView.viewGeneration}:${clientView.navigationGeneration}`
+        ) {
+          currentUrl.searchParams.delete("__codeterm_client_view");
+          const search = currentUrl.searchParams.toString();
+          window.history.replaceState(
+            window.history.state,
+            "",
+            `${currentUrl.pathname}${search ? `?${search}` : ""}${currentUrl.hash}`,
+          );
+        }
+      }).catch(() => {
+        frontendBootDiagnostic("client-root-failed");
       });
+    } else {
+      frontendBootDiagnostic("client-root-generation-missing");
     }
+    void (async () => {
+      frontendBootDiagnostic("ready-request");
+      await larkReadyRef.current;
+      const generation = await invoke<number>("frontend_readiness_generation");
+      const accepted = await invoke<boolean>("frontend_ready", { generation });
+      frontendBootDiagnostic(accepted ? "ready-accepted" : "ready-rejected");
+      if (!accepted) throw new Error("frontend readiness generation was replaced");
+    })().catch((error) => {
+      frontendBootDiagnostic("ready-failed");
+      console.warn("Unable to report frontend readiness", error);
+    });
   }, []);
   const routeRestored = useFrontendApp({
     pageSnapshot: IS_WEB ? { workspaces: state.workspaces, tabs: state.tabs, active_workspace_id: state.active_workspace_id } : undefined,

@@ -3,6 +3,13 @@ import { invoke, listen } from "../../lib/bridge";
 import type { MeshStatus, MeshPeersResponse, PairedPeer, DiscoveredPeer } from "../../lib/types";
 import { DEV_BUILD } from "../../lib/devBuild";
 import type { Service } from "./types";
+import { buildHash } from "../../lib/buildStamp";
+import {
+  diffFrontendCacheRecords,
+  frontendCacheRepository,
+  frontendCacheScope,
+  type FrontendCacheRecord,
+} from "../../lib/frontendCacheRecords";
 import {
   cachedServices,
   collectPeerErrors,
@@ -47,8 +54,9 @@ const DEFAULT_DATA: MeshData = {
   error: null,
 };
 
-const CACHE_KEY = "mesh-tab-cache-v2";
+const CACHE_SCOPE = "codeterm:mesh-tab-cache:v3";
 const CACHE_MAX_AGE_MS = 24 * 3600 * 1000;
+const CACHE_SCHEMA = 3;
 
 interface CachePayload {
   thisMachine: MeshData["thisMachine"];
@@ -57,21 +65,124 @@ interface CachePayload {
   saved_at: number;
 }
 
-function readCache(): CachePayload | null {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const p = JSON.parse(raw) as CachePayload;
-    if (!p.saved_at || Date.now() - p.saved_at > CACHE_MAX_AGE_MS) return null;
-    return p;
-  } catch { return null; }
+interface MeshCacheMetadata {
+  schemaVersion: number;
+  buildHash: string;
+  savedAt: number;
 }
 
-function writeCache(d: Pick<MeshData, "thisMachine" | "peers" | "services">) {
+const meshCacheByScope = new Map<string, CachePayload>();
+const meshWriteTicket = new Map<string, number>();
+
+function cacheScope(): string | null {
   try {
-    const payload: CachePayload = { ...d, saved_at: Date.now() };
-    localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
-  } catch {}
+    return frontendCacheScope(CACHE_SCOPE);
+  } catch {
+    return null;
+  }
+}
+
+function cacheRecords(payload: Pick<MeshData, "thisMachine" | "peers" | "services">): FrontendCacheRecord[] {
+  const records: FrontendCacheRecord[] = [{ kind: "machine", id: "local", value: payload.thisMachine }];
+  payload.peers.forEach((peer, position) => records.push({ kind: "peer", id: peer.instance_id, value: { position, peer } }));
+  payload.services.forEach((service, position) => records.push({ kind: "service", id: `${position}:${service.id}`, value: { position, service } }));
+  return records;
+}
+
+function orderedMeshRows<T>(records: FrontendCacheRecord[], kind: string, property: string, expectedId: (row: Record<string, unknown>, position: number) => string): T[] | null {
+  const rows: Array<{ position: number; value: T }> = [];
+  for (const record of records.filter((candidate) => candidate.kind === kind)) {
+    if (!record.value || typeof record.value !== "object") return null;
+    const wrapper = record.value as Record<string, unknown>;
+    const value = wrapper[property];
+    if (!Number.isInteger(wrapper.position) || (wrapper.position as number) < 0 || !value || typeof value !== "object") return null;
+    const position = wrapper.position as number;
+    if (expectedId(value as Record<string, unknown>, position) !== record.id) return null;
+    rows.push({ position, value: value as T });
+  }
+  rows.sort((left, right) => left.position - right.position);
+  if (rows.some((row, index) => row.position !== index)) return null;
+  return rows.map(({ value }) => value);
+}
+
+function meshPayloadFromRecords(records: FrontendCacheRecord[], savedAt: number): CachePayload | null {
+  const machines = records.filter((record) => record.kind === "machine");
+  if (records.some((record) => !["machine", "peer", "service"].includes(record.kind)) ||
+    machines.length !== 1 || machines[0].id !== "local" || !machines[0].value || typeof machines[0].value !== "object") return null;
+  const machine = machines[0].value as CachePayload["thisMachine"];
+  if (typeof machine.name !== "string" || typeof machine.ip !== "string") return null;
+  const peers = orderedMeshRows<PeerStatus>(records, "peer", "peer", (row) => String(row.instance_id ?? ""));
+  const services = orderedMeshRows<Service>(records, "service", "service", (row, position) => `${position}:${String(row.id ?? "")}`);
+  if (!peers || !services) return null;
+  return { thisMachine: machine as CachePayload["thisMachine"], peers, services, saved_at: savedAt };
+}
+
+async function readCache(): Promise<CachePayload | null> {
+  const scope = cacheScope();
+  if (!scope) return null;
+  const writeTicket = meshWriteTicket.get(scope) ?? 0;
+  try {
+    const snapshot = await frontendCacheRepository.read(scope);
+    if (cacheScope() !== scope || meshWriteTicket.get(scope) !== writeTicket) return null;
+    if (!snapshot) return null;
+    const metadata = snapshot.manifest.metadata as unknown as MeshCacheMetadata;
+    if (!metadata || metadata.schemaVersion !== CACHE_SCHEMA || metadata.buildHash !== buildHash() ||
+      !Number.isFinite(metadata.savedAt) || metadata.savedAt <= 0 || Date.now() - metadata.savedAt > CACHE_MAX_AGE_MS) {
+      await frontendCacheRepository.clear(scope, snapshot.manifest.revision);
+      meshCacheByScope.delete(scope);
+      return null;
+    }
+    const payload = meshPayloadFromRecords(snapshot.records, metadata.savedAt);
+    if (!payload) return null;
+    meshCacheByScope.set(scope, payload);
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+async function writeCache(payload: Pick<MeshData, "thisMachine" | "peers" | "services">): Promise<void> {
+  const scope = cacheScope();
+  if (!scope) return;
+  const ticket = (meshWriteTicket.get(scope) ?? 0) + 1;
+  meshWriteTicket.set(scope, ticket);
+  try {
+    let previous = meshCacheByScope.get(scope);
+    if (!previous) {
+      const snapshot = await frontendCacheRepository.read(scope);
+      if (meshWriteTicket.get(scope) !== ticket) return;
+      if (snapshot) {
+        const metadata = snapshot.manifest.metadata as unknown as MeshCacheMetadata;
+        if (metadata.schemaVersion === CACHE_SCHEMA && metadata.buildHash === buildHash()) {
+          previous = meshPayloadFromRecords(snapshot.records, metadata.savedAt) ?? undefined;
+        }
+      }
+    }
+    if (meshWriteTicket.get(scope) !== ticket) return;
+    const nextRecords = cacheRecords(payload);
+    if (previous) {
+      const previousRecords = cacheRecords(previous);
+      const changes = diffFrontendCacheRecords(previousRecords, nextRecords);
+      const changed = changes.upserts.length > 0 || changes.deletes.length > 0;
+      if (!changed) {
+        meshCacheByScope.set(scope, { ...payload, saved_at: previous.saved_at });
+        return;
+      }
+    }
+    const savedAt = Date.now();
+    const result = await frontendCacheRepository.write(scope, nextRecords, {
+      schemaVersion: CACHE_SCHEMA,
+      buildHash: buildHash(),
+      savedAt,
+    });
+    if (result.refused) {
+      meshCacheByScope.delete(scope);
+      return;
+    }
+    meshCacheByScope.set(scope, { ...payload, saved_at: savedAt });
+  } catch {
+    return;
+  }
 }
 
 export interface MeshDataResult extends MeshData {
@@ -79,17 +190,9 @@ export interface MeshDataResult extends MeshData {
 }
 
 export function useMeshData(refreshKey: number): MeshDataResult {
-  const [data, setData] = useState<MeshData>(() => {
-    const cached = readCache();
-    if (!cached) return DEFAULT_DATA;
-    return {
-      thisMachine: cached.thisMachine,
-      peers: cached.peers.map((peer) => ({ ...peer, services_stale: true })),
-      services: cachedServices(cached.services),
-      loading: true,
-      error: null,
-    };
-  });
+  const [data, setData] = useState<MeshData>(DEFAULT_DATA);
+  const liveAcceptedRef = useRef(false);
+  const refreshFailedRef = useRef(false);
 
   const inFlightRef = useRef(false);
   const pendingRefreshRef = useRef(false);
@@ -102,6 +205,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
       return;
     }
     inFlightRef.current = true;
+    refreshFailedRef.current = false;
     setData((d) => ({ ...d, loading: true }));
     try {
       const localView = await invoke<MeshInventoryView>("mesh_inventory_list");
@@ -185,9 +289,11 @@ export function useMeshData(refreshKey: number): MeshDataResult {
         peers: [...peersWithServiceState, ...pending],
         services: mergeServicesView(local, remoteResults),
       };
-      writeCache(next);
+      liveAcceptedRef.current = true;
       setData({ ...next, loading: false, error: null });
+      void writeCache(next);
     } catch (e) {
+      refreshFailedRef.current = true;
       if (DEV_BUILD) console.debug("[mesh] local inventory fetch failed", e);
       setData((d) => ({ ...d, loading: false, error: String(e) }));
     } finally {
@@ -199,6 +305,21 @@ export function useMeshData(refreshKey: number): MeshDataResult {
     }
   }, []);
   loadAllRef.current = loadAll;
+
+  useEffect(() => {
+    let active = true;
+    void readCache().then((cached) => {
+      if (!active || !cached || liveAcceptedRef.current) return;
+      setData((current) => ({
+        thisMachine: cached.thisMachine,
+        peers: cached.peers.map((peer) => ({ ...peer, services_stale: true })),
+        services: cachedServices(cached.services),
+        loading: !refreshFailedRef.current,
+        error: refreshFailedRef.current ? current.error : null,
+      }));
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;

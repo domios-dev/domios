@@ -9,6 +9,7 @@ export type FrontendDiagnosticStage =
   | "runtime-bound" | "module-entry" | "page-finished"
   | "frontend-initialize" | "frontend-initialized" | "frontend-initialize-failed"
   | "ready-request" | "ready-accepted" | "ready-rejected" | "ready-failed"
+  | "client-root-accepted" | "client-root-rejected" | "client-root-failed" | "client-root-generation-missing"
   | "script-error" | "promise-error" | "request-failed" | "chat-scroll";
 
 declare global { interface Window { __CODETERM_SHELL_DIAGNOSTIC__?: (stage: string, failure?: { name?: string; reason?: string; httpStatus?: number; request?: RequestFailure; clientId?: string; buildSha?: string; device?: FrontendDeviceDiagnostic; chat?: { scope: string; edge: string; at: number; state: object } }) => void } }

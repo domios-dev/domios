@@ -3,6 +3,19 @@ export interface ResizeGeometry {
   rows: number;
 }
 
+export type TerminalGeometryPolicy = "shared-pty" | "viewer-local";
+
+export function terminalGeometryPolicy(isRemote: boolean): TerminalGeometryPolicy {
+  return isRemote ? "viewer-local" : "shared-pty";
+}
+
+export function ptyResizeGeometry(
+  policy: TerminalGeometryPolicy,
+  fitted: ResizeGeometry,
+): ResizeGeometry | null {
+  return policy === "shared-pty" ? { cols: fitted.cols, rows: fitted.rows } : null;
+}
+
 export interface ResizeAuthority {
   ptyId: string;
   clientId: string;

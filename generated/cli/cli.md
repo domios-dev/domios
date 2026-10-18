@@ -2758,6 +2758,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--cwd`
 - `--description` — Worker tab description (defaults to a short summary of the task name)
 - `--execution-intent` — Explicit task intent used by provider reserve policy
+- `--kind` — Select a built-in Worker prompt kind without changing the task's executor_role
 - `--model`
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
 - `<plan_id>`
@@ -2832,7 +2833,7 @@ Persist a remote Worker's in-review report on the origin plan
 
 #### `codeterm plan task respawn`
 
-Respawn a worker from one prior execution attempt
+Respawn a worker from one prior attempt, inheriting its recorded execution intent and provider/model
 
 - `--attempt`
 - `--model`

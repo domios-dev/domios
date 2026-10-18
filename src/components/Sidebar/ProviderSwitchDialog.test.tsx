@@ -81,7 +81,7 @@ it("explicit stop is carried and refusals stay visible without retry", async () 
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
     await act(async () => button("Stop and switch").click());
     expect(send).toHaveBeenCalledExactlyOnceWith("owned", "target", { model: "model-token", reasoningEffort: "effort-token", force: true });
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain("opaque-refusal");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("opaque-refusal");
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
