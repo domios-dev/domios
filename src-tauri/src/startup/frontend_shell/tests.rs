@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn frontend_shell_contract_reopen_wakes_the_existing_supervisor_without_listener_restart() {
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    initialize(app.handle()).unwrap();
+    let supervisor = app.state::<ShellSupervisor>();
+    let mut windows = supervisor.windows.subscribe();
+    assert!(!windows.borrow_and_update().available);
+    window_created(app.handle());
+    assert!(windows.has_changed().unwrap());
+    let first = *windows.borrow_and_update();
+    assert!(first.available);
+    window_destroying(app.handle());
+    assert!(windows.has_changed().unwrap());
+    assert!(!windows.borrow_and_update().available);
+    assert!(supervisor.navigation.load(Ordering::Acquire) > 0);
+    window_created(app.handle());
+    assert!(windows.has_changed().unwrap());
+    let reopened = *windows.borrow_and_update();
+    assert!(reopened.available);
+    assert!(reopened.generation > first.generation);
+}
+
+#[test]
 fn frontend_shell_contract_requires_health_proven_bind_acknowledgement() {
     let mut status = RestApiStatus {
         generation: 1,

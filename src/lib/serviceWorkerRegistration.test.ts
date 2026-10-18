@@ -14,18 +14,20 @@ function assert(condition: unknown, message: string): asserts condition {
 
 class FakeServiceWorkerContainer {
   controller: unknown;
-  private listeners = new Map<string, Set<() => void>>();
+  registeredUrls: string[] = [];
+  private listeners = new Map<string, Set<() => void | Promise<void>>>();
 
-  addEventListener(type: string, handler: () => void): void {
+  addEventListener(type: string, handler: () => void | Promise<void>): void {
     if (!this.listeners.has(type)) this.listeners.set(type, new Set());
     this.listeners.get(type)!.add(handler);
   }
 
-  fire(type: string): void {
-    for (const handler of this.listeners.get(type) ?? []) handler();
+  async fire(type: string): Promise<void> {
+    await Promise.all([...this.listeners.get(type) ?? []].map(handler => handler()));
   }
 
-  register(): Promise<{ active: null; addEventListener: () => void }> {
+  register(scriptURL: string): Promise<{ active: null; addEventListener: () => void }> {
+    this.registeredUrls.push(scriptURL);
     return Promise.resolve({ active: null, addEventListener: () => {} });
   }
 
@@ -59,25 +61,59 @@ async function withFreshModule(controllerAtRegisterTime: unknown) {
   return { mod, container, reloadCalls, replacements };
 }
 
+function controller(build: string) {
+  const requests: unknown[] = [];
+  return {
+    requests,
+    postMessage: (message: unknown, transfer: Transferable[]) => {
+      requests.push(message);
+      const port = transfer[0] as MessagePort | undefined;
+      queueMicrotask(() => port?.postMessage({ type: "BUILD_IDENTITY", build }));
+    },
+  };
+}
+
 test("first-ever controllerchange (no prior controller) does not reload", async () => {
   const { mod, container, reloadCalls } = await withFreshModule(null);
   mod.registerServiceWorker();
-  container.fire("controllerchange");
+  container.controller = controller("dev");
+  await container.fire("controllerchange");
   assert(reloadCalls.length === 0, "a fresh SW claim must not force a reload");
 });
 
-test("a genuine update (page already had a controller) still reloads", async () => {
-  const { mod, container, reloadCalls } = await withFreshModule({ id: "old-worker" });
+test("same-build controllerchange does not reload an already usable page", async () => {
+  const oldController = controller("previous-build");
+  const newController = controller("dev");
+  const { mod, container, reloadCalls } = await withFreshModule(oldController);
   mod.registerServiceWorker();
-  container.fire("controllerchange");
+  container.controller = newController;
+  await container.fire("controllerchange");
+  assert(reloadCalls.length === 0, "a controller matching the loaded build must not reload the page");
+  assert(container.registeredUrls[0] === "./sw.js", "the worker registration keeps its stable script URL");
+  assert(JSON.stringify(newController.requests) === JSON.stringify([{ type: "GET_BUILD_IDENTITY" }]), "the new controller must provide its own compiled build identity");
+  assert(!mod.shouldReloadForControllerChange(true, "dev", "dev"), "the identity model must retain a same-build page");
+  assert(mod.shouldReloadForControllerChange(true, "dev", null), "an unidentified controller must retain the reload fallback");
+});
+
+test("a genuine update (page already had a controller) still reloads", async () => {
+  const oldController = controller("old-build");
+  const newController = controller("next-build");
+  const { mod, container, reloadCalls } = await withFreshModule(oldController);
+  mod.registerServiceWorker();
+  container.controller = newController;
+  await container.fire("controllerchange");
   assert(reloadCalls.length === 1, "a real SW update must still reload once");
+  assert(mod.shouldReloadForControllerChange(true, "dev", "next-build"), "the identity model must refresh for a changed build");
 });
 
 test("manual reload and a controller change share one cache-bypassing navigation", async () => {
-  const { mod, container, reloadCalls, replacements } = await withFreshModule({ id: "old-worker" });
+  const oldController = controller("old-build");
+  const newController = controller("next-build");
+  const { mod, container, reloadCalls, replacements } = await withFreshModule(oldController);
   mod.registerServiceWorker();
   const pending = mod.reloadInterface("next-build");
-  container.fire("controllerchange");
+  container.controller = newController;
+  await container.fire("controllerchange");
   await pending;
   assert(reloadCalls.length === 0, "manual refresh must preserve its cache-bypassing navigation");
   assert(replacements.length === 1, "activation and the button must navigate only once");

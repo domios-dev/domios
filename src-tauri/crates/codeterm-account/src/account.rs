@@ -1,3 +1,4 @@
+use crate::sign_in_diagnostic::SignInAttempt;
 use crate::*;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{oneshot, Mutex};
@@ -8,6 +9,7 @@ pub struct Status {
     pub identity: Option<Identity>,
     pub pending: bool,
     pub session_only: bool,
+    pub last_sign_in_failure: Option<SignInFailure>,
 }
 #[derive(Default)]
 struct State {
@@ -15,6 +17,7 @@ struct State {
     pending: Option<(LoginFlow, oneshot::Sender<Redemption>)>,
     generation: u64,
     busy: bool,
+    last_sign_in_failure: Option<SignInFailure>,
 }
 pub struct Account {
     provider: Arc<dyn IdentityProvider>,
@@ -50,6 +53,7 @@ impl Account {
             identity: state.session.as_ref().map(|s| s.identity.clone()),
             pending: state.busy,
             session_only: state.session.is_some() && self.store.session_only(self.provider.id()),
+            last_sign_in_failure: state.last_sign_in_failure,
         }
     }
     pub async fn complete(&self, callback: Callback) -> Result<()> {
@@ -74,13 +78,17 @@ impl Account {
         let generation = {
             let mut state = self.state.lock().await;
             state.busy = true;
+            state.last_sign_in_failure = None;
             state.generation
         };
+        let mut attempt = SignInAttempt::default();
         let result = tokio::time::timeout(self.deadline, async {
-            let loopback = if self.provider.needs_browser_callback() { Some(Loopback::bind().await?) } else { None };
+            let loopback = attempt.run(SignInStage::Preparation, async {
+                if self.provider.needs_browser_callback() { Loopback::bind().await.map(Some) } else { Ok(None) }
+            }).await?;
             let redirect = match &loopback { Some(listener) => listener.redirect()?, None => "domios://auth/callback".into() };
             let flow = LoginFlow::new(redirect).with_hint(hint);
-            let start = self.provider.start_login(&flow).await?;
+            let start = attempt.run(SignInStage::Preparation, self.provider.start_login(&flow)).await?;
             let tokens = match start {
                 LoginStart::Immediate(tokens) => tokens,
                 LoginStart::Browser(url) => {
@@ -91,36 +99,54 @@ impl Account {
                         if generation != state.generation { return Err(Error::Cancelled); }
                         state.pending = Some((flow, sender));
                     }
-                    browser.open(&url).await?;
+                    attempt.run(SignInStage::Browser, browser.open(&url)).await?;
                     let serve = loopback.serve(self.clone());
                     tokio::pin!(serve);
                     tokio::pin!(receiver);
-                    let request = tokio::select! {
-                        result = &mut receiver => result.map_err(|_| Error::Cancelled)?,
-                        result = &mut serve => { result?; receiver.await.map_err(|_| Error::Cancelled)? }
-                    };
-                    self.provider.redeem(request).await?
+                    let request = attempt.run(SignInStage::Callback, async { tokio::select! {
+                        result = &mut receiver => result.map_err(|_| Error::Cancelled),
+                        result = &mut serve => { result?; receiver.await.map_err(|_| Error::Cancelled) }
+                    } }).await?;
+                    attempt.run(SignInStage::Redemption, self.provider.redeem(request)).await?
                 }
             };
-            self.commit(tokens, generation).await
+            self.commit(tokens, generation, &mut attempt).await
         }).await.unwrap_or(Err(Error::Timeout));
-        {
-            let mut state = self.state.lock().await;
-            state.pending = None;
-            state.busy = false;
-        }
-        result?;
+        self.finish_login(result, &attempt).await?;
         Ok(self.status().await)
     }
-    async fn commit(&self, tokens: Tokens, generation: u64) -> Result<()> {
+    async fn finish_login(&self, result: Result<()>, attempt: &SignInAttempt) -> Result<()> {
         let mut state = self.state.lock().await;
-        if generation != state.generation {
-            return Err(Error::Cancelled);
-        }
-        self.store
-            .save(self.provider.id(), &tokens.refresh_token)
+        state.pending = None;
+        state.busy = false;
+        state.last_sign_in_failure = attempt.failure(result.as_ref().err().copied());
+        result
+    }
+    async fn commit(
+        &self,
+        tokens: Tokens,
+        generation: u64,
+        attempt: &mut SignInAttempt,
+    ) -> Result<()> {
+        let mut state = self.state.lock().await;
+        attempt
+            .run(SignInStage::Publication, async {
+                if generation != state.generation {
+                    Err(Error::Cancelled)
+                } else {
+                    Ok(())
+                }
+            })
             .await?;
+        attempt
+            .run(
+                SignInStage::CredentialSave,
+                self.store.save(self.provider.id(), &tokens.refresh_token),
+            )
+            .await?;
+        attempt.enter(SignInStage::Publication);
         state.session = Some(tokens.session);
+        state.last_sign_in_failure = None;
         if let Some(observer) = &self.observer {
             observer
                 .changed(state.session.as_ref().map(|session| &session.identity))
@@ -138,7 +164,8 @@ impl Account {
                 .await?
                 .ok_or(Error::Credentials)?;
             let tokens = self.provider.refresh(&token).await?;
-            self.commit(tokens, generation).await
+            self.commit(tokens, generation, &mut SignInAttempt::default())
+                .await
         })
         .await
         .map_err(|_| Error::Timeout)??;
@@ -183,3 +210,7 @@ impl Completion {
         self.sender.send(self.request).map_err(|_| Error::Cancelled)
     }
 }
+
+#[cfg(test)]
+#[path = "account/sign_in_tests.rs"]
+mod sign_in_tests;
