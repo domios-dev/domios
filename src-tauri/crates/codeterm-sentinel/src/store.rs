@@ -269,22 +269,52 @@ impl Store {
                 "blueprint_capability_unavailable: {capability} is not executable yet"
             )));
         }
-        if self.jobs.len() >= MAX_SENTINELS
-            || (!job.machine.paused && self.active_count() >= MAX_ACTIVE)
-        {
-            return Staged::ready(Err("blueprint capacity reached".into()));
-        }
         if self.get(&job.id).is_some() {
             return Staged::ready(Err("duplicate blueprint ID".into()));
+        }
+        if !job.machine.paused && self.active_count() >= MAX_ACTIVE {
+            return Staged::ready(Err("blueprint capacity reached".into()));
         }
         let association_ids = match self.association_ids(&job) {
             Ok(ids) => ids,
             Err(error) => return Staged::ready(Err(error)),
         };
+        let eviction = if self.jobs.len() >= MAX_SENTINELS {
+            let excluded = association_ids.iter().cloned().collect();
+            let Some(candidate) = super::cleanup::oldest_capacity_candidate(
+                &self.jobs,
+                &self.live_leases(),
+                &excluded,
+            ) else {
+                return Staged::ready(Err("blueprint capacity reached".into()));
+            };
+            Some(candidate)
+        } else {
+            None
+        };
         if !self.backend.is_json() {
-            return self.sqlite_insert(job, &association_ids);
+            return match eviction {
+                Some(candidate) => self.sqlite_insert_evicting(job, &association_ids, candidate),
+                None => self.sqlite_insert(job, &association_ids),
+            };
         }
         let previous = self.jobs.clone();
+        let previous_wakes = self.wake_pending.clone();
+        if let Some(candidate) = &eviction {
+            let removed: BTreeSet<_> = self
+                .jobs
+                .iter()
+                .filter(|current| {
+                    current.workspace_id == candidate.workspace_id
+                        && current.team_id == candidate.team_id
+                        && (current.id == candidate.id
+                            || current.scenario_id.as_deref() == Some(&candidate.id))
+                })
+                .map(|current| current.id.clone())
+                .collect();
+            self.jobs.retain(|current| !removed.contains(&current.id));
+            self.wake_pending.retain(|id| !removed.contains(id));
+        }
         for child in self
             .jobs
             .iter_mut()
@@ -295,6 +325,7 @@ impl Store {
         self.jobs.push(job.clone());
         if let Err(error) = self.save_legacy() {
             self.jobs = previous;
+            self.wake_pending = previous_wakes;
             return Staged::ready(Err(error));
         }
         Staged::ready(Ok(job))

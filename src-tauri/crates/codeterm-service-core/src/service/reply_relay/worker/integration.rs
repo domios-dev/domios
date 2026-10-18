@@ -226,6 +226,12 @@ fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
         ack.try_recv(),
         Ok(crate::service::worker_ack::WorkerAckSignal::Acknowledged)
     ));
+    let ack_reports = fixture.service.report_store.lock().get(&dispatcher, false);
+    assert_eq!(ack_reports.len(), 1);
+    assert!(ack_reports[0]
+        .message
+        .contains(&format!("acknowledged task {task_id}")));
+    assert!(ack_reports[0].message.contains(&task.attempt_id));
     let mut answered = completed();
     if let ReplyRelayEvidence::Answered(turn) = &mut answered {
         turn.user_text = stored_user_text.clone();
@@ -256,10 +262,13 @@ fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
         .service
         .publish_tool_less_worker_report(&worker, &binding, &pending, report);
     let reports = fixture.service.report_store.lock().get(&dispatcher, false);
-    assert_eq!(reports.len(), 1);
-    assert_eq!(reports[0].from_tab_id, worker);
-    assert_eq!(reports[0].message, "opaque result");
-    assert_eq!(reports[0].status, Some(ReportStatus::InReview));
+    assert_eq!(reports.len(), 2);
+    let worker_report = reports
+        .iter()
+        .find(|report| report.message == "opaque result")
+        .unwrap();
+    assert_eq!(worker_report.from_tab_id, worker);
+    assert_eq!(worker_report.status, Some(ReportStatus::InReview));
     let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
     assert_eq!(task.status, crate::plan::TaskStatus::InReview);
     assert!(task
