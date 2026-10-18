@@ -305,14 +305,14 @@ fn oversized_claude_session_snapshots_a_bounded_tail() {
     .to_string();
 
     {
-        use std::io::Write;
-        let mut f = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
+        use std::io::{Seek, SeekFrom, Write};
+        let prefix_len = SNAPSHOT_CAP_BYTES + SNAPSHOT_WINDOW_BYTES;
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.set_len(prefix_len).unwrap();
+        file.seek(SeekFrom::Start(prefix_len)).unwrap();
+        file.write_all(b"\n").unwrap();
+        let mut f = std::io::BufWriter::new(file);
         // The unread head proves window selection; parser parity uses only the small tail.
-        f.write_all(&vec![
-            b' ';
-            (SNAPSHOT_CAP_BYTES + SNAPSHOT_WINDOW_BYTES) as usize
-        ])
-        .unwrap();
         writeln!(f, "{{}}").unwrap();
         for _ in 0..2 {
             writeln!(f, "{filler}").unwrap();

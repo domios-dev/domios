@@ -151,26 +151,38 @@ fn blueprint_session_exchanges_bypass_budgets_but_stop_at_safety_and_rate_limits
     params.session = true;
     let job = store.create(params, owner(), false).unwrap();
     let store = Arc::new(Mutex::new(store));
-    for index in 0..121 {
-        clock.set_ms(1_000 + index * 1_001);
-        store.lock().wake_stage(&job.id);
-        let lease = store.lock().due().unwrap().pop().unwrap();
-        execute(&store, &lease, "repeat", "done", 1.0, |_, _, _| {
-            Ok(Status::Completed)
-        });
-        store.lock().release(&job.id);
-    }
+    store.lock().wake_stage(&job.id);
+    let lease = store.lock().due().unwrap().pop().unwrap();
+    execute(&store, &lease, "repeat", "done", 1.0, |_, _, _| {
+        Ok(Status::Completed)
+    });
+    store.lock().release(&job.id);
+
+    let safety_limit = codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT;
+    let rate_limit = codeterm_blueprint_types::blueprint_terminal::SESSION_RATE_LIMIT;
+    let exchange_count = 121;
+    assert!(exchange_count < safety_limit);
+    assert!(rate_limit < safety_limit);
+
     let mut live = store.lock().get(&job.id).unwrap().clone();
     assert!(!live.machine.stopped);
-    assert_eq!(live.transitions.len(), 121);
-    live.session = false;
-    assert!(super::store::transition_budget_spent(&live));
-    live.session = true;
+    let mut transition = live.transitions[0].clone();
+    live.transitions = (0..exchange_count)
+        .map(|index| {
+            transition.id = format!("exchange-{index}");
+            transition.accepted_at = 1_000 + index as u64 * 1_001;
+            transition.clone()
+        })
+        .collect();
+    let usage = super::session::usage(std::slice::from_ref(&live), &live, 122_121);
+    assert_eq!(usage.exchanges, exchange_count);
+    assert_eq!(usage.actions, exchange_count);
+    assert!(usage.recent < rate_limit);
     assert!(!super::store::transition_budget_spent(&live));
-    let transition = live.transitions[0].clone();
-    live.transitions =
-        vec![transition; codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT];
+    assert_eq!(super::store::action_limit(&live), safety_limit);
+    live.transitions = vec![transition; safety_limit];
     assert!(super::store::transition_budget_spent(&live));
+
     {
         let mut store = store.lock();
         let current = store
@@ -178,9 +190,15 @@ fn blueprint_session_exchanges_bypass_budgets_but_stop_at_safety_and_rate_limits
             .iter_mut()
             .find(|current| current.id == job.id)
             .unwrap();
-        for transition in &mut current.transitions {
-            transition.accepted_at = 122_121;
-        }
+        let accepted = current.transitions[0].clone();
+        current.transitions = (0..rate_limit)
+            .map(|index| {
+                let mut transition = accepted.clone();
+                transition.id = format!("recent-{index}");
+                transition.accepted_at = 122_121;
+                transition
+            })
+            .collect();
     }
     clock.set_ms(122_121);
     let current = store.lock().get(&job.id).unwrap().clone();
