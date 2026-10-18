@@ -458,3 +458,16 @@ An outside-job parent can separately verify exact staged artifacts, but cannot p
 Team utility activation oracle. Parent QA must observe default/agent/ordinary Dev
 children die on job close and only the explicit server survive with its retained
 process pin, authenticated epoch and existing session unchanged.
+
+### Unix DEV raw artifact/resource directory collision
+
+Cargo produces a regular `target[/<triple>]/debug/domios-server` file. Placing paired
+`domios-server/` resources in that directory fails with ENOTDIR. DEV stages one exact
+copy of the built client under `.domios-dev-runtime/bin/codeterm` and paired resources
+under `.domios-dev-runtime/lib/codeterm`, retaining raw Cargo outputs. Linux Tauri's
+existing `exe_dir/../lib/<package-name>` lookup resolves that resource root; no fake
+Cargo lock, CWD or environment resource override is used. Windows layout is unchanged.
+The provenance record, watcher and static server use that same derived resource root.
+macOS authenticated installed inventory location remains Unsupported; staging is not
+proof of macOS startup. Parent native Linux proof must verify actual resource lookup,
+exact staged hashes and authenticated attachment for host and target-qualified output.

@@ -1274,11 +1274,27 @@ record_dev_target() {
   fi
 }
 
-dev_app_path() {
+dev_resource_dir() {
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/lib/codeterm"
+  else
+    tauri_debug_dir
+  fi
+}
+
+dev_built_app_path() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     printf '%s\n' "$(tauri_debug_dir)/codeterm"
   else
     printf '%s\n' "$(tauri_debug_dir)/codeterm.exe"
+  fi
+}
+
+dev_app_path() {
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/bin/codeterm"
+  else
+    dev_built_app_path
   fi
 }
 
@@ -1376,7 +1392,7 @@ write_dev_provenance() {
     --build-sha "$build_sha" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
-    --frontend "$(tauri_debug_dir)/dist" \
+    --frontend "$(dev_resource_dir)/dist" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
     --vite-port "$CT_VITE_PORT" \
@@ -1394,7 +1410,7 @@ validate_dev_provenance() {
     --record "$(dev_provenance_record)" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
-    --frontend "$(tauri_debug_dir)/dist" \
+    --frontend "$(dev_resource_dir)/dist" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
     --vite-port "$CT_VITE_PORT" \
@@ -1903,7 +1919,7 @@ build_and_launch_dev() {
   build_sha="$CODETERM_BUILD_SHA"
   build_dev_frontend
   node scripts/server-artifact.mjs stage-dev "$split_logs/server.jsonl" "$split_logs/server-tree.txt" \
-    "$split_logs/cli.jsonl" "$(pwd -P)" "$(tauri_debug_dir)" "$(dev_app_path)" "$build_sha"
+    "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$build_sha"
   write_dev_provenance "$build_sha"
   retain_dev_pdb "$build_sha"
   release_stable_build_path
@@ -2046,10 +2062,10 @@ start_web_watch() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch --emptyOutDir false --outDir "$(tauri_debug_dir)/dist" </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_resource_dir)/dist" </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false --outDir "$(tauri_debug_dir)/dist" </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_resource_dir)/dist" </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!
@@ -2074,10 +2090,10 @@ start_dev_static_server() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_DEV_STATIC_DIST="$(tauri_debug_dir)/dist" node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      CODETERM_DEV_STATIC_DIST="$(dev_resource_dir)/dist" node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      CODETERM_DEV_STATIC_DIST="$(tauri_debug_dir)/dist" nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      CODETERM_DEV_STATIC_DIST="$(dev_resource_dir)/dist" nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!

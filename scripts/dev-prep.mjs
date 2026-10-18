@@ -72,6 +72,10 @@ const inputPathspecs = [
   "scripts/release-signing.sh",
 ];
 
+function devResourceRoot(app) {
+  return isWin ? dirname(app) : resolve(dirname(app), "../lib/codeterm");
+}
+
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
     cwd: repo,
@@ -249,9 +253,9 @@ function artifactPaths(options) {
     app: option(options, "--app"),
     cli: option(options, "--cli"),
     frontend: option(options, "--frontend"),
-    server: join(dirname(option(options, "--app")), "domios-server", isWin ? "domios-server.exe" : "domios-server"),
-    inventory: join(dirname(option(options, "--app")), "server-component.json"),
-    resources: dirname(option(options, "--app")),
+    server: join(devResourceRoot(option(options, "--app")), "domios-server", isWin ? "domios-server.exe" : "domios-server"),
+    inventory: join(devResourceRoot(option(options, "--app")), "server-component.json"),
+    resources: devResourceRoot(option(options, "--app")),
   };
 }
 
