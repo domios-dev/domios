@@ -1,10 +1,8 @@
-use codeterm_types::{
-    native_host::{
-        NativeHostConnection, NativeWebviewDiagnosticsSnapshot, NativeWebviewDiagnosticsStatus,
-        NativeWebviewDiagnosticsUnavailableReason,
-    },
-    server_bootstrap::ProcessProvenance,
+use codeterm_types::native_host::{
+    NativeHostConnection, NativeWebviewDiagnosticsSnapshot, NativeWebviewDiagnosticsStatus,
+    NativeWebviewDiagnosticsUnavailableReason,
 };
+use codeterm_types::server_bootstrap::ProcessProvenance;
 use parking_lot::Mutex;
 use reqwest::redirect::Policy;
 #[cfg(windows)]

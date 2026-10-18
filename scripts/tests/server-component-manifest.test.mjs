@@ -35,7 +35,7 @@ function runGenerator(stage, overrides = {}) {
     serverBuild: 'fixture-server-build',
     serverExecutable: SERVER_RELATIVE_PATH,
     apiVersion: '3',
-    bootstrapProtocol: '1',
+    bootstrapProtocol: '2',
     ...overrides,
   };
   const args = [
@@ -141,7 +141,7 @@ test('refuses malformed versions, digests, and unsupported protocol values', asy
     assert.notEqual(runGenerator(stage, { apiVersion }).status, 0, apiVersion);
   }
   assert.notEqual(runGenerator(stage, { serverBuild: '' }).status, 0);
-  assert.notEqual(runGenerator(stage, { bootstrapProtocol: '2' }).status, 0);
+  assert.notEqual(runGenerator(stage, { bootstrapProtocol: '1' }).status, 0);
 
   assert.throws(() => validateManifest({ ...fixture, server_sha256: 'not-a-digest' }));
   assert.throws(() => validateManifest({ ...fixture, client_sha256: 'A'.repeat(64) }));
@@ -150,18 +150,9 @@ test('refuses malformed versions, digests, and unsupported protocol values', asy
   assert.throws(() => validateManifest({ ...fixture, unsupported: true }));
 });
 
-test('production Tauri resources require the exact staged manifest and server directory', async () => {
+test('held release bundle mapping does not seal the paired inventory into the client', async () => {
   const config = JSON.parse(await readFile(path.join(REPOSITORY_ROOT, 'src-tauri/tauri.conf.json'), 'utf8'));
-  const resources = config.bundle.resources;
-  assert.equal(resources['../target/domios-package/server-component.json'], 'server-component.json');
-  assert.equal(resources['../target/domios-package/domios-server/'], 'domios-server/');
-
-  const requiredSources = [
-    '../target/domios-package/server-component.json',
-    '../target/domios-package/domios-server/',
-  ];
-  for (const source of requiredSources) {
-    assert.ok(!/[*?{}]/.test(source));
-    assert.ok(!/[*?{}]/.test(resources[source]));
-  }
+  assert.equal(config.bundle.resources['../target/domios-package/server-component.json'], undefined);
+  assert.equal(config.bundle.resources['../target/domios-package/domios-server/'], undefined);
+  assert.equal(config.bundle.resources['../dist'], 'dist');
 });

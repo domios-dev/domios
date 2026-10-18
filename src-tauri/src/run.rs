@@ -100,6 +100,22 @@ pub fn run(
                             attached.ready.epoch,
                             attached.native
                         );
+                        #[cfg(debug_assertions)]
+                        if matches!(
+                            attached.native,
+                            crate::host_ports::native_client::NativeClientStatus::Attached
+                        ) {
+                            eprintln!(
+                                "DOMIOS_DEV_ATTACHMENT {}",
+                                serde_json::json!({
+                                    "protocol": attached.ready.protocol,
+                                    "client_pid": std::process::id(),
+                                    "server_pid": attached.ready.process.pid,
+                                    "epoch": attached.ready.epoch,
+                                    "api_address": attached.ready.api_address.to_string(),
+                                })
+                            );
+                        }
                         let handle = app_handle.clone();
                         if let Err(error) = app_handle.run_on_main_thread(move || {
                             if let Err(error) = start_attached_frontend(&handle) {

@@ -186,8 +186,15 @@ impl NativeHostClientSlot {
         }
     }
 
-    pub(crate) fn webview_diagnostics_snapshot(&self) -> Option<NativeWebviewDiagnosticsSnapshot> {
-        self.0.read().as_ref()?.diagnostics_snapshot()
+    pub(crate) fn webview_diagnostics_snapshot(
+        &self,
+        generation: super::ClientViewGeneration,
+    ) -> Option<NativeWebviewDiagnosticsSnapshot> {
+        let client = self.0.read().clone()?;
+        if *client.root_generation.lock() != Some(generation) {
+            return None;
+        }
+        client.diagnostics_snapshot()
     }
 
     pub(crate) fn set_diagnostics_port_preflight(&self, port: u16, available: bool) {
@@ -617,7 +624,7 @@ impl NativeHostClient {
     }
 
     fn diagnostics_snapshot(&self) -> Option<NativeWebviewDiagnosticsSnapshot> {
-        if self.retired.load(Ordering::Acquire) {
+        if self.retired.load(Ordering::Acquire) || self.server_process.ensure_alive().is_err() {
             return None;
         }
         let view = self.view.lock().clone()?;

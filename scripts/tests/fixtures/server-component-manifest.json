@@ -5,5 +5,5 @@
   "server_sha256": "683b1f5f0f2173a6e9bc96f2149be0845d95ceba23d142fda341f63b385e2ddc",
   "client_sha256": "a35cc4fae42a7459a50a78185e91baba953511bcc8bd599b5394c19844b8ea6d",
   "api_version": 3,
-  "bootstrap_protocol": 1
+  "bootstrap_protocol": 2
 }

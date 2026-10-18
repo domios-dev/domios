@@ -19,12 +19,21 @@ the `github-release` skill. Do not use `dev` output as an installer artifact.
 ./build.sh dev
 ```
 
-Builds the CLI in its existing dev profile and the app, then launches the window through `dev-prebuilt`.
+Builds the CLI, independent `domios-server`, and native client once each in the
+existing dev profile, then launches the client through `dev-prebuilt`. The client
+uses protected launch/attach to the detached server; it creates no ServiceState.
+Windows resources live beside the actual native executable: `server-component.json`,
+`domios-server/domios-server.exe`, exact paired CLI bytes, `dist/`, `skills/`,
+licenses and ConPTY. The existing generator produces schema1/protocol2 inventory
+after the final client bytes exist. This DEV layout is not a signed release layout.
+macOS's authenticated installed wrapper locator remains unavailable; do not claim
+a successful Windows DEV run proves other platforms or installer behavior.
 DEV installs and bundles that exact debug CLI artifact. Production builds and
 standalone `cli` retain their release profile. The CLI's existing package-only
 opt-level 1 is unchanged; dependencies keep their existing profile settings.
 
-Vite `build --watch` refreshes the production-mode frontend bundle; Rust edits need another `dev`.
+Vite `build --watch` refreshes the staged resource `dist/` consumed by both the
+server browser surface and the native DEV static origin; Rust edits need another `dev`.
 For browser UI/provider development, `pnpm dev` uses Vite HMR. Its watcher
 excludes Rust `src-tauri/target`, `cli/target` and `target-check` trees so native
 compiler outputs do not inflate the frontend watch set. The loader accepts
@@ -121,7 +130,8 @@ The hash only changes when you commit. During iterative development it stays the
 ## Waiting for readiness
 
 Use `./build.sh dev --wait` for an automation run that exits after health is
-proven. It waits on the launcher's process and output events, then validates
+proven. It waits for the client's finite nonsecret `DOMIOS_DEV_ATTACHMENT` event after
+exact authenticated server bootstrap and native enrollment, then validates
 `/api/health`; a bounded deadline is a failure condition. Do not add a polling
 loop or fixed sleep. For an interactive run, use one visible foreground dev
 tab; its stream reader reports health readiness to the resolved Domios target.
@@ -401,3 +411,19 @@ Cargo builds with a physical cwd, including one call after gateway release.
 DEV now stages the CLI already built by `build.sh`; prebuilt launch performs no
 Cargo preparation. Main app and sidecar compilation stay at `X:` until build
 completion, then the mapping is released before launching the app.
+
+### Independent DEV launch troubleshooting
+
+A missing `server-component.json`, wrong CLI binding, or stale server executable
+must refuse before client launch. Use the supported `dev` build/stage sequence;
+never manufacture hashes or reuse the process-probe resource directory. The
+schema3 prebuilt provenance pins server, inventory and runtime-resource bytes in
+addition to client/CLI/frontend bytes. A monolithic REST log cannot satisfy its
+attachment readiness event. Optional native enrollment failure may leave the
+headless service alive but does not emit successful native DEV readiness.
+
+The server's compiled debug DEV frontend origin is the selected loopback static
+port; production selectors ignore it. There is no frontend paint prerequisite
+for service readiness. Titlebar close must preserve the exact server/session;
+explicit Quit requires the protected protocol2 cleanup reply plus pinned exit.
+Those are parent-owned native proof rows, not implied by staging unit tests.

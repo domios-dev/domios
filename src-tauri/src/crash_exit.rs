@@ -3,6 +3,7 @@ use codeterm_types::server_bootstrap::{
 };
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClientLifecycleEvent {
     MainWindowClose,
@@ -14,6 +15,7 @@ pub enum ClientLifecycleEvent {
     ServerUnavailable,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClientLifecycleAction {
     CloseWindowKeepOwners,
@@ -23,6 +25,7 @@ pub enum ClientLifecycleAction {
     ShowReconnectingAndPreserveUi,
 }
 
+#[cfg(test)]
 pub fn plan_client_lifecycle(event: ClientLifecycleEvent) -> ClientLifecycleAction {
     match event {
         ClientLifecycleEvent::MainWindowClose => ClientLifecycleAction::CloseWindowKeepOwners,
@@ -47,8 +50,11 @@ pub fn plan_client_lifecycle(event: ClientLifecycleEvent) -> ClientLifecycleActi
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClientExitReason {
     ExplicitQuit,
+    #[cfg(test)]
     ClientOnlyUpdate,
+    #[cfg(test)]
     AuthorizedServerOrPairUpdate,
+    #[cfg(any(unix, test))]
     UnixSignal,
 }
 
@@ -262,6 +268,10 @@ mod tests {
 
     #[test]
     fn lifecycle_actions_keep_window_close_and_crash_separate_from_server_shutdown() {
+        assert_eq!(
+            plan_client_lifecycle(ClientLifecycleEvent::ServerUnavailable),
+            ClientLifecycleAction::ShowReconnectingAndPreserveUi
+        );
         assert_eq!(
             plan_client_lifecycle(ClientLifecycleEvent::MainWindowClose),
             ClientLifecycleAction::CloseWindowKeepOwners
