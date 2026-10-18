@@ -636,3 +636,17 @@ no locator is published there. Their native inspection remains unavailable.
 Use the existing streaming-soak inspect --surface native after the parent rebuild;
 no external Browser endpoint or guessed native renderer is substituted. The frozen
 58a pair has no new locator and must remain untouched until coordinated rebuild.
+
+
+### DEV native locator stays null despite its WebView2 listener
+
+If the diagnostics argument and exact client-owned loopback listener exist but no
+locator event appears, do not restart or infer the endpoint from the port. The old
+publisher incorrectly reread CODETERM_DEV after install_client_selector scrubbed it.
+Publication now uses the verified captured Development selector, with debug gating.
+The root-render effect removes its temporary query after acknowledgement; native
+snapshot inspection uses the exact acknowledged native latch and current attachment,
+not that cosmetic query. Present stale queries still refuse. An absent query admits
+only a unique target candidate; the native command snapshot plus exact process
+incarnation must still match before inspection succeeds. No ambient selector is
+restored, no client credential is exposed and no new frontend/runtime hook is added.

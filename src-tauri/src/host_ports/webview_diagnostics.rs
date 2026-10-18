@@ -24,6 +24,18 @@ pub(crate) struct ClientViewGeneration {
     pub(crate) navigation: u64,
 }
 
+#[cfg(any(debug_assertions, test))]
+pub(crate) fn dev_locator_enabled(
+    debug: bool,
+    selector: &codeterm_types::server_bootstrap::InstanceSelector,
+) -> bool {
+    debug
+        && matches!(
+            selector,
+            codeterm_types::server_bootstrap::InstanceSelector::Development { .. }
+        )
+}
+
 pub(crate) struct DiagnosticsSession {
     requested_port: Option<u16>,
     occupied: AtomicBool,

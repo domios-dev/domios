@@ -90,6 +90,15 @@ impl ClientRootRenderLatch {
         state.generation == Some(generation) && state.origin.as_deref() == Some(origin)
     }
 
+    pub(crate) fn acknowledged_generation(&self, origin: &str) -> Option<ClientViewGeneration> {
+        let state = self.0.borrow();
+        if state.acknowledged && state.origin.as_deref() == Some(origin) {
+            state.generation
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn retire(&self) {
         self.0.send_replace(ClientRootRenderState::default());
     }
@@ -159,8 +168,13 @@ pub(crate) fn native_webview_diagnostics_snapshot(
     }
     let app = window.app_handle();
     let url = window.url().ok()?;
-    let generation = webview_diagnostics::root_generation_from_url(&url)?;
-    if !crate::startup::frontend_shell::active_view_matches(&app, generation.view) {
+    let generation = app
+        .try_state::<ClientRootRenderLatch>()?
+        .acknowledged_generation(&url.origin().ascii_serialization())?;
+    if webview_diagnostics::root_generation_from_url(&url)
+        .is_some_and(|supplied| supplied != generation)
+        || !crate::startup::frontend_shell::active_view_matches(&app, generation.view)
+    {
         return None;
     }
     let slot = app.try_state::<native_client::NativeHostClientSlot>()?;
@@ -556,6 +570,31 @@ mod tests {
             request_forwarded: true,
         }
         .allows_initial_server_launch());
+    }
+
+    #[test]
+    fn diagnostics_generation_survives_cosmetic_query_cleanup_but_not_replacement() {
+        let latch = ClientRootRenderLatch::default();
+        let generation = ClientViewGeneration {
+            view: 2,
+            navigation: 3,
+        };
+        let origin = "http://127.0.0.1:1420";
+        latch.arm(generation, origin.into());
+        assert_eq!(latch.acknowledged_generation(origin), None);
+        assert!(latch.acknowledge(generation, origin));
+        assert_eq!(latch.acknowledged_generation(origin), Some(generation));
+        assert_eq!(latch.acknowledged_generation("http://127.0.0.1:7685"), None);
+        latch.arm(
+            ClientViewGeneration {
+                navigation: 4,
+                ..generation
+            },
+            origin.into(),
+        );
+        assert_eq!(latch.acknowledged_generation(origin), None);
+        latch.retire();
+        assert_eq!(latch.acknowledged_generation(origin), None);
     }
 
     #[tokio::test]

@@ -47,7 +47,8 @@ export function validateDevSurfaceTarget(admission,target) {
   requireValue(admission.available && target?.type === 'page' && Boolean(target.id), 'DEV page target unavailable');
   requireValue(!admission.target || target.id === admission.target, 'Explicit Browser target mismatch');
   requireValue(new URL(target.url).origin === admission.origin, 'Browser target must serve the admitted DEV origin');
-  if (admission.locator) requireValue(new URL(target.url).searchParams.get('__codeterm_client_view') === `${admission.locator.snapshot.status.payload.view_generation}:${admission.locator.navigationGeneration}`,'Native view incarnation drift');
+  const generation = new URL(target.url).searchParams.get('__codeterm_client_view');
+  if (admission.locator && generation !== null) requireValue(generation === `${admission.locator.snapshot.status.payload.view_generation}:${admission.locator.navigationGeneration}`,'Native view incarnation drift');
   const socket = new URL(target.webSocketDebuggerUrl);
   requireValue(socket.protocol === 'ws:' && socket.hostname === '127.0.0.1' && Number(socket.port) === admission.cdpPort &&
     socket.pathname === `/devtools/page/${target.id}`, 'DEV page diagnostic socket mismatch');

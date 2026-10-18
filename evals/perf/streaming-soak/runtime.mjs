@@ -40,7 +40,7 @@ export async function attach(signal,options={}) {
     const response=await fetch(`http://127.0.0.1:${cdpPort}/json/list`,{signal});
     requireValue(response.ok,'Native diagnostic target list unavailable');
     const generation=`${admission.locator.snapshot.status.payload.view_generation}:${admission.locator.navigationGeneration}`;
-    const targets=(await response.json()).filter(t=>t.type==='page' && new URL(t.url).origin===origin && new URL(t.url).searchParams.get('__codeterm_client_view')===generation);
+    const targets=(await response.json()).filter(t=>t.type==='page' && new URL(t.url).origin===origin && [null,generation].includes(new URL(t.url).searchParams.get('__codeterm_client_view')));
     requireValue(targets.length===1,'Exactly one native view incarnation required'); target=targets[0];
   } else target = await pageTarget(cdpPort,vitePort);
   validateDevSurfaceTarget(admission,target);
