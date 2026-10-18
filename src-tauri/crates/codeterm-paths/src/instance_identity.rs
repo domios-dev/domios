@@ -17,10 +17,8 @@ impl ResolvedInstancePaths {
 
     pub fn current() -> io::Result<Self> {
         let config = crate::config_path().map_err(io::Error::other)?;
-        let data = config
-            .parent()
-            .ok_or_else(|| io::Error::other("Config path has no data directory"))?;
-        Self::resolve(data, &config)
+        let data = crate::data_dir();
+        Self::resolve(&data, &config)
     }
 
     pub fn data(&self) -> &Path {

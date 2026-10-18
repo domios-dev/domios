@@ -138,6 +138,32 @@ pnpm install
 ./build.sh build        # production build
 ```
 
+### Release artifact pair smoke
+
+To verify a packaged release `domios-server` without using production paths,
+create distinct existing temporary data and config directories and choose a
+private port other than 7685 or 7686:
+
+```text
+domios-server start --verify-isolated --data-dir <absolute-data-dir> --config-dir <absolute-config-dir> --port <private-port>
+```
+
+This mode is release-only, binds `127.0.0.1`, and refuses relative paths and
+paths under the user's `.codeterm*` directories. It uses the private bootstrap
+pipe to start and stop the server; stdout contains one JSON line of the form
+`{"type":"READY","build":"<server-build-sha>","port":<bound-port>}`.
+Keep stdin open while using the server. Closing stdin on any platform or sending
+SIGTERM on Unix asks the supervisor to perform the normal authenticated
+shutdown. The API token stays in the isolated config file and private bootstrap
+pipe. For the paired CLI, set `CODETERM_DATA_DIR`, `CODETERM_API_URL`, and
+`CODETERM_API_TOKEN`, plus a fresh matching `CODETERM_INSTANCE` and
+`CODETERM_SOCKET_PATH` (for example `verify-smoke-<random>` and
+`codeterm-dev-verify-smoke-<random>.sock`). This forces a private HTTP fallback
+without scanning or connecting to another local server. Leave
+`CODETERM_API_PORT` unset, then run `codeterm identify --json` to verify
+authenticated CLI access. Do not put the token in argv, the URL, or smoke
+output.
+
 ### Windows
 
 ```powershell
