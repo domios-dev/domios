@@ -1,6 +1,8 @@
 mod bootstrap;
+#[cfg(test)]
+pub(super) use bootstrap::read_single_bounded_line;
+pub(super) use bootstrap::HelperFailure;
 use bootstrap::VerifiedClientInstall;
-pub(super) use bootstrap::{read_single_bounded_line, HelperFailure};
 
 use codeterm_process_identity::PinnedProcess;
 use codeterm_types::{
@@ -441,6 +443,7 @@ fn validate_challenge(challenge: &NativeHostChallenge, ready: &ServerReady) -> R
 }
 
 fn verify_native_peer(stream: &Stream, ready: &ServerReady) -> io::Result<PinnedProcess> {
+    #[cfg(unix)]
     let credentials = stream.peer_creds()?;
     #[cfg(unix)]
     if credentials.euid() != Some(unsafe { native_effective_uid() }) {
