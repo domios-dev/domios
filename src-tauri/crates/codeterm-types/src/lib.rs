@@ -12,3 +12,5 @@ pub mod update;
 pub mod server_bootstrap;
 #[cfg(test)]
 mod test_support;
+
+pub mod app_quit;

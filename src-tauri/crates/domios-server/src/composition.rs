@@ -17,7 +17,14 @@ pub fn compose(
     frontend_dev_url: Option<url::Url>,
     resource_dir: Option<std::path::PathBuf>,
 ) -> Result<ComposedService, String> {
-    compose_observed(ui_factory, shell, frontend_dev_url, resource_dir, None)
+    compose_observed(
+        ui_factory,
+        shell,
+        frontend_dev_url,
+        resource_dir,
+        None,
+        None,
+    )
 }
 
 pub(crate) fn compose_observed(
@@ -26,6 +33,7 @@ pub(crate) fn compose_observed(
     frontend_dev_url: Option<url::Url>,
     resource_dir: Option<std::path::PathBuf>,
     worker_observer: Option<std::sync::mpsc::SyncSender<mem::supervisor::observation::WorkerSpawn>>,
+    quit_port: Option<codeterm_api::app_quit_routes::AppQuitPortHandle>,
 ) -> Result<ComposedService, String> {
     if let Some(resources) = &resource_dir {
         startup::setup_conpty_host(resources)?;
@@ -575,7 +583,13 @@ pub(crate) fn compose_observed(
 
     startup::install_bundled_cli(service_state.shell.as_ref());
     drop(startup::restore_complete(&service_state));
-    let bundles = startup::start_servers(&states, &service_state, frontend_dev_url, resource_dir)?;
+    let bundles = startup::start_servers(
+        &states,
+        &service_state,
+        frontend_dev_url,
+        resource_dir,
+        quit_port,
+    )?;
     service_state.schedule_restored_agent_delivery_reconciliation();
     codeterm_service_core::service::provider_hooks::ensure_integrations_for_all(
         &service_state.agent_registry,
