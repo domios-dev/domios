@@ -4,6 +4,7 @@ import { useProviderSwitch } from "./useProviderSwitch";
 import { Button } from "../shared/Button";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import { FormDialog } from "../shared/FormDialog";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UI_INPUT } from "../shared/design";
 
 export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab: Tab; initialProviderId: string; onClose(): void }) {
@@ -20,7 +21,7 @@ export function ProviderSwitchDialog({ tab, initialProviderId, onClose }: { tab:
       {(provider?.available_models.length ?? 0) > 0 ? <DropdownSelect aria-label="Target model" value={model ?? ""} disabled={locked} options={(provider?.available_models ?? []).map((model) => ({ value: model.id, label: model.display_name, disabled: model.available === false }))} onChange={(model) => { setModel(model); setEffort(undefined); }} /> : <label className="text-sm">Model (optional)<input className={UI_INPUT.full} value={selectedModel ?? ""} disabled={locked} onChange={(event) => setModel(event.target.value || undefined)} /></label>}
       {efforts.length > 0 && <DropdownSelect aria-label="Reasoning effort" value={effort ?? ""} options={efforts.map((effort) => ({ value: effort.id, label: effort.display_name }))} disabled={locked} onChange={setEffort} />}
     </>}
-    {error && <p role="alert" className="text-sm text-[var(--ct-red)]">{error}</p>}
+    {error && <InlineErrorNotice error={error} operation="switching the provider" />}
     {phase === "switching" && <p role="status">Retiring the previous session, binding the target and delivering the handoff…</p>}
     {phase === "waiting" && <p role="status">Waiting for this tab to become idle. Cancel to keep the current provider.</p>}
     {result && <div role="status" className="text-sm">Continued on {result.provider}. Handoff delivered and task binding preserved.</div>}

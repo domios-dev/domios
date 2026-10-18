@@ -1,207 +1,213 @@
-/**
- * Client-side cache of the last authoritative `mux_get_state` snapshot, used
- * to paint the sidebar/workspaces/tabs instantly on boot before the daemon
- * round-trip resolves (web-only — native Tauri always has the daemon local).
- * Keyed by daemon host + auth token + relay peer so a cache can never leak
- * across daemons, accounts, or peer contexts; dropped on any schema or build
- * mismatch, and degrades to no-op if storage is unavailable (private
- * browsing).
- */
 import { buildHash } from "./buildStamp";
-import type { MultiplexerState } from "./types";
-import { IS_WEB, apiHost, currentToken, relayTarget } from "./webApi";
+import type { MultiplexerState, Tab } from "./types";
+import {
+  frontendCacheRepository,
+  frontendCacheScope,
+  type FrontendCacheRecord,
+  type FrontendCacheSnapshot,
+  type FrontendCacheWriteResult,
+} from "./frontendCacheRecords";
+import { IS_WEB } from "./webApi";
 
-const SCHEMA_VERSION = 1;
-const LOCAL_STORAGE_SIZE_LIMIT = 200 * 1024;
-const DB_NAME = "codeterm-state-cache";
-const STORE_NAME = "snapshot";
+const CACHE_SCOPE = "codeterm:state-cache";
+const SCHEMA_VERSION = 2;
 
-interface CachedPayload {
+type StateCacheInput = MultiplexerState & {
+  activeTabIds?: Record<string, string | null | undefined>;
+};
+
+interface StateCacheMetadata {
   schemaVersion: number;
   buildHash: string;
-  savedAt: number;
-  state: MultiplexerState;
+  generation: number | null;
+  counts: Record<string, number>;
 }
 
-// deterministic per host+identity pair.
-function hashKey(input: string): string {
-  let hash = 5381;
-  for (let i = 0; i < input.length; i++) {
-    hash = (hash * 33) ^ input.charCodeAt(i);
-  }
-  return (hash >>> 0).toString(36);
-}
+const liveCache = new Map<string, { schemaVersion: number; buildHash: string; state: MultiplexerState }>();
 
-function cacheKey(): string | null {
+function cacheScope(): string | null {
   if (!IS_WEB) return null;
-  try {
-    return `codeterm:state-cache:${hashKey(`${apiHost()}:${currentToken() ?? ""}:${relayTarget()?.id ?? "self"}`)}`;
-  } catch {
+  return frontendCacheScope(CACHE_SCOPE);
+}
+
+function createRecord(kind: string, id: string, value: unknown): FrontendCacheRecord {
+  return { kind, id, value };
+}
+
+function projectRecords(state: StateCacheInput): { records: FrontendCacheRecord[]; counts: Record<string, number> } {
+  const records: FrontendCacheRecord[] = [];
+  const counts: Record<string, number> = {};
+  const push = (kind: string, id: string, value: unknown) => {
+    records.push(createRecord(kind, id, value));
+    counts[kind] = (counts[kind] ?? 0) + 1;
+  };
+
+  state.workspaces.forEach((workspace, position) => push("workspace", workspace.id, { position, workspace }));
+  for (const [id, tab] of Object.entries(state.tabs)) push("tab", id, tab);
+  for (const [id, status] of Object.entries(state.tab_statuses ?? {})) push("tab-status", id, status);
+  (state.teams ?? []).forEach((team, position) => push("team", team.id, { position, team }));
+  (state.recently_closed ?? []).forEach((item, position) => push("closed-tab", `${position}:${item.closed_at}:${item.tab_id}`, { position, item }));
+  (state.closed_structures ?? []).forEach((item, position) => push("closed-structure", item.id, { position, item }));
+  push("selection", "current", {
+    active_workspace_id: state.active_workspace_id,
+    focused_tab_id: state.focused_tab_id,
+    activeTabIds: state.activeTabIds ?? Object.fromEntries(state.workspaces.map((workspace) => [workspace.id, workspace.active_tab_id])),
+  });
+  return { records, counts };
+}
+
+function recordsMatchCounts(snapshot: FrontendCacheSnapshot, metadata: StateCacheMetadata): boolean {
+  if (!metadata.counts || typeof metadata.counts !== "object") return false;
+  const actual: Record<string, number> = {};
+  for (const record of snapshot.records) actual[record.kind] = (actual[record.kind] ?? 0) + 1;
+  const kinds = new Set([...Object.keys(actual), ...Object.keys(metadata.counts)]);
+  return Array.from(kinds).every((kind) => actual[kind] === metadata.counts[kind]);
+}
+
+function positionedValue<T>(record: FrontendCacheRecord, property: string, expectedId: (value: Record<string, unknown>, position: number) => string): { position: number; value: T } | null {
+  if (!record.value || typeof record.value !== "object") return null;
+  const wrapper = record.value as Record<string, unknown>;
+  const value = wrapper[property];
+  if (!Number.isInteger(wrapper.position) || (wrapper.position as number) < 0 || !value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const position = wrapper.position as number;
+  if (expectedId(row, position) !== record.id) return null;
+  return { position, value: value as T };
+}
+
+function orderedValues<T>(rows: Array<{ position: number; value: T }>): T[] | null {
+  rows.sort((left, right) => left.position - right.position);
+  if (rows.some((row, index) => row.position !== index)) return null;
+  return rows.map(({ value }) => value);
+}
+
+function stateFromSnapshot(snapshot: FrontendCacheSnapshot): MultiplexerState | null {
+  const metadata = snapshot.manifest.metadata as unknown as StateCacheMetadata;
+  if (!metadata || metadata.schemaVersion !== SCHEMA_VERSION || metadata.buildHash !== buildHash() || !recordsMatchCounts(snapshot, metadata)) {
     return null;
   }
-}
-
-function isValid(payload: CachedPayload | null | undefined): payload is CachedPayload {
-  return (
-    !!payload &&
-    payload.schemaVersion === SCHEMA_VERSION &&
-    payload.buildHash === buildHash()
-  );
-}
-
-function readLocalStorage(key: string): CachedPayload | null {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as CachedPayload) : null;
-  } catch {
-    return null;
+  const allowedKinds = new Set(["workspace", "tab", "tab-status", "team", "closed-tab", "closed-structure", "selection"]);
+  if (snapshot.records.some((record) => !allowedKinds.has(record.kind))) return null;
+  const byKind = new Map<string, FrontendCacheRecord[]>();
+  for (const record of snapshot.records) {
+    const rows = byKind.get(record.kind);
+    if (rows) rows.push(record);
+    else byKind.set(record.kind, [record]);
   }
-}
-
-function writeLocalStorage(key: string, payload: CachedPayload): boolean {
-  try {
-    localStorage.setItem(key, JSON.stringify(payload));
-    return true;
-  } catch {
-    return false;
+  const selectionRecord = byKind.get("selection")?.find((record) => record.id === "current");
+  if (!selectionRecord || (byKind.get("selection")?.length ?? 0) !== 1 || !selectionRecord.value || typeof selectionRecord.value !== "object") return null;
+  const selection = selectionRecord.value as {
+    active_workspace_id: string | null;
+    focused_tab_id: string | null;
+    activeTabIds?: Record<string, string | null | undefined>;
+  };
+  if ((selection.active_workspace_id !== null && typeof selection.active_workspace_id !== "string") ||
+    (selection.focused_tab_id !== null && typeof selection.focused_tab_id !== "string") ||
+    (selection.activeTabIds !== undefined && (!selection.activeTabIds || typeof selection.activeTabIds !== "object" ||
+      Object.values(selection.activeTabIds).some((id) => id !== null && typeof id !== "string"))) ||
+    (metadata.generation !== null && (!Number.isFinite(metadata.generation) || typeof metadata.generation !== "number"))) return null;
+  const workspaceRows = (byKind.get("workspace") ?? []).map((record) =>
+    positionedValue<MultiplexerState["workspaces"][number]>(record, "workspace", (row) => String(row.id ?? "")));
+  if (workspaceRows.some((row) => !row)) return null;
+  const orderedWorkspaces = orderedValues(workspaceRows as Array<{ position: number; value: MultiplexerState["workspaces"][number] }>);
+  if (!orderedWorkspaces || orderedWorkspaces.some((workspace) => !Array.isArray(workspace.tabs))) return null;
+  const workspaces = orderedWorkspaces.map((workspace) => ({
+    ...workspace,
+    active_tab_id: selection.activeTabIds && Object.prototype.hasOwnProperty.call(selection.activeTabIds, workspace.id)
+      ? selection.activeTabIds[workspace.id] ?? null
+      : workspace.active_tab_id,
+  }));
+  const tabs: Record<string, Tab> = {};
+  for (const record of byKind.get("tab") ?? []) {
+    if (!record.value || typeof record.value !== "object" || (record.value as Tab).id !== record.id) return null;
+    tabs[record.id] = record.value as Tab;
   }
-}
-
-function removeLocalStorage(key: string): void {
-  try {
-    localStorage.removeItem(key);
-  } catch {
+  const tabStatuses: NonNullable<MultiplexerState["tab_statuses"]> = {};
+  const statusValues = new Set(["Working", "Waiting", "Idle", "Error", "Dead"]);
+  for (const record of byKind.get("tab-status") ?? []) {
+    if (typeof record.value !== "string" || !statusValues.has(record.value)) return null;
+    tabStatuses[record.id] = record.value as NonNullable<MultiplexerState["tab_statuses"]>[string];
   }
+  const teamRows = (byKind.get("team") ?? []).map((record) =>
+    positionedValue<NonNullable<MultiplexerState["teams"]>[number]>(record, "team", (row) => String(row.id ?? "")));
+  if (teamRows.some((row) => !row)) return null;
+  const teams = orderedValues(teamRows as Array<{ position: number; value: NonNullable<MultiplexerState["teams"]>[number] }>);
+  if (!teams) return null;
+  const closedRows = (byKind.get("closed-tab") ?? []).map((record) =>
+    positionedValue<NonNullable<MultiplexerState["recently_closed"]>[number]>(record, "item", (row, position) => `${position}:${row.closed_at}:${row.tab_id}`));
+  if (closedRows.some((row) => !row)) return null;
+  const recently_closed = orderedValues(closedRows as Array<{ position: number; value: NonNullable<MultiplexerState["recently_closed"]>[number] }>);
+  if (!recently_closed) return null;
+  const structureRows = (byKind.get("closed-structure") ?? []).map((record) =>
+    positionedValue<NonNullable<MultiplexerState["closed_structures"]>[number]>(record, "item", (row) => String(row.id ?? "")));
+  if (structureRows.some((row) => !row)) return null;
+  const closed_structures = orderedValues(structureRows as Array<{ position: number; value: NonNullable<MultiplexerState["closed_structures"]>[number] }>);
+  if (!closed_structures) return null;
+
+  return {
+    workspaces,
+    tabs,
+    teams,
+    active_workspace_id: selection.active_workspace_id,
+    focused_tab_id: selection.focused_tab_id,
+    generation: metadata.generation ?? undefined,
+    recently_closed,
+    closed_structures,
+    tab_statuses: tabStatuses,
+  };
 }
 
-function openIndexedDb(): Promise<IDBDatabase | null> {
-  return new Promise((resolve) => {
-    if (typeof indexedDB === "undefined") {
-      resolve(null);
-      return;
-    }
-    let req: IDBOpenDBRequest;
-    try {
-      req = indexedDB.open(DB_NAME, 1);
-    } catch {
-      resolve(null);
-      return;
-    }
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => resolve(null);
-  });
-}
-
-async function readIndexedDb(key: string): Promise<CachedPayload | null> {
-  const db = await openIndexedDb();
-  if (!db) return null;
-  return new Promise((resolve) => {
-    try {
-      const tx = db.transaction(STORE_NAME, "readonly");
-      const req = tx.objectStore(STORE_NAME).get(key);
-      req.onsuccess = () => resolve((req.result as CachedPayload | undefined) ?? null);
-      req.onerror = () => resolve(null);
-    } catch {
-      resolve(null);
-    } finally {
-      db.close();
-    }
-  });
-}
-
-async function writeIndexedDb(key: string, payload: CachedPayload): Promise<void> {
-  const db = await openIndexedDb();
-  if (!db) return;
-  return new Promise((resolve) => {
-    try {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      tx.objectStore(STORE_NAME).put(payload, key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
-    } catch {
-      resolve();
-    } finally {
-      db.close();
-    }
-  });
-}
-
-function removeIndexedDb(key: string): void {
-  openIndexedDb().then((db) => {
-    if (!db) return;
-    try {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      tx.objectStore(STORE_NAME).delete(key);
-      tx.oncomplete = () => db.close();
-      tx.onerror = () => db.close();
-    } catch {
-      db.close();
-    }
-  });
-}
-
-/**
- * Synchronous, localStorage-only load — safe to call from React's lazy
- * `useReducer` initializer so the very first paint already reflects the
- * cache (no flash of an empty shell).
- */
-export function loadCachedStateSync(): MultiplexerState | null {
-  const key = cacheKey();
-  if (!key) return null;
-  const payload = readLocalStorage(key);
-  if (!isValid(payload)) {
-    if (payload) removeLocalStorage(key);
-    return null;
-  }
-  return payload.state;
-}
-
-/** IndexedDB fallback for snapshots too large to have fit in localStorage. */
-export async function loadCachedStateAsync(): Promise<MultiplexerState | null> {
-  const key = cacheKey();
-  if (!key) return null;
-  const payload = await readIndexedDb(key);
-  if (!isValid(payload)) {
-    if (payload) removeIndexedDb(key);
-    return null;
-  }
-  return payload.state;
-}
-
-/** Best-effort persist; picks localStorage when small enough, else IndexedDB. */
-export function saveStateSnapshot(state: MultiplexerState): void {
-  const key = cacheKey();
-  if (!key) return;
-  const payload: CachedPayload = {
+function metadataFor(state: StateCacheInput, counts: Record<string, number>): StateCacheMetadata {
+  return {
     schemaVersion: SCHEMA_VERSION,
     buildHash: buildHash(),
-    savedAt: Date.now(),
-    state,
+    generation: typeof state.generation === "number" ? state.generation : null,
+    counts,
   };
-  const json = JSON.stringify(payload);
-  if (json.length <= LOCAL_STORAGE_SIZE_LIMIT && writeLocalStorage(key, payload)) {
-    removeIndexedDb(key);
-    return;
+}
+
+export function loadCachedStateSync(): MultiplexerState | null {
+  const scope = cacheScope();
+  const cached = scope ? liveCache.get(scope) : undefined;
+  return cached?.schemaVersion === SCHEMA_VERSION && cached.buildHash === buildHash() ? cached.state : null;
+}
+
+export async function loadCachedStateAsync(): Promise<MultiplexerState | null> {
+  const scope = cacheScope();
+  if (!scope) return null;
+  try {
+    const snapshot = await frontendCacheRepository.read(scope);
+    if (cacheScope() !== scope) return null;
+    if (!snapshot) return null;
+    const state = stateFromSnapshot(snapshot);
+    if (!state) {
+      await frontendCacheRepository.clear(scope, snapshot.manifest.revision);
+      liveCache.delete(scope);
+      return null;
+    }
+    liveCache.set(scope, { schemaVersion: SCHEMA_VERSION, buildHash: buildHash(), state });
+    return state;
+  } catch {
+    return null;
   }
-  removeLocalStorage(key);
-  writeIndexedDb(key, payload).catch(() => {});
 }
 
-export function clearStateSnapshot(): void {
-  const key = cacheKey();
-  if (!key) return;
-  removeLocalStorage(key);
-  removeIndexedDb(key);
+export function saveStateSnapshot(state: StateCacheInput): Promise<FrontendCacheWriteResult | null> {
+  const scope = cacheScope();
+  if (!scope) return Promise.resolve(null);
+  liveCache.set(scope, { schemaVersion: SCHEMA_VERSION, buildHash: buildHash(), state });
+  const { records, counts } = projectRecords(state);
+  const metadata = metadataFor(state, counts) as unknown as Record<string, unknown>;
+  return frontendCacheRepository.write(scope, records, metadata).catch(() => null);
 }
 
-/**
- * Blocks daemon-mutating calls until the first live reconcile lands, so a
- * cache-painted UI can never act on a stale/nonexistent target.
- */
+export function clearStateSnapshot(): Promise<void> {
+  const scope = cacheScope();
+  if (!scope) return Promise.resolve();
+  liveCache.delete(scope);
+  return frontendCacheRepository.clear(scope).then(() => undefined).catch(() => undefined);
+}
+
 export interface WriteGate {
   canWrite(): boolean;
   lock(): void;
@@ -212,11 +218,7 @@ export function createWriteGate(locked = false): WriteGate {
   let isLocked = locked;
   return {
     canWrite: () => !isLocked,
-    lock: () => {
-      isLocked = true;
-    },
-    unlock: () => {
-      isLocked = false;
-    },
+    lock: () => { isLocked = true; },
+    unlock: () => { isLocked = false; },
   };
 }
