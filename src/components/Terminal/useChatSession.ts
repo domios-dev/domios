@@ -53,12 +53,11 @@ import {
   reconcileTranscriptWindow,
   resetTranscriptWindow,
   stampConfirmedTranscriptRow,
-  trackTranscriptSend,
   transcriptWindowKey,
   useTranscriptWindow,
 } from "./transcriptStore";
 import { reconcileTrackedChatMessages, type ChatSendStatus } from "./chatSendStatus";
-import { chatSendAt, observeDeliveryStatus } from "./chatSendStore";
+import { observeDeliveryStatus } from "./chatSendStore";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { adoptChatStartTiming, beginChatStartTiming, chatStartTimingEdge } from "./chatStartTiming";
 import { useChatWindowView } from "./useChatWindowView";
@@ -218,7 +217,6 @@ export function useChatSession({
         sendStatusQueuedRef.current = false;
         const statuses = await reconcileTrackedChatMessages(tabId);
         for (const status of statuses) {
-          trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
           stampConfirmedTranscriptRow(windowKeyRef.current, status);
         }
       } while (sendStatusQueuedRef.current);
@@ -369,7 +367,7 @@ export function useChatSession({
 
   const observeChatSendStatus = useCallback((status: ChatSendStatus) => {
     observeDeliveryStatus(status);
-    trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
+    stampConfirmedTranscriptRow(windowKeyRef.current, status);
     void reconcileSendStatuses();
   }, [reconcileSendStatuses, tabId]);
 

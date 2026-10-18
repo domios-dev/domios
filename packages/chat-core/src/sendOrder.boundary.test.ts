@@ -90,6 +90,117 @@ test("an appended row owned by another session is never an echo", () => {
   assert.equal(result.pending.length, 1);
 });
 
+test("a structured matched row reconciles without content or timestamp matching", () => {
+  const row = { ...user("native-item"), content: "provider-enriched", timestamp: String(serverAt - 60_000) };
+  const state = append(history, [row]);
+  const request: ChatSend = {
+    ...send("send-a"),
+    content: "composer text",
+    matchedRow: { source: { source_session_id: "own-session", record: {
+      kind: "structured", thread_id: "own-session", item_id: "native-item",
+    } }, ordinal: 1 },
+  };
+
+  const result = projectTranscript(state, [request]);
+
+  assert.deepEqual(result.rows.map((message) => message.id), ["history", "native-item"]);
+  assert.equal(result.pending.length, 0);
+  assert.equal(result.echoes.size, 1);
+});
+
+test("a persisted structured claim reconciles after the same session is rebound", () => {
+  const rebound = append(history, [user("native-item")]);
+  const state = { ...rebound, authority: { ...authority, sessionBindingNonce: "rebound-launch" } };
+  const request: ChatSend = {
+    ...send("send-a"),
+    matchedRow: { source: { source_session_id: "own-session", record: {
+      kind: "structured", thread_id: "own-session", item_id: "native-item",
+    } }, ordinal: 1 },
+  };
+
+  const result = projectTranscript(state, [request]);
+
+  assert.deepEqual(result.rows.map((row) => row.id), ["history", "native-item"]);
+  assert.equal(result.pending.length, 0);
+  assert.equal(result.echoes.size, 1);
+});
+
+test("intentional identical sends reconcile to their distinct structured rows", () => {
+  const state = append(history, [user("native-a"), user("native-b")]);
+  const matched = (itemId: string) => ({ source: { source_session_id: "own-session", record: {
+    kind: "structured" as const, thread_id: "own-session", item_id: itemId,
+  } }, ordinal: 1 });
+  const requests = [
+    { ...send("send-a"), matchedRow: matched("native-a") },
+    { ...send("send-b"), matchedRow: matched("native-b") },
+  ];
+
+  const result = projectTranscript(state, requests);
+
+  assert.deepEqual(result.rows.map((message) => message.id), ["history", "native-a", "native-b"]);
+  assert.equal(result.pending.length, 0);
+  assert.equal(result.echoes.size, 2);
+});
+
+test("a structured matched row from another session cannot claim the current transcript", () => {
+  const state = append(history, [{ ...user("foreign-item"), sourceSessionId: "other-session" }]);
+  const request: ChatSend = {
+    ...send("send-a"),
+    matchedRow: { source: { source_session_id: "other-session", record: {
+      kind: "structured", thread_id: "other-session", item_id: "foreign-item",
+    } }, ordinal: 1 },
+  };
+
+  const result = projectTranscript(state, [request]);
+
+  assert.deepEqual(result.pending.map((item) => item.id), ["send-a"]);
+  assert.equal(result.echoes.size, 0);
+});
+
+test("an exact old-session claim keeps its history row visible after handoff", () => {
+  const state: TranscriptState = {
+    authority: { sourceSessionId: "new-session", sessionBindingNonce: "new-launch" },
+    segments: [{ kind: "snapshot", range: null, rows: [{
+      ...user("old-item"), sourceSessionId: "own-session",
+    }] }],
+    evictedOlder: 0,
+  };
+  const request: ChatSend = {
+    ...send("old-send"),
+    matchedRow: { source: { source_session_id: "own-session", record: {
+      kind: "structured", thread_id: "own-session", item_id: "old-item",
+    } }, ordinal: 1 },
+  };
+
+  const result = projectTranscript(state, [request]);
+
+  assert.deepEqual(result.rows.map((row) => row.id), ["old-item"]);
+  assert.equal(result.pending.length, 0);
+  assert.equal(result.echoes.size, 1);
+});
+
+test("a current send cannot claim matching old-session history after handoff", () => {
+  const state: TranscriptState = {
+    authority: { sourceSessionId: "new-session", sessionBindingNonce: "new-launch" },
+    segments: [{ kind: "snapshot", range: null, rows: [{
+      ...user("old-item"), sourceSessionId: "own-session",
+    }] }],
+    evictedOlder: 0,
+  };
+  const request: ChatSend = {
+    ...send("new-send"),
+    echoBoundary: { sourceSessionId: "new-session", sessionBindingNonce: "new-launch", lastRowId: null },
+    matchedRow: { source: { source_session_id: "new-session", record: {
+      kind: "structured", thread_id: "new-session", item_id: "old-item",
+    } }, ordinal: 1 },
+  };
+
+  const result = projectTranscript(state, [request]);
+
+  assert.deepEqual(result.pending.map((row) => row.id), ["new-send"]);
+  assert.equal(result.echoes.size, 0);
+});
+
 test("clock-independent matching requires exact text", () => {
   const result = projectTranscript(append(history, [{ ...user("similar"), content: `${content} extra words` }]), [send("send-a")]);
   assert.equal(result.pending.length, 1);
