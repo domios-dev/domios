@@ -147,7 +147,11 @@ where
         self.endpoint.clone()
     }
 
-    pub async fn serve(self) -> io::Result<()> {
+    pub async fn serve(self) -> io::Result<()>
+    where
+        UpdateRequest: Sync,
+        UpdateResult: Sync,
+    {
         let NativeHostServer {
             listener,
             endpoint,
@@ -371,8 +375,8 @@ where
 
 impl<UpdateRequest, UpdateResult> AcceptState<UpdateRequest, UpdateResult>
 where
-    UpdateRequest: Serialize + DeserializeOwned + Send + 'static,
-    UpdateResult: Serialize + DeserializeOwned + Send + 'static,
+    UpdateRequest: Serialize + DeserializeOwned + Send + Sync + 'static,
+    UpdateResult: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     async fn attach(&self, mut stream: Stream) -> io::Result<()> {
         let process = pin_peer(&stream)?;
