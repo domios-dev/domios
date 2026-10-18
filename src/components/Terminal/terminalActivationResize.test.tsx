@@ -98,7 +98,7 @@ function createTerminal(): FakeTerminal {
   return value;
 }
 
-function Harness({ active }: { active: boolean }) {
+function Harness({ active, isRemote = false }: { active: boolean; isRemote?: boolean }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef(terminal as unknown as Terminal | null);
   const fitAddonRef = useRef({ fit: () => terminal.setSize(targetSize.cols, targetSize.rows) } as unknown as FitAddon | null);
@@ -114,9 +114,11 @@ function Harness({ active }: { active: boolean }) {
     isFocused: active,
     resizeEnabled: active,
     resizeClientId,
+    isRemote,
   });
   activateViewer = useTerminalActivationResize({
     active,
+    viewerLocalGeometry: isRemote,
     isFocused: active,
     termReady: true,
     tabId: "tab",
@@ -156,11 +158,11 @@ async function flushFrames() {
   });
 }
 
-async function mount(active: boolean) {
+async function mount(active: boolean, isRemote = false) {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root!.render(createElement(Harness, { active })));
+  await act(async () => root!.render(createElement(Harness, { active, isRemote })));
   await flushFrames();
 }
 
@@ -230,6 +232,18 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("terminal viewer activation resize", () => {
+  it("fits a remote xterm locally without resizing its shared PTY", async () => {
+    targetSize = { cols: 45, rows: 38 };
+    await mount(true, true);
+    assert.deepEqual({ cols: terminal.cols, rows: terminal.rows }, targetSize);
+    assert.equal(claims.length, 0);
+    assert.equal(resizes.length, 0);
+    targetSize = { cols: 60, rows: 30 };
+    await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
+    assert.deepEqual({ cols: terminal.cols, rows: terminal.rows }, targetSize);
+    assert.equal(resizes.length, 0);
+  });
+
   it("drains only the latest fitted geometry on actual completion", async () => {
     holdResizes = true;
     await mount(true);
