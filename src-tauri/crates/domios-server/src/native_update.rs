@@ -550,7 +550,7 @@ fn record_event(
         {
             active.status.phase = NativeUpdateCoordinatorPhase::Held {
                 reason: NativeUpdateHoldReason::PostDispatchUncertain(
-                    NativeUpdateUncertainty::InvalidReplyAfterDispatch(refusal),
+                    NativeUpdateUncertainty::InvalidReplyAfterDispatch,
                 ),
             };
             active.status_tx.send_replace(active.status.clone());
