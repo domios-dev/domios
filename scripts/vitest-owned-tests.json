@@ -1,4 +1,5 @@
 [
+  "src/components/AgentPicker/FirstRunGeneralPicker.test.tsx",
   "src/components/Sidebar/cronRowMenu.test.ts",
   "src/components/Sidebar/sortable.editing.test.tsx",
   "src/components/Sidebar/GeneralInventory.test.tsx",
