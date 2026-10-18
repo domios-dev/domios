@@ -490,3 +490,14 @@ that client only; supported scoped `build.sh kill` remains the DEV server cleanu
 Titlebar close/tray lifetime differs from explicit controller cancellation. Parent QA
 must verify actual desktop launch, exact pair/renderer ownership, titlebar/session
 survival and protocol2 Quit cleanup. Source fixtures do not prove those native rows.
+
+### Gateway drive spelling refused during DEV staging
+
+Symptom: all builds finish, then `stageDevResources` refuses the derived resource
+root before desktop launch. The gateway's SUBST drive can spell the same artifact
+root differently from the canonical client path. Staging resolves the existing
+root (or nearest existing parent for missing Unix layout directories) before comparing
+it to the exact canonical client-derived root. Symlink/junction and foreign-root
+candidates still refuse. Only the verified physical root is created/staged; no global
+drive mapping is changed. Rebuild through the supported DEV operation after this
+source correction; COM/client/server startup remains a separate native proof.
