@@ -51,7 +51,7 @@ fn process_split_contract_only_absent_initial_inspect_authorizes_launch() {
     request.api_version = ready.api_version;
     request.build.push_str("-foreign");
     assert_eq!(classify(&request, io::ErrorKind::NotFound), 1);
-    request.build = ready.build;
+    request.build = ready.build.clone();
     request.challenge.clear();
     assert_eq!(classify(&request, io::ErrorKind::NotFound), 1);
     assert_eq!(
