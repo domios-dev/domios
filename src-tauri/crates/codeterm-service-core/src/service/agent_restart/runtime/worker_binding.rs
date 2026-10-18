@@ -121,7 +121,7 @@ impl ServiceContext {
         {
             return Err("Runtime restart binding changed".into());
         }
-        self.restore_runtime_attempt_binding(tab_id)?;
+        self.restore_restart_attempt_binding(tab_id)?;
         tab = self
             .mux
             .read()
@@ -337,15 +337,20 @@ mod tests {
 
     #[test]
     fn restarted_worker_attempt_is_carried_before_ack() {
-        worker_attempt_carry(None);
+        worker_attempt_carry(None, false);
     }
 
     #[test]
     fn provider_switch_worker_attempt_is_carried_before_ack() {
-        worker_attempt_carry(Some("target-provider"));
+        worker_attempt_carry(Some("target-provider"), false);
     }
 
-    fn worker_attempt_carry(target: Option<&str>) {
+    #[test]
+    fn provider_switch_resolves_acknowledged_attempt_from_live_spawn_metadata() {
+        worker_attempt_carry(Some("target-provider"), true);
+    }
+
+    fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool) {
         let (mut mux, tab_id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some("provider".into());
@@ -402,10 +407,22 @@ mod tests {
             .task_binding = Some(TaskBinding {
             plan_id: Some(plan.id.clone()),
             task_id: Some(task_id.clone()),
-            attempt_id: Some(attempt_id.clone()),
-            spawn_handle: None,
+            attempt_id: (!omit_attempt).then(|| attempt_id.clone()),
+            spawn_handle: Some("opaque-spawn-metadata".into()),
             bound_at: 3,
         });
+
+        if omit_attempt {
+            store
+                .acknowledge_live_task_attempt_for_tab_with_runtime_binding(
+                    &tab_id,
+                    Some(&plan.id),
+                    Some(&task_id),
+                    Some(("thread", "old-nonce")),
+                    4,
+                )
+                .unwrap();
+        }
 
         let authority = match target {
             Some(target) => fixture.service.authorize_provider_switch_binding(
@@ -423,6 +440,20 @@ mod tests {
         }
         .unwrap()
         .expect("the current task attempt is authorized for restart");
+        let resolved = fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .task_binding
+            .clone()
+            .unwrap();
+        assert_eq!(resolved.attempt_id.as_deref(), Some(attempt_id.as_str()));
+        assert_eq!(
+            resolved.spawn_handle.as_deref(),
+            Some("opaque-spawn-metadata")
+        );
         fixture
             .service
             .stage_runtime_restart_binding(&tab_id, Some(authority));
