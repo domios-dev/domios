@@ -123,6 +123,7 @@ pub(crate) enum ExactServerShutdownResult {
 pub(crate) enum ExactServerShutdownRefusal {
     ApiAttachmentUnavailable,
     NativeHostUnavailable,
+    IncompatibleServerProtocol,
     StaleIncarnation,
     ProcessInspectionFailed,
     HelperArtifactInvalid,
@@ -1069,5 +1070,13 @@ mod tests {
         assert!(bootstrap::valid_digest(&"a".repeat(64)));
         assert!(!bootstrap::valid_digest(&"A".repeat(64)));
         assert!(!bootstrap::valid_digest(&"a".repeat(63)));
+    }
+
+    #[test]
+    fn shutdown_cleanup_completion_rejects_protocol_one() {
+        assert!(bootstrap::supports_shutdown_completion_protocol(
+            codeterm_types::server_bootstrap::BOOTSTRAP_PROTOCOL
+        ));
+        assert!(!bootstrap::supports_shutdown_completion_protocol(1));
     }
 }
