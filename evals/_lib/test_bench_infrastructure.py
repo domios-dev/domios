@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import shlex
 from pathlib import Path
 import subprocess
 import tempfile
@@ -112,6 +113,46 @@ class BenchInfrastructure(unittest.TestCase):
                      (messages[:1], ledger, frames, sends), (messages, ledger, frames * 2, sends)]:
             with self.subTest(args=args), self.assertRaises(AssertionError):
                 module.assert_outcome(*args)
+
+    def test_split_dev_target_pins_server_to_selected_provenance(self):
+        body = function("_lib/lib.sh", "dev_assert_target() {", "dev_assert_cached_identity() {")
+        sha = "a" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            record = data / "dev-build-provenance.json"
+            for name, port in [("", "7686"), ("lane", "7786")]:
+                health = {"status": "ok", "build_sha": sha,
+                          "instance": {"name": name, "api_port": port}}
+                provenance = {"schema": 3, "buildSha": sha, "instance": {
+                    "name": name, "apiPort": port, "vitePort": "1420", "cdpPort": "9223"}}
+
+                def check(value, receipt):
+                    record.write_text(json.dumps(receipt))
+                    script = (body + "\n"
+                              + "dev_api_url() { printf http://fixture.invalid; }\n"
+                              + "dev_resolution_error() { :; }\n"
+                              + "curl() { printf %s " + shlex.quote(json.dumps(value)) + "; }\n"
+                              + "EVAL_LIB_TARGET_INSTANCE=" + shlex.quote(name) + "\n"
+                              + "EVAL_LIB_TARGET_API_PORT=" + port + "\n"
+                              + "EVAL_LIB_TARGET_VITE_PORT=1420 EVAL_LIB_TARGET_CDP_PORT=9223\n"
+                              + "EVAL_LIB_TARGET_DATA_DIR=" + shlex.quote(data.as_posix()) + "\n"
+                              + "EVAL_LIB_RESOLVED_DATA_DIR=\n"
+                              + "dev_assert_target")
+                    return shell(script)
+
+                with self.subTest(instance=name):
+                    self.assertEqual(check(health, provenance).returncode, 0)
+                    for bad in [dict(health, status="starting"), dict(health, build_sha="b" * 40),
+                                dict(health, build_sha=sha[:8]),
+                                dict(health, instance={"name": "foreign", "api_port": port}),
+                                dict(health, instance={"name": name, "api_port": "7685"})]:
+                        self.assertEqual(check(bad, provenance).returncode, 7)
+                    wrong = dict(provenance, instance=dict(provenance["instance"], apiPort="7685"))
+                    self.assertEqual(check(health, wrong).returncode, 7)
+                    legacy = dict(health, instance=dict(health["instance"], vite_port="1420", cdp_port="9223"))
+                    self.assertEqual(check(legacy, provenance).returncode, 0)
+                    wrong_gui = dict(health, instance=dict(legacy["instance"], cdp_port="9999"))
+                    self.assertEqual(check(wrong_gui, provenance).returncode, 7)
 
     def test_native_bash_syntax(self):
         for name in ["_lib/bench.sh", "_lib/role_preset.sh", "binding-matrix/run.sh",

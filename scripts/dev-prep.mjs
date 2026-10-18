@@ -424,12 +424,27 @@ function startupFailureSignal(line) {
   } catch { return null; }
 }
 
+function attachmentProof(lines, port, listenerPid, alive) {
+  const events = lines.filter(line => readinessSignal(line, port));
+  if (!events.length) throw new Error("Native attachment readiness is absent");
+  const event = JSON.parse(events.at(-1).slice("DOMIOS_DEV_ATTACHMENT ".length));
+  if (!/^[1-9][0-9]*$/.test(String(listenerPid)) || event.server_pid !== Number(listenerPid)) {
+    throw new Error("Native attachment differs from the actual DEV API listener");
+  }
+  if (!alive(event.client_pid) || !alive(event.server_pid)) {
+    throw new Error("Native attachment client or server is no longer live");
+  }
+  return event;
+}
+
 function checkAttachment(options) {
   const log = resolve(option(options, "--log"));
   const stat = lstatSync(log);
   if (!stat.isFile() || stat.size > 4 * 1024 * 1024) throw new Error("Native attachment log exceeds its bound");
   const port = option(options, "--api-port");
-  if (!readFileSync(log, "utf8").split(/\r?\n/).some(line => readinessSignal(line, port))) throw new Error("Native attachment readiness is absent");
+  attachmentProof(readFileSync(log, "utf8").split(/\r?\n/), port, option(options, "--listener-pid"), pid => {
+    try { process.kill(pid, 0); return true; } catch { return false; }
+  });
 }
 
 function disconnectSupervisor() {

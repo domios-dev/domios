@@ -145,13 +145,13 @@ test('DEV readiness refuses monolith logs and malformed or same-process attachme
 
 test('prebuilt attachment proof requires the bounded native event log', () => {
   const source = fs.readFileSync(new URL('../dev-prep.mjs', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
-  const definitions = ['readinessSignal', 'checkAttachment'].map(name => source.match(new RegExp(`^function ${name}\\([^]*?^\\}`, 'm'))[0]).join('\n');
+  const definitions = ['readinessSignal', 'attachmentProof', 'checkAttachment'].map(name => source.match(new RegExp(`^function ${name}\\([^]*?^\\}`, 'm'))[0]).join('\n');
   const check = new Function('process', 'resolve', 'option', 'lstatSync', 'readFileSync', `${definitions}\nreturn checkAttachment;`)(
-    { env: {} }, path.resolve, (options, key) => options.get(key), fs.lstatSync, fs.readFileSync);
+    { env: {}, kill: pid => { assert.ok([10, 20].includes(pid)); } }, path.resolve, (options, key) => options.get(key), fs.lstatSync, fs.readFileSync);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-attachment-proof-'));
   try {
     const log = path.join(directory, 'client.log');
-    const options = new Map([['--log', log], ['--api-port', '7786']]);
+    const options = new Map([['--log', log], ['--api-port', '7786'], ['--listener-pid', '20']]);
     fs.writeFileSync(log, 'REST API generation old health-proven on http://127.0.0.1:7786/\n');
     assert.throws(() => check(options), /absent/);
     fs.appendFileSync(log, 'DOMIOS_DEV_ATTACHMENT ' + JSON.stringify({ protocol: 2, client_pid: 10, server_pid: 20, epoch: '00000000-0000-0000-0000-000000000001', api_address: '127.0.0.1:7786' }) + '\n');
@@ -198,4 +198,17 @@ test('interactive Windows DEV invocation is finite and keeps selectors out of ar
   assert.throws(() => windowsDevArguments({ ...input, args: ['workspace'] }), /no arbitrary/);
   assert.throws(() => windowsDevArguments({ ...input, env: {} }), /explicit development intent/);
   assert.deepEqual(windowsDevArguments({ ...input, interactiveDesktop: false, args: ['fixture'] }), argv.slice(0, -1));
+});
+
+
+test('split attachment proof refuses stale listener and dead native owner', () => {
+  const source = fs.readFileSync(new URL('../dev-prep.mjs', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+  const definitions = ['readinessSignal', 'attachmentProof'].map(name => source.match(new RegExp(`^function ${name}\\([^]*?^\\}`, 'm'))[0]).join('\n');
+  const proof = new Function('process', `${definitions}\nreturn attachmentProof;`)({ env: {} });
+  const event = { protocol: 2, client_pid: 10, server_pid: 20, epoch: '00000000-0000-0000-0000-000000000001', api_address: '127.0.0.1:7786' };
+  const lines = ['DOMIOS_DEV_ATTACHMENT ' + JSON.stringify(event)];
+  assert.deepEqual(proof(lines, '7786', '20', () => true), event);
+  for (const listener of ['', '0', '21']) assert.throws(() => proof(lines, '7786', listener, () => true), /listener/);
+  for (const dead of [10, 20]) assert.throws(() => proof(lines, '7786', '20', pid => pid !== dead), /no longer live/);
+  assert.throws(() => proof(lines, '7685', '20', () => true), /absent/);
 });
