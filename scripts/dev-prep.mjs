@@ -32,7 +32,7 @@ const isWin = process.platform === "win32";
 const pnpm = isWin ? "pnpm.cmd" : "pnpm";
 const cargo = isWin ? "cargo.exe" : "cargo";
 const node = process.execPath;
-const provenanceSchema = 2;
+const provenanceSchema = 3;
 const childExitDeadlineMs = 10_000;
 const inputPathspecs = [
   "build.sh",
@@ -53,6 +53,8 @@ const inputPathspecs = [
   "crates",
   "src-tauri",
   "scripts/dev-prep.mjs",
+  "scripts/server-artifact.mjs",
+  "scripts/package-server-component-manifest.mjs",
   "scripts/dev-app-process.mjs",
   "scripts/dev-runtime-environment.mjs",
   "scripts/dev-instance-policy.mjs",
@@ -155,7 +157,15 @@ function hashPath(requested, expectedType, requireExecutable = false) {
   if (requireExecutable && !isWin && (stat.mode & 0o111) === 0) throw new Error(`artifact is not executable: ${path}`);
   const hash = sha256();
   let bytes = 0;
-  const files = stat.isDirectory() ? listTree(path) : [path];
+  const files = expectedType === "runtime-resources"
+    ? ["cli", "skills", "LICENSE", "NOTICE", ...(isWin ? ["conpty"] : [])].flatMap(name => {
+        const resource = join(path, name);
+        const metadata = lstatSync(resource);
+        const entries = metadata.isDirectory() ? listTree(resource) : [resource];
+        if (metadata.isSymbolicLink() || entries.some(file => lstatSync(file).isSymbolicLink())) throw new Error("Runtime resource links are not accepted");
+        return entries;
+      }).sort()
+    : stat.isDirectory() ? listTree(path) : [path];
   if (files.length === 0) throw new Error(`artifact is empty: ${path}`);
   for (const file of files) {
     const fileStat = lstatSync(file);
@@ -239,6 +249,9 @@ function artifactPaths(options) {
     app: option(options, "--app"),
     cli: option(options, "--cli"),
     frontend: option(options, "--frontend"),
+    server: join(dirname(option(options, "--app")), "domios-server", isWin ? "domios-server.exe" : "domios-server"),
+    inventory: join(dirname(option(options, "--app")), "server-component.json"),
+    resources: dirname(option(options, "--app")),
   };
 }
 
@@ -256,6 +269,9 @@ function buildProvenance(options) {
       app: hashPath(paths.app, "file", true),
       cli: hashPath(paths.cli, "file", true),
       frontend: hashPath(paths.frontend, "tree"),
+      server: hashPath(paths.server, "file", true),
+      inventory: hashPath(paths.inventory, "file"),
+      resources: hashPath(paths.resources, "runtime-resources"),
     },
   };
 }
@@ -307,11 +323,14 @@ function checkProvenance(options) {
   const expectedInstance = instanceFrom(options);
   assertKeys(data.instance, ["name", "apiPort", "vitePort", "cdpPort", "identifier"], "instance");
   if (JSON.stringify(data.instance) !== JSON.stringify(expectedInstance)) throw new Error("recorded instance does not match this dev instance");
-  assertKeys(data.artifacts, ["app", "cli", "frontend"], "artifacts");
+  assertKeys(data.artifacts, ["app", "cli", "frontend", "server", "inventory", "resources"], "artifacts");
   const paths = artifactPaths(options);
   validateArtifact(data.artifacts.app, paths.app, "file", "app", true);
   validateArtifact(data.artifacts.cli, paths.cli, "file", "CLI", true);
   validateArtifact(data.artifacts.frontend, paths.frontend, "tree", "frontend");
+  validateArtifact(data.artifacts.server, paths.server, "file", "server", true);
+  validateArtifact(data.artifacts.inventory, paths.inventory, "file", "inventory");
+  validateArtifact(data.artifacts.resources, paths.resources, "runtime-resources", "resources");
   console.log(`[dev-provenance] matched ${record} at ${data.buildSha}`);
 }
 
@@ -374,12 +393,25 @@ async function terminateOwnedChild(child) {
 }
 
 function readinessSignal(line, apiPort) {
-  return (
-    process.env.CODETERM_TEST_PREBUILT_NEVER_READY !== "1" &&
-    line.includes("REST API generation ") &&
-    line.includes(" health-proven on http://") &&
-    new RegExp(`:${apiPort}(?:\\b|/)`).test(line)
-  );
+  if (process.env.CODETERM_TEST_PREBUILT_NEVER_READY === "1") return false;
+  const prefix = "DOMIOS_DEV_ATTACHMENT ";
+  if (!line.startsWith(prefix)) return false;
+  try {
+    const status = JSON.parse(line.slice(prefix.length));
+    return Object.keys(status).sort().join(",") === "api_address,client_pid,epoch,protocol,server_pid"
+      && status.protocol === 2 && Number.isSafeInteger(status.client_pid) && status.client_pid > 0
+      && Number.isSafeInteger(status.server_pid) && status.server_pid > 0 && status.client_pid !== status.server_pid
+      && typeof status.epoch === "string" && /^[a-f0-9-]{36}$/.test(status.epoch)
+      && [`127.0.0.1:${apiPort}`, `[::1]:${apiPort}`].includes(status.api_address);
+  } catch { return false; }
+}
+
+function checkAttachment(options) {
+  const log = resolve(option(options, "--log"));
+  const stat = lstatSync(log);
+  if (!stat.isFile() || stat.size > 4 * 1024 * 1024) throw new Error("Native attachment log exceeds its bound");
+  const port = option(options, "--api-port");
+  if (!readFileSync(log, "utf8").split(/\r?\n/).some(line => readinessSignal(line, port))) throw new Error("Native attachment readiness is absent");
 }
 
 function disconnectSupervisor() {
@@ -480,7 +512,8 @@ function runRegularPrep() {
 
 const command = process.argv[2];
 try {
-  if (command === "--write-provenance") writeProvenance(parseOptions(process.argv.slice(3)));
+  if (command === "--check-attachment") checkAttachment(parseOptions(process.argv.slice(3)));
+  else if (command === "--write-provenance") writeProvenance(parseOptions(process.argv.slice(3)));
   else if (command === "--check-provenance") checkProvenance(parseOptions(process.argv.slice(3)));
   else if (command === "--check-runtime") checkRuntime(parseOptions(process.argv.slice(3)));
   else if (command === "--supervise-prebuilt") await supervisePrebuilt(parseOptions(process.argv.slice(3)));

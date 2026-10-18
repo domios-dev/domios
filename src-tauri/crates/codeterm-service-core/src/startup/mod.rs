@@ -59,8 +59,8 @@ pub mod runtime_diagnostics;
 pub use frontend_bundles::navigation_index as frontend_bundles_navigation_index;
 pub use frontend_shell::development_frontend as frontend_shell_development_frontend;
 
+pub use cli_install::resolve_bundled_cli_src;
 pub use frontend_shell::{
     fallback_origin as frontend_shell_fallback_origin,
     loopback_origin as frontend_shell_loopback_origin,
 };
-pub use cli_install::resolve_bundled_cli_src;

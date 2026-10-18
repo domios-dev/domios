@@ -1,6 +1,6 @@
 [package]
 name = "domios-server"
-version = "1.14.9"
+version = "0.0.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 
@@ -8,6 +8,7 @@ license = "AGPL-3.0-only"
 workspace = true
 
 [dependencies]
+codeterm-process-identity = { path = "../codeterm-process-identity" }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
 codeterm-api = { path = "../codeterm-api", default-features = false }
 codeterm-socket = { path = "../codeterm-socket", default-features = false }
@@ -45,6 +46,7 @@ widestring = "1"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [build-dependencies]
+serde_json = "1"
 sha2 = "0.10"
 
 [dev-dependencies]

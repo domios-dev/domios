@@ -16,12 +16,37 @@ fn fixture() -> codeterm_host_runtime::app_runtime::App {
 fn authenticated_window(
     app: &AppHandle,
 ) -> Result<codeterm_host_runtime::app_runtime::WebviewWindow, Box<dyn std::error::Error>> {
-    let config = codeterm_service_core::config::schema::ApiConfig {
-        enabled: true,
-        token: Some("fixture-token".into()),
-        ..Default::default()
+    use crate::host_ports::ServerApiAttachmentSlot;
+    use codeterm_types::server_bootstrap::{
+        ProcessProvenance, ServerIdentity, ServerReady, API_VERSION, BOOTSTRAP_PROTOCOL,
     };
-    super::super::frontend_shell::create_window(app, &config)
+    let slot = ServerApiAttachmentSlot::default();
+    slot.install(
+        ServerReady {
+            protocol: BOOTSTRAP_PROTOCOL,
+            api_version: API_VERSION,
+            build: "fixture-build".into(),
+            instance_id: "fixture-instance".into(),
+            identity: ServerIdentity {
+                data: "fixture-data".into(),
+                config: "fixture-config".into(),
+            },
+            epoch: "fixture-epoch".into(),
+            process: ProcessProvenance {
+                pid: 1,
+                created: "fixture-creation".into(),
+                executable: "fixture-server".into(),
+            },
+            api_address: "127.0.0.1:17686".parse().unwrap(),
+            socket_address: "fixture-socket".into(),
+            bootstrap_address: "fixture-bootstrap".into(),
+            resources: "fixture-resources".into(),
+        },
+        "fixture-token".into(),
+    )
+    .unwrap();
+    app.manage(slot);
+    super::super::frontend_shell::create_window(app)
 }
 
 #[test]
