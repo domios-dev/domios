@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {test} from "node:test";
 import vm from "node:vm";
-import {cloudTaskBackend, cloudTaskSnapshot} from "../src/backend";
-import {remoteChatBackend} from "../src/chatBackend";
+import {cloudTaskBackend, cloudTaskSnapshot} from "../src/cloud/backend";
+import {remoteChatBackend} from "../src/cloud/chatBackend";
 import type {RemoteTaskBinding, RemoteTaskCapability, RemoteTaskStorage} from "../../../packages/plugin-sdk/src/remoteTasks";
 
-const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), "utf8"));
+const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./cloud-fixtures/${name}.json`, import.meta.url), "utf8"));
 const capability: RemoteTaskCapability = {
-  backend: "chatgpt-cloud-tasks", localProviderId: "local-fixture", availability: {status: "available"},
+  backend: "chatgpt-cloud-tasks", mode: "cloud", displayName: "Cloud", availability: {status: "available"},
   environments: [{id: "env-fixture", label: "Fixture environment", accountRef: "account-fixture"}], followUp: false, cancel: false, applyDiff: false,
 };
 
@@ -33,7 +33,7 @@ function setup() {
 
 test("fake transport proves create shape, status/diff, restart binding, and explicit refresh", () => {
   const f = setup(); const plugin = f.open();
-  const ctx = {tabId: "tab-fixture", config: {}, preset: "env-fixture"};
+  const ctx = {tabId: "tab-fixture", config: {executionMode: "cloud"}, preset: "env-fixture"};
   plugin.openSession(ctx);
   plugin.sendMessage(ctx.tabId, "Read README title");
   assert.deepEqual(f.calls, [{method: "POST", path: "/wham/tasks", account: "account-fixture", body: {
@@ -66,7 +66,7 @@ test("fake transport proves create shape, status/diff, restart binding, and expl
 
 test("source fixtures project nested diffs, errors, and successful no-diff tasks", () => {
   const f = setup(); const plugin = f.open();
-  plugin.openSession({tabId: "tab-fixture", config: {}, preset: "env-fixture"});
+  plugin.openSession({tabId: "tab-fixture", config: {executionMode: "cloud"}, preset: "env-fixture"});
   plugin.sendMessage("tab-fixture", "Read README");
   const binding = f.storage.read("tab-fixture")!;
   const failed = fixture("task_details_with_error");
@@ -88,17 +88,43 @@ test("built production plugin refuses live access and never touches authenticati
   const context = vm.createContext({module: {exports: {}}, host});
   vm.runInContext(readFileSync(new URL("../plugin.js", import.meta.url), "utf8"), context);
   const plugin = context.module.exports.default;
-  assert.throws(() => plugin.openSession({tabId: "tab-fixture", config: {}}));
-  assert.equal(manifest.capabilities.chatBackend.remoteTask.availability.status, "unavailable");
+  assert.throws(() => plugin.openSession({tabId: "tab-fixture", config: {executionMode: "cloud"}}));
+  assert.equal(manifest.id, "codex");
+  assert.equal(manifest.capabilities.remoteTask.availability.status, "unavailable");
+  assert.equal(manifest.capabilities.agentRuntime.runtime, "stdio-jsonrpc");
+  assert.equal(typeof plugin.runtimePlan, "function");
+  assert.equal(typeof plugin.runtimeReduce, "function");
 });
 
 test("CLI starter task in session config is submitted once and never replayed on reopen", () => {
   const f = setup();
-  const ctx = {tabId: "tab-fixture", config: {}, preset: "env-fixture", systemPrompt: "Read README title"};
+  const ctx = {tabId: "tab-fixture", config: {executionMode: "cloud"}, preset: "env-fixture", systemPrompt: "Read README title"};
   f.open().openSession(ctx);
   f.open().openSession(ctx);
   const creates = f.calls.filter(call => call.method === "POST");
   assert.equal(creates.length, 1);
   assert.equal((creates[0].body as {input_items: {content: {text: string}[]}[]}).input_items[0].content[0].text, ctx.systemPrompt);
   assert.equal(f.storage.read(ctx.tabId)?.snapshot?.taskId, "task_123");
+});
+
+test("the same provider refuses Local and unsupported modes before any Cloud request", () => {
+  const f = setup();
+  for (const config of [{}, {executionMode: "local"}, {executionMode: "foreign"}]) {
+    assert.throws(() => f.open().openSession({tabId: "tab-fixture", config, preset: "env-fixture", systemPrompt: "Never submit"}));
+  }
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.storage.read("tab-fixture"), null);
+});
+
+test("a saved task from a foreign provider refuses restore before remote reads", () => {
+  const f = setup();
+  const ctx = {tabId: "tab-fixture", config: {executionMode: "cloud"}, preset: "env-fixture"};
+  f.open().openSession(ctx);
+  f.open().openSession(ctx);
+  const plugin = f.open(); plugin.openSession(ctx); plugin.sendMessage(ctx.tabId, "Read README");
+  const saved = f.storage.read(ctx.tabId)!;
+  f.storage.compareExchange(ctx.tabId, saved.revision, {...saved, providerId: "foreign-provider", revision: saved.revision + 1});
+  const calls = f.calls.length;
+  assert.throws(() => f.open().openSession(ctx));
+  assert.equal(f.calls.length, calls);
 });

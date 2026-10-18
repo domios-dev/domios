@@ -859,6 +859,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     reasoningEffort?: string,
     preset?: string,
     intent?: SessionLaunchIntent,
+    executionMode?: string,
   ): Promise<SpawnedTab | null> => {
     if (intent === "fresh_general") {
       const guardKey = `${workspaceId}:fresh_general`;
@@ -881,7 +882,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       // activate + focus, picking the transport (PTY vs chat) on the backend.
       const res = await guardedInvoke<AtomicSpawn>("mux_spawn_tab", {
-        params: { agentId, workspaceId, cwd, model, reasoningEffort, ...atomicSpawnPreset(getAgentDescriptor(agentId), preset) },
+        params: { agentId, workspaceId, cwd, model, reasoningEffort, ...atomicSpawnPreset(getAgentDescriptor(agentId), preset, executionMode) },
       });
       applyBackendState(res.snapshot);
       if (res.launch_command) {
