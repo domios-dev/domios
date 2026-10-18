@@ -361,7 +361,7 @@ async function validateAreaPages(root, cases, errors) {
     const contents = await readFile(resolve(directory, file), "utf8");
     const linked = [];
     for (const line of contents.split(/\r?\n/).filter(item => item.trim().startsWith("- "))) {
-      const match = /^\s*-\s+\[(CUR-[0-9]{3})\]\(\.\.\/cases\/(CUR-[0-9]{3}-[a-z0-9-]+)\/case\.md\)\s*$/.exec(line);
+      const match = /^\s*-\s+\[(CUR-[0-9]{3})\]\(\.\.\/cases\/(CUR-[0-9]{3}-[a-z0-9-]+)\/case\.md\)(?:\s+—\s+.+)?\s*$/.exec(line);
       const expectedCase = match ? entriesById.get(match[1])?.case : undefined;
       if (
         !match ||

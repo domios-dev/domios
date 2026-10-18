@@ -2,14 +2,13 @@
 
 ## Purpose
 
-Prove chat timestamps and compact tool-card presentation remain usable at desktop and narrow touch-sized widths without duplicate controls.
+Check composer controls, Stop, attachment placement, and usable chat content at desktop and 390x844 responsive dimensions; keep real-device coverage explicit.
 
 ## Covers
 
-Plan task keys: no plan task key was captured for the legacy layout subcase.
+Plan task keys: task_kkvrw4 for phone composer controls; real-iPhone device coverage is owner-deferred.
 
-Defects: timestamps visible at the wrong widths, expanded tool-card groups, and a duplicate strip of controls. Migrated from chat-send.md step 6.
-
+Defects: Off-row or clipped controls, inaccessible chat actions, or a phone emulation reported as a physical-device result.
 ## Tier
 
 regression
@@ -17,7 +16,7 @@ regression
 ## Surfaces and platforms
 
 - **Surfaces:** phone, web
-- **Platforms:** linux, macos, windows
+- **Platforms:** linux, macos, windows, ios
 - **Providers:** none
 - **Grants:** dev-browser-auth, desktop-viewer, dev-fixture-spawn
 - **Automation:** manual
@@ -25,34 +24,35 @@ regression
 
 ## Preconditions and grants
 
-Use the owned DEV Browser and a disposable chat with at least one completed turn and one compact tool-card group. The phone surface here means responsive browser layout at the specified narrow widths; it does not claim physical iOS or Android coverage.
+Use the current TESTING/DEV procedures and the grants listed in catalogue.json. Every live action uses an owned DEV target through the approved helper boundary; absent grants leave the row NOT RUN or BLOCKED. Never infer readiness from elapsed time.
 
 ## Fixture
 
-Use a harmless provider-independent fixture conversation with a timestamped message and a compact tool-card group. Record the owned page and the measured viewport rather than assuming a requested width was applied.
+Use an owned web chat at desktop size and a 390x844 viewport. Record whether the phone surface is browser emulation or a physical iPhone.
 
 ## Steps
 
-1. Open the owned DEV chat at a desktop viewport of 1440 CSS pixels and observe the message timestamp on hover.
-2. Observe the same chat at touch-sized 768 and 390 CSS pixel widths. Use accessible controls and real pointer/touch behavior; do not infer content from a screenshot alone.
-3. Inspect the compact tool-card group and control strip at each viewport after any active animation has completed.
+1. Inspect composer and attachment controls at desktop and 390x844.
+2. While idle, verify attachment actions remain reachable beside the composer.
+3. While working, verify Stop and attachment controls remain in the expected action row and within the viewport.
+4. Record physical-device checks separately from browser emulation.
 
 ## Oracle
 
-PASS — the timestamp appears on desktop hover and stays hidden at narrow widths; tool cards remain compact and no duplicate control strip appears at all required viewports.
+PASS — Required chat controls remain visible, reachable, and aligned for each selected target; device type is recorded accurately.
 
-FAIL — a timestamp is persistently visible at narrow widths, a control is missing or duplicated, or tool-card grouping expands contrary to the case.
+FAIL — A required control is clipped, misaligned, or unavailable, or emulation is claimed as physical-device proof.
 
-NOT RUN — no owned Browser, authenticated DEV page, matching fixture, or applicable desktop platform is available. Physical phone coverage is NOT RUN unless a device-specific case and grant are supplied.
+NOT RUN — The browser, provider, fixture, viewport, or physical device required by the selected row is unavailable.
 
 ## Evidence to record
 
-Record the case ID, platform, UTC time, build SHA, boot ID, actual viewport dimensions, accessible control names and counts, relevant DOM facts, and screenshot paths actually opened. Mark browser emulation separately from physical-device evidence.
+Record case ID, UTC time, build SHA, boot ID, platform, surface, owned fixture/session IDs, exact action, raw result, far-end state, and opened evidence paths.
 
 ## Cleanup
 
-Close only the owned Browser page and fixture tab. Preserve the fixture conversation until evidence is saved, then remove only the disposable workspace under its owner grant.
+Save evidence first; close only fixtures created by this run. Preserve uncertain operations for classification and never replay them.
 
 ## History of notable runs/defects
 
-Turing's historical report includes timestamp-width and compact tool-card observations; it is a seed only. The comprehensive wave did not execute this layout check. No live run was made for this catalogue change.
+- 2026-10-18 — FAIL — rebuilt-phone-stop-report.md and comprehensive-wave/mobile-controls-permission.json (responsive controls inspected; physical iPhone was unavailable).

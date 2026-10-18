@@ -1,49 +1,43 @@
 # Curated live QA catalogue
 
-These are repeatable operator journeys, not a new automatic build or CI gate. The testing skill owns test-layer policy; these recipes name exact live oracles. No recipe authorizes a restart, production mutation, remote pairing, reset consumption or external message by itself.
+This is a rerunnable operator catalogue, not an automatic build gate. The testing skill owns test-layer policy; each case defines the live oracle and required evidence. A case never authorizes a restart, production mutation, remote pairing, reset consumption, account action, or external message by itself.
 
 ## Catalogue workflow
 
-The catalogue is the only machine-readable listing source. Each indexed case has a stable CUR ID, one case folder, and the fixed sections checked by the validator. The case index carries target metadata; the case document carries its procedure and proof rules. IDs are global and contiguous: keep retired cases in the catalogue with status retired, and never reuse an ID.
+`catalogue.json` is the only machine-readable case listing. Each active or retired case has one stable global `CUR-NNN` ID and one folder. IDs stay ordered and contiguous, are never reused, and remain indexed after retirement. `case.md` carries the procedure; `areas/<area>.md` links cases for human reading. Each migrated legacy recipe is preserved under its case's `assets/legacy-recipe.md`.
 
-The first migration slice splits the chat-send journey into three independent oracles. The original journey file remains as source material until the rest of the migration is approved. The existing Release core table remains intact during this review slice and still names unmigrated journeys; catalogue commands list only the current migration slice. The release checklist is intentionally incomplete.
+```sh
+node evals/qa/tools/catalogue.mjs validate
+node evals/qa/tools/catalogue.mjs list --tier release-core
+node evals/qa/tools/catalogue.mjs list --surface phone --platform windows
+node evals/qa/tools/catalogue.mjs plan 1.14.9
+node evals/qa/tools/catalogue.mjs matrix 1.14.9 target-check/evals/qa/1.14.9/results.json
+node --test evals/qa/tools/*.test.mjs
+```
 
-    node evals/qa/tools/catalogue.mjs validate
-    node evals/qa/tools/catalogue.mjs list --id CUR-001
-    node evals/qa/tools/catalogue.mjs list --tier release-core
-    node evals/qa/tools/catalogue.mjs list --surface phone --platform windows
-    node evals/qa/tools/catalogue.mjs plan 1.14.9
-    node evals/qa/tools/catalogue.mjs matrix 1.14.9 target-check/evals/qa/1.14.9-run/results.json
+Use the wildcard test command on Windows; Node's directory selector `node --test evals/qa/tools` resolves as a module path there. The catalogue tool is local-only and never calls DEV, Browser, or production. Listing filters accept tier, surface, platform, and area. A release plan expands active `release-core` and `regression` cases; exploratory charters remain optional sessions.
 
-An empty providers list means the case does not require a particular provider. Platforms and surfaces describe where a case applies; they are not evidence that it has passed there. A release plan expands each active release-core and regression case into its platform/surface rows. Exploratory charters are listed separately as optional sessions. Every matrix row without an input result remains NOT RUN, including exploratory rows.
-
-Run evidence belongs under target-check/evals/qa/<stamp>/<CUR-id>/, never under a case folder. The row shape is defined in results.schema.json. Pass one or more results files to matrix; each file is an envelope with run_stamp and results. A result is one exact case/platform/surface row. Overlapping result files are refused so a release row has one selected result. Use only PASS, FAIL, NOT RUN, BLOCKED, or OWNER-SKIPPED. PASS and FAIL require evidence. NOT RUN and BLOCKED require a reason. OWNER-SKIPPED requires notes beginning with “Owner decision:” so the release record retains the scope-out decision.
-
-The old manifest.json hash inventory is replaced by catalogue validation: the index is checked against case folders, fixed sections, metadata, and area pages.
-
-Area pages mirror the IDs in catalogue.json. The validator checks that each area page matches its indexed cases, that catalogue fields agree with each case document, and that every case folder is indexed.
+Platforms and surfaces describe the target, not proof of a pass. Results belong under `target-check/evals/qa/<stamp>/<CUR-id>/` with a `results.json` envelope beside them. `results.schema.json` defines the row shape. `matrix <version>` merges supplied results, refuses duplicate target rows, and fills missing rows as `NOT RUN`. Cases never contain verdict tables. The only verdicts are `PASS`, `FAIL`, `NOT RUN`, `BLOCKED`, and `OWNER-SKIPPED`. PASS/FAIL require evidence; NOT RUN/BLOCKED require a reason; OWNER-SKIPPED notes begin `Owner decision:` and are repeated in the matrix scope-out table. NOT RUN is never converted to PASS.
 
 ## Release core
 
-Run this bounded subset once on the final release candidate under the Orchestrator's serialized QA grant. Record each row independently. A required NOT RUN leaves release acceptance incomplete. Sign-in is mandatory before release; a local-provider login, backend fixture or a synthetic challenge cannot replace it.
+Run each required row on the release candidate under the Orchestrator's serialized QA grant. A required NOT RUN leaves that acceptance row incomplete. Sign-in remains mandatory before release. Optional integrations require an explicit owner scope-out in the release matrix.
 
-| Journey | Required core slice | Extra scope needs a separate grant |
+| Case | Required slice | Extra scope needs a separate grant |
 |---|---|---|
-| [sign-in](sign-in.md) | Installed Firebase: genuine app-generated challenge, password sign-in, same UID, account UI, sign-out; current supported negatives | Owner restart for saved-credential recovery; production account surface only |
-| [chat-send: delivery](cases/CUR-001-chat-send-once/case.md), [Stop](cases/CUR-002-chat-stop/case.md), [responsive affordances](cases/CUR-003-chat-responsive/case.md) | Owned Codex runtime and Claude PTY: one submitted input, one own-session turn, final answer and one visible bubble; Stop stays interrupted after view reload | Heavy turns, memory pressure, provider subagents |
-| [images](images.md) | PNG/JPEG reach own session exactly once and model describes an opaque image fact; pending/failure does not duplicate text | Physical iOS/HEIC/pickers and injected HTTP failures |
-| [browser](browser.md) | Real form, state flags, stale refs, explicit event wait and deadline, clean profile restrictions; selection through viewer | Held-network, iframe and popup adversarial slices |
-| [Codex usage/reset](codex-usage-reset.md) | Raw own-runtime balance matches Account credits; reset count/expiry separate; open confirmation, CANCEL, zero consume requests | No recipe permits confirming a reset |
-| [worker kinds](worker-kinds.md) | One dispatched Worker ACK/report and one task-less tester report; unrelated review refused, handed review accepted/bounced with far-end evidence | Hostile sandbox probes and expanded role matrix |
-| [restart/restore](restart-restore.md) | Owner restart: bound Worker keeps task/attempt/session and can report; idle retained tabs remain frozen until visited/input | Busy shutdown and upgrade cycle |
-| [Telegram](telegram.md) | Owner-authorized inbound and reply: exact recipient/thread and one persisted answer | Bot/poller transfer, topic deletion, main-chat production smoke |
-| [mesh/jobs](mesh-and-jobs.md) | Local manual and scheduled job persisted result plus Jobs UI; mesh read-only peer inventory when configured | Pairing/restarts/remote mutation and timing parity |
+| [CUR-012 sign-in](cases/CUR-012-installed-sign-in/case.md) | Installed Firebase sign-in, same account, Account UI, and sign-out | Owner restart and protected negative-redeem fixtures |
+| [CUR-001 delivery](cases/CUR-001-chat-send-once/case.md), [CUR-002 Stop](cases/CUR-002-chat-stop/case.md) | Owned Codex and Claude sessions, exact own-session turns, one visible row, Stop persistence | Heavy turns, memory pressure, provider subagents |
+| [CUR-004 images](cases/CUR-004-image-attachment/case.md) | PNG/JPEG bytes reach the intended session with expected opaque fixture fact | Physical iOS/HEIC/pickers and injected upload failure |
+| [CUR-009 Codex balance/reset](cases/CUR-009-codex-balance-reset-cancel/case.md) | Own balance, reset count/expiry, and Cancel with zero consume requests | Confirming a reset is never authorized |
+| [CUR-010 worker reporting](cases/CUR-010-worker-reporting-handoff/case.md) | Assigned ACK/report and task-less report with explicit review handoff | Hostile sandbox probes and expanded role matrix |
+| [CUR-011 restart/restore](cases/CUR-011-restart-restore-continuity/case.md) | Owner-authorized task/session continuity and no unintended thaw/replay | Busy shutdown and upgrade cycle |
+| [CUR-013 Telegram](cases/CUR-013-telegram-routed-reply/case.md) | Owner-authorized real inbound and far-end reply in the intended thread | Bot/poller transfer, topic deletion, main-chat smoke |
+| [CUR-014 jobs/mesh](cases/CUR-014-mesh-jobs-and-inventory/case.md) | Persisted manual/scheduled results and read-only peer inventory | Pairing, remote mutation, or schedule changes outside owned fixtures |
+| [CUR-015 Codex update](cases/CUR-015-codex-update-handoff/case.md) | When updater/runtime restart changes are in release scope: installed binary, runtime migration, and exact-session handoff | Owner update grant and installed package |
 
-The owner must explicitly scope an unavailable optional integration out of a particular release; do not silently relabel NOT RUN as PASS. Keep the core small, and add a case when a concrete escaped defect justifies its recurring cost. Broad suites and compilation remain separate, owner-run gates.
+## Execution and evidence rules
 
-## Start and evidence
-
-Read `.agents/skills/testing/SKILL.md`, `.agents/skills/dev-testing/SKILL.md`, `codeterm docs BROWSER` and each journey's owning docs. The current repository bench library overrides stale dev-testing connection advice. From Git Bash in canonical:
+Read `.agents/skills/testing/SKILL.md`, `.agents/skills/dev-testing/SKILL.md`, `codeterm docs BROWSER`, and each selected case's owning docs. The repository bench library overrides stale connection advice. From Git Bash:
 
 ```bash
 unset CODETERM_CLI_PATH
@@ -53,34 +47,24 @@ qa_run health dev_get /api/health
 qa_run topology dc tab list
 ```
 
-Set `QA_OUT` to a new run directory before sourcing the logger. Every DEV command is `dc`, `dev_get` or `dev_run`; never inherit a host/prod caller. Use `dc --as-tab "$OWNER"` and `dev_run --as-tab "$OWNER"` only after recording a real, owned DEV agent. Host tab IDs are not DEV identities. A task-less tester may create fixture agents only with the parent's explicit grant. New agent titles are one word and `--description` is required. Bodies live in the caller's pad and use `--task-file`/`--from-pad`; never interpolate them into shell arguments.
+Set `QA_OUT` to a new run directory before sourcing the logger. Every DEV action uses `dc`, `dev_get`, `dev_post`, or `dev_run`; never inherit a host or production caller. Record an actual owned DEV identity before using it. Host tab IDs are not DEV identities. Bodies live in a pad and use `--task-file` or `--from-pad`; never interpolate them into shell arguments.
 
-Before action, pin expected health build, boot ID, port and provider/plugin provenance. A restored process or a source manifest is not proof of the active plugin version. Keep an ownership manifest of workspace, Team, tabs, sessions, binding nonce, jobs, Browser targets, processes and files. Capture state before any tab visit that might thaw it.
+Pin build SHA, boot ID, API port, and provider/plugin provenance before action. Keep an ownership manifest for workspaces, Teams, tabs, sessions, jobs, Browser targets, processes, and files. Each result includes UTC time, exact action, raw result, IDs, far-end state, opened evidence path, verdict, scope, and cleanup. A request, ACK, HTTP 200, screen echo, or source fact alone does not prove the far end.
 
-Each evidence row includes: journey/subcase; UTC time; build/boot; fixture/tab/session/thread/turn/send/run IDs; exact action once; raw exit/HTTP status; relevant redacted JSON; DOM fact; screenshot absolute path actually opened; verdict; remaining scope; cleanup. A request/ACK/200 alone never proves its far end. Record the real response schema; do not infer user-turn counts from a screenshot or echoed prompt.
+`PASS` requires fresh far-end proof for every selected subcase. `FAIL` records an executed mismatch. `NOT RUN` records no valid execution, including missing device or capability. `BLOCKED` records an external prerequisite that stopped a planned case. `OWNER-SKIPPED` records a release scope-out decision. A failed driver is not a verified product failure until its input and target are proven. Repairs need a new result; preserve the old failure.
 
-PASS means every required subcase has fresh far-end proof. FAIL means an executed mismatch. NOT RUN means no valid execution, including missing account, capability, physical device or lifecycle grant. BLOCKED means an external prerequisite stopped an otherwise planned case. OWNER-SKIPPED means the owner recorded an explicit release scope-out decision. These five verdicts are the complete vocabulary; a failed test driver is not verified until its input/target is proven. A later repair needs a new run; preserve the old failure. Source facts, executed results and hypotheses are separate fields.
-
-No sleeps, settle delays, polling intervals or blind retries. Wait on own-session events, process exit, DOM mutation, animation completion or acknowledged protocol state under a failure deadline. A timeout is failure, never readiness. Never replay held/written/uncertain sends or callbacks.
+Wait on own-session events, process exit, DOM mutation, animation completion, or acknowledged protocol state under a failure deadline. No sleeps, settle delays, polling intervals, blind retries, or replay of a held/written/uncertain send. A timeout is not readiness.
 
 ## Secret and production boundary
 
-The generic tools in this draft refuse production. Sign-in is a separately authorized installed-production recipe: port 7685 is permitted only for that account grant, and prod is never killed. Secret-store values, tokens, challenge/verifier/state/code and email/UID remain in process memory. Do not capture credentials in argv, logs, pads, screenshot chrome, page titles or reports. Filter both the URL and its duplicated page-title prefix. Report UID equality as `same_uid=true`, never the UID. Avoid logging secret-store get stdout.
-
-## Provenance and current limits
-
-Sources read: Elgar's copied `turing-ledger.md` and Keel's `tester-handoff.md` under his host pad, plus Joy's executed checks. Turing's original pad was deleted; the copied ledger is a summary, not raw per-step evidence. Historical PASSes below seed recipes and never satisfy a future release run.
-
-Joy's DEV run: build a73199a03, boot95122e98c4544689af68c465060c17d6; owned workspace f661d088, Codex31db53e0/session01a14a91-d472-7c41-8930-21dfaf26ac5d, Browser19cb9a31, serverfee60b0a. All were cleaned; server PID35656 exited and the empty provisioned directory was removed. Screenshots/results were copied to Joy's host pad before cleanup.
-
-The DEV helpers described in [tools](tools/README.md) are generalized drafts of the used helpers. Syntax checks are not live revalidation of generalized parameters. Existing `evals/core-journeys` is a separate, restart-capable named-instance bench; its authorization and ports apply only to its own run. Older restore docs mentioning Playwright do not override the current suspension.
+The generic tools refuse production. Sign-in is a separately authorized installed-production recipe: port 7685 is permitted only for that exact account grant, and production is never killed. Secret-store values, tokens, challenge/verifier/state/code, and email/UID stay in process memory. Never capture credentials in argv, logs, pads, screenshots, page titles, or reports. Filter URLs and duplicated page-title prefixes; report UID equality as `same_uid=true`, never the UID.
 
 ## Practices adopted
 
-1. VS Code endgame test-plan items link verification work to defects and assign platform-specific checks. We adopt stable case IDs, task-key coverage, and explicit platform rows; the catalogue stays small and does not copy the endgame staffing schedule. [VS Code endgame testing](https://github.com/microsoft/vscode/wiki/Endgame-testing-and-verification)
-2. Chromium and Mozilla manual test cases state what is tested, the actions, and the expected result. We adopt fixed procedure sections and explicit PASS/FAIL/NOT RUN oracles with evidence requirements. [Chromium test cases](https://www.chromium.org/for-testers/test-cases/), [Mozilla manual testing](https://blog.mozilla.org/fxtesteng/2014/09/02/web-qa-manual-testing/)
-3. Kubernetes marks a curated conformance subset of its broader end-to-end tests. We adopt tiers and filters so a release-core subset can be selected without calling this catalogue an automated conformance suite. [Kubernetes future-conformance proposal](https://www.kubernetes.dev/resources/keps/5922/)
-4. Playwright tags and annotations support selection and issue context. We adopt structured tier/surface/platform filters and a Covers section that points back to tasks and defects; we do not adopt Playwright-specific syntax. [Playwright annotations](https://playwright.dev/docs/test-annotations)
-5. Session-based test management gives exploratory work a charter and a reviewable session report. Exploratory cases therefore name a mission, time box, heuristics, findings, and how a fixed defect becomes a regression case. [Bach, Session-Based Test Management](https://www.satisfice.us/articles/sbtm.pdf)
+1. VS Code endgame test-plan items link verification to defects and platforms. We use stable IDs, task-key coverage, and platform rows, without copying the staffing schedule. [VS Code endgame testing](https://github.com/microsoft/vscode/wiki/Endgame-testing-and-verification)
+2. Chromium and Mozilla manual cases define actions and expected outcomes. We use fixed sections, explicit PASS/FAIL/NOT RUN oracles, and evidence rules. [Chromium test cases](https://www.chromium.org/for-testers/test-cases/), [Mozilla manual testing](https://blog.mozilla.org/fxtesteng/2014/09/02/web-qa-manual-testing/)
+3. Kubernetes separates a curated conformance subset from broader end-to-end tests. We use release-core/regression tiers without calling this catalogue an automated conformance suite. [Kubernetes conformance proposal](https://www.kubernetes.dev/resources/keps/5922/)
+4. Playwright annotations support selection and issue context. We use structured tier/surface/platform filters and task/defect coverage, without copying framework syntax. [Playwright annotations](https://playwright.dev/docs/test-annotations)
+5. Session-based testing uses a mission, time box, heuristics, and reviewable findings. Exploratory cases therefore explain how a confirmed fixed defect becomes a regression case. [Bach, Session-Based Test Management](https://www.satisfice.us/articles/sbtm.pdf)
 
-This checkout has no project references/ directory. The upstream reference agent and a reference agent examples were also checked as comparisons: their test ownership and fixture setup are useful context, but no framework or copied test runner is introduced here. [reference agent E2E guide](https://example.org/reference), [a reference agent testing guidance](https://github.com/a reference agent/a reference agent/blob/main/AGENTS.md)
+The canonical checkout has an untracked `references/` collection including a reference agent, reference agent, a reference agent, WezTerm, and reference-app; task lanes may not see it. A read-only glance at `references/mesh/e2e` and a reference agent focused-test guidance suggested no additional catalogue practice worth adopting. Those trees are comparison material, not dependencies. The five practices above remain the adopted set. [reference agent E2E guide](https://example.org/reference), [a reference agent testing guidance](https://github.com/a reference agent/a reference agent/blob/main/AGENTS.md)

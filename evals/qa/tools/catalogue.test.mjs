@@ -152,7 +152,19 @@ function resultRow(overrides = {}) {
 
 test("validates the pilot catalogue and its case folders", async () => {
   const result = await validateCatalogue(QA_ROOT);
-  assert.deepEqual(result, { total: 3, active: 3, retired: 0, areas: 1 });
+  assert.deepEqual(result, { total: 47, active: 47, retired: 0, areas: 12 });
+});
+
+test("area pages may show the indexed case title after its ID link", async t => {
+  const root = await createFixture([defaultCase()]);
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const areaPath = join(root, "areas", "messaging.md");
+  await writeFile(
+    areaPath,
+    "# messaging\n\n- [CUR-001](../cases/CUR-001-basic-delivery/case.md) — Basic delivery\n"
+  );
+  const result = await validateCatalogue(root);
+  assert.equal(result.total, 1);
 });
 
 test("lists cases by tier, surface, platform, and area", async t => {
