@@ -207,7 +207,7 @@ fn spawned_worker_receives_the_codeterm_primer() {
 }
 
 #[test]
-fn every_spawned_recipient_receives_the_routing_contract_once() {
+fn every_spawned_recipient_receives_the_complete_routing_contract_once() {
     let contract = crate::prompts::AGENT_ROUTING_CONTRACT.trim();
     assert!(!contract.is_empty());
 
