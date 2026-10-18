@@ -7,6 +7,7 @@ import { createFrontendUpdateClient, createSwapController, preparePageReload, ty
 import type { ClientCheckpoint } from "./checkpoint";
 import {
   initialSwapState,
+  type CheckpointSnapshot,
   type FrontendUpdateConnection,
   type Release,
   type Safety,
@@ -18,10 +19,15 @@ export const BOOT_CONTEXT_KEY = "codeterm.frontend.boot";
 
 export interface FrontendSignals {
   checkpoint(): ClientCheckpoint;
-  hydrate(checkpoint: ClientCheckpoint): void;
+  checkpointView(): CheckpointSnapshot;
+  hydrate(checkpoint: ClientCheckpoint | CheckpointSnapshot): void;
   safety(): Safety;
-  subscribe(listener: (change: "checkpoint" | "safety") => void): () => void;
+  subscribe(listener: (change: FrontendSignalChange) => void): () => void;
 }
+
+export type FrontendSignalChange =
+  | { type: "checkpoint"; checkpoint: CheckpointSnapshot }
+  | { type: "safety"; safety: Safety };
 
 interface FrontendStatus {
   apiVersion: number;
@@ -56,11 +62,11 @@ export function updateOffer(state: SwapState): FrontendUpdateOffer | null {
 export async function initializeFrontendUpdateRuntime(client: TransportClient, options: FrontendRuntimeOptions) {
   const api = createFrontendUpdateClient({ json: (method, path, body) => client.localJson(method, path, body, { signal: AbortSignal.timeout(5000) }) }, options.clientId);
   const restored = await api.checkpoint().catch(error => { throw new FrontendUpdateError("checkpoint-unavailable", error); });
-  options.signals.hydrate(options.boot && restored ? restored.payload : options.signals.checkpoint());
+  options.signals.hydrate(options.boot && restored ? restored.payload : options.signals.checkpointView());
   const status = await client.localJson<FrontendStatus>("GET", "/api/frontend/status", undefined, { signal: AbortSignal.timeout(5000) })
     .catch(error => { throw new FrontendUpdateError("status-unavailable", error); });
   if (!frontendApiCompatible(status.apiVersion)) throw new FrontendUpdateError("api-incompatible");
-  const controller = createSwapController(initialSwapState(status.apiVersion, options.signals.checkpoint(), options.signals.safety(), restored?.revision ?? 0), api, ticket => {
+  const controller = createSwapController(initialSwapState(status.apiVersion, options.signals.checkpointView(), options.signals.safety(), restored?.revision ?? 0), api, ticket => {
     const token = client.currentToken();
     if (!token) { options.onError(new Error("Frontend reload requires daemon credentials")); return; }
     preparePageReload({ apiOrigin: client.origin(), token, clientId: options.clientId, ticket,
@@ -69,8 +75,8 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
   const setConnection = (connection: FrontendUpdateConnection) => controller.dispatch({ type: "connection", status: connection });
   controller.dispatch({ type: "hold", held: options.held?.() === true });
   const stopSignals = options.signals.subscribe(change => {
-    if (change === "checkpoint") controller.dispatch({ type: "edited", checkpoint: options.signals.checkpoint() });
-    else controller.dispatch({ type: "safety", safety: options.signals.safety() });
+    if (change.type === "checkpoint") controller.dispatch({ type: "editedSnapshot", checkpoint: change.checkpoint });
+    else controller.dispatch({ type: "safety", safety: change.safety });
   });
   const updateStatus = (next: FrontendStatus) => {
     if (!frontendApiCompatible(next.apiVersion)) {
@@ -126,7 +132,7 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
   updateStatus(status);
   let rendered = false;
   return {
-    snapshot: controller.snapshot,
+    snapshot: () => structuredClone(controller.snapshot()) as Omit<SwapState, "checkpoint"> & { checkpoint: ClientCheckpoint },
     hold(held: boolean) { controller.dispatch({ type: "hold", held }); },
     consent() { controller.dispatch({ type: "consent" }); },
     rootRendered() {
