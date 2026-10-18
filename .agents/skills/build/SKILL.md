@@ -1382,6 +1382,13 @@ the real crate check; a tiny fixture alone does not cover Windows argument limit
 
 ## Independent server process oracle
 
+If the extracted server build reports `bundled plugins directory is missing`,
+check the server build script's app-manifest input before rebuilding: it must
+canonicalize `CARGO_MANIFEST_DIR/../..` before the shared bundler takes `parent()`.
+Taking the parent of a literal trailing `..` selects `src-tauri/crates/plugins`
+instead of the repository `plugins/` directory. Source review caught and fixed
+this extraction path error; no native build failure was executed in that lane.
+
 Parent canonical Team QA owns all Rust and native execution for this slice:
 
 ```bash
