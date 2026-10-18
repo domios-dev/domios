@@ -1,6 +1,4 @@
-use super::enrollment::{
-    enroll, verify_client_process, verify_component, EnrollmentPolicy, VerifiedClientProcess,
-};
+use super::enrollment::{enroll, verify_component, EnrollmentPolicy, VerifiedClientProcess};
 use super::transport::{
     NativeHostBindError, NativeHostEndpoint, NativeHostServer, Pending, Session, SessionState,
 };
@@ -51,9 +49,41 @@ fn connection(generation: u64) -> NativeHostConnection {
     }
 }
 
+fn fixture_client_identity(digest: String) -> codeterm_types::server_bootstrap::ClientIdentity {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = digest;
+        codeterm_types::server_bootstrap::ClientIdentity::MacosDesignatedRequirement {
+            requirement: r#"anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "ABCDE12345""#.into(),
+            team_id: "ABCDE12345".into(), identifier: "com.codeterm.app".into(),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        codeterm_types::server_bootstrap::ClientIdentity::Sha256 { sha256: digest }
+    }
+}
+
 fn server_fixture(path: PathBuf, bytes: &[u8]) -> (ServerComponentManifest, ServerReady) {
+    #[cfg(target_os = "macos")]
+    let path = {
+        let contents = path.parent().unwrap().join("CodeTerm.app/Contents");
+        fs::create_dir_all(contents.join("MacOS")).unwrap();
+        fs::create_dir_all(contents.join("Resources")).unwrap();
+        contents.join("MacOS/domios-server")
+    };
     fs::write(&path, bytes).unwrap();
     let executable = path.canonicalize().unwrap();
+    #[cfg(target_os = "macos")]
+    let resource_root = path
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("Resources")
+        .canonicalize()
+        .unwrap();
+    #[cfg(not(target_os = "macos"))]
     let resource_root = path.parent().unwrap().canonicalize().unwrap();
     let identity = connection(1).identity;
     let process = ProcessProvenance {
@@ -64,9 +94,13 @@ fn server_fixture(path: PathBuf, bytes: &[u8]) -> (ServerComponentManifest, Serv
     let manifest = ServerComponentManifest {
         schema: SERVER_COMPONENT_SCHEMA,
         server_build: "server-build-a".into(),
-        server_executable: path.file_name().unwrap().into(),
+        server_executable: if cfg!(target_os = "macos") {
+            PathBuf::from("../MacOS/domios-server")
+        } else {
+            path.file_name().unwrap().into()
+        },
         server_sha256: digest(bytes),
-        client_sha256: "a".repeat(64),
+        client_identity: fixture_client_identity("a".repeat(64)),
         api_version: API_VERSION,
         bootstrap_protocol: BOOTSTRAP_PROTOCOL,
     };
@@ -92,7 +126,8 @@ fn client_sha256() -> String {
 
 fn verified_client(policy: &EnrollmentPolicy) -> VerifiedClientProcess {
     let process = PinnedProcess::open(std::process::id()).unwrap();
-    verify_client_process(&process, policy).unwrap()
+    let _ = policy;
+    VerifiedClientProcess::for_enrollment_fixture(process.provenance().unwrap())
 }
 
 fn policy(
@@ -102,7 +137,8 @@ fn policy(
 ) -> EnrollmentPolicy {
     EnrollmentPolicy {
         challenge: NativeHostChallenge::new(connection),
-        client_sha256,
+        client_identity: fixture_client_identity(client_sha256),
+        resources: std::env::current_dir().unwrap(),
         allowed_view_origins,
     }
 }
@@ -170,6 +206,40 @@ fn native_update_executor_is_unavailable_without_an_active_enrollment() {
 }
 
 #[test]
+fn headless_inventory_verifies_flat_server_but_never_binds_native_host() {
+    let directory = tempfile::tempdir().unwrap();
+    let bytes = b"headless server fixture";
+    let (mut manifest, mut ready) = server_fixture(directory.path().join("initial.bin"), bytes);
+    let relative = if cfg!(windows) {
+        "domios-server/domios-server.exe"
+    } else {
+        "domios-server/domios-server"
+    };
+    let root = directory.path().canonicalize().unwrap();
+    let executable = root.join(relative);
+    fs::create_dir_all(executable.parent().unwrap()).unwrap();
+    fs::write(&executable, bytes).unwrap();
+    manifest.client_identity = codeterm_types::server_bootstrap::ClientIdentity::None;
+    manifest.server_executable = relative.into();
+    ready.resources = root.clone();
+    ready.process.executable = executable;
+    assert!(verify_component(&manifest, &ready, &root).is_ok());
+    assert!(matches!(
+        NativeHostServer::<NativeUpdateRequest, NativeUpdateResult>::bind(
+            ready.clone(),
+            manifest.clone(),
+            HashSet::new()
+        ),
+        Err(NativeHostBindError::InventoryRejected(_))
+    ));
+    manifest.server_executable = "../MacOS/domios-server".into();
+    assert!(verify_component(&manifest, &ready, &root).is_err());
+    manifest.server_executable = relative.into();
+    manifest.server_sha256 = "f".repeat(64);
+    assert!(verify_component(&manifest, &ready, &root).is_err());
+}
+
+#[test]
 fn component_manifest_pins_server_protocol_build_path_and_bytes() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("server-fixture.bin");
@@ -233,7 +303,7 @@ fn update_request_and_connection() -> (NativeUpdateRequest, NativeHostConnection
         server_build: "server-build-a".into(),
         server_executable: manifest_executable,
         server_sha256: "a".repeat(64),
-        client_sha256: "b".repeat(64),
+        client_identity: fixture_client_identity("b".repeat(64)),
         api_version: API_VERSION,
         bootstrap_protocol: BOOTSTRAP_PROTOCOL,
     };
@@ -257,7 +327,7 @@ fn update_request_and_connection() -> (NativeUpdateRequest, NativeHostConnection
             },
         },
         staged_components: ServerComponentManifest {
-            client_sha256: "c".repeat(64),
+            client_identity: fixture_client_identity("c".repeat(64)),
             ..components
         },
         restart_authorized: false,
@@ -417,15 +487,16 @@ fn native_host_frame_round_trips_typed_observation_variants() {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 #[test]
 fn client_process_must_match_manifest_digest() {
     let process = PinnedProcess::open(std::process::id()).unwrap();
     let allowed = HashSet::new();
     let mut trusted = policy(connection(1), client_sha256(), allowed.clone());
-    assert!(verify_client_process(&process, &trusted).is_ok());
+    assert!(super::enrollment::verify_client_process(&process, &trusted).is_ok());
 
-    trusted.client_sha256 = "c".repeat(64);
-    assert!(verify_client_process(&process, &trusted).is_err());
+    trusted.client_identity = fixture_client_identity("c".repeat(64));
+    assert!(super::enrollment::verify_client_process(&process, &trusted).is_err());
 }
 
 #[test]

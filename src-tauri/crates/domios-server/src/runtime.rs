@@ -168,17 +168,30 @@ pub fn run(
         })
     })?;
     log::debug!("[bootstrap] native listener binding started");
-    let native_server = native_inventory
-        .map(|manifest| {
+    let native_server = match native_inventory {
+        Some(manifest)
+            if matches!(
+                manifest.client_identity,
+                codeterm_types::server_bootstrap::ClientIdentity::None
+            ) =>
+        {
+            crate::native_host::verify_component(&manifest, &ready, &ready.resources)
+                .map(|_| None)
+                .map_err(crate::native_host::NativeHostBindError::InventoryRejected)
+        }
+        Some(manifest) => {
             let origins = codeterm_service_core::startup::frontend_shell_declared_frontend_origins(
                 &running.states.config.lock().api,
                 frontend_dev_url.as_ref(),
             )
             .into_iter()
             .collect();
-            runtime.block_on(async { NativeServer::bind(ready.clone(), manifest, origins) })
-        })
-        .transpose();
+            runtime
+                .block_on(async { NativeServer::bind(ready.clone(), manifest, origins) })
+                .map(Some)
+        }
+        None => Ok(None),
+    };
     let native_server = match optional_native_listener(native_server) {
         Ok(server) => server,
         Err(error) => {
