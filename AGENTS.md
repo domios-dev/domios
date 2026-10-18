@@ -15,6 +15,7 @@
 
 ## Hard rules
 
+- Embedded agent prompts teach Domios usage and general working rules. Keep this repository's development commands, source paths and machine setup in project instructions or skills.
 - **English only** in code, comments, commit messages.
 - **No external user base yet** — this is Andrey's personal project. No backward-compat shims, no migration paths. Breaking changes are fine. Delete legacy aggressively. When in doubt, rewrite rather than patch.
 - **Never kill prod Domios.** Prod = port 7685, dev = port 7686. See *Process safety* below.
@@ -156,19 +157,10 @@ Prefer cached SCIP indexes for definitions, references, and implementation graph
 
 ## GitHub and release
 
-Issue and commit titles use `<scope>: description` (`fix`, `feat`, `mem`, `mesh`, `research`, `docs`, `build`), never bracket tags. Release work must load `.agents/skills/github-release/SKILL.md`; build-farm details live in `.codeterm/build-machine/README.md`; the human-readable runbook (preflight, trigger tag, artifact matrix, troubleshooting) is `.agents/skills/github-release/SKILL.md`. Never direct-push `master`, move published tags, or release from an unverified head.
-
-**CLI contract changes require a consumer audit.** Review and update affected docs, prompts, skills, cards/examples, and contract tests; never change Clap syntax, output, or behavior in isolation.
-
-**Name the issue you were working on — in the commit AND in the PR.** Work that
-came from an issue says so, so the issue's history shows the change that closed
-it without anyone reconstructing the link later. Put a GitHub closing keyword in
-the body — `Closes #N` (or `Closes owner/repo#N` across repositories) — in the
-commit that carries the fix and in the PR that merges it. This applies to every
-repository, this one and the plugin repos alike. Referencing an issue you did not
-fix is worse than none: use `Refs #N` for context, never a closing keyword.
-
-PRs that target a non-default integration branch declare each fixed source-repo issue with one exact line: `Repository-Issue: rollacode/codeterm#N`. Do not use `Closes`/`Fixes` there: GitHub ignores closing keywords outside the default branch. Before opening the final `release/X.Y.Z` → `master` PR, render those declarations with `python3 scripts/release_issue_contract.py repository-closes --body-file <release-pr-body.md>` and put the resulting `Closes #N` lines in the final PR body. Public `codeterm-releases` issues remain separate `Public-Issue:` metadata and close only after verified artifact publication; see `.agents/skills/github-release/SKILL.md`.
+- Issue and commit titles use `<scope>: description`, never bracket tags.
+- Load `.agents/skills/github-release/SKILL.md` for release and issue-linking procedures. Never direct-push `master`, move published tags, or release an unverified head.
+- Link fixed issues in both commit and PR; use `Refs` for context only. Integration PRs use `Repository-Issue`, final release PRs use generated closing keywords, and public issues close only after verified publication; details are in the release skill.
+- For CLI contract changes, load `.agents/skills/cli-contributor/SKILL.md` and update affected docs, prompts, skills, examples and contract tests.
 
 ## Documentation
 
@@ -179,4 +171,4 @@ Read `essences/begin_here.md` before editing any doc. Bump the `<!-- revision: N
 - `prod-docs/` — exactly the docs embedded in the binary and read with `codeterm docs <NAME>`, one `prod-docs/<NAME>.md` per registry entry: for example `prod-docs/API.md`, `prod-docs/CONFIG.md`, `prod-docs/MESH.md`, `prod-docs/MEMORY.md`, `prod-docs/TAB-LIFECYCLE.md`. Its audience is a production agent using Domios; a doc about Domios's own source (prompt sources, detection internals, file layout) is useless there because that agent cannot edit the binary, so it lives in `.agents/skills/` or `essences/`.
 - `.agents/skills/` — step-by-step procedures (dev run, dev testing, gates, release, prompt evaluation, lane cleanup); not a docs area.
 
-<!-- revision: 44 -->
+<!-- revision: 45 -->

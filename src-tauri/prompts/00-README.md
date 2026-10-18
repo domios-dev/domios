@@ -189,6 +189,10 @@ Reusable operations belong in embedded docs or folder skills; machine-local pref
 Task `test_plan` is the Worker's focused evidence. `qa_plan` is the independent
 Orchestrator oracle and falls back to `test_plan` only when omitted.
 
+## Product and repository boundary
+
+Embedded prompts describe Domios capabilities and general agent behavior. This repository's build commands, source paths, machine setup and documentation budgets belong in project instructions or skills. Tool-specific runtime contracts remain valid; do not replace them with assumptions about another project. Frozen `seed/legacy_1_10_7/` payloads are recognition fixtures, not current guidance.
+
 ## Loading flow
 
 ```
