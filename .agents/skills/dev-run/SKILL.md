@@ -530,3 +530,14 @@ Bench target checks accept empty server GUI fields only with the selected schema
 DEV provenance/build/instance record; existing CLI/data/config/socket isolation remains.
 Neither launch reporting nor bench identity claims renderer paint, browser login or an
 active CDP endpoint. Those require observations on their own selected client surface.
+
+### Streaming replay inspection rejects blank server GUI properties
+
+The streaming-soak consumer previously required server identifier/Vite/CDP fields and
+forced external Browser targets onto Vite. Split DEV inspection now reads the selected
+schema3 provenance and pins full server build/name/API identity, then admits only the
+explicit Browser target at the API-served DEV origin. It hashes actual served HTML and
+entry script bytes. Target/socket/renderer PID/incarnation/native-bridge refusals remain.
+Legacy combined-role target checks stay strict. Split native inspection returns locator
+unavailable rather than inventing CDP from client configuration or blank server fields.
+Parent Browser authentication and live fixture work remain separate authorized steps.
