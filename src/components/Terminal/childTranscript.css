@@ -16,3 +16,10 @@
 .ct-provider-update { display: inline-flex; width: fit-content; max-width: 100%; min-height: 28px; height: auto; gap: 7px; padding: 3px 5px 3px 10px; margin-bottom: 8px; border-radius: 999px; --ct-ctx-kind: var(--ct-accent); }
 .ct-provider-update__message { min-width: 0; font-size: 12px; color: var(--ct-muted-fg); overflow-wrap: anywhere; }
 .ct-provider-update-slot { margin-inline: max(0.5rem, calc((100% - var(--ct-chat-readable-width) - 2rem) / 2)); }
+.ct-background-commands { display: flex; flex-wrap: wrap; align-items: start; gap: 6px; margin: 0; padding: 0; list-style: none; --ct-ctx-kind: var(--ct-accent); }
+.ct-background-command { min-width: 0; max-width: 100%; }
+.ct-background-command .ct-ctx-bubble__title { max-width: 12rem; }
+.ct-background-command__details { margin-top: 8px; padding: 10px; border: 1px solid var(--ct-border); border-radius: 12px; font-size: 11px; color: var(--ct-muted-fg); }
+.ct-background-command__details code, .ct-background-command__details pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ct-background-command__details pre { max-height: 12rem; overflow: auto; margin-bottom: 0; }
+.ct-background-command .ct-ctx-bubble__dismiss:disabled { cursor: default; opacity: 0.5; }

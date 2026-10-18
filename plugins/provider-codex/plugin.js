@@ -2985,7 +2985,9 @@ function planOperation(ctx, op) {
       if (op.action === "redeemResetCredit") {
         const key = text(object(op.value).idempotencyKey);
         if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) fail2("invalid_schema", "A confirmation UUID is required");
-        return request("account/rateLimitResetCredit/consume", { idempotencyKey: key });
+        const creditId = object(op.value).creditId;
+        if (creditId != null && (typeof creditId !== "string" || !creditId.trim())) fail2("invalid_schema", "Reset credit identifier is invalid");
+        return request("account/rateLimitResetCredit/consume", { idempotencyKey: key, ...creditId ? { creditId } : {} });
       }
       if (op.action === "login") return loginPlan(op.value);
       if (op.action === "auth") return request("account/read", { refreshToken: false }, { stage: "auth" });

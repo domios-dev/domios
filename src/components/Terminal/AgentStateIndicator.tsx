@@ -8,6 +8,8 @@ import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { ActivityDots } from "../shared/ActivityDots";
 import { ChatChannelLoadingStatus } from "./ChatChannelLoadingStatus";
 import type { Tab } from "../../lib/types";
+import { useComposerBackgroundWorkStatus } from "./ComposerBackgroundWorkContext";
+import { backgroundOwnsTool } from "./composerBackgroundWorkModel";
 
 import type { TabActivity } from "../../lib/tabActivity";
 export type { AgentState } from "../../lib/tabActivity";
@@ -51,21 +53,23 @@ export function AgentStateIndicator({
   renderIdentity?: (label: string) => ReactNode;
   showActivity?: boolean;
   channelLoadingLabel?: string;
-  activeTool?: ActivityTool;
+  activeTool?: ActivityTool & { id?: string; sourceSessionId?: string };
 }) {
   const isWorking = activity.canStop;
   const isQuiet = activity.quiet;
   const isQuestion = activity.kind === "waiting-on-user";
   const phase = activity.phase;
-  const runningTool = activity.kind === "working" ? activeTool : undefined;
-  const status = runtimeActivityLabel(runningTool ? activityLabel(runningTool) : activity.label, activity.kind, runtimeState, Date.now());
+  const work = useComposerBackgroundWorkStatus();
+  const background = backgroundOwnsTool(activeTool, work.items);
+  const runningTool = activity.kind === "working" && !background ? activeTool : undefined;
+  const status = runtimeActivityLabel(background && activity.kind === "working" ? activity.status : runningTool ? activityLabel(runningTool) : activity.label, activity.kind, runtimeState, Date.now());
   const detail = runningTool ? activityCommand(runningTool) : undefined;
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
     : null;
   const identity = [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
   const text = [identity, status].filter(Boolean).join(" · ");
-  const dots = channelLoadingLabel ? <ChatChannelLoadingStatus label={channelLoadingLabel} /> : !showActivity ? null : activity.kind === "starting" ? <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : "Agent starting"} compact /> : activity.active ? (
+  const dots = channelLoadingLabel ? <ChatChannelLoadingStatus label={channelLoadingLabel} /> : !showActivity || background ? null : activity.kind === "starting" ? <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : "Agent starting"} compact /> : activity.active ? (
     <ActivityDots
       data-testid="agent-activity-dots"
       size="small"

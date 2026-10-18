@@ -109,7 +109,7 @@
       "terminalCommand": "codex login"
     },
     "usage": true,
-    "resetCreditsMinVersion": "0.162.1",
+    "resetCreditsMinVersion": "0.163.0",
     "backgroundProcesses": true,
     "goals": {
       "actions": [

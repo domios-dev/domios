@@ -7,6 +7,8 @@ use codeterm_types::pty::BootStage;
 use serde_json::Value;
 use std::time::Instant;
 
+mod lane_cleanup;
+
 #[derive(Clone, Debug, Default)]
 pub struct AuthenticatedPlanCaller {
     pub tab_id: Option<String>,

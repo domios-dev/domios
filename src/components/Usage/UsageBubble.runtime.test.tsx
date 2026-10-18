@@ -79,6 +79,23 @@ assert.equal(confirmation.action,"redeem");
 assert.equal(confirmation.confirmed,true);
 assert.match(String(confirmation.idempotencyKey),/^[0-9a-f-]{36}$/);
 assert.ok(container.querySelector('[role="status"]'));
+snapshot = {...snapshot,runtime_usage:[{...reading,resets:{availableCount:2,nextExpiry:null,credits:[
+  {id:"wire-first",status:"available",expiresAt:null},
+  {id:"wire-second",status:"available",expiresAt:null},
+]}}]};
+await act(async()=>emit());
+const selectedRadio = container.querySelector<HTMLInputElement>('input[type="radio"][aria-label="wire-second"]');
+assert.ok(selectedRadio);
+await act(async()=>selectedRadio.click());
+assert.equal(selectedRadio.checked,true);
+await act(async()=>namedButton("Reset now").click());
+assert.equal(resetRequests.length,3);
+await act(async()=>namedButton("Confirm reset").click());
+const selectedConfirmation:Record<string,unknown> = resetRequests[3];
+assert.equal(selectedConfirmation.creditId,"wire-second");
+assert.equal(selectedConfirmation.confirmed,true);
+assert.equal(resetRequests.length,5);
+assert.deepEqual(resetRequests[4],{action:"read"});
 await render({...reading,billing_mode:"api",token_usage:{captured_at:Date.now(),value:{input_tokens:100,output_tokens:20,cache_read_tokens:30,cost_micros:20000}}});
 const button=container.querySelector("button")!;
 assert.equal(button.getAttribute("aria-label"),"usage 120 tokens · $0.02");

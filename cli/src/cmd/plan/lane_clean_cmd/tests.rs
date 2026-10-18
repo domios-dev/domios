@@ -2,6 +2,31 @@ use super::*;
 use crate::args::plan::PlanAction;
 use crate::client::{RpcError, SocketCallError};
 
+#[test]
+fn utility_cleanup_forwards_own_binding_without_claiming_parent_session() {
+    let caller: CallerContext = super::super::caller_context::test_utility_caller();
+    let mut client = Recorder::default();
+    clean_lanes_as(
+        &mut client,
+        true,
+        Some("plan-token".into()),
+        true,
+        false,
+        caller,
+    )
+    .unwrap();
+    assert_eq!(
+        client.calls,
+        vec![(
+            "plan.lanes_clean".into(),
+            json!({
+                "plan_id": "plan-token", "confirm": true, "fetch": false,
+                "caller_tab_id": "utility", "session_binding_nonce": "utility-nonce"
+            })
+        )]
+    );
+}
+
 #[derive(Default)]
 struct Recorder {
     calls: Vec<(String, Value)>,

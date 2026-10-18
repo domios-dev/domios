@@ -199,7 +199,7 @@ pub(super) fn dispatch(
             .and_then(Value::as_bool)
             .unwrap_or(false);
         if confirm || fetch {
-            svc.authorize_plan_orchestrator(
+            svc.authorize_plan_lane_cleanup(
                 &id,
                 &codeterm_service_core::service::AuthenticatedPlanCaller {
                     tab_id: optional_string(p, "caller_tab_id"),
