@@ -2,6 +2,51 @@
 
 export {};
 import type { ExtendedState } from "./tree";
+import { configureDaemonTransport } from "../../lib/daemonBootstrap";
+import type { FrontendCacheChanges, FrontendCacheCommit, FrontendCacheManifest, FrontendCacheRecord, FrontendCacheSnapshot, FrontendCacheStorage } from "../../lib/frontendCacheRecords";
+
+class FakeCacheStorage implements FrontendCacheStorage {
+  private readonly scopes = new Map<string, { manifest: FrontendCacheManifest; records: Map<string, FrontendCacheRecord> }>();
+  private readGate?: { entered: () => void; finished: () => void; wait: Promise<void> };
+
+  holdNextRead(): { entered: Promise<void>; finished: Promise<void>; release: () => void } {
+    let entered!: () => void;
+    let finished!: () => void;
+    let release!: () => void;
+    const enteredPromise = new Promise<void>((resolve) => { entered = resolve; });
+    const finishedPromise = new Promise<void>((resolve) => { finished = resolve; });
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    this.readGate = { entered, finished, wait };
+    return { entered: enteredPromise, finished: finishedPromise, release };
+  }
+
+  async read(scope: string): Promise<FrontendCacheSnapshot | null> {
+    const gate = this.readGate;
+    this.readGate = undefined;
+    if (gate) { gate.entered(); await gate.wait; gate.finished(); }
+    const value = this.scopes.get(scope);
+    return value ? structuredClone({ manifest: value.manifest, records: [...value.records.values()] }) : null;
+  }
+
+  async commit(scope: string, expectedRevision: number, manifest: FrontendCacheManifest, changes: FrontendCacheChanges): Promise<FrontendCacheCommit> {
+    const current = this.scopes.get(scope);
+    if ((current?.manifest.revision ?? 0) !== expectedRevision) return "conflict";
+    const records = new Map(current?.records ?? []);
+    for (const row of changes.deletes) records.delete(`${row.kind}\u0000${row.id}`);
+    for (const row of changes.upserts) records.set(`${row.kind}\u0000${row.id}`, structuredClone(row));
+    assert(records.size === manifest.recordCount, "transaction commits a complete cache generation");
+    this.scopes.set(scope, { manifest: structuredClone(manifest), records });
+    return "committed";
+  }
+
+  async clear(scope: string, expectedRevision?: number): Promise<boolean> {
+    const current = this.scopes.get(scope);
+    if (expectedRevision !== undefined && (current?.manifest.revision ?? 0) !== expectedRevision) return false;
+    return this.scopes.delete(scope);
+  }
+}
+
+const cacheStorage = new FakeCacheStorage();
 
 class FakeStorage {
   private map = new Map<string, string>();
@@ -36,6 +81,7 @@ function bootstrapWebGlobals() {
     };
     (globalThis as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = () => {};
   }
+  configureDaemonTransport({ origin: "http://localhost:7686", token: "write-gate-bootstrap" });
 }
 
 bootstrapWebGlobals();
@@ -61,7 +107,7 @@ function sampleCachedState(wsId: string) {
 
 async function seedCache(wsId: string) {
   const { saveStateSnapshot } = await import("../../lib/stateCache");
-  saveStateSnapshot(sampleCachedState(wsId));
+  await saveStateSnapshot(sampleCachedState(wsId));
 }
 
 async function setupHappyDom() {
@@ -94,6 +140,7 @@ async function setupHappyDom() {
 
 async function renderProvider(
   onLayout: (setActiveWorkspace: (id: string) => void, state: ExtendedState) => void,
+  onState?: (state: ExtendedState) => void,
 ) {
   const { act, useLayoutEffect, createRoot, React } = await setupHappyDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
@@ -107,6 +154,7 @@ async function renderProvider(
     useLayoutEffect(() => {
       onLayout(setActiveWorkspace, state);
     }, [setActiveWorkspace]);
+    useLayoutEffect(() => { onState?.(state); }, [state]);
     return null;
   }
 
@@ -126,6 +174,9 @@ async function renderProvider(
 }
 
 test("webBootHasSyncCache is true when sync cache exists", async () => {
+  const { setFrontendCacheStorageForTests } = await import("../../lib/frontendCacheRecords");
+  setFrontendCacheStorageForTests(cacheStorage);
+  configureDaemonTransport({ origin: "http://localhost:7686", token: "write-gate-seed" });
   (globalThis as unknown as { localStorage: FakeStorage }).localStorage.clear();
   await seedCache("ws-a");
   const { loadCachedStateSync } = await import("../../lib/stateCache");
@@ -135,12 +186,18 @@ test("webBootHasSyncCache is true when sync cache exists", async () => {
 });
 
 test("webBootHasSyncCache is false with no cache", async () => {
+  const { setFrontendCacheStorageForTests } = await import("../../lib/frontendCacheRecords");
+  setFrontendCacheStorageForTests(cacheStorage);
+  configureDaemonTransport({ origin: "http://localhost:7686", token: "write-gate-empty" });
   (globalThis as unknown as { localStorage: FakeStorage }).localStorage.clear();
   const { webBootHasSyncCache } = await import("./index");
   assert(webBootHasSyncCache() === false, "empty storage should not lock boot");
 });
 
 test("the first cached render selects the restored chat before a daemon read completes", async () => {
+  const { setFrontendCacheStorageForTests } = await import("../../lib/frontendCacheRecords");
+  setFrontendCacheStorageForTests(cacheStorage);
+  configureDaemonTransport({ origin: "http://localhost:7686", token: "write-gate-first-render" });
   const { saveStateSnapshot } = await import("../../lib/stateCache");
   const { __setInvokeForTest } = await import("../../lib/bridge");
   const snapshot = { ...sampleCachedState("restored"), workspaces: [
@@ -162,6 +219,9 @@ test("the first cached render selects the restored chat before a daemon read com
 });
 
 test("guarded mux writes stay blocked until first reconcile, then open", async () => {
+  const { setFrontendCacheStorageForTests } = await import("../../lib/frontendCacheRecords");
+  setFrontendCacheStorageForTests(cacheStorage);
+  configureDaemonTransport({ origin: "http://localhost:7686", token: "write-gate-guard" });
   (globalThis as unknown as { localStorage: FakeStorage }).localStorage.clear();
   await seedCache("ws-cached");
 
@@ -217,6 +277,50 @@ test("guarded mux writes stay blocked until first reconcile, then open", async (
   await act(async () => root.unmount());
   clearInvoke(null);
   __setListenForTest(null);
+});
+
+test("late async hydration cannot replace a live reconcile", async () => {
+  const { frontendCacheScope, FrontendCacheRepository, setFrontendCacheStorageForTests } = await import("../../lib/frontendCacheRecords");
+  setFrontendCacheStorageForTests(cacheStorage);
+  configureDaemonTransport({ origin: "http://localhost:7686", token: "write-gate-late-hydration" });
+  const scope = frontendCacheScope("codeterm:state-cache");
+  assert(scope, "web cache scope exists");
+  const workspace = { id: "cached", name: "Cached", tabs: [], active_tab_id: null, cwd: null };
+  const records: FrontendCacheRecord[] = [
+    { kind: "workspace", id: "cached", value: { position: 0, workspace } },
+    { kind: "selection", id: "current", value: { active_workspace_id: "cached", focused_tab_id: null, activeTabIds: {} } },
+  ];
+  await new FrontendCacheRepository(cacheStorage).write(scope, records, {
+    schemaVersion: 2,
+    buildHash: "write-gate-test",
+    generation: 8,
+    counts: { workspace: 1, selection: 1 },
+  });
+
+  const readGate = cacheStorage.holdNextRead();
+  const { __setInvokeForTest } = await import("../../lib/bridge");
+  __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
+    if (cmd === "mux_get_state") return sampleCachedState("live") as T;
+    if (cmd === "list_notifications") return [] as T;
+    return {} as T;
+  });
+  let liveState: ExtendedState | undefined;
+  let resolveLive!: () => void;
+  const liveSeen = new Promise<void>((resolve) => { resolveLive = resolve; });
+  const { root, act, __setInvokeForTest: clearInvoke, __setListenForTest } = await renderProvider(() => {}, (state) => {
+    if (state.active_workspace_id === "live") { liveState = state; resolveLive(); }
+  });
+  try {
+    await readGate.entered;
+    await act(async () => { await liveSeen; });
+    assert(liveState?.active_workspace_id === "live", "accepted backend state reaches the UI while cache read is pending");
+    await act(async () => { readGate.release(); await readGate.finished; });
+    assert(liveState?.active_workspace_id === "live", "late cache hydration is ignored after live reconcile");
+  } finally {
+    await act(async () => root.unmount());
+    clearInvoke(null);
+    __setListenForTest(null);
+  }
 });
 
 async function main() {
