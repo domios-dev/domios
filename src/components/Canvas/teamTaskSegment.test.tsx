@@ -14,6 +14,7 @@ import { boardRefs } from "./missionControl/BoardRefText";
 import { MissionControlPlanSurface } from "./missionControl/MissionControlPlanSurface";
 import type { MissionControlState, PlanBoardState } from "./missionControl/missionControlState";
 import { PlanSidePanelLayer } from "./PlanSidePanelHost";
+import { __resetWebEventsForTest } from "../../lib/webEvents";
 import { returnToOrigin } from "../../lib/returnTo";
 import { planSidePanelStore } from "./planSidePanelStore";
 import { PlanViewShell } from "./PlanViewShell";
@@ -78,6 +79,7 @@ afterEach(async () => {
     canvasFocusStore.close();
     canvasFocusStore.closeWorkspace();
   });
+  __resetWebEventsForTest();
   window.localStorage.clear();
   window.sessionStorage.clear();
   vi.unstubAllGlobals();
