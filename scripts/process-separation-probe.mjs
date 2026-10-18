@@ -152,7 +152,7 @@ async function run(options) {
   const alias = path.join(scratch, 'home-alias'); symlinkSync(os.homedir(), alias, process.platform === 'win32' ? 'junction' : 'dir');
   const port = await freePort();
   const launch = { instance: { kind: 'development', instance, port }, resources: receipt.resources, probe_sink: path.join(data, 'process-init.jsonl') };
-  const launchers = []; let reply; let observation; let stopped = false;
+  const launchers = []; let reply; let observation; let stopped = false; let result;
   try {
     const rejectedInstance = `${instance}-missing`;
     const rejectedData = path.join(realpathSync.native(os.homedir()), `.codeterm-dev-${rejectedInstance}`);
@@ -225,20 +225,21 @@ async function run(options) {
     assert.deepEqual(await observation.line(), { exited: true });
     assert.equal((await observation.exit)[0], 0);
     stopped = true;
-    console.log(JSON.stringify({ status: 'PASS', case: options.case, platform: process.platform, target: receipt.target, build: receipt.build, ready: reply.ready, maintenance, alias: { source: alias, target: realpathSync.native(alias), kind: process.platform === 'win32' ? 'junction' : 'symlink' }, missing_resource_refused_before_initialization: true, initialization_phases: audit.length, frontend_acknowledgements: 0, exact_exit_observed: true }));
+    result = { status: 'PASS', case: options.case, platform: process.platform, target: receipt.target, build: receipt.build, ready: reply.ready, maintenance, alias: { source: alias, target: realpathSync.native(alias), kind: process.platform === 'win32' ? 'junction' : 'symlink' }, missing_resource_refused_before_initialization: true, initialization_phases: audit.length, frontend_acknowledgements: 0, exact_exit_observed: true };
   } finally {
     if (reply && !stopped) {
       try { await inspect(receipt.executable, reply, { operation: 'shutdown' }); if (observation) { await observation.line(); await observation.exit; } stopped = true; } catch { /* Retain data if exact cleanup cannot be proven. */ }
     }
     for (const helper of launchers) if (helper.child.exitCode === null) { helper.child.kill(); await helper.exit; }
-    if (stopped) rmSync(data, { recursive: true });
     assert.equal(path.dirname(alias), scratch);
     assert.equal(lstatSync(alias).isSymbolicLink(), true);
     assert.equal(realpathSync.native(alias), realpathSync.native(os.homedir()));
     unlinkSync(alias);
+    if (stopped) rmSync(data, { recursive: true });
     rmSync(scratch, { recursive: true });
     if (reply && !stopped) throw new Error('Exact server cleanup unproven; disposable data retained');
   }
+  console.log(JSON.stringify(result));
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.argv[2] === '--validate') {
