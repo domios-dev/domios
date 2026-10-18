@@ -37,7 +37,9 @@ use tokio::sync::broadcast;
 use crate::provider::{AgentProvider, ModelAvailability, ModelInfo, ReasoningEffortInfo};
 
 mod grouping;
+mod inputs;
 mod live_policy;
+pub use inputs::{discovery_stamp, invalidate_inputs};
 pub use live_policy::register_catalogue_capability;
 
 pub(super) const CACHE_SCHEMA_VERSION: u32 = 1;
@@ -675,6 +677,7 @@ pub async fn refresh_live(
     let task = tokio::task::spawn_blocking(move || {
         // A refresh must observe current filesystem and PATH state before live discovery.
         crate::js_runtime::forget_resolved_bins();
+        let inputs = discovery_stamp(provider.as_ref());
         let models = futures_executor::block_on(provider.discover_models())?;
         let was_empty = models.is_empty();
         let models = sanitize_live(models);
@@ -684,8 +687,10 @@ pub async fn refresh_live(
         let default = resolve_live_default(&models, default);
         let binary = provider.cli_binary().and_then(fingerprint_bin);
         let credentials = credential_fingerprints(provider.as_ref());
-        put_live_with_credentials(&provider_id, models.clone(), default, binary, credentials);
-        Some(models)
+        inputs::publish_current(provider.as_ref(), &inputs, || {
+            put_live_with_credentials(&provider_id, models.clone(), default, binary, credentials);
+            models
+        })
     });
     match tokio::time::timeout(timeout_duration, task).await {
         Ok(Ok(result)) => result,

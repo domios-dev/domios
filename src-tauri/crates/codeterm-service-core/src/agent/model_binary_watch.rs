@@ -5,7 +5,7 @@
 //! describes the binary on disk.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use notify::event::{MetadataKind, ModifyKind};
@@ -66,6 +66,22 @@ fn changes_input(event: &Event, targets: &[PathBuf]) -> bool {
     ) && touches_any(event, targets)
 }
 
+fn accept_input_event(
+    event: &Event,
+    targets: &[PathBuf],
+    stamps: &mut Vec<Option<InputStamp>>,
+) -> bool {
+    if !changes_input(event, targets) {
+        return false;
+    }
+    let current = input_stamps(targets);
+    if current == *stamps && matches!(event.kind, EventKind::Modify(ModifyKind::Metadata(_))) {
+        return false;
+    }
+    *stamps = current;
+    true
+}
+
 impl ProviderBinaryWatchers {
     fn watch(
         &self,
@@ -80,10 +96,13 @@ impl ProviderBinaryWatchers {
             *existing.callback.lock() = on_change;
             return WatchInstall::Reused;
         }
-        let watch_dirs: Vec<PathBuf> = targets
+        let watch_dirs: Vec<(PathBuf, bool)> = targets
             .iter()
-            .filter_map(|target| target.parent().map(Path::to_path_buf))
-            .filter(|dir| dir.is_dir())
+            .filter_map(|target| {
+                let parent = target.parent()?;
+                let existing = parent.ancestors().find(|path| path.is_dir())?;
+                Some((existing.to_path_buf(), existing != parent))
+            })
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();
@@ -99,22 +118,22 @@ impl ProviderBinaryWatchers {
         let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
             let _role = codeterm_util::named_thread::Scope::enter(&role);
             let Ok(event) = event else { return };
-            if !changes_input(&event, &watched_targets) {
+            if !accept_input_event(&event, &watched_targets, &mut stamps) {
                 return;
             }
-            let current = input_stamps(&watched_targets);
-            if current == stamps {
-                return;
-            }
-            stamps = current;
             let on_change = event_callback.lock().clone();
             on_change();
         });
         let Ok(mut watcher) = watcher else {
             return WatchInstall::Unavailable;
         };
-        for dir in watch_dirs {
-            if watcher.watch(&dir, RecursiveMode::NonRecursive).is_err() {
+        for (dir, recursive) in watch_dirs {
+            let mode = if recursive {
+                RecursiveMode::Recursive
+            } else {
+                RecursiveMode::NonRecursive
+            };
+            if watcher.watch(&dir, mode).is_err() {
                 return WatchInstall::Unavailable;
             }
         }
@@ -144,20 +163,55 @@ fn touches_any(event: &Event, targets: &[PathBuf]) -> bool {
 /// Re-probe without the TTL after a declared catalogue input changes.
 pub fn on_catalogue_input_changed(provider: Arc<dyn AgentProvider>) {
     crate::service::capability_probe::invalidate_and_rebuild(provider.id());
-    model_catalog::invalidate(provider.id());
+    model_catalog::invalidate_inputs(provider.id());
     refresh_agent_provider(provider, true);
 }
 
 pub fn refresh_agent_provider(provider: Arc<dyn AgentProvider>, force: bool) {
     install(provider.clone());
+    if !refresh_requests().lock().begin(provider.id(), force) {
+        return;
+    }
     crate::async_runtime::spawn(async move {
-        let _ = if force {
-            model_catalog::refresh_after_catalogue_input_change(provider.clone()).await
-        } else {
-            model_catalog::refresh_models(provider.clone(), false).await
-        };
-        install(provider);
+        let mut force = force;
+        loop {
+            let _ = model_catalog::refresh_models(provider.clone(), force).await;
+            install(provider.clone());
+            let next = refresh_requests().lock().next(provider.id());
+            let Some(queued) = next else { break };
+            force = queued;
+        }
     });
+}
+
+#[derive(Default)]
+struct RefreshRequests(HashMap<String, Option<bool>>);
+
+impl RefreshRequests {
+    fn begin(&mut self, id: &str, force: bool) -> bool {
+        if let Some(queued) = self.0.get_mut(id) {
+            *queued = Some(queued.unwrap_or(false) || force);
+            false
+        } else {
+            self.0.insert(id.to_owned(), None);
+            true
+        }
+    }
+
+    fn next(&mut self, id: &str) -> Option<bool> {
+        match self.0.remove(id).flatten() {
+            Some(force) => {
+                self.0.insert(id.to_owned(), None);
+                Some(force)
+            }
+            None => None,
+        }
+    }
+}
+
+fn refresh_requests() -> &'static Mutex<RefreshRequests> {
+    static REQUESTS: std::sync::OnceLock<Mutex<RefreshRequests>> = std::sync::OnceLock::new();
+    REQUESTS.get_or_init(Mutex::default)
 }
 
 fn watchers() -> &'static ProviderBinaryWatchers {
@@ -242,7 +296,7 @@ pub fn refresh_agent_after_settings_change(
 ) {
     crate::service::capability_probe::invalidate_and_rebuild(provider_id);
     if let Some(provider) = agents.provider_arc(provider_id) {
-        model_catalog::invalidate(provider_id);
+        model_catalog::invalidate_inputs(provider_id);
         refresh_agent_provider(provider, true);
     }
 }
