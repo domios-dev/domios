@@ -39,16 +39,7 @@ pub fn register_deep_links(
                         let _ = service
                             .refresh_billing(codeterm_billing::RefreshEvent::CheckoutReturned)
                             .await;
-                        let app = app.clone();
-                        let _ = tokio::task::spawn_blocking(move || {
-                            use tauri::Manager;
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.unminimize();
-                                let _ = window.set_focus();
-                            }
-                        })
-                        .await;
+                        crate::startup::desktop_lifecycle::activate(&app);
                     }
                     Some(deep_links::DeepLinkAction::AccountCallback(callback)) => {
                         if let Ok(account) = service.account().await {

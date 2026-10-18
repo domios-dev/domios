@@ -32,6 +32,7 @@ use codeterm_service_core::startup::{
 };
 use codeterm_service_core::startup::{RestApiControlState, RestApiPhase, RestApiStatus};
 use serde::Serialize;
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -44,10 +45,17 @@ use model::{
     boot_failure_action, development_frontend, external_link, BootFailureAction, BootObservation,
 };
 
-#[derive(Default)]
 struct ShellSupervisor {
     navigation: Arc<AtomicU64>,
     development_frontend: Option<Url>,
+    windows: tokio::sync::watch::Sender<WindowEpoch>,
+    capability_origins: parking_lot::Mutex<HashSet<String>>,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+struct WindowEpoch {
+    generation: u64,
+    available: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -151,16 +159,48 @@ fn daemon_capability(origin: &str) -> Result<String, serde_json::Error> {
     serde_json::to_string(&capability)
 }
 
-pub fn create_window(
-    app: &codeterm_host_runtime::app_runtime::App,
-    config: &codeterm_service_core::config::schema::ApiConfig,
-) -> Result<WebviewWindow, Box<dyn std::error::Error>> {
+pub fn initialize(
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
+) -> Result<(), Box<dyn std::error::Error>> {
     let development_frontend =
         development_frontend(cfg!(debug_assertions), app.config().build.dev_url.as_ref())?;
     app.manage(ShellSupervisor {
-        development_frontend: development_frontend.clone(),
-        ..Default::default()
+        development_frontend,
+        navigation: Arc::new(AtomicU64::new(0)),
+        windows: tokio::sync::watch::channel(WindowEpoch::default()).0,
+        capability_origins: Default::default(),
     });
+    Ok(())
+}
+
+pub fn window_created(app: &codeterm_host_runtime::app_runtime::AppHandle) {
+    app.state::<ShellSupervisor>().windows.send_modify(|epoch| {
+        epoch.generation += 1;
+        epoch.available = true;
+    });
+}
+
+pub fn window_destroying(app: &codeterm_host_runtime::app_runtime::AppHandle) {
+    app.state::<ShellSupervisor>()
+        .navigation
+        .fetch_add(1, Ordering::AcqRel);
+    app.state::<ShellSupervisor>()
+        .windows
+        .send_if_modified(|epoch| {
+            if !epoch.available {
+                return false;
+            }
+            epoch.generation += 1;
+            epoch.available = false;
+            true
+        });
+}
+
+pub fn create_window(
+    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    config: &codeterm_service_core::config::schema::ApiConfig,
+) -> Result<WebviewWindow, Box<dyn std::error::Error>> {
+    let development_frontend = app.state::<ShellSupervisor>().development_frontend.clone();
     let mut bootstrap = bootstrap(config)
         .map_err(|error| {
             log::error!("[frontend-shell] {error}");
@@ -194,9 +234,13 @@ pub fn create_window(
     );
     let mut builder = WebviewWindowBuilder::from_config(app, &window_config)?;
     if let Some(bootstrap) = bootstrap {
-        app.add_capability(daemon_capability(
-            origin.as_deref().ok_or("Frontend origin is missing")?,
-        )?)?;
+        let origin = origin.as_deref().ok_or("Frontend origin is missing")?;
+        let supervisor = app.state::<ShellSupervisor>();
+        let mut installed = supervisor.capability_origins.lock();
+        if !installed.contains(origin) {
+            app.add_capability(daemon_capability(origin)?)?;
+            installed.insert(origin.to_string());
+        }
         builder = builder.initialization_script(bootstrap_script(&bootstrap)?);
     }
     let new_window_origin = origin.clone();
@@ -367,10 +411,12 @@ async fn frontend_url(
 
 pub fn start(app: codeterm_host_runtime::app_runtime::AppHandle, control: RestApiControlState) {
     let mut status = control.subscribe_status();
+    let mut windows = app.state::<ShellSupervisor>().windows.subscribe();
     tauri::async_runtime::spawn(async move {
         loop {
             let observed = status.borrow_and_update().clone();
-            if let Some(window) = app.get_webview_window("main") {
+            let epoch = *windows.borrow_and_update();
+            if let Some(window) = app.get_webview_window("main").filter(|_| epoch.available) {
                 match ready_origin(&observed, control.bound_addr()) {
                     Ok(Some(origin)) => {
                         let target = tokio::select! {
@@ -379,9 +425,15 @@ pub fn start(app: codeterm_host_runtime::app_runtime::AppHandle, control: RestAp
                                 if changed.is_err() { return; }
                                 continue;
                             },
+                            changed = windows.changed() => {
+                                if changed.is_err() { return; }
+                                continue;
+                            },
                         };
                         match target {
-                            Ok(url) if control.status() == observed => {
+                            Ok(url)
+                                if control.status() == observed && *windows.borrow() == epoch =>
+                            {
                                 log::debug!("[frontend-shell] navigating after listener acknowledgement: generation={}, url={}", observed.generation, navigation_identity(&url));
                                 if let Err(error) = window.navigate(url) {
                                     log::error!("[frontend-shell] navigation failed: {error}");
@@ -402,8 +454,9 @@ pub fn start(app: codeterm_host_runtime::app_runtime::AppHandle, control: RestAp
                     }
                 }
             }
-            if status.changed().await.is_err() {
-                return;
+            tokio::select! {
+                changed = status.changed() => if changed.is_err() { return; },
+                changed = windows.changed() => if changed.is_err() { return; },
             }
         }
     });
