@@ -5,7 +5,7 @@ import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvent
 import { onResync } from "../../lib/resync";
 import { createDelayedMessageFeed } from "./delayedMessageFeed";
 import {ProviderCapabilityBadge} from "./ProviderCapabilityBadge";
-import {cachedSlashCommands} from "../../lib/providerCapabilities";
+import { cachedSlashCommands, slashCommandsEqual } from "../../lib/providerCapabilities";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
 import { ComposerBubbleRow } from "./ComposerBubbles";
 import { ComposerUploadNotices } from "./ComposerUploadNotices";
@@ -267,11 +267,11 @@ function ChatComposerImpl({
   const [composing, setComposing] = useState(false);
   const capsulesActive = !composing && hasCapsuleTokens(input);
   const attachInline = async (paths: string[]) => capsules.insert(await classifyAttachmentPaths(paths));
-  const capabilities = useMuxSelector(useLatestCallback(state => state.tabs[tabId]?.provider_signals?.capabilities, [tabId]));
+  const commands = useMuxSelector(useLatestCallback(state => cachedSlashCommands(state.tabs[tabId]?.provider_signals?.capabilities), [tabId]), slashCommandsEqual);
   const firstLine = input.split("\n")[0] || "";
   const suggestions = useMemo(
-    () => filterSlashCommands(firstLine, cachedSlashCommands(capabilities)),
-    [firstLine, capabilities],
+    () => filterSlashCommands(firstLine, commands),
+    [firstLine, commands],
   );
 
   const refocusComposer = useLatestCallback(() => {
