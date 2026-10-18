@@ -304,11 +304,17 @@ mod tests {
             name: "selection-changed".into(),
             payload: json!({ "selection": "tab" }),
         };
-        let value = serde_json::to_value(event).unwrap();
+        let value = serde_json::to_value(&event).unwrap();
 
-        assert_eq!(value["audience"], "targeted");
-        assert_eq!(value["target"], "main");
+        assert_eq!(
+            value["audience"],
+            json!({ "audience": "targeted", "target": "main" })
+        );
         assert_eq!(value["payload"], json!({ "selection": "tab" }));
+        assert_eq!(
+            serde_json::from_value::<NativeHostEvent>(value).unwrap(),
+            event
+        );
     }
 
     #[test]
