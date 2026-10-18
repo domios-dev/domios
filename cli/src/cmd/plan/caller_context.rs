@@ -76,3 +76,12 @@ impl CallerContext {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(super) fn test_utility_caller() -> CallerContext {
+    CallerContext {
+        tab_id: Some("utility".into()),
+        session_binding_nonce: Some("utility-nonce".into()),
+        ..Default::default()
+    }
+}
