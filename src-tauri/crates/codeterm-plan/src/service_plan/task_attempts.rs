@@ -62,6 +62,7 @@ pub struct TaskAttemptView {
 pub struct TaskRespawnDraft {
     pub plan_id: String,
     pub task_id: String,
+    pub execution_intent: crate::plan::ExecutionIntent,
     pub attempt_id: String,
     pub source_attempt: TaskExecutionAttempt,
     pub provider: String,
@@ -991,6 +992,7 @@ impl PlanStore {
         Ok(TaskRespawnDraft {
             plan_id: plan.id,
             task_id: task.id.clone(),
+            execution_intent: task.interruption.execution_intent.clone(),
             attempt_id: gen_attempt_id(),
             source_attempt: source.clone(),
             provider,

@@ -161,3 +161,13 @@ test("manifest changes require review of only the touched package", async t => {
  assert.doesNotMatch(output, /build\.sh (nextest|check-tests)/);
  assert.match(output, /canonical \(Orchestrator\)/);
 });
+
+test("does not prescribe a suite for a deleted plugin directory", async (t) => {
+  const fixture = await makeDiffFixture(t, "plugins/retired-provider/src/plugin.ts");
+  const beforeDeletion = run("git", ["rev-parse", "HEAD"], fixture.directory);
+  await rm(path.join(fixture.directory, "plugins", "retired-provider"), {recursive: true, force: true});
+  run("git", ["add", "-A"], fixture.directory);
+  run("git", ["commit", "--quiet", "-m", "remove fixture plugin"], fixture.directory);
+  const output = mapFixture(fixture.directory, beforeDeletion);
+  assert.doesNotMatch(output, /bash scripts\/plugin-tests\.sh retired-provider/);
+});

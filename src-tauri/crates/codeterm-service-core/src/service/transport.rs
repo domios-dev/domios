@@ -242,6 +242,11 @@ impl AgentTransport for ChatTransport {
                     session_id: String::new(),
                 };
                 tab.chat_view = true;
+                tab.restorable_launch.execution_mode = config
+                    .get("executionMode")
+                    .and_then(|value| value.as_str())
+                    .filter(|mode| *mode != "local")
+                    .map(str::to_owned);
             }
         }
         let history_meta = config.clone();
@@ -272,6 +277,17 @@ impl ServiceContext {
         } else {
             params.agent_id.clone()
         };
+        let cloud = self.remote_execution(
+            &provider,
+            params.config.as_ref().unwrap_or(&serde_json::Value::Null),
+        )?;
+        if cloud
+            && (params.model.is_some()
+                || params.reasoning_effort.is_some()
+                || params.preset.is_some())
+        {
+            return Err("Cloud tasks do not support local model controls".into());
+        }
         if let Some(name) = params.preset.as_deref() {
             let adapter = self
                 .agent_registry
@@ -289,7 +305,12 @@ impl ServiceContext {
             params.preset_args = args;
         }
 
-        match self.provider_registry.transport_of(&provider) {
+        let transport = if cloud {
+            Some(ProviderTransport::ChatBackend)
+        } else {
+            self.provider_registry.transport_of(&provider)
+        };
+        match transport {
             Some(ProviderTransport::ChatBackend) => {
                 if !self.provider_registry.is_spawnable_chat_backend(&provider) {
                     return Err(format!(
@@ -297,7 +318,9 @@ impl ServiceContext {
                         provider
                     ));
                 }
-                self.validate_atomic_reasoning_effort(&provider, &params)?;
+                if !cloud {
+                    self.validate_atomic_reasoning_effort(&provider, &params)?;
+                }
                 self.spawn_tab_atomic_with(&provider, &params, &ChatTransport, true, None, ui)
             }
             Some(ProviderTransport::Pty) => {
@@ -378,6 +401,20 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             let tab_id = mux.create_tab(&ws_id)?;
             if let Some(tab) = mux.get_tab_mut(&tab_id) {
+                tab.restorable_launch.execution_mode = params
+                    .config
+                    .as_ref()
+                    .and_then(|config| config.get("executionMode"))
+                    .and_then(|mode| mode.as_str())
+                    .filter(|mode| *mode != "local")
+                    .map(str::to_owned);
+                if tab.restorable_launch.execution_mode.is_some() {
+                    tab.backing = TabBacking::ChatBackend {
+                        plugin_id: provider.into(),
+                        session_id: String::new(),
+                    };
+                    tab.chat_view = true;
+                }
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
                 }
@@ -484,7 +521,14 @@ impl ServiceContext {
                 },
             ),
             || {
-                if !super::agent_runtime::engine::requested(self, provider) {
+                if params
+                    .config
+                    .as_ref()
+                    .and_then(|config| config.get("executionMode"))
+                    .and_then(|mode| mode.as_str())
+                    .is_some_and(|mode| mode != "local")
+                    || !super::agent_runtime::engine::requested(self, provider)
+                {
                     self.rollback_provisional_tab(&ws_id, &tab_id);
                     let _ = self.revoke_agent_pad(&tab_id);
                 }
