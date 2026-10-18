@@ -50,11 +50,7 @@ pub fn plan_client_lifecycle(event: ClientLifecycleEvent) -> ClientLifecycleActi
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClientExitReason {
     ExplicitQuit,
-    #[cfg(test)]
-    ClientOnlyUpdate,
-    #[cfg(test)]
-    AuthorizedServerOrPairUpdate,
-    #[cfg(any(unix, test))]
+    #[cfg(unix)]
     UnixSignal,
 }
 
