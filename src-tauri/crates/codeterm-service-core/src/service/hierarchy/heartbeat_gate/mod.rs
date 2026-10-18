@@ -312,6 +312,7 @@ impl Decision {
     }
 
     pub(crate) fn next_step_text(&self) -> String {
-        format!("Next step:\n{}", self.next_steps.join("\n"))
+        "Continue working on the active plan. Use `codeterm orchestrator status` for current actions."
+            .to_owned()
     }
 }
