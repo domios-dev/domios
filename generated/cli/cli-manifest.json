@@ -1416,6 +1416,32 @@
       ]
     },
     {
+      "name": "app",
+      "about": "Control the exact local native application and server lifecycle",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "quit",
+          "about": "Quit the exact local application after successful server cleanup and observed exits",
+          "aliases": [],
+          "args": [
+            {
+              "name": "exact",
+              "positional": false,
+              "required": true,
+              "value_name": "EXACT",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "blueprint",
       "about": "Cheap hash-gated watchers with closed-set routes",
       "aliases": [],
