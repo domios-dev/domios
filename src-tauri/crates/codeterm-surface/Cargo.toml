@@ -13,7 +13,7 @@ test-support = []
 [dependencies]
 codeterm-browser = { path = "../codeterm-browser" }
 codeterm-local-recording = { path = "../codeterm-local-recording" }
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 codeterm-plugin = { path = "../codeterm-plugin" }
 codeterm-util = { path = "../codeterm-util" }
 async-trait = "0.1"

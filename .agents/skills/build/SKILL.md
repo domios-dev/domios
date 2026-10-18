@@ -1309,9 +1309,13 @@ the lane check. Committed check-queue also includes CLI test targets.
 
 `test-one paths tests::strip_verbatim_prefix` and `nextest paths` select
 `codeterm-paths` through the app manifest without feature-selection flags.
-The same applies to `mem-store` and both `codeterm-*` aliases: these packages
-are external path dependencies, and neither declares Cargo features. Passing
-`--no-default-features` while selecting only one external package fails with
+`codeterm-paths` lives in `src-tauri/crates/codeterm-paths` as an app workspace
+member. Selecting it with test-only dev dependencies while it lived outside
+the workspace refused before test execution; adding a non-hierarchical member
+also refused. Move the one package into the workspace and update its path
+consumers; retain the same selector and require nonzero executed tests.
+`mem-store` and its `codeterm-*` alias remain external path dependencies without
+Cargo features. Passing `--no-default-features` for that external package fails with
 "cannot specify features for packages outside of workspace" before any test runs.
 Release archives select these alongside workspace packages; focused routing
 retains the app workspace profiles and target cache without that invalid flag.
