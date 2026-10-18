@@ -2,11 +2,9 @@
 use std::time::Instant;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
-use codeterm_service_core::ports::host::UiEvents;
 use codeterm_types::server_bootstrap::{ServerIdentity, ServerReady};
 use reqwest::redirect::Policy;
-use serde_json::Value;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 pub(crate) mod native_client;
 pub(crate) mod native_shell;
 pub(crate) use native_shell::{NativeShellFailure, TauriShell};
@@ -150,6 +148,23 @@ pub(crate) async fn frontend_view_root_ready(
         }
     }
     Ok(accepted)
+}
+
+#[tauri::command]
+pub(crate) fn native_webview_diagnostics_snapshot(
+    window: codeterm_host_runtime::app_runtime::WebviewWindow,
+) -> Option<codeterm_types::native_host::NativeWebviewDiagnosticsSnapshot> {
+    if window.label() != "main" {
+        return None;
+    }
+    let app = window.app_handle();
+    let url = window.url().ok()?;
+    let generation = webview_diagnostics::root_generation_from_url(&url)?;
+    if !crate::startup::frontend_shell::active_view_matches(&app, generation.view) {
+        return None;
+    }
+    let slot = app.try_state::<native_client::NativeHostClientSlot>()?;
+    slot.webview_diagnostics_snapshot(generation)
 }
 
 #[derive(Clone, Default)]
@@ -500,34 +515,9 @@ impl NativeCallRegistry {
     }
 }
 
-type AppHandle = codeterm_host_runtime::app_runtime::AppHandle;
-
-pub struct TauriUiEvents(pub AppHandle);
-
-impl UiEvents for TauriUiEvents {
-    fn emit(&self, event: &str, payload: Value) {
-        let _ = self.0.emit(event, &payload);
-        if let Some(events) = self.0.try_state::<codeterm_events::EventBroadcasterState>() {
-            events.publish_generic(
-                event,
-                codeterm_events::web_safe_event_payload(event, payload),
-            );
-        }
-    }
-
-    fn emit_native(&self, event: &str, payload: Value) {
-        let _ = self.0.emit(event, payload);
-    }
-
-    fn emit_to(&self, target: &str, event: &str, payload: Value) {
-        let _ = self.0.emit_to(target, event, payload);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tauri::Listener;
 
     #[test]
     fn startup_launch_requires_typed_absent_endpoint() {
@@ -878,70 +868,5 @@ mod tests {
             calls.begin(&current, now, Duration::from_secs(30)),
             Ok(NativeRequestId(1))
         );
-    }
-
-    #[test]
-    fn ui_events_redact_web_payloads_and_preserve_desktop_payloads() {
-        let app = tauri::test::mock_builder()
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .unwrap();
-        let events = std::sync::Arc::new(codeterm_events::EventBroadcaster::new());
-        let mut web = events.subscribe();
-        assert!(app.manage(events));
-        let (sender, receiver) = std::sync::mpsc::channel();
-        app.listen("config-changed", move |event| {
-            sender.send(event.payload().to_owned()).unwrap();
-        });
-        let payload = serde_json::json!({ "api": { "token": "secret", "port": 1234 } });
-        TauriUiEvents(app.handle().clone()).emit("config-changed", payload.clone());
-        let desktop: serde_json::Value =
-            serde_json::from_str(&receiver.try_recv().unwrap()).unwrap();
-        assert_eq!(desktop, payload);
-        match web.try_recv().unwrap().event {
-            codeterm_events::SystemEvent::Generic { event_type, data } => {
-                assert_eq!(event_type, "config-changed");
-                assert_eq!(
-                    data,
-                    serde_json::json!({ "api": { "token": null, "port": 1234 } })
-                );
-            }
-            other => panic!("unexpected event: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn ui_events_reach_desktop_and_web_subscribers() {
-        let app = tauri::test::mock_builder()
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .unwrap();
-        let events = std::sync::Arc::new(codeterm_events::EventBroadcaster::new());
-        let mut web = events.subscribe();
-        assert!(app.manage(events));
-        let (sender, receiver) = std::sync::mpsc::channel();
-        app.listen("host-probe", move |event| {
-            sender.send(event.payload().to_owned()).unwrap();
-        });
-        let ui = TauriUiEvents(app.handle().clone());
-        let payload = serde_json::json!({ "probe": [1, 2] });
-        ui.emit("host-probe", payload.clone());
-        let desktop: Value = serde_json::from_str(&receiver.try_recv().unwrap()).unwrap();
-        assert_eq!(desktop, payload);
-        match web.try_recv().unwrap().event {
-            codeterm_events::SystemEvent::Generic { event_type, data } => {
-                assert_eq!(event_type, "host-probe");
-                assert_eq!(data, payload);
-            }
-            other => panic!("unexpected event: {other:?}"),
-        }
-        let (native_sender, native_receiver) = std::sync::mpsc::channel();
-        app.listen("native-probe", move |event| {
-            native_sender.send(event.payload().to_owned()).unwrap();
-        });
-        ui.emit_native("native-probe", serde_json::json!({ "native": true }));
-        let native: Value = serde_json::from_str(&native_receiver.try_recv().unwrap()).unwrap();
-        assert_eq!(native, serde_json::json!({ "native": true }));
-        assert!(web.try_recv().is_err());
-        ui.emit_to("main", "targeted-probe", Value::Null);
-        assert!(web.try_recv().is_err());
     }
 }

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const SERVER_COMPONENT_SCHEMA = 1;
-export const SUPPORTED_BOOTSTRAP_PROTOCOL = 1;
+export const SUPPORTED_BOOTSTRAP_PROTOCOL = 2;
 export const MANIFEST_RELATIVE_PATH = 'target/domios-package/server-component.json';
 
 const STAGE_ROOT = path.join('target', 'domios-package');

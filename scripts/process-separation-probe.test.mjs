@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync, realpathSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, realpathSync, mkdirSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parseProbeArgs, cleanEnvironment, attachRequest } from './process-separation-probe.mjs';
-import { assertServerClosure, serverArtifact, workerArtifact } from './server-artifact.mjs';
+import { assertServerClosure, serverArtifact, workerArtifact, stageDevResources } from './server-artifact.mjs';
 
 test('only explicit disposable process cases are admitted', () => {
   assert.deepEqual(parseProbeArgs(['--case', 'server-only', '--instance', 'split-oracle', '--artifact-receipt', '/receipt']), { case: 'server-only', receipt: '/receipt' });
@@ -47,4 +47,50 @@ test('control requests bind challenge and exact intended server incarnation', ()
   assert.notEqual(first.challenge, second.challenge);
   assert.deepEqual(first.expected, { process: ready.process, epoch: ready.epoch });
   assert.equal(attachRequest(ready, { operation: 'shutdown' }).operation, 'shutdown');
+});
+
+test('DEV stages exact paired artifacts and protocol2 inventory under native resource root', async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'domios-dev-stage-'));
+  try {
+    const exe = process.platform === 'win32' ? '.exe' : '';
+    const resourceRoot = path.join(root, 'target/debug');
+    const server = path.join(resourceRoot, `domios-server${exe}`);
+    const client = path.join(resourceRoot, `codeterm${exe}`);
+    const cli = path.join(root, `cli/target/debug/codeterm${exe}`);
+    const serverSource = path.join(root, 'src-tauri/crates/domios-server/src/main.rs');
+    const cliSource = path.join(root, 'cli/src/main.rs');
+    for (const file of [server, client, cli, serverSource, cliSource, 'dist/index.html', 'skills/fixture.md', 'LICENSE', 'NOTICE'].map(file => path.isAbsolute(file) ? file : path.join(root, file))) {
+      mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, 'opaque-' + path.basename(file));
+    }
+    const contract = path.join(root, 'src-tauri/crates/codeterm-types/src/server_bootstrap.rs');
+    mkdirSync(path.dirname(contract), { recursive: true });
+    writeFileSync(contract, 'pub const API_VERSION: u32 = 3;\npub const BOOTSTRAP_PROTOCOL: u32 = 2;\n');
+    if (process.platform === 'win32') {
+      mkdirSync(path.join(root, 'src-tauri/conpty/x64'), { recursive: true });
+      for (const file of ['OpenConsole.exe', 'conpty.dll']) writeFileSync(path.join(root, 'src-tauri/conpty/x64', file), 'fixture');
+    }
+    const { createHash } = await import('node:crypto');
+    const digest = file => createHash('sha256').update(readFileSync(file)).digest('hex');
+    const build = 'a'.repeat(40);
+    const cargoLog = path.join(root, 'server.jsonl'), cliLog = path.join(root, 'cli.jsonl'), treeLog = path.join(root, 'tree.txt');
+    const scriptReceipt = { reason: 'build-script-executed', package_id: 'domios-server', env: [['BUILD_SHA', build], ['SERVER_CLI_SHA256', digest(cli)]] };
+    const artifact = { reason: 'compiler-artifact', target: { name: 'domios-server', kind: ['bin'], src_path: serverSource }, executable: server, profile: { test: false }, features: ['embeddings'] };
+    const finish = { reason: 'build-finished', success: true };
+    writeFileSync(cargoLog, [scriptReceipt, artifact, finish].map(JSON.stringify).join('\n'));
+    writeFileSync(cliLog, [{ ...artifact, target: { name: 'codeterm', kind: ['bin'], src_path: cliSource }, executable: cli }, finish].map(JSON.stringify).join('\n'));
+    writeFileSync(treeLog, 'domios-server v0.0.0\ntokio v1.0\n');
+    const input = { cargoLog, cliLog, treeLog, repo: root, resourceRoot, client, build };
+    const result = await stageDevResources(input);
+    assert.equal(result.manifest.bootstrap_protocol, 2);
+    assert.equal(result.manifest.server_sha256, digest(server));
+    assert.equal(result.manifest.client_sha256, digest(client));
+    assert.equal(result.worker_cli_sha256, digest(cli));
+    assert.equal(readFileSync(path.join(resourceRoot, result.manifest.server_executable), 'utf8'), readFileSync(server, 'utf8'));
+    const inventory = readFileSync(path.join(resourceRoot, 'server-component.json'));
+    writeFileSync(cargoLog, [{ ...scriptReceipt, env: [['BUILD_SHA', build], ['SERVER_CLI_SHA256', 'b'.repeat(64)]] }, artifact, finish].map(JSON.stringify).join('\n'));
+    await assert.rejects(stageDevResources(input), /CLI binding/);
+    assert.deepEqual(readFileSync(path.join(resourceRoot, 'server-component.json')), inventory);
+    writeFileSync(treeLog, 'domios-server v0.0.0\ntauri v2.0\n');
+    await assert.rejects(stageDevResources(input), /forbidden/);
+  } finally { rmSync(root, { recursive: true }); }
 });

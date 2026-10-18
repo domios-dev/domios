@@ -3,6 +3,7 @@ use codeterm_host_runtime::app_runtime::Runtime;
 pub(crate) fn register_commands(builder: tauri::Builder<Runtime>) -> tauri::Builder<Runtime> {
     builder.invoke_handler(tauri::generate_handler![
         crate::host_ports::frontend_view_root_ready,
+        crate::host_ports::native_webview_diagnostics_snapshot,
         codeterm_commands::commands::get_windows_build_number,
         codeterm_commands::commands::materialize_dropped_files,
         codeterm_commands::clipboard_files::read_clipboard_files,

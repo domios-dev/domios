@@ -586,10 +586,14 @@ impl super::NativeHostClient {
         api: &super::super::ServerApiAttachmentSlot,
         slot: &NativeHostClientSlot,
     ) -> ExactServerShutdownResult {
+        if !supports_shutdown_completion_protocol(expected.protocol) {
+            return ExactServerShutdownResult::RefusedBeforeDispatch(
+                ExactServerShutdownRefusal::IncompatibleServerProtocol,
+            );
+        }
         if self.retired.load(Ordering::Acquire)
             || !slot.is_current(self)
             || self.ready != expected
-            || !supports_shutdown_completion_protocol(expected.protocol)
             || self.connection.generation == 0
             || self.connection.identity != expected.identity
             || self.connection.server_epoch != expected.epoch
