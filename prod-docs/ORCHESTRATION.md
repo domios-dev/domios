@@ -1,6 +1,6 @@
 # Orchestration control loop
 
-Team utilities: `codeterm tab new --team <team-id> --purpose build|dev|qa|shell` (default `shell`); use dev for servers. Purpose survives restart/restore. Command marks show running, idle with last exit, or unknown without marks.
+Team utilities: `codeterm tab new --team <team-id> --purpose build|dev|qa|shell` (default `shell`; `dev` for servers). Purpose survives restart/restore. Marks show running, idle with last exit, or unknown.
 
 Use command `--help` for syntax.
 
@@ -16,104 +16,61 @@ codeterm task show <task>
 
 Use `codeterm orchestrator inspect --plan <plan> --json` only when compact status cannot explain drift.
 
-Read `codeterm docs <NAME>`; list with `codeterm docs`:
+Read playbooks with `codeterm docs <NAME>`; list with `codeterm docs`:
 
 | Need | Read |
 |---|---|
-| Planner ownership and task cutting | `codeterm docs PLANNER` |
-| Worktrees, integration, cleanup | `codeterm docs LANES` |
-| Narrow plan edits | `codeterm docs PLAN-EDITING` |
-| Bounce evidence and retry limits | `codeterm docs BOUNCE` |
-| Test authoring | `codeterm docs TEST-AUTHORING` |
-| Task lifecycle, groups, dispatch | `codeterm docs ORCHESTRATION-TASKS` |
-| Verification, integration, heartbeat, closeout | `codeterm docs ORCHESTRATION-OPERATIONS` |
+| Planner/tasks | `PLANNER` |
+| Worktrees/integration | `LANES` |
+| Narrow edits | `PLAN-EDITING` |
+| Bounce/retry | `BOUNCE` |
+| Test authoring | `TEST-AUTHORING` |
+| Task lifecycle/dispatch | `ORCHESTRATION-TASKS` |
+| Verification/heartbeat/closeout | `ORCHESTRATION-OPERATIONS` |
 
 ## Durable model
 
-Domios planner is the source of truth:
+The planner is the source of truth:
 
 ```text
 GOAL → Spec (WHAT/WHY) ⊥ Plan (HOW) → Tasks → Strides
 ```
 
-- The Orchestrator sets the GOAL first, then delegates the rest of the structure.
-- Requirements, constraints, acceptance, and vocabulary belong in Spec.
-- Phases, ownership, sequencing, and verification belong in Plan.
-- Tasks carry bounded scope, ownership, acceptance criteria, correctness, and an executable test plan.
-- Strides record evidence, decisions, reports, and working points.
-- Do not replace planner state with a standalone markdown implementation plan.
+The Team owns and exposes its active Plan through Team membership; its bound Planner shapes it and keeps section/task authority after approval. The Orchestrator sets the GOAL first, judges structure, and owns approval, dispatch, review, integration, and cleanup.
 
-The Orchestrator sets GOAL, judges structure, dispatches, reviews, integrates and cleans up. A bound Planner retains section/task authority after approval; approval and dispatch remain the Orchestrator's.
-Split oversized work with `codeterm plan task split <plan> <task> --child <name>`;
-dispatch each approved child in its own lane. The parent stays open until every child is
-done or cancelled. Workers propose splits but never spawn sub-Workers.
-Implement authorized small, local, low-risk corrections in canonical when
-cheaper than delegation; default plan-owned source work to Worker dispatch.
-Canonical write access never justifies self-assigning normal implementation.
-Team utilities inherit cleanup; use `--no-team` only to outlive it deliberately.
-Plan adoption binds the Team's unique live Planner.
+- Spec owns requirements, constraints, acceptance, and vocabulary; Plan owns phases, owners, sequence, and verification.
+- Tasks carry bounded scope/ownership, acceptance/correctness, and executable tests. Strides record evidence, decisions, reports, and working points.
+- Never replace planner state with a standalone markdown implementation plan.
 
-Transfer acknowledged Workers between Teams only through their current parent; see `LANES` for identity preservation and refusals.
+Split oversized tasks with `codeterm plan task split <plan> <task> --child <name>`; dispatch children in lanes and keep the parent open until all are done or cancelled. Workers may propose splits but never spawn; see `ORCHESTRATION-TASKS`.
+Use canonical for authorized, small, local, low-risk fixes when cheaper than delegation; dispatch plan-owned source work by default. Canonical access never permits self-assignment.
+Team utilities inherit cleanup; use `--no-team` only to outlive it deliberately. Plan adoption binds the Team's unique live Planner.
 
-Lane safety: two hard stops, otherwise nudges; see `LANES`.
+Only current parents transfer acknowledged Workers between Teams; `LANES` covers identity, refusals, two hard stops, and advisory nudges.
 
 ### Recovering a tab-gone task
 
-The live Plan owner may cancel, pend, reassign, respawn or dispatch a tab-gone task, atomically retiring its stale attempt. Proof, allowlists, refusals: `codeterm docs API-PLAN`.
+Only the live Plan owner may cancel, pend, reassign, respawn, or dispatch a tab-gone task; `API-PLAN` covers proof, allowlists, stale-attempt retirement, and refusals.
 
 ## The loop
 
-After every report, reminder, task close, tab death or gate:
+After every report, reminder, task close, tab death, or gate, reconcile with `codeterm plan reconcile <plan>`, fix only owned drift, and inspect all open tasks. Give each actionable task an exit; task sequencing governs staffing and parked work. See `ORCHESTRATION-TASKS` for reports and `ORCHESTRATION-OPERATIONS` for canonical verification and heartbeat.
 
-Worker death during `in_progress` (tab closed/crashed or agent exited) pushes `[worker lost: <task>]` with task, lane, dirt and recovery command. Tell the user about the incident, then run the named `codeterm plan task respawn` command.
+Worker death during `in_progress` (tab closed/crashed or agent exited) pushes `[worker lost: <task>]` with task, lane, dirt, and recovery. Tell the user and run its named `codeterm plan task respawn` command.
 
-1. **Judge pushed reports** without polling. Worker `--status blocked` proposes
-   a block without changing task state; see `ORCHESTRATION-TASKS`.
-2. **Reconcile.** Run `codeterm plan reconcile <plan>`; fix only owned drift.
-3. **Re-derive the frontier.** Inspect all open tasks, not only the previous focus.
-4. **Give every actionable task an exit** under the task sequencing contract;
-   plan reminders name actionable task ids and show later-group work once as a
-   compact parked-task count.
-5. **Keep the frontier staffed.** Do not leave a capable Worker idle while
-   independent actionable work exists. Clear dispatch, dependency, review, and
-   cleanup blockers first, then reuse a matching Worker or dispatch the next
-   bounded task without duplicating ownership.
-6. **Keep source writers parallel** in isolated lanes with disjoint ownership.
-7. **Own canonical verification.** Real-merge ancestry; never cherry-pick,
-   squash, replay or patch-copy. Accept on review, then rerun each merged
-   wave's focused selectors in canonical.
-8. **Let heartbeat follow state.** It derives from plan/task state; answer
-   reminders there, never through heartbeat, focus or lane fields.
-9. **Clean up as you go:** close a reported Worker once its clean lane tip is integrated and no known author correction remains, even while parent-owned QA keeps the task in review. Deferred checks or hypothetical defects do not justify retaining the tab. Preserve review state, evidence and recoverable identity; restore the tab through the supported lifecycle if a later defect needs its author. Keep active/unreported work and required live fixtures. Close idle owned utilities/watchers; stop owned dev processes first. Prune only clean, ancestry-verified lanes with `codeterm plan lanes <plan> --clean --confirm`, and record cleanup. Closing a tab never accepts its task.
+Use disjoint isolated lanes for parallel writers. After review and real merge, rerun the wave's selectors in canonical; never cherry-pick, squash, replay, or patch-copy. Heartbeat derives from Plan state; answer reminders there, never by editing heartbeat, focus, or lane fields.
 
-The live Plan Orchestrator may run confirmed lane cleanup (including `--fetch`)
-from its own Team utility shell. The daemon verifies the shell's launch binding,
-recorded creator and Team against the Plan's live bound owner; a utility shell
-needs no agent session or plan rebind. Other Team members gain no cleanup authority.
+Close a reported Worker after its clean lane is integrated and no author correction remains, even during parent QA. Deferrals and hypothetical defects do not justify retaining it. Preserve review, evidence, and recoverable identity; restore through the supported lifecycle if needed. Keep active/unreported work and fixtures. Close idle utilities/watchers, stop dev first, and prune only clean ancestry-verified lanes with `codeterm plan lanes <plan> --clean --confirm`; record cleanup. Closing a tab never accepts its task.
 
-`actionable: false` tab hints are observations, never instructions to answer, notify or mutate. Actionable events require two agreeing strong observations of one launch.
+Only the live Plan Orchestrator may run confirmed lane cleanup (including `--fetch`) from its Team utility shell. The daemon verifies launch binding, creator, Team, and live Plan ownership; shells need no agent session or rebind. Other members cannot clean lanes.
+
+Never answer, notify, or mutate from `actionable: false` tab hints; require two agreeing strong observations of the same launch before acting.
 
 Discovery must lead to decisions and implementation, review or verification; research alone is incomplete.
 
 ## Planning ownership
 
-When a Planner is present:
-
-- the active Plan belongs to the Team and is visible through Team membership;
-- run `codeterm plan doctor <plan> --kind quality`, then use one `codeterm plan
-  approve <plan>` action to approve the structure and activate its tasks;
-- duplicate worker guidance across tasks is a doctor warning to judge, never an
-  approval block by itself;
-- after a green doctor, summarize the proposed plan to the user and explicitly
-  ask for approval; never stop silently at a completed draft;
-- do not dispatch until approval is durably recorded. After UI approval, verify
-  `planning_state=approved`; after explicit conversational approval, run the
-  approve action and verify the same state;
-- never ask the Planner to self-approve or manually set `structure_ready`;
-- draft tasks remain non-dispatchable;
-- the Orchestrator remains the sole dispatch and acceptance authority.
-
-Before dispatch, judge structure against your role brief's plan-shape contract. Record Planner waivers on the plan.
+With a Planner, run `codeterm plan doctor <plan> --kind quality`; duplicate Worker guidance is advisory. Summarize a green draft and ask the owner. Wait for recorded approval: after UI approval verify `planning_state=approved`; after conversational approval run `codeterm plan approve <plan>` once and verify it. The Planner never self-approves or sets `structure_ready`; drafts stay non-dispatchable. The Orchestrator alone dispatches and accepts. Judge the role brief's plan-shape contract and record waivers.
 ## Dispatch contract
 
 Workers default to full machine access for both execution intents. `--execution-intent` governs task and report authority, independently of OS permissions. Explicitly request confinement with `--sandbox read-only` or `--sandbox workspace-write` on `agent spawn` or local `plan task dispatch`; unsupported mappings are refused. A requested sandbox rejects custom provider arguments and persists its immutable policy across restore. Explicit sandbox selection on mesh task dispatch is refused before dispatch.
@@ -122,58 +79,32 @@ Task-less verification reports omit `--status` and `--task`; execution intent st
 
 ## Worker kinds
 
-Worker kinds are prompt-only: they add role guidance, not machine access or execution ability. Both support assigned mutations with or without a task. Use `agent spawn --role Worker --kind qa|release_manager --parent-tab <tab>`; see `--help` for flags.
+Kinds add prompt guidance, not machine access or execution ability. `qa` and `release_manager` support assigned mutations or task-less use; spawn task-less kinds with `codeterm agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`. Task-less instances own no task, default to mutating intent, report to their parent without `--task`/`--status`, and gain no Plan authority. Neither kind spawns children. QA provides browser verification and may accept or bounce only an exact parent-delegated in-review task with evidence; it cannot hold or dispatch. Release managers coordinate current releases; publication and tags require owner GO. See `AGENT-CONTROL`.
 
-- `qa`: browser verification; may accept or bounce only an exact in-review task handed off by its parent, with an evidence note.
-- `release_manager`: current-release coordination; publication requires owner authorization.
+Task-bound Workers need `--plan-task <task>` and explicit `--execution-intent` for ACK, lane, and status. Gates authorize only recorded commands, never source edits; task-bound gates are declared on dispatch, where enforced. QA review delegation is explicit.
 
-For task-bound canonical mutation, the Orchestrator dispatches the task with
-`--execution-intent mutating --canonical-writer` and may add `--kind qa` or
-`--kind release_manager` to select the Worker prompt without changing the saved
-`executor_role`. For task-bound work, the parent-authorized dispatch reserves
-the attempt and keeps the existing exclusive writer check. Direct `agent spawn
---plan-task` remains refused for task-bound canonical mutation. Task-less kinds
-with Plan context retain parent-directed placement behavior; they do not reserve
-task attempts or participate in canonical writer occupancy, so the parent
-coordinates those writes. Read-only verification remains allowed there.
+Task-bound canonical mutation requires parent-authorized dispatch with `--execution-intent mutating --canonical-writer`; add `--kind qa` or `--kind release_manager` without changing `executor_role`. Dispatch reserves the attempt and exclusive writer placement; direct task-bound `agent spawn --plan-task` cannot carry gates or reserve canonical mutation and remains refused. Task-less kinds with Plan context keep parent-directed placement, reserve no task or canonical occupancy, and leave writes to the parent; read-only verification is allowed. See `API-PLAN` and `LANES`.
 
-Bind `--plan-task <task>` with explicit `--execution-intent` for Worker ACK, lane and status lifecycle. Task-less kinds default to mutating intent, work for their parent and report without `--status`; Kinds grant no plan-state authority. QA review delegation is explicit. Publication and tags require owner GO. Neither kind spawns children.
+Before each wave, follow `ORCHESTRATION-TASKS` for headroom, disjoint ownership, Plan doctor, binding, and ACK; give exact acceptance/test commands and require ACK first, report last. For Full-access paired-peer dispatch, judge the origin report and merge its accepted SHA into the clean dispatch-time branch.
 
-Before each wave: check provider headroom (reuse live Workers near95%), map disjoint task/file/branch/oracle/gate ownership, run plan doctor. Give Workers `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, checkout and exact acceptance/test commands; ACK first, report last. On a Full-access paired peer, `codeterm plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating` creates an origin attempt and peer lane. Judge the persisted origin report; merge its exact accepted SHA to the clean dispatch-time branch.
-
-Dispatch failure: send a standalone user alert immediately with impact, affected tasks, cleanup and fallback; verify rollback. After two same-class failures, stop, diagnose and await owner direction. Never bypass blocked dispatch by implementing plan-owned work yourself.
+On dispatch failure, send a standalone user alert immediately with impact, affected tasks, cleanup, and fallback; verify rollback. After two same-class failures, stop, diagnose, and await owner direction. Never self-implement plan-owned work to bypass it; see `ORCHESTRATION-TASKS` for escalation.
 
 ## Review capacity
 
-Review by backlog and diff: large changes individually, compatible small ones
-as one wave with canonical QA. After real merge, fix bounded mechanical
-integration defects in canonical; bounce ownership, correctness, authority,
-scope or design defects.
+Review by backlog and diff: large changes individually, compatible small ones in one wave and canonical QA. After real merge, directly fix bounded mechanical defects; bounce ownership, correctness, authority, scope, or design defects.
 
-At five reviews, prioritize closures and avoid backlog growth. Backlog and credit
-debt are advisory: dispatch, competition and respawn need no capacity grant.
-Authorization, dependencies, review safety, and task acceptance still apply;
-pending terminal-group evidence remains advisory. Never fake acceptance or
-adjust credit to silence warnings.
+At five reviews, prioritize closure and avoid backlog growth. Backlog, credit, and pending terminal-group evidence are advisory; dispatch, competition, and respawn need no capacity grant. Authority, dependencies, review safety, and acceptance still apply. Never fake acceptance or adjust credit.
 
-Owner-only `codeterm plan review authorize-capacity <plan> <task>` with
-`--class review` or `--class canonical_gate` records review-work classification;
-dispatch never needs it and it grants no authority.
+Only the owner may run `codeterm plan review authorize-capacity <plan> <task>` with `--class review` or `--class canonical_gate`; it records classification, not authority, and dispatch never needs it.
 
-Exit `in_review` only via:
-`codeterm plan review accept <plan> <task> --note-from-pad review.md` (also `bounce`/`hold`).
-Bounce resumes Workers or returns pending; hold keeps review, assignment and lane.
-Pad notes or scalar `--note`; no authored inline.
-`API-PLAN` covers credit repair, task-less evidence and Planner parent resolution.
+Exit `in_review` only with `codeterm plan review accept`, `bounce`, or `hold`, passing `<plan> <task>` and `--note-from-pad <file>` or `--note`; author notes in the pad. Bounce resumes the Worker or reopens its task; hold keeps review, assignment, and lane. See `API-PLAN` for credit repair, task-less evidence, and Planner parent resolution.
 
 ### Quiet team heartbeat
 
-One automatic plan reminder exists: heartbeat, only after its configured interval. Events (reports, dispatches, task/mode changes, worker loss) never add reminders; completed plans get no wrap-up reminder. Reports, worker-lost notices, decisions and failure alerts keep their own channels.
-
-Heartbeat deterministically suppresses unchanged observations and requires a concrete next step; no Supporter or model is required. Worker reminders also respect their interval.
+Heartbeat is the only interval-based plan reminder: events add none and completed plans get no wrap-up. Reports, worker-loss notices, decisions, and failure alerts keep separate channels. It suppresses unchanged state and requires a next step; no Supporter or model is needed. Worker reminders also respect their interval; see `ORCHESTRATION-OPERATIONS`.
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
 Confined mutating Workers persist host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR/TEMP/TMP use lane-local `.codeterm-tmp`. Task-bound spawns require explicit read_only or mutating intent. Older task tabs without saved confinement retain their behavior.
 
-<!-- revision: 134 -->
+<!-- revision: 135 -->
