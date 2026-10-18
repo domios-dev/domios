@@ -66,7 +66,10 @@ Before a wave:
    focused oracle, and central gates requested.
 3. Run plan doctor.
 4. Default to an authored task and dispatch it through `codeterm plan task dispatch`; use `codeterm agent spawn --role Worker --unplanned --reason "<why>"` only for small, urgent, or exploratory work. Lanes by default,
-   `--canonical-writer` only by deliberate choice (operations playbook).
+   `--canonical-writer` only by deliberate choice (operations playbook). Add
+   `--kind qa` or `--kind release_manager` to a canonical dispatch when the
+   Worker needs that built-in prompt; it does not change `executor_role` or
+   replace parent authorization. Direct task-bound spawn cannot reserve canonical.
 5. Wait for the pushed `worker_ack` described in Task lifecycle.
 6. Dispatch failure: immediately send a standalone user alert (impact, affected tasks, cleanup, active fallback); verify rollback. After two same-class failures, stop dispatching; diagnose/escalate the coordination incident via `codeterm notify send ... --level action_needed` and a plan stride on the task. Await owner direction before retrying.
    Never self-implement plan-owned work to bypass failed dispatch; mark the task done only after an acknowledged Worker attempt or owner decision.
@@ -105,4 +108,4 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

@@ -40,6 +40,14 @@ length, or banned-word list. Tasks that predate the contract are reported and
 never filled in; an invented role is worse than an absent one, because the
 Orchestrator would route on it.
 
+Exact built-in leaf `executor_role` values select their Worker prompt profile at
+local dispatch. `--kind qa` or `--kind release_manager` may select that prompt
+without editing the saved task role. The kind is prompt composition only;
+canonical placement still needs the parent-authorized `--canonical-writer`
+dispatch and its exclusive task attempt. Direct task-bound spawn cannot reserve
+canonical, and a task-less kind with Plan context cannot write to that Plan's
+canonical checkout.
+
 Each task also carries a one-word `personality` — the executor's persona name
 shown on its tab. `plan task add` requires it: a task created without one
 dispatches a worker that falls back to the title `Worker`. `plan task update`
