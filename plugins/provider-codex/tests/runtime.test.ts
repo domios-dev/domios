@@ -1077,6 +1077,11 @@ check("reset credit reads and consume outcomes stay inside declared runtime meth
   allowed(consume,consumePlan.action);
   assert.deepEqual(plain(hooks.runtimePlan(ctx,consume)),plain(consumePlan));
   assert.deepEqual(plain(consumePlan.action),{kind:"request",call:{method:"account/rateLimitResetCredit/consume",params:{idempotencyKey:"12345678-1234-4123-8123-123456789abc"}}});
+  const selected:Operation = {...consume,value:{idempotencyKey:"12345678-1234-4123-8123-123456789abc",creditId:"opaque-credit"}};
+  const selection = hooks.runtimePlan(ctx,selected);
+  allowed(selected,selection.action);
+  assert.deepEqual(plain(selection.action),{kind:"request",call:{method:"account/rateLimitResetCredit/consume",params:{idempotencyKey:"12345678-1234-4123-8123-123456789abc",creditId:"opaque-credit"}}});
+  for (const creditId of ["", 1, {}]) assert.throws(() => hooks.runtimePlan(ctx,{...consume,value:{idempotencyKey:"12345678-1234-4123-8123-123456789abc",creditId}}));
   for(const outcome of ["nothingToReset","noCredit","alreadyRedeemed"]) {
     const done=hooks.runtimeResponse(ctx,consume,consumePlan.state,{kind:"success",value:{outcome}});
     assert.deepEqual(plain(done),{kind:"complete",result:{kind:"resetCreditConsumed",outcome}});
