@@ -97,3 +97,5 @@ mod rest_liveness_tests;
 mod process_split_contract;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+
+pub mod app_quit_routes;

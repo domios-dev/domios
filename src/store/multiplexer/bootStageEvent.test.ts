@@ -30,10 +30,13 @@ test("tab-boot-stage event maps to reducer action with reason", () => {
 });
 
 test("AgentReady event forwards booting and session binding", () => {
-  const action = tabBootStageEventAction({ tab_id: "ready", stage: "agent_ready", agent_booting: false, session_bound: true });
+  const launchGeneration = { epoch: 3, operation_id: "launch-3", pty_id: "pty-ready", binding_nonce: "binding-ready" };
+  const action = tabBootStageEventAction({ tab_id: "ready", stage: "agent_ready", agent_booting: false, session_bound: true,
+    launch_generation: launchGeneration });
   assert(action.type === "UPDATE_BOOT_STAGE", "action type");
   assert(action.agent_booting === false, "booting mapped");
   assert(action.session_bound === true, "binding mapped");
+  assert(action.launchGeneration === launchGeneration, "launch identity mapped");
 });
 
 console.log(`bootStageEvent tests: ${failures === 0 ? "all passed" : `${failures} failed`}`);

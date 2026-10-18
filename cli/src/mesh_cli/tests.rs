@@ -1180,3 +1180,20 @@ mod mesh_spawn_close;
 
 #[path = "tests/utility_tabs.rs"]
 mod utility_tabs;
+
+#[test]
+fn app_quit_is_local_only_and_never_mapped_to_mesh() {
+    use crate::transport::{Local, MeshRelay};
+    let command = Commands::App {
+        action: crate::args::app::AppAction::Quit { exact: true },
+    };
+    let transport = crate::transport::transport_for(&command);
+    assert_eq!(transport.local, Local::PreSocket);
+    assert_eq!(transport.mesh_relay, MeshRelay::Fallthrough);
+    let (method, reason, body) = cli_command_to_api(&command);
+    assert_eq!(method, super::api_map::UNSUPPORTED_OVER_MESH);
+    assert!(
+        matches!(transport.api_verdict, crate::transport::ApiVerdict::Unsupported(value) if value == reason)
+    );
+    assert!(body.is_none());
+}

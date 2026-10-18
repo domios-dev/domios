@@ -207,6 +207,76 @@ fn spawned_worker_receives_the_codeterm_primer() {
 }
 
 #[test]
+fn routed_contract_is_adjacent_to_the_primer_and_survives_both_delivery_channels() {
+    use crate::agent::provider::{StarterPrompt, SystemPromptDelivery};
+    use crate::service::launch_delivery::{content_for_descriptor, prepare_spawn_input};
+
+    const ASSIGNMENT: &str = "OPAQUE-ROUTED-ASSIGNMENT-6e8d1";
+    const PLUGINS: &str = "OPAQUE-PLUGIN-CONTEXT-9a2c4";
+
+    let primer = crate::prompts::AGENT_CODETERM_PRIMER.trim();
+    let routing = crate::prompts::AGENT_ROUTING_CONTRACT.trim();
+    let external_launch =
+        super::worker_agent_system_prompt_with_plugins(None, ASSIGNMENT, None, Some(PLUGINS));
+    let system_prompt = super::agent_system_prompt_with_plugins(None, Some(PLUGINS));
+    let expected_prefix = format!("{primer}\n\n{routing}\n\n{PLUGINS}");
+
+    for (name, composed) in [
+        ("external launch", &external_launch),
+        ("system primer", &system_prompt),
+    ] {
+        let primer_offset = composed
+            .find(primer)
+            .expect("composed prompt carries primer");
+        assert!(
+            composed[primer_offset..].starts_with(&expected_prefix),
+            "{name}"
+        );
+        assert_eq!(composed.matches(primer).count(), 1, "{name}");
+        assert_eq!(
+            composed.find(routing),
+            Some(primer_offset + primer.len() + 2),
+            "{name} places the routed contract immediately after the primer"
+        );
+        assert_eq!(composed.matches(routing).count(), 1, "{name}");
+        assert_eq!(composed.matches(PLUGINS).count(), 1, "{name}");
+    }
+    assert_eq!(external_launch.matches(ASSIGNMENT).count(), 1);
+
+    let external_provider = crate::agent::test_provider::MockProvider::new("opaque-external");
+    let spawn_input = prepare_spawn_input(
+        Some(&external_provider),
+        Some("Worker"),
+        Some(ASSIGNMENT),
+        StarterPrompt::NoStarter,
+        None,
+        str::to_string,
+    );
+    assert!(spawn_input.task_needs_fallback);
+    assert_eq!(spawn_input.provider_task, Some(ASSIGNMENT));
+    let fallback = spawn_input
+        .fallback_spec(None, Some(&external_launch), None)
+        .expect("external prompt is delivered as a confirmed first turn");
+    assert_eq!(fallback.payload, external_launch);
+    assert_eq!(
+        fallback.channel,
+        crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput
+    );
+
+    for descriptor in [
+        SystemPromptDelivery::CliFlag("opaque-system-flag".into()),
+        SystemPromptDelivery::SessionConfig,
+    ] {
+        let delivery = content_for_descriptor(&descriptor, Some(&system_prompt));
+        assert_eq!(
+            delivery.system_prompt.as_deref(),
+            Some(system_prompt.as_str())
+        );
+        assert!(delivery.fallback.is_none());
+    }
+}
+
+#[test]
 fn every_spawned_recipient_receives_the_complete_routing_contract_once() {
     let contract = crate::prompts::AGENT_ROUTING_CONTRACT.trim();
     assert!(!contract.is_empty());
@@ -451,18 +521,18 @@ fn utility_guidance_reaches_managers_and_roleless_but_not_workers() {
 }
 
 #[test]
-fn built_in_plugins_section_follows_the_primer_and_is_absent_without_contributors() {
+fn built_in_plugins_follow_the_routing_contract_and_are_absent_without_contributors() {
     const SECTION: &str = "Built-in plugins:\n- OPAQUE_CORE_LINE_q7";
     let primer = crate::prompts::AGENT_CODETERM_PRIMER.trim();
     let routing_contract = crate::prompts::AGENT_ROUTING_CONTRACT.trim();
-    let after_primer = format!("{primer}\n\n{SECTION}\n\n");
+    let before_plugins = format!("{primer}\n\n{routing_contract}\n\n{SECTION}\n\n");
 
     let plain = super::agent_system_prompt_with_plugins(Some("opaque-task"), None);
     assert!(!plain.contains("Built-in plugins:"));
     assert_eq!(plain.matches(routing_contract).count(), 1);
     let with = super::agent_system_prompt_with_plugins(Some("opaque-task"), Some(SECTION));
-    assert!(with.starts_with(&after_primer));
-    assert!(with.find(SECTION) < with.find(routing_contract));
+    assert!(with.starts_with(&before_plugins));
+    assert!(with.find(routing_contract) < with.find(SECTION));
     assert_eq!(with.replacen(&format!("{SECTION}\n\n"), "", 1), plain);
 
     let worker_plain = super::worker_agent_system_prompt_with_plugins(None, "opaque", None, None);
@@ -470,8 +540,8 @@ fn built_in_plugins_section_follows_the_primer_and_is_absent_without_contributor
     assert_eq!(worker_plain.matches(routing_contract).count(), 1);
     let worker =
         super::worker_agent_system_prompt_with_plugins(None, "opaque", None, Some(SECTION));
-    assert_eq!(worker.matches(&after_primer).count(), 1);
-    assert!(worker.find(SECTION) < worker.find(routing_contract));
+    assert_eq!(worker.matches(&before_plugins).count(), 1);
+    assert!(worker.find(routing_contract) < worker.find(SECTION));
     assert_eq!(
         worker.replacen(&format!("{SECTION}\n\n"), "", 1),
         worker_plain
