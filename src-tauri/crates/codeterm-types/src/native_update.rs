@@ -523,10 +523,10 @@ fn same_server_artifact(left: &ServerComponentManifest, right: &ServerComponentM
 #[cfg(test)]
 mod tests {
     use super::{
-        ExpectedServer, NativeUpdateAction, NativeUpdateExecutor, NativeUpdateInstallReceipt,
-        NativeUpdateObservationOutcome, NativeUpdateOperationId, NativeUpdateRefusal,
-        NativeUpdateRequest, NativeUpdateResult, NativeUpdateStage, NativeUpdateState,
-        NativeUpdateUncertainty, NativeUpdateVerification,
+        ExpectedServer, NativeUpdateAction, NativeUpdateAttachment, NativeUpdateExecutor,
+        NativeUpdateInstallReceipt, NativeUpdateObservationOutcome, NativeUpdateOperationId,
+        NativeUpdateRefusal, NativeUpdateRequest, NativeUpdateResult, NativeUpdateStage,
+        NativeUpdateState, NativeUpdateUncertainty, NativeUpdateVerification,
     };
     use crate::{
         native_host::NativeHostConnection,
@@ -812,27 +812,33 @@ mod tests {
 
     #[test]
     fn manifest_executable_must_stay_inside_the_resource_root() {
-        let mut request = request(NativeUpdateAction::ClientOnly, false);
-        request.expected_server.components.server_executable =
-            PathBuf::from("../outside/domios-server.exe");
+        let mut expected_request = request(NativeUpdateAction::ClientOnly, false);
+        expected_request
+            .expected_server
+            .components
+            .server_executable = PathBuf::from("../outside/domios-server.exe");
         assert_eq!(
-            request.validate(),
+            expected_request.validate(),
             Err(NativeUpdateRefusal::InvalidServerManifest)
         );
 
-        let mut request = request(NativeUpdateAction::ClientOnly, false);
-        request.staged_components.server_executable =
+        let mut staged_request = request(NativeUpdateAction::ClientOnly, false);
+        staged_request.staged_components.server_executable =
             PathBuf::from("bin/../../outside/domios-server.exe");
         assert_eq!(
-            request.validate(),
+            staged_request.validate(),
             Err(NativeUpdateRefusal::InvalidStagedManifest)
         );
 
-        let mut request = request(NativeUpdateAction::ClientOnly, false);
-        request.expected_server.components.server_executable =
-            PathBuf::from("../outside/domios-server.exe");
-        assert!(!request
-            .matches_current_server(&ready_for(&request), &request.expected_server.components,));
+        let mut matching_request = request(NativeUpdateAction::ClientOnly, false);
+        matching_request
+            .expected_server
+            .components
+            .server_executable = PathBuf::from("../outside/domios-server.exe");
+        assert!(!matching_request.matches_current_server(
+            &ready_for(&matching_request),
+            &matching_request.expected_server.components,
+        ));
     }
 
     #[test]
@@ -891,7 +897,11 @@ mod tests {
         assert_eq!(first.sequence, 1);
         assert!(matches!(first.state, NativeUpdateState::Admitted));
 
-        let next = futures_poll_ready(port.observe(request_id, first.sequence));
+        let NativeUpdateObservationOutcome::Reply(next) =
+            futures_poll_ready(port.observe(request_id, first.sequence))
+        else {
+            panic!("the attached test executor replies to observation");
+        };
         assert_eq!(next.operation_id, request_id);
         assert_eq!(next.sequence, 2);
         assert!(matches!(
