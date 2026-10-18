@@ -112,17 +112,25 @@ export function reconcileSends(
       continue;
     }
     if (send.matchedRow) {
-      const sourceSessionId = send.matchedRow.source.source_session_id;
+      const matchedRow = send.matchedRow;
+      const sourceSessionId = matchedRow.source.source_session_id;
       if (send.echoBoundary
         ? send.echoBoundary.sourceSessionId !== sourceSessionId
         : sourceSessionId !== authority?.sourceSessionId) {
         if (!send.echo) pending.push(send);
         continue;
       }
-      const index = users.find((candidate) => !recorded.has(candidate)
-        && matchesMatchedRow(rows[candidate], send.matchedRow!));
-      if (index == null) pending.push(send);
-      else {
+      const record = matchedRow.source.record;
+      const index = users.find((candidate) => {
+        if (recorded.has(candidate)) return false;
+        const row = rows[candidate];
+        if (record.kind === "structured") return matchesMatchedRow(row, matchedRow);
+        return send.correlationId != null
+          && row.sourceSessionId === sourceSessionId
+          && row.correlationId === send.correlationId;
+      });
+      if (index == null && !send.echo) pending.push(send);
+      else if (index != null) {
         recorded.add(index);
         claim(send, index);
       }
