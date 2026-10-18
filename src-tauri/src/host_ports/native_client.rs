@@ -1,6 +1,7 @@
 mod bootstrap;
 #[cfg(test)]
 pub(super) use bootstrap::read_single_bounded_line;
+#[cfg(test)]
 pub(super) use bootstrap::HelperFailure;
 use bootstrap::VerifiedClientInstall;
 
