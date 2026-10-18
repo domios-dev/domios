@@ -22,15 +22,16 @@ async function main() {
     const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
     __setInvokeForTest(async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
       calls.push({ cmd, args });
-      return { id: "t1", title: "t", tab_id: "p1" } as T;
+      return { tab_id: "restored-tab" } as T;
     });
 
-    await reopenClosedTab("ws-42", 2);
+    const restored = await reopenClosedTab("ws-42", 2);
 
     assert(calls.length === 1, `expected 1 invoke, got ${calls.length}`);
     assert(calls[0].cmd === "mux_reopen_closed_tab", `wrong command: ${calls[0].cmd}`);
     assert(calls[0].args?.workspaceId === "ws-42", "passes workspaceId");
     assert(calls[0].args?.index === 2, "passes index");
+    assert(restored.tab_id === "restored-tab", "uses the backend's restored tab identifier");
     __setInvokeForTest(null);
   });
 
