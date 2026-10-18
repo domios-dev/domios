@@ -50,6 +50,30 @@ pub struct ExpectedServer {
     pub incarnation: ServerExpectation,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeUpdateAttachment {
+    pub connection: NativeHostConnection,
+    pub client_process: ProcessProvenance,
+}
+
+impl NativeUpdateAttachment {
+    pub fn validate_for(&self, request: &NativeUpdateRequest) -> Result<(), NativeUpdateRefusal> {
+        if self.connection.instance_id.trim().is_empty()
+            || self.connection.generation == 0
+            || !valid_process(&self.client_process)
+        {
+            return Err(NativeUpdateRefusal::NativeHostUnavailable);
+        }
+        if self.connection.identity != request.expected_server.identity
+            || self.connection.server_epoch != request.expected_server.incarnation.epoch
+        {
+            return Err(NativeUpdateRefusal::ExpectedServerMismatch);
+        }
+        Ok(())
+    }
+}
+
 impl PartialEq for ExpectedServer {
     fn eq(&self, other: &Self) -> bool {
         self.components == other.components
@@ -106,6 +130,13 @@ pub enum NativeUpdateRefusal {
     AlreadyInFlight,
     NativeHostUnavailable,
     DurableHandoffUnavailable,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NativeUpdateDispatchOutcome {
+    Reply(NativeUpdateResult),
+    RefusedBeforeExecution { reason: NativeUpdateRefusal },
+    UncertainAfterExecution { reason: NativeUpdateUncertainty },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -316,10 +347,19 @@ fn valid_process(process: &ProcessProvenance) -> bool {
 }
 
 pub type NativeUpdateResultFuture = Pin<Box<dyn Future<Output = NativeUpdateResult> + Send>>;
+pub type NativeUpdateDispatchFuture =
+    Pin<Box<dyn Future<Output = NativeUpdateDispatchOutcome> + Send>>;
 
 pub trait NativeUpdateExecutor: Send + Sync {
-    /// Starts one physical execution; the server must call this only once per operation.
-    fn dispatch(&self, request: NativeUpdateRequest) -> NativeUpdateResultFuture;
+    /// Returns only the exact active authenticated attachment captured by this executor.
+    fn captured_attachment(&self) -> Option<NativeUpdateAttachment>;
+
+    /// Starts once after rechecking that this exact authenticated attachment is still active.
+    fn dispatch(
+        &self,
+        request: NativeUpdateRequest,
+        attachment: NativeUpdateAttachment,
+    ) -> NativeUpdateDispatchFuture;
 
     /// Observes a later event without replaying work; the adapter binds its authenticated connection.
     fn observe(
@@ -519,19 +559,30 @@ mod tests {
     struct Port;
 
     impl NativeUpdateExecutor for Port {
-        fn dispatch(&self, request: NativeUpdateRequest) -> super::NativeUpdateResultFuture {
+        fn captured_attachment(&self) -> Option<NativeUpdateAttachment> {
+            let request = request(NativeUpdateAction::ClientOnly, false);
+            Some(NativeUpdateAttachment {
+                connection: connection_for(&request, 1, &request.expected_server.incarnation.epoch),
+                client_process: ProcessProvenance {
+                    pid: 72,
+                    created: "start-72".into(),
+                    executable: PathBuf::from("C:/Domios/domios.exe"),
+                },
+            })
+        }
+
+        fn dispatch(
+            &self,
+            request: NativeUpdateRequest,
+            attachment: NativeUpdateAttachment,
+        ) -> super::NativeUpdateDispatchFuture {
             Box::pin(async move {
-                let connection = connection_for(
-                    &request,
-                    1,
-                    &request.expected_server.incarnation.epoch,
-                );
-                NativeUpdateResult {
+                super::NativeUpdateDispatchOutcome::Reply(NativeUpdateResult {
                     operation_id: request.operation_id,
                     sequence: 1,
-                    connection,
+                    connection: attachment.connection,
                     state: NativeUpdateState::Admitted,
-                }
+                })
             })
         }
 
@@ -590,9 +641,9 @@ mod tests {
     #[test]
     fn server_and_pair_updates_require_restart_authorization() {
         for action in [NativeUpdateAction::Server, NativeUpdateAction::Pair] {
-            let request = request(action, false);
+            let update_request = request(action, false);
             assert_eq!(
-                request.validate(),
+                update_request.validate(),
                 Err(NativeUpdateRefusal::RestartAuthorizationRequired)
             );
             assert_eq!(request(action, true).validate(), Ok(()));
@@ -630,7 +681,12 @@ mod tests {
         let port: &dyn NativeUpdateExecutor = &Port;
         let request = request(NativeUpdateAction::ClientOnly, false);
         let request_id = request.operation_id;
-        let first = futures_poll_ready(port.dispatch(request));
+        let attachment = port.captured_attachment().unwrap();
+        attachment.validate_for(&request).unwrap();
+        let first = futures_poll_ready(port.dispatch(request, attachment));
+        let super::NativeUpdateDispatchOutcome::Reply(first) = first else {
+            panic!("the attached test executor replies");
+        };
         assert_eq!(first.sequence, 1);
         assert!(matches!(first.state, NativeUpdateState::Admitted));
 
@@ -645,7 +701,7 @@ mod tests {
         ));
     }
 
-    fn futures_poll_ready<T>(future: Pin<Box<dyn Future<Output = T> + Send + '_>>) -> T {
+    fn futures_poll_ready<T>(mut future: Pin<Box<dyn Future<Output = T> + Send + '_>>) -> T {
         use std::task::{Context, Poll, Wake, Waker};
         struct ReadyWake;
         impl Wake for ReadyWake {
