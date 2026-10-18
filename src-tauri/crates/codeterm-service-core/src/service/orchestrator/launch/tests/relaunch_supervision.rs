@@ -6,7 +6,7 @@ use crate::service::launch_diagnostics::AgentLaunchOrigin;
 #[test]
 fn cancelled_readiness_registration_retires_only_its_own_attempt() {
     use crate::service::launch_readiness::{
-        arm_with_origin, attempt_is_armed, retire_attempt, LaunchAttempt,
+        LaunchAttempt, arm_with_origin, attempt_is_armed, retire_attempt,
     };
     let first = LaunchAttempt {
         tab_id: "cancel-readiness-registration".into(),
@@ -128,19 +128,23 @@ fn early_send_nonce_survives_initial_launch_registration() {
             Some(0),
             &proof,
         ));
-        assert!(fixture
-            .service
-            .agent_delivery_binding_matches(&tab_id, &payload));
+        assert!(
+            fixture
+                .service
+                .agent_delivery_binding_matches(&tab_id, &payload)
+        );
         if session.is_none() {
             assert!(launch.emit_first_turn_input_ready(&fixture.service));
             let mux = fixture.service.mux.read();
             let tab = mux.get_tab(&tab_id).unwrap();
             assert_eq!(
                 tab.boot_stage,
-                Some(crate::service::boot_stage::BootStage::AgentReady)
+                Some(crate::service::boot_stage::BootStage::LaunchBindingUnconfirmed)
             );
+            assert!(tab.boot_failure_reason.is_some());
             assert_eq!(tab.session_binding_nonce.as_deref(), Some(nonce.as_str()));
             assert!(tab.agent_session_id.is_none());
+            assert!(!tab.launch_session_authenticated());
         }
         assert!(LAUNCH_REGISTRY.lock().finish(&launch));
         crate::service::launch_readiness::retire_attempt(&attempt);
@@ -229,16 +233,18 @@ fn restore_resumes_idle_worker() {
     }
 
     let mut dispatch = LaunchGeneration::begin(&tab_id, pty_id.into());
-    assert!(dispatch
-        .capture_binding_nonce(
-            &harness.service,
-            None,
-            None,
-            AgentLaunchOrigin::OrchestratedSpawn,
-            None,
-            None,
-        )
-        .is_err());
+    assert!(
+        dispatch
+            .capture_binding_nonce(
+                &harness.service,
+                None,
+                None,
+                AgentLaunchOrigin::OrchestratedSpawn,
+                None,
+                None,
+            )
+            .is_err()
+    );
 }
 
 #[test]
