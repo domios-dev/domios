@@ -217,7 +217,7 @@ pub(super) fn git_command() -> Command {
 
 pub(super) fn git_non_interactive_error(stderr: &str) -> String {
     log::warn!("plugin channel git operation failed: {}", stderr.trim());
-    "Plugin updates are unavailable right now; Domios will retry".to_string()
+    "Plugin updates need access to the Domios plugin repository; Domios will retry".to_string()
 }
 
 #[cfg(windows)]
