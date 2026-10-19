@@ -229,6 +229,12 @@
         "/api/tabs/tab/text?formatted=false"
       ]
     ],
+    "tab_todo_list": [
+      [
+        "GET",
+        "/api/tabs/tab/todos"
+      ]
+    ],
     "shell_command_snapshot": [
       [
         "GET",

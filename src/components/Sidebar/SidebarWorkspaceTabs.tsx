@@ -29,6 +29,7 @@ import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { SidebarCronRow } from "./SidebarResourceRow";
 import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./SidebarShellRow";
 import { surfaceAttachmentsByOwner, type OwnerRowContext } from "./surfaceAttachmentModel";
+import { WorkerChecklistDisclosure, type ChecklistToggle } from "./WorkerChecklist";
 
 import {
   addableTeamRoles,
@@ -239,9 +240,15 @@ export function SidebarWorkspaceTabs({
     />;
   };
 
-  const renderMemberRow = (member: TeamTabMember, section: TeamSection, shell = false): ReactNode => (
+  const renderMemberRow = (
+    member: TeamTabMember,
+    section: TeamSection,
+    shell = false,
+    checklist?: { toggle: ChecklistToggle; detail: ReactNode },
+  ): ReactNode => (
     <SidebarShellRow key={member.tab.id}
       tab={member.tab} index={member.index} showStartedBy={shell}
+      checklistToggle={checklist?.toggle} detail={checklist?.detail}
       attachments={attachmentsByOwner.get(member.tab.id) ?? []}
       tabs={tabs} planIndex={planIndex} activeWork={activeWork}
       closingTabIds={closingTabIds} appearingTabIds={appearingTabIds}
@@ -251,6 +258,12 @@ export function SidebarWorkspaceTabs({
   );
 
   const renderTerminalRow = (member: TeamTabMember, section: TeamSection): ReactNode => renderMemberRow(member, section, true);
+
+  const renderWorkerRow = (member: TeamTabMember, section: TeamSection): ReactNode => member.tab.remote_peer_id
+    ? renderMemberRow(member, section)
+    : <WorkerChecklistDisclosure key={member.tab.id} tabId={member.tab.id}>
+      {(toggle, detail) => renderMemberRow(member, section, false, { toggle, detail })}
+    </WorkerChecklistDisclosure>;
 
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
@@ -369,7 +382,7 @@ export function SidebarWorkspaceTabs({
         workers={
           <>
             <SortableContext items={workerItems} strategy={verticalListSortingStrategy}>
-              {workers.map((member) => renderMemberRow(member, { teamId, index: 1 }))}
+              {workers.map((member) => renderWorkerRow(member, { teamId, index: 1 }))}
             </SortableContext>
           </>
         }
