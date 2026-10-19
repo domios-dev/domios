@@ -58,8 +58,7 @@ async fn model_discovery_fingerprint_matches_native_observation_on_both_entry_po
             .unwrap(),
     );
     let provider = JsProvider::new(manifest, vm.clone());
-    let native = crate::model_catalog::fingerprint_path(binary.path()).unwrap();
-    let expected = serde_json::to_string(&native).unwrap();
+    let expected = crate::model_catalog::binary_fingerprint_path(binary.path()).unwrap();
     assert_eq!(provider.discover_models().await.unwrap()[0].id, expected);
     let decision = super::super::JsDecisionModel::new(
         vm,
