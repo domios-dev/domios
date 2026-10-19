@@ -2358,7 +2358,7 @@ CodeTerm build commands
   runner-resume MACHINE       Restore MACHINE-* runner labels and return lent labels
   runner-status               List runners with labels and paused machines
   frontend                    Production frontend typecheck + bundle
-  release-inputs              Build target-aware frontend and CLI bundle inputs
+  release-inputs [--for-bundle] Build target-aware inputs; defer native compilation for bundling
   release-bundle [--fresh-target] [tauri args...]  Package in one session; optionally use the fresh release target policy
   ci-tests full|platform|embeddings  Compile and run ordinary, OS-specific, or embeddings Rust tests
   ci-clippy                   Run the clippy repo gate through the shared compile cache
@@ -2648,8 +2648,15 @@ EOF
     pnpm build
     ;;
   release-inputs)
+    [ "$#" -le 2 ] && { [ -z "${2:-}" ] || [ "$2" = --for-bundle ]; } || {
+      echo "Usage: ./build.sh release-inputs [--for-bundle]" >&2; exit 2;
+    }
     ensure_deps
-    prepare_release_bundle_inputs
+    if [ "${2:-}" = --for-bundle ]; then
+      prepare_release_bundle_inputs bundle
+    else
+      prepare_release_bundle_inputs
+    fi
     ;;
   # One session keeps both compiles on the gateway's stable path: a second path is a second
   # set of Cargo fingerprints and sccache keys, so tauri build would recompile the app.

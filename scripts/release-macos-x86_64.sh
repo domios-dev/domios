@@ -16,7 +16,7 @@ touch src-tauri/bundled-cli/codeterm
 CARGO_BUILD_TARGET=x86_64-apple-darwin \
   CODETERM_RELEASE_COMMON_STAGE=1 \
   CODETERM_RELEASE_FEATURES="${CODETERM_RELEASE_FEATURES:-embeddings}" \
-  ./build.sh release-inputs
+  ./build.sh release-inputs --for-bundle
 export CARGO_BUILD_TARGET=x86_64-apple-darwin
 : "${TAURI_SIGNING_PRIVATE_KEY_PATH:?Prepare the job updater key first}"
 pnpm tauri build --no-bundle --target x86_64-apple-darwin \
