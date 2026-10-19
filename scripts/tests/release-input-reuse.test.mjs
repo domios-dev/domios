@@ -37,6 +37,26 @@ test('Linux native compilation defers resource copying until the full package bu
   }
 });
 
+test('release callers explicitly defer the native client compile until Tauri', () => {
+  const entrypoint = source.match(/^  release-inputs\)\n([\s\S]*?)^    ;;/m)?.[1];
+  assert.ok(entrypoint);
+  const result = execFileSync(bash, ['-c', `
+set -e
+ensure_deps() { :; }
+prepare_release_bundle_inputs() { printf 'prepare <%s>' "$1"; }
+set -- release-inputs --for-bundle
+${entrypoint}
+`], { encoding: 'utf8' });
+  assert.equal(result, 'prepare <bundle>');
+  for (const file of ['../../.github/workflows/release-linux.yml', '../../.codeterm/build-machine/scripts/build-linux.sh',
+    '../../.agents/skills/github-release/scripts/build-mac.sh', '../release-macos-x86_64.sh']) {
+    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
+    const calls = text.split('\n').filter(line => /build\.sh release-inputs/.test(line));
+    assert.ok(calls.length, file);
+    for (const call of calls) assert.match(call, /release-inputs --for-bundle\b/, file);
+  }
+});
+
 function commands(env = {}, captureEnvironment = false, mode = "") {
   assert.ok(preparation);
   return execFileSync(bash, ["-c", `
