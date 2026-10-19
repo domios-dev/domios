@@ -1,11 +1,42 @@
 use super::*;
 use crate::{StorageConfig, StorageError};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+static NEXT_ROOT: AtomicU64 = AtomicU64::new(0);
+
+struct TempRoot(PathBuf);
+
+impl TempRoot {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "codeterm-storage-tab-todo-{}-{}",
+            std::process::id(),
+            NEXT_ROOT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        TempRoot(path)
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempRoot {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 fn wait<T>(completion: Completion<T>) -> T {
-    completion
-        .wait(Duration::from_secs(5))
-        .expect("storage operation")
+    outcome(completion).expect("storage operation")
+}
+
+fn outcome<T>(completion: Completion<T>) -> Result<T, StorageError> {
+    completion.wait(Duration::from_secs(5))
 }
 
 fn item(id: &str, title: &str) -> TabTodoNewItemRecord {
@@ -19,7 +50,7 @@ fn item(id: &str, title: &str) -> TabTodoNewItemRecord {
 
 #[test]
 fn todo_rows_commit_incrementally_and_refuse_stale_item_revisions() {
-    let root = tempfile::tempdir().expect("storage root");
+    let root = TempRoot::new();
     let storage = Storage::open(root.path(), StorageConfig::default()).expect("open storage");
     let repository = storage.tab_todos();
     let created = wait(repository.create(
@@ -41,7 +72,7 @@ fn todo_rows_commit_incrementally_and_refuse_stale_item_revisions() {
         200,
     ));
     assert_eq!(changed.value.items[0].revision, 2);
-    let stale = wait(repository.set_state(
+    let stale = outcome(repository.set_state(
         "tab-a".into(),
         1,
         "item-a".into(),
@@ -61,7 +92,7 @@ fn todo_rows_commit_incrementally_and_refuse_stale_item_revisions() {
 
 #[test]
 fn clearing_an_item_keeps_tombstone_fence_and_qa_append_order() {
-    let root = tempfile::tempdir().expect("storage root");
+    let root = TempRoot::new();
     let storage = Storage::open(root.path(), StorageConfig::default()).expect("open storage");
     let repository = storage.tab_todos();
     wait(repository.create(
@@ -85,7 +116,7 @@ fn clearing_an_item_keeps_tombstone_fence_and_qa_append_order() {
     assert_eq!(cleared.value.items[0].id, "second");
     assert_eq!(cleared.value.items[0].position, 0);
     assert!(matches!(
-        wait(repository.set_state(
+        outcome(repository.set_state(
             "tab-c".into(),
             1,
             "first".into(),
@@ -120,7 +151,7 @@ fn clearing_an_item_keeps_tombstone_fence_and_qa_append_order() {
 
 #[test]
 fn todo_reset_fences_old_generation_and_removes_old_items() {
-    let root = tempfile::tempdir().expect("storage root");
+    let root = TempRoot::new();
     let storage = Storage::open(root.path(), StorageConfig::default()).expect("open storage");
     let repository = storage.tab_todos();
     wait(repository.create(
@@ -143,7 +174,7 @@ fn todo_reset_fences_old_generation_and_removes_old_items() {
     assert_eq!(reset.value.generation, 2);
     assert_eq!(reset.value.items[0].id, "new");
     assert!(matches!(
-        wait(repository.set_state("tab-b".into(), 1, "old".into(), 1, "done".into(), None, 300)),
+        outcome(repository.set_state("tab-b".into(), 1, "old".into(), 1, "done".into(), None, 300)),
         Err(StorageError::StaleRevision { .. })
     ));
     wait(repository.forget_tab("tab-b".into()));
@@ -156,7 +187,7 @@ fn todo_reset_fences_old_generation_and_removes_old_items() {
 
 #[test]
 fn workspace_and_team_cleanup_preserve_a_tab_generation_moved_elsewhere() {
-    let root = tempfile::tempdir().expect("storage root");
+    let root = TempRoot::new();
     let storage = Storage::open(root.path(), StorageConfig::default()).expect("open storage");
     let repository = storage.tab_todos();
     wait(repository.create(
