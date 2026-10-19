@@ -27,7 +27,7 @@ test("loading is announced and includes the threshold motion and dots", () => {
 
 test("error is a static alert and preserves its recovery action", () => {
   const host = parsed(renderToStaticMarkup(
-    <BrandState model={brandStateModel({ error: { title: "Could not start", sentence: "Retry the session." } })}>
+    <BrandState model={brandStateModel({ error: { title: "Could not start", detail: "Retry the session." } })}>
       <button type="button">Retry</button>
     </BrandState>,
   ));
