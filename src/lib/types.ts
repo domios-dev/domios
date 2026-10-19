@@ -1100,6 +1100,11 @@ export interface ProviderDescriptor {
   };
   supports_session_fork?: boolean;
   supports_subagent_visibility?: boolean;
+  structured_control?: {
+    protocol: string;
+    minVersion: string;
+    runtimeModes?: readonly { id: string; displayName: string }[];
+  };
   cli_status?: import("./providerCli").ProviderCliStatus;
   schema_version: number;
   id: string;

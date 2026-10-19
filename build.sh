@@ -2336,7 +2336,7 @@ CodeTerm build commands
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
   embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
-  lane-check <package> [--tests] [--timings]  Type-check a touched library with four jobs, using Cargo's shared build-dir lock
+  lane-check <package>... [--tests] [--timings]  Type-check touched packages in one Cargo check with four jobs
   fmt [--base REF]          Format changed Rust and apply changed-file Biome safe fixes
   lane-wrapper-check          Verify cache forwarding and metadata isolation with tiny fixtures
   cache-wrapper-check         Verify compiler-cache relocation and tracked environment with real sccache

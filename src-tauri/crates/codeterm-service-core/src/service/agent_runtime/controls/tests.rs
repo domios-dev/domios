@@ -130,7 +130,9 @@ pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
     .collect::<serde_json::Map<String, serde_json::Value>>();
     let manifest = PluginManifest::from_json_str(&json!({
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
+        "reasoningEfforts":[{"id":"low","displayName":"Low"},{"id":"high","displayName":"High"}],
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
+            "structuredControl":{"protocol":"fixture","minVersion":"1.0.0","runtimeModes":[{"id":"approval-required","displayName":"Approval required"},{"id":"auto-accept-edits","displayName":"Auto accept edits"},{"id":"auto","displayName":"Auto"},{"id":"full-access","displayName":"Full access"}]},
             "agentRuntime":{"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[format!("{}/../../../tests/fixtures/agent-runtime/fake-peer.mjs",crate::test_support::fixture_manifest_dir().display())]},"requestMethods":methods,"notificationMethods":["fixture/settings/updated"]}},
         "permissions":{"subprocess":{"allow":["node"]}}
     }).to_string()).unwrap();
@@ -161,7 +163,7 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
             &id,
             "target",
             Some("high"),
-            Some(RuntimeMode::Auto),
+            Some("auto"),
             crate::service::agent_runtime::model::ModelSwitchOptions {
                 service_tier: Some(tier_selection(false)),
                 force: false,
@@ -334,6 +336,121 @@ fn close_restore_reapplies_runtime_settings_to_the_exact_thread_on_first_turn() 
     assert_eq!(
         tab.agent_runtime_config.as_ref().unwrap()["confirmedServiceTier"],
         json!({"selection":{"id":"priority"},"sessionId":"own-thread","bindingNonce":restored_nonce})
+    );
+}
+
+#[test]
+fn rejected_effort_and_runtime_mode_leave_inspected_and_persisted_settings_unchanged() {
+    let (fixture, id) = runtime_fixture();
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.agent_runtime_config = Some(json!({
+            "model":"prior",
+            "effort":"medium",
+            "mode":"auto"
+        }));
+        tab.reasoning_effort_identity = crate::multiplexer::types::ReasoningEffortIdentity {
+            actual: Some("medium".into()),
+            resolved: Some("medium".into()),
+            actual_source: Some("session-owned".into()),
+            ..Default::default()
+        };
+        tab.structured_runtime_mode = Some("auto".into());
+        tab.restorable_launch.structured_runtime_mode = Some("auto".into());
+    }
+    crate::service::session_persist::write_session_snapshot(&fixture.service, &fixture.service.mux)
+        .unwrap();
+    let persisted_before =
+        crate::session::store::StorageDeskAdapter::from_storage(fixture.storage.clone())
+            .snapshot()
+            .unwrap();
+    let persisted_before = MultiplexerState::from_session_snapshot(&persisted_before);
+    let before = {
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&id).unwrap();
+        (
+            tab.agent_runtime_config.clone(),
+            tab.reasoning_effort_identity.clone(),
+            tab.structured_runtime_mode.clone(),
+            tab.restorable_launch.structured_runtime_mode.clone(),
+        )
+    };
+
+    let effort_error = fixture
+        .service
+        .agent_switch_model_with_restart_fallback(
+            &id,
+            "prior",
+            Some("qa-impossible"),
+            None,
+            crate::service::agent_runtime::model::ModelSwitchOptions {
+                service_tier: None,
+                force: false,
+                restart_resume: false,
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(
+        effort_error,
+        ModelSwitchError::UnsupportedReasoningEffort { ref supported, .. }
+            if supported == &["low", "high"]
+    ));
+
+    let mode_error = fixture
+        .service
+        .agent_switch_model_with_restart_fallback(
+            &id,
+            "prior",
+            None,
+            Some("qa-impossible"),
+            crate::service::agent_runtime::model::ModelSwitchOptions {
+                service_tier: None,
+                force: false,
+                restart_resume: false,
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(
+        mode_error,
+        ModelSwitchError::UnsupportedRuntimeMode { ref supported, .. }
+            if supported == &["approval-required", "auto-accept-edits", "auto", "full-access"]
+    ));
+
+    let after = {
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&id).unwrap();
+        (
+            tab.agent_runtime_config.clone(),
+            tab.reasoning_effort_identity.clone(),
+            tab.structured_runtime_mode.clone(),
+            tab.restorable_launch.structured_runtime_mode.clone(),
+        )
+    };
+    assert_eq!(after, before);
+    crate::service::session_persist::flush_session_persistence(&fixture.service).unwrap();
+    let persisted =
+        crate::session::store::StorageDeskAdapter::from_storage(fixture.storage.clone())
+            .snapshot()
+            .unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&persisted);
+    let restored = restored.get_tab(&id).unwrap();
+    let persisted_before = persisted_before.get_tab(&id).unwrap();
+    assert_eq!(
+        restored.agent_runtime_config,
+        persisted_before.agent_runtime_config
+    );
+    assert_eq!(
+        restored.reasoning_effort_identity,
+        persisted_before.reasoning_effort_identity
+    );
+    assert_eq!(
+        restored.structured_runtime_mode,
+        persisted_before.structured_runtime_mode
+    );
+    assert_eq!(
+        restored.restorable_launch.structured_runtime_mode,
+        persisted_before.restorable_launch.structured_runtime_mode
     );
 }
 

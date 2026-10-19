@@ -111,6 +111,40 @@ fn service_tier_catalogue(
     )
 }
 
+#[cfg(test)]
+mod control_error_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_runtime_controls_are_bad_requests_with_supported_values() {
+        for (error, reason, supported) in [
+            (
+                ModelSwitchError::UnsupportedReasoningEffort {
+                    model: "gpt-6-luna".into(),
+                    requested: "qa-impossible".into(),
+                    supported: vec!["low".into(), "medium".into()],
+                },
+                "unsupported_reasoning_effort",
+                vec!["low", "medium"],
+            ),
+            (
+                ModelSwitchError::UnsupportedRuntimeMode {
+                    requested: "qa-impossible".into(),
+                    supported: vec!["auto".into(), "full-access".into()],
+                },
+                "unsupported_runtime_mode",
+                vec!["auto", "full-access"],
+            ),
+        ] {
+            let body = model_switch_error_body(&error);
+            assert_eq!(model_switch_error_status(&error), StatusCode::BAD_REQUEST);
+            assert_eq!(body["reason"], reason);
+            assert_eq!(body["supported"], serde_json::json!(supported));
+            assert_eq!(body["ok"], false);
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AgentModelBody {
     #[serde(default)]
@@ -121,7 +155,7 @@ pub struct AgentModelBody {
     pub cancel: bool,
     pub reasoning_effort: Option<String>,
     pub service_tier: Option<codeterm_plugin::agent_runtime::RuntimeServiceTierSelection>,
-    pub runtime_mode: Option<codeterm_service_core::service::agent_runtime::model::RuntimeMode>,
+    pub runtime_mode: Option<String>,
     #[serde(default)]
     pub restart_resume: bool,
 }
@@ -152,7 +186,7 @@ pub async fn agent_model_handler(
             &tab_id,
             &body.model,
             body.reasoning_effort.as_deref(),
-            body.runtime_mode,
+            body.runtime_mode.as_deref(),
             codeterm_service_core::service::agent_runtime::model::ModelSwitchOptions {
                 service_tier: body.service_tier,
                 force: body.force,
@@ -242,6 +276,8 @@ pub(crate) fn model_switch_error_status(error: &ModelSwitchError) -> StatusCode 
         }
         ModelSwitchError::NotFound(_) => StatusCode::NOT_FOUND,
         ModelSwitchError::InvalidModel(_) => StatusCode::BAD_REQUEST,
+        ModelSwitchError::UnsupportedReasoningEffort { .. }
+        | ModelSwitchError::UnsupportedRuntimeMode { .. } => StatusCode::BAD_REQUEST,
         ModelSwitchError::Unsupported { .. } | ModelSwitchError::NotSwitchable(_) => {
             StatusCode::CONFLICT
         }
@@ -263,6 +299,8 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         ModelSwitchError::NotFound(_) => "not_found",
         ModelSwitchError::Unsupported { .. } => "model_switch_unsupported",
         ModelSwitchError::InvalidModel(_) => "invalid_model",
+        ModelSwitchError::UnsupportedReasoningEffort { .. } => "unsupported_reasoning_effort",
+        ModelSwitchError::UnsupportedRuntimeMode { .. } => "unsupported_runtime_mode",
         ModelSwitchError::NotSwitchable(_) => "not_switchable",
         ModelSwitchError::RateLimited { .. } => "rate_limited",
         ModelSwitchError::RelaunchFailed { .. } => "relaunch_failed",
@@ -299,6 +337,22 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         }
         ModelSwitchError::InvalidModel(invalid) => {
             body["model_error"] = invalid.rpc_data();
+        }
+        ModelSwitchError::UnsupportedReasoningEffort {
+            model,
+            requested,
+            supported,
+        } => {
+            body["model"] = model.clone().into();
+            body["requested"] = requested.clone().into();
+            body["supported"] = serde_json::json!(supported);
+        }
+        ModelSwitchError::UnsupportedRuntimeMode {
+            requested,
+            supported,
+        } => {
+            body["requested"] = requested.clone().into();
+            body["supported"] = serde_json::json!(supported);
         }
         ModelSwitchError::RateLimited { retry_after_secs } => {
             body["retry_after_secs"] = (*retry_after_secs).into();

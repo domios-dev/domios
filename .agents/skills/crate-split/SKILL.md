@@ -23,7 +23,7 @@ Every failure below happened in the first split waves. Check each one before you
 
 ## Proof
 
-Run rustfmt, `bash scripts/check-file-sizes.sh --fail` and `bash scripts/check-service-core-boundary.sh` in the lane. Commit, then run one `./build.sh check-queue --lane <sha>` and require `errors=0` and `warnings=0`; a busy gateway is a blocker, never polled. Then report the SHA and the test selectors of every moved module with a non-empty filter. `module-graph.md` belongs to the map owner; mark your step done in `split-roadmap.md` only.
+Run `./build.sh fmt` once per batch, one `./build.sh lane-check <package>... [--tests]` call for all touched crates, changed TS/JS checks and source guards once. List moved-module selectors under GATES REQUESTED, then report the SHA. `module-graph.md` belongs to the map owner; mark your step done in `split-roadmap.md` only.
 
 <!-- revision: 2 -->
 

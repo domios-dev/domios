@@ -32,10 +32,16 @@ export interface PickerSelection {
   model: string;
   effort?: string;
   serviceTier?: ServiceTierSelection;
+  runtimeMode?: string;
 }
 
-export function pickerSelection(descriptor: ProviderDescriptor, model: string, effort?: string, serviceTier?: ServiceTierSelection): PickerSelection {
-  return { model, effort, ...(descriptor.agent_runtime?.serviceTiers && serviceTier !== undefined ? { serviceTier } : {}) };
+export function pickerSelection(descriptor: ProviderDescriptor, model: string, effort?: string, serviceTier?: ServiceTierSelection, runtimeMode?: string): PickerSelection {
+  return {
+    model,
+    effort,
+    ...(descriptor.agent_runtime?.serviceTiers && serviceTier !== undefined ? { serviceTier } : {}),
+    ...(descriptor.structured_control?.runtimeModes?.length && runtimeMode !== undefined ? { runtimeMode } : {}),
+  };
 }
 
 export type PickerPlan =
@@ -158,12 +164,12 @@ export function effortAfterModelChange(
 
 export function planSelection(
   gate: StatusLineSwitchGate,
-  current: { model?: string; effort?: string; serviceTier?: ServiceTierSelection },
+  current: { model?: string; effort?: string; serviceTier?: ServiceTierSelection; runtimeMode?: string },
   next: PickerSelection,
 ): PickerPlan {
   if (!gate.interactive) return { action: "none" };
   const sameModel = current.model?.toLowerCase() === next.model.toLowerCase();
-  if (sameModel && current.serviceTier?.id === next.serviceTier?.id && (current.effort ?? undefined) === (next.effort ?? undefined)) return { action: "none" };
+  if (sameModel && current.serviceTier?.id === next.serviceTier?.id && (current.effort ?? undefined) === (next.effort ?? undefined) && current.runtimeMode === next.runtimeMode) return { action: "none" };
   return { action: gate.confirmRestart ? "confirm" : "apply", selection: next };
 }
 
