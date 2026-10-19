@@ -10,6 +10,8 @@ import type { ResizeOwner } from "../../lib/resizeOwner";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvents";
 import { useTerminalActivationResize } from "../../hooks/terminal/useTerminalActivationResize";
 import { useTerminalResize } from "../../hooks/terminal/useTerminalResize";
+import { terminalViewerLocalGeometry } from "./terminalViewerGeometry";
+import { tabOutputRoute } from "../../lib/remoteTabRoute";
 
 interface FakeTerminal {
   cols: number;
@@ -76,6 +78,8 @@ let holdResizes = false;
 let settleResize: ((succeeded: boolean) => void) | null = null;
 let eventHandlers = new Map<string, (event: { payload: unknown }) => void>();
 let activateViewer: (() => void) | null = null;
+let commitCurrentResize: ((force?: boolean) => void) | null = null;
+let fitAndCommitCurrentResize: (() => void) | null = null;
 
 function createTerminal(): FakeTerminal {
   const value = {
@@ -116,6 +120,11 @@ function Harness({ active, isRemote = false }: { active: boolean; isRemote?: boo
     resizeClientId,
     isRemote,
   });
+  commitCurrentResize = resize.commitResize;
+  fitAndCommitCurrentResize = () => {
+    fitAddonRef.current?.fit();
+    resize.commitResize();
+  };
   activateViewer = useTerminalActivationResize({
     active,
     viewerLocalGeometry: isRemote,
@@ -179,6 +188,8 @@ async function cleanup() {
   frames.clear();
   eventHandlers.clear();
   activateViewer = null;
+  commitCurrentResize = null;
+  fitAndCommitCurrentResize = null;
   __setInvokeForTest(null);
   __setListenForTest(null);
   vi.useRealTimers();
@@ -233,14 +244,34 @@ afterEach(cleanup);
 
 describe("terminal viewer activation resize", () => {
   it("fits a remote xterm locally without resizing its shared PTY", async () => {
+    const remoteOwnShellTab = { id: "d51b72ef" } as const;
+    const relayPeerId = "meshqa-peer";
+    const viewerLocalGeometry = terminalViewerLocalGeometry(remoteOwnShellTab, relayPeerId);
+    assert.deepEqual(tabOutputRoute(remoteOwnShellTab.id, relayPeerId), {
+      peerId: relayPeerId,
+      tabId: remoteOwnShellTab.id,
+    });
+    assert.equal(viewerLocalGeometry, true);
     targetSize = { cols: 45, rows: 38 };
-    await mount(true, true);
+    await mount(true, viewerLocalGeometry);
     assert.deepEqual({ cols: terminal.cols, rows: terminal.rows }, targetSize);
     assert.equal(claims.length, 0);
     assert.equal(resizes.length, 0);
     targetSize = { cols: 60, rows: 30 };
     await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
     assert.deepEqual({ cols: terminal.cols, rows: terminal.rows }, targetSize);
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await flushFrames();
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    await flushFrames();
+    await act(async () => window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT)));
+    await flushFrames();
+    await act(async () => fitAndCommitCurrentResize?.());
+    await act(async () => commitCurrentResize?.(true));
+    assert.equal(claims.length, 0);
     assert.equal(resizes.length, 0);
   });
 
