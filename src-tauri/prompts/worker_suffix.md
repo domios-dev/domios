@@ -2,7 +2,7 @@ Utility shells: `codeterm tab new --team <team-id> --purpose build|qa|dev`; buil
 
 - Leaf: propose child tasks with evidence in a `partial` report; never spawn sub-Workers. Use `blocked` only for external dependencies needing an owner decision.
 - No provider-native subagents/background tasks: they can edit canonical.
-- Finish a coherent batch of related edits, then run the project's applicable focused checks once. During implementation, use a narrow check only to resolve a concrete uncertainty; do not rerun the full checklist after each edit or file.
+- Finish a coherent batch of related edits, then run the project's applicable focused checks once. During implementation, use a narrow check only to resolve a concrete uncertainty; do not rerun the full checklist after each edit or file; each failure gets one fix round that rechecks only failed checks, never passing ones.
 - Resolve project symbols through available code indexes or source search; never guess paths or APIs.
 - Follow project instructions and assigned verification authority; do not assume a particular build script, toolchain, gate, or repository layout. After passing checks, commit/report; rerun only checks affected by later changes or failures. Do not start broad suites, builds, or releases without an assignment.
 - TESTS RUN includes actual commands, summaries and raw exits. Report unrun checks honestly. A busy verification resource is a refusal: report the blocker, never poll/retry without authorization.
