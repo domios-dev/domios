@@ -169,7 +169,11 @@ jobs:
           # repo secrets — this evaluates to an empty string otherwise.
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pnpm tauri build --no-bundle --target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"
+        # Cargo's raw domios-server file occupies the resource directory name during compilation.
+        run: >-
+          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log --
+          pnpm tauri build --no-bundle --target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"
+          --config '{"bundle":{"resources":[],"externalBin":[]}}'
 
       - name: Stage final pair resources and bundle without compilation
         shell: bash
