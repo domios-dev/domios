@@ -1,5 +1,7 @@
 import { WorkspacePaneState } from "./components/shared/FolderPaneState";
-import { DeferredLoader } from "./components/shared/DeferredLoader";
+import { BrandState } from "./components/brand/BrandState";
+import { brandStateModel } from "./components/brand/brandStateModel";
+import { ServerConnectionLayer } from "./components/brand/ServerConnectionLayer";
 import { initialRouteReady } from "./store/multiplexer/pageSelection";
 import { emitFeatureUsed } from "./lib/productAnalytics";
 import { localJson } from "./lib/webApi";
@@ -705,11 +707,13 @@ function AppInner() {
       />
       <PlansProvider api={stableApiConfig} enabled={!configLoading}>
       <AppChatBlockServices api={stableApiConfig}>
-      <div
+      <ServerConnectionLayer
+        className="flex flex-1 min-h-0"
+        contentClassName="flex flex-1 min-h-0 relative"
         data-testid="app-shell-body"
         data-shell-viewport={phoneViewport ? "phone" : "desktop"}
-        className="flex flex-1 min-h-0 relative"
       >
+      <div className="flex flex-1 min-h-0 relative">
         <LocalRecordingCaptureStatus state={larkCapture.state} />
         {larkCapture.setupPluginId && <LocalRecordingSetup pluginId={larkCapture.setupPluginId} onClose={larkCapture.closeSetup} />}
         {sidebarMounted && (
@@ -746,7 +750,7 @@ function AppInner() {
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
           {!routeRestored && !state.storageUnavailable ? (
-            <DeferredLoader state="present" role="status" aria-label="Restoring workspace" />
+            <BrandState model={brandStateModel({ loading: true, label: "Restoring workspace" })} />
           ) : <>
           {/* All panels stay mounted — switching mainView only changes visibility.
               Unmounting the workspace would tear down xterm + re-run get_tab_text
@@ -951,6 +955,7 @@ function AppInner() {
         </main>
         </div>
       </div>
+      </ServerConnectionLayer>
       </AppChatBlockServices>
       </PlansProvider>
 
