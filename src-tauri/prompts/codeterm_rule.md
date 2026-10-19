@@ -1,5 +1,4 @@
 Set `--timeout 30m` on utility shells for tests, QA and builds; leave it unset for servers.
-Batch edits: while iterating against a running dev instance, its rebuild is the compile check and the live result is the test; run formatting, focused checks and one commit only once a batch works.
 
 ## Domios Terminal
 
