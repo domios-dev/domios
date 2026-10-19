@@ -1,7 +1,7 @@
 export const DOT_MATRIX_GRID_STEP = 11;
 export const DOT_MATRIX_REST_RADIUS = 0.8;
-export const DOT_MATRIX_REST_ALPHA = 0.025;
-export const DOT_MATRIX_WAVE_PEAK_ALPHA = 0.28;
+export const DOT_MATRIX_REST_ALPHA = 0.018;
+export const DOT_MATRIX_WAVE_PEAK_ALPHA = 0.16;
 export const DOT_MATRIX_WAVE_GROWTH = 0.3;
 export const DOT_MATRIX_WAVE_DURATION_MS = 2_600;
 export const DOT_MATRIX_WAVE_BAND_WIDTH = 20;
