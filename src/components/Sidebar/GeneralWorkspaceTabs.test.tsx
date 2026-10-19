@@ -93,16 +93,18 @@ async function run() {
     assert(!dialog.querySelector('button[aria-label="Team"]'));
     assert(!dialog.querySelector('button[aria-label="Orchestrator provider"]'));
     async function choose(label: string, value: string) {
-      const control = dialog!.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+      const control = Array.from(dialog!.querySelectorAll<HTMLButtonElement>("button[aria-label]"))
+        .find((button) => button.getAttribute("aria-label") === label || button.getAttribute("aria-label")?.startsWith(`${label}:`));
       assert(control);
       await act(async () => { control.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })); });
-      const item = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((node) => node.textContent?.trim() === value);
+      const item = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')).find((node) => node.textContent?.trim() === value);
       assert(item);
       await act(async () => item.click());
     }
     await choose("Agent provider", "Chosen provider");
     await choose("Agent model", "Chosen model");
-    assert(dialog.querySelector('button[aria-label="Agent effort"]'));
+    assert(Array.from(dialog.querySelectorAll<HTMLButtonElement>("button[aria-label]"))
+      .some((button) => button.getAttribute("aria-label")?.startsWith("Agent effort:")));
     const submit = Array.from(dialog.querySelectorAll("button")).find((node) => node.textContent?.trim() === "Start session");
     assert(submit);
     await act(async () => submit.click());

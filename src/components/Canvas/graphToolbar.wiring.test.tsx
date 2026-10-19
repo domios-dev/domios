@@ -44,8 +44,11 @@ it("essence map wires the shared toolbar and selector once", async () => {
   await click("Zoom out"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(-0.25); fakes.zoom.mockClear();
   await click("Zoom in"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(0.25);
   await click("Refresh"); expect(refresh).toHaveBeenCalledTimes(1);
-  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Fly to project map"]')!.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
-  const item = document.body.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
+  const selector = Array.from(host.querySelectorAll<HTMLButtonElement>("button[aria-label]"))
+    .find((button) => button.getAttribute("aria-label")?.startsWith("Fly to project map:"));
+  expect(selector).not.toBeNull();
+  await act(async () => selector!.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+  const item = document.body.querySelector<HTMLButtonElement>('[role="menuitem"], [role="menuitemradio"]')!;
   expect(item).not.toBeNull();
   await act(async () => item.click());
   expect(fakes.fly).toHaveBeenCalledTimes(1);

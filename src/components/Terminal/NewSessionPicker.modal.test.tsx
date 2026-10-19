@@ -112,7 +112,10 @@ function dialog(): HTMLElement {
 
 function buttonNamed(name: string): HTMLButtonElement | null {
   return Array.from(dialog().querySelectorAll<HTMLButtonElement>("button[aria-label]"))
-    .find((button) => button.getAttribute("aria-label") === name) ?? null;
+    .find((button) => {
+      const label = button.getAttribute("aria-label") ?? "";
+      return label === name || label.startsWith(`${name}:`);
+    }) ?? null;
 }
 
 async function choose(control: string, option: string) {
@@ -121,7 +124,7 @@ async function choose(control: string, option: string) {
   await act(async () => {
     button!.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true }));
   });
-  const item = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+  const item = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]'))
     .find((element) => element.textContent?.trim() === option);
   expect(item).toBeDefined();
   await act(async () => item!.click());
@@ -362,10 +365,10 @@ it("shows Cloud only under Codex and explains its unavailable environment state"
   const providerButton = buttonNamed("Agent provider");
   expect(providerButton?.textContent).toContain("Codex");
   await act(async () => providerButton!.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })));
-  const providerOptions = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+  const providerOptions = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]'))
     .map((item) => item.textContent?.trim());
   expect(providerOptions).toEqual(["Codex"]);
-  await act(async () => document.body.querySelector<HTMLElement>('[role="menuitem"]')!.click());
+  await act(async () => document.body.querySelector<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')!.click());
   expect(dialog().querySelectorAll('input[name="execution-location"][value="cloud"]')).toHaveLength(1);
   expect(dialog().textContent).not.toContain("Codex Cloud");
   await act(async () => dialog().querySelector<HTMLInputElement>('input[name="execution-location"][value="cloud"]')!.click());
