@@ -289,15 +289,46 @@ pub fn dispatch_tab_summary_if_ready(
     let snapshot = ctx
         .mux_snapshot_until(std::time::Instant::now() + TAB_SUMMARY_LOCK_DEADLINE)
         .ok_or_else(|| TAB_SUMMARY_BUSY_ERROR.to_string())?;
+    let resolved_workspace = workspace_id
+        .as_deref()
+        .map(|selector| resolve_workspace_selector(&snapshot, selector))
+        .transpose()?;
     Ok(CommandResult::Json(serde_json::json!(
         build_tab_summary_json(
             &snapshot,
-            workspace_id.as_deref(),
+            resolved_workspace.as_deref(),
             caller_tab_id.as_deref(),
             *focused_workspace,
             *agents_only,
         )
     )))
+}
+
+pub fn resolve_workspace_selector(
+    snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
+    selector: &str,
+) -> Result<String, String> {
+    if selector.is_empty() {
+        return Err("Workspace id cannot be empty".into());
+    }
+    if let Some(workspace) = snapshot
+        .workspaces
+        .iter()
+        .find(|workspace| workspace.id == selector)
+    {
+        return Ok(workspace.id.clone());
+    }
+    let mut matches = snapshot
+        .workspaces
+        .iter()
+        .filter(|workspace| workspace.id.starts_with(selector));
+    let Some(workspace) = matches.next() else {
+        return Err(format!("Workspace not found: {selector}"));
+    };
+    if matches.next().is_some() {
+        return Err(format!("Ambiguous workspace id prefix: {selector}"));
+    }
+    Ok(workspace.id.clone())
 }
 
 /// Runs the summary's bounded lock wait off the async runtime.
@@ -448,10 +479,13 @@ fn cmd_tab_summary(
     agents_only: bool,
 ) -> Result<CommandResult, String> {
     let snapshot = ctx.mux_snapshot();
+    let resolved_workspace = workspace_id
+        .map(|selector| resolve_workspace_selector(&snapshot, selector))
+        .transpose()?;
     Ok(CommandResult::Json(serde_json::json!(
         build_tab_summary_json(
             &snapshot,
-            workspace_id,
+            resolved_workspace.as_deref(),
             caller_tab_id,
             focused_workspace,
             agents_only,

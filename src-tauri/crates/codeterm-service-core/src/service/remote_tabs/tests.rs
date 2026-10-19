@@ -1,5 +1,5 @@
 use super::OrdinaryTabKey;
-use super::{merge_ordinary_tab_projection, RemotePeerProjection};
+use super::{merge_ordinary_tab_projection, scope_ordinary_tab_projection, RemotePeerProjection};
 
 #[test]
 fn remote_tab_identity_is_peer_and_tab_scoped() {
@@ -83,8 +83,8 @@ fn remote_projection_uses_the_local_controller_context() {
     let remote = &projected[1];
     assert_eq!(remote["parent_tab_id"], "controller");
     assert_eq!(remote["spawned_by_tab_id"], "controller");
-    assert_eq!(remote["workspace_id"], "workspace-a");
-    assert_eq!(remote["team_id"], "team-a");
+    assert_eq!(remote["workspace_id"], "remote-workspace");
+    assert_eq!(remote["team_id"], "remote-team");
     assert_eq!(remote["ownership"]["controller_title"], "Coordinator");
     assert_eq!(remote["ownership"]["controller_tab_id"], "controller");
 }
@@ -104,7 +104,37 @@ fn remote_projection_stamps_worker_role_for_roleless_source() {
         }],
     );
     assert_eq!(projected[1]["role"], "Worker");
-    assert_eq!(projected[1]["team_id"], "team-a");
+    assert!(projected[1]["team_id"].is_null());
+}
+
+#[test]
+fn workspace_scoping_keeps_remote_tabs_under_their_source_workspace() {
+    let projected = merge_ordinary_tab_projection(
+        &[
+            serde_json::json!({"id":"local-a","workspace_id":"994f16ae"}),
+            serde_json::json!({"id":"local-b","workspace_id":"994f16af"}),
+        ],
+        &[RemotePeerProjection {
+            peer_id: "peer-a".into(),
+            peer_name: "REMOTE".into(),
+            authenticated: true,
+            reachable: true,
+            availability: "available",
+            tabs: vec![serde_json::json!({"id":"worker","workspace_id":"994f16af"})],
+            controllers: std::collections::HashMap::from([("worker".into(), "local-a".into())]),
+        }],
+    );
+    let scoped_a = scope_ordinary_tab_projection(projected.clone(), Some("994f16ae"));
+    let scoped_b = scope_ordinary_tab_projection(projected.clone(), Some("994f16af"));
+    assert_eq!(scoped_a.len(), 1);
+    assert_eq!(scoped_b.len(), 1);
+    assert!(scoped_a.iter().all(|tab| tab["id"] == "local-a"));
+    assert!(scoped_b.iter().all(|tab| tab["id"] == "local-b"));
+    let remote = projected
+        .iter()
+        .find(|tab| tab["id"] == "mesh:peer-a/worker")
+        .unwrap();
+    assert_eq!(remote["workspace_id"], "994f16af");
 }
 
 #[test]

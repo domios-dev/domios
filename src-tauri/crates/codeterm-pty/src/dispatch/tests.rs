@@ -728,6 +728,27 @@ fn tab_list_explicit_workspace_scope() {
 }
 
 #[test]
+fn workspace_selector_resolves_unique_prefix_and_refuses_ambiguous_prefix() {
+    use crate::dispatch::resolve_workspace_selector;
+    use crate::multiplexer::state::MultiplexerState;
+
+    let (mut state, _) = MultiplexerState::new();
+    state.create_workspace("second".into(), None);
+    let mut snapshot = state.snapshot();
+    snapshot.workspaces[0].id = "994f16ae".into();
+    snapshot.workspaces[1].id = "994f16af".into();
+
+    assert_eq!(
+        resolve_workspace_selector(&snapshot, "994f16ae").unwrap(),
+        "994f16ae"
+    );
+    assert_eq!(
+        resolve_workspace_selector(&snapshot, "994f16a").unwrap_err(),
+        "Ambiguous workspace id prefix: 994f16a"
+    );
+}
+
+#[test]
 fn tab_list_agents_filter_remains_global() {
     use crate::multiplexer::state::MultiplexerState;
 
