@@ -45,10 +45,27 @@ pub fn require(svc: &ServiceContext) -> Result<Arc<dyn ApplicationHost>, NativeU
         .ok_or(NativeUnavailable)
 }
 
+/// A split native client stops its attached server before an installer replaces the pair.
+#[async_trait::async_trait]
+pub trait ServerStop: Send + Sync {
+    /// Resolves only after the server process exit was observed.
+    async fn stop_server(&self) -> Result<(), ServerStopError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerStopError {
+    /// The stop request reached the server, so it may already be gone.
+    pub dispatched: bool,
+    pub reason: String,
+}
+
+pub struct ServerStopState(pub Arc<dyn ServerStop>);
+
 #[cfg(feature = "desktop")]
 pub struct DesktopApplicationHost {
     pub app: codeterm_host_runtime::app_runtime::AppHandle,
     pub update_state: UpdateStateHandle,
+    pub server_stop: Option<Arc<dyn ServerStop>>,
 }
 
 #[cfg(feature = "desktop")]
@@ -72,7 +89,13 @@ impl ApplicationHost for DesktopApplicationHost {
     }
 
     async fn check_and_apply(&self, options: ApplyOptions) -> Result<ApplyResult, String> {
-        crate::update::apply::check_and_apply(&self.app, options, self.update_state.clone()).await
+        crate::update::apply::check_and_apply(
+            &self.app,
+            options,
+            self.update_state.clone(),
+            self.server_stop.clone(),
+        )
+        .await
     }
 
     async fn check_stage_deb_update(
@@ -94,6 +117,7 @@ impl ApplicationHost for DesktopApplicationHost {
             version,
             path,
             initiating_tab.as_deref(),
+            self.server_stop.clone(),
         )
         .await
     }

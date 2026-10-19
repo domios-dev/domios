@@ -1,7 +1,5 @@
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
-#[cfg(feature = "desktop")]
-use tauri::Manager;
 
 pub const NEXT_STEPS: &str =
     "The update was aborted after panes were torn down. Restart Domios to reload the \
@@ -90,21 +88,14 @@ impl UpdateFailureSink for AppFailureSink {
 
         self.update_state.lock().set_error(abort.cause.clone());
 
-        let ui = self
-            .app
-            .state::<codeterm_service_core::service::ServiceState>()
-            .ui
-            .clone();
-        ui.emit(
-            "update-failed",
-            serde_json::json!({
-                "phase": abort.phase,
-                "cause": abort.cause,
-                "torn_down_tabs": abort.torn_down_tabs,
-                "artifact": artifact_str,
-                "next_steps": abort.next_steps,
-            }),
-        );
+        let payload = serde_json::json!({
+            "phase": abort.phase,
+            "cause": abort.cause,
+            "torn_down_tabs": abort.torn_down_tabs,
+            "artifact": artifact_str,
+            "next_steps": abort.next_steps,
+        });
+        super::emit_update_event(&self.app, "update-failed", payload);
 
         let body = format!(
             "{} — diagnostic: {}",

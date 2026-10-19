@@ -7,6 +7,7 @@ use reqwest::redirect::Policy;
 use tauri::Manager;
 pub(crate) mod native_client;
 pub(crate) mod native_shell;
+pub(crate) mod update_pair;
 pub(crate) use native_shell::{NativeShellFailure, TauriShell};
 pub(crate) mod webview_diagnostics;
 pub(crate) use webview_diagnostics::ClientViewGeneration;

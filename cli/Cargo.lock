@@ -481,6 +481,7 @@ dependencies = [
  "chrono",
  "codeterm-util",
  "dirs 5.0.1",
+ "log",
  "reqwest",
  "semver",
  "serde",
