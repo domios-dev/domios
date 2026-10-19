@@ -923,7 +923,7 @@ pub(crate) async fn recover_for_attachment(
     };
     if can_reuse_window {
         ensure_server_attachment(&app, expected)?;
-        let url = frontend_url(&app, &format!("http://{}", expected.api_address)).await?;
+        let url = frontend_url(&app, &loopback_origin(expected.api_address)?).await?;
         ensure_server_attachment(&app, expected)?;
         navigate_frontend(&app, &window, url)?;
         return Ok(());

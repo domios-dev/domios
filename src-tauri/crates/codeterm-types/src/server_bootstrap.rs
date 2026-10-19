@@ -67,6 +67,24 @@ pub struct ServerReady {
     pub resources: PathBuf,
 }
 
+impl ServerReady {
+    /// The address a same-machine client dials. A server bound to every interface
+    /// (network access enabled) is reached on loopback; a real remote bind is refused.
+    pub fn loopback_api_address(&self) -> Option<SocketAddr> {
+        let port = self.api_address.port();
+        match self.api_address.ip() {
+            std::net::IpAddr::V4(ip) if ip.is_unspecified() => {
+                Some(SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), port))
+            }
+            std::net::IpAddr::V6(ip) if ip.is_unspecified() => {
+                Some(SocketAddr::new(std::net::Ipv6Addr::LOCALHOST.into(), port))
+            }
+            ip if ip.is_loopback() => Some(self.api_address),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BootstrapOperation {

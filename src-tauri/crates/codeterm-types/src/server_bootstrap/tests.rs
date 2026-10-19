@@ -146,3 +146,40 @@ fn server_bootstrap_production_and_development_validation_stays_strict() {
     assert!(development.validate(true).is_ok());
     assert!(development.validate(false).is_err());
 }
+
+#[test]
+fn same_machine_clients_dial_loopback_for_any_local_bind() {
+    let ready = |bind: &str| super::ServerReady {
+        protocol: 2,
+        api_version: 3,
+        build: "fixture".into(),
+        instance_id: "fixture".into(),
+        identity: super::ServerIdentity {
+            data: PathBuf::from("data"),
+            config: PathBuf::from("config"),
+        },
+        epoch: "fixture".into(),
+        process: super::ProcessProvenance {
+            pid: 1,
+            created: "1".into(),
+            executable: PathBuf::from("server"),
+        },
+        api_address: bind.parse().unwrap(),
+        socket_address: String::new(),
+        bootstrap_address: String::new(),
+        resources: PathBuf::from("resources"),
+    };
+    assert_eq!(
+        ready("0.0.0.0:7685").loopback_api_address(),
+        "127.0.0.1:7685".parse().ok()
+    );
+    assert_eq!(
+        ready("[::]:7685").loopback_api_address(),
+        "[::1]:7685".parse().ok()
+    );
+    assert_eq!(
+        ready("127.0.0.1:7686").loopback_api_address(),
+        "127.0.0.1:7686".parse().ok()
+    );
+    assert_eq!(ready("192.168.1.10:7685").loopback_api_address(), None);
+}
