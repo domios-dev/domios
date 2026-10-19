@@ -271,6 +271,11 @@ impl ServiceFixture {
         }
         super::session_persist::install_storage_desk_adapter(&self.service, adapter)
             .expect("install seeded fixture storage desk");
+        // Production registers the opened Storage as the shared authority; services that
+        // read it through the extension (tab todos, workspaces) must see it here too.
+        let _ = self
+            .service
+            .set_ext(crate::startup::StorageAuthority::Ready(storage.clone()));
         storage
     }
 
