@@ -4,6 +4,7 @@
 
 use parking_lot::{Condvar, Mutex, RwLock};
 use rusqlite::{params, Connection};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -17,6 +18,17 @@ pub const RECENTLY_CLOSED_CAP: usize = 1000;
 
 /// Global cap on retained groups across all workspaces.
 pub const CLOSED_GROUP_CAP: usize = 1000;
+
+fn closed_tab_ids(conn: &Connection) -> Result<HashSet<String>, String> {
+    let mut statement = conn
+        .prepare("SELECT tab_id FROM closed_tab")
+        .map_err(|error| format!("prepare closed tab ids: {error}"))?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| format!("read closed tab ids: {error}"))?;
+    rows.map(|row| row.map_err(|error| format!("decode closed tab id: {error}")))
+        .collect()
+}
 
 /// How a set of tabs was closed: a single tab, an orchestrator subtree, or a whole workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -352,13 +364,23 @@ impl ClosedTabsStore {
 
     /// Insert one close action (group + tabs) in a single transaction, then enforce the caps.
     pub fn insert_group(&self, group: &ClosedGroup, tabs: &[ClosedTab]) -> Result<(), String> {
+        self.insert_group_collect_evicted(group, tabs).map(|_| ())
+    }
+
+    /// Insert and trim a close action, returning tab ids permanently evicted by either cap.
+    pub fn insert_group_collect_evicted(
+        &self,
+        group: &ClosedGroup,
+        tabs: &[ClosedTab],
+    ) -> Result<Vec<String>, String> {
         if tabs.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let mut conn = self.conn.lock();
         let tx = conn
             .transaction()
             .map_err(|e| format!("closed insert tx: {}", e))?;
+        let before = closed_tab_ids(&tx)?;
         tx.execute(
             r#"
             INSERT INTO closed_group
@@ -420,10 +442,12 @@ impl ClosedTabsStore {
         Self::trim_workspace(&tx, &group.workspace_id, self.per_workspace_cap)?;
         Self::trim_global_groups(&tx, self.group_cap)?;
         Self::prune_empty_groups(&tx)?;
+        let after = closed_tab_ids(&tx)?;
+        let evicted = before.difference(&after).cloned().collect();
 
         tx.commit().map_err(|e| format!("closed commit: {}", e))?;
         self.refresh_snapshot_views_from(&conn);
-        Ok(())
+        Ok(evicted)
     }
 
     /// Delete oldest tabs in a workspace beyond `cap`.

@@ -6,6 +6,7 @@ pub mod models;
 pub mod provider_signals;
 pub mod roles;
 pub mod session_model;
+pub mod tab_todo;
 pub use roles::{
     is_legacy_cartographer_worker_binding, restore_role, AgentRole, ReportOutcomeClass,
     ReportStatus, RestoredRole,
