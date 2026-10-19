@@ -71,6 +71,9 @@ for (const target of ['aarch64-apple-darwin', 'x86_64-apple-darwin']) {
       const signing = calls.filter(call => call.program === 'codesign' && call.args.includes('--sign'));
       assert.deepEqual(signing.map(call => call.args.at(-1)), [result.app, result.dmg]);
       assert.ok(signing.every(call => !call.args.includes('--deep')));
+      const requirementCheck = calls.find(call => call.program === 'codesign' && call.args.includes('--test-requirement'));
+      assert.equal(requirementCheck.args[requirementCheck.args.indexOf('--test-requirement') + 1],
+        '=anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "JMMWQ9LWF7"');
       assert.ok(calls.some(call => call.program === 'hdiutil' && call.args.includes('-readonly')));
       assert.ok(calls.some(call => call.program === 'hdiutil' && call.args[0] === 'detach'));
       assert.ok(!(await readdir(path.join(release, 'bundle'))).some(name => name.startsWith('.pair-dmg-')));
