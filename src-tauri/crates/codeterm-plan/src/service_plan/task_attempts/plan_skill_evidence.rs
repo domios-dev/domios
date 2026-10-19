@@ -175,12 +175,9 @@ impl PlanStore {
                     "plan skill announcement binding is not current".into(),
                 ));
             }
-            announced = attempt.plan_skill_manifest.clone();
-            if !announced.is_empty() {
-                return Ok(None);
-            }
             let manifest = super::super::plan_skills::plan_skill_manifest(self, plan_id)?;
-            if manifest.is_empty() {
+            if attempt.plan_skill_manifest == manifest {
+                announced = manifest;
                 return Ok(None);
             }
             let attempt = task
@@ -189,7 +186,7 @@ impl PlanStore {
                 .find(|attempt| attempt.id == attempt_id)
                 .ok_or(PlanError::TaskNotFound)?;
             attempt.plan_skill_manifest = manifest.clone();
-            announced = manifest.clone();
+            announced = manifest;
             task.updated_at = now_ms;
             Ok(Some(()))
         })?;

@@ -99,14 +99,28 @@ pub(super) fn dispatch(
         .and_then(Value::as_str)
         .unwrap_or_default();
     let digest = format!("sha256:{:x}", sha2::Sha256::digest(body.as_bytes()));
-    let mux = svc.mux.read();
-    if caller::authenticate(&mux, params)?.as_ref() != Some(&caller) {
+    let authenticated = {
+        let mux = svc.mux.read();
+        caller::authenticate(&mux, params)?
+    };
+    if authenticated.as_ref() != Some(&caller) {
         return Err(plan_rpc_err(
             codeterm_service_core::service::plan::PlanError::Io(
                 "plan skill caller binding changed during the read".into(),
             ),
         ));
     }
+    store
+        .announce_current_plan_skill_manifest(
+            &plan_id,
+            &task_id,
+            &attempt_id,
+            &caller.tab_id,
+            &caller.session_id,
+            &caller.nonce,
+            now_ms,
+        )
+        .map_err(plan_rpc_err)?;
     store
         .record_plan_skill_load(
             &plan_id,
