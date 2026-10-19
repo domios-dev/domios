@@ -120,8 +120,12 @@ test("each packaging entrypoint leaves native compilation to Tauri's final confi
     const entrypoint = source.match(new RegExp(`^  ${verb}\\)\\n([\\s\\S]*?)^    ;;`, "m"))?.[1];
     assert.ok(entrypoint, verb);
     assert.match(entrypoint, /^    prepare_release_bundle_inputs bundle$/m, verb);
-    assert.match(entrypoint, /pnpm tauri build/, verb);
+    assert.match(entrypoint, /pnpm tauri build|bundle_windows_common_stage/, verb);
   }
+  const commonStage = source.match(/^bundle_windows_common_stage\(\) \{[\s\S]*?^\}/m)?.[0];
+  assert.match(commonStage, /pnpm tauri build --no-bundle/);
+  assert.match(commonStage, /release-stage\.mjs stage-full/);
+  assert.match(commonStage, /pnpm tauri bundle --no-binary-patching/);
 });
 
 test("cross compilation and explicit release features reach both preparation builds", () => {

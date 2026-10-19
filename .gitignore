@@ -75,3 +75,7 @@ design/global-analytics.html
 .pty.txt
 essences/map-history/
 .aider*
+
+# Build outputs that release and install packaging write beside the source.
+ci-rust-warnings/
+release-artifacts/
