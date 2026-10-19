@@ -163,6 +163,23 @@ describe("chat tail follow", () => {
     expect(Math.abs(realGap())).toBeLessThan(1);
   });
 
+  it("keeps a detached reader anchored when a Working tail row appears", async () => {
+    await render();
+    await act(async () => { scroller().dispatchEvent(new WheelEvent("wheel", { deltaY: -40, bubbles: true })); });
+    await act(async () => {
+      scroller().scrollTop = scroller().scrollTop - 300;
+      scroller().dispatchEvent(new Event("scrollend"));
+    });
+    await flushFrames();
+    expect(followTail.current).toBe(false);
+    const before = scroller().scrollTop;
+
+    rows = [...rows, { msg: { id: "chat-working:tail", sourceMessageId: "chat-working:tail" }, height: 40.4 }];
+    await render();
+    expect(followTail.current).toBe(false);
+    expect(scroller().scrollTop).toBeCloseTo(before, 0);
+  });
+
   it("re-pins when a mounted row above the tail grows after mount", async () => {
     await render();
     await growWithoutRender("m77", 431.15);
