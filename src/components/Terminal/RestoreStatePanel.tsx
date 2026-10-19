@@ -8,7 +8,7 @@ export function RestoreStatePanel({ view }: {
 }) {
   const currentLabel = view.steps[Math.max(0, view.current)]?.label ?? view.label;
   const model = view.phase === "failed"
-    ? brandStateModel({ error: { title: view.label, detail: view.hint ?? "The session could not be restored." } })
+    ? brandStateModel({ error: { title: view.label, sentence: view.hint ?? "The session could not be restored." } })
     : brandStateModel({ loading: true, label: view.label, detail: view.phase === "sleeping" ? view.hint ?? undefined : undefined, animate: view.phase !== "sleeping" });
   return (
     <BrandState model={model} className="ct-loading-material">

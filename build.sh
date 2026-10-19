@@ -413,6 +413,7 @@ run_nextest_scope() {
     shell) package="codeterm"; targets+=(--lib --test main) ;;
     mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets=(--lib) ;;
     paths|codeterm-paths) package="codeterm-paths"; targets=(--lib) ;;
+    process-identity|codeterm-process-identity) package="codeterm-process-identity"; targets=(--lib) ;;
     input-platform) targets+=(--lib -p codeterm-input-macos -p codeterm-input-windows) ;;
     frontend-bundle|codeterm-frontend-bundle) package="codeterm-frontend-bundle"; targets+=(--lib) ;;
     notification-core|codeterm-notification-core) package="codeterm-notification-core"; targets+=(--lib) ;;
@@ -2671,7 +2672,7 @@ EOF
         --source-sha "$(git rev-parse HEAD)" \
         --cargo-log "release-artifacts/build-logs/$local_target/server.jsonl" \
         --tree-log "release-artifacts/build-logs/$local_target/closure.txt" \
-        --client-file "src-tauri/target/$local_target/release/codeterm.exe"
+        --client-file "src-tauri/target/$local_target/release/domios.exe"
       pnpm tauri bundle "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" --bundles nsis
     else
       pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" "${bundle_args[@]}"
