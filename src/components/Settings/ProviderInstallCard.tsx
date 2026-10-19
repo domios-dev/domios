@@ -18,10 +18,11 @@ const STATE_DOT: Record<ProviderCliState, string> = {
 };
 
 export function ProviderCliControls({ providerId, compact = false }: { providerId: string; compact?: boolean }) {
-  const { status, error, summary, refresh } = useProviderCliStatus(providerId);
+  const { status, error, probeFailed, summary, refresh } = useProviderCliStatus(providerId);
   const [busy, setBusy] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const view = providerCliView(status, error);
+  const canRecheck = view.canRecheck || probeFailed;
   const install = async () => {
     setBusy(true);
     setLaunchError(null);
@@ -42,9 +43,9 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
           {view.label}
           {view.version && <span className="ct-text-mono font-normal text-[var(--ct-muted-fg)]"> · {view.version}</span>}
         </span>
-        {(view.canRecheck || view.canInstall) && (
+        {(canRecheck || view.canInstall) && (
           <div className="ml-auto flex flex-none items-center gap-1.5">
-            {view.canRecheck && (
+            {canRecheck && (
               <Button size="compact" variant="ghost" aria-label={`Re-check CLI for ${providerId}`} onClick={() => void refresh()}>
                 Re-check
               </Button>
@@ -69,7 +70,7 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
           Needs {item.binary} first. {item.hint}
         </p>
       ))}
-      {view.state === "unknown" && error && <InlineErrorNotice error={error} operation="detecting the provider program" />}
+      {error && <InlineErrorNotice error={error} operation="detecting the provider program" />}
       {launchError && <InlineErrorNotice error={launchError} operation="installing this provider" blocking />}
       {summary && <p role="status" className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{summary}</p>}
     </div>

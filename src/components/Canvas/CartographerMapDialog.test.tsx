@@ -51,4 +51,29 @@ describe("Cartographer map dialog wiring", () => {
       expect(onCancel).toHaveBeenCalledTimes(1);
     });
   }
+
+  it("keeps a failed provider catalogue as a quiet unavailable state", async () => {
+    await mount(<CartographerMapDialog mode="create" providers={[]} catalogueError="opaque catalogue failure" onCancel={vi.fn()} onStart={vi.fn(async () => {})} />);
+    expect(document.body.querySelector('[role="status"]')).not.toBeNull();
+    expect(document.body.querySelector('[role="alert"]')).toBeNull();
+    expect((getByRole(document.body, "button", "Start") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps a cached provider usable after a background catalogue failure", async () => {
+    const onStart = vi.fn(async () => {});
+    await mount(<CartographerMapDialog mode="create" providers={[CARTOGRAPHER_TEST_PROVIDER]} catalogueError="opaque catalogue failure" onCancel={vi.fn()} onStart={onStart} />);
+    const start = getByRole(document.body, "button", "Start") as HTMLButtonElement;
+    expect(document.body.querySelector('[role="alert"]')).toBeNull();
+    expect(start.disabled).toBe(false);
+    await act(async () => start.click());
+    expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces a failed user Start with one accessible alert", async () => {
+    const onStart = vi.fn(async () => { throw new Error("opaque start failure"); });
+    await mount(<CartographerMapDialog mode="create" providers={[CARTOGRAPHER_TEST_PROVIDER]} onCancel={vi.fn()} onStart={onStart} />);
+    await act(async () => { getByRole(document.body, "button", "Start").click(); await Promise.resolve(); });
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(document.body.querySelectorAll('[role="alert"]')).toHaveLength(1);
+  });
 });

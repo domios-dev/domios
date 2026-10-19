@@ -41,7 +41,7 @@ export function AgentsOverview({
   return (
     <div className="flex flex-col gap-3" data-testid="settings-agents-overview">
       <SettingsCard icon={<Server size={16} />} title="Providers" description="Installed as plugins from Extensions.">
-        {error && <InlineErrorNotice error={error} operation="loading agent providers" />}
+        {error && providers.length === 0 && <InlineErrorNotice error={error} operation="loading agent providers" />}
         {loading && providers.length === 0 && <div className="text-[11px] text-[var(--ct-muted-fg)]">Loading providers…</div>}
         <div className="ct-rows !p-0">
           {providers.map((p) => (
@@ -135,7 +135,7 @@ export function AgentProviderScreen({
     [fullConfig, onUpdateFullConfig],
   );
 
-  if (error) {
+  if (error && !provider) {
     return <InlineErrorNotice error={error} operation="loading agent providers" />;
   }
   if (loading && !provider) {

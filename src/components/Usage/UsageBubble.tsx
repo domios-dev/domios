@@ -1,8 +1,8 @@
 import {uid} from "../../lib/uid";
 import {invoke} from "../../lib/bridge";
+import {DEV_BUILD} from "../../lib/devBuild";
 import {resetCreditsForTab, type ResetResponse} from "./resetCreditsModel";
 import {ResetCreditsSection} from "./ResetCreditsSection";
-import {InlineErrorNotice} from "../shared/ErrorNotice";
 import { ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown, runtimeAccountCreditsLabel } from "./runtimeUsage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
@@ -93,7 +93,6 @@ export function UsageBubble({
       return result;
     }
   }) : null;
-  const [resetReadError, setResetReadError] = useState<string|null>(null);
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
@@ -189,8 +188,9 @@ export function UsageBubble({
         onClick={(e) => {
           e.stopPropagation();
           if (!open && runtime && tabId) {
-            setResetReadError(null);
-            void invoke("agent_runtime_reset_credits", {tabId,request:{action:"read"}}).then(() => refetch()).catch(() => setResetReadError("Reset credits could not be refreshed."));
+            void invoke("agent_runtime_reset_credits", {tabId,request:{action:"read"}}).then(() => refetch()).catch((error: unknown) => {
+              if (DEV_BUILD) console.debug("Background reset credits refresh failed", error);
+            });
           }
           setOpen((v) => !v);
         }}
@@ -218,7 +218,7 @@ export function UsageBubble({
         <UsageSpendDetail
           snapshot={active}
           accountCreditsLabel={accountCreditsLabel}
-          resetSection={tabId && runtime && resetModel ? <><ResetCreditsSection resets={active.resets} model={resetModel} />{resetReadError && active.resets && <InlineErrorNotice error={resetReadError} operation="reading the reset credits" />}</> : undefined}
+          resetSection={tabId && runtime && resetModel ? <ResetCreditsSection resets={active.resets} model={resetModel} /> : undefined}
           flipUp={flipUp}
           onRefresh={refreshUsage}
           onOpenHistory={() => {
@@ -232,7 +232,7 @@ export function UsageBubble({
         <UsageDetail
           snapshot={active}
           accountCreditsLabel={accountCreditsLabel}
-          resetSection={tabId && runtime && resetModel ? <><ResetCreditsSection resets={active.resets} model={resetModel} />{resetReadError && active.resets && <InlineErrorNotice error={resetReadError} operation="reading the reset credits" />}</> : undefined}
+          resetSection={tabId && runtime && resetModel ? <ResetCreditsSection resets={active.resets} model={resetModel} /> : undefined}
           flipUp={flipUp}
           onRefresh={refreshUsage}
           onOpenHistory={() => {

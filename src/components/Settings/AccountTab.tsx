@@ -26,7 +26,7 @@ export function AccountTab() {
         {billing.plan.cancelAtPeriodEnd && <p>Cancels at the end of this period</p>}
         {billing.plan.stale && <p role="status">Plan information is stale</p>}
       </div>}
-      {billing.error && <InlineErrorNotice error={billing.error} operation="loading account information" blocking />}
+      {billing.actionError && <InlineErrorNotice error={billing.actionError} operation="loading account information" blocking />}
       <button type="button" disabled={model.kind !== "signed_in"} onClick={() => void billing.upgrade("pro")}>Upgrade</button>
       <button type="button" disabled={model.kind !== "signed_in"} onClick={() => void billing.manage()}>Manage subscription</button>
     </SettingsCard>

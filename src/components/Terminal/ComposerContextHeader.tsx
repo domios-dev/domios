@@ -191,7 +191,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   const open = requested && counts[requested] > 0 ? requested : null;
 
   const hasPluginError = removedChatPluginId(pluginError ?? null) !== null;
-  if (!hasGoal && !hasPluginError && !plan && kinds.length === 0 && backgroundWork.items.length === 0 && !backgroundWork.error) return null;
+  if (!hasGoal && !hasPluginError && !plan && kinds.length === 0 && backgroundWork.items.length === 0) return null;
 
   const toggle = (kind: ContextKind) => {
     setRequested(open === kind ? null : kind);
@@ -365,7 +365,6 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
           <div className="ct-ctx__reveal-inner">{body}</div>
         </div>
       ) : body)}
-      {backgroundWork.error && <InlineErrorNotice error={backgroundWork.error} operation="loading background work" />}
       {error && !confirming && <InlineErrorNotice error={error} operation="updating the composer context" blocking />}
       {confirming && (() => {
         const copy = deleteJobConfirmation(confirming);

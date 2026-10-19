@@ -1,6 +1,9 @@
 // Run: npx tsx src/components/Usage/UsageTable.test.ts
 
-import { usageFailureCopy } from "./UsageTable";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { Window } from "happy-dom";
+import { UsageTable } from "./UsageTable";
 import type { UsageSnapshot } from "../../types/usage";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -30,25 +33,28 @@ function row(over: Partial<UsageSnapshot>): UsageSnapshot {
   };
 }
 
-const codex = usageFailureCopy(row({
-  provider: "codex",
-  failure_reason: "output never reached parseable state",
-  probe_command: "/status",
-}));
-assert(codex.providerLabel === "Codex", "Codex provider label");
-assert(codex.command === "/status", "Codex uses /status");
-assert(codex.reason.includes("parseable"), "Codex reason preserved");
+async function accessibleUsageFailure() {
+  const dom = new Window({ url: "http://localhost/" });
+  Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { value: true, configurable: true });
+  for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "HTMLButtonElement", "SVGElement", "Event", "MouseEvent", "Element", "Node"] as const) {
+    Object.defineProperty(globalThis, key, { value: dom[key], configurable: true });
+  }
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(UsageTable, { rows: [row({ failure_reason: "TIMEOUT: opaque probe result" })] })));
+    assert(host.querySelector("details") === null, "background usage details are not shown as a notice");
+    assert(host.querySelector("table tbody tr") !== null, "the last usage row stays available");
+    assert(host.querySelector('[role="alert"]') === null, "background usage failure does not create an alert");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    await dom.happyDOM.abort();
+  }
+}
 
-const claude = usageFailureCopy(row({
-  provider: "claude",
-  failure_reason: "usage panel still loading after 22000ms",
-  probe_command: "/usage",
-}));
-assert(claude.providerLabel === "Claude", "Claude provider label");
-assert(claude.command === "/usage", "Claude uses /usage");
-assert(claude.reason.includes("22000ms"), "Claude reason preserved");
-
-const fallback = usageFailureCopy(row({ provider: "codex" }));
-assert(fallback.command === "/status", "Codex fallback command is /status");
-
-console.log("UsageTable: all passed");
+void accessibleUsageFailure().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
+});

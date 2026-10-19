@@ -1,8 +1,8 @@
-import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useRef, useState } from "react";
 import { AlertTriangle, FileText, Map as MapIcon, RefreshCw } from "lucide-react";
 import { SendIcon } from "../Icons";
 import { UI_BUTTON } from "../shared/design";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { projectName, statusLabel } from "./EssenceMapProjectView";
 import type { EssenceMapProject } from "./essenceMapModel";
 import type { MapOrchestrator } from "./essenceMapOrchestrator";
@@ -43,7 +43,7 @@ export function EssenceMapEmptyState({ projects, orchestrator, onAskOrchestrator
       <ul aria-label="Project map status" className="flex w-full flex-col gap-1 text-xs text-[var(--ct-muted-fg)]">
         {projects.map((project) => <li key={project.file.project_path} data-testid={`essence-map-project-${project.status}`} className="flex min-w-0 items-center justify-center gap-2" title={project.file.project_path}>
           {ATTENTION_STATUSES.has(project.status) ? <AlertTriangle size={13} aria-hidden="true" className="shrink-0 text-[var(--ct-yellow)]" /> : <FileText size={13} aria-hidden="true" className="shrink-0" />}
-          <div className="min-w-0"><span className="font-medium text-[var(--ct-fg)]">{projectName(project.file.project_path)}</span> · {project.error ? <InlineErrorNotice error={project.error} operation="reading this project map" /> : statusLabel(project)}</div>
+          <div className="min-w-0"><span className="font-medium text-[var(--ct-fg)]">{projectName(project.file.project_path)}</span> · <span role="status">{statusLabel(project)}</span></div>
         </li>)}
       </ul>
       <p id="essence-map-empty-next" className="text-xs text-[var(--ct-muted-fg)]">

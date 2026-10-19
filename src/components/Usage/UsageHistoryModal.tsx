@@ -157,7 +157,7 @@ export function UsageHistoryModal({ provider, accountId, onClose }: UsageHistory
               <span>Recent samples</span>
             </div>
             <span style={{ fontFamily: "var(--u-font-mono)", fontSize: 10, color: "var(--ct-muted-fg)", letterSpacing: "0.06em" }}>
-              {summary.samples} samples · {summary.errors} parse errors
+              {summary.samples} samples
             </span>
           </div>
           <UsageTable rows={rows} />
@@ -220,23 +220,20 @@ interface Summary {
   latestWeekly: number | null;
   latestAt: number | null;
   samples: number;
-  errors: number;
 }
 
 function computeSummary(rows: UsageSnapshot[]): Summary {
   if (rows.length === 0) {
-    return { avgSession: null, avgWeekly: null, latestWeekly: null, latestAt: null, samples: 0, errors: 0 };
+    return { avgSession: null, avgWeekly: null, latestWeekly: null, latestAt: null, samples: 0 };
   }
   let sessionSum = 0;
   let sessionCount = 0;
   let weeklySum = 0;
   let weeklyCount = 0;
-  let errors = 0;
   let latestWeekly: number | null = null;
   let latestAt = 0;
   for (const r of rows) {
     if (!r.parsed_ok) {
-      errors += 1;
       continue;
     }
     if (r.session_pct != null) {
@@ -258,6 +255,5 @@ function computeSummary(rows: UsageSnapshot[]): Summary {
     latestWeekly,
     latestAt: latestAt || null,
     samples: rows.length,
-    errors,
   };
 }

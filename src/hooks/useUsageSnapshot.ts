@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DEV_BUILD } from "../lib/devBuild";
 import { invoke } from "../lib/bridge";
 import { listen } from "../lib/bridge";
 import type { UsageSnapshot, UsageSnapshotEvent } from "../types/usage";
@@ -45,6 +46,7 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
       });
       if (!cancelledRef.current && read === readSequence.current) setSnapshot(row ?? null);
     } catch (e) {
+      if (DEV_BUILD) console.debug("Background usage snapshot read failed", e);
       if (!cancelledRef.current && read === readSequence.current) setError(String(e));
     } finally {
       if (!cancelledRef.current && read === readSequence.current) setLoading(false);
@@ -55,6 +57,7 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
     try {
       await invoke("usage_refresh", { provider, accountId: accountId ?? undefined });
     } catch (e) {
+      if (DEV_BUILD) console.debug("Background provider usage refresh failed", e);
       setError(String(e));
     }
   }, [provider, accountId]);
@@ -148,6 +151,7 @@ export function useUsageHistory(opts: UseUsageHistoryOptions): UseUsageHistoryRe
       });
       if (!cancelledRef.current) setRows(result ?? []);
     } catch (e) {
+      if (DEV_BUILD) console.debug("Background usage history read failed", e);
       if (!cancelledRef.current) setError(String(e));
     } finally {
       if (!cancelledRef.current) setLoading(false);
@@ -241,6 +245,7 @@ export function useUsageProjection(opts: UseUsageProjectionOptions): UseUsagePro
       });
       if (!cancelledRef.current) setProjection(result ?? null);
     } catch (e) {
+      if (DEV_BUILD) console.debug("Background usage projection read failed", e);
       if (!cancelledRef.current) setError(String(e));
     } finally {
       if (!cancelledRef.current) setLoading(false);

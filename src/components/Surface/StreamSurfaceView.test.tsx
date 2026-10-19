@@ -485,6 +485,18 @@ suite.test("a viewport mismatch heals once until a matching frame arrives", asyn
   await unmount();
 });
 
+suite.test("a failed automatic viewport resize stays quiet", async () => {
+  const { host, fake, unmount } = await mount();
+  await resizeStages(640, 480);
+  await act(async () => fake.emitFrame(frameAt(640, 480)));
+  fake.respond(SURFACE_METHOD.resize, () => Promise.reject(new Error("resize temporarily unavailable")));
+  await act(async () => fake.emitFrame(frameAt(1280, 960)));
+  await flushAsync();
+  assert.equal(queryByRole(host, "alert"), null, "automatic resize failure does not render an alert");
+  assert.ok(queryByRole(host, "img"), "the last rendered surface remains available");
+  await unmount();
+});
+
 async function withDocument(overrides: { visibilityState?: DocumentVisibilityState; focused?: boolean }, run: () => Promise<void>) {
   const target = document as unknown as Record<string, unknown>;
   if (overrides.visibilityState) Object.defineProperty(document, "visibilityState", { value: overrides.visibilityState, configurable: true });

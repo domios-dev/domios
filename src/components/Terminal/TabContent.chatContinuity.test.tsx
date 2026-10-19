@@ -298,7 +298,8 @@ async function main(): Promise<void> {
 
   await render();
   assert(!host.querySelector('[data-testid="tab-mode-switch"]'), "gateway catalog invented a peer capability");
-  assert(host.querySelector('[data-testid="provider-capability-state"]'), "missing descriptor is invisible");
+  assert(!host.querySelector('[role="alert"]'), "background provider catalogue failure does not create an alert");
+  assert(host.querySelector('[data-tab-id="tab-live"]'), "terminal tab remains available while provider capabilities are unknown");
   await act(async () => {
     invalidateWebRequestContext();
     window.dispatchEvent(new CustomEvent("codeterm-peer-switch-reset"));

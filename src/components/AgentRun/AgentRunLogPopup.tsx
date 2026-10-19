@@ -132,7 +132,7 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
           className="flex-1 overflow-auto px-4 py-3 text-[11px] leading-relaxed text-[var(--ct-fg)] font-mono"
           style={{ background: "var(--ct-bg)" }}
         >
-          {error && (
+          {error && events.length === 0 && rawLines.length === 0 && (
             <InlineErrorNotice error={error} operation="reading the agent log" />
           )}
 

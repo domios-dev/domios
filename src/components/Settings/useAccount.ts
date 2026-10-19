@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { localFetch } from "../../lib/webApi";
 import { accountFailure, accountModel, accountLoginPath, type LoginHint, type AccountModel, type AccountStatus } from "./accountModel";
 
@@ -19,7 +20,9 @@ export function useAccount() {
       request("status", controller.signal).then((status) => {
         if (generation === active.current) setModel(accountModel(status));
       }).catch((error: unknown) => {
-        if (!controller.signal.aborted && generation === active.current) setModel(accountFailure(error));
+        if (controller.signal.aborted || generation !== active.current) return;
+        if (DEV_BUILD) console.debug("Background account status refresh failed", error);
+        setModel((current) => current.kind === "pending" ? { kind: "signed_out" } : current);
       });
     };
     refresh();

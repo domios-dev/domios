@@ -19,7 +19,7 @@ export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg, startupOwne
 function RuntimeStatusBadge({ view, onRetry }: { view: ReturnType<typeof runtimeStatusPresentation>; onRetry: () => void }) {
   const { open, triggerRef, popoverRef, toggle } = useRuntimeStatusPopover();
   const id = useId();
-  const active = Boolean(view);
+  const active = Boolean(view && view.severity !== "transient");
   const transient = view?.severity === "transient";
   const label = view?.label ?? "Composer status";
   return <div className="ct-composer-issue relative z-40 h-0" data-active={active} aria-hidden={!active} inert={!active}>

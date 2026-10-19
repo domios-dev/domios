@@ -1,4 +1,3 @@
-import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
@@ -189,8 +188,8 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         <div className="ct-section-toolbar__identity flex items-center gap-3 mr-4 shrink-0">
           <strong>Mesh</strong>
           <div className={`${UI_TEXT.meta} opacity-70`}>
-            {data.error && activeTab !== "inventory"
-              ? <InlineErrorNotice error={data.error} operation="loading the mesh" />
+            {data.error && activeTab !== "inventory" && headerPeerCount === 0
+              ? <span role="status">Mesh data is unavailable.</span>
               : `${headerPeerCount} peer${headerPeerCount === 1 ? "" : "s"}`}
           </div>
           {activeTab !== "inventory" && <button

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { listen } from "../../lib/bridge";
 import type { ApiConfig } from "../../lib/types";
 import {
@@ -84,6 +85,7 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
         ingestFull(snap);
       } catch (e) {
         if ((e as Error)?.name === "AbortError") return;
+        if (DEV_BUILD) console.debug("Background memory graph refresh failed", e);
         if (e instanceof SnapshotUnavailableError) {
           if (active) setStatus("unavailable");
           return;

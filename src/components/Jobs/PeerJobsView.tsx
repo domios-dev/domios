@@ -25,7 +25,7 @@ export function PeerJobsView({ peerId, peers, onMachineChange, onClose, clientFo
   onClose?: () => void;
 }) {
   const peer = peers.find((candidate) => candidate.instance_id === peerId);
-  const { data, failed, refresh } = usePeerJobs(peerId, jobsMachineAvailability(peerId, peers) === "online", clientForPeer);
+  const { data, failed, actionFailed, refresh, refreshAfterAction } = usePeerJobs(peerId, jobsMachineAvailability(peerId, peers) === "online", clientForPeer);
   const [filter, setFilter] = useState<JobsFilter>(NO_JOBS_FILTER);
   const [selectedKey, setSelected] = useState<string | null>(null);
   const selected = data?.jobs.find((job) => `${job.kind}:${mergedJobId(job)}` === selectedKey);
@@ -43,7 +43,7 @@ export function PeerJobsView({ peerId, peers, onMachineChange, onClose, clientFo
       <button type="button" className={`${UI_BUTTON.icon} ml-auto`} aria-label="Refresh jobs" onClick={refresh}><RefreshCw size={14} aria-hidden="true" /></button>
     </header>
     <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:px-6">
-      {state === "unavailable" && <p role="status">Jobs unavailable on {peer?.instance_name ?? "this machine"}{peer?.online === false ? " · machine offline" : ""}.</p>}
+      {state === "unavailable" && <p role={actionFailed ? "alert" : "status"}>Jobs unavailable on {peer?.instance_name ?? "this machine"}{peer?.online === false ? " · machine offline" : ""}.</p>}
       {state === "loading" && <DeferredLoader state="present"><BusyState label="Reading jobs" inline /></DeferredLoader>}
       {state === "partial" && <p role="status">Some jobs on {peer?.instance_name} are unavailable.</p>}
       {data && !selected && <>
@@ -61,7 +61,7 @@ export function PeerJobsView({ peerId, peers, onMachineChange, onClose, clientFo
         <p className="ct-meta-muted">{peer?.instance_name} · {jobStateLabel(selected.state)}</p>
         {selected.kind === "blueprint" ? <BlueprintPipelineCanvas pipeline={selected.blueprint.pipeline} />
           : selected.kind === "sentinel" ? <p className="mt-3 break-words">{sentinelRowText(selected.sentinel, selected.title).meta}</p>
-            : service ? <ServiceDrawer state={{ kind: "service", id: service.id, sourcePeerId: peerId }} services={remoteServices} peers={[]} thisMachineName="This machine" onClose={() => setSelected(null)} onActionDone={refresh} />
+            : service ? <ServiceDrawer state={{ kind: "service", id: service.id, sourcePeerId: peerId }} services={remoteServices} peers={[]} thisMachineName="This machine" onClose={() => setSelected(null)} onActionDone={refreshAfterAction} />
               : <p role="status">Job details unavailable on {peer?.instance_name}.</p>}
       </article>}
     </div>

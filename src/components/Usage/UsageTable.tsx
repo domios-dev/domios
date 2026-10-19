@@ -1,5 +1,5 @@
-import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { classify, type UsageSnapshot } from "../../types/usage";
 import { formatRelative } from "./format";
 
@@ -15,8 +15,17 @@ export function UsageTable({ rows, pageSize = 5 }: UsageTableProps) {
   );
   const [visible, setVisible] = useState(pageSize);
   const recent = sorted.slice(0, visible);
+  const loggedFailures = useRef(new Set<number>());
   const hasMore = visible < sorted.length;
   const now = Date.now();
+  useEffect(() => {
+    if (!DEV_BUILD) return;
+    for (const row of recent) {
+      if (row.parsed_ok || loggedFailures.current.has(row.id)) continue;
+      loggedFailures.current.add(row.id);
+      console.debug("Background provider usage refresh failed", { provider: row.provider, kind: usageFailureKind(row) });
+    }
+  }, [recent]);
   return (
     <div className="ct-usage-table-wrap">
       <table>
@@ -69,9 +78,7 @@ function TableRow({ row, now }: { row: UsageSnapshot; now: number }) {
               <span className="d" />
               ok
             </span>
-          ) : (
-            <ErrorPill row={row} now={now} />
-          )}
+          ) : <span aria-label="No usage sample">—</span>}
         </td>
       </tr>
     </>
@@ -101,31 +108,6 @@ export function usageFailureKind(row: UsageSnapshot): string {
 
 export function usageFailureLabel(row: UsageSnapshot): string {
   return FAILURE_LABELS[usageFailureKind(row)] ?? "failed";
-}
-
-export function usageFailureCopy(row: UsageSnapshot): {
-  providerLabel: string;
-  command: string;
-  reason: string;
-} {
-  const providerLabel =
-    row.provider === "codex"
-      ? "Codex"
-      : row.provider === "claude"
-        ? "Claude"
-        : row.provider || "Provider";
-  const command = row.probe_command || (row.provider === "codex" ? "/status" : "/usage");
-  const reason = row.failure_reason || "output did not reach a parseable state before the probe timed out";
-  return { providerLabel, command, reason };
-}
-
-function ErrorPill({ row, now }: { row: UsageSnapshot; now: number }) {
-  const copy = usageFailureCopy(row);
-  return <details>
-    <summary className="ct-usage-pill err" aria-label={`Usage check details for ${copy.providerLabel}`}>{usageFailureLabel(row)}</summary>
-    <InlineErrorNotice error={copy.reason} operation={`checking usage for ${copy.providerLabel}`} />
-    <p className="text-xs text-[var(--ct-muted-fg)]">{copy.command} · {formatRelative(now, row.captured_at)}</p>
-  </details>;
 }
 
 function NumCell({ ok, pct, state }: { ok: boolean; pct: number | null; state: "neutral" | "warn" | "danger" }) {
