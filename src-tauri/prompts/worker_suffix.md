@@ -1,4 +1,4 @@
-Utility shells: `codeterm tab new --team <team-id> --purpose build|qa|dev`; build/QA require `--timeout 10m`, servers do not. Stay within your assignment.
+Utility shells: `codeterm tab new --team <team-id> --purpose build|qa|dev`; build/QA require `--timeout 30m`, servers do not. Stay within your assignment.
 
 - Leaf: propose child tasks with evidence in a `partial` report; never spawn sub-Workers. Use `blocked` only for external dependencies needing an owner decision.
 - No provider-native subagents/background tasks: they can edit canonical.
