@@ -6,8 +6,10 @@ fn register_runtime(svc: &ServiceContext) {
     let manifest = codeterm_plugin::js_runtime::PluginManifest::from_json_str(
         &serde_json::json!({
             "id":"restore-runtime", "version":"1.0.0", "displayName":"Fixture",
+            "reasoningEfforts":[{"id":"low","displayName":"Low"},{"id":"medium","displayName":"Medium"}],
             "capabilities":{"agentProvider":true,
                 "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
+                "structuredControl":{"protocol":"fixture","minVersion":"1.0.0","runtimeModes":[{"id":"auto","displayName":"Auto"}]},
                 "agentRuntime":{
                 "runtime":"stdio-jsonrpc", "command":{"binary":"fixture-cli","args":[]},
                 "requestMethods":{"initialize":["handshake"]},"notificationMethods":[]}},
@@ -27,6 +29,62 @@ fn register_runtime(svc: &ServiceContext) {
         .register_provider(Box::new(codeterm_plugin::js_runtime::JsProvider::new(
             manifest, vm,
         )));
+}
+
+#[test]
+fn restored_unsupported_runtime_controls_fall_back_before_provider_settings_are_built() {
+    let (mut mux, id) = MultiplexerState::new();
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("restore-runtime".into());
+    tab.agent_session_id = Some("saved-thread".into());
+    tab.session_binding_nonce = Some(nonce);
+    tab.agent_session_model = Some("saved-model".into());
+    tab.agent_runtime_config = Some(serde_json::json!({
+        "model":"saved-model",
+        "effort":"qa-impossible",
+        "mode":"qa-impossible"
+    }));
+    tab.reasoning_effort_identity = crate::multiplexer::types::ReasoningEffortIdentity {
+        requested: Some("qa-impossible".into()),
+        resolved: Some("qa-impossible".into()),
+        actual: Some("qa-impossible".into()),
+        actual_source: Some("session-owned".into()),
+        ..Default::default()
+    };
+    tab.structured_runtime_mode = Some("qa-impossible".into());
+    tab.restorable_launch.structured_runtime_mode = Some("qa-impossible".into());
+    let snapshot = mux.to_session_snapshot();
+    let fixture = ServiceFixture::new(MultiplexerState::from_session_snapshot(&snapshot));
+    let storage = fixture.install_seeded_storage_desk();
+    register_runtime(&fixture.service);
+
+    assert!(super::tab(&fixture.service, &id).unwrap());
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    let config = tab.agent_runtime_config.as_ref().unwrap();
+    assert_eq!(config.get("effort"), None);
+    assert_eq!(config.get("mode"), None);
+    assert!(tab.reasoning_effort_identity.is_empty());
+    assert_eq!(tab.structured_runtime_mode, None);
+    assert_eq!(tab.restorable_launch.structured_runtime_mode, None);
+    let settings = super::super::model::settings_from_config(config);
+    assert_eq!(settings.effort, None);
+    assert_eq!(settings.mode, None);
+    drop(mux);
+
+    let persisted = crate::session::store::StorageDeskAdapter::from_storage(storage)
+        .snapshot()
+        .unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&persisted);
+    let tab = restored.get_tab(&id).unwrap();
+    assert_eq!(
+        tab.agent_runtime_config.as_ref().unwrap().get("effort"),
+        None
+    );
+    assert!(tab.reasoning_effort_identity.is_empty());
+    super::super::authority::revoke(&id);
+    crate::service::session_persist::stop_worker(&fixture.service).unwrap();
 }
 
 #[test]

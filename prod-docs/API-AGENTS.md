@@ -45,13 +45,15 @@ With `--mesh PEER`, `--tab TAB_ID` is required and identifies a Tab on that peer
 
 #### Agent Model Switch (POST /api/tabs/{id}/agent/model)
 
-Switch one agent tab to another model. Domios never types a provider model command, because provider pickers can change the machine-global default. The provider descriptor's `model_switch` declares support; `live` is used only when the structured-prompt server registered for that exact tab advertises the route in `/doc`. Domios sends `POST /api/session/{sessionID}/model` with `{"model":{"id":"MODEL_ID","providerID":"PROVIDER_ID"}}`, then confirms from `GET /session/{sessionID}` on that same tab server. When the route is absent or cannot be proven, Domios falls back to `restart_resume`, returns `mode_used: "restart_resume"` and `fallback_reason`, and resumes the tab's own nonce-verified session with the new model launch args and the same effort, arguments and system prompt a daemon restore would use. The tab's restorable launch record follows the new model. This fallback requires an idle tab. `unsupported` (the default) refuses the switch.
+Switch one agent tab to another model. Domios never types a provider model command, because provider pickers can change the machine-global default. The provider descriptor's `model_switch` declares support and timing. For PTY agents, `live` uses the structured-prompt server registered for that exact tab and confirms from that same tab server; when that route is absent or cannot be proven, Domios falls back to `restart_resume`, returns `mode_used: "restart_resume"` and `fallback_reason`, and resumes the tab's own nonce-verified session with the new model launch args and the same effort, arguments and system prompt a daemon restore would use. For `agentRuntime` Chat providers, live controls target the exact bound runtime thread and confirm from its own session record. Busy model and effort changes are staged with `staged: true` and pending confirmation without contacting the provider, then applied when the tab becomes idle within the staging deadline. The tab's restorable launch record follows the new model. RestartResume requires an idle tab. `unsupported` (the default) refuses the switch.
 
 ```json
 {"model": "sonnet", "reasoning_effort": "high"}
 ```
 
-An `agentRuntime` Chat provider with `next_turn` control returns `mode_used: "next_turn"`, `model_confirmation: "pending"` and no restart, including while busy. The next turn carries model and effort; thread settings/model events confirm them. Optional `runtime_mode` accepts `approval-required`, `auto-accept-edits`, `auto`, or `full-access` and requires the bound runtime to be loaded. Settings stay per-thread. Runtime failure is visible and retryable through exact-thread resume; it never selects a terminal fallback. Providers declaring RestartResume keep their idle-only switching contract.
+An `agentRuntime` Chat provider may apply settings live to the exact bound thread, or declare `next_turn` and apply model/effort on its next turn. Codex structured-control sessions use the live path: a confirmed settings control returns `mode_used: "live"`, `model_confirmation: "observed"`, and `evidence: "live_session_record"`. Runtime modes come from the provider's `structured_control.runtimeModes` capability and require the bound runtime. Settings stay per-thread. Runtime failure is visible and retryable through exact-thread resume; it never selects a terminal fallback. Providers declaring RestartResume keep their idle-only switching contract.
+
+`reasoning_effort` is checked against the selected model's published effort levels, falling back to the provider's list when the model publishes none. `runtime_mode` is checked against the declared structured-control modes. Both checks happen before runtime control, tab identity updates, or persistence; unsupported values return `400 unsupported_reasoning_effort` or `400 unsupported_runtime_mode` with a `supported` array. On restore, a saved value no longer present in the catalogue is cleared before runtime settings are built; the model's default is used and a warning is logged.
 
 The live session GET or, after a RestartResume fallback, the current binding's launch report or first post-relaunch assistant turn can confirm the model. A live request whose session record does not show the requested model returns pending with `confirmation_detail`; no screen output or POST status is treated as confirmation. After the bounded RestartResume confirmation deadline, a ready relaunch with no model observation still succeeds as pending; the label and `agent_session_model` follow the first turn when it arrives. A live request failure or a confirmed different RestartResume model remains an error.
 
@@ -64,6 +66,7 @@ Pending success includes `ok`, `tab_id`, `provider`, `mode_used`, `requested_mod
 Every error body is `{"ok": false, "error": "...", "reason": "..."}` plus the fields below:
 - `404 not_found` — tab id not found
 - `400 invalid_model` — the model is not in the provider's catalogue; `model_error` carries `valid_model_ids` and `refresh_command`
+- `400 unsupported_reasoning_effort` / `unsupported_runtime_mode` — requested control is absent from the selected model/provider catalogue; `requested` and `supported` identify the refused value and choices
 - `409 model_switch_unsupported` — the provider declares no live switch; `provider` names it
 - `409 not_switchable` — no agent, the agent is not observed live, it is mid-turn or waiting on a prompt, the tab has no verified resumable session, or the tab is the General Agent (its model comes from Settings)
 - `429 rate_limited` — the tab restarted moments ago; `retry_after_secs` and `Retry-After`
@@ -71,7 +74,7 @@ Every error body is `{"ok": false, "error": "...", "reason": "..."}` plus the fi
 - `502 model_mismatch` — the current binding's launch report or first post-relaunch turn names a different model; `launched_model`, `observed_model`, and `restart` are included. Missing model confirmation by its deadline is a pending success, not an error.
 - `502 live_switch_failed` — the tab server advertised the live route, but the POST failed. `mode_used` is `live`; Domios does not silently restart after a live request error.
 
-CLI: `codeterm agent model --tab TAB_ID MODEL [--force] [--json]`; service tiers use `--speed TIER|default` or `--list-speeds`. `GET /api/tabs/{id}/agent/service-tiers` reads that exact tab's runtime catalogue, returning available model-scoped tiers and bound requested/confirmed selections. Typed refusals include `no_runtime`, `no_tiers`, and `not_found`. `--json` prints the success body, or the error envelope carrying the error body as `data`.
+CLI: `codeterm agent model --tab TAB_ID [MODEL] [--force] [--reasoning-effort LEVEL] [--runtime-mode MODE] [--speed TIER|default] [--json]`; omit `MODEL` when changing only a setting. The CLI validates effort and mode against the selected provider catalogue before sending the request. Service tiers can be listed with `--list-speeds`; `GET /api/tabs/{id}/agent/service-tiers` reads that exact tab's runtime catalogue, returning available model-scoped tiers and bound requested/confirmed selections. Typed refusals include `no_runtime`, `no_tiers`, `unsupported_reasoning_effort`, `unsupported_runtime_mode`, and `not_found`. `--json` prints the success body, including `mode_used`, `model_confirmation`, and `evidence` when observed, or a non-zero error envelope carrying the refusal and supported list as `data`.
 
 ### Plan task attempts and Teams
 
@@ -181,4 +184,4 @@ With `background_work_guard` enabled, restarts and restart-based model switches 
 
 `spawn.capabilityProbe: stream_json_initialize` supports `capability_probe_enabled` (default false). `POST /api/tabs/{id}/agent/capabilities/refresh` refreshes the project/binary cache: `status` is `pending`, `ready` with typed `data`, or `unavailable` with typed `reason`. Binary/login changes invalidate and rebuild. Render/switch/send never probe. Cached commands carry argument hints; the composer badge shows subscription/modes. No user turn or usage request is sent.
 
-<!-- revision: 66 -->
+<!-- revision: 67 -->
