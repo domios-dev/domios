@@ -67,7 +67,6 @@ const inputPathspecs = [
   "scripts/prepare-cli-stub.js",
   "scripts/dev-resource-preflight.mjs",
   "scripts/dev-static-server.mjs",
-  "scripts/convert-plan-storage.rs",
   "scripts/cache-policy.sh",
   "scripts/build-gateway.sh",
   "scripts/release-signing.sh",
