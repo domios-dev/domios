@@ -1,7 +1,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AttachmentCapsule, configureHtmlFileLoader, configureLocalArtifactLoader, configureLocalArtifactOpener, LocalArtifactBlock, LocalArtifactScope, RichMarkdown } from "@codeterm/chat-ui";
+import { AttachmentCapsule, configureHtmlFileLoader, configureLocalArtifactLoader, configureLocalArtifactOpener, LocalArtifactBlock, LocalArtifactScope, MessageBubble, RichMarkdown } from "@codeterm/chat-ui";
+import { formatAttachmentMarker, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { ChangeFileView } from "../components/Terminal/tabPanel/ChangeFileView";
 import { DocumentDetail } from "../components/Terminal/tabPanel/DocumentDetail";
 import { configureLocalPreviews } from "./configureLocalPreviews";
@@ -102,4 +103,31 @@ it("loads a focused chip preview and opens its image via the authenticated attac
   await act(async () => chip.click());
   expect(document.querySelector('[role="dialog"] img')?.getAttribute("src")).toBe("data:image/png;base64,cGl4ZWw=");
   expect(requests).toEqual([{ path: "/api/tabs/chip-owner/preview/read", body: { path: "/work/pixel.png", kind: "image" } }]);
+});
+
+it("loads a sent surface snip in the system transcript through the owning tab preview route", async () => {
+  const path = String.raw`C:\Users\User\AppData\Local\Temp\codeterm-chat\snip-s1-1792392169841.png`;
+  const message: NormalizedChatMessage = {
+    id: "surface-snip",
+    type: "user",
+    inboundKind: "system",
+    content: `## Browser snip from the user\n${formatAttachmentMarker(path, "image")}\n**Page:** wikipedia.org`,
+  };
+  await act(async () => root?.render(
+    <LocalArtifactScope tabId="snip-owner">
+      <MessageBubble message={message} origin={{ kind: "system", context: "surface-annotation" }} />
+    </LocalArtifactScope>,
+  ));
+  const notice = host.querySelector<HTMLElement>('[data-testid="chat-system-event"]');
+  expect(notice).toBeTruthy();
+  await act(async () => notice?.querySelector<HTMLButtonElement>("button")?.click());
+  const chip = host.querySelector<HTMLButtonElement>('button[aria-label="Open image snip-s1-1792392169841.png"]');
+  expect(chip).toBeTruthy();
+  await act(async () => chip?.focus());
+  const image = document.querySelector('[role="region"] img[alt="snip-s1-1792392169841.png"]');
+  expect(image?.getAttribute("src")).toBe("data:image/png;base64,cGl4ZWw=");
+  expect(requests).toEqual([{
+    path: "/api/tabs/snip-owner/preview/read",
+    body: { path, kind: "image" },
+  }]);
 });

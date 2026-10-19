@@ -94,6 +94,7 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
   const [snipped, setSnipped] = useState<Snipped | null>(null);
   const [snipFrame, setSnipFrame] = useState<Rect | null>(null);
   const snipRun = useRef(0);
+  const cancelledSnipRun = useRef<number | null>(null);
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [sending, setSending] = useState(false);
   const [naming, setNaming] = useState<ToolbarItemSpec | null>(null);
@@ -198,9 +199,11 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
   };
 
   const cancelSnip = () => {
+    if (cancelledSnipRun.current === snipRun.current || (!snipping && !snipped && !snipFrame)) return;
     setSnipping(false);
     setSnipFrame(null);
     snipRun.current += 1;
+    cancelledSnipRun.current = snipRun.current;
     if (!snipped) return;
     setSnipped(null);
     // The core evicts stale captures anyway, so a failed discard is not worth a notice.
@@ -218,6 +221,7 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
       if (snipping || snipped || snipFrame) cancelSnip();
       else {
         if (picking) cancelPick();
+        cancelledSnipRun.current = null;
         setSnipping(true);
       }
     } else if (id === CHROME_ITEM.takeControl) {

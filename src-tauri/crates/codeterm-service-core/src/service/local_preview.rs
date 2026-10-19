@@ -8,6 +8,13 @@ use crate::service::local_preview::html_preview::{
 use codeterm_local_preview::PreviewPolicy;
 pub use codeterm_local_preview::{html_preview, references};
 
+fn agent_pad_screenshots(svc: &super::ServiceContext, tab_id: &str) -> Option<PathBuf> {
+    let pad = super::agent_pad::AgentPad::open(&svc.agent_pad_data_dir, tab_id).ok()?;
+    let pad_root = pad.path().canonicalize().ok()?;
+    let screenshots = pad.path().join("screenshots").canonicalize().ok()?;
+    (screenshots.parent() == Some(pad_root.as_path())).then_some(screenshots)
+}
+
 #[derive(PartialEq)]
 struct TabAuthority {
     backing: crate::multiplexer::types::TabBacking,
@@ -42,14 +49,21 @@ fn tab_policy(
     let references = references::referenced_paths(&messages, authority.cwd.as_deref());
     let configured: Vec<_> = configured.iter().map(PathBuf::from).collect();
     let mut denied = configured.clone();
-    denied.push(crate::paths::data_dir());
+    let data_dir = crate::paths::data_dir();
+    denied.push(data_dir.clone());
+    let mut evidence_denied = configured.clone();
     if let Some(home) = dirs::home_dir() {
-        denied.push(home.join(".ssh"));
+        let ssh = home.join(".ssh");
+        denied.push(ssh.clone());
+        evidence_denied.push(ssh);
     }
     let mut policy = PreviewPolicy::new(references, &denied)?
         .with_uploads(&crate::service::web_access::uploads_dir(), &configured)?;
     for bucket in ["chat", "images", "files"] {
         policy = policy.with_uploads(&crate::attachments::bucket_dir(bucket), &configured)?;
+    }
+    if let Some(screenshots) = agent_pad_screenshots(svc, tab_id) {
+        policy = policy.with_referenced_uploads(&screenshots, &evidence_denied)?;
     }
     Ok(policy)
 }
