@@ -12,6 +12,13 @@ pub struct RemoteTaskCapability {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RemoteTaskDiscovery {
+    pub availability: RemoteTaskAvailability,
+    pub environments: Vec<RemoteEnvironment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RemoteTaskAvailability {
     Available,
