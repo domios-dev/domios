@@ -508,6 +508,13 @@ mod tests {
             crate::multiplexer::state::MultiplexerState::from_session_snapshot(&snapshot);
         fixture
             .service
+            .mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .reported_session_binding_nonce = Some("new-nonce".into());
+        fixture
+            .service
             .finalize_runtime_worker_session(&tab_id, "own-thread", "new-nonce")
             .unwrap();
         let binding = fixture
