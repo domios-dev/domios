@@ -8,6 +8,14 @@ const release = workflow('release');
 const macos = workflow('release-macos-build');
 const linuxArm64 = workflow('release-linux-arm64');
 
+test('Windows finalization reacquires the stable gateway mapping without compiling', () => {
+  const step = workflow('release-windows').jobs.build.steps.find(step => step.name === 'Produce shared headless stage and package');
+  assert.match(step.run, /build\.ps1 release-finalize/);
+  const build = readFileSync(new URL('../../build.sh', import.meta.url), 'utf8');
+  assert.match(build, /release-bundle\|release-finalize\|release-preflight/);
+  assert.match(build, /release-finalize\)\s+node scripts\/release-stage\.mjs finalize "\$\{@:2\}"\s+;;/);
+});
+
 test('Linux bundle-only step receives updater signing material after native compilation', () => {
   const steps = workflow('release-linux').jobs.build.steps;
   const bundle = steps.find(step => step.name === 'Stage final pair resources and bundle without compilation');
