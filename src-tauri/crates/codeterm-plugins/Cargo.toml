@@ -16,6 +16,7 @@ dirs = "5"
 uuid = { version = "1", features = ["v4"] }
 
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
+log = "0.4"
 
 [dev-dependencies]
 tempfile = "3"

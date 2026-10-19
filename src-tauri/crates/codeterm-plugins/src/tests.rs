@@ -154,10 +154,10 @@ mod store_index_tests {
     }
 
     #[test]
-    fn default_system_channel_points_at_a_released_plugins_index() {
+    fn default_system_channel_points_at_the_public_released_channel() {
         assert_eq!(
             DEFAULT_SYSTEM_CHANNEL_URL,
-            "https://github.com/rollacode/codeterm.git#master:plugins"
+            "https://github.com/rollacode/codeterm-releases.git#plugin-channels:channels/codeterm-core"
         );
         let git_ref = DEFAULT_SYSTEM_CHANNEL_URL
             .rsplit_once('#')
@@ -170,6 +170,38 @@ mod store_index_tests {
             git_ref, "develop",
             "the default system channel installs as System trust; it must not track unreleased code"
         );
+        assert!(DEFAULT_SYSTEM_CHANNEL_URL.starts_with("https://github.com/"));
+        assert!(DEFAULT_PLUGIN_CHANNEL_URL
+            .starts_with("https://github.com/rollacode/codeterm-plugins.git#main"));
+    }
+
+    #[test]
+    fn system_channel_url_defaults_to_public_release_mirror() {
+        with_data_root(|_| {
+            std::env::remove_var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL");
+            assert_eq!(system_channel_url(), DEFAULT_SYSTEM_CHANNEL_URL);
+        });
+    }
+
+    #[test]
+    fn system_channel_url_honors_developer_override() {
+        with_data_root(|root| {
+            let override_url = format!("file://{}", root.join("developer-channel").display());
+            std::env::set_var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", &override_url);
+            assert_eq!(system_channel_url(), override_url);
+        });
+    }
+
+    #[test]
+    fn git_channel_errors_are_actionable_and_hide_raw_details() {
+        let error =
+            git_non_interactive_error("remote: Repository not found. fatal: repository is private");
+
+        assert_eq!(
+            error,
+            "Plugin updates are unavailable right now; Domios will retry"
+        );
+        assert!(!error.contains("Repository not found"));
     }
 
     #[test]
