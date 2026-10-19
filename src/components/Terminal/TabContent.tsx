@@ -5,7 +5,8 @@ import { DeferredPresence } from "../shared/DeferredPresence";
 import { restorePanelOwnsBody, restoreStageView } from "../../lib/restoreStageView";
 import { useWakeOnOpen } from "./useWakeOnOpen";
 import { TerminalTab } from "./TerminalTab";
-import { useLayoutEffect } from "react";
+import { useLayoutEffect, useRef } from "react";
+import { useBodyPainted } from "./useBodyPainted";
 import { consumePendingCommand, consumePendingCwd } from "../../lib/pendingCommands";
 import { RestoredShell } from "./RestoredShell";
 import { TabSessionChat } from "./TabSessionChat";
@@ -64,6 +65,8 @@ export function TabContent({
   const wake = useWakeOnOpen(tab, isVisible && Boolean(tab && isTabVisible(tab)));
   const descriptor = useAgentDescriptor(tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null));
   const { providers, loading } = useAgentProviders();
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const bodyPainted = useBodyPainted(bodyRef, tab?.id ?? "");
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
   useLayoutEffect(() => {
     if (tab?.close_restore?.record_id) {
@@ -76,7 +79,9 @@ export function TabContent({
   if (!isTabVisible(tab)) return null;
   const restore = restoreStageView(tab, wake);
   const sleepingTranscript = hasSleepingTranscript(tab) && restore.phase !== "ready";
-  const showRestore = !sleepingTranscript && restorePanelOwnsBody(tab, wake, restore);
+  const restoreOwnsBody = !sleepingTranscript && restorePanelOwnsBody(tab, wake, restore);
+  const showRestore = restoreOwnsBody && !bodyPainted;
+  const restoreInline = restoreOwnsBody && bodyPainted;
   const restorePanel = <RestoreStatePanel view={restore} />;
 
   if (isFirstRunGeneralTab(tab)) {
@@ -163,7 +168,10 @@ export function TabContent({
           {sleepingTranscript && <div role="status" aria-live="polite" className="shrink-0 px-3 py-2 text-xs text-[var(--ct-muted-fg)]">
             {restore.phase === "failed" ? <InlineErrorNotice error={restore.detail} operation="resuming this session" /> : "Waking…"}
           </div>}
-          <div className="min-h-0 flex-1" inert={showRestore || undefined} aria-hidden={showRestore || undefined}>{body}</div>
+          {restoreInline && <div role="status" aria-live="polite" className="shrink-0 px-3 py-2 text-xs text-[var(--ct-muted-fg)]">
+            {restore.phase === "failed" ? <InlineErrorNotice error={restore.detail} operation="resuming this session" /> : restore.steps[Math.max(0, restore.current)]?.label ?? restore.label}
+          </div>}
+          <div ref={bodyRef} className="min-h-0 flex-1" inert={showRestore || undefined} aria-hidden={showRestore || undefined}>{body}</div>
           <DeferredPresence present={showRestore && isVisible} className="absolute inset-0 z-20">{restorePanel}</DeferredPresence>
         </div>
       </div>
