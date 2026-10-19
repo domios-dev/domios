@@ -16,6 +16,7 @@
 #   ./build.sh bootstrap — create/build bundled CLI for fresh clones
 #   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
 #   ./build.sh cli       — build CLI and install to the active dev data directory
+#   ./build.sh fmt [--base REF] — format changed Rust files and apply changed-file Biome safe fixes
 #   ./build.sh clean     — clean build cache
 #   ./build.sh kill      — kill dev instance (safe, won't touch prod)
 #   ./build.sh e2e       — run non-LLM E2E tests against dev (port 7686)
@@ -2336,6 +2337,7 @@ CodeTerm build commands
   check-tests                 Compile app and CLI test profiles
   embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
   lane-check <package> [--tests] [--timings]  Type-check a touched library with four jobs, using Cargo's shared build-dir lock
+  fmt [--base REF]          Format changed Rust and apply changed-file Biome safe fixes
   lane-wrapper-check          Verify cache forwarding and metadata isolation with tiny fixtures
   cache-wrapper-check         Verify compiler-cache relocation and tracked environment with real sccache
   dev-link-measure [app|cli-release|cli-dev]  Record Cargo timings without installing or launching DEV
@@ -2403,6 +2405,9 @@ EOF
     fi
     enter_build_gateway "gc"
     ct_cache_retention gc "${2:-}"
+    ;;
+  fmt)
+    node scripts/format-changed.mjs "${@:2}"
     ;;
   fmt-check)
     bash scripts/check-rustfmt.sh
