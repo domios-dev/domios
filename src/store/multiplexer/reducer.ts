@@ -50,7 +50,7 @@ export type Action =
   | { type: "SET_TAB_TITLE"; tabId: string; title: string; level?: TitleLevel }
   | { type: "SET_AGENT_TYPE"; tabId: string; agentType: string | null }
   | { type: "UPDATE_TAB_STATUS"; tabId: string; status: TabStatus }
-  | { type: "UPDATE_BOOT_STAGE"; tabId: string; stage: BootStage; reason?: string | null; agent_booting?: boolean; session_bound?: boolean; launchGeneration?: TabBootStageEvent["launch_generation"] }
+  | { type: "UPDATE_BOOT_STAGE"; tabId: string; stage: BootStage; reason?: string | null; agent_booting?: boolean; session_bound?: boolean; provisional_launch?: Tab["provisional_launch"]; launchGeneration?: TabBootStageEvent["launch_generation"] }
   | { type: "REMOVE_PENDING_CLOSE"; tabIds: string[] }
   | { type: "RESET_PEER_CONTEXT" }
   | { type: "STORAGE_UNAVAILABLE" }
@@ -658,6 +658,11 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             boot_stage: action.stage,
             agent_booting: action.agent_booting ?? tab.agent_booting,
             session_bound: action.session_bound ?? tab.session_bound,
+            provisional_launch: action.provisional_launch !== undefined
+              ? action.provisional_launch
+              : action.stage === "launch_binding_unconfirmed" || action.stage === "launch_deadline_elapsed"
+                ? tab.provisional_launch
+                : null,
             pty_id: launch?.pty_id ?? tab.pty_id,
             session_binding_nonce: launch?.binding_nonce ?? tab.session_binding_nonce,
             lifecycle_epoch: launch?.epoch ?? tab.lifecycle_epoch,

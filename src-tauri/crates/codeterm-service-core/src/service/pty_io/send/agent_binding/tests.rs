@@ -134,6 +134,9 @@ fn restored_routed_send_waits_for_its_saved_session_to_reauthenticate() {
         binding_nonce: "launch-nonce".into(),
         reason: "binding pending".into(),
         awaiting_binding_ack: false,
+        first_turn_input_ready: false,
+        first_turn_payload_written: false,
+        first_turn_admitted_send_id: None,
     });
     assert!(payload_matches_binding(
         &payload,

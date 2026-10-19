@@ -140,14 +140,6 @@ impl super::super::ServiceContext {
                 }
                 head = bound;
             }
-            let readiness = if self.user_authority_is_ready(&head.authority) {
-                None
-            } else {
-                match self.user_readiness_fallback(&head.authority) {
-                    Ok(readiness) => Some(readiness),
-                    Err(reason) => hold!(&head, reason, Readiness),
-                }
-            };
             if !store.eligible(&head) {
                 if store.waiting_for_preparation(&head) {
                     hold!(&head, "owner_preparation_pending", Settlement);
@@ -155,6 +147,16 @@ impl super::super::ServiceContext {
                 self.settle_ended_user_head(&head)?;
                 continue;
             }
+            let ready = self.user_authority_is_ready(&head.authority);
+            let first_turn_claimed = !ready && self.claim_lazy_first_turn_user_send(&head);
+            let readiness = if ready || first_turn_claimed {
+                None
+            } else {
+                match self.user_readiness_fallback(&head.authority) {
+                    Ok(readiness) => Some(readiness),
+                    Err(reason) => hold!(&head, reason, Readiness),
+                }
+            };
             let text = store.prepared(&head)?;
             let separator_before = if head.held_before_readiness {
                 self.chat_send_ledger
@@ -178,10 +180,7 @@ impl super::super::ServiceContext {
                     .as_ref()
                     .and_then(|binding| binding.binding_nonce.as_deref())
                     .is_some_and(|nonce| nonce != head.authority.binding_nonce)
-                || (!self.user_authority_is_ready(&head.authority)
-                    && readiness.as_ref().is_none_or(|receipt| {
-                        !self.user_readiness_is_current(&head.authority, receipt)
-                    }))
+                || !self.user_send_readiness_is_current(&head, readiness.as_ref())
             {
                 hold!(&head, "launch_binding_changed_before_claim", Identity);
             }
@@ -236,20 +235,19 @@ impl super::super::ServiceContext {
                 .dispatch_generation
                 .load(Ordering::Acquire);
             let capture_send = self.local_recordings.has_write_ticket(&head.send_id);
-            let outcome =
-                if self.user_send_readiness_is_current(&claimed.authority, readiness.as_ref()) {
-                    if let Some(claim) = submit_claim {
-                        self.chat_send_ledger
-                            .store_user_submit_claim(&head.send_id, claim);
-                    }
-                    submit(&claimed, &text, readiness.as_ref(), capture_send)
-                } else {
-                    self.pending_user_send(&claimed, "readiness_changed_before_payload_write");
-                    Err(DeliveryError::TabBusyRefused {
-                        tab: tab_id.to_string(),
-                        detail: "user owner authority revoked before handoff".into(),
-                    })
-                };
+            let outcome = if self.user_send_readiness_is_current(&claimed, readiness.as_ref()) {
+                if let Some(claim) = submit_claim {
+                    self.chat_send_ledger
+                        .store_user_submit_claim(&head.send_id, claim);
+                }
+                submit(&claimed, &text, readiness.as_ref(), capture_send)
+            } else {
+                self.pending_user_send(&claimed, "readiness_changed_before_payload_write");
+                Err(DeliveryError::TabBusyRefused {
+                    tab: tab_id.to_string(),
+                    detail: "user owner authority revoked before handoff".into(),
+                })
+            };
             self.chat_send_ledger.take_user_submit_claim(&head.send_id);
             let zero_write = outcome
                 .as_ref()
