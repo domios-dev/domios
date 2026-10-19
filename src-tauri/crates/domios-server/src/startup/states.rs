@@ -370,11 +370,14 @@ pub fn init_states() -> AppStates {
             ),
         }
     }
-    let ghost_count = if storage.storage().is_some() {
-        service::general_agent::purge_snapshot_ghosts(&mut mux_state_inner)
+    let (ghost_count, ghost_evicted) = if storage.storage().is_some() {
+        service::general_agent::purge_snapshot_ghosts_with_evictions(&mut mux_state_inner)
     } else {
-        0
+        (0, Vec::new())
     };
+    if let Some(storage) = storage.storage().cloned() {
+        service::tab_todos::forget_permanently_closed_todos(storage, ghost_evicted);
+    }
     let retired = if storage.storage().is_some() {
         notif_state
             .lock()
@@ -485,8 +488,14 @@ pub fn init_states() -> AppStates {
                 &general_config.agent_provider,
                 None,
             );
-            duplicate_generals_closed =
-                service::general_agent::ensure_general_workspace(&mut mux_state_inner, false);
+            let (closed, evicted) = service::general_agent::ensure_general_workspace_with_evictions(
+                &mut mux_state_inner,
+                false,
+            );
+            duplicate_generals_closed = closed;
+            if let Some(storage) = storage.storage().cloned() {
+                service::tab_todos::forget_permanently_closed_todos(storage, evicted);
+            }
         } else {
             service::general_agent::ensure_first_run_tab(&mut mux_state_inner);
         }

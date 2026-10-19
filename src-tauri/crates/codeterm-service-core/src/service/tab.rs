@@ -338,7 +338,8 @@ impl ServiceContext {
             (result, mux.take_closed_history_batch())
         };
         if let Some(batch) = history_batch {
-            batch.persist_on_blocking_thread();
+            let evicted = batch.persist_on_blocking_thread_collect_evicted();
+            self.forget_evicted_tab_todos(evicted);
         }
         let pty_ids = close_result?;
         if let Err(error) = self.cancel_utility_timeout(&canonical_tab_id) {

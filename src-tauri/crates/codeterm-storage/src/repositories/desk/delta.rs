@@ -376,6 +376,7 @@ fn delete_missing(
             }
             let state_revision = current.workspace_revisions[id];
             let record_revision = workspace_revisions[id];
+            crate::repositories::tab_todo::forget_workspace_in_transaction(cx, id)?;
             let deleted_state = cx.write(
                 "DELETE FROM desk_workspace_state WHERE workspace_id = ?1 AND revision = ?2",
                 params![id, to_sql_u64("desk workspace revision", state_revision.0)?],

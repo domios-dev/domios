@@ -549,7 +549,8 @@ impl ServiceContext {
             (result, mux.take_closed_history_batch())
         };
         if let Some(batch) = history_batch {
-            batch.persist_on_blocking_thread();
+            let evicted = batch.persist_on_blocking_thread_collect_evicted();
+            self.forget_evicted_tab_todos(evicted);
         }
         let pty_ids = close_result?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
