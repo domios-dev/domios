@@ -42,6 +42,105 @@ fn ack(caller: &LiveCaller) -> Value {
 }
 
 #[test]
+fn current_attempt_first_nonce_proven_read_announces_before_ack_backfill() {
+    let caller = LiveCaller::new();
+    caller
+        .svc
+        .plan_store
+        .set_attempt_plan_skill_manifest(
+            &caller.plan_id,
+            &caller.task_id,
+            &caller.attempt_id,
+            vec![],
+            6,
+        )
+        .unwrap();
+    let before = caller
+        .svc
+        .plan_store
+        .show_task(&caller.task_id)
+        .unwrap()
+        .task;
+    assert!(before.execution_attempts[0].acknowledged_at.is_none());
+    assert!(before.execution_attempts[0].plan_skill_manifest.is_empty());
+
+    let shown = caller.show(caller.production_params()).unwrap();
+    let digest = format!(
+        "sha256:{:x}",
+        sha2::Sha256::digest(shown["skill"]["body"].as_str().unwrap().as_bytes())
+    );
+    let after = caller
+        .svc
+        .plan_store
+        .show_task(&caller.task_id)
+        .unwrap()
+        .task;
+    let attempt = &after.execution_attempts[0];
+    assert!(attempt.acknowledged_at.is_none());
+    assert_eq!(attempt.plan_skill_manifest.len(), 1);
+    assert_eq!(attempt.plan_skill_manifest[0].slug, CALLER_SKILL);
+    assert_eq!(attempt.plan_skill_manifest[0].content_digest, digest);
+    assert_eq!(attempt.loaded_plan_skills.len(), 1);
+    assert_eq!(attempt.loaded_plan_skills[0].slug, CALLER_SKILL);
+    assert_eq!(attempt.loaded_plan_skills[0].content_digest, digest);
+
+    assert_eq!(caller.show(caller.production_params()).unwrap(), shown);
+    assert_eq!(
+        caller
+            .svc
+            .plan_store
+            .show_task(&caller.task_id)
+            .unwrap()
+            .task,
+        after
+    );
+}
+
+#[test]
+fn current_attempt_stale_owner_epoch_refuses_manifest_refresh_without_mutation() {
+    for acknowledged in [false, true] {
+        let caller = LiveCaller::new();
+        if acknowledged {
+            ack(&caller);
+        }
+        caller
+            .svc
+            .plan_store
+            .with_plan(&caller.plan_id, 8, |plan| {
+                let task = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == caller.task_id)
+                    .unwrap();
+                task.interruption.owner_epoch += 1;
+                task.execution_attempts[0].plan_skill_manifest.clear();
+                Ok(())
+            })
+            .unwrap();
+        let before = caller
+            .svc
+            .plan_store
+            .show_task(&caller.task_id)
+            .unwrap()
+            .task;
+
+        let refusal = caller.show(caller.production_params()).unwrap_err();
+        assert!(refusal
+            .message
+            .contains("plan skill announcement binding is not current"));
+        assert_eq!(
+            caller
+                .svc
+                .plan_store
+                .show_task(&caller.task_id)
+                .unwrap()
+                .task,
+            before
+        );
+    }
+}
+
+#[test]
 fn current_attempt_reassignment_ack_announces_before_exact_skill_load() {
     let caller = LiveCaller::new();
     ack(&caller);
