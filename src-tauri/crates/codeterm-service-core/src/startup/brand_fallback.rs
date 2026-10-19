@@ -10,7 +10,7 @@ pub enum BrandFallback {
 /// The native window is frameless; these links are handled by the client as `domios-shell://<action>`.
 const NATIVE_CHROME: &str = r#"<header><div class="drag" onmousedown="if(event.button===0)location.href='domios-shell://drag'"></div><a href="domios-shell://minimize" aria-label="Minimize">&#8212;</a><a href="domios-shell://maximize" aria-label="Maximize">&#9633;</a><a class="close" href="domios-shell://close" aria-label="Close">&#10005;</a></header>"#;
 
-const RETRY_ACTION: &str = r#"<a class="retry" href="domios-shell://retry">Retry now</a>"#;
+const RETRY_ACTION: &str = r#"<a class="retry" href="domios-shell://retry" aria-label="Retry now; retries automatically every 10 seconds"><svg class="ring" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8"/><circle class="left" cx="10" cy="10" r="8" pathLength="100"/></svg><span>Retry now</span><span class="count" aria-hidden="true">10</span></a>"#;
 
 /// Faint dot grid; each wave leaves the mark at its pulse peak (CSS and canvas share one 2.6 s period from time zero).
 const DOT_WAVES: &str = r#"<script>
@@ -52,6 +52,20 @@ const DOT_WAVES: &str = r#"<script>
     if (!reduced) requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+  // The page owns the 10 s auto-retry so the ring shows exactly when the next attempt happens.
+  const retry = document.querySelector(".retry"), left = retry.querySelector(".left"), count = retry.querySelector(".count");
+  const interval = 10000;
+  let due = performance.now() + interval;
+  function fire() { due = performance.now() + interval; location.href = "domios-shell://retry"; }
+  retry.addEventListener("click", event => { event.preventDefault(); fire(); });
+  function tick(now) {
+    const remaining = Math.max(0, due - now);
+    left.style.strokeDashoffset = String(100 - (remaining / interval) * 100);
+    count.textContent = String(Math.ceil(remaining / 1000));
+    if (remaining === 0) fire();
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
 })();
 </script>"#;
 
@@ -60,7 +74,7 @@ pub fn brand_fallback_page(kind: BrandFallback) -> String {
         BrandFallback::Reconnecting => (
             "Reconnecting",
             "Reconnecting…",
-            "Your sessions keep running. Domios retries automatically.",
+            "Your sessions keep running.",
             "status",
             " data-pulse",
             NATIVE_CHROME,

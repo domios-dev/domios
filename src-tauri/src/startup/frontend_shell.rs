@@ -39,7 +39,7 @@ use codeterm_service_core::startup::{
 };
 use serde::Serialize;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -451,8 +451,6 @@ fn show_unavailable(window: &WebviewWindow) {
     {
         Ok(()) => {
             log::debug!("[frontend-shell] native recovery surface selected");
-            ON_RECOVERY_SURFACE.store(true, Ordering::Release);
-            keep_reconnecting(window.app_handle().clone());
         }
         Err(error) => log::error!("[frontend-shell] recovery surface failed: {error}"),
     }
@@ -489,28 +487,6 @@ fn run_shell_action(app: &codeterm_host_runtime::app_runtime::AppHandle, url: &U
     if let Err(error) = outcome {
         log::debug!("[frontend-shell] shell action failed: {error}");
     }
-}
-
-const RECONNECT_INTERVAL: Duration = Duration::from_secs(10);
-static RECONNECTING: AtomicBool = AtomicBool::new(false);
-static ON_RECOVERY_SURFACE: AtomicBool = AtomicBool::new(false);
-
-/// Owner-requested: while the recovery surface is showing, retry the interface every 10 s.
-fn keep_reconnecting(app: codeterm_host_runtime::app_runtime::AppHandle) {
-    if RECONNECTING.swap(true, Ordering::AcqRel) {
-        return;
-    }
-    tauri::async_runtime::spawn(async move {
-        loop {
-            tokio::time::sleep(RECONNECT_INTERVAL).await;
-            if !ON_RECOVERY_SURFACE.load(Ordering::Acquire) {
-                break;
-            }
-            log::debug!("[frontend-shell] recovery surface retrying the interface");
-            retry(&app);
-        }
-        RECONNECTING.store(false, Ordering::Release);
-    });
 }
 
 fn next_generation(generation: &AtomicU64) -> Option<u64> {
@@ -560,7 +536,6 @@ fn navigate_frontend(
         app.state::<ShellSupervisor>().root_render.retire();
         return Err(error.to_string());
     }
-    ON_RECOVERY_SURFACE.store(false, Ordering::Release);
     Ok(())
 }
 
