@@ -29,6 +29,8 @@ Foreground launch stays in its Dev shell and owns the client process.
 `dev-server` validates the existing instance/artifacts and classifies current
 bytes against the last build snapshot, including uncommitted edits and deletions.
 Client/build changes refuse with `run ./build.sh dev instead` before shutdown.
+Server reload/staging tool updates also use `dev-server`; native source and
+Tauri/Cargo configuration changes still require `dev`.
 It compiles only the server and changed CLI sources while the old server runs,
 verifies the new build/CLI binding, then uses authenticated protocol2 shutdown
 and a pinned process-exit observation. It stages the new server/inventory,
@@ -62,7 +64,9 @@ Use the same selectors for the entire lifecycle. Optional frontend and diagnosti
 ports use `CODETERM_DEV_VITE_PORT` and `CODETERM_DEV_CDP_PORT`.
 
 Named Cargo artifacts live under
-`src-tauri/target/dev-instances/<instance-key>/`. Data/config/logs and
+`src-tauri/target/dev-instances/<instance-key>/`; CLI artifacts use its `cli/`
+target so native compilation cannot overwrite the CLI's `codeterm` executable.
+The same separation applies to explicit DEV Cargo target roots. Data/config/logs and
 `dev-build-provenance.json` live under `~/.codeterm-dev-<instance-key>/`.
 Canonical defaults use `~/.codeterm-dev/`. Unix stages the native client under
 `.domios-dev-runtime/bin` with paired `lib/codeterm` resources; Windows stages
