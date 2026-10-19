@@ -43,19 +43,24 @@ pub(crate) fn load(
 }
 
 fn decode_item(row: &Row<'_>) -> rusqlite::Result<Result<TabTodoItemRecord, StorageError>> {
+    let id = row.get(0)?;
     let position: i64 = row.get(1)?;
+    let title = row.get(2)?;
+    let description = row.get(3)?;
+    let state = row.get(4)?;
     let revision: i64 = row.get(5)?;
+    let link_json = row.get(6)?;
     Ok((|| {
         Ok(TabTodoItemRecord {
-            id: row.get(0)?,
+            id,
             position: u8::try_from(position).map_err(|_| StorageError::Corrupt {
                 detail: "tab todo position is out of range".into(),
             })?,
-            title: row.get(2)?,
-            description: row.get(3)?,
-            state: row.get(4)?,
+            title,
+            description,
+            state,
             revision: from_sql_u64("todo item revision", revision)?,
-            link_json: row.get(6)?,
+            link_json,
         })
     })())
 }

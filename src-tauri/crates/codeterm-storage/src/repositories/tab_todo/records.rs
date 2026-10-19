@@ -1,7 +1,6 @@
 //! Storage-native tab todo records. DTO conversion belongs to the domain store.
 
 use crate::error::StorageError;
-use crate::repositories::to_sql_u64;
 use std::collections::HashSet;
 
 pub const MAX_TAB_TODO_ITEMS: usize = 16;
