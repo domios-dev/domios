@@ -9,6 +9,9 @@ use crate::multiplexer::{
     types::{ContextEpochArchive, ContextEpochBoundary, ContextEpochTransport, TabBacking},
 };
 use crate::service::test_fixture::ServiceFixture;
+use codeterm_plugin::agent_runtime::{
+    AgentRuntimeCapability, AgentRuntimeCommand, AgentRuntimeProtocol,
+};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -100,6 +103,87 @@ impl AgentProvider for ForkProvider {
     }
 }
 
+struct StoredRuntimeProvider;
+
+impl AgentProvider for StoredRuntimeProvider {
+    fn id(&self) -> &str {
+        "runtime-stored-fixture"
+    }
+    fn display_name(&self) -> &str {
+        "Runtime stored fixture"
+    }
+    fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+        String::new()
+    }
+    fn readiness_strategy(&self) -> ReadinessStrategy {
+        ReadinessStrategy::FixedDelay {
+            duration: Duration::ZERO,
+        }
+    }
+    fn task_delivery(&self) -> TaskDelivery {
+        TaskDelivery::PtyInput
+    }
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+    fn detect_from_output(&self, _: &str) -> bool {
+        false
+    }
+    fn session_file_path(&self, cwd: &str, session: &str) -> Option<PathBuf> {
+        Some(Path::new(cwd).join(format!("{session}.stored.jsonl")))
+    }
+    fn session_jsonl_path(&self, cwd: &str, session: &str) -> Option<PathBuf> {
+        self.session_file_path(cwd, session)
+    }
+    fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+        panic!("history must use the archived session id")
+    }
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+    fn parse_session_delta_bounded(&self, _: &Path, _: u64, _: u64) -> Option<SessionDelta> {
+        None
+    }
+    fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
+        Some(AgentRuntimeCapability {
+            service_tiers: Vec::new(),
+            background_processes: false,
+            goals: None,
+            thread_history: None,
+            stored_history: true,
+            usage: false,
+            reset_credits_min_version: None,
+            runtime: AgentRuntimeProtocol::StdioJsonrpc,
+            command: AgentRuntimeCommand {
+                binary: "fixture".into(),
+                args: Vec::new(),
+            },
+            inherited_environment_exclusions: Vec::new(),
+            login: None,
+            request_methods: Default::default(),
+            notification_methods: Vec::new(),
+        })
+    }
+    fn runtime_stored_history_available(&self, cwd: &str, session_id: &str) -> bool {
+        self.session_file_path(cwd, session_id)
+            .is_some_and(|path| path.is_file())
+    }
+    fn runtime_stored_history(
+        &self,
+        session_id: &str,
+        records: &str,
+    ) -> Result<Vec<crate::agent::chat_types::ChatMsg>, String> {
+        if session_id != "runtime-session" {
+            return Err(format!("unexpected stored session {session_id}"));
+        }
+        records
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| serde_json::from_str(line).map_err(|error| error.to_string()))
+            .collect()
+    }
+}
+
 fn write_rows(path: &Path, rows: &[(&str, &str)]) {
     let data: String = rows
         .iter()
@@ -113,6 +197,23 @@ fn write_rows(path: &Path, rows: &[(&str, &str)]) {
         })
         .collect();
     std::fs::write(path, data).unwrap();
+}
+
+fn write_stored_runtime_rows(path: &Path, rows: &[(&str, &str)]) {
+    let data = rows
+        .iter()
+        .map(|(id, content)| {
+            serde_json::to_string(&crate::agent::chat_types::ChatMsg {
+                id: (*id).into(),
+                kind: "user".into(),
+                content: (*content).into(),
+                ..Default::default()
+            })
+            .unwrap()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(path, format!("{data}\n")).unwrap();
 }
 
 #[test]
@@ -298,4 +399,111 @@ fn tab_snapshot_projects_archived_provider_before_current_and_pages_globally() {
         ["context handoff", "continued"]
     );
     let _ = std::fs::remove_file(current_history);
+}
+
+#[test]
+fn tab_snapshot_restores_a_runtime_stored_middle_segment_between_pty_sessions() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fork-fixture".into());
+    tab.agent_session_id = Some("current-session".into());
+    tab.cwd = Some(root.path().to_string_lossy().into_owned());
+    tab.context_epoch_archives.extend([
+        ContextEpochArchive {
+            provider: "fork-fixture".into(),
+            cwd: root.path().to_string_lossy().into_owned(),
+            session_id: "previous-session".into(),
+            transport: ContextEpochTransport::AgentProvider,
+            boundary: ContextEpochBoundary::ProviderHandoff,
+        },
+        ContextEpochArchive {
+            provider: "runtime-stored-fixture".into(),
+            cwd: root.path().to_string_lossy().into_owned(),
+            session_id: "runtime-session".into(),
+            transport: ContextEpochTransport::ChatBackend,
+            boundary: ContextEpochBoundary::ProviderHandoff,
+        },
+    ]);
+    let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(ForkProvider));
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(StoredRuntimeProvider));
+    write_rows(
+        &root.path().join("previous-session.jsonl"),
+        &[("previous-user", "before runtime session")],
+    );
+    let runtime_history_path = root.path().join("runtime-session.stored.jsonl");
+    write_stored_runtime_rows(
+        &runtime_history_path,
+        &[
+            ("runtime-user-a", "same runtime request"),
+            ("runtime-user-b", "same runtime request"),
+        ],
+    );
+    write_rows(
+        &root.path().join("current-session.jsonl"),
+        &[("current-user", "after runtime session")],
+    );
+
+    let (rows, total) = super::super::tab_chat_snapshot(&fixture.service, &tab_id, 0).unwrap();
+    assert_eq!(total, 6);
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.content.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "before runtime session",
+            "Provider handoff. Earlier conversation remains archived above.",
+            "same runtime request",
+            "same runtime request",
+            "Provider handoff. Earlier conversation remains archived above.",
+            "after runtime session",
+        ]
+    );
+    assert_eq!(
+        rows[1].id,
+        "session-boundary:previous-session:runtime-session"
+    );
+    assert_eq!(
+        rows[4].id,
+        "session-boundary:runtime-session:current-session"
+    );
+    assert_eq!(
+        [rows[2].id.as_str(), rows[3].id.as_str()],
+        [
+            "provider-session:runtime-session:runtime-user-a",
+            "provider-session:runtime-session:runtime-user-b",
+        ]
+    );
+    assert!(rows[2].interactive.is_empty());
+    assert!(rows[3].interactive.is_empty());
+
+    let (page, page_total) = super::super::tab_chat_snapshot(&fixture.service, &tab_id, 2).unwrap();
+    assert_eq!(page_total, total);
+    assert_eq!(
+        page.iter()
+            .map(|row| row.content.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "same runtime request",
+            "same runtime request",
+            "Provider handoff. Earlier conversation remains archived above.",
+            "after runtime session",
+        ]
+    );
+    std::fs::remove_file(runtime_history_path).unwrap();
+    let (rows, total) = super::super::tab_chat_snapshot(&fixture.service, &tab_id, 0).unwrap();
+    assert_eq!(total, 5);
+    assert_eq!(
+        rows[2].content,
+        "Archived provider conversation is unavailable: Stored runtime history is unavailable for session runtime-session"
+    );
+    assert_eq!(rows[3].system_subtype.as_deref(), Some("provider_handoff"));
+    assert_eq!(rows[4].content, "after runtime session");
 }
