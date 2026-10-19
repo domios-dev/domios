@@ -183,6 +183,9 @@ pub(crate) fn provisional_launch_for(
         binding_nonce: binding_nonce.to_string(),
         reason: reason.to_string(),
         awaiting_binding_ack: false,
+        first_turn_input_ready: false,
+        first_turn_payload_written: false,
+        first_turn_admitted_send_id: None,
     })
 }
 
@@ -221,6 +224,7 @@ pub(crate) fn boot_stage_event(
         "agent_booting": tab.agent_booting,
         "session_bound": tab.agent_session_id.as_deref().is_some_and(|id| !id.trim().is_empty()),
         "reason": stage.carries_reason().then_some(reason).flatten(),
+        "provisional_launch": tab.provisional_launch,
         "launch_generation": {
             "epoch": tab.lifecycle_epoch,
             "operation_id": tab.lifecycle_operation_id,
@@ -337,6 +341,7 @@ impl ServiceContext {
                     BootStage::LaunchBindingUnconfirmed,
                     "current launch session binding has not been authenticated",
                     true,
+                    false,
                 );
                 let binding = {
                     let mux = self.mux.read();
@@ -524,7 +529,21 @@ impl ServiceContext {
         stage: BootStage,
         reason: &str,
     ) {
-        self.record_provisional_launch_with_binding_wait(attempt, stage, reason, false);
+        self.record_provisional_launch_with_binding_wait(attempt, stage, reason, false, false);
+    }
+
+    pub(crate) fn record_first_turn_input_ready(
+        &self,
+        attempt: &crate::service::launch_readiness::LaunchAttempt,
+        reason: &str,
+    ) {
+        self.record_provisional_launch_with_binding_wait(
+            attempt,
+            BootStage::LaunchBindingUnconfirmed,
+            reason,
+            true,
+            true,
+        );
     }
 
     fn record_provisional_launch_with_binding_wait(
@@ -533,6 +552,7 @@ impl ServiceContext {
         stage: BootStage,
         reason: &str,
         awaiting_binding_ack: bool,
+        first_turn_input_ready: bool,
     ) {
         debug_assert!(stage.is_provisional());
         let recorded =
@@ -548,6 +568,7 @@ impl ServiceContext {
                 }
                 if let Some(launch) = tab.provisional_launch.as_mut() {
                     launch.awaiting_binding_ack = awaiting_binding_ack;
+                    launch.first_turn_input_ready = first_turn_input_ready;
                 }
                 true
             });

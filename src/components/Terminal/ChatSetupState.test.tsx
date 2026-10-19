@@ -63,6 +63,22 @@ async function main() {
     assert(chatSetupView(null).kind === "none", "no Tab is none");
   });
 
+  await test("live lazy composer ends startup overlay while binding is pending", () => {
+    const composer = {
+      ...tab("launch_binding_unconfirmed"),
+      pty_id: "own-pty",
+      session_binding_nonce: "own-nonce",
+      provisional_launch: {
+        pty_id: "own-pty",
+        binding_nonce: "own-nonce",
+        reason: "composer-ready",
+        awaiting_binding_ack: true,
+        first_turn_input_ready: true,
+      },
+    } as Tab;
+    assert(chatSetupView(composer).kind === "none", "composer readiness removes Starting immediately");
+  });
+
   await test("an authoritative attached chat suppresses stale setup stages", () => {
     const reserved = { ...tab(null), agent_booting: true } as Tab;
     assert(chatSetupView(reserved, true).kind === "none", "reserved state is stale after hydration");

@@ -181,12 +181,22 @@ export interface TabBootStageEvent {
   agent_booting?: boolean;
   session_bound?: boolean;
   reason?: string | null;
+  provisional_launch?: ProvisionalLaunch | null;
   launch_generation?: {
     epoch: number | null;
     operation_id: string | null;
     pty_id: string | null;
     binding_nonce: string | null;
   };
+}
+
+export interface ProvisionalLaunch {
+  pty_id: string;
+  binding_nonce: string;
+  reason: string;
+  awaiting_binding_ack?: boolean;
+  first_turn_input_ready?: boolean;
+  first_turn_payload_written?: boolean;
 }
 
 export interface Tab {
@@ -279,6 +289,7 @@ export interface Tab {
   lifecycle_operation_id?: string | null;
   session_bound?: boolean;
   boot_failure_reason?: string | null;
+  provisional_launch?: ProvisionalLaunch | null;
   /** Machine+watcher chatBackend session — read-only tab with tick-driven inputs. */
   watcher?: WatcherSpec | null;
   remote_peer_id?: string;
@@ -1166,31 +1177,4 @@ export interface ModelCatalogueChanged {
   version: number;
 }
 
-/** Input for `createOrchestrationPair` — camelCase for ergonomic call sites;
- *  translated to the snake_case wire shape shared by CLI/REST/Tauri. */
-export interface OrchestrationPairInput {
-  orchestratorAgent: string;
-  orchestratorModel?: string;
-  orchestratorReasoningEffort?: string;
-  plannerAgent: string;
-  plannerModel?: string;
-  plannerReasoningEffort?: string;
-  workspaceId?: string;
-  title?: string;
-  /** Blank picker tab to claim for the Orchestrator in place (task_e0ddee08) —
-   *  confirming the picker transforms that tab instead of leaving it behind. */
-  existingTabId?: string;
-}
-
-/** Mirrors Rust `OrchestrationPairResult` (task_7e5f9354) — plain snake_case,
- *  same shape returned by the socket RPC, REST, and Tauri command. Success
- *  only: a failed Planner spawn rejects with the exact recovery command
- *  instead of resolving to a half-populated result. */
-export interface OrchestrationPairResult {
-  plan_id: string;
-  orchestrator_tab_id: string;
-  orchestrator_model?: string;
-  planner_tab_id: string;
-  planner_model?: string;
-  warning?: string;
-}
+export type { OrchestrationPairInput, OrchestrationPairResult } from "./orchestrationPairTypes";

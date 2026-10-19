@@ -216,6 +216,130 @@ impl super::ServiceContext {
             || self.latch_user_authority_ready(authority)
     }
 
+    fn claim_lazy_first_turn_user_send(&self, record: &UserSendRecord) -> bool {
+        let authority = &record.authority;
+        let owner = self
+            .pending_delivery_payloads
+            .user_sends
+            .tab(&authority.tab_id);
+        if owner.revoked.load(Ordering::Acquire)
+            || owner.failed.load(Ordering::Acquire)
+            || !self.user_authority_pty_generation_is_current(authority)
+            || !self
+                .agent_registry
+                .with_provider(&authority.provider_id, |provider| {
+                    provider.session_starts_on_first_user_turn()
+                })
+                .unwrap_or(false)
+            || authority.session_id.is_some()
+            || authority.observed_session_id.is_some()
+        {
+            return false;
+        }
+        let mut mux = self.mux.write();
+        let Some(tab) = mux.get_tab_mut(&authority.tab_id) else {
+            return false;
+        };
+        if !self.user_authority_matches_launch(tab, authority)
+            || tab.boot_stage != Some(codeterm_types::pty::BootStage::LaunchBindingUnconfirmed)
+            || tab
+                .agent_session_id
+                .as_deref()
+                .is_some_and(|session| !session.trim().is_empty())
+        {
+            return false;
+        }
+        let Some(launch) = tab.provisional_launch.as_mut().filter(|launch| {
+            launch.pty_id == authority.pty_id.as_deref().unwrap_or_default()
+                && launch.binding_nonce == authority.binding_nonce
+                && launch.awaiting_binding_ack
+                && launch.first_turn_input_ready
+                && !launch.first_turn_payload_written
+        }) else {
+            return false;
+        };
+        match launch.first_turn_admitted_send_id.as_deref() {
+            Some(admitted) => admitted == record.send_id,
+            None => {
+                launch.first_turn_admitted_send_id = Some(record.send_id.clone());
+                true
+            }
+        }
+    }
+
+    fn lazy_first_turn_user_send_is_current(&self, record: &UserSendRecord) -> bool {
+        let authority = &record.authority;
+        let owner = self
+            .pending_delivery_payloads
+            .user_sends
+            .tab(&authority.tab_id);
+        if owner.revoked.load(Ordering::Acquire)
+            || owner.failed.load(Ordering::Acquire)
+            || !self.user_authority_pty_generation_is_current(authority)
+        {
+            return false;
+        }
+        let Some(lazy_session_provider) = self
+            .agent_registry
+            .with_provider(&authority.provider_id, |provider| {
+                provider.session_starts_on_first_user_turn()
+            })
+        else {
+            return false;
+        };
+        if !lazy_session_provider
+            || authority.session_id.is_some()
+            || authority.observed_session_id.is_some()
+        {
+            return false;
+        }
+        self.mux
+            .read()
+            .get_tab(&authority.tab_id)
+            .is_some_and(|tab| {
+                self.user_authority_matches_launch(tab, authority)
+                    && tab.boot_stage
+                        == Some(codeterm_types::pty::BootStage::LaunchBindingUnconfirmed)
+                    && tab
+                        .agent_session_id
+                        .as_deref()
+                        .is_none_or(|session| session.trim().is_empty())
+                    && tab.provisional_launch.as_ref().is_some_and(|launch| {
+                        launch.pty_id == authority.pty_id.as_deref().unwrap_or_default()
+                            && launch.binding_nonce == authority.binding_nonce
+                            && launch.awaiting_binding_ack
+                            && launch.first_turn_input_ready
+                            && !launch.first_turn_payload_written
+                            && launch.first_turn_admitted_send_id.as_deref()
+                                == Some(record.send_id.as_str())
+                    })
+            })
+    }
+
+    fn mark_lazy_first_turn_user_send_written(&self, record: &UserSendRecord) {
+        let authority = &record.authority;
+        let mut mux = self.mux.write();
+        let Some(tab) = mux.get_tab_mut(&authority.tab_id) else {
+            return;
+        };
+        if !self.user_authority_matches_launch(tab, authority) {
+            return;
+        }
+        let mut consumed = false;
+        if let Some(launch) = tab.provisional_launch.as_mut().filter(|launch| {
+            launch.pty_id == authority.pty_id.as_deref().unwrap_or_default()
+                && launch.binding_nonce == authority.binding_nonce
+                && launch.first_turn_admitted_send_id.as_deref() == Some(record.send_id.as_str())
+        }) {
+            consumed = !launch.first_turn_payload_written;
+            launch.first_turn_payload_written = true;
+        }
+        drop(mux);
+        if consumed {
+            self.emit_state_changed(super::MuxEmitCause::BootStage);
+        }
+    }
+
     pub(crate) fn latch_user_authority_ready(&self, authority: &UserSendAuthority) -> bool {
         if !self.user_authority_pty_generation_is_current(authority) {
             return false;
@@ -677,12 +801,14 @@ impl super::ServiceContext {
 
     fn user_send_readiness_is_current(
         &self,
-        authority: &UserSendAuthority,
+        record: &UserSendRecord,
         readiness: Option<&UserReadiness>,
     ) -> bool {
-        self.user_authority_is_ready(authority)
-            || readiness
-                .is_some_and(|readiness| self.user_readiness_is_current(authority, readiness))
+        self.user_authority_is_ready(&record.authority)
+            || self.lazy_first_turn_user_send_is_current(record)
+            || readiness.is_some_and(|readiness| {
+                self.user_readiness_is_current(&record.authority, readiness)
+            })
     }
 
     fn user_authority_matches_launch_current(&self, authority: &UserSendAuthority) -> bool {
@@ -753,7 +879,7 @@ impl super::ServiceContext {
         let admitted_claim = self
             .chat_send_ledger
             .take_user_submit_claim(&record.send_id);
-        if !self.user_send_readiness_is_current(authority, readiness) {
+        if !self.user_send_readiness_is_current(record, readiness) {
             return Err(DeliveryError::TabBusyRefused {
                 tab: tab_id.into(),
                 detail: "user owner is not ready for this launch".into(),
@@ -845,13 +971,13 @@ impl super::ServiceContext {
                 &strategy,
                 crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
             );
-        if !self.user_send_readiness_is_current(authority, readiness) {
+        if !self.user_send_readiness_is_current(record, readiness) {
             return Err(DeliveryError::TabBusyRefused {
                 tab: tab_id.into(),
                 detail: "user owner revoked before submit cycle".into(),
             });
         }
-        if !self.user_send_readiness_is_current(authority, readiness) {
+        if !self.user_send_readiness_is_current(record, readiness) {
             return Err(DeliveryError::TabBusyRefused {
                 tab: tab_id.into(),
                 detail: "user owner readiness changed before payload write".into(),
@@ -869,7 +995,7 @@ impl super::ServiceContext {
                         .write_ticket_matches_authority(&pending_record.send_id, &guard_authority);
                 let current = capture_current
                     && service
-                        .user_send_readiness_is_current(&guard_authority, readiness.as_deref());
+                        .user_send_readiness_is_current(&pending_record, readiness.as_deref());
                 if !current {
                     service.pending_user_send(
                         &pending_record,
@@ -886,6 +1012,7 @@ impl super::ServiceContext {
         let write_record = record.clone();
         let payload_queued: PayloadEnqueued = std::sync::Arc::new(move || {
             write_service.mark_user_send_written(&write_record);
+            write_service.mark_lazy_first_turn_user_send_written(&write_record);
             enqueued();
         });
         #[cfg(test)]

@@ -39,5 +39,22 @@ test("AgentReady event forwards booting and session binding", () => {
   assert(action.launchGeneration === launchGeneration, "launch identity mapped");
 });
 
+test("lazy first-turn event forwards its launch-scoped composer evidence", () => {
+  const launch = {
+    pty_id: "own-pty",
+    binding_nonce: "own-nonce",
+    reason: "composer ready",
+    awaiting_binding_ack: true,
+    first_turn_input_ready: true,
+  };
+  const action = tabBootStageEventAction({
+    tab_id: "lazy",
+    stage: "launch_binding_unconfirmed",
+    provisional_launch: launch,
+  });
+  assert(action.type === "UPDATE_BOOT_STAGE", "action type");
+  assert(action.provisional_launch === launch, "provisional composer evidence mapped");
+});
+
 console.log(`bootStageEvent tests: ${failures === 0 ? "all passed" : `${failures} failed`}`);
 if (failures > 0) throw new Error(`${failures} test(s) failed`);

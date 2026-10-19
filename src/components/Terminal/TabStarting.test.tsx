@@ -41,6 +41,22 @@ for (const boot_stage of ["agent_launching", "launch_binding_unconfirmed"] as co
   assertLoading(parsed(<AgentStateIndicator tab={starting} activity={tabActivity(starting, "Working")} />), mark.label);
 }
 assertLoading(parsed(<TabBootOverlay view={{ kind: "none" }} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />));
+const lazyComposerReady: Tab = {
+  ...tab,
+  pty_id: "own-pty",
+  session_binding_nonce: "own-nonce",
+  boot_stage: "launch_binding_unconfirmed",
+  provisional_launch: {
+    pty_id: "own-pty",
+    binding_nonce: "own-nonce",
+    reason: "composer-ready",
+    awaiting_binding_ack: true,
+    first_turn_input_ready: true,
+  },
+};
+assert.equal(tabActivity(lazyComposerReady).kind, "idle");
+assert.equal(chatSetupView(lazyComposerReady).kind, "none");
+assert.equal(parsed(<ChatSetupState tab={lazyComposerReady} view={chatSetupView(lazyComposerReady)} providerName="provider-token" />).querySelector('[data-testid="chat-setup-state"]'), null);
 const working: Tab = { ...tab, boot_stage: "agent_ready", agent_session_id: "bound-token" };
 assert.ok(parsed(<TabItem tab={working} status="Working" hasAgent index={0} isActive={false} onClick={() => {}} onClose={() => {}} canClose={false} workspaceId="ws" />).querySelector('[data-testid="tab-working-activity"]'));
 assert.ok(parsed(<AgentStateIndicator activity={tabActivity(working, "Working")} />).querySelector('[data-testid="agent-activity-dots"]'));
