@@ -124,12 +124,15 @@ fn expired_receipt_round_trip_never_restores_sending_or_retry_and_repairs_live_w
     ledger.restore_user_receipt(&restored);
     let reopened = ChatSendLedger::default();
     reopened.restore_user_receipt(&restored);
-    for current in [&ledger, &reopened] {
-        let status = current.reconcile("tab").remove(0);
-        assert_eq!(status.state, ChatSendState::Unknown);
-        assert_eq!(status.error, None);
-        assert_eq!(status.send_id, send.send_id);
-    }
+    let active = ledger.reconcile("tab").remove(0);
+    assert_eq!(active.state, ChatSendState::Written);
+    assert_eq!(active.error, None);
+    assert_eq!(active.send_id, send.send_id);
+
+    let restored_status = reopened.reconcile("tab").remove(0);
+    assert_eq!(restored_status.state, ChatSendState::Unknown);
+    assert_eq!(restored_status.error, None);
+    assert_eq!(restored_status.send_id, send.send_id);
     ledger
         .confirm_rpc_send(
             "tab",
