@@ -52,22 +52,21 @@ it("a failed voice upload retries through the voice send handler once", async ()
 });
 
 
-it("phone attachment actions reveal the file picker action in the status slot", async () => {
+it("phone places the direct file picker in the status slot and keeps scheduling inside the input", async () => {
   vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true, addEventListener() {}, removeEventListener() {} } as unknown as MediaQueryList);
   const host = document.createElement("div"); document.body.append(host);
   const slot = document.createElement("div"); host.append(slot);
   const mount = document.createElement("div"); host.append(mount);
   const root = createRoot(mount);
   try {
-    await act(async () => root.render(<ComposerActions attachSlot={slot} onAttach={() => {}} onError={() => {}} onSend={() => {}} onSendWithAttachments={() => {}} sendDisabled={false} hasText><textarea aria-label="Message" /></ComposerActions>));
-    const toggle = slot.querySelector<HTMLButtonElement>('button[aria-label="Attachment actions"]')!;
-    expect(toggle).not.toBeNull();
-    expect(host.querySelector('button[title="Attach file"]')).toBeNull();
-    await act(async () => toggle.click());
+    await act(async () => root.render(<ComposerActions attachSlot={slot} onAttach={() => {}} onError={() => {}} onSend={() => {}} onSchedule={() => {}} onSendWithAttachments={() => {}} sendDisabled={false} hasText><textarea aria-label="Message" /></ComposerActions>));
+    expect(host.querySelector('button[aria-label="Attachment actions"]')).toBeNull();
     const attach = slot.querySelector<HTMLButtonElement>('button[title="Attach file"]')!;
+    expect(attach).not.toBeNull();
     const picker = vi.spyOn(host.querySelector<HTMLInputElement>('input[type="file"]')!, "click");
     await act(async () => attach.click());
     expect(picker).toHaveBeenCalledTimes(1);
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(mount.querySelector('button[title="Attach file"]')).toBeNull();
+    expect(mount.querySelector('button[aria-label="Schedule send"]')).not.toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); }
 });
