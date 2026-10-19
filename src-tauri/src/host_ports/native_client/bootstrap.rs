@@ -68,6 +68,7 @@ fn record_startup(
     exit_code: Option<i32>,
     terminal: bool,
 ) {
+    record_trail(stage, status, error.map(io::Error::to_string), exit_code);
     #[cfg(debug_assertions)]
     {
         use std::io::Write;
@@ -96,6 +97,19 @@ fn record_startup(
     let _ = (stage, status, error, exit_code, terminal);
 }
 
+fn record_trail(
+    stage: ClientStartupStage,
+    status: &str,
+    error: Option<String>,
+    exit_code: Option<i32>,
+) {
+    let stage = serde_json::to_value(stage)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_default();
+    super::startup_log::record(&stage, status, error.as_deref(), exit_code);
+}
+
 pub(crate) fn startup_started(stage: ClientStartupStage) {
     record_startup(stage, "started", None, None, false);
 }
@@ -113,6 +127,7 @@ fn helper_diagnostic(stage: ClientStartupStage, error: &HelperFailure) {
         HelperFailure::Exit { code, .. } => ("helper_exit", *code),
         HelperFailure::Io { .. } => ("io_error", None),
     };
+    record_trail(stage, "helper_failure", Some(error.to_string()), code);
     record_startup(stage, status, None, code, false);
 }
 
