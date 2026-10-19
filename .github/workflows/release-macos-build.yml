@@ -1,6 +1,27 @@
 name: Release macOS
 
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Package version (vX.Y.Z)
+        required: true
+        type: string
+      source_ref:
+        description: Exact source commit SHA
+        required: true
+        type: string
+      arch:
+        type: choice
+        required: true
+        options: [arm64, x86_64]
+      dry_run:
+        description: Direct dispatch never publishes
+        type: boolean
+        default: true
+      mirror:
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       tag:
@@ -99,7 +120,7 @@ jobs:
           run_install: false
 
       - name: Clear incomplete release uploads for retry
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release macOS') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
@@ -166,7 +187,7 @@ jobs:
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART"
 
       - name: Verify and publish platform assets and updater fragment
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release macOS') && !inputs.dry_run }}
         env:
           SOURCE_SHA: ${{ inputs.source_ref }}
           PUBLISH_PUBLIC_MIRROR: ${{ inputs.mirror }}
