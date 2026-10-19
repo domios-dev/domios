@@ -15,7 +15,7 @@
 .restore-progress-segment {
   position: relative;
   flex: 1;
-  height: 4px;
+  height: 3px;
   overflow: hidden;
   border-radius: 999px;
   background: var(--ct-border);

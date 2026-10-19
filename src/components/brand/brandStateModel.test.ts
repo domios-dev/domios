@@ -68,11 +68,11 @@ test("each loading release emits one timed matrix wave", () => {
     fade: 0.5,
   });
   assert.equal(sampleDotMatrixWave(first, 100 + DOT_MATRIX_WAVE_DURATION_MS), null);
-  assert.equal(DOT_MATRIX_WAVE_PEAK_ALPHA, 0.28);
+  assert.equal(DOT_MATRIX_WAVE_PEAK_ALPHA, 0.16);
   assert.equal(DOT_MATRIX_WAVE_GROWTH, 0.3);
   assert.equal(DOT_MATRIX_WAVE_BAND_WIDTH, 20);
   assert.equal(DOT_MATRIX_GRID_STEP, 11);
-  assert.equal(DOT_MATRIX_REST_ALPHA, 0.025);
+  assert.equal(DOT_MATRIX_REST_ALPHA, 0.018);
   assert.equal(DOT_MATRIX_REST_RADIUS, 0.8);
 });
 
