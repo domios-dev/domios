@@ -16,6 +16,7 @@ pub(super) fn test_worker(
     worker
 }
 
+#[cfg(test)]
 pub(crate) fn install_blocked_test_worker(
     svc: &super::super::ServiceContext,
 ) -> (
@@ -39,6 +40,7 @@ pub(crate) fn install_blocked_test_worker(
     (started_rx, release_tx, worker)
 }
 
+#[cfg(test)]
 pub(crate) fn stop_installed_test_worker(worker: &SessionPersistenceWorker) {
     stop_test_worker(worker);
 }
