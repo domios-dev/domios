@@ -75,11 +75,17 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
         TeamAction::Pair { .. } => unreachable!("pair returns before the socket verbs"),
     };
     match result {
-        Ok(value) if json_output => println!(
-            "{}",
-            serde_json::to_string_pretty(&value).unwrap_or_else(|_| "null".into())
-        ),
-        Ok(value) => print_human(&value),
+        Ok(value) => {
+            crate::cmd::print::exit_if_cli_refusal(json_output, &value);
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "null".into())
+                );
+            } else {
+                print_human(&value);
+            }
+        }
         Err(error) => {
             crate::cmd::model_error::exit_with_socket_error(json_output, error);
         }
@@ -104,11 +110,17 @@ fn handle_pair(
 ) {
     let params = pair_params(orchestrator, planner, workspace, title, acknowledge_leaf);
     match client.call_detailed("orchestration.new", Some(params)) {
-        Ok(value) if json_output => println!(
-            "{}",
-            serde_json::to_string_pretty(&value).unwrap_or_else(|_| "null".into())
-        ),
-        Ok(value) => print_pair(&value),
+        Ok(value) => {
+            crate::cmd::print::exit_if_cli_refusal(json_output, &value);
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "null".into())
+                );
+            } else {
+                print_pair(&value);
+            }
+        }
         Err(error) => {
             crate::cmd::model_error::exit_with_socket_error(json_output, error);
         }
