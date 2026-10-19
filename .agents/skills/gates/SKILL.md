@@ -56,7 +56,7 @@ node scripts/check-archive-portable-test-paths.mjs   # Rust test paths survive a
 
 Run these from the PowerShell tool directly. They are short enough to read.
 
-In a Worker lane, type-check each touched Rust library before committing with `./build.sh lane-check <crate> [--tests]` on every platform; add `--tests` for changed tests. The helper loads the toolchain, stages resources and selects the shared cache only inside its subshell: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`). Cargo's lock serializes checks without a gateway slot. Canonical/gateway build directories and per-worktree targets remain separate. Run affected non-Rust checks, rustfmt and boundary guards, then commit and hand integration Clippy selectors to the Orchestrator in canonical. Defer Rust execution tests, app builds and broad gates to the Orchestrator's canonical batch.
+In a Worker lane, run `./build.sh fmt` once after each batch of edits, then type-check each touched Rust library before committing with `./build.sh lane-check <crate> [--tests]` on every platform; add `--tests` for changed tests. The formatter scopes rustfmt and Biome safe fixes to changed files. The lane-check helper loads the toolchain, stages resources and selects the shared cache only inside its subshell: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`). Cargo's lock serializes checks without a gateway slot. Canonical/gateway build directories and per-worktree targets remain separate. Run affected non-Rust checks and boundary guards, then commit and hand integration Clippy selectors to the Orchestrator in canonical. Defer Rust execution tests, app builds and broad gates to the Orchestrator's canonical batch.
 
 ## Check before tests
 
@@ -167,9 +167,10 @@ shows the holder; `build.ps1 gateway-cancel <job-id>` releases it, but
 asynchronously — re-check status before retrying rather than concluding it
 failed.
 
-**`cargo fmt` needs `--all`** or workspace members are skipped, and a reformat
-can push a file past the 1200-line gate that passed minutes earlier. Re-run the
-size check after any fmt.
+Run `./build.sh fmt` once after each batch of edits before checks; it formats
+only changed Rust and TS/JS/JSON files and uses each Rust package's edition.
+Re-run the size check after it, since rustfmt can push a file past the 1200-line
+gate that passed earlier.
 
 **The clippy gate rejects deprecated APIs.** Tauri shell's
 ShellExt::open fails under -D deprecated. Use the existing
