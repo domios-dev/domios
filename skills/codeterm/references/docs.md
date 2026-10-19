@@ -21,7 +21,8 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `codeterm docs API-MEMORY` — Memory and graph REST contracts.
 - `codeterm docs API-SERVICES` — Service, activity, cron, and maintenance REST contracts.
 - `codeterm docs API-STATE` — Secrets, sessions, configuration, and update REST contracts.
-- `codeterm docs API-AGENTS` — Agent restart, model switch, spawn, report, keep-awake, and batch REST contracts.
+- `codeterm docs API-AGENTS` — Agent restart, model switch, report, keep-awake, and batch REST contracts.
+- `codeterm docs API-SPAWN` — Agent spawn REST contract: roles, Team binding, plan task launch and refusals.
 - `codeterm docs PROVIDER-SWITCH` — Switch a tab's provider in place: handoff, self-switch, General defaults, status and archive.
 - `codeterm docs API-TEAMS` — Team, Team-bound plan, and task attempt REST contracts.
 - `codeterm docs API-TRANSPORT` — Output streaming and socket JSON-RPC protocols.
@@ -53,4 +54,4 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `codeterm docs TEST-AUTHORING` — Focused test authoring rules.
 - `codeterm docs ESSENCE-MAP` — Source-backed essence map generation and validation.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
