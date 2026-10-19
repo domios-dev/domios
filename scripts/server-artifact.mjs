@@ -1,6 +1,6 @@
 // Builds the isolated server oracle from Cargo artifact messages; no test feature union is accepted.
-import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync, writeFileSync, mkdirSync, copyFileSync, cpSync, chmodSync, lstatSync, readdirSync, renameSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync, realpathSync, writeFileSync, mkdirSync, copyFileSync, cpSync, chmodSync, lstatSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -77,6 +77,37 @@ function copyResource(source, destination) {
     copyFileSync(source, destination);
   } else throw new Error(`Resource is not a regular file or directory: ${source}`);
 }
+
+export function publishDevExecutable(source, destination, { platform = process.platform, rename = renameSync } = {}) {
+  const bytes = readFileSync(regular(source));
+  let existing = false;
+  try {
+    regular(destination);
+    existing = true;
+    if (readFileSync(destination).equals(bytes)) return;
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  ensureDirectory(path.dirname(destination));
+  const candidate = `${destination}.${randomUUID()}.pending`;
+  const retired = `${destination}.${randomUUID()}.retired`;
+  let rotated = false;
+  try {
+    copyFileSync(source, candidate);
+    // Windows read pins allow renames while refusing executable byte replacement.
+    if (platform === 'win32' && existing) {
+      rename(destination, retired);
+      rotated = true;
+    }
+    try { rename(candidate, destination); }
+    catch (error) {
+      if (rotated) {
+        try { rename(retired, destination); }
+        catch (rollback) { throw new AggregateError([error, rollback], 'DEV server publication and rollback failed'); }
+      }
+      throw error;
+    }
+  } finally { rmSync(candidate, { force: true }); }
+}
+
 export function resolveDevResourceRoot(resourceRoot, expectedRoot, {
   paths = path, stat = lstatSync, canonical = realpathSync.native, prepare = ensureDirectory,
 } = {}) {
@@ -139,7 +170,7 @@ export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resou
   const manifestFile = await createManifest({ cwd: repo, serverFile: stagedServer, clientFile,
     serverBuild: build, serverExecutable: serverRelative, apiVersion: constant('API_VERSION'), bootstrapProtocol: constant('BOOTSTRAP_PROTOCOL') });
   for (const name of [...(serverOnly ? [] : ['dist']), 'skills', 'LICENSE', 'NOTICE']) copyResource(path.join(repo, name), path.join(root, name));
-  copyResource(stagedServer, path.join(root, serverRelative));
+  publishDevExecutable(stagedServer, path.join(root, serverRelative));
   const sourceManifest = path.join(repo, 'target/domios-package/server-component.json');
   const temporary = path.join(root, 'server-component.json.partial');
   copyResource(sourceManifest, temporary);
