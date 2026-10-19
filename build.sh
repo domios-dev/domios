@@ -2318,7 +2318,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
+  process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|release-inputs|release-bundle|release-finalize|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -2360,6 +2360,7 @@ CodeTerm build commands
   frontend                    Production frontend typecheck + bundle
   release-inputs [--for-bundle] Build target-aware inputs; defer native compilation for bundling
   release-bundle [--fresh-target] [tauri args...]  Package in one session; optionally use the fresh release target policy
+  release-finalize [stage args...]  Verify/package final bytes while the stable gateway path exists
   ci-tests full|platform|embeddings  Compile and run ordinary, OS-specific, or embeddings Rust tests
   ci-clippy                   Run the clippy repo gate through the shared compile cache
   frontend-build              Run the release bundle's frontend step from its stable build path, without Rust
@@ -2684,6 +2685,9 @@ EOF
     else
       pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" "${bundle_args[@]}"
     fi
+    ;;
+  release-finalize)
+    node scripts/release-stage.mjs finalize "${@:2}"
     ;;
   release-preflight)
     prepare_dev_frontend_dist "$(pwd -P)"

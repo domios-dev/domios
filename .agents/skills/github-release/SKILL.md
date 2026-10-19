@@ -132,6 +132,8 @@ consume the same final server/CLI/resources; packaging must not compile them aga
 5. Finalize extracts the full package and compares manifest/server/CLI bytes to the stage, then
    produces the headless archive, checksum and metadata and independently reads them back.
    Missing resources, stubs, symlinks, path escapes, extras or changed bytes fail closed.
+   On Windows use `build.ps1 release-finalize` so Cargo receipt paths remain accessible through
+   the gateway's stable drive mapping; direct finalize after gateway exit loses that mapping.
 
 The stage receipt schema1 inventories every regular payload file except itself as UTF-8-sorted,
 unique `{path,sha256}` rows, with platform/target/tag/version/source_sha identity. Required payload:
@@ -288,4 +290,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
