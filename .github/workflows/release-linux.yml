@@ -174,7 +174,7 @@ jobs:
       - name: Build release bundle inputs
         id: compile
         shell: bash
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash build.sh release-inputs
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash build.sh release-inputs --for-bundle
 
       # Build and sign only. tauri-action's uploader reports a bare "Error saving
       # asset" with no status, body or asset name, which cost 1.11.3 four runs.
