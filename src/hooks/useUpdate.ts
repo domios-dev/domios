@@ -490,7 +490,9 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     };
   }, [handleInfo]);
 
-  const blocking = status === "applying" || status === "restarting";
+  // A user-started install owns the window from download through restart.
+  const blocking = status === "applying" || status === "restarting"
+    || (installing && (status === "checking" || status === "downloading"));
 
   const value = useMemo<UpdateContextValue>(
     () => ({
