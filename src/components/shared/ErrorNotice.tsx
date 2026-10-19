@@ -9,13 +9,24 @@ export interface ErrorNoticeProps extends ErrorContext {
   actions?: ErrorNoticeAction[];
   blocking?: boolean;
   compact?: boolean;
+  role?: "status" | "alert";
+  ariaLive?: "polite" | "assertive";
 }
 
 function stopRowActivation(event: KeyboardEvent<HTMLElement>) {
   if (event.code === "Enter" || event.code === "Space") event.stopPropagation();
 }
 
-export function ErrorNotice({ error, description, actions = [], blocking = false, compact = false, ...context }: ErrorNoticeProps) {
+export function ErrorNotice({
+  error,
+  description,
+  actions = [],
+  blocking = false,
+  compact = false,
+  role = "status",
+  ariaLive = "polite",
+  ...context
+}: ErrorNoticeProps) {
   const view = description ?? describeError(error, context);
   const [copyState, setCopyState] = useState("");
   const copy = async () => {
@@ -23,7 +34,7 @@ export function ErrorNotice({ error, description, actions = [], blocking = false
     catch { setCopyState("Copy was unavailable. Select the details and copy them manually."); }
   };
   if (blocking) return <PaneState error={error} context={{ ...context, description }} actions={actions} />;
-  return <section role="status" aria-label={view.title} className={`${compact ? "text-xs" : "rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 text-sm"} min-w-0 text-left text-[var(--ct-fg)]`}>
+  return <section role={role} aria-live={ariaLive} aria-label={view.title} className={`${compact ? "text-xs" : "rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 text-sm"} min-w-0 text-left text-[var(--ct-fg)]`}>
     <p className="font-medium">{view.title}</p>
     <p className="mt-1 break-words text-[var(--ct-muted-fg)]">{view.cause}</p>
     {actions.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{actions.map(action =>
