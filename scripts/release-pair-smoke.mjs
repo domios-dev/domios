@@ -95,12 +95,36 @@ export function earlyExitMessage(code, signal) {
   return `isolated server exited before READY (code=${code ?? 'none'}, signal=${signal ?? 'none'})`;
 }
 
-function waitForReady(child, build, port, signal) {
+export function refusalCapture() {
+  const lines = [];
+  let pending = '';
+  const finishLine = () => {
+    if (lines.length < 3 && pending.startsWith('domios-server refused:')) {
+      lines.push(pending.replace(/[\u0000-\u001f\u007f]/g, ''));
+    }
+    pending = '';
+  };
+  return {
+    write(bytes) {
+      for (const part of bytes.toString('utf8').split(/(\n)/)) {
+        if (part === '\n') finishLine();
+        else if (pending.length < 300) pending += part.slice(0, 300 - pending.length);
+      }
+    },
+    finish: finishLine,
+    lines: () => [...lines],
+  };
+}
+
+function waitForReady(child, build, port, signal, refusals) {
   return new Promise((resolve, reject) => {
     let pending = '';
-    const cleanup = () => { child.stdout.off('data', onData); child.off('exit', onExit); signal.removeEventListener('abort', onAbort); };
+    const cleanup = () => { child.stdout.off('data', onData); child.off('close', onExit); signal.removeEventListener('abort', onAbort); };
     const finish = (error, value) => { cleanup(); error ? reject(error) : resolve(value); };
-    const onExit = (code, exitSignal) => finish(new Error(earlyExitMessage(code, exitSignal)));
+    const onExit = (code, exitSignal) => {
+      refusals.finish();
+      finish(new Error([earlyExitMessage(code, exitSignal), ...refusals.lines()].join('\n')));
+    };
     const onAbort = () => finish(new Error('isolated server READY deadline expired'));
     const onData = bytes => {
       pending += bytes.toString('utf8');
@@ -111,7 +135,7 @@ function waitForReady(child, build, port, signal) {
       catch { finish(new Error('isolated server emitted an invalid READY line')); }
     };
     child.stdout.on('data', onData);
-    child.once('exit', onExit);
+    child.once('close', onExit);
     signal.addEventListener('abort', onAbort, { once: true });
   });
 }
@@ -175,10 +199,10 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
     child = spawn(command.binary, command.args,
       { cwd: scratch, env: { ...process.env, CODETERM_API_PORT: '', CODETERM_DATA_DIR: data },
         stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-    // Drain diagnostics without forwarding protected runtime output into release logs.
-    child.stderr.resume();
+    const refusals = refusalCapture();
+    child.stderr.on('data', bytes => refusals.write(bytes));
     const deadline = deadlineSignal(30000);
-    await waitForReady(child, manifest.server_build, port, deadline);
+    await waitForReady(child, manifest.server_build, port, deadline, refusals);
     const healthResponse = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: deadline });
     if (!healthResponse.ok || (await healthResponse.json()).build_sha !== manifest.server_build) fail('packaged server health build differs from manifest');
     const token = parseApiToken(await readFile(path.join(config, 'config.toml'), 'utf8'));
