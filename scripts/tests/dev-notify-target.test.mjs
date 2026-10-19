@@ -11,6 +11,18 @@ test("dev report target prefers an explicit tab over the inspected parent", () =
   }), { kind: "send", tab: "chosen-tab", mesh: "" });
 });
 
+test("dev report target returns to an agent tab itself, not to its parent", () => {
+  assert.deepEqual(resolveDevNotifyTarget({
+    shellTab: "worker-tab",
+    tabModel: [{ id: "worker-tab", agent_type: "claude", parent_tab_id: "orchestrator" }],
+  }), { kind: "send", tab: "worker-tab", mesh: "" });
+  assert.deepEqual(resolveDevNotifyTarget({
+    explicitTab: "orchestrator",
+    shellTab: "worker-tab",
+    tabModel: [{ id: "worker-tab", agent_type: "claude", parent_tab_id: "orchestrator" }],
+  }), { kind: "send", tab: "orchestrator", mesh: "" });
+});
+
 test("dev report target uses the live parent before falling back to the shell", () => {
   assert.deepEqual(resolveDevNotifyTarget({
     shellTab: "build-shell",
