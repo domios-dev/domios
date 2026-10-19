@@ -262,3 +262,21 @@ fn process_split_contract_private_bootstrap_handle_is_not_inherited() {
     assert_eq!(after & HANDLE_FLAG_INHERIT, 0);
     assert!(source.metadata().unwrap().is_file());
 }
+
+#[test]
+fn isolated_identity_matches_the_config_file_the_server_reports() {
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().join("data");
+    let config = root.path().join("config");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let reported = codeterm_service_core::ResolvedInstancePaths::resolve(
+        &data.canonicalize().unwrap(),
+        &config.canonicalize().unwrap().join("config.toml"),
+    )
+    .unwrap();
+    let expected = super::isolated_identity(&data, &config).unwrap();
+    assert_eq!(expected.data, reported.data());
+    assert_eq!(expected.config, reported.config());
+    assert_ne!(expected.config, config.canonicalize().unwrap());
+}
