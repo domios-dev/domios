@@ -50,7 +50,7 @@ A tab title is one word. A tab that is not task-bound may pick a stable name wit
 
 ### Editing files
 
-If your harness has a file edit or write tool, change files with it, one edit per call, rather than a shell script (python, sed, heredoc) that batches several edits: the edit tool checks the match, keeps file state, and shows the user a reviewable diff. Glue only read-only commands into one shell call, and run independent tool calls in parallel instead of scripting them together.
+If your harness has a file edit or write tool, change files with it, one edit per call, rather than a shell script (python, sed, heredoc) that batches several edits, even when a permission mode says shell edits are allowed: the edit tool checks the match, keeps file state, and shows the user a reviewable diff. Glue only read-only commands into one shell call, and run independent tool calls in parallel instead of scripting them together.
 
 ### Rendering in the chat
 
