@@ -14,7 +14,7 @@ fn xterm_paste_normalizes_newlines_and_obeys_the_live_mode() {
         "\x1b[200~alpha\nbeta\ngamma\rdelta\x1b[201~"
     );
     assert_eq!(
-        xterm_paste(text, Some(false), PasteEncodingCapability::MultilineTui),
+        xterm_paste(text, Some(false), PasteEncodingCapability::LiveModeOnly),
         "alpha\rbeta\rgamma\rdelta"
     );
     for strategy in [
@@ -40,32 +40,40 @@ fn xterm_paste_keeps_single_line_chat_input_in_one_paste_frame() {
 
 #[test]
 fn complete_routed_frame_is_one_bracketed_insertion_with_both_tags() {
-    for body in ["opaque body", "opaque first line\nopaque second line"] {
+    for (body, suffix) in [
+        ("opaque body\nopaque continuation", " [opaque hint]"),
+        (
+            "opaque first line\nopaque second line",
+            "\n<tip>opaque suffix</tip>",
+        ),
+    ] {
         let frame = codeterm_wire::domios::DomiosFrame {
             opening_tag: codeterm_wire::domios::build_opening_tag(&[
                 ("from", "tab"),
                 ("tab", "abc12345"),
             ]),
             body: body.into(),
-            suffix: " [opaque hint]".into(),
+            suffix: suffix.into(),
         };
         let message = frame.to_message();
-        let encoded = encode_paste_frame(
-            &message,
-            None,
-            None,
-            Some(true),
-            PasteEncodingCapability::MultilineTui,
-        );
-        assert_eq!(
-            encoded,
-            format!("{BRACKETED_PASTE_START}{message}{BRACKETED_PASTE_END}").as_bytes()
-        );
-        let semantics = model_submit_semantics(&[encoded, b"\r".to_vec()]);
-        assert_eq!(semantics.payload_writes, 1);
-        assert_eq!(semantics.bracketed_insertions, 1);
-        assert_eq!(semantics.submit_boundaries, 1);
-        assert_eq!(semantics.provider_rows, vec![message]);
+        for live_mode in [Some(true), Some(false)] {
+            let encoded = encode_paste_frame(
+                &message,
+                None,
+                None,
+                live_mode,
+                PasteEncodingCapability::MultilineTui,
+            );
+            assert_eq!(
+                encoded,
+                format!("{BRACKETED_PASTE_START}{message}{BRACKETED_PASTE_END}").as_bytes()
+            );
+            let semantics = model_submit_semantics(&[encoded, b"\r".to_vec()]);
+            assert_eq!(semantics.payload_writes, 1);
+            assert_eq!(semantics.bracketed_insertions, 1);
+            assert_eq!(semantics.submit_boundaries, 1);
+            assert_eq!(semantics.provider_rows, vec![message.clone()]);
+        }
     }
 }
 
