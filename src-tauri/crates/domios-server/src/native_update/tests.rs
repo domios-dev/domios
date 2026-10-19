@@ -400,7 +400,10 @@ async fn invalid_immediate_observation_holds_once_without_retrying_cursor() {
         held.last_result.as_ref().map(|result| &result.state),
         Some(NativeUpdateState::InProgress { .. })
     ));
-    assert_eq!(state.lock().phase, UpdatePhase::Applying);
+    let update_state = state.lock();
+    assert_eq!(update_state.phase, UpdatePhase::Error);
+    assert!(update_state.last_error.is_some());
+    drop(update_state);
     assert_eq!(executor.dispatch_count.load(Ordering::SeqCst), 1);
     assert_eq!(executor.observe_count.load(Ordering::SeqCst), 1);
     assert!(global().is_in_flight());
