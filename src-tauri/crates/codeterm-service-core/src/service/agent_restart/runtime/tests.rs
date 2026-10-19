@@ -6,6 +6,8 @@ use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+mod rebind;
+
 #[test]
 fn restart_routing_requires_runtime_capability_and_chat_backing() {
     let chat = TabBacking::ChatBackend {
@@ -32,7 +34,8 @@ module.exports = {
     if (op.kind === 'initialize') result = {kind:'initialized',binaryVersion:'fixture-runtime'};
     if (op.kind === 'resumeThread' || op.kind === 'openThread')
       result = {kind:'threadLoaded',threadId:op.threadId || ctx.bindingNonce,settings:op.settings};
-    if (op.kind === 'readHistory') result = {kind:'historyPage',threadId:op.threadId,items:[],openItems:[]};
+    if (op.kind === 'readHistory') result = {kind:'historyPage',threadId:op.threadId,
+      items:[{id:op.threadId+'-history',seq:0,type:'assistant',content:op.threadId+' history'}],openItems:[]};
     if (op.kind === 'submitTurn') result = {kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'turn'};
     return {kind:'complete',result};
   },

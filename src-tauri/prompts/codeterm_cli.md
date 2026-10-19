@@ -75,6 +75,8 @@ Plans, tasks, Teams: `codeterm plan --help` / `codeterm task --help` / `codeterm
 
 Workers default to full machine access for either execution intent. For explicit confinement pass `--sandbox read-only` or `--sandbox workspace-write` to `codeterm agent spawn` or local `codeterm plan task dispatch`. Execution intent still limits task and report authority; saved sandbox policies remain immutable.
 
+After `codeterm tab rebind SESSION_ID --tab ID` on an `agentRuntime` Chat tab, use `codeterm agent restart --tab ID` to resume the recorded session and its own history. `sessions resume` refuses an unusable already-bound tab and names that restart command.
+
 The owner's explicit `codeterm agent restart --tab <ID> --fresh` starts a new session in the same tab with its recorded model and effort. An existing exact restored session is refused; a live agent requires `--force`. Restore never makes this choice automatically.
 
 For an in-place provider handoff, use `codeterm agent switch-provider TARGET --tab TAB`. The target builds its summary from bounded recent messages and host context. Full history is not transferred. Optional `--model` and `--reasoning-effort` follow the target catalogue; a busy tab requires waiting or explicit `--force` to stop first. Self-switch is daemon-owned and returns an operation id immediately; read it with `agent switch-provider-status ID --tab TAB`. Switching `main` also saves the General’s provider/model/effort defaults.

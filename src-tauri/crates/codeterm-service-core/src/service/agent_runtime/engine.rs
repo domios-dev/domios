@@ -942,6 +942,21 @@ pub(crate) fn record_completed_turn(session: &Session, thread: &str, turn: Optio
 }
 
 pub fn validate_binding(svc: &ServiceContext, session: &Session) -> Result<(), RuntimeFailure> {
+    validate_binding_inner(svc, session, true)
+}
+
+pub(super) fn validate_restart_binding(
+    svc: &ServiceContext,
+    session: &Session,
+) -> Result<(), RuntimeFailure> {
+    validate_binding_inner(svc, session, false)
+}
+
+fn validate_binding_inner(
+    svc: &ServiceContext,
+    session: &Session,
+    require_thread: bool,
+) -> Result<(), RuntimeFailure> {
     let context = session.context.lock().clone();
     let current = svc
         .agent_registry
@@ -958,10 +973,11 @@ pub fn validate_binding(svc: &ServiceContext, session: &Session) -> Result<(), R
     if svc.mux.read().get_tab(&context.tab_id).is_some_and(|tab| {
         tab.agent_type.as_deref() == Some(session.provider.as_str())
             && tab.session_binding_nonce.as_deref() == Some(context.binding_nonce.as_str())
-            && context
-                .thread_id
-                .as_deref()
-                .is_none_or(|thread| tab.agent_session_id.as_deref() == Some(thread))
+            && (!require_thread
+                || context
+                    .thread_id
+                    .as_deref()
+                    .is_none_or(|thread| tab.agent_session_id.as_deref() == Some(thread)))
     }) {
         Ok(())
     } else {

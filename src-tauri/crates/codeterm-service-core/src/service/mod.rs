@@ -171,6 +171,7 @@ pub mod session_binding_deferral;
 mod session_binding_state;
 pub(crate) mod session_model;
 pub mod session_persist;
+mod session_resume;
 pub(crate) mod shell_exec;
 pub use shell_exec::ExecWaiter;
 mod shell_restart;
