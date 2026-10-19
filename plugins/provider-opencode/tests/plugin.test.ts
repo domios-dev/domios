@@ -401,26 +401,38 @@ console.log("\n--- per-launch pad-only external directory permission ---\n");
     const prefix = command.match(/OPENCODE_CONFIG_CONTENT='([^']*)';/);
     const suffix = command.match(/\$\(printf '%s' '([^']*)'\); export OPENCODE_CONFIG_CONTENT/);
     assert(!!prefix && !!suffix, "POSIX inline config has safely quoted JSON prefix and suffix");
-    return JSON.parse(`${prefix?.[1]},"/runtime/pads/tab-1/*":"allow"${suffix?.[1]}`) as { permission: { external_directory: Record<string, string> }; instructions?: string[] };
+    return JSON.parse(`${prefix?.[1]},"/runtime/pads/tab-1/*":"allow"${suffix?.[1]}`) as { permission: { external_directory: Record<string, string>; question?: string; todoread?: string; todowrite?: string }; instructions?: string[] };
   };
   const parsedFresh = posixConfig(fresh);
   eq(parsedFresh.permission.external_directory, { "*": "ask", "/runtime/pads/tab-1/*": "allow" }, "POSIX fresh config grants only the tab pad and asks for all other paths");
   eq(posixConfig(restored).permission.external_directory, { "*": "ask", "/runtime/pads/tab-1/*": "allow" }, "POSIX restore config grants only the tab pad and asks for all other paths");
   const parsedResume = posixConfig(resumed);
   eq(parsedResume.instructions, ["/tmp/context.md"], "POSIX resume config references the host task file directly");
+  const ownedFresh = posixConfig(unix.buildLaunchCommand({ hostOwned: { questions: true, todos: true } }));
+  eq(ownedFresh.permission.question, "deny", "POSIX fresh launch denies OpenCode's question tool");
+  eq(ownedFresh.permission.todoread, "deny", "POSIX fresh launch denies OpenCode's todo reader when host todos are on");
+  eq(ownedFresh.permission.todowrite, "deny", "POSIX fresh launch denies OpenCode's todo writer when host todos are on");
+  const ownedResume = posixConfig(unix.buildResumeCommandWithContext({
+    sessionId: "ses_owned_resume",
+    hostOwned: { questions: true, todos: false },
+  }));
+  eq(ownedResume.permission.question, "deny", "POSIX resume keeps the question tool denied");
+  eq(ownedResume.permission.todoread, undefined, "POSIX resume leaves todo tools unchanged while host todos are off");
+  eq(ownedResume.permission.todowrite, undefined, "POSIX resume leaves todo tools unchanged while host todos are off");
   assert(resumed.includes("opencode --session 'ses_resume'") && !resumed.includes("cp --"), "POSIX resume launches without staging instructions into the project");
   assert(!fresh.includes("exit $ct_status") && !restored.includes("exit $ct_status"), "plain launch and restore keep the tab shell open after OpenCode exits");
   const windows = loadOpencodeWithHost(ocHost({ platform: () => "windows", shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` }, fs: { writeTempFile: () => "C:\\Temp\\context.md", fileExists: () => false } }));
   const windowsFresh = windows.buildLaunchCommand({});
   const windowsRestore = windows.buildResumeCommand("ses_restore");
   const windowsResume = windows.buildResumeCommandWithContext({ sessionId: "ses_resume", systemPrompt: "opaque prompt" });
+  const windowsOwnedResume = windows.buildResumeCommandWithContext({ sessionId: "ses_owned_resume", hostOwned: { questions: true, todos: true } });
   const windowsPermission = (name: string, command: string) => {
     assert(command.includes("([string]$env:CODETERM_PAD_DIR).TrimEnd"), `Windows ${name} reads the tab pad environment`);
     assert(command.includes("$ct_pad = $ct_pad_native -replace"), `Windows ${name} normalizes the pad path`);
     assert(command.includes("if ($ct_pad_native)"), `Windows ${name} grants nothing for an empty pad`);
     const configText = command.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
     assert(!!configText, `Windows ${name} embeds a quoted config`);
-    const config = JSON.parse(configText || "{}") as { permission: { external_directory: Record<string, string> } };
+    const config = JSON.parse(configText || "{}") as { permission: { external_directory: Record<string, string>; question?: string; todoread?: string; todowrite?: string } };
     eq(config.permission.external_directory["*"], "ask", `Windows ${name} leaves other external paths at ask`);
     const patternAdds = [...command.matchAll(/Add-Member -NotePropertyName \((\$ct_pad_native|\$ct_pad) \+ '([^']+)'\) -NotePropertyValue 'allow' -Force/g)];
     eq(patternAdds.map((m) => [m[1], m[2]]), [["$ct_pad_native", "\\*"], ["$ct_pad", "/*"]], `Windows ${name} adds exactly the native and forward-slash pad patterns`);
@@ -434,6 +446,11 @@ console.log("\n--- per-launch pad-only external directory permission ---\n");
   const windowsConfigText = windowsResume.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
   const parsedWindows = JSON.parse(windowsConfigText || "{}") as { instructions?: string[] };
   eq(parsedWindows.instructions, ["C:\\Temp\\context.md"], "Windows resume config references the host task file directly");
+  const windowsOwnedConfig = windowsOwnedResume.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
+  const parsedWindowsOwned = JSON.parse(windowsOwnedConfig || "{}") as { permission: { question?: string; todoread?: string; todowrite?: string } };
+  eq(parsedWindowsOwned.permission.question, "deny", "Windows resume denies OpenCode's question tool");
+  eq(parsedWindowsOwned.permission.todoread, "deny", "Windows resume denies OpenCode's todo reader when host todos are on");
+  eq(parsedWindowsOwned.permission.todowrite, "deny", "Windows resume denies OpenCode's todo writer when host todos are on");
   assert(windowsResume.includes("opencode --session 'ses_resume'") && !windowsResume.includes("Copy-Item"), "Windows resume launches without staging instructions into the project");
   for (const [name, command] of [["fresh", windowsFresh], ["restore", windowsRestore]] as const) {
     const embedded = command.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];

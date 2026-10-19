@@ -310,6 +310,7 @@ fn resume_with_context_restores_profile_and_launch_parameters() {
         tool_less_instructions_path: None,
         session_id: CODEX_UUID.into(),
         skip_permissions: true,
+        host_owned: Default::default(),
         agent_name: Some("restored-agent".into()),
         system_prompt: Some("## Composed identity\nparity-sentinel-91c3".into()),
         instance_id: Some("instance-parity".into()),

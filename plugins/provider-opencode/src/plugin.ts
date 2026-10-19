@@ -7,7 +7,7 @@ import { variantLaunch } from "./modelVariants";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
-import type { FileDiff, LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
+import type { FileDiff, HostOwnedCapabilities, LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
 import {
   lastPromptShape,
   parsePermissionPrompt,
@@ -74,11 +74,18 @@ function starterPrompt(params: LaunchParams): string | undefined {
   return ASSIGNED_TASK_START_PROMPT;
 }
 
-function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string, launchConfig: Record<string, unknown> = {}, resumeSession?: string): string {
+function hostOwnedPermissions(hostOwned?: HostOwnedCapabilities): Record<string, string> {
+  return {
+    ...(hostOwned?.questions ? { question: "deny" } : {}),
+    ...(hostOwned?.todos ? { todoread: "deny", todowrite: "deny" } : {}),
+  };
+}
+
+function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string, launchConfig: Record<string, unknown> = {}, resumeSession?: string, hostOwned?: HostOwnedCapabilities): string {
   const platform = host.platform();
   const config = {
     ...launchConfig,
-    permission: { external_directory: { "*": "ask" } },
+    permission: { ...hostOwnedPermissions(hostOwned), external_directory: { "*": "ask" } },
     ...(instructions ? { instructions } : {}),
   };
   if (platform === "windows") {
@@ -253,7 +260,7 @@ const plugin: PluginModule = {
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : undefined, undefined, launch.config, p.sessionId);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : undefined, undefined, launch.config, p.sessionId, p.hostOwned);
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
@@ -279,16 +286,16 @@ const plugin: PluginModule = {
       }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId);
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId, p.hostOwned);
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId);
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId, p.hostOwned);
     const project = launch.directory
       ? host.shell.quoteFor(launch.directory, platform)
       : null;
     const prologue = project
       ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&`
       : "";
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], undefined, variant.config, p.sessionId);
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], undefined, variant.config, p.sessionId, p.hostOwned);
   },
 
   // absent from opencode's env, or event field structure changed in a new release).

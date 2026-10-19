@@ -356,6 +356,9 @@ function rolloutCarriesMarker(path, id, marker) {
 // plugins/provider-codex/src/launchSpec.ts
 var CODEX_LAUNCH_CONFIG = ["-c", "check_for_update_on_startup=false", "-c", "project_doc_max_bytes=65536"];
 var POSIX_ARGV_BUDGET = 256 * 1024;
+function hostOwnedCodexLaunchArgs(hostOwned) {
+  return hostOwned?.questions ? ["--disable", "default_mode_request_user_input"] : [];
+}
 function utf8Bytes(value) {
   let bytes = 0;
   for (const character of value) {
@@ -385,6 +388,7 @@ function supportsDirectResume() {
 function buildCodexLaunchSpec(input, starter) {
   const platform = host.platform();
   if (platform === "windows") return null;
+  const hostOwned = "resume" in input ? input.resume?.hostOwned : input.hostOwned;
   const args = [...CODEX_LAUNCH_CONFIG];
   if ("resume" in input) {
     const resume = input.resume;
@@ -392,9 +396,11 @@ function buildCodexLaunchSpec(input, starter) {
     args.push("resume");
     if (resume.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
     args.push(extractSessionUuid(resume.sessionId) || resume.sessionId, "--no-daemon", ...resume.args || []);
+    args.push(...hostOwnedCodexLaunchArgs(hostOwned));
   } else {
     if (input.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
     args.push(...input.args || []);
+    args.push(...hostOwnedCodexLaunchArgs(hostOwned));
     if (input.task?.trim()) {
       const instructions = withLaunchMarker(input.task, input.launchMarker).replace(/\n+$/, "");
       args.push("-c", "developer_instructions=" + instructions);
@@ -6623,6 +6629,7 @@ var plugin = {
         return windowsProfileCommand(parts, taskPath, instanceId);
       }
     }
+    parts.push(...hostOwnedCodexLaunchArgs(p.hostOwned));
     return parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
@@ -6652,6 +6659,7 @@ var plugin = {
     if (Array.isArray(p.args)) {
       for (const arg of p.args) parts.push(quoteCodexArg(String(arg), platform));
     }
+    parts.push(...hostOwnedCodexLaunchArgs(p.hostOwned));
     if (platform === "windows") {
       const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId) ? p.instanceId : null;
       if (!instanceId) {
