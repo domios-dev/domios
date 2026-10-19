@@ -27,6 +27,7 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `codeterm docs API-TRANSPORT` — Output streaming and socket JSON-RPC protocols.
 - `codeterm docs API-CLI` — CLI, environment, and agent integration contracts.
 - `codeterm docs TAB-LIFECYCLE` — Tab lifecycle journal (telemetry) and unconditional restore.
+- `codeterm docs API-LIFECYCLE` — Exact application Quit receipt for cold install and update shutdown.
 - `codeterm docs SURFACES` — Plugin surface tabs: declaring, opening and closing app tabs.
 - `codeterm docs MESH` — Peer discovery, trust, and remote routing.
 - `codeterm docs MESH-SERVICES` — Mesh service registry, health, and peer management.
@@ -52,4 +53,4 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `codeterm docs TEST-AUTHORING` — Focused test authoring rules.
 - `codeterm docs ESSENCE-MAP` — Source-backed essence map generation and validation.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
