@@ -23,7 +23,9 @@
 //! `<data_dir>/models/README.md` on first run.
 
 mod capability_overlay;
+mod endpoints;
 pub use capability_overlay::{clear as clear_capability_overlay, put as put_capability_overlay};
+pub use endpoints::resolve as resolve_endpoint_model;
 use std::collections::HashMap;
 #[cfg(test)]
 use std::path::PathBuf;
@@ -411,6 +413,7 @@ pub fn register(provider_id: &str, defaults: RegisteredDefaults) {
 /// Capability lifecycles use this when the provider implementation itself was
 /// replaced, so models from the prior implementation cannot survive a refresh.
 pub fn replace(provider_id: &str, defaults: RegisteredDefaults) {
+    endpoints::clear(provider_id);
     capability_overlay::clear(provider_id);
     seed_registry()
         .write()
@@ -438,13 +441,14 @@ pub fn replace_resolved(provider_id: &str, defaults: RegisteredDefaults) -> Regi
 
 /// Remove only `provider_id` from every in-memory catalog registry.
 pub fn unregister(provider_id: &str) {
+    let removed_endpoints = endpoints::clear(provider_id);
     capability_overlay::clear(provider_id);
     live_policy::clear(provider_id);
     let removed_models = registry().write().remove(provider_id).is_some();
     let removed_seed = seed_registry().write().remove(provider_id).is_some();
     let removed_efforts = effort_registry().write().remove(provider_id).is_some();
     override_cache().write().remove(provider_id);
-    if removed_models || removed_seed || removed_efforts {
+    if removed_models || removed_seed || removed_efforts || removed_endpoints {
         invalidate(provider_id);
     }
 }
@@ -657,6 +661,11 @@ pub async fn refresh_models(
     let provider_id = provider.id().to_string();
     register_catalogue_capability(&provider_id, &provider.model_catalogue_capability());
     if !force && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now()) {
+        let _ = tokio::task::spawn_blocking(move || {
+            let stamp = discovery_stamp(provider.as_ref());
+            endpoints::refresh(provider.as_ref(), &stamp);
+        })
+        .await;
         log::debug!("[model_catalog] {provider_id} live cache fresh — skipping refresh");
         return None;
     }
@@ -721,6 +730,7 @@ pub async fn refresh_live(
         // A refresh must observe current filesystem and PATH state before live discovery.
         crate::js_runtime::forget_resolved_bins();
         let inputs = discovery_stamp(provider.as_ref());
+        endpoints::refresh(provider.as_ref(), &inputs);
         let models = futures_executor::block_on(provider.discover_models())?;
         let was_empty = models.is_empty();
         let models = sanitize_live(models);
@@ -801,7 +811,7 @@ pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
             .get(provider_id)
             .is_some_and(|snapshot| snapshot.source == Source::Live);
     if live_policy::required(provider_id) && !live {
-        return Vec::new();
+        return endpoints::merge(provider_id, Vec::new());
     }
     let mut models = match load_override(provider_id) {
         None => registered,
@@ -815,6 +825,7 @@ pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
     };
     // Featured models lead, but the catalog's own order survives within each
     // group — `sort_by_key` is stable, so nothing else is reordered.
+    models = endpoints::merge(provider_id, models);
     models.sort_by_key(|model| !model.is_featured());
     models
 }
@@ -833,12 +844,15 @@ pub fn resolve_live_models(provider_id: &str) -> Option<Vec<ModelInfo>> {
         .get(provider_id)
         .and_then(|snapshot| (snapshot.source == Source::Live).then(|| snapshot.models.clone()));
     if capability_overlay::present(provider_id) {
-        Some(capability_overlay::merge(
+        Some(endpoints::merge(
             provider_id,
-            live.unwrap_or_else(|| registered_models(provider_id)),
+            capability_overlay::merge(
+                provider_id,
+                live.unwrap_or_else(|| registered_models(provider_id)),
+            ),
         ))
     } else {
-        live
+        live.map(|models| endpoints::merge(provider_id, models))
     }
 }
 

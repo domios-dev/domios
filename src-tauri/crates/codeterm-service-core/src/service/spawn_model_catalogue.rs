@@ -326,6 +326,19 @@ fn validate_provider_model(
         return Ok(());
     };
     let requested = normalize_requested_model(provider_id, raw_requested);
+    if let Some(endpoint) =
+        crate::agent::model_catalog::resolve_endpoint_model(provider_id, &requested)
+    {
+        return endpoint
+            .map(|_| ())
+            .map_err(|valid_model_ids| InvalidModelError {
+                provider_id: provider_id.to_string(),
+                requested_model: requested,
+                valid_model_ids,
+                provider_mismatch: None,
+                ambiguous_providers: Vec::new(),
+            });
+    }
     let capability = model_catalogue_capability(registry, provider_id);
     if capability.authority == ModelCatalogueAuthority::FreeForm
         && provider_declares_model(registry, provider_id, &requested)
