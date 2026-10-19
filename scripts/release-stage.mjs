@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -107,6 +108,16 @@ async function cargoMessages(file) {
   return (await readFile(file, 'utf8')).split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
 }
 
+export function verifyServerSource(messages, source) {
+  const artifacts = messages.filter(row => row.reason === 'compiler-artifact' && row.target?.name === 'domios-server' &&
+    row.target.kind?.includes('bin') && row.executable && !row.profile?.test);
+  if (artifacts.length !== 1) fail(`expected one release server binary; found ${artifacts.length}`);
+  const actual = realpathSync.native(artifacts[0].target.src_path);
+  const expected = realpathSync.native(source);
+  if (actual !== expected) fail(`release server source differs from owned source: ${actual} != ${expected}`);
+  return artifacts[0];
+}
+
 export async function verifyServerBuild({ repo = root, target, sourceSha, cargoLog, treeLog, expectedCliSha256 }) {
   metadataFor(target);
   if (!SHA_PATTERN.test(sourceSha ?? '')) fail('source SHA must be a full commit identity');
@@ -116,12 +127,8 @@ export async function verifyServerBuild({ repo = root, target, sourceSha, cargoL
   const messages = await cargoMessages(cargoLog);
   if (!messages.some(row => row.reason === 'build-finished' && row.success)) fail('release server Cargo build did not finish');
   const source = path.join(repo, 'src-tauri', 'crates', 'domios-server', 'src', 'main.rs');
-  const artifact = messages.filter(row => row.reason === 'compiler-artifact' && row.target?.name === 'domios-server' &&
-    row.target.kind?.includes('bin') && row.executable && !row.profile?.test);
-  if (artifact.length !== 1 || path.resolve(artifact[0].target.src_path) !== path.resolve(source)) {
-    fail('expected one release-profile server binary from the owned source');
-  }
-  if (JSON.stringify([...artifact[0].features].sort()) !== JSON.stringify(['embeddings'])) {
+  const artifact = verifyServerSource(messages, source);
+  if (JSON.stringify([...artifact.features].sort()) !== JSON.stringify(['embeddings'])) {
     fail('release server feature selection differs from the reviewed closure');
   }
   const binary = serverArtifact(messages);
