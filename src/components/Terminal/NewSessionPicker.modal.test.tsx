@@ -30,6 +30,7 @@ const fixture = vi.hoisted(() => {
         },
       ] as never[],
       loading: false,
+      refetch: vi.fn(),
     },
     presets: { presets: [{ provider: "opencode", name: "demo", model: "live-model" }], loading: false, error: null },
   };
@@ -58,6 +59,7 @@ vi.mock("../../lib/nativeBridge", () => ({
 }));
 
 import { TransportError } from "../../lib/transportClient";
+import { invoke } from "../../lib/bridge";
 import { NewSessionPicker } from "./NewSessionPicker";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -66,6 +68,7 @@ let root: Root | null = null;
 let host: HTMLDivElement;
 
 beforeEach(() => {
+  vi.mocked(invoke).mockClear();
   localStorage.clear();
   localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "opencode" }));
   fixture.workspace.cwd_missing = false;
@@ -79,6 +82,7 @@ beforeEach(() => {
   fixture.actions.selectTabByTab.mockClear();
   fixture.state.workspaces = [fixture.workspace];
   fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode", available_models: [], reasoning_efforts: [] }] as never[];
+  fixture.providers.refetch.mockClear();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -333,6 +337,8 @@ it("offers Remote only through declared capability and spawns the selected envir
     environments: [{id: "env-fixture", label: "Fixture environment", accountRef: "account-fixture"}], followUp: false, cancel: false, applyDiff: false,
   }} as never);
   await renderPicker({fullAccess: false});
+  expect(vi.mocked(invoke)).toHaveBeenCalledWith("refresh_provider_models", {providerId: "opencode"});
+  expect(fixture.providers.refetch).toHaveBeenCalledExactlyOnceWith();
   await act(async () => dialog().querySelector<HTMLInputElement>('input[value="cloud"]')!.click());
   const picker = dialog().querySelector<HTMLSelectElement>('select[aria-label="Cloud environment"]');
   expect(picker).not.toBeNull();
@@ -354,7 +360,7 @@ it("keeps an empty remote environment list actionable and refuses spawn", async 
 });
 
 it("shows Cloud only under Codex and explains its unavailable environment state", async () => {
-  const reason = "Live Cloud access has not been verified. Connect the account that owns your Cloud environments.";
+  const reason = "Sign in to Codex to discover Cloud environments.";
   fixture.providers.providers = [{ id: "codex", display_name: "Codex", available_models: [], reasoning_efforts: [],
     remote_task: { backend: "chatgpt-cloud-tasks", mode: "cloud", displayName: "Cloud",
       availability: { status: "unavailable", reason }, environments: [], followUp: false, cancel: false, applyDiff: false } }] as never[];
