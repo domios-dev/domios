@@ -29,7 +29,7 @@ export function PaneState({ error, context = {}, actions = [], secondaryActions 
     catch { setCopyStatus("Could not copy the path"); }
   };
   if (view.pending) return <BrandState model={brandStateModel({ loading: true, label: view.title, detail: view.sentence })} className="mx-auto my-2 min-h-48" />;
-  return <BrandState model={brandStateModel({ error: { title: view.title, detail: view.sentence } })} className="h-full">
+  return <BrandState model={brandStateModel({ error: { title: view.title, sentence: view.sentence } })} className="h-full">
     <div className="grid w-full min-w-0 max-w-md grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-center">
       {path && <div title={path} className="col-start-1 row-start-1 flex max-w-full min-w-0 rounded-md bg-[var(--ct-surface)] px-3 py-2 font-mono text-xs text-[var(--ct-muted-fg)]">
         <span className="min-w-0 truncate">{path.slice(0, Math.ceil(path.length / 2))}</span><span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap [direction:rtl]">{path.slice(Math.ceil(path.length / 2))}</span>
