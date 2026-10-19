@@ -443,6 +443,7 @@ pub(super) enum ArtifactVerificationFailure {
 
 pub(super) async fn attach_or_launch(
     install: &VerifiedClientInstall,
+    allow_launch: bool,
 ) -> Result<AttachReply, String> {
     let deadline = TokioInstant::now() + BOOTSTRAP_DEADLINE;
     let inspect = attach_request(install);
@@ -466,7 +467,7 @@ pub(super) async fn attach_or_launch(
             true,
         )
         .map_err(|error| error.to_string()),
-        Err(error) if error.allows_initial_server_launch() => {
+        Err(error) if allow_launch && error.allows_initial_server_launch() => {
             helper_diagnostic(ClientStartupStage::Attach, &error);
             startup_started(ClientStartupStage::Launch);
             match invoke_helper_until(
