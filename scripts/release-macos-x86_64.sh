@@ -18,7 +18,6 @@ CARGO_BUILD_TARGET=x86_64-apple-darwin \
   CODETERM_RELEASE_FEATURES="${CODETERM_RELEASE_FEATURES:-embeddings}" \
   ./build.sh release-inputs --for-bundle
 export CARGO_BUILD_TARGET=x86_64-apple-darwin
-: "${TAURI_SIGNING_PRIVATE_KEY_PATH:?Prepare the job updater key first}"
 pnpm tauri build --no-bundle --target x86_64-apple-darwin \
   --features "${CODETERM_RELEASE_FEATURES:-embeddings}"
 node scripts/release-stage.mjs stage-full --target x86_64-apple-darwin \
@@ -26,7 +25,7 @@ node scripts/release-stage.mjs stage-full --target x86_64-apple-darwin \
   --cargo-log release-artifacts/build-logs/x86_64-apple-darwin/server.jsonl \
   --tree-log release-artifacts/build-logs/x86_64-apple-darwin/closure.txt \
   --client-file src-tauri/target/x86_64-apple-darwin/release/domios
-pnpm tauri bundle --no-binary-patching --target x86_64-apple-darwin --features "${CODETERM_RELEASE_FEATURES:-embeddings}" --bundles app,dmg
+node scripts/release-macos-bundle.mjs x86_64-apple-darwin
 unset CARGO_BUILD_TARGET
 
 # 6b. Arch assertion: fail before notarize if CLI or GUI is wrong arch.
