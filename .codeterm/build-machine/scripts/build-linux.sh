@@ -49,7 +49,7 @@ if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
 fi
 pnpm install --frozen-lockfile
 TARGET="${CARGO_BUILD_TARGET:-$(rustc -vV | awk '/^host:/ { print $2 }')}"
-CODETERM_RELEASE_COMMON_STAGE=1 ./build.sh release-inputs
+CODETERM_RELEASE_COMMON_STAGE=1 ./build.sh release-inputs --for-bundle
 pnpm tauri build --no-bundle ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} \
   --features "$CODETERM_RELEASE_FEATURES" \
   --config '{"bundle":{"createUpdaterArtifacts":false,"resources":[],"externalBin":[]}}'
