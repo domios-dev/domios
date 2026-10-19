@@ -5,8 +5,8 @@ async function main() {
   assert.deepEqual(resetCreditsState(undefined), {visible:false,disabled:true});
   const empty = {availableCount:0,nextExpiry:null,credits:null};
   const available = {...empty,availableCount:2};
-  assert.equal(resetBalanceLabel(2,1),"Reset credits: 2 before · 1 after");
-  assert.equal(resetBalanceLabel(2,null),"Reset credits: 2 before · unconfirmed after");
+  assert.equal(resetBalanceLabel(2,1),"Resets: 2 before · 1 after");
+  assert.equal(resetBalanceLabel(2,null),"Resets: 2 before · unconfirmed after");
   const observed = new ResetCreditsModel(() => "observed", async () => ({outcome:"reset",remainingCount:1}));
   observed.request(available);
   await observed.confirm();
@@ -90,7 +90,7 @@ async function main() {
   assert.deepEqual(availableResetCredits(credits).map(credit => credit.id),["first","second"]);
   assert.equal(availableResetCredits({...credits,credits:[...credits.credits,credits.credits[0]]}).length,2);
   assert.equal(resetCreditLabel(credits.credits[0]),"Weekly grant");
-  assert.equal(resetCreditLabel(credits.credits[1]),"second");
+  assert.equal(resetCreditLabel(credits.credits[1]),"Session reset");
   const selectedCalls: (string|undefined)[][] = [];
   let failSelection = true;
   const selection = new ResetCreditsModel(() => "selected-key",async (key,id) => {
