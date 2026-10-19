@@ -173,6 +173,7 @@ pub struct Spawn {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub full_access: bool,
+    pub host_owned: crate::agent::provider::HostOwnedCapabilities,
 }
 
 fn reuse_error(

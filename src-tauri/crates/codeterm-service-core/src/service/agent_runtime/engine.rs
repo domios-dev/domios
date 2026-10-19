@@ -242,6 +242,7 @@ async fn ensure_with_fork(
                         epoch: 0,
                         tab_id: tab.into(),
                         binding_nonce: nonce.clone(),
+                        host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
                         thread_id: thread.clone(),
                         active_turn_id: None,
                         settings: super::model::settings_from_config(&config),

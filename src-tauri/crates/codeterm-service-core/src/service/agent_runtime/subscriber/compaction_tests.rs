@@ -29,6 +29,7 @@ fn restores_abort_notice_alongside_composed_role_and_task_context() {
 #[test]
 fn restore_requires_content_and_exact_epoch_tab_thread_and_binding() {
     let expected = RuntimeContext {
+        host_owned: Default::default(),
         epoch: 3,
         tab_id: "own".into(),
         binding_nonce: "nonce".into(),
