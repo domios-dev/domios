@@ -72,7 +72,7 @@ export async function bundleMacPair({ repo = root, target, env = process.env,
     '--entitlements', path.join(repo, 'src-tauri', 'Entitlements.plist'), '--sign', identity, app]);
   await verifyMacPayload({ app, stage, expected });
   await invoke('codesign', ['--verify', '--strict', '--deep',
-    '--test-requirement=' + manifest.client_identity.requirement, app]);
+    '--test-requirement', '=' + manifest.client_identity.requirement, app]);
   const arch = target.startsWith('aarch64') ? 'aarch64' : 'x64';
   const dmg = path.join(bundleRoot, 'dmg', `CodeTerm_${version}_${arch}.dmg`);
   await mkdir(path.dirname(dmg), { recursive: true });

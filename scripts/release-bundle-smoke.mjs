@@ -38,6 +38,12 @@ function one(items, predicate, label) {
   if (matches.length !== 1) throw new Error(`Expected one ${label}, found ${matches.length}`);
   return matches[0];
 }
+export function packagedExecutables(extracted) {
+  return {
+    app: one(extracted, file => /[/\\]domios(?:\.exe)?$/.test(file) && !/[/\\]cli[/\\]/.test(file), 'app executable'),
+    cli: one(extracted, file => /[/\\]cli[/\\]codeterm(?:-[^.]+)?(?:\.exe)?$/.test(file), 'embedded CLI'),
+  };
+}
 function run(command, args, cwd) {
   return execFileSync(command, args, { cwd, encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024 });
 }
@@ -83,8 +89,7 @@ export function smoke(kind, directory, sha, expectedArch) {
       if (!['x64', 'arm64'].includes(expectedArch)) throw new Error('Windows target architecture required');
     } else throw new Error(`Unknown platform ${kind}`);
     const extracted = files(scratch);
-    const app = one(extracted, file => /[/\\](?:codeterm|CodeTerm)(?:\.exe)?$/.test(file) && !/[/\\]cli[/\\]/.test(file), 'app executable');
-    const cli = one(extracted, file => /[/\\]cli[/\\]codeterm(?:-[^.]+)?(?:\.exe)?$/.test(file), 'embedded CLI');
+    const { app, cli } = packagedExecutables(extracted);
     for (const executable of [app, cli]) assertMachine(readFileSync(executable), expectedArch, format);
     checkContents(readFileSync(app), sha);
     one(extracted, file => file.endsWith(`${path.sep}dist${path.sep}index.html`), 'frontend entry point');
