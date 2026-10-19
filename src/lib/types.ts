@@ -182,7 +182,7 @@ export interface TabBootStageEvent {
   session_bound?: boolean;
   reason?: string | null;
   launch_generation?: {
-    epoch: number;
+    epoch: number | null;
     operation_id: string | null;
     pty_id: string | null;
     binding_nonce: string | null;
@@ -275,6 +275,8 @@ export interface Tab {
   /** Current agent-boot stage for late attachers reading the live snapshot.
    *  Absent once boot completes or before it begins. */
   boot_stage?: BootStage | null;
+  lifecycle_epoch?: number | null;
+  lifecycle_operation_id?: string | null;
   session_bound?: boolean;
   boot_failure_reason?: string | null;
   /** Machine+watcher chatBackend session — read-only tab with tick-driven inputs. */
