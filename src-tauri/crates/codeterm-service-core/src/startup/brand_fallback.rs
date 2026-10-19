@@ -1,6 +1,8 @@
 /// Static branded pages for moments when the React bundle cannot load, so they cannot reuse its components.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BrandFallback {
+    /// The native client is starting and its interface is not painted yet.
+    Starting,
     /// The native client lost its interface and retries on its own.
     Reconnecting,
     /// The server is running but has no frontend files to serve.
@@ -53,7 +55,9 @@ const DOT_WAVES: &str = r#"<script>
   }
   requestAnimationFrame(frame);
   // The page owns the 10 s auto-retry so the ring shows exactly when the next attempt happens.
-  const retry = document.querySelector(".retry"), left = retry.querySelector(".left"), count = retry.querySelector(".count");
+  const retry = document.querySelector(".retry");
+  if (!retry) return;
+  const left = retry.querySelector(".left"), count = retry.querySelector(".count");
   const interval = 10000;
   let due = performance.now() + interval;
   function fire() { due = performance.now() + interval; location.href = "domios-shell://retry"; }
@@ -80,6 +84,17 @@ pub fn brand_fallback_page(kind: BrandFallback) -> String {
             NATIVE_CHROME,
             r#"<canvas aria-hidden="true"></canvas>"#,
             RETRY_ACTION,
+            DOT_WAVES,
+        ),
+        BrandFallback::Starting => (
+            "Starting",
+            "Starting Domios…",
+            "Restoring your sessions.",
+            "status",
+            " data-pulse",
+            NATIVE_CHROME,
+            r#"<canvas aria-hidden="true"></canvas>"#,
+            "",
             DOT_WAVES,
         ),
         BrandFallback::InterfaceMissing => (

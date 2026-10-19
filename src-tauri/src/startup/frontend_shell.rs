@@ -167,9 +167,17 @@ fn packaged_fallback(app: &codeterm_host_runtime::app_runtime::AppHandle) -> Res
 }
 
 fn unavailable_url() -> Result<Url, url::ParseError> {
-    let html = codeterm_service_core::startup::brand_fallback_page(
-        codeterm_service_core::startup::BrandFallback::Reconnecting,
-    );
+    brand_page_url(codeterm_service_core::startup::BrandFallback::Reconnecting)
+}
+
+fn starting_url() -> Result<Url, url::ParseError> {
+    brand_page_url(codeterm_service_core::startup::BrandFallback::Starting)
+}
+
+fn brand_page_url(
+    kind: codeterm_service_core::startup::BrandFallback,
+) -> Result<Url, url::ParseError> {
+    let html = codeterm_service_core::startup::brand_fallback_page(kind);
     // Form encoding turns spaces into '+', which a data: URL keeps literally.
     let encoded = url::form_urlencoded::byte_serialize(html.as_bytes())
         .collect::<String>()
@@ -179,6 +187,7 @@ fn unavailable_url() -> Result<Url, url::ParseError> {
 
 fn navigation_allowed(url: &Url, origin: Option<&str>, unavailable: &Url, fallback: &Url) -> bool {
     same_navigation_document(url, unavailable)
+        || starting_url().is_ok_and(|starting| same_navigation_document(url, &starting))
         || same_navigation_document(url, fallback)
         || origin.is_some_and(|origin| {
             url.origin().ascii_serialization() == origin
@@ -324,8 +333,10 @@ pub fn create_window(
         .first()
         .cloned()
         .ok_or("Main window configuration is missing")?;
-    window_config.url = WebviewUrl::CustomProtocol(unavailable.clone());
+    window_config.url = WebviewUrl::CustomProtocol(starting_url()?);
     ON_RECOVERY_SURFACE.store(true, Ordering::Release);
+    // Revealed on the first painted interface (or the recovery page), so startup never shows an empty frame.
+    window_config.visible = false;
     let origin = bootstrap.as_ref().map(|bootstrap| {
         bootstrap
             .frontend_origin
@@ -448,7 +459,34 @@ fn navigation_identity(url: &Url) -> String {
 /// WebView reports data: URLs inconsistently, so the recovery surface is tracked explicitly.
 static ON_RECOVERY_SURFACE: AtomicBool = AtomicBool::new(false);
 
+/// Startup keeps the window hidden until something worth seeing is painted; this bounds that wait.
+const REVEAL_DEADLINE: Duration = Duration::from_secs(4);
+
+pub(crate) fn reveal_main(app: &codeterm_host_runtime::app_runtime::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if window.is_visible().unwrap_or(true) {
+        return;
+    }
+    let shown = window
+        .show()
+        .and_then(|()| window.unminimize())
+        .and_then(|()| window.set_focus());
+    if let Err(error) = shown {
+        log::debug!("[frontend-shell] window reveal failed: {error}");
+    }
+}
+
+pub(crate) fn reveal_after_deadline(app: codeterm_host_runtime::app_runtime::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(REVEAL_DEADLINE).await;
+        reveal_main(&app);
+    });
+}
+
 fn show_unavailable(window: &WebviewWindow) {
+    reveal_main(window.app_handle());
     // Re-navigating would restart the page (and its retry ring) on every failed attempt.
     if ON_RECOVERY_SURFACE.swap(true, Ordering::AcqRel) {
         return;
@@ -624,6 +662,7 @@ fn observe_navigation(
         match root_render.wait_until(generation, deadline).await {
             ClientRootRenderWait::Ready => {
                 log::debug!("[frontend-shell] root render acknowledged: view={view_generation}, navigation={current_navigation}");
+                reveal_main(&app);
                 return;
             }
             ClientRootRenderWait::Replaced => {

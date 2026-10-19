@@ -55,7 +55,7 @@ fn show_or_create_with(
                 .0
                 .lock()
                 .created(result.is_ok());
-            result.and_then(|window| raise(&window))
+            result.map(|_| super::frontend_shell::reveal_after_deadline(app.clone()))
         }
     }
 }
