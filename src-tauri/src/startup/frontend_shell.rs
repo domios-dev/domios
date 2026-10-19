@@ -713,6 +713,15 @@ async fn frontend_url(
             "[frontend-shell] selecting configured development frontend: {}",
             navigation_identity(url)
         );
+        // Navigating to a refused origin paints the WebView's own error page instead of ours.
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .map_err(|error| error.to_string())?;
+        tokio::time::timeout(Duration::from_secs(10), client.get(url.clone()).send())
+            .await
+            .map_err(|_| "Development frontend exceeded its failure deadline".to_string())?
+            .map_err(|error| format!("Development frontend unavailable: {error}"))?;
         return Ok(url.clone());
     }
     let bundles = app
