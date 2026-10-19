@@ -6,7 +6,7 @@
 //! HTML report.
 //!
 //! Usage:
-//!   cargo run -p codeterm --bin mem-bench -- \
+//!   cargo run -p codeterm --features dev-tools --bin mem-bench -- \
 //!       --fixture evals/mem-recall/benchmark.json \
 //!       --output-dir evals/mem-recall/results \
 //!       --report-dir evals/mem-recall/reports

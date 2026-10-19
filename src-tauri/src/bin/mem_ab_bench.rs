@@ -5,7 +5,7 @@
 //! vectors already in the store are reused.
 //!
 //! Usage:
-//!   cargo run --release --bin mem-ab-bench -- --db ~/.codeterm-dev/mem/knowledge.db
+//!   cargo run --release --features dev-tools --bin mem_ab_bench -- --db ~/.codeterm-dev/mem/knowledge.db
 
 use std::path::PathBuf;
 use std::time::Instant;

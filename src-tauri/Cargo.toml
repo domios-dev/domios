@@ -81,6 +81,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 default = ["embeddings"]
 embeddings = ["codeterm-service-core/embeddings", "domios-server/embeddings"]
 dev-updater-allowlocal = ["codeterm-commands/dev-updater-allowlocal"]
+# Developer harnesses stay out of the shipped app bundle, which packages every enabled binary.
+dev-tools = []
 
 [dev-dependencies]
 codeterm-host-runtime = { path = "crates/codeterm-host-runtime", features = ["test-support"] }
@@ -115,16 +117,19 @@ test = false
 [[bin]]
 name = "mem-bench"
 path = "src/bin/mem_bench.rs"
+required-features = ["dev-tools"]
 
 # Fast parser-iteration harness: run a provider's usage parser against
 # a raw text fixture and print extracted fields. ~2s rebuild vs full dev.
 [[bin]]
 name = "parser-eval"
 path = "src/bin/parser_eval.rs"
+required-features = ["dev-tools"]
 
 [[bin]]
 name = "storage-verify"
 path = "src/bin/storage-verify.rs"
+required-features = ["dev-tools"]
 
 # Build-speed profiles (round-16 build audit). dev: unpacked split-debuginfo
 # skips dSYM packing on macOS (faster links); line-tables keep usable
@@ -146,8 +151,14 @@ debug = false
 # One-off legacy plan.json → store_v2 yaml migration (T7). Deep-compare gate;
 # never deletes on mismatch. Rehearse on a project copy with --dry-run first.
 [[bin]]
+name = "mem_ab_bench"
+path = "src/bin/mem_ab_bench.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
 name = "convert-plan-storage"
 path = "../scripts/convert-plan-storage.rs"
+required-features = ["dev-tools"]
 
 [patch.crates-io]
 tauri-runtime-wry = { path = "vendor/tauri-runtime-wry" }
