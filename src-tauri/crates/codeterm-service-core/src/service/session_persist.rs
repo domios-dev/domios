@@ -653,7 +653,7 @@ fn desk_agent_session_identities(
             }
             SplitNodeSnapshot::Leaf {
                 agent_type: Some(provider),
-                claude_session_id: Some(session_id),
+                agent_session_id: Some(session_id),
                 agent_identity: Some(binding),
                 role: Some(role),
                 role_profile,

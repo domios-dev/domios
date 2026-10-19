@@ -103,11 +103,12 @@ mod store_index_tests {
             serde_json::from_str(&text).expect("channel.json must parse as ChannelManifest");
 
         assert_eq!(manifest.name, "codeterm-core");
-        assert_eq!(
-            manifest.plugins.len(),
-            7,
-            "expected claude/codex/opencode/cursor/chat-preprocessor/analytics/browser in the core channel"
-        );
+        let bundled_count = std::fs::read_dir(&plugins_dir)
+            .expect("bundled plugins directory must be readable")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().join("plugin.json").is_file())
+            .count();
+        assert_eq!(manifest.plugins.len(), bundled_count);
 
         for p in &manifest.plugins {
             let rel = p.path.as_ref().expect("each channel plugin needs a path");
@@ -1001,20 +1002,24 @@ exit /b 0
         with_data_root(|root| {
             let previous_url = std::env::var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL").ok();
             let source = root.join("system-source");
-            write_channel_with_retired(&source, SYSTEM_CHANNEL_NAME, &[], &["codex-cloud"]);
+            let retired_id = retired_system_plugin_ids()
+                .first()
+                .expect("embedded channel declares a retired id")
+                .clone();
+            write_channel_with_retired(&source, SYSTEM_CHANNEL_NAME, &[], &[retired_id.as_str()]);
             std::env::set_var(
                 "CODETERM_SYSTEM_PLUGIN_CHANNEL_URL",
                 format!("file://{}", source.display()),
             );
 
-            let legacy_dir = plugins_root().join("codex-cloud");
+            let legacy_dir = plugins_root().join(&retired_id);
             let legacy_data = root.join("legacy-data");
             std::fs::create_dir_all(&legacy_dir).unwrap();
             std::fs::create_dir_all(&legacy_data).unwrap();
             std::fs::write(
                 legacy_dir.join("plugin.json"),
                 serde_json::json!({
-                    "id": "codex-cloud",
+                    "id": retired_id.clone(),
                     "version": "0.1.0",
                     "dataPaths": [legacy_data.display().to_string()]
                 })
@@ -1023,7 +1028,7 @@ exit /b 0
             .unwrap();
 
             let first = update_system_command(None).expect("manifest retirement succeeds");
-            assert_eq!(first["retired"], serde_json::json!(["codex-cloud"]));
+            assert_eq!(first["retired"], serde_json::json!([retired_id]));
             assert!(!legacy_dir.exists());
             assert!(legacy_data.is_dir());
 
@@ -1034,7 +1039,7 @@ exit /b 0
                 .lines()
                 .filter(|line| {
                     let event: serde_json::Value = serde_json::from_str(line).unwrap();
-                    event["kind"] == "retire" && event["plugin"] == "codex-cloud"
+                    event["kind"] == "retire" && event["plugin"] == retired_id
                 })
                 .count();
             assert_eq!(retirements, 1);
@@ -1059,8 +1064,10 @@ exit /b 0
                 .collect();
             assert_eq!(non_system.len(), 1);
             assert_eq!(non_system[0]["id"], serde_json::json!("real"));
-            assert!(rows.iter().any(|p| p["id"] == serde_json::json!("claude")
-                && p["removable"] == serde_json::json!(false)));
+            assert!(rows
+                .iter()
+                .any(|p| p["id"] == serde_json::json!(SYSTEM_PLUGIN_IDS[0])
+                    && p["removable"] == serde_json::json!(false)));
         });
     }
 

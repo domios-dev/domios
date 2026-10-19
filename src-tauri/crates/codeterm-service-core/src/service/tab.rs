@@ -764,11 +764,6 @@ impl ServiceContext {
         steps
     }
 
-    /// Backward-compat alias for `set_agent_session_id`.
-    pub fn set_claude_session_id(&self, tab_id: &str, session_id: Option<String>) {
-        self.set_agent_session_id(tab_id, session_id);
-    }
-
     /// Clear pending_prompt state without sending anything to PTY.
     /// Used for test cleanup and state reset.
     pub fn clear_prompt(&self, tab_id: &str) -> Result<(), String> {

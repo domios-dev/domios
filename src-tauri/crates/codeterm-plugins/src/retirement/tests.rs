@@ -3,76 +3,83 @@ use crate::PluginCtx;
 
 #[test]
 fn retirement_decision_is_installed_official_set_minus_current_channel_set() {
-    let installed = BTreeSet::from(["codex".to_string(), "codex-cloud".to_string()]);
-    let current_channel = BTreeSet::from(["codex".to_string()]);
+    let retired_id = retired_id();
+    let current_id = current_system_id();
+    let installed = BTreeSet::from([current_id.clone(), retired_id.clone()]);
+    let current_channel = BTreeSet::from([current_id]);
 
     assert_eq!(
         system_plugins_to_retire(&installed, &current_channel),
-        vec!["codex-cloud".to_string()]
+        vec![retired_id]
     );
 }
 
 #[test]
 fn embedded_retired_ids_are_reserved_official_ids() {
-    assert_eq!(retired_system_plugin_ids(), &["codex-cloud".to_string()]);
-    assert!(is_reserved_system_id("codex-cloud"));
+    let id = retired_id();
+    assert!(retired_system_plugin_ids().contains(&id));
+    assert!(is_reserved_system_id(&id));
     assert!(!is_reserved_system_id("user-plugin"));
 }
 
 #[test]
 fn retirement_decision_removes_a_retired_legacy_copy_without_an_install_record() {
+    let id = retired_id();
     assert!(should_retire_plugin(
-        "codex-cloud",
-        Some("codex-cloud"),
+        &id,
+        Some(&id),
         None,
         &BTreeSet::new(),
-        &BTreeSet::from(["codex-cloud".to_string()]),
+        &BTreeSet::from([id.clone()]),
     ));
 }
 
 #[test]
 fn retirement_decision_removes_a_retired_system_channel_install() {
+    let id = retired_id();
     let record = install_record(
-        "codex-cloud",
+        &id,
         InstallSource::SystemChannel {
             channel: SYSTEM_CHANNEL_NAME.into(),
-            path: "provider-codex-cloud".into(),
+            path: id.clone(),
         },
     );
 
     assert!(should_retire_plugin(
-        "codex-cloud",
-        Some("codex-cloud"),
+        &id,
+        Some(&id),
         Some(&record),
         &BTreeSet::new(),
-        &BTreeSet::from(["codex-cloud".to_string()]),
+        &BTreeSet::from([id.clone()]),
     ));
 }
 
 #[test]
 fn retirement_decision_preserves_an_explicit_local_directory_install() {
+    let id = retired_id();
     let record = install_record(
-        "codex-cloud",
+        &id,
         InstallSource::Dir {
             path: "local-plugin".into(),
         },
     );
 
     assert!(!should_retire_plugin(
-        "codex-cloud",
-        Some("codex-cloud"),
+        &id,
+        Some(&id),
         Some(&record),
         &BTreeSet::new(),
-        &BTreeSet::from(["codex-cloud".to_string()]),
+        &BTreeSet::from([id.clone()]),
     ));
 }
 
 #[test]
 fn retirement_decision_keeps_non_retired_plugins_and_identity_mismatches() {
-    let retired_ids = BTreeSet::from(["codex-cloud".to_string()]);
+    let retired_id = retired_id();
+    let retired_ids = BTreeSet::from([retired_id.clone()]);
 
     assert!(!should_retire_plugin(
-        "codex-cloud",
+        &retired_id,
         Some("another-plugin"),
         None,
         &BTreeSet::new(),
@@ -176,9 +183,10 @@ fn startup_uses_embedded_retired_ids_for_legacy_copies() {
         "codeterm-plugin-startup-retirement-{}",
         uuid::Uuid::new_v4()
     ));
-    let data_path = root.join("codex-cloud-data");
+    let id = retired_id();
+    let data_path = root.join(format!("{id}-data"));
     std::fs::create_dir_all(&data_path).unwrap();
-    write_legacy_plugin(&root, "codex-cloud", &data_path);
+    write_legacy_plugin(&root, &id, &data_path);
 
     let retired = crate::retire_unshipped_system_plugins(PluginCtx {
         data_root: root.clone(),
@@ -186,10 +194,29 @@ fn startup_uses_embedded_retired_ids_for_legacy_copies() {
     })
     .unwrap();
 
-    assert_eq!(retired, vec!["codex-cloud"]);
-    assert!(!root.join("plugins/codex-cloud").exists());
+    assert_eq!(retired, vec![id.clone()]);
+    assert!(!root.join("plugins").join(&id).exists());
     assert!(data_path.is_dir());
     std::fs::remove_dir_all(root).unwrap();
+}
+
+fn retired_id() -> String {
+    retired_system_plugin_ids()
+        .first()
+        .expect("embedded channel declares a retired id")
+        .clone()
+}
+
+fn current_system_id() -> String {
+    SYSTEM_PLUGIN_IDS
+        .iter()
+        .find(|id| {
+            !retired_system_plugin_ids()
+                .iter()
+                .any(|retired| retired == *id)
+        })
+        .expect("embedded channel declares a current id")
+        .to_string()
 }
 
 fn install_record(id: &str, source: InstallSource) -> InstallRecord {

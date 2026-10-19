@@ -385,7 +385,7 @@ mod tests {
                         agent_type: None,
                         agent_type_locked: false,
                         pending_delivery: None,
-                        claude_session_id: None,
+                        agent_session_id: None,
                         agent_identity: None,
                         role: None,
                         role_profile: None,

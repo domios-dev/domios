@@ -464,7 +464,7 @@ fn team_orchestrator_provider_and_session_round_trip_expected_pass() {
     };
     assert_eq!(fields.values["agent_type"].as_str(), Some("codex"));
     assert_eq!(
-        fields.values["claude_session_id"].as_str(),
+        fields.values["agent_session_id"].as_str(),
         Some("orchestrator-session")
     );
     assert_eq!(fields.values["role"].as_str(), Some("Manager"));

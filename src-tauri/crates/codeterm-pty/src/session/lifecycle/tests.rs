@@ -117,7 +117,7 @@ fn leaf(tab_id: &str) -> SplitNodeSnapshot {
         title_level: Some("User".into()),
         agent_type: None,
         agent_type_locked: false,
-        claude_session_id: None,
+        agent_session_id: None,
         agent_identity: None,
         role: None,
         role_profile: None,
@@ -158,7 +158,7 @@ fn committed_leaf(
     if let SplitNodeSnapshot::Leaf {
         agent_type,
         agent_type_locked,
-        claude_session_id,
+        agent_session_id,
         agent_identity,
         role,
         role_profile,
@@ -171,7 +171,7 @@ fn committed_leaf(
     {
         *agent_type = Some("claude".into());
         *agent_type_locked = true;
-        *claude_session_id = Some(session_id.into());
+        *agent_session_id = Some(session_id.into());
         *agent_identity = Some(identity(Some(epoch), Some(operation)));
         *role = Some("Manager".into());
         *role_profile = Some("orchestrator".into());
@@ -217,7 +217,7 @@ fn chat_backend_leaf(tab_id: &str, lineage: Option<(u64, &str)>) -> SplitNodeSna
         chatbackend_plugin_id,
         chatbackend_session_id,
         agent_type,
-        claude_session_id,
+        agent_session_id,
         agent_identity,
         role,
         role_profile,
@@ -230,7 +230,7 @@ fn chat_backend_leaf(tab_id: &str, lineage: Option<(u64, &str)>) -> SplitNodeSna
         *chatbackend_plugin_id = Some("lmstudio".into());
         *chatbackend_session_id = Some("plugin-session".into());
         *agent_type = Some("lmstudio".into());
-        *claude_session_id = Some("plugin-session".into());
+        *agent_session_id = Some("plugin-session".into());
         *agent_identity = Some(identity(
             lineage.map(|(epoch, _)| epoch),
             lineage.map(|(_, operation)| operation),

@@ -222,7 +222,7 @@ fn leaf(id: &str) -> SplitNodeSnapshot {
         title_level: None,
         agent_type: None,
         agent_type_locked: false,
-        claude_session_id: None,
+        agent_session_id: None,
         agent_identity: None,
         role: None,
         role_profile: None,
@@ -502,7 +502,7 @@ fn restore_keeps_a_full_fidelity_1_7_7_leaf() {
     "title_level": "Default",
     "agent_type": "claude",
     "agent_type_locked": true,
-    "claude_session_id": "b0937780-2ad6-4ceb-a8dc-571a3c491d6b",
+    "agent_session_id": "b0937780-2ad6-4ceb-a8dc-571a3c491d6b",
     "agent_identity": {
       "session_binding_nonce": "0244b07f-7746-4d22-9e73-9bc396c3af48",
       "reported_session_binding_nonce": "0244b07f-7746-4d22-9e73-9bc396c3af48",
@@ -546,7 +546,7 @@ fn restore_keeps_a_full_fidelity_1_7_7_leaf() {
             spawned_by_tab_id,
             report_target_tab_id,
             agent_type,
-            claude_session_id,
+            agent_session_id,
             agent_identity,
             role,
             role_profile,
@@ -560,7 +560,7 @@ fn restore_keeps_a_full_fidelity_1_7_7_leaf() {
             assert_eq!(spawned_by_tab_id.as_deref(), Some("p0"));
             assert_eq!(report_target_tab_id.as_deref(), Some("p0"));
             assert_eq!(
-                claude_session_id.as_deref(),
+                agent_session_id.as_deref(),
                 Some("b0937780-2ad6-4ceb-a8dc-571a3c491d6b"),
                 "resume identity must survive or the agent restarts blank",
             );
@@ -643,7 +643,7 @@ fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_value
                             "tab_id":"tab-a",
                             "cwd":"C:/project",
                             "agent_type":"provider-unverified",
-                            "claude_session_id":"session-unverified",
+                            "agent_session_id":"session-unverified",
                             "agent_identity":{"session_binding_nonce":"nonce-unverified"},
                             "role":"Worker",
                             "role_profile":null,
@@ -702,13 +702,13 @@ fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_value
             match &children[0] {
                 SplitNodeSnapshot::Leaf {
                     tab_id,
-                    claude_session_id,
+                    agent_session_id,
                     agent_identity,
                     permission_auto_confirm,
                     ..
                 } => {
                     assert_eq!(tab_id, "tab-a");
-                    assert_eq!(claude_session_id.as_deref(), Some("session-unverified"));
+                    assert_eq!(agent_session_id.as_deref(), Some("session-unverified"));
                     assert_eq!(
                         agent_identity
                             .as_ref()
