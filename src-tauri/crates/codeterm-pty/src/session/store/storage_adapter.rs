@@ -496,6 +496,7 @@ fn from_layout(node: DeskLayoutNode) -> Result<SplitNodeSnapshot, String> {
             fields,
         } => {
             let mut value = fields.values;
+            codeterm_storage::normalize_legacy_session_id(&mut value);
             let object = value
                 .as_object_mut()
                 .ok_or_else(|| "stored leaf fields are not an object".to_string())?;

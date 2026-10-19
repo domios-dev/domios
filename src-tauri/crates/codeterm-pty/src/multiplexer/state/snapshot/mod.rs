@@ -174,7 +174,7 @@ impl MultiplexerState {
                 title_level: tab.map(|p| format!("{:?}", p.title_level)),
                 agent_type: tab.and_then(|p| p.agent_type.clone()),
                 agent_type_locked: tab.map(|p| p.agent_type_locked).unwrap_or(false),
-                claude_session_id: tab.and_then(|p| p.agent_session_id.clone()),
+                agent_session_id: tab.and_then(|p| p.agent_session_id.clone()),
                 agent_identity: tab.map(|p| AgentIdentitySnapshot {
                     description_origin: p.description_origin,
                     agent_runtime_state: p.agent_runtime_state.clone(),
@@ -526,7 +526,7 @@ fn install_leaf(
         title_level,
         agent_type,
         agent_type_locked,
-        claude_session_id,
+        agent_session_id,
         agent_identity,
         role,
         role_profile,
@@ -595,7 +595,7 @@ fn install_leaf(
             }
         }
     };
-    let restored_session_id = claude_session_id.as_ref().and_then(|sid| {
+    let restored_session_id = agent_session_id.as_ref().and_then(|sid| {
         if tabs
             .values()
             .any(|p| p.agent_session_id.as_deref() == Some(sid.as_str()))

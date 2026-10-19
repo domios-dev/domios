@@ -16,7 +16,7 @@ fn terminal_leaf(tab_id: &str, parent: Option<&str>) -> SplitNodeSnapshot {
         title_level: Some("User".into()),
         agent_type: Some("claude".into()),
         agent_type_locked: true,
-        claude_session_id: Some(format!("session-{tab_id}")),
+        agent_session_id: Some(format!("session-{tab_id}")),
         agent_identity: None,
         role: None,
         role_profile: None,

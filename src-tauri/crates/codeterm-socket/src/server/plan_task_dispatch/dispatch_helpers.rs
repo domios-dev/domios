@@ -93,8 +93,8 @@ mod tests {
             execution_intent: ExecutionIntent::Mutating,
             attempt_id: "attempt_new".into(),
             source_attempt: Default::default(),
-            provider: "codex".into(),
-            planned_model: Some("claude/sonnet".into()),
+            provider: "fixture-agent".into(),
+            planned_model: Some("fixture-agent/model".into()),
             model: Some("gpt-6-luna".into()),
             reasoning_effort: None,
             parent_tab_id: None,
@@ -111,7 +111,7 @@ mod tests {
         let params = respawn_worker_params(&draft, "opaque task", None, "tab_parent");
 
         assert_eq!(params.execution_intent, Some(ExecutionIntent::Mutating));
-        assert_eq!(params.agent.as_deref(), Some("codex"));
+        assert_eq!(params.agent.as_deref(), Some("fixture-agent"));
         assert_eq!(params.model.as_deref(), Some("gpt-6-luna"));
         assert_eq!(
             params.task_launch_authority.unwrap().attempt_id,

@@ -7,6 +7,8 @@ mod endpoint_routing;
 
 struct Adapter {
     path: PathBuf,
+    provider_id: String,
+    default_model: Option<String>,
     inner: Arc<dyn ModelProviderConfig>,
 }
 
@@ -177,13 +179,47 @@ fn model_provider_preset_invalid_params_do_not_write_config() {
 }
 
 fn adapter(path: PathBuf) -> Adapter {
-    let manifest = PathBuf::from(crate::test_support::fixture_manifest_dir())
-        .join("../../../plugins/provider-opencode/plugin.json");
+    let plugins_root =
+        PathBuf::from(crate::test_support::fixture_manifest_dir()).join("../../../plugins");
+    let manifest = std::fs::read_dir(plugins_root)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("plugin.json"))
+        .find(|path| {
+            std::fs::read(path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                .is_some_and(|manifest| {
+                    manifest["capabilities"]["modelProviderConfig"].as_bool() == Some(true)
+                })
+        })
+        .expect("a bundled plugin declares model provider configuration");
     let provider = codeterm_plugin::js_runtime::load_one(&manifest).unwrap();
+    let descriptor = provider.describe();
     Adapter {
         path,
+        provider_id: descriptor.id,
+        default_model: descriptor.default_model,
         inner: provider.model_provider_config().unwrap(),
     }
+}
+
+fn bundled_cloud_provider() -> Arc<dyn AgentProvider> {
+    let plugins_root =
+        PathBuf::from(crate::test_support::fixture_manifest_dir()).join("../../../plugins");
+    std::fs::read_dir(plugins_root)
+        .expect("bundled plugins directory")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("plugin.json"))
+        .filter_map(|path| codeterm_plugin::js_runtime::load_one(&path).ok())
+        .find(|provider| {
+            provider.agent_runtime().is_some()
+                && provider
+                    .remote_task_capability()
+                    .is_some_and(|capability| capability.mode == "cloud")
+        })
+        .map(|provider| Arc::new(provider) as Arc<dyn AgentProvider>)
+        .expect("a bundled provider declares a cloud runtime capability")
 }
 
 fn store() -> SecretStoreState {
@@ -208,14 +244,14 @@ fn definition() -> ModelProviderDefinition {
 #[test]
 fn launch_credentials_ignore_unrelated_missing_endpoint_and_name_relevant_lookup() {
     let dir = tempfile::tempdir().unwrap();
-    let adapter = adapter(dir.path().join("opencode.json"));
+    let adapter = adapter(dir.path().join("config.json"));
     let mut provider = definition();
     provider.key_env = Some("DOMIOS_PROVIDER_DEMO_KEY".into());
     let store = store();
 
     let unspecified_model_env = launch_env(
         &store,
-        "opencode",
+        &adapter.provider_id,
         &adapter,
         std::slice::from_ref(&provider),
         None,
@@ -225,17 +261,17 @@ fn launch_credentials_ignore_unrelated_missing_endpoint_and_name_relevant_lookup
 
     let default_model_env = launch_env(
         &store,
-        "opencode",
+        &adapter.provider_id,
         &adapter,
         std::slice::from_ref(&provider),
-        Some("opencode/beam-free"),
+        adapter.default_model.as_deref(),
     )
     .unwrap();
     assert!(default_model_env.is_empty());
 
     let error = launch_env(
         &store,
-        "opencode",
+        &adapter.provider_id,
         &adapter,
         &[provider],
         Some("demo/model-a"),
@@ -254,7 +290,7 @@ fn launch_credentials_ignore_unrelated_missing_endpoint_and_name_relevant_lookup
 #[test]
 fn model_provider_saved_secret_copy_is_owned_and_source_survives_removal() {
     let dir = tempfile::tempdir().unwrap();
-    let adapter = adapter(dir.path().join("opencode.json"));
+    let adapter = adapter(dir.path().join("config.json"));
     let store = store();
     crate::async_runtime::block_on(async {
         store
@@ -321,7 +357,7 @@ fn model_provider_saved_secret_copy_is_owned_and_source_survives_removal() {
 #[test]
 fn model_provider_add_launch_remove_preserves_foreign_config_and_secret_confinement() {
     let dir = tempfile::tempdir().unwrap();
-    let adapter = adapter(dir.path().join("opencode.json"));
+    let adapter = adapter(dir.path().join("config.json"));
     let store = store();
     let foreign =
         json!({"provider":{"foreign":{"npm":"foreign"}},"agent":{"owner":{"prompt":"opaque"}}});
@@ -493,18 +529,17 @@ fn model_provider_routing_uses_the_declared_capability_and_refuses_ambiguity() {
                 .unwrap(),
         ),
     ));
-    let native: Arc<dyn AgentProvider> =
-        Arc::new(codeterm_plugin::agent_claude::provider::ClaudeProvider::new());
+    let cloud = bundled_cloud_provider();
     assert!(requires_fresh_pty(&*provider));
-    assert!(!requires_fresh_pty(&*native));
+    assert!(!requires_fresh_pty(&*cloud));
     assert_eq!(
-        select_owner(&[native.clone(), provider.clone()])
+        select_owner(&[cloud.clone(), provider.clone()])
             .unwrap()
             .id(),
         "arbitrary-owner"
     );
     assert!(matches!(
-        select_owner(&[native]),
+        select_owner(&[cloud]),
         Err(ModelProviderError::Unsupported)
     ));
     assert!(matches!(
@@ -621,9 +656,8 @@ fn model_provider_scoped_owner_requires_the_declared_capability() {
             PluginVm::from_source("scoped-owner", "module.exports.default = {};".into()).unwrap(),
         ),
     ));
-    let native: Arc<dyn AgentProvider> =
-        Arc::new(codeterm_plugin::agent_claude::provider::ClaudeProvider::new());
-    let providers = [native.clone(), provider.clone(), provider];
+    let cloud = bundled_cloud_provider();
+    let providers = [cloud.clone(), provider.clone(), provider];
     assert!(matches!(
         select_owner_for(&providers, None),
         Err(ModelProviderError::Ambiguous)
@@ -635,7 +669,7 @@ fn model_provider_scoped_owner_requires_the_declared_capability() {
         "scoped-owner"
     );
     assert!(matches!(
-        select_owner_for(&providers, Some(native.id())),
+        select_owner_for(&providers, Some(cloud.id())),
         Err(ModelProviderError::Unsupported)
     ));
 }
@@ -643,7 +677,7 @@ fn model_provider_scoped_owner_requires_the_declared_capability() {
 #[test]
 fn model_provider_update_rewrites_endpoint_and_rotates_owned_key_outside_config() {
     let dir = tempfile::tempdir().unwrap();
-    let adapter = adapter(dir.path().join("opencode.json"));
+    let adapter = adapter(dir.path().join("config.json"));
     let store = store();
     let first = ["first", "fixture", "value"].join("-");
     execute(
@@ -689,7 +723,7 @@ fn model_provider_update_rewrites_endpoint_and_rotates_owned_key_outside_config(
 #[test]
 fn model_provider_update_refuses_unknown_endpoint_and_foreign_owner() {
     let dir = tempfile::tempdir().unwrap();
-    let adapter = adapter(dir.path().join("opencode.json"));
+    let adapter = adapter(dir.path().join("config.json"));
     let store = store();
     let update = || ModelProviderRequest::Update {
         provider: definition(),
@@ -720,7 +754,7 @@ fn model_provider_update_refuses_unknown_endpoint_and_foreign_owner() {
 #[test]
 fn model_provider_discover_needs_exactly_one_key_source() {
     let dir = tempfile::tempdir().unwrap();
-    let adapter = adapter(dir.path().join("opencode.json"));
+    let adapter = adapter(dir.path().join("config.json"));
     let store = store();
     let discover = |value: Option<&str>, source_secret: Option<&str>| {
         execute(
