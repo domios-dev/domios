@@ -26,13 +26,13 @@ it("reports painted once content appears after mount", async () => {
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => root.render(<Probe />));
-  expect(seen.at(-1)).toBe(false);
+  expect(seen[seen.length - 1]).toBe(false);
   await act(async () => {
     const row = document.createElement("div");
     row.setAttribute("data-chat-window-row", "m1");
     host.querySelector('[data-testid="body"]')!.append(row);
   });
-  expect(seen.at(-1)).toBe(true);
+  expect(seen[seen.length - 1]).toBe(true);
   await act(async () => root.unmount());
   host.remove();
 });
