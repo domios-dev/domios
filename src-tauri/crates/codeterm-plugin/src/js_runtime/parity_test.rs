@@ -127,7 +127,7 @@ fn provider_fixture(id: &str, relative: &str) -> String {
 }
 
 #[test]
-fn claude_update_command_native_js_parity() {
+fn claude_host_owned_capabilities_native_js_parity() {
     let Some(_) = require_plugins() else {
         return;
     };

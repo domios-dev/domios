@@ -313,6 +313,13 @@ impl OnboardingAutoAnswer {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct HostOwnedCapabilities {
+    pub questions: bool,
+    pub todos: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AgentLaunchParams {
     pub context_files: Option<codeterm_types::plan::TaskFiles>,
@@ -322,6 +329,7 @@ pub struct AgentLaunchParams {
     pub starter_prompt: StarterPrompt,
     pub args: Option<Vec<String>>,
     pub skip_permissions: bool,
+    pub host_owned: HostOwnedCapabilities,
     // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
     pub session_id: Option<String>,
     /// Fixed local server the host wants the agent's structured-prompt handle to
@@ -364,6 +372,8 @@ pub struct AgentResumeParams {
     pub tool_less_instructions_path: Option<String>,
     pub session_id: String,
     pub skip_permissions: bool,
+    #[serde(default)]
+    pub host_owned: HostOwnedCapabilities,
     pub agent_name: Option<String>,
     pub system_prompt: Option<String>,
     #[serde(default)]

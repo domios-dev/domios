@@ -1,5 +1,5 @@
 import { sessionRecords, type SessionRecordInput } from "../../provider-shared/sessionRecords";
-import { buildCodexLaunchSpec, codexCommandFromSpec, CODEX_LAUNCH_CONFIG } from "./launchSpec";
+import { buildCodexLaunchSpec, codexCommandFromSpec, CODEX_LAUNCH_CONFIG, hostOwnedCodexLaunchArgs } from "./launchSpec";
 import {cloudExports} from "./cloud/plugin";
 import { runtimePlan, runtimeResponse, runtimeReduce } from "./runtime";
 import { runtimeStoredHistory, runtimeStoredRecords, storedHistoryAvailable } from "./runtimeStoredHistory";
@@ -383,6 +383,7 @@ const plugin: PluginModule = {
         return windowsProfileCommand(parts, taskPath, instanceId!);
       }
     }
+    parts.push(...hostOwnedCodexLaunchArgs(p.hostOwned));
     return parts.join(" ");
   },
 
@@ -415,6 +416,7 @@ const plugin: PluginModule = {
     if (Array.isArray(p.args)) {
       for (const arg of p.args) parts.push(quoteCodexArg(String(arg), platform));
     }
+    parts.push(...hostOwnedCodexLaunchArgs(p.hostOwned));
     if (platform === "windows") {
       const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId)
         ? p.instanceId

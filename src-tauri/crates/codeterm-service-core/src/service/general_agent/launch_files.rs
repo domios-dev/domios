@@ -151,7 +151,12 @@ pub(super) fn build_resume(
 ) -> Option<String> {
     registry
         .with_provider(provider, |provider| {
-            provider.build_resume_command(session, permission_bypass)
+            provider.build_resume_command_with_context(&crate::agent::provider::AgentResumeParams {
+                session_id: session.to_string(),
+                skip_permissions: permission_bypass,
+                host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
+                ..Default::default()
+            })
         })
         .flatten()
 }

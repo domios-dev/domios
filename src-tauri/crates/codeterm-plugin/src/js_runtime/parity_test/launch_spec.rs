@@ -25,47 +25,63 @@ fn materialized_arguments(mut spec: LaunchSpec) -> LaunchSpec {
 pub(super) fn assert_native_js_parity(native: &dyn AgentProvider, js: &dyn AgentProvider) {
     assert!(native.declares_launch_spec());
     assert_eq!(native.declares_launch_spec(), js.declares_launch_spec());
-    for skip_permissions in [false, true] {
-        let resume = crate::provider::AgentResumeParams {
-            session_id: "own-resume-session".into(),
-            skip_permissions,
-            args: vec!["--model".into(), "fixture-model".into()],
-            system_prompt: Some("opaque resume context 😀".into()),
-            ..Default::default()
-        };
-        assert_eq!(
-            materialized_arguments(
-                native
-                    .launch_spec(&LaunchSpecParams::Resume(&resume))
-                    .unwrap()
-            ),
-            materialized_arguments(js.launch_spec(&LaunchSpecParams::Resume(&resume)).unwrap()),
-        );
-        for (agent_name, session_id, args) in [
-            (None, None, vec![]),
-            (Some("agent 'юникод' 😀"), Some("fixture-session"), vec![]),
-            (
-                None,
-                None,
-                vec!["--resume", "fixture-resume", "--model", "fixture-model"],
-            ),
-        ] {
-            let params = AgentLaunchParams {
+    for host_owned in [
+        crate::provider::HostOwnedCapabilities::default(),
+        crate::provider::HostOwnedCapabilities {
+            questions: true,
+            todos: false,
+        },
+        crate::provider::HostOwnedCapabilities {
+            questions: true,
+            todos: true,
+        },
+    ] {
+        for skip_permissions in [false, true] {
+            let resume = crate::provider::AgentResumeParams {
+                session_id: "own-resume-session".into(),
                 skip_permissions,
-                agent_name: agent_name.map(str::to_owned),
-                session_id: session_id.map(str::to_owned),
-                args: Some(args.into_iter().map(str::to_owned).collect()),
-                task: Some("opaque task 'quoted' $value 😀".into()),
+                host_owned,
+                args: vec!["--model".into(), "fixture-model".into()],
+                system_prompt: Some("opaque resume context 😀".into()),
                 ..Default::default()
             };
             assert_eq!(
                 materialized_arguments(
                     native
-                        .launch_spec(&LaunchSpecParams::Fresh(&params))
+                        .launch_spec(&LaunchSpecParams::Resume(&resume))
                         .unwrap()
                 ),
-                materialized_arguments(js.launch_spec(&LaunchSpecParams::Fresh(&params)).unwrap()),
+                materialized_arguments(js.launch_spec(&LaunchSpecParams::Resume(&resume)).unwrap()),
             );
+            for (agent_name, session_id, args) in [
+                (None, None, vec![]),
+                (Some("agent 'юникод' 😀"), Some("fixture-session"), vec![]),
+                (
+                    None,
+                    None,
+                    vec!["--resume", "fixture-resume", "--model", "fixture-model"],
+                ),
+            ] {
+                let params = AgentLaunchParams {
+                    skip_permissions,
+                    host_owned,
+                    agent_name: agent_name.map(str::to_owned),
+                    session_id: session_id.map(str::to_owned),
+                    args: Some(args.into_iter().map(str::to_owned).collect()),
+                    task: Some("opaque task 'quoted' $value 😀".into()),
+                    ..Default::default()
+                };
+                assert_eq!(
+                    materialized_arguments(
+                        native
+                            .launch_spec(&LaunchSpecParams::Fresh(&params))
+                            .unwrap()
+                    ),
+                    materialized_arguments(
+                        js.launch_spec(&LaunchSpecParams::Fresh(&params)).unwrap()
+                    ),
+                );
+            }
         }
     }
 }

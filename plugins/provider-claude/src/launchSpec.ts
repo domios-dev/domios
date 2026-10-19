@@ -1,4 +1,4 @@
-import type { LaunchParams, ResumeParams } from "@codeterm/plugin-sdk";
+import type { HostOwnedCapabilities, LaunchParams, ResumeParams } from "@codeterm/plugin-sdk";
 import { quoteNativeArgument } from "../../provider-shared/nativeArgument";
 import { statuslineLaunchArgs } from "./context";
 import { writeClaudeLaunchPrompt } from "./launchPrompt";
@@ -15,6 +15,14 @@ export function starterPrompt(prompt: LaunchParams["starterPrompt"], hostText?: 
   return FILE_TASK_PROMPT;
 }
 
+export function hostOwnedLaunchArgs(hostOwned?: HostOwnedCapabilities): string[] {
+  const tools = [
+    ...(hostOwned?.questions ? ["AskUserQuestion"] : []),
+    ...(hostOwned?.todos ? ["TodoWrite"] : []),
+  ];
+  return tools.length ? ["--disallowedTools", tools.join(",")] : [];
+}
+
 function hasResume(input: LaunchParams | { resume: ResumeParams }): input is { resume: ResumeParams } {
   const resume = input.resume;
   return typeof resume === "object" && resume !== null && "sessionId" in resume && typeof resume.sessionId === "string";
@@ -26,6 +34,7 @@ export function buildClaudeLaunchSpec(input: LaunchParams | { resume: ResumePara
     args: ["--resume", input.resume.sessionId, ...(input.resume.args || [])],
     task: input.resume.systemPrompt ?? undefined,
     skipPermissions: input.resume.skipPermissions,
+    hostOwned: input.resume.hostOwned,
     starterPrompt: "no_starter",
   } : input;
   const args: string[] = [];
@@ -35,6 +44,7 @@ export function buildClaudeLaunchSpec(input: LaunchParams | { resume: ResumePara
   const extra = statuslineLaunchArgs(params.args || []);
   if (!extra) return null;
   args.push(...extra);
+  args.push(...hostOwnedLaunchArgs(params.hostOwned));
   const path = writeClaudeLaunchPrompt(params.task || "");
   if (!path) return null;
   args.push("--append-system-prompt-file", path);

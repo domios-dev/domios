@@ -128,6 +128,7 @@ pub(crate) fn start(service: Arc<ServiceContext>, launch: HiddenLaunch) {
                     starter_prompt: Default::default(),
                     args: (!model_args.is_empty()).then_some(model_args),
                     skip_permissions: permission_bypass,
+                    host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
                     session_id: launch_session_id,
                     structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
                         &service,

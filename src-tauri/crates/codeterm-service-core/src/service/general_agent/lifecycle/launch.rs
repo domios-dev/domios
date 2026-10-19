@@ -233,6 +233,7 @@ pub(super) fn start(
                 )),
                 starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
                 skip_permissions: permission_bypass,
+                host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
                 ..Default::default()
             },
             Some(sid),
@@ -309,6 +310,7 @@ pub(super) fn start(
             starter_prompt: launch_instructions.starter_prompt,
             args: (!model_args.is_empty()).then_some(model_args),
             skip_permissions: permission_bypass,
+            host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
             session_id: pre_session_id,
             structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
                 svc,

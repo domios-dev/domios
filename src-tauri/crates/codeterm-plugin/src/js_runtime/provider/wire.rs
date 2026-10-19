@@ -146,6 +146,7 @@ pub(super) fn launch_params_to_json(p: &AgentLaunchParams) -> Value {
         "starterPromptPrefix": p.starter_prompt.system_prefix(),
         "args": p.args,
         "skipPermissions": p.skip_permissions,
+        "hostOwned": p.host_owned,
         "sessionId": p.session_id,
         "structuredPromptServer": p.structured_prompt_server,
         "launchMarker": p.launch_marker,
