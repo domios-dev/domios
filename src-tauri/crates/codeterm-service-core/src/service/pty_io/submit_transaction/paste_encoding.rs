@@ -35,10 +35,13 @@ impl PasteEncodingCapability {
     }
 
     fn bracketed(self, text: &str, live_mode: Option<bool>) -> bool {
-        !matches!(self, Self::Unsupported | Self::TaggedBlock)
-            && live_mode.unwrap_or_else(|| {
-                self == Self::MultilineTui && (text.contains('\r') || text.contains('\n'))
-            })
+        match self {
+            Self::Unsupported | Self::TaggedBlock => false,
+            Self::LiveModeOnly => live_mode == Some(true),
+            Self::MultilineTui => {
+                live_mode == Some(true) || text.contains('\r') || text.contains('\n')
+            }
+        }
     }
 }
 
