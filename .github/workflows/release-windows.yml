@@ -374,6 +374,14 @@ jobs:
           node scripts/release-verify-windows.mjs "src-tauri/target/$env:TARGET/release/bundle/nsis" "$env:TAG" "$env:PLATFORM_KEY"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Retain private dry-run updater evidence
+        if: ${{ inputs.dry_run }}
+        shell: pwsh
+        run: |
+          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$env:GITHUB_RUN_ID" `
+            "${{ matrix.platform_key }}" "src-tauri/target/$env:TARGET/release/bundle" release-artifacts "$env:RUNNER_TEMP/dry-run-${{ matrix.platform_key }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Publish per-platform updater fragment
         if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows platforms') && !inputs.dry_run }}
         env:

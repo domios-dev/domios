@@ -97,8 +97,16 @@ gh workflow run release.yml --repo rollacode/codeterm --ref <reviewed-ref> \
 Verify the remote ref resolves to the reviewed SHA before dispatch. Capture the returned/new run
 ID and its workflow/source identity. Do not identify a run merely as the latest result in a list.
 `dry_run_tests=false` is an explicitly limited packaging diagnostic: skipped tests remain unverified.
-Dry runs skip release creation/uploads/publication, public served-byte verification and promotion;
+Dry runs skip release creation/public uploads/publication, public served-byte verification and promotion;
 they cannot prove write permissions or CDN behavior.
+
+Dry-run platform jobs retain original updater bytes, signed fragments and digest/source receipts
+in the existing private MinIO CI store under `<run-id>/release-dry-run/<platform>/`, with its
+existing retention. `release-manifest-dry-run.yml` assembles all six platforms plus both Debian
+entries and invokes the existing validator with `--local`. It refuses missing, changed or foreign
+evidence; no public release, tag, channel asset or issue-closure boundary is created. Its direct
+dispatch inputs pin the producing run ID, tag and source SHA for a follow-up within retention.
+An older run that did not retain those inputs cannot be retroactively called validated.
 
 For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml` or
 `release-macos-build.yml` with explicit `source_ref`, tag, selected architecture, `dry_run=true`
@@ -290,4 +298,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
