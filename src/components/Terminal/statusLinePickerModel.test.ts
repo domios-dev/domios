@@ -204,6 +204,21 @@ test("Fast mode is capability gated and a tier-only change applies for the next 
   assert.deepEqual(planSelection(gate, base, base), { action: "none" });
 });
 
+test("runtime mode is capability gated and participates in staged apply planning", () => {
+  const capable = provider({ structured_control: {
+    protocol: "fixture",
+    minVersion: "1.0.0",
+    runtimeModes: [{ id: "auto", displayName: "Auto" }, { id: "full-access", displayName: "Full access" }],
+  } });
+  const current = pickerSelection(capable, "deep", "high", undefined, "auto");
+  assert.deepEqual(current, { model: "deep", effort: "high", runtimeMode: "auto" });
+  assert.deepEqual(planSelection(statusLineSwitchGate(capable, live), current, { ...current, runtimeMode: "full-access" }), {
+    action: "apply",
+    selection: { model: "deep", effort: "high", runtimeMode: "full-access" },
+  });
+  assert.deepEqual(pickerSelection(provider(), "deep", "high", undefined, "auto"), { model: "deep", effort: "high" });
+});
+
 test("tier choices retain provider availability and model changes clear unavailable selections", () => {
   const declared = [{id:"ultrafast",name:"Ultrafast",description:"",unavailableReason:"unknown"}];
   assert.equal(serviceTierOptions(declared,undefined)[1].disabled,true);
