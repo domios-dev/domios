@@ -133,7 +133,11 @@ fn claude_host_owned_capabilities_native_js_parity() {
     };
     let native = crate::agent_claude::provider::ClaudeProvider::new();
     let js = load_js("claude");
-    launch_spec::assert_native_js_parity(&native, &js);
+    // A private task-file root keeps parallel tests that sweep the shared one away from these files.
+    let root = tempfile::tempdir().unwrap();
+    codeterm_util::task_files::capture_in(root.path(), "claude-launch-parity", || {
+        launch_spec::assert_native_js_parity(&native, &js)
+    });
     assert_eq!(
         native.execution_sandbox_capability(),
         js.execution_sandbox_capability()

@@ -46,13 +46,13 @@ for (const skipPermissions of [false, true]) {
       if (assigned) assert(spec.args.includes("developer_instructions=" + task + "\n\n<!-- codeterm-launch-marker: fixture-launch-nonce -->"));
       assert.equal(spec.args.includes("--dangerously-bypass-hook-trust"), skipPermissions);
       const questionFeatureIndex = spec.args.indexOf("--disable");
-      if (questions) assert.deepEqual(spec.args.slice(questionFeatureIndex, questionFeatureIndex + 2), ["--disable", "default_mode_request_user_input"]);
+      if (questions) assert.deepEqual(Array.from(spec.args.slice(questionFeatureIndex, questionFeatureIndex + 2)), ["--disable", "default_mode_request_user_input"]);
       else assert.equal(questionFeatureIndex, -1);
       const resume = { sessionId: "fixture-session", skipPermissions, hostOwned, args: ["-m", "fixture model"] };
       const resumed = provider.buildLaunchSpec({ resume })!;
       assert(resumed.args.includes("--no-daemon"));
       const resumeQuestionFeatureIndex = resumed.args.indexOf("--disable");
-      if (questions) assert.deepEqual(resumed.args.slice(resumeQuestionFeatureIndex, resumeQuestionFeatureIndex + 2), ["--disable", "default_mode_request_user_input"]);
+      if (questions) assert.deepEqual(Array.from(resumed.args.slice(resumeQuestionFeatureIndex, resumeQuestionFeatureIndex + 2)), ["--disable", "default_mode_request_user_input"]);
       else assert.equal(resumeQuestionFeatureIndex, -1);
       for (const [launch, command] of [[spec, provider.buildLaunchCommand(params)], [resumed, provider.buildResumeCommandWithContext(resume)]] as const) {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-spec-"));
