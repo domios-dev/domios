@@ -132,6 +132,8 @@ A plugin contributes graph nodes through `capabilities.graphNodes` in its manife
 
 `codeterm model-provider` routes to the installed provider declaring model configuration support. In the app, each such harness's plugin page has a **Custom model endpoints** section with the same operations plus edit and model discovery: a typed key is saved to the secret store (masked, never shown again), or a saved secret is copied into the endpoint's owned slot. The HTTP endpoint `POST /api/model-providers` accepts `?provider=<id>` to address one harness.
 
+Endpoint ids must differ from every installed agent harness id; creation refuses a collision with `harness_id_collision` before saving configuration or credentials. Configured endpoint models appear in `agent models <harness>` even when live discovery fails. Select one with `agent spawn <harness> --model <endpoint>/<model>`; its model is validated against that endpoint's configured models.
+
 ```bash
 codeterm model-provider add --name local --kind openai-compatible --base-url http://localhost:1234/v1 --secret local-key --model model-id
 codeterm model-provider list
@@ -176,4 +178,4 @@ Full secret-store reference, including CLI, storage internals, error mapping, an
 
 Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

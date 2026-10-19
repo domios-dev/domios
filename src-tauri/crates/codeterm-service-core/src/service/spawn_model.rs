@@ -192,6 +192,27 @@ pub fn resolve_fresh_agent_model_with_notice(
     requested: Option<String>,
     resume_session_id: Option<&str>,
 ) -> FreshAgentModelResolution {
+    if let Some(requested_model) = requested
+        .as_deref()
+        .map(|model| normalize_requested_model(provider_id, model))
+    {
+        if let Some(endpoint) =
+            crate::agent::model_catalog::resolve_endpoint_model(provider_id, &requested_model)
+        {
+            let (provider_resolved_model, warning) = match endpoint {
+                Ok(model) => (Some(model.id), None),
+                Err(_) => (None, Some(format!("Configured endpoint model '{requested_model}' is unavailable; the requested model is preserved."))),
+            };
+            return FreshAgentModelResolution {
+                model: Some(requested_model.clone()),
+                provider_resolved_model,
+                requested_model: Some(requested_model),
+                fallback_notice: None,
+                restore_notification: None,
+                warning,
+            };
+        }
+    }
     if resume_session_id.is_some() {
         let requested_model = requested
             .and_then(non_empty_model)
