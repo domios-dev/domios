@@ -333,8 +333,9 @@ pub fn create_window(
         .first()
         .cloned()
         .ok_or("Main window configuration is missing")?;
+    // Starting is not the retrying recovery page: a failed first attempt must still switch to it.
     window_config.url = WebviewUrl::CustomProtocol(starting_url()?);
-    ON_RECOVERY_SURFACE.store(true, Ordering::Release);
+    ON_RECOVERY_SURFACE.store(false, Ordering::Release);
     // Revealed on the first painted interface (or the recovery page), so startup never shows an empty frame.
     window_config.visible = false;
     let origin = bootstrap.as_ref().map(|bootstrap| {

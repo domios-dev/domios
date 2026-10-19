@@ -16,6 +16,7 @@ import {
 } from "../../lib/webApi";
 import type { MeshPeersResponse } from "../../lib/types";
 import { PwaSetup } from "./PwaSetup";
+import { releaseBootCover } from "../../lib/bootCover";
 import { installWebHistoryGuard } from "./webHistoryGuard";
 
 type GateState = "checking" | "need-token" | "ready";
@@ -29,6 +30,9 @@ type GateState = "checking" | "need-token" | "ready";
  */
 export function WebGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GateState>(IS_WEB ? "checking" : "ready");
+  useEffect(() => {
+    if (state !== "ready" && state !== "checking") releaseBootCover();
+  }, [state]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

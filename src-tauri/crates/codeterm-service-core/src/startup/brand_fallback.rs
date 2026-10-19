@@ -14,13 +14,15 @@ const NATIVE_CHROME: &str = r#"<header><div class="drag" onmousedown="if(event.b
 
 const RETRY_ACTION: &str = r#"<a class="retry" href="domios-shell://retry" aria-label="Retry now; retries automatically every 10 seconds"><span class="timer" aria-hidden="true"><svg class="ring" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle class="left" cx="12" cy="12" r="10" pathLength="100"/></svg><span class="count">9</span></span><span>Retry now</span></a>"#;
 
-/// Faint dot grid; each wave leaves the mark at its pulse peak (CSS and canvas share one 2.6 s period from time zero).
+/// Faint dot grid; each wave leaves the mark at its brightest beat (CSS and canvas share one 2.6 s period).
+/// The beat curve and wave timing must match `src/components/brand/useBrandMotion.ts` (`beatLevel`, `BEAT_PEAK`);
+/// grid step, dot radius and band width must match `src/components/brand/dotMatrixModel.ts`.
 const DOT_WAVES: &str = r#"<script>
 (() => {
   const canvas = document.querySelector("canvas");
   const context = canvas.getContext("2d");
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const spacing = 18, rest = 0.018, peak = 0.16, period = 2600, band = 26;
+  const spacing = 18, rest = 0.018, peak = 0.16, period = 2600, band = 26, beatPeak = 0.08;
   function frame(now) {
     const ratio = devicePixelRatio || 1;
     const width = canvas.clientWidth, height = canvas.clientHeight;
@@ -35,7 +37,8 @@ const DOT_WAVES: &str = r#"<script>
     const cx = mark.left + mark.width / 2 - box.left, cy = mark.top + mark.height / 2 - box.top;
     const extent = Math.max(Math.hypot(cx, cy), Math.hypot(width - cx, height - cy));
     const start = mark.width / 2;
-    const radius = start + ((now % period) / period) * (extent - start);
+    const sinceBeat = ((now - beatPeak * period) % period + period) % period;
+    const radius = start + (sinceBeat / period) * (extent - start);
     for (let x = spacing / 2; x < width; x += spacing) {
       for (let y = spacing / 2; y < height; y += spacing) {
         const distance = Math.hypot(x - cx, y - cy);

@@ -1,4 +1,5 @@
 import { DEV_BUILD } from "./lib/devBuild";
+import { releaseBootCover } from "./lib/bootCover";
 import { appVersion, buildHash } from "./lib/buildStamp";
 import { frontendDiagnosticStamp } from "./lib/frontendDiagnosticStamp";
 import { installRequestDiagnostics } from "./lib/requestDiagnostics";
@@ -60,14 +61,19 @@ if (!missionControlPrototype && !isGalleryRoute && !snakePrototype) {
   loadBundledPlugins();
 }
 
+// The app releases the boot cover once restored; this bounds a gate or failure that never reports ready.
+setTimeout(releaseBootCover, 10_000);
+
 if (isGalleryRoute) {
   import("./components/Gallery/ComponentGallery").then(({ ComponentGallery }) => {
     ReactDOM.createRoot(root).render(<ComponentGallery />);
     document.documentElement.dataset.codetermMounted = "true";
+    releaseBootCover();
   });
 } else if (snakePrototype) {
   ReactDOM.createRoot(root).render(<SnakeGame />);
   document.documentElement.dataset.codetermMounted = "true";
+  releaseBootCover();
 } else {
   ReactDOM.createRoot(root).render(
     <FrontendCrashBoundary>

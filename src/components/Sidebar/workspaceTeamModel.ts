@@ -1,5 +1,6 @@
 import type { Tab } from "../../lib/types";
-import { anchorsTeam } from "../../lib/roleKind";
+import { anchorsTeam, CARTOGRAPHER_KIND, roleKind } from "../../lib/roleKind";
+import type { TeamMemberRole } from "../../lib/teamActions";
 import { isSurfaceTab } from "../../lib/surfaceTab";
 import { remoteTeamIdentity } from "./remoteOwnership";
 import { sortTeamManagers } from "./orchestrationSections";
@@ -48,4 +49,36 @@ export function partitionTeamMembers(members: readonly TeamTabMember[]) {
     }
   }
   return { managers, terminals, workers, agents, surfacesByOwner };
+}
+
+/// Every role a Team with a spawn-capable manager can place.
+const TEAM_MEMBER_ROLES = ["orchestrator", "planner", "cartographer", "worker"] as const;
+/// With no spawner inside, only an anchoring role can be placed: it takes no
+/// parent, so it is the door through which a stalled Team gets one.
+const BOOTSTRAP_ONLY_ROLES = ["orchestrator"] as const;
+/// A Team holds at most one live Orchestrator, so once it has one the role is
+/// not on offer — the daemon refuses it by code either way.
+const STAFFED_TEAM_ROLES = ["planner", "cartographer", "worker"] as const;
+
+/// Mirrors the daemon headcount: a removed Orchestrator is gone from the tab
+/// list and a dead one has had its agent identity cleared.
+function hasLiveOrchestrator(members: readonly TeamTabMember[]): boolean {
+  return members.some((member) => anchorsTeam(member.tab) && member.tab.agent_type != null);
+}
+
+export function addableTeamRoles(
+  members: readonly TeamTabMember[],
+  managerTabId: string | null,
+): readonly TeamMemberRole[] {
+  const hasCartographer = members.some(
+    (member) => member.tab.role === "Manager" && roleKind(member.tab) === CARTOGRAPHER_KIND,
+  );
+  const withoutExistingCartographer = (roles: readonly TeamMemberRole[]): readonly TeamMemberRole[] =>
+    hasCartographer ? roles.filter((role) => role !== "cartographer") : roles;
+  if (hasLiveOrchestrator(members)) {
+    return managerTabId ? withoutExistingCartographer(STAFFED_TEAM_ROLES) : [];
+  }
+  return managerTabId
+    ? withoutExistingCartographer(TEAM_MEMBER_ROLES)
+    : BOOTSTRAP_ONLY_ROLES;
 }

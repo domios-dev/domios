@@ -32,7 +32,12 @@
     header, .stage > * { animation: appear .25s ease-out .4s both; }
     @keyframes appear { from { opacity: 0; } to { opacity: 1; } }
     .retry:hover { border-color: var(--accent); }
-    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.96); } }
+    /* Sharp rise (peak at 8%), short fall, rest; must match beatLevel in src/components/brand/useBrandMotion.ts. */
+    @keyframes pulse {
+      0% { opacity: .5; transform: scale(.94); animation-timing-function: cubic-bezier(.2, 0, 0, 1); }
+      8% { opacity: 1; transform: scale(1.04); animation-timing-function: cubic-bezier(.4, 0, .2, 1); }
+      35%, 100% { opacity: .5; transform: scale(.94); }
+    }
     @media (prefers-color-scheme: light) {
       :root, body { background: #f6f8fa; color: #1f2328; --muted: #57606a; --border: #d0d7de; --accent: #0969da; }
       header a:hover, .retry { color: #1f2328; }

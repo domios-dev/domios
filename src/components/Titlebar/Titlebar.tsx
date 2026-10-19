@@ -30,6 +30,7 @@ interface TitlebarProps {
   analyticsButtonRef?: Ref<HTMLButtonElement>;
   onOpenSettings?: (section?: SectionId) => void;
   notifications?: Notification[];
+  notificationsLoaded?: boolean;
   /** The master bell switch. False removes the indicator; nothing about what is
    *  recorded changes, so flipping it back reveals the complete log. */
   showBell?: boolean;
@@ -53,6 +54,7 @@ export function Titlebar({
   analyticsButtonRef,
   onOpenSettings,
   notifications = [],
+  notificationsLoaded = true,
   showBell = true,
   toasts = [],
   onMarkNotificationRead,
@@ -133,6 +135,7 @@ export function Titlebar({
           {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
             <NotificationBell
               notifications={notifications}
+              loading={!notificationsLoaded}
               onMarkRead={onMarkNotificationRead}
               onMarkAllRead={onMarkAllNotificationsRead}
               onDelete={onDeleteNotification}

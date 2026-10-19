@@ -590,7 +590,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "HYDRATE_NOTIFICATIONS": {
       const notifications = new Map(action.notifications.map((notification) => [notification.id, notification]));
       for (const notification of state.notifications) notifications.set(notification.id, notification);
-      return { ...state, notifications: [...notifications.values()].reduce<Notification[]>((records, notification) => admitBellNotification(records, notification, "agent_notification"), []) };
+      return { ...state, notificationsLoaded: true, notifications: [...notifications.values()].reduce<Notification[]>((records, notification) => admitBellNotification(records, notification, "agent_notification"), []) };
     }
 
     case "DELETE_NOTIFICATION":
