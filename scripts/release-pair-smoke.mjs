@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +12,48 @@ import { verifyHeadlessAssets } from './release-headless-assets.mjs';
 import { validateManifest } from './package-server-component-manifest.mjs';
 
 function fail(message) { throw new Error(message); }
+
+export function executionPlan(target, hostPlatform = process.platform, hostArch = process.arch) {
+  const targetArch = target.startsWith('aarch64-') ? 'arm64' : 'x64';
+  const targetPlatform = target.endsWith('-apple-darwin') ? 'darwin'
+    : target.endsWith('-pc-windows-msvc') ? 'win32' : 'linux';
+  const identity = { host_platform: hostPlatform, host_arch: hostArch, target_arch: targetArch };
+  if (hostPlatform === targetPlatform && hostArch === targetArch) return { ...identity, mode: 'native' };
+  if (hostPlatform === 'darwin' && targetPlatform === 'darwin' && hostArch === 'arm64' && targetArch === 'x64') {
+    return { ...identity, mode: 'rosetta' };
+  }
+  return { ...identity, mode: 'unverified_cross_arch', reason: 'runner_cannot_execute_target_natively' };
+}
+
+async function probeRosetta() {
+  try {
+    await promisify(execFile)('/usr/bin/arch', ['-x86_64', '/usr/bin/true'], { timeout: 10000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function resolveExecution(plan, probe = probeRosetta) {
+  if (plan.mode !== 'rosetta' || await probe()) return plan;
+  return { ...plan, mode: 'unverified_cross_arch', reason: 'rosetta_unavailable_or_failed_to_start' };
+}
+
+export function targetCommand(binary, args, execution) {
+  if (execution.mode === 'unverified_cross_arch') fail('unverified target must not spawn');
+  return execution.mode === 'rosetta'
+    ? { binary: '/usr/bin/arch', args: ['-x86_64', binary, ...args] } : { binary, args };
+}
+
+export async function recordSmokeReceipt(receipt, outputDirectory, summary = process.env.GITHUB_STEP_SUMMARY) {
+  await writeFile(path.join(outputDirectory, `release-pair-smoke-${receipt.target}.json`), JSON.stringify(receipt, null, 2) + '\n');
+  if (summary) {
+    const verdict = receipt.status === 'unverified_cross_arch' ? 'UNVERIFIED' : 'PASS';
+    await appendFile(summary, `\nPair smoke ${receipt.target}: **${verdict}**. Byte checks: ${receipt.byte_checks}. Runtime: ${receipt.status}.` +
+      ` Host: ${receipt.execution.host_platform}/${receipt.execution.host_arch}; target: ${receipt.execution.target_arch}.` +
+      (receipt.execution.reason ? ` Reason: ${receipt.execution.reason}.` : '') + ` Signing: ${receipt.signing}.\n`);
+  }
+}
 
 export function parseApiToken(config) {
   const section = /^\s*\[([^\]]+)\]\s*$/;
@@ -82,8 +125,9 @@ function waitForExit(child, signal) {
   });
 }
 
-async function runCli(binary, env, signal) {
-  const child = spawn(binary, ['identify', '--json'], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+async function runCli(binary, env, signal, execution) {
+  const command = targetCommand(binary, ['identify', '--json'], execution);
+  const child = spawn(command.binary, command.args, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   const chunks = [];
   child.stdout.on('data', bytes => { if (chunks.reduce((size, part) => size + part.length, 0) < 65536) chunks.push(bytes); });
   const code = await waitForExit(child, signal);
@@ -112,6 +156,10 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
     }
     const manifest = validateManifest(JSON.parse((await readFile(path.join(scratch, 'server-component.json'))).toString('utf8')));
     if (manifest.client_identity.kind !== 'none' || manifest.server_build !== sourceSha) fail('headless component identity differs from source');
+    const execution = await resolveExecution(executionPlan(target));
+    const receipt = { target, sourceSha, serverBuild: manifest.server_build, byte_checks: 'passed', execution,
+      signing: platform.startsWith('windows-') ? 'updater-signature only; no Authenticode' : 'platform release signing' };
+    if (execution.mode === 'unverified_cross_arch') return { ...receipt, status: 'unverified_cross_arch' };
     const data = path.join(scratch, 'isolated-data');
     const config = path.join(scratch, 'isolated-config');
     await Promise.all([mkdir(data), mkdir(config)]);
@@ -119,7 +167,8 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
     const server = path.join(scratch, 'domios-server', metadata.server);
     const cli = path.join(scratch, 'cli', metadata.cli);
     for (const file of [server, cli]) if (!(await lstat(file)).isFile()) fail('packaged executable is missing');
-    child = spawn(server, ['start', '--verify-isolated', '--data-dir', data, '--config-dir', config, '--port', String(port)],
+    const command = targetCommand(server, ['start', '--verify-isolated', '--data-dir', data, '--config-dir', config, '--port', String(port)], execution);
+    child = spawn(command.binary, command.args,
       { cwd: scratch, env: { ...process.env, CODETERM_API_PORT: '', CODETERM_DATA_DIR: data },
         stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     const deadline = deadlineSignal(30000);
@@ -132,13 +181,13 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
       CODETERM_API_TOKEN: token, CODETERM_INSTANCE: `verify-smoke-${nonce}`,
       CODETERM_SOCKET_PATH: `codeterm-dev-verify-smoke-${nonce}.sock` };
     delete env.CODETERM_API_PORT;
-    const identity = await runCli(cli, env, deadline);
+    const identity = await runCli(cli, env, deadline, execution);
     if (identity.cli?.build_sha !== sourceSha || identity.connection?.instance !== `verify-smoke-${nonce}`) {
       fail('packaged CLI identity differs from source or isolated instance');
     }
     child.stdin.end();
     if (await waitForExit(child, deadline) !== 0) fail('isolated packaged server did not exit cleanly');
-    return { target, sourceSha, serverBuild: manifest.server_build, port, health: 'passed', authenticatedCli: 'passed', shutdown: 'clean' };
+    return { ...receipt, status: 'passed', port, health: 'passed', authenticatedCli: 'passed', shutdown: 'clean' };
   } finally {
     if (child && child.exitCode === null) {
       child.kill();
@@ -151,6 +200,6 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [target, tag, sourceSha, stageDirectory, outputDirectory] = process.argv.slice(2);
   smokePackagedPair({ target, tag, version: tag?.slice(1), sourceSha, stageDirectory, outputDirectory })
-    .then(result => process.stdout.write(JSON.stringify(result) + '\n'))
+    .then(async result => { await recordSmokeReceipt(result, outputDirectory); process.stdout.write(JSON.stringify(result) + '\n'); })
     .catch(error => { process.stderr.write('release pair smoke refused: ' + error.message + '\n'); process.exitCode = 1; });
 }
