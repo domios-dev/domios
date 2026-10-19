@@ -193,7 +193,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Clear incomplete release uploads for retry
-        if: ${{ github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows platforms') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
@@ -375,7 +375,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Publish per-platform updater fragment
-        if: ${{ github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows platforms') && !inputs.dry_run }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -424,7 +424,7 @@ jobs:
 
       # Mirror the updater bundle so the caller can publish the manifest after all builds pass.
       - name: Mirror to public release repo
-        if: ${{ inputs.mirror && github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ inputs.mirror && !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows platforms') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -444,7 +444,7 @@ jobs:
           gh release upload "$env:TAG" "$bundle" --clobber --repo "$env:MIRROR_REPO"
 
       - name: Publish and read back headless source assets
-        if: ${{ github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows platforms') && !inputs.dry_run }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -453,7 +453,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Publish and read back headless mirror assets
-        if: ${{ inputs.mirror && github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ inputs.mirror && !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows platforms') && !inputs.dry_run }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}

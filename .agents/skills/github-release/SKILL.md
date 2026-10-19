@@ -16,7 +16,8 @@ Linux `tauri build --no-bundle` overrides resources and externalBin with empty a
 The following `tauri bundle` uses the full platform resource map; never carry that compile-only override into packaging.
 
 For one platform concern, dispatch `release-linux.yml`, `release-windows.yml` or `release-macos-build.yml`
-with the exact `source_ref`, version tag and one architecture. Direct dispatch always forbids release asset mutation;
+with the exact `source_ref`, version tag and one architecture. The event plus workflow name distinguishes direct dispatch
+from a manually dispatched release caller. Direct dispatch always forbids release asset mutation;
 use `dry_run=true`, `mirror=false`. Dispatch `tests.yml` with `phase=fast` for checks without the Rust suite.
 
 ## Branches and the release flow (since 1.14.4)

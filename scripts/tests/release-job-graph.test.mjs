@@ -54,8 +54,15 @@ test('direct platform dispatch is scoped and cannot mutate release assets', () =
     for (const step of platform.jobs.build.steps) {
       if (/gh release upload|release-clear-wedged-assets|release-upload-assets|release-headless-assets\.mjs publish|release-publish-platform/.test(step.run || '') &&
           !step.env?.RELEASE_VERIFY_ONLY) {
-        assert.match(step.if || '', /github\.event_name != 'workflow_dispatch'/, `${name}: ${step.name}`);
+        assert.match(step.if || '', /!\(github\.event_name == 'workflow_dispatch' && github\.workflow == '/, `${name}: ${step.name}`);
         assert.match(step.if, /!inputs\.dry_run/, `${name}: ${step.name}`);
+        const condition = step.if.replace(/^\$\{\{\s*|\s*\}\}$/g, '');
+        const evaluate = new Function('github', 'inputs', `return (${condition});`);
+        const direct = { event_name: 'workflow_dispatch', workflow: platform.name };
+        const caller = { event_name: 'workflow_dispatch', workflow: release.name };
+        assert.equal(evaluate(direct, { dry_run: false, mirror: true }), false, `${name}: direct dispatch refuses publication`);
+        assert.equal(evaluate(caller, { dry_run: false, mirror: true }), true, `${name}: manual release caller can publish`);
+        assert.equal(evaluate(caller, { dry_run: true, mirror: true }), false, `${name}: manual release dry run refuses publication`);
       }
     }
   }
