@@ -217,10 +217,11 @@ impl ProviderBinaryWatchers {
 mod tests;
 
 fn touches_any(event: &Event, targets: &[PathBuf]) -> bool {
-    event
-        .paths
-        .iter()
-        .any(|path| targets.iter().any(|target| path == target))
+    event.paths.iter().any(|path| {
+        targets
+            .iter()
+            .any(|target| target == path || target.starts_with(path))
+    })
 }
 
 /// Re-probe without the TTL after a declared catalogue input changes.
