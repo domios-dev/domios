@@ -6,7 +6,7 @@ use codeterm_types::agent::role_kind::builtins;
 
 use crate::multiplexer::types::AgentRole;
 use crate::service::orchestrator::role_onboarding_task;
-use crate::service::persona::{deliver, guidance_for, Occasion};
+use crate::service::persona::{Occasion, deliver, guidance_for};
 
 /// The launch assignment decoration as it read before the occasion table
 /// existed, applied to the kind Task 1 resolves rather than the raw stored
@@ -72,10 +72,14 @@ fn pre_table_raw_profile_assignment(
 fn legacy_agent_system_prompt(assignment: Option<&str>) -> String {
     let mut sections = vec![
         crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string(),
+        crate::prompts::AGENT_ROUTING_CONTRACT.trim().to_string(),
+    ];
+    sections.extend(crate::service::plugin_prompt::built_in_plugins_section());
+    sections.extend([
         crate::prompts::UTILITY_TAB_GUIDANCE.trim().to_string(),
         crate::prompts::AGENT_PAD_RULE.trim().to_string(),
         crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string(),
-    ];
+    ]);
     if let Some(assignment) = assignment.filter(|text| !text.trim().is_empty()) {
         sections.push(format!("## Assignment\n\n{assignment}"));
     }
@@ -86,10 +90,14 @@ fn legacy_worker_system_prompt(assignment: Option<&str>) -> String {
     let (identity, assignment) = assignment
         .map(crate::service::plan::worker_identity::split_worker_identity)
         .unwrap_or((None, ""));
-    let mut sections = vec![identity
-        .unwrap_or(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY)
-        .to_string()];
+    let mut sections = vec![
+        identity
+            .unwrap_or(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY)
+            .to_string(),
+    ];
     sections.push(crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string());
+    sections.push(crate::prompts::AGENT_ROUTING_CONTRACT.trim().to_string());
+    sections.extend(crate::service::plugin_prompt::built_in_plugins_section());
     sections.push(crate::prompts::WORKER_CODETERM_CONTEXT.trim().to_string());
     sections.push(crate::prompts::AGENT_PAD_RULE.trim().to_string());
     sections.push(crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string());
