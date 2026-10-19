@@ -77,8 +77,7 @@ export function TabContent({
   const restore = restoreStageView(tab, wake);
   const sleepingTranscript = hasSleepingTranscript(tab) && restore.phase !== "ready";
   const showRestore = !sleepingTranscript && restorePanelOwnsBody(tab, wake, restore);
-  const restorePanel = <RestoreStatePanel providerId={tab.agent_type ?? (tab.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null)}
-    view={restore} />;
+  const restorePanel = <RestoreStatePanel view={restore} />;
 
   if (isFirstRunGeneralTab(tab)) {
     return (

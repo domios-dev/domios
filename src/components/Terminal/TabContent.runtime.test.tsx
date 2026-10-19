@@ -332,12 +332,12 @@ it("projects sleeping, restoring and failed snapshots without a wake control", a
   document.body.append(host);
   const root = createRoot(host);
   const render = (tab: Partial<Tab>) => act(async () => root.render(
-    <RestoreStatePanel providerId="fixture" view={restoreStageView(tab)} />,
+    <RestoreStatePanel view={restoreStageView(tab)} />,
   ));
   try {
     await render({ frozen: true });
     expect(host.querySelector('[role="status"][aria-label="Sleeping"]')).not.toBeNull();
-    expect(host.querySelector('[role="img"][aria-label="Session provider icon"]')).not.toBeNull();
+    expect(host.querySelector(".brand-mark")).not.toBeNull();
     await render({ frozen: false, boot_stage: "pty_starting" });
     expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).not.toBeNull();
     await render({ frozen: false, boot_stage: "spawn_failed", boot_failure_reason: "fixture-error" });
