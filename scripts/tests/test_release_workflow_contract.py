@@ -115,7 +115,10 @@ class SingleRunGraphTest(unittest.TestCase):
             "release-windows.yml",
             "release-manifest-validate.yml",
         ):
-            self.assertEqual(triggers(read(name)), {"workflow_call"}, name)
+            expected = {"workflow_call"}
+            if name in {"release-macos-build.yml", "release-linux.yml", "release-windows.yml"}:
+                expected.add("workflow_dispatch")
+            self.assertEqual(triggers(read(name)), expected, name)
 
     def test_platform_jobs_run_in_parallel_before_the_final_manifest_job(self):
         caller = read("release.yml")
