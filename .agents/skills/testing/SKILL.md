@@ -108,8 +108,8 @@ above baseline + max(20%, 0.25 seconds); smaller increases warn.
 its exact identities and recorded times may only shrink against the base ref.
 Release CI skips the serial reruns (they took ~10 minutes, longer than the suite):
 `--policy advisory` without `--alone` prints each candidate's parallel timing against
-its limit as a warning and fails only on baseline-file errors. PR, master and
-nightly runs keep enforcement with serial confirmation.
+its limit as a warning and fails only on baseline-file errors. Local `build.sh nextest`
+defaults to advisory too; CI jobs that enforce pass `--policy enforce` explicitly.
 
 ```bash
 node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --candidates CANDIDATES_JSON [--base REF]

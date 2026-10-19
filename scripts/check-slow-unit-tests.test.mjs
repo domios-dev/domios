@@ -95,10 +95,10 @@ describe('build nextest ratchet', () => {
     assert.match(compile[0], /--lib -p codeterm-input-macos -p codeterm-input-windows/);
     assert.doesNotMatch(compile[0], /--workspace|-p codeterm(?: |$)/);
   });
-  test('rejects a new slow unit', () => {
+  test('warns about a new slow unit without failing the run', () => {
     const slow = run(output('PASS', 1.251), 0);
-    assert.equal(slow.status, 1);
-    assert.match(slow.stderr, /new slow unit/);
+    assert.equal(slow.status, 0);
+    assert.match(slow.stdout, /ADVISORY: new slow unit/);
   });
   test('preserves a failed test exit', () => assert.equal(run(output('FAIL', 0.2), 100).status, 100));
   test('preserves a compilation failure exit', () => assert.equal(run('compiler failed\n', 100).status, 100));
