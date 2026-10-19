@@ -41,6 +41,7 @@ macro_rules! embedded_docs {
 }
 
 const DOCS: &[EmbeddedDoc] = embedded_docs![
+    "API-LIFECYCLE",
     "SPINAL-CORD",
     "BLUEPRINTS",
     "BLUEPRINT-RECIPES",
@@ -62,6 +63,8 @@ const DOCS: &[EmbeddedDoc] = embedded_docs![
     "API-SERVICES",
     "API-STATE",
     "API-AGENTS",
+    "API-SPAWN",
+    "PROVIDER-SWITCH",
     "API-TEAMS",
     "API-TRANSPORT",
     "API-CLI",
