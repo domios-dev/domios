@@ -57,7 +57,7 @@ fn fixture() -> (ServiceFixture, String, PathBuf) {
     let mut fixture = ServiceFixture::new(mux);
     fixture.service.secrets = store();
     let id = format!("endpoint-harness-{}", uuid::Uuid::new_v4());
-    let path = fixture.temp.path().join("opencode.json");
+    let path = fixture.temp.path().join("config.json");
     fixture
         .service
         .agent_registry
@@ -116,7 +116,20 @@ fn agent_models_lists_endpoint_added_after_stale_harness_snapshot() {
 #[test]
 fn model_provider_add_refuses_harness_id_before_config_or_secret_write() {
     let (fixture, harness, path) = fixture();
-    let error = add(&fixture.service, &harness, &harness, "qa-collision-model").unwrap_err();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(EndpointHarness {
+            id: "fixture-other-harness".into(),
+            adapter: Arc::new(adapter(path.clone())),
+        }));
+    let error = add(
+        &fixture.service,
+        &harness,
+        "fixture-other-harness",
+        "qa-collision-model",
+    )
+    .unwrap_err();
     assert_eq!(serde_json::to_value(error).unwrap(), "harness_id_collision");
     assert!(!path.exists());
     assert!(crate::async_runtime::block_on(async {
@@ -125,10 +138,20 @@ fn model_provider_add_refuses_harness_id_before_config_or_secret_write() {
             .secrets
             .read()
             .await
-            .get(&format!("dummy/{harness}"))
+            .get("dummy/fixture-other-harness")
             .await
     })
     .is_err());
+    let request = serde_json::from_value(json!({"action":"add_from_secret", "provider": {
+        "id": harness, "kind":"openai-compatible", "baseUrl":"http://127.0.0.1:9/v1", "models":["qa-collision-model"]
+    }, "source_secret":"absent-secret"})).unwrap();
+    assert_eq!(
+        fixture
+            .service
+            .model_provider_command(Some(&harness), request)
+            .unwrap_err(),
+        ModelProviderError::HarnessIdCollision
+    );
     model_catalog::unregister(&harness);
 }
 
@@ -169,5 +192,17 @@ fn agent_spawn_model_resolves_endpoint_model_outside_stale_harness_snapshot() {
         resolved.provider_resolved_model.as_deref(),
         Some("qa-review-endpoint/qa-route-model")
     );
+    let error = spawn::resolve_agent_model_selection(
+        &fixture.service.agent_registry,
+        Some(&harness),
+        Some("qa-review-endpoint/absent-model"),
+        &harness,
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.valid_model_ids,
+        vec!["qa-review-endpoint/qa-route-model"]
+    );
+    assert!(error.ambiguous_providers.is_empty());
     model_catalog::unregister(&harness);
 }
