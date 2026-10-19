@@ -296,7 +296,7 @@ fn qa_pass_rejects_live_competition_and_superseded_replacement_without_mutation(
             &plan.id,
             &task_id,
             TaskRespawnRequest {
-                attempt_id: winner.attempt.id.clone(),
+                attempt_id: peer.attempt.id.clone(),
                 ..Default::default()
             },
         )

@@ -114,12 +114,16 @@ mod tests {
                 2,
             )
             .unwrap();
+        store
+            .assign_task(&plan.id, &task_id, "source-tab", None, 2)
+            .unwrap();
+        let source_attempt = store.show_task(&task_id).unwrap().task.execution_attempts[0].clone();
         let draft = crate::service::plan::task_attempts::TaskRespawnDraft {
             plan_id: plan.id.clone(),
             task_id: task_id.clone(),
             execution_intent: crate::plan::ExecutionIntent::Mutating,
             attempt_id: "attempt-respawn".into(),
-            source_attempt: Default::default(),
+            source_attempt,
             provider: "claude".into(),
             planned_model: None,
             model: None,

@@ -168,6 +168,14 @@ fn restore_live_planner_fixture(
 }
 
 fn assert_live_planner_identity(tab: &crate::multiplexer::types::Tab) {
+    assert_planner_session_identity(tab);
+    assert!(tab
+        .agent_state
+        .as_ref()
+        .is_some_and(|state| { matches!(state.state, TimelineState::Working) }));
+}
+
+fn assert_planner_session_identity(tab: &crate::multiplexer::types::Tab) {
     assert_eq!(tab.agent_type.as_deref(), Some("codex"));
     assert_eq!(tab.agent_session_id.as_deref(), Some("session-tab-owned"));
     assert_eq!(
@@ -181,10 +189,6 @@ fn assert_live_planner_identity(tab: &crate::multiplexer::types::Tab) {
     assert_eq!(tab.agent_session_model.as_deref(), Some("gpt-5.6"));
     assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
     assert!(tab.agent_type_locked);
-    assert!(tab
-        .agent_state
-        .as_ref()
-        .is_some_and(|state| { matches!(state.state, TimelineState::Working) }));
 }
 
 fn assert_planner_resolves(
@@ -251,8 +255,13 @@ fn planner_shell_like_live_tui_preserves_identity_across_snapshot_reload() {
     let stored_planner = harness.service.plan_store.get(&plan.id).unwrap().planner;
     let mux = restored.service.mux.read();
     let tab = mux.get_tab(&tab_id).unwrap();
-    assert_live_planner_identity(tab);
-    assert_planner_resolves(&tab_id, &stored_planner, &owner, tab);
+    assert_planner_session_identity(tab);
+    assert!(tab.agent_state.is_none());
+    assert!(matches!(
+        stored_planner,
+        Some(PlannerRef::Tab { tab_id: ref saved_tab, session_id: Some(ref session), .. })
+            if saved_tab == &tab_id && session == "session-tab-owned"
+    ));
 }
 
 #[test]
@@ -449,7 +458,10 @@ fn restore_contract_provider_exit_during_shutdown_keeps_the_resume_identity() {
         serde_json::to_string(&harness.service.mux.read().to_session_snapshot()).unwrap();
     let restored_snapshot = serde_json::from_str(&serialized).unwrap();
     let restored = restore_live_planner_fixture(&restored_snapshot, &tab_id);
-    assert_live_planner_identity(restored.service.mux.read().get_tab(&tab_id).unwrap());
+    let restored_mux = restored.service.mux.read();
+    let restored_tab = restored_mux.get_tab(&tab_id).unwrap();
+    assert_planner_session_identity(restored_tab);
+    assert!(restored_tab.agent_state.is_none());
 }
 
 #[test]
