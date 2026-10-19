@@ -163,11 +163,29 @@ fn loss_from_task(plan: &Plan, task: &Task, tab_id: &str, cause: WorkerLossCause
         .or_else(|| task.lane.branch.clone())
         .filter(|branch| !branch.trim().is_empty());
     let attempt_id = attempt.map(|attempt| attempt.id.clone());
+    let live_replacement = attempt.and_then(|source| {
+        let source_index = task
+            .execution_attempts
+            .iter()
+            .rposition(|candidate| candidate.id == source.id)?;
+        task.execution_attempts[source_index + 1..]
+            .iter()
+            .rev()
+            .find(|candidate| candidate.closed_at.is_none())
+    });
+    let recovery = live_replacement
+        .map(|replacement| {
+            format!(
+                "replacement attempt {} is already live on tab {}",
+                replacement.id, replacement.executor_tab_id
+            )
+        })
+        .unwrap_or_else(|| recovery_command(&plan.id, &task.id, attempt_id.as_deref()));
     WorkerLoss {
         plan_id: plan.id.clone(),
         task_id: task.id.clone(),
         task_name: task.name.clone(),
-        recovery: recovery_command(&plan.id, &task.id, attempt_id.as_deref()),
+        recovery,
         attempt_id,
         worker_tab_id: tab_id.to_string(),
         orchestrator_tab_id: plan.owner.tab_id.clone().filter(|owner| owner != tab_id),

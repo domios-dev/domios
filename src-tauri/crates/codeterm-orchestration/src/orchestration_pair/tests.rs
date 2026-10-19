@@ -29,6 +29,32 @@ fn pair_title_is_persisted_on_the_team_record() {
 }
 
 #[test]
+fn pair_bootstrap_identity_uses_the_named_live_team_after_title_binding() {
+    let (mut mux, _, mut reserved) = reserved_pair();
+    let opaque_team_id = reserved.team.id.clone();
+    assert!(!opaque_team_id.is_empty());
+
+    apply_reserved_team_title(&mut mux, &mut reserved, "Opaque Research Team").unwrap();
+    let bootstrap = codeterm_service_core::service::spawn_factory::forming_identity_in_team(
+        "Orchestrator",
+        "orchestrator",
+        "opaque-project".into(),
+        &reserved.team,
+    );
+    let prompt = bootstrap.compose();
+
+    assert_eq!(bootstrap.team_id, opaque_team_id);
+    assert_eq!(bootstrap.team_name, "Opaque Research Team");
+    assert!(prompt.contains(&opaque_team_id));
+    assert!(prompt.contains("Opaque Research Team"));
+    assert!(!prompt.contains("Unnamed Team"));
+    assert_eq!(
+        mux.get_team(&opaque_team_id).unwrap().name.as_deref(),
+        Some("Opaque Research Team")
+    );
+}
+
+#[test]
 fn pair_spawn_creates_no_plan_until_first_goal() {
     let (_root, store) = store_for_test();
     assert!(

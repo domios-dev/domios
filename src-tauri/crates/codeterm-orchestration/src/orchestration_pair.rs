@@ -260,6 +260,16 @@ fn release_minted_pair_team(
     );
 }
 
+fn apply_reserved_team_title(
+    mux: &mut codeterm_service_core::multiplexer::state::MultiplexerState,
+    reserved: &mut ReservedPairTabs,
+    title: &str,
+) -> Result<(), String> {
+    apply_team_title(mux, &reserved.team.id, Some(title))?;
+    reserved.team.name = title.trim().to_string();
+    Ok(())
+}
+
 fn reserved_member_tab_ids(reserved: &ReservedPairTabs) -> Vec<String> {
     vec![
         reserved.orchestrator_tab_id.clone(),
@@ -594,7 +604,7 @@ impl OrchestrationPairExt for ServiceContext {
         );
         let reserved = {
             let mut mux = self.mux.write();
-            let reserved = reserve_pair_tabs(
+            let mut reserved = reserve_pair_tabs(
                 &mut mux,
                 &workspace_id,
                 params.existing_tab_id.as_deref(),
@@ -607,7 +617,7 @@ impl OrchestrationPairExt for ServiceContext {
                 .map(str::trim)
                 .filter(|v| !v.is_empty())
             {
-                apply_team_title(&mut mux, &reserved.team.id, Some(title))?;
+                apply_reserved_team_title(&mut mux, &mut reserved, title)?;
             }
             reserved
         };
