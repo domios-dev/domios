@@ -719,6 +719,10 @@ var rows = (value) => Array.isArray(value) ? value.map(row) : [];
 var text = (value) => typeof value === "string" ? value : null;
 var CODEX_CLOUD_ACCOUNT_REF = "codexAuth";
 var CLOUD_SIGN_IN_REASON = "Sign in to Codex to use Cloud environments.";
+function cloudTaskPath(environmentId, taskId) {
+  const taskPath = environmentId.startsWith("asenvcfg_") ? "/api/codex/tasks" : "/wham/tasks";
+  return taskId === void 0 ? taskPath : `${taskPath}/${encodeURIComponent(taskId)}`;
+}
 function cloudEnvironmentList(value) {
   if (!Array.isArray(value)) throw new Error("Cloud environment response is invalid");
   return value.flatMap((entry) => {
@@ -727,6 +731,26 @@ function cloudEnvironmentList(value) {
     const label = text(environment.label) ?? id;
     return id && label ? [{ id, label, accountRef: CODEX_CLOUD_ACCOUNT_REF }] : [];
   });
+}
+function cloudEnvironmentConfigList(value) {
+  const response = row(value);
+  const data = row(response.data);
+  const collection = Array.isArray(value) ? value : [
+    response.items,
+    response.environmentConfigs,
+    response.environment_configs,
+    data.items,
+    data.environmentConfigs,
+    data.environment_configs
+  ].find(Array.isArray);
+  if (!Array.isArray(collection)) throw new Error("Codex Cloud settings response is invalid");
+  const environments = rows(collection).flatMap((environment) => {
+    const id = text(environment.id) ?? text(environment.environmentConfigId) ?? text(environment.environment_config_id);
+    const label = text(environment.name) ?? text(environment.displayName) ?? text(environment.display_name) ?? text(environment.label) ?? id;
+    return id && label ? [{ id, label, accountRef: CODEX_CLOUD_ACCOUNT_REF }] : [];
+  });
+  if (collection.length > 0 && environments.length === 0) throw new Error("Codex Cloud settings response is invalid");
+  return environments;
 }
 function cloudTaskRequest(environmentId, branch, prompt) {
   return {
@@ -767,14 +791,14 @@ function cloudTaskBackend(capability, transport) {
     capability,
     environments: () => capability.environments,
     create(input) {
-      const response = row(transport.request("POST", "/wham/tasks", input.accountRef, cloudTaskRequest(input.environmentId, input.branch, input.prompt)));
+      const response = row(transport.request("POST", cloudTaskPath(input.environmentId), input.accountRef, cloudTaskRequest(input.environmentId, input.branch, input.prompt)));
       const taskId = text(row(response.task).id) ?? text(response.id);
       if (!taskId) throw new Error("Cloud did not acknowledge a task identity");
       return { taskId };
     },
     read(binding) {
       if (!binding.snapshot) throw new Error("Cloud task identity is missing");
-      return cloudTaskSnapshot(transport.request("GET", `/wham/tasks/${encodeURIComponent(binding.snapshot.taskId)}`, binding.accountRef), binding);
+      return cloudTaskSnapshot(transport.request("GET", cloudTaskPath(binding.environmentId, binding.snapshot.taskId), binding.accountRef), binding);
     }
   };
 }
@@ -865,6 +889,8 @@ function remoteChatBackend(storage, backend, providerId) {
 var CODEX_AUTH_CREDENTIAL = "codexAuth";
 var CODEX_ACCOUNT_HEADER = "ChatGPT-Account-Id";
 var CLOUD_BASE_URL = "https://chatgpt.com/backend-api";
+var SETTINGS_BASE_URL = "https://chatgpt.com";
+var SETTINGS_ENVIRONMENTS_PATH = "/api/codex-cloud/v1/environment-configs?scope=user&limit=100&omitDraft=true";
 var REPOSITORY_ENVIRONMENTS_PATH = "/wham/environments/by-repo/github/rollacode/codeterm";
 var ENVIRONMENTS_PATH = "/wham/environments";
 var REQUEST_FAILURE = "Codex Cloud request failed.";
@@ -897,20 +923,27 @@ function readBody(response) {
     throw new CloudTransportError();
   }
 }
+function isCodexTaskPath(method, path) {
+  if (method === "POST") return path === "/api/codex/tasks";
+  return path === "/api/codex/tasks/list" || /^\/api\/codex\/tasks\/list\?[^#]*$/.test(path) || /^\/api\/codex\/tasks\/[A-Za-z0-9._-]+$/.test(path);
+}
 function createCodexCloudTransport(host2) {
   const request2 = (method, path, accountRef, body) => {
-    if (accountRef !== CODEX_CLOUD_ACCOUNT_REF || !path.startsWith("/wham/")) throw new CloudTransportError();
+    const settingsRequest = method === "GET" && path === SETTINGS_ENVIRONMENTS_PATH;
+    const legacyRequest = path.startsWith("/wham/");
+    const codexTaskRequest = isCodexTaskPath(method, path);
+    if (accountRef !== CODEX_CLOUD_ACCOUNT_REF || !settingsRequest && !legacyRequest && !codexTaskRequest) throw new CloudTransportError();
     const accountId = publicAccountId(host2);
     let result;
     try {
       result = JSON.parse(host2.fetch(JSON.stringify({
-        url: `${CLOUD_BASE_URL}${path}`,
+        url: `${settingsRequest || codexTaskRequest ? SETTINGS_BASE_URL : CLOUD_BASE_URL}${path}`,
         method,
         timeoutMs: 6e3,
         headers: {
           [CODEX_ACCOUNT_HEADER]: accountId,
           "Content-Type": "application/json",
-          "User-Agent": "codeterm-codex-cloud/1.14.46"
+          "User-Agent": "codeterm-codex-cloud/1.14.47"
         },
         ...body === void 0 ? {} : { body: JSON.stringify(body) },
         credential: {
@@ -929,6 +962,12 @@ function createCodexCloudTransport(host2) {
   };
   const discoverRemoteTask = () => {
     try {
+      try {
+        const settingsEnvironments = cloudEnvironmentConfigList(request2("GET", SETTINGS_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+        if (settingsEnvironments.length > 0) return { availability: { status: "available" }, environments: settingsEnvironments };
+      } catch (error) {
+        if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
+      }
       let repoEnvironments = null;
       try {
         repoEnvironments = cloudEnvironmentList(request2("GET", REPOSITORY_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));

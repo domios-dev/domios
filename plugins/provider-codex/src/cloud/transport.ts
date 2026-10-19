@@ -1,10 +1,12 @@
 import type {Host} from "@codeterm/plugin-sdk";
-import {CLOUD_SIGN_IN_REASON, CODEX_CLOUD_ACCOUNT_REF, cloudEnvironmentList, type CloudTaskTransport} from "./backend";
+import {CLOUD_SIGN_IN_REASON, CODEX_CLOUD_ACCOUNT_REF, cloudEnvironmentConfigList, cloudEnvironmentList, type CloudTaskTransport} from "./backend";
 import type {RemoteTaskDiscovery} from "../../../../packages/plugin-sdk/src/remoteTasks";
 
 const CODEX_AUTH_CREDENTIAL = "codexAuth";
 const CODEX_ACCOUNT_HEADER = "ChatGPT-Account-Id";
 const CLOUD_BASE_URL = "https://chatgpt.com/backend-api";
+const SETTINGS_BASE_URL = "https://chatgpt.com";
+const SETTINGS_ENVIRONMENTS_PATH = "/api/codex-cloud/v1/environment-configs?scope=user&limit=100&omitDraft=true";
 const REPOSITORY_ENVIRONMENTS_PATH = "/wham/environments/by-repo/github/rollacode/codeterm";
 const ENVIRONMENTS_PATH = "/wham/environments";
 const REQUEST_FAILURE = "Codex Cloud request failed.";
@@ -43,20 +45,30 @@ function readBody(response: Row): unknown {
   }
 }
 
+function isCodexTaskPath(method: "GET" | "POST", path: string): boolean {
+  if (method === "POST") return path === "/api/codex/tasks";
+  return path === "/api/codex/tasks/list"
+    || /^\/api\/codex\/tasks\/list\?[^#]*$/.test(path)
+    || /^\/api\/codex\/tasks\/[A-Za-z0-9._-]+$/.test(path);
+}
+
 export function createCodexCloudTransport(host: Host): CloudTaskTransport {
   const request = (method: "GET" | "POST", path: string, accountRef: string, body?: unknown): unknown => {
-    if (accountRef !== CODEX_CLOUD_ACCOUNT_REF || !path.startsWith("/wham/")) throw new CloudTransportError();
+    const settingsRequest = method === "GET" && path === SETTINGS_ENVIRONMENTS_PATH;
+    const legacyRequest = path.startsWith("/wham/");
+    const codexTaskRequest = isCodexTaskPath(method, path);
+    if (accountRef !== CODEX_CLOUD_ACCOUNT_REF || (!settingsRequest && !legacyRequest && !codexTaskRequest)) throw new CloudTransportError();
     const accountId = publicAccountId(host);
     let result: unknown;
     try {
       result = JSON.parse(host.fetch(JSON.stringify({
-        url: `${CLOUD_BASE_URL}${path}`,
+        url: `${settingsRequest || codexTaskRequest ? SETTINGS_BASE_URL : CLOUD_BASE_URL}${path}`,
         method,
         timeoutMs: 6000,
         headers: {
           [CODEX_ACCOUNT_HEADER]: accountId,
           "Content-Type": "application/json",
-          "User-Agent": "codeterm-codex-cloud/1.14.46",
+          "User-Agent": "codeterm-codex-cloud/1.14.47",
         },
         ...(body === undefined ? {} : {body: JSON.stringify(body)}),
         credential: {
@@ -76,6 +88,13 @@ export function createCodexCloudTransport(host: Host): CloudTaskTransport {
 
   const discoverRemoteTask = (): RemoteTaskDiscovery => {
     try {
+      try {
+        const settingsEnvironments = cloudEnvironmentConfigList(request("GET", SETTINGS_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+        if (settingsEnvironments.length > 0) return {availability: {status: "available"}, environments: settingsEnvironments};
+      } catch (error) {
+        if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
+      }
+
       let repoEnvironments: ReturnType<typeof cloudEnvironmentList> | null = null;
       try {
         repoEnvironments = cloudEnvironmentList(request("GET", REPOSITORY_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
