@@ -215,11 +215,9 @@ pub(super) fn git_command() -> Command {
     command
 }
 
-fn git_non_interactive_error(stderr: &str) -> String {
-    format!(
-        "git_non_interactive: git ran non-interactively with credential prompts disabled: {}",
-        stderr.trim()
-    )
+pub(super) fn git_non_interactive_error(stderr: &str) -> String {
+    log::warn!("plugin channel git operation failed: {}", stderr.trim());
+    "Plugin updates are unavailable right now; Domios will retry".to_string()
 }
 
 #[cfg(windows)]
