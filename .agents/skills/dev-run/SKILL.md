@@ -28,6 +28,12 @@ Start `domios-front` first; the window shows the branded loader and retries unti
 answers. Restarting either tab never stops the other. Plain `./build.sh dev` still runs
 everything in one tab with the production-mode bundle watcher.
 
+A Domios restart (self-install, daemon crash) ends both tab commands. Restart `domios-front`
+before `domios-back`: with Vite down the DEV window keeps Reconnecting, re-attaching every few
+seconds (the server log repeats `native integrity hash` while `client-startup.log` cycles
+through `native_enrollment`), because its configured development frontend refuses the probe.
+Prod has no development frontend, so the same build reaches the interface there.
+
 `dev-back` launches the window detached and returns once it is ready. On Windows the launch
 leaves the tab's kill-on-close job (Team `dev` tabs allow it), so a `domios-back` restart keeps
 the window. A rerun with a live window builds beside it: the window locks its executable, so a
