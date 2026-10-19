@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::multiplexer::types::{ClosedTab, TabBacking};
 mod structures;
 
-const CURRENT_CLOSED_SCHEMA_VERSION: u32 = 5;
+const CURRENT_CLOSED_SCHEMA_VERSION: u32 = 6;
 
 /// Per-workspace cap on retained closed tabs; oldest fall off once exceeded.
 pub const RECENTLY_CLOSED_CAP: usize = 1000;
@@ -258,6 +258,10 @@ impl ClosedTabsStore {
                     conn.execute_batch("ALTER TABLE closed_tab ADD COLUMN launch_json TEXT NOT NULL DEFAULT '{}'; PRAGMA user_version = 5;")?;
                     version = 5;
                 }
+                5 => {
+                    conn.execute_batch("ALTER TABLE closed_tab ADD COLUMN runtime_config_json TEXT; PRAGMA user_version = 6;")?;
+                    version = 6;
+                }
                 CURRENT_CLOSED_SCHEMA_VERSION => return Ok(()),
                 _ => return Err(rusqlite::Error::InvalidQuery),
             }
@@ -295,7 +299,8 @@ impl ClosedTabsStore {
                 workspace_name   TEXT NOT NULL DEFAULT '',
                 closed_at        INTEGER NOT NULL DEFAULT 0,
                 worker_id        TEXT,
-                launch_json      TEXT NOT NULL DEFAULT '{}'
+                launch_json      TEXT NOT NULL DEFAULT '{}',
+                runtime_config_json TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_closed_tab_workspace
@@ -305,7 +310,7 @@ impl ClosedTabsStore {
             CREATE INDEX IF NOT EXISTS idx_closed_tab_recent
                 ON closed_tab(closed_at DESC);
 
-            PRAGMA user_version = 5;
+            PRAGMA user_version = 6;
             "#,
         )
     }
@@ -375,12 +380,18 @@ impl ClosedTabsStore {
         for tab in tabs {
             let backing_json = serde_json::to_string(&tab.backing)
                 .unwrap_or_else(|_| r#"{"kind":"pty"}"#.to_string());
+            let runtime_config_json = tab
+                .agent_runtime_config
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(|e| e.to_string())?;
             tx.execute(
                 r#"
                 INSERT INTO closed_tab
                     (group_id, tab_id, parent_tab_id, title, description, backing_json,
-                     cwd, agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                     cwd, agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json, runtime_config_json)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
                 "#,
                 params![
                     group.group_id,
@@ -400,6 +411,7 @@ impl ClosedTabsStore {
                     tab.closed_at as i64,
                     tab.worker_id,
                     serde_json::to_string(&tab.restorable_launch).map_err(|e| e.to_string())?,
+                    runtime_config_json,
                 ],
             )
             .map_err(|e| format!("insert tab: {}", e))?;
@@ -486,7 +498,7 @@ impl ClosedTabsStore {
         let mut stmt = match conn.prepare(
             r#"
             SELECT tab_id, parent_tab_id, title, description, backing_json, cwd,
-                   agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json
+                   agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json, runtime_config_json
             FROM closed_tab
             WHERE workspace_id = ?1
             ORDER BY closed_at DESC, id DESC
@@ -514,7 +526,7 @@ impl ClosedTabsStore {
             r#"
             SELECT p.group_id, g.kind, p.tab_id, p.parent_tab_id, p.title, p.description,
                    p.backing_json, p.cwd, p.agent_type, p.agent_session_id, p.role_profile, p.model, p.chat_view,
-                   p.workspace_id, p.workspace_name, p.closed_at, p.worker_id, p.launch_json
+                   p.workspace_id, p.workspace_name, p.closed_at, p.worker_id, p.launch_json, p.runtime_config_json
             FROM closed_tab p
             JOIN closed_group g ON g.group_id = p.group_id
             ORDER BY p.closed_at DESC, p.id DESC
@@ -552,7 +564,7 @@ impl ClosedTabsStore {
         conn.query_row(
             r#"
                 SELECT id, tab_id, parent_tab_id, title, description, backing_json, cwd,
-                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json
+                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json, runtime_config_json
                 FROM closed_tab
                 WHERE workspace_id = ?1
                 ORDER BY closed_at DESC, id DESC
@@ -606,7 +618,7 @@ impl ClosedTabsStore {
         conn.query_row(
             r#"
                 SELECT id, tab_id, parent_tab_id, title, description, backing_json, cwd,
-                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json
+                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json, runtime_config_json
                 FROM closed_tab
                 WHERE tab_id = ?1
                 ORDER BY closed_at DESC, id DESC
@@ -655,7 +667,7 @@ impl ClosedTabsStore {
                 .prepare(
                     r#"
                     SELECT tab_id, parent_tab_id, title, description, backing_json, cwd,
-                           agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json
+                           agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json, runtime_config_json
                     FROM closed_tab WHERE group_id = ?1
                     ORDER BY id ASC
                     "#,
@@ -736,6 +748,11 @@ impl ClosedTabsStore {
                 .ok()
                 .and_then(|json| serde_json::from_str(&json).ok())
                 .unwrap_or_default(),
+            agent_runtime_config: r
+                .get::<_, Option<String>>(base + 16)
+                .ok()
+                .flatten()
+                .and_then(|json| serde_json::from_str(&json).ok()),
         }
     }
 }
