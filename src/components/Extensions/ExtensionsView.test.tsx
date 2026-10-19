@@ -383,6 +383,34 @@ test("opening Extensions refreshes a snapshot changed outside the view", async (
   cleanup();
 });
 
+test("a failed automatic refresh keeps the cached plugin catalogue quiet", async () => {
+  __resetPluginSnapshotStoreForTest();
+  let snapshotCalls = 0;
+  __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
+    if (cmd === "get_config") return { plugins: {} } as T;
+    if (cmd === "plugin_manager_snapshot") {
+      snapshotCalls++;
+      if (snapshotCalls === 1) return SNAPSHOT as T;
+      throw new Error("temporary catalogue refresh failure");
+    }
+    throw new Error(`unexpected invoke: ${cmd}`);
+  });
+  const { ExtensionsView } = await import("./ExtensionsView");
+  const props = { pluginActivities: new Map(), pluginActivityDisplayMap: new Map() };
+  const { host, root } = await render(<ExtensionsView visible {...props} />);
+  await flush();
+  await act(async () => root.render(<ExtensionsView visible={false} {...props} />));
+  await act(async () => root.render(<ExtensionsView visible {...props} />));
+  await flush();
+
+  assert(snapshotCalls === 2, "reopening requests one fresh snapshot");
+  assert(host.querySelector('[role="alert"]') === null, "failed automatic refresh does not create an alert");
+  assert(host.querySelector('[data-channel-name="lab"]'), "cached catalogue rows remain available");
+
+  await act(async () => root.unmount());
+  cleanup();
+});
+
 test("submitting Add channel calls add-channel then refresh-channel and renders cached snapshot", async () => {
   const { host, root, calls } = await renderExtensions();
   await openChannels(host);
@@ -482,6 +510,7 @@ test("refresh failure preserves cached rows and shows error", async () => {
   await flush();
 
   assert(host.querySelector('[data-testid="extensions-error"]'), "refresh failure should show extensions-error");
+  assert(host.querySelectorAll('[role="alert"]').length === 1, "a failed explicit refresh should show one accessible alert");
   assert(!host.querySelector('[data-testid="extensions-loading"]'), "refresh failure with cached rows should not fall back to first-load state");
   assert(host.querySelector('[data-channel-name="lab"]'), "cached rows should remain rendered after refresh failure");
   assert(!host.querySelector('[data-testid="plugin-error-toast"]'), "refresh failure should stay inline and not use toast state");

@@ -70,6 +70,8 @@ describe("provider CLI controls", () => {
   it("an unknown status offers a re-check that queries the CLI again", async () => {
     status = new Error("opaque probe failure");
     await act(async () => root.render(<ProviderCliControls providerId="fixture" />));
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('section[role="status"][aria-label]')).toBeNull();
     const recheck = button("Re-check CLI for fixture");
     expect(recheck).not.toBeNull();
     expect(host.querySelector('[aria-label="Install command"]')).toBeNull();
@@ -78,6 +80,15 @@ describe("provider CLI controls", () => {
     await act(async () => recheck!.click());
     expect(statusCalls()).toBe(before + 1);
     expect(button("Re-check CLI for fixture")).toBeNull();
+  });
+  it("shows one alert after an explicit re-check fails", async () => {
+    status = { ...missing, installed: null, availability: "unknown" };
+    await act(async () => root.render(<ProviderCliControls providerId="fixture" />));
+    const recheck = button("Re-check CLI for fixture");
+    expect(recheck).not.toBeNull();
+    status = new Error("opaque explicit re-check failure");
+    await act(async () => recheck!.click());
+    expect(host.querySelectorAll('section[role="status"][aria-label]')).toHaveLength(1);
   });
   it("dispatches the named install control once and shows the completion model", async () => {
     await act(async () => root.render(<ProviderCliControls providerId="fixture" />));

@@ -1,10 +1,10 @@
-import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { launchProviderInstaller } from "../../lib/providerInstall";
 import type { AppConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useModelPresets } from "../../hooks/useModelPresets";
 import { invoke } from "../../lib/bridge";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { setAgentSettings } from "../../lib/clientSettings";
 import {
@@ -83,24 +83,29 @@ export function NewSessionPicker({
   const hasRestoredRef = useRef(false);
   const remoteRefreshStartedRef = useRef(false);
 
+  const remoteProviderKey = providers
+    .filter((provider) => provider.remote_task)
+    .map((provider) => provider.id)
+    .join("\0");
   const refreshRemoteProviders = useCallback(async () => {
-    const remoteProviderIds = providers.filter((provider) => provider.remote_task).map((provider) => provider.id);
+    const remoteProviderIds = remoteProviderKey.split("\0").filter(Boolean);
     await Promise.all(remoteProviderIds.map(async (providerId) => {
       try {
         await invoke("refresh_provider_models", { providerId });
-      } catch {
+      } catch (error) {
+        if (DEV_BUILD) console.debug(`Remote provider model refresh failed for ${providerId}`, error);
         // Keep the cached descriptor visible; the next open or explicit refresh can retry.
       }
     }));
     refreshProviders();
-  }, [providers, refreshProviders]);
+  }, [remoteProviderKey, refreshProviders]);
 
   useEffect(() => {
     if (providersLoading || remoteRefreshStartedRef.current) return;
-    if (!providers.some((provider) => provider.remote_task)) return;
+    if (!remoteProviderKey) return;
     remoteRefreshStartedRef.current = true;
     void refreshRemoteProviders();
-  }, [providers, providersLoading, refreshRemoteProviders]);
+  }, [remoteProviderKey, providersLoading, refreshRemoteProviders]);
 
   useEffect(() => {
     if (visibleProviders.length === 0) return;
@@ -396,7 +401,6 @@ export function NewSessionPicker({
                   {presets.filter((preset) => preset.provider === choice.providerId).map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}
                 </select>
               </label>}
-              {presetsError && <InlineErrorNotice error={presetsError} operation="loading session presets" />}
               {choice.mode === "single" && <ExecutionLocationPicker provider={remote} location={location} environmentId={environmentId}
                 onLocation={next => setExecution({providerId: localId, location: next, environmentId})}
                 onEnvironment={id => setExecution({providerId: localId, location, environmentId: id})}

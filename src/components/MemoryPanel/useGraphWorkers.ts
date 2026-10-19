@@ -1,5 +1,6 @@
 import { daemonFetch } from "../../lib/webApi";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { listen } from "../../lib/bridge";
 import type {
   ApiConfig,
@@ -51,6 +52,7 @@ export function useGraphWorkers(api: ApiConfig): UseGraphWorkersResult {
       setError(null);
     } catch (e) {
       if (!activeRef.current) return;
+      if (DEV_BUILD) console.debug("Background memory worker refresh failed", e);
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       if (activeRef.current) setLoading(false);

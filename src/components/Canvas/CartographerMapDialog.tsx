@@ -112,7 +112,9 @@ export function CartographerMapDialog(props: CartographerMapDialogProps) {
       </label>)}
     </fieldset>
     {props.loading && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">Loading providers and models…</p>}
-    {props.catalogueError && <InlineErrorNotice error={props.catalogueError} operation="starting the Cartographer" blocking />}
+    {props.catalogueError && props.providers.length === 0 && (
+      <p role="status" className="text-xs text-[var(--ct-muted-fg)]">Provider choices are unavailable right now.</p>
+    )}
     <fieldset disabled={form.submitting}>
       <OrchestrationRoleRow label="Cartographer" providers={props.providers} providerId={form.draft.providerId}
         modelId={form.draft.modelId ?? ""} disabledProviderIds={unavailable}

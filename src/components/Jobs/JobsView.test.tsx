@@ -481,7 +481,7 @@ async function main() {
     try {
       await settle(() => failed.host.querySelector('[role="status"][aria-label]') !== null);
       assert.equal(failed.host.querySelector('[role="status"][aria-label="No jobs"]'), null);
-      assert.ok(!failed.host.textContent?.includes("private-cron-failure"));
+      assert.equal(failed.host.querySelector('[role="alert"]'), null);
     } finally { await failed.close(); }
     cronList = async () => [];
     const empty = await mount(jobsView(transport));

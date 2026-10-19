@@ -63,7 +63,7 @@ export function TabContent({
   if (tab?.remote_peer_id) configureRemoteTabTransport(api);
   const wake = useWakeOnOpen(tab, isVisible && Boolean(tab && isTabVisible(tab)));
   const descriptor = useAgentDescriptor(tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null));
-  const { providers, loading, error } = useAgentProviders();
+  const { providers, loading } = useAgentProviders();
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
   useLayoutEffect(() => {
     if (tab?.close_restore?.record_id) {
@@ -154,9 +154,9 @@ export function TabContent({
           tabMenu={headerTabMenu ?? undefined}
           isActive={isVisible}
         />
-        {!isChatBackend && tab.agent_type && !descriptor && (
+        {!isChatBackend && tab.agent_type && !descriptor && loading && (
           <div role="status" data-testid="provider-capability-state" className="px-2 py-1 text-xs">
-            {loading ? "Loading agent capabilities…" : <InlineErrorNotice error={error} operation="loading agent capabilities" />}
+            Loading agent capabilities…
           </div>
         )}
         <div className="relative flex min-h-0 flex-1 flex-col" style={{ background: theme.background }}>

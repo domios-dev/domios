@@ -155,7 +155,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
             size="sm"
             className="!h-7 !w-7 !min-h-7 !p-0"
             disabled={controls.busy}
-            onClick={() => void controls.refreshStatus()}
+            onClick={() => void controls.refreshStatus(true)}
             aria-label="Refresh Spinal Cord status and models"
             title="Refresh Spinal Cord status and models"
           >
@@ -169,13 +169,9 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
         <p role="status" aria-live="polite" className="sr-only">
           {announcement}
         </p>
-        {controls.statusFailed && (
-          <InlineErrorNotice error={{ code: "supporter_status_unavailable", raw: "" }} />
-        )}
-        {controls.catalogFailed && <InlineErrorNotice error={{ code: "supporter_catalogue_unavailable", raw: "" }} />}
-        {status?.adapter && !selected ? (
-          <InlineErrorNotice error={{ code: "supporter_connection_unverified", raw: "" }} />
-        ) : null}
+        {controls.manualRefreshFailure === "status" && <InlineErrorNotice error={{ code: "supporter_status_unavailable", raw: "" }} />}
+        {controls.manualRefreshFailure === "catalog" && <InlineErrorNotice error={{ code: "supporter_catalogue_unavailable", raw: "" }} />}
+        {controls.catalogFailed && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">Model list is unavailable.</p>}
         {!selected && status && !status.adapter && (
           <p className="text-xs text-[var(--ct-muted-fg)]">
             {controls.statusFailed

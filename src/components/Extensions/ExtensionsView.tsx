@@ -5,7 +5,8 @@ import { BackPill } from "../shared/BackPill";
  * on the right). Catalog merge/filter logic lives in `pluginCatalog.ts` (pure, tested);
  * this owns state + side effects over `plugin_manager_snapshot` / `plugin_manager_action`.
  */
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { invoke } from "../../lib/bridge";
 import {
   buildCatalog,
@@ -40,6 +41,8 @@ export function ExtensionsView({
 }) {
   const snapshotState = usePluginSnapshotStore();
   const snapshot = snapshotState.snapshot;
+  const hasCachedSnapshot = useRef(snapshotState.lastSuccessfulSnapshot !== null);
+  hasCachedSnapshot.current = snapshotState.lastSuccessfulSnapshot !== null;
   const [config, setConfig] = useState<AppConfigShape | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<CatalogFilter>("all");
@@ -57,16 +60,14 @@ export function ExtensionsView({
       setConfig(cfg ?? {});
       setLocalError(null);
     } catch (e) {
-      setLocalError(String(e));
+      if (DEV_BUILD) console.debug("Background plugin settings read failed", e);
     }
   }, []);
 
   useEffect(() => {
     if (!visible) return;
-    void Promise.all([
-      ensurePluginSnapshot({ force: true }),
-      refreshConfig(),
-    ]);
+    void ensurePluginSnapshot({ force: true, background: hasCachedSnapshot.current }).catch(() => undefined);
+    void refreshConfig();
   }, [visible, refreshConfig]);
 
   useEffect(() => {

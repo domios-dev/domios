@@ -38,7 +38,7 @@ export function AccountTray() {
     items.unshift({label: "Signed in for this session only", description: "Secure storage is unavailable. Sign in again after restarting Domios.", disabled: true});
   }
   items.push({separator:true,key:"community"},communityMenu());
-  const error = model.kind === "signed_in" ? billing.error : model.error;
+  const error = model.kind === "signed_in" ? billing.actionError : model.error;
   return <div className="flex items-center">
     <DropdownMenu menuLabel="Account" items={items} onOpenChange={setOpen} trigger={
       <button type="button" className={UI_TRAY_BTN} aria-label={model.name} title={model.name}
