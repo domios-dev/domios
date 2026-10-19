@@ -1,10 +1,8 @@
 import { runtimeActivityLabel } from "../../lib/agentRuntimeTiming";
 import { activityCommand, activityLabel, type ActivityTool } from "../../../packages/plugin-sdk/src/activityLabel";
 import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
-import { tabStartingLabel } from "../Sidebar/tabAttention";
 import type { ReactNode } from "react";
 import { Square, Terminal, X } from "lucide-react";
-import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { ActivityDots } from "../shared/ActivityDots";
 import { ChatChannelLoadingStatus } from "./ChatChannelLoadingStatus";
 import type { Tab } from "../../lib/types";
@@ -25,7 +23,6 @@ function compactStatusMessage(text: string): string {
 export function AgentStateIndicator({
   activity,
   runtimeState,
-  tab,
   providerName,
   model,
   reasoningEffort,
@@ -78,7 +75,7 @@ export function AgentStateIndicator({
   const dots = channelLoadingLabel
     ? <ChatChannelLoadingStatus label={channelLoadingLabel} />
     : !showActivity || background || activityMovedToTranscript ? null
-      : activity.kind === "starting" ? <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : "Agent starting"} compact />
+      : activity.kind === "starting" ? null
         : activity.active ? (
     <ActivityDots
       data-testid="agent-activity-dots"
