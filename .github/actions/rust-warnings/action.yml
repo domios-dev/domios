@@ -18,16 +18,16 @@ inputs:
 runs:
   using: composite
   steps:
-    - shell: ${{ runner.os == 'Windows' && '"C:\Program Files\Git\bin\bash.exe" --noprofile --norc -e -o pipefail {0}' || 'bash' }}
+    - shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
       continue-on-error: true
-      run: node scripts/collect-rust-warnings.mjs collect --input "$WARNING_INPUT" --platform "$WARNING_PLATFORM" --target "$WARNING_TARGET" --complete "$WARNING_COMPLETE" --output "ci-rust-warnings/rust-warnings-$WARNING_PLATFORM-$WARNING_TARGET.json"
+      run: node scripts/ci-rust-warning-artifact.mjs collect
       env:
         WARNING_COMPLETE: ${{ inputs.complete }}
         WARNING_INPUT: ${{ inputs.input }}
         WARNING_PLATFORM: ${{ inputs.platform }}
         WARNING_TARGET: ${{ inputs.target }}
-    - shell: ${{ runner.os == 'Windows' && '"C:\Program Files\Git\bin\bash.exe" --noprofile --norc -e -o pipefail {0}' || 'bash' }}
+    - shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
       continue-on-error: true
-      run: bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-warnings/$WARNING_FILE" "ci-rust-warnings/$WARNING_FILE"
+      run: node scripts/ci-rust-warning-artifact.mjs store
       env:
         WARNING_FILE: rust-warnings-${{ inputs.platform }}-${{ inputs.target }}.json
