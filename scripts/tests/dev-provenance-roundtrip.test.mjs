@@ -37,7 +37,7 @@ function fixture() {
   for (const dir of ['scripts', clientDebug, 'data/bin', 'dist']) {
     fs.mkdirSync(path.join(checkout, dir), { recursive: true });
   }
-  for (const name of ['dev-prep.mjs', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'windows-dev-desktop.cs', 'build-identity.cjs']) {
+  for (const name of ['dev-prep.mjs', 'dev-reload-inputs.cjs', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'windows-dev-desktop.cs', 'build-identity.cjs']) {
     fs.copyFileSync(path.join(root, 'scripts', name), path.join(checkout, 'scripts', name));
   }
   const exe = process.platform === 'win32' ? '.exe' : '';
@@ -335,4 +335,32 @@ test('prebuilt refuses changed desktop execution helper source', () => {
     assert.equal(checked.status, 1);
     assert.match(checked.stderr, /source|input|dirty/);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('server reload classifies current bytes and keeps artifact/instance validation', () => {
+  const { directory, checkout, sha } = fixture();
+  const server = path.join(checkout, 'src-tauri/crates/domios-server/src/main.rs');
+  const client = path.join(checkout, 'src-tauri/src/host_ports.rs');
+  try {
+    for (const file of [server, client]) {
+      fs.mkdirSync(path.dirname(file), {recursive: true});
+      fs.writeFileSync(file, 'dirty at original build');
+    }
+    assert.equal(provenance(checkout, checkout, checkout, sha, 'write_dev_provenance').status, 0);
+    fs.appendFileSync(server, 'new server input');
+    const reload = () => provenance(checkout, checkout, checkout, sha,
+      'CT_DEV_PROVENANCE_OPERATION=--check-server-reload validate_dev_provenance');
+    let result = reload();
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^server:[a-f0-9]{64}/);
+    fs.appendFileSync(client, 'new client input');
+    result = reload();
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /run \.\/build.sh dev instead/);
+    fs.writeFileSync(client, 'dirty at original build');
+    fs.appendFileSync(path.join(checkout, resourceDebug, 'server-component.json'), 'tampered');
+    result = reload();
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /inventory artifact content mismatch/);
+  } finally { fs.rmSync(directory, {recursive: true, force: true}); }
 });

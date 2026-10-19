@@ -28,6 +28,7 @@ import { fileURLToPath } from "node:url";
 const repo = realpathSync.native(resolve(dirname(fileURLToPath(import.meta.url)), ".."));
 const require = createRequire(import.meta.url);
 const { gitOutput } = require("./build-identity.cjs");
+const { reloadPlan, inputSnapshot, cliSourceRoots } = require("./dev-reload-inputs.cjs");
 const isWin = process.platform === "win32";
 const pnpm = isWin ? "pnpm.cmd" : "pnpm";
 const cargo = isWin ? "cargo.exe" : "cargo";
@@ -53,6 +54,9 @@ const inputPathspecs = [
   "crates",
   "src-tauri",
   "scripts/dev-prep.mjs",
+  "scripts/dev-reload-inputs.cjs",
+  "scripts/dev-server.mjs",
+  "scripts/dev-server-bootstrap.ps1",
   "scripts/server-artifact.mjs",
   "scripts/package-server-component-manifest.mjs",
   "scripts/dev-app-process.mjs",
@@ -191,8 +195,8 @@ function hashPath(requested, expectedType, requireExecutable = false) {
   return { path, type: expectedType, sha256: hash.digest("hex"), bytes, mode: stat.mode & 0o777 };
 }
 
-function inputFingerprint() {
-  const listed = gitOutput([
+function inputFiles() {
+  return gitOutput([
     "ls-files",
     "-z",
     "--cached",
@@ -205,6 +209,10 @@ function inputFingerprint() {
     .filter(Boolean)
     .map((path) => path.replaceAll("\\", "/"))
     .sort();
+}
+
+function inputFingerprint() {
+  const listed = inputFiles();
   if (listed.length === 0) throw new Error("no build inputs were found");
   const hash = sha256();
   for (const path of listed) {
@@ -268,6 +276,7 @@ function buildProvenance(options) {
     schema: provenanceSchema,
     buildSha: currentSha,
     inputsSha256: inputFingerprint(),
+    reload: { inputs: inputSnapshot(repo, inputFiles()), cliRoots: cliSourceRoots(repo) },
     instance: instanceFrom(options),
     artifacts: {
       app: hashPath(paths.app, "file", true),
@@ -309,7 +318,7 @@ function validateArtifact(recorded, expectedPath, expectedType, label, requireEx
   }
 }
 
-function checkProvenance(options) {
+function checkProvenance(options, serverReload = false) {
   const record = resolve(option(options, "--record"));
   if (!existsSync(record)) throw new Error(`record is absent: ${record}`);
   let data;
@@ -318,11 +327,12 @@ function checkProvenance(options) {
   } catch (error) {
     throw new Error(`record is unparseable: ${error.message}`);
   }
-  const {nativeClient,...buildRecord} = data;
+  const {nativeClient, reload, ...buildRecord} = data;
   assertKeys(buildRecord, ["schema", "buildSha", "inputsSha256", "instance", "artifacts"], "record");
   if (data.schema !== provenanceSchema) throw new Error(`unsupported record schema: ${data.schema}`);
-  if (data.buildSha !== provenanceSha(options)) throw new Error("recorded build commit does not match HEAD or launch SHA");
-  if (!/^[0-9a-f]{64}$/.test(data.inputsSha256) || data.inputsSha256 !== inputFingerprint()) {
+  if (!serverReload && data.buildSha !== provenanceSha(options)) throw new Error("recorded build commit does not match HEAD or launch SHA");
+  const fingerprint = inputFingerprint();
+  if (!/^[0-9a-f]{64}$/.test(data.inputsSha256) || (!serverReload && data.inputsSha256 !== fingerprint)) {
     throw new Error("recorded build inputs are stale");
   }
   const expectedInstance = instanceFrom(options);
@@ -332,11 +342,14 @@ function checkProvenance(options) {
   const paths = artifactPaths(options);
   validateArtifact(data.artifacts.app, paths.app, "file", "app", true);
   validateArtifact(data.artifacts.cli, paths.cli, "file", "CLI", true);
-  validateArtifact(data.artifacts.frontend, paths.frontend, "tree", "frontend");
+  if (!serverReload) validateArtifact(data.artifacts.frontend, paths.frontend, "tree", "frontend");
   validateArtifact(data.artifacts.server, paths.server, "file", "server", true);
   validateArtifact(data.artifacts.inventory, paths.inventory, "file", "inventory");
   validateArtifact(data.artifacts.resources, paths.resources, "runtime-resources", "resources");
-  console.log(`[dev-provenance] matched ${record} at ${data.buildSha}`);
+  if (serverReload) {
+    const plan = reloadPlan(reload?.inputs, inputSnapshot(repo, inputFiles()), reload?.cliRoots ?? []);
+    console.log(`${plan.cli ? 'cli' : 'server'}:${fingerprint}`);
+  } else console.log(`[dev-provenance] matched ${record} at ${data.buildSha}`);
 }
 
 function checkRuntime(options) {
@@ -602,6 +615,7 @@ try {
   if (command === "--check-attachment") checkAttachment(parseOptions(process.argv.slice(3)));
   else if (command === "--write-provenance") writeProvenance(parseOptions(process.argv.slice(3)));
   else if (command === "--check-provenance") checkProvenance(parseOptions(process.argv.slice(3)));
+  else if (command === "--check-server-reload") checkProvenance(parseOptions(process.argv.slice(3)), true);
   else if (command === "--check-runtime") checkRuntime(parseOptions(process.argv.slice(3)));
   else if (command === "--supervise-prebuilt") await supervisePrebuilt(parseOptions(process.argv.slice(3)));
   else if (command === "--run-prebuilt") await runPrebuilt(parseOptions(process.argv.slice(3)));

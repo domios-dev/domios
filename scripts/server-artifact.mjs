@@ -71,6 +71,9 @@ function copyResource(source, destination) {
     for (const name of readdirSync(source).sort()) copyResource(path.join(source, name), path.join(destination, name));
   } else if (stat.isFile()) {
     ensureDirectory(path.dirname(destination));
+    try {
+      if (readFileSync(source).equals(readFileSync(destination))) return;
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
     copyFileSync(source, destination);
   } else throw new Error(`Resource is not a regular file or directory: ${source}`);
 }
@@ -97,7 +100,7 @@ export function resolveDevResourceRoot(resourceRoot, expectedRoot, {
   return expectedRoot;
 }
 
-export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resourceRoot, client, build }) {
+export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resourceRoot, client, build, serverOnly = false, checkOnly = false }) {
   if (!/^[a-f0-9]{40}$/.test(build)) throw new Error('Expected exact DEV source build identity');
   const builtClient = regular(client);
   const expectedRoot = process.platform === 'win32' ? path.dirname(builtClient) : path.join(path.dirname(builtClient), '.domios-dev-runtime/lib/codeterm');
@@ -123,6 +126,7 @@ export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resou
     if (!match) throw new Error(`Missing shared bootstrap contract ${name}`);
     return Number(match[1]);
   };
+  if (checkOnly) return { executable: server.executable, worker_cli_sha256: workerDigest };
   if (clientFile !== builtClient) copyResource(builtClient, clientFile);
   if (createHash('sha256').update(readFileSync(clientFile)).digest('hex') !== createHash('sha256').update(readFileSync(builtClient)).digest('hex')) throw new Error('Staged client differs from the built native artifact');
   copyResource(cli, path.join(root, 'cli', path.basename(cli)));
@@ -134,7 +138,7 @@ export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resou
   const { createManifest } = await import('./package-server-component-manifest.mjs');
   const manifestFile = await createManifest({ cwd: repo, serverFile: stagedServer, clientFile,
     serverBuild: build, serverExecutable: serverRelative, apiVersion: constant('API_VERSION'), bootstrapProtocol: constant('BOOTSTRAP_PROTOCOL') });
-  for (const name of ['dist', 'skills', 'LICENSE', 'NOTICE']) copyResource(path.join(repo, name), path.join(root, name));
+  for (const name of [...(serverOnly ? [] : ['dist']), 'skills', 'LICENSE', 'NOTICE']) copyResource(path.join(repo, name), path.join(root, name));
   copyResource(stagedServer, path.join(root, serverRelative));
   const sourceManifest = path.join(repo, 'target/domios-package/server-component.json');
   const temporary = path.join(root, 'server-component.json.partial');
@@ -144,9 +148,9 @@ export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resou
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  if (process.argv[2] === 'stage-dev') {
+  if (['stage-dev', 'stage-dev-server', 'check-dev-server'].includes(process.argv[2])) {
     const [cargoLog, treeLog, cliLog, repo, resourceRoot, client, build] = process.argv.slice(3);
-    await stageDevResources({ cargoLog, treeLog, cliLog, repo, resourceRoot, client, build });
+    await stageDevResources({ cargoLog, treeLog, cliLog, repo, resourceRoot, client, build, serverOnly: process.argv[2] !== 'stage-dev', checkOnly: process.argv[2] === 'check-dev-server' });
   } else if (process.argv[2] === 'stage-resources') {
     const [cliLog, repo, output] = process.argv.slice(3);
     process.stdout.write(stageResources(cliLog, repo, output));
