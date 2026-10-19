@@ -42,20 +42,35 @@ configure_lane_workspace_wrapper() {
 }
 
 lane_check() (
-  local package="${1:?lane-check requires a touched package}" tests=() timings=() target=(--lib) manifest=src-tauri/Cargo.toml
-  shift
-  case "$package" in domios-server|codeterm|codeterm-*) ;; *) echo 'lane-check requires a codeterm package' >&2; return 2 ;; esac
-  if [ "${1:-}" = --tests ]; then tests=(--tests); shift; fi
-  if [ "${1:-}" = --timings ]; then timings=(--timings); shift; fi
-  [ "$#" = 0 ] || { echo 'Usage: ./build.sh lane-check <package> [--tests] [--timings]' >&2; return 2; }
-  if [ "$package" = codeterm-cli ]; then
+  local packages=() tests=() timings=() target=(--lib) manifest=src-tauri/Cargo.toml package has_cli=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --tests) tests=(--tests) ;;
+      --timings) timings=(--timings) ;;
+      --*) echo 'Usage: ./build.sh lane-check <package>... [--tests] [--timings]' >&2; return 2 ;;
+      *) packages+=("$1") ;;
+    esac
+    shift
+  done
+  [ "${#packages[@]}" -gt 0 ] || { echo 'lane-check requires a touched package' >&2; return 2; }
+  for package in "${packages[@]}"; do
+    case "$package" in
+      domios-server|codeterm|codeterm-*) ;;
+      *) echo 'lane-check requires a codeterm package' >&2; return 2 ;;
+    esac
+    [ "$package" != codeterm-cli ] || has_cli=1
+  done
+  if [ "$has_cli" = 1 ]; then
+    [ "${#packages[@]}" = 1 ] || { echo 'lane-check cannot mix CLI and app workspace packages' >&2; return 2; }
     manifest=cli/Cargo.toml
     target=(--bin codeterm)
   fi
+  local package_args=()
+  for package in "${packages[@]}"; do package_args+=(-p "$package"); done
   configure_lane_build_dir || return $?
   configure_lane_cache || return $?
   configure_lane_workspace_wrapper || return $?
   prepare_dev_frontend_dist "$(pwd -P)"
   prepare_bundle_stubs
-  CARGO_BUILD_JOBS=4 cargo check --manifest-path "$manifest" -p "$package" "${target[@]}" "${tests[@]}" "${timings[@]}"
+  CARGO_BUILD_JOBS=4 cargo check --manifest-path "$manifest" "${package_args[@]}" "${target[@]}" "${tests[@]}" "${timings[@]}"
 )
