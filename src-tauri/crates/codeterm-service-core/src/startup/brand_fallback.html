@@ -19,12 +19,12 @@
     canvas { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--accent); pointer-events: none; }
     main { position: relative; width: min(100%, 30rem); display: grid; justify-items: center; gap: 1rem; text-align: center; }
     svg { width: 4.75rem; height: 4.75rem; color: var(--accent); }
-    main[data-pulse] svg { animation: pulse 1.8s ease-in-out infinite; }
+    main[data-pulse] svg { animation: pulse 2.6s ease-in-out infinite; }
     h1 { margin: .5rem 0 0; font-size: 1.2rem; font-weight: 600; }
     p { max-width: 28rem; margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.6; }
     .retry { margin-top: .5rem; padding: .45rem 1rem; border: 1px solid var(--border); border-radius: 8px; color: #f0f6fc; text-decoration: none; font-size: .85rem; }
     .retry:hover { border-color: var(--accent); }
-    @keyframes pulse { 0%, 100% { opacity: .45; transform: scale(.96); } 50% { opacity: 1; transform: scale(1); } }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.96); } }
     @media (prefers-color-scheme: light) {
       :root, body { background: #f6f8fa; color: #1f2328; --muted: #57606a; --border: #d0d7de; --accent: #0969da; }
       header a:hover, .retry { color: #1f2328; }
