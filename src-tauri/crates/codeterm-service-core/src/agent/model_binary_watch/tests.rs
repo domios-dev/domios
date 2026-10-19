@@ -249,6 +249,15 @@ fn only_declared_input_mutations_trigger_refresh() {
             &targets
         ));
     }
+    assert!(changes_input(
+        &Event::new(EventKind::Create(CreateKind::Folder)).add_path(PathBuf::from("catalogue")),
+        &targets
+    ));
+    assert!(!changes_input(
+        &Event::new(EventKind::Create(CreateKind::Folder))
+            .add_path(PathBuf::from("catalogue/sibling")),
+        &targets
+    ));
 }
 
 #[test]

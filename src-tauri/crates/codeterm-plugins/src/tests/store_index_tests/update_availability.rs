@@ -104,7 +104,7 @@ fn local_and_unknown_channel_installs_are_not_updatable() {
 fn system_sync_repairs_equal_versions_but_never_downgrades() {
     with_data_root(|root| {
         let source = root.join("system-source");
-        write_channel(&source, "store", &[("demo", "demo")]);
+        write_channel(&source, SYSTEM_CHANNEL_NAME, &[("demo", "demo")]);
         std::env::set_var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", &source);
         update_system_command(None).unwrap();
         let manifest_path = source.join("demo/plugin.json");

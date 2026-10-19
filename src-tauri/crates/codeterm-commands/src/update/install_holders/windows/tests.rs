@@ -25,9 +25,7 @@ impl Drop for Helper {
 fn helper(path: &Path) -> Helper {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let test_binary = std::env::current_exe().unwrap();
-    if std::fs::hard_link(&test_binary, path).is_err() {
-        std::fs::copy(test_binary, path).unwrap();
-    }
+    std::fs::copy(test_binary, path).unwrap();
     let mut command = Command::new(path);
     command
         .args([

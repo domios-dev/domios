@@ -107,16 +107,16 @@ fn retirement_removes_only_authorized_plugin_directories_and_preserves_data() {
     ));
     let official_data = root.join("official-data");
     std::fs::create_dir_all(&official_data).unwrap();
+    let retired_id = retired_id();
     write_installed_plugin(
         &root,
-        "retired-official",
+        &retired_id,
         InstallSource::SystemChannel {
             channel: SYSTEM_CHANNEL_NAME.into(),
-            path: "retired-official".into(),
+            path: retired_id.clone(),
         },
         &official_data,
     );
-    write_legacy_plugin(&root, "legacy-retired", &official_data);
     for (id, source) in [
         (
             "kept-directory-install",
@@ -139,40 +139,52 @@ fn retirement_removes_only_authorized_plugin_directories_and_preserves_data() {
         data_root: root.clone(),
         version: None,
     });
-    let current_ids = ["kept-official".to_string()];
-    let retired_ids = [
-        "retired-official".to_string(),
-        "legacy-retired".to_string(),
-        "kept-directory-install".to_string(),
-        "kept-marketplace-install".to_string(),
-    ];
+    let current_ids = [current_system_id()];
+    let retired_ids = [retired_id.clone()];
     let retired = retire_missing_official_plugins(&current_ids, &retired_ids).unwrap();
 
-    assert_eq!(retired, vec!["legacy-retired", "retired-official"]);
-    assert!(!root.join("plugins/retired-official").exists());
-    assert!(!root.join("plugins/legacy-retired").exists());
+    assert_eq!(retired, vec![retired_id.clone()]);
+    assert!(!root.join("plugins").join(&retired_id).exists());
     assert!(root.join("plugins/kept-directory-install").is_dir());
     assert!(root.join("plugins/kept-marketplace-install").is_dir());
     assert!(official_data.is_dir());
+
+    write_legacy_plugin(&root, &retired_id, &official_data);
+    assert_eq!(
+        retire_missing_official_plugins(&current_ids, &retired_ids).unwrap(),
+        vec![retired_id.clone()]
+    );
+    write_installed_plugin(
+        &root,
+        &retired_id,
+        InstallSource::Dir {
+            path: "local-plugin".into(),
+        },
+        &official_data,
+    );
+    assert!(retire_missing_official_plugins(&current_ids, &retired_ids)
+        .unwrap()
+        .is_empty());
+    assert!(root.join("plugins").join(&retired_id).is_dir());
 
     assert!(retire_missing_official_plugins(&current_ids, &retired_ids)
         .unwrap()
         .is_empty());
     let events = std::fs::read_to_string(root.join("logs/plugin-events.log")).unwrap();
-    for id in ["retired-official", "legacy-retired"] {
-        let count = events
-            .lines()
-            .filter(|line| {
-                let event: serde_json::Value = serde_json::from_str(line).unwrap();
-                event["kind"] == "retire" && event["plugin"] == id
-            })
-            .count();
-        assert_eq!(count, 1, "expected one retirement audit for {id}");
-    }
+    let count = events
+        .lines()
+        .filter(|line| {
+            let event: serde_json::Value = serde_json::from_str(line).unwrap();
+            event["kind"] == "retire" && event["plugin"] == retired_id
+        })
+        .count();
+    assert_eq!(
+        count, 2,
+        "expected two authorized retirements for {retired_id}"
+    );
     assert!(events.lines().any(|line| {
         let event: serde_json::Value = serde_json::from_str(line).unwrap();
-        event["kind"] == "retire-preserved-install-record"
-            && event["plugin"] == "kept-directory-install"
+        event["kind"] == "retire-preserved-install-record" && event["plugin"] == retired_id
     }));
     std::fs::remove_dir_all(root).unwrap();
 }
