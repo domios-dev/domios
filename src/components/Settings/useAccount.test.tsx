@@ -86,13 +86,13 @@ it("keeps failed background account and plan reads quiet while preserving user a
   try {
     await act(async () => root.render(<AccountTab />));
     await act(async () => { await Promise.resolve(); });
-    expect(host.textContent).toContain("UID: user");
+    expect(host.querySelector('[data-testid="settings-copy-row"] code')?.textContent).toBe("user");
     expect(host.querySelector('[role="alert"]')).toBeNull();
 
     state.failStatus = true;
     await act(async () => window.dispatchEvent(new Event("focus")));
     await act(async () => { await Promise.resolve(); });
-    expect(host.textContent).toContain("UID: user");
+    expect(host.querySelector('[data-testid="settings-copy-row"] code')?.textContent).toBe("user");
     expect(host.querySelector('[role="alert"]')).toBeNull();
 
     state.failBillingAction = true;
