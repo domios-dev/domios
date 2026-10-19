@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { usePhoneViewport } from "../../hooks/useSidebarViewport";
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
 import { ComposerInputShell } from "./ComposerInputShell";
@@ -8,7 +8,6 @@ import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import { useAttachmentUploads } from "./useAttachmentUploads";
 import { useComposerVoice } from "./voice/useComposerVoice";
 import { ComposerIssuesProvider, useHasComposerIssuesProvider } from "./ComposerIssuesContext";
-import { Paperclip } from "lucide-react";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 
 export { storeBrowserFiles, useWebFileDrop } from "./composerFiles";
@@ -55,7 +54,6 @@ function ComposerActionsBody({
   uploadFiles,
 }: Props) {
   const phone = usePhoneViewport();
-  const [actionsOpen, setActionsOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const uploads = useAttachmentUploads(onAttach);
   const voiceUploads = useAttachmentUploads(onSendWithAttachments);
@@ -69,13 +67,8 @@ function ComposerActionsBody({
     persistBlob: voiceUploads.store,
   });
 
-  const attachButton = canAttach && !voiceUi.isPreview && (phone ? <div className="relative">
-    <button type="button" aria-label="Attachment actions" aria-expanded={actionsOpen} onClick={() => setActionsOpen(open => !open)} className="ct-composer-control flex items-center justify-center rounded-full border"><Paperclip size={17} aria-hidden /></button>
-    {actionsOpen && <div role="group" aria-label="Attachment actions" className="ct-menu absolute bottom-full left-0 z-30 flex gap-2 p-2">
-      <ComposerAttachButton uploading={uploads.busy} onClick={() => { setActionsOpen(false); fileRef.current?.click(); }} />
-      {onSchedule && <ComposerScheduleButton onSchedule={() => { setActionsOpen(false); onSchedule(); }} />}
-    </div>}
-  </div> : <ComposerAttachButton uploading={uploads.busy} onClick={() => fileRef.current?.click()} />);
+  const attachButton = canAttach && !voiceUi.isPreview
+    && <ComposerAttachButton uploading={uploads.busy} onClick={() => fileRef.current?.click()} />;
 
   return (
     <>
