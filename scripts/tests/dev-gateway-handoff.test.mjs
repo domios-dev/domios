@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 const source = fs.readFileSync(new URL('../../build.sh', import.meta.url), 'utf8');
 const fn = source.match(/^build_and_launch_dev\(\) \{[\s\S]*?^\}/m)[0];
+const clientFn = source.match(/^build_dev_client\(\) \{[\s\S]*?^\}/m)[0];
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 for (const failure of [0, 42]) {
   test(`dev releases gateway before prebuilt launch; cargo exit=${failure}`, () => {
@@ -14,6 +15,7 @@ for (const failure of [0, 42]) {
     fs.writeFileSync(path.join(directory, '.domios-dev-build/cli.jsonl'), 'cli-artifact');
     try {
     const script = `set -euo pipefail
+${clientFn}
 ${fn.replace('exec bash ./build.sh', 'launch')}
 CODETERM_WEB_DIST= CT_DEV_CARGO_PROFILE= CT_DEV_CARGO_FEATURES=
 CODETERM_BUILD_SHA=opaque-sha
