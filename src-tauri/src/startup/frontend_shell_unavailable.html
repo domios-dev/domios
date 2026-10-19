@@ -1,16 +1,33 @@
 <!doctype html>
 <html lang="en">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Domios daemon unavailable</title>
-<style>
-body { margin: 0; background: #14161b; color: #e4e6eb; font: 16px system-ui; }
-main { max-width: 36rem; margin: 15vh auto; padding: 2rem; }
-p { line-height: 1.6; color: #b7bdca; }
-</style>
-<main role="status" aria-live="polite">
-<h1>Daemon unavailable</h1>
-<p>Domios will reconnect when its daemon listener returns.</p>
-<p>Use “Retry daemon listener” in the Domios tray menu to retry a failed bind.</p>
-</main>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Domios — Reconnecting</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, "Segoe UI", system-ui, sans-serif; background: #0d1117; color: #f0f6fc; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; display: grid; place-items: center; padding: 2rem; background: #0d1117; color: #f0f6fc; }
+    main { width: min(100%, 26rem); display: grid; justify-items: center; gap: 1rem; text-align: center; }
+    svg { width: 4.75rem; height: 4.75rem; color: #58a6ff; animation: pulse 1.8s ease-in-out infinite; }
+    h1 { margin: .5rem 0 0; font-size: 1.15rem; font-weight: 600; }
+    p { margin: 0; color: #9da7b1; font-size: .875rem; line-height: 1.6; }
+    @keyframes pulse { 0%, 100% { opacity: .45; transform: scale(.96); } 50% { opacity: 1; transform: scale(1); } }
+    @media (prefers-color-scheme: light) {
+      :root, body { background: #f6f8fa; color: #1f2328; }
+      svg { color: #0969da; }
+      p { color: #57606a; }
+    }
+    @media (prefers-reduced-motion: reduce) { svg { animation: none; opacity: .8; } }
+  </style>
+</head>
+<body>
+  <main role="status" aria-live="polite" aria-labelledby="unavailable-title">
+    <svg viewBox="-4 -4 72 72" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M8 8H32C46 8 56 18 56 32S46 56 32 56H24L40 40V24H24V40L8 56Z"/></svg>
+    <h1 id="unavailable-title">Reconnecting…</h1>
+    <p>Your sessions keep running. Domios retries automatically.</p>
+  </main>
+</body>
 </html>

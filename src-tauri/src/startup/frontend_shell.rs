@@ -39,7 +39,7 @@ use codeterm_service_core::startup::{
 };
 use serde::Serialize;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -155,6 +155,14 @@ use codeterm_service_core::startup::frontend_shell_declared_frontend_origins as 
 
 fn fallback_url() -> Result<Url, url::ParseError> {
     Url::parse(&format!("{}/index.html", fallback_origin()))
+}
+
+/// Navigating to an absent packaged index paints the webview's raw "asset not found" text.
+fn packaged_fallback(app: &codeterm_host_runtime::app_runtime::AppHandle) -> Result<Url, String> {
+    if app.asset_resolver().get("index.html".into()).is_none() {
+        return Err("packaged fallback index is absent".into());
+    }
+    fallback_url().map_err(|error| error.to_string())
 }
 
 fn unavailable_url() -> Result<Url, url::ParseError> {
@@ -428,9 +436,37 @@ fn show_unavailable(window: &WebviewWindow) {
         .map_err(|error| error.to_string())
         .and_then(|url| window.navigate(url).map_err(|error| error.to_string()))
     {
-        Ok(()) => log::debug!("[frontend-shell] native recovery surface selected"),
+        Ok(()) => {
+            log::debug!("[frontend-shell] native recovery surface selected");
+            keep_reconnecting(window.app_handle().clone());
+        }
         Err(error) => log::error!("[frontend-shell] recovery surface failed: {error}"),
     }
+}
+
+const RECONNECT_INTERVAL: Duration = Duration::from_secs(10);
+static RECONNECTING: AtomicBool = AtomicBool::new(false);
+
+/// Owner-requested: while the recovery surface is showing, retry the interface every 10 s.
+fn keep_reconnecting(app: codeterm_host_runtime::app_runtime::AppHandle) {
+    if RECONNECTING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(RECONNECT_INTERVAL).await;
+            let on_recovery_surface = app
+                .get_webview_window("main")
+                .and_then(|window| window.url().ok())
+                .is_some_and(|url| url.scheme() == "data");
+            if !on_recovery_surface {
+                break;
+            }
+            log::debug!("[frontend-shell] recovery surface retrying the interface");
+            retry(&app);
+        }
+        RECONNECTING.store(false, Ordering::Release);
+    });
 }
 
 fn next_generation(generation: &AtomicU64) -> Option<u64> {
@@ -582,7 +618,7 @@ fn observe_navigation(
         log::warn!(
             "[frontend-shell] root render was not acknowledged; selecting packaged fallback"
         );
-        match fallback_url() {
+        match packaged_fallback(&app) {
             Ok(fallback) => {
                 if let Err(error) = navigate_frontend(&app, &window, fallback) {
                     log::error!("[frontend-shell] packaged fallback navigation failed: {error}");
@@ -642,7 +678,7 @@ async fn frontend_url(
         log::debug!(
             "[frontend-shell] daemon frontend index unavailable; selecting packaged fallback"
         );
-        fallback_url().map_err(|error| error.to_string())
+        packaged_fallback(app)
     }
 }
 
