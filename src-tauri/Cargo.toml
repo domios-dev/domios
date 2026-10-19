@@ -157,7 +157,7 @@ required-features = ["dev-tools"]
 
 [[bin]]
 name = "convert-plan-storage"
-path = "../scripts/convert-plan-storage.rs"
+path = "src/bin/convert-plan-storage.rs"
 required-features = ["dev-tools"]
 
 [patch.crates-io]
