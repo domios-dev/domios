@@ -1,5 +1,7 @@
 use clap::builder::TypedValueParser;
 use clap::Subcommand;
+
+use super::tab_todo::TabTodoAction;
 use codeterm_notification_core::contract::NotifyLevel;
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +80,11 @@ pub enum WorkspaceAction {
 
 #[derive(Subcommand)]
 pub enum TabAction {
+    /// Manage a tab-owned bounded checklist through the daemon service.
+    Todo {
+        #[command(subcommand)]
+        action: TabTodoAction,
+    },
     /// List compact tab summaries across every workspace. Use
     /// `--workspace` for one workspace and `tab inspect` for full tab details.
     ///

@@ -844,3 +844,48 @@ fn auto_confirm_modes_map_to_the_setting_route() {
     );
     assert_eq!(AutoConfirmMode::Status.request(), ("GET", None));
 }
+
+#[test]
+fn todo_parent_inspection_rejects_remote_tab_selectors_before_rpc() {
+    let action = TabAction::Todo {
+        action: crate::args::tab_todo::TabTodoAction::List {
+            tab: Some("mesh:peer/bad?tab".into()),
+        },
+    };
+
+    assert!(validate_user_tab_selectors(&action).is_err());
+}
+
+#[test]
+fn todo_list_uses_parent_rpc_only_for_a_different_target_tab() {
+    assert_eq!(
+        todo_list_rpc_method("team-child", Some("orchestrator")),
+        "tab.todo.parent_list"
+    );
+    assert_eq!(
+        todo_list_rpc_method("owner", Some("owner")),
+        "tab.todo.list"
+    );
+    assert_eq!(todo_list_rpc_method("selected", None), "tab.todo.list");
+}
+
+#[test]
+fn todo_write_demotes_before_promoting_the_in_progress_item() {
+    use codeterm_types::agent::TabTodoState;
+
+    let mut changes = vec![
+        ("new-active".into(), TabTodoState::InProgress),
+        ("completed".into(), TabTodoState::Done),
+        ("old-active".into(), TabTodoState::Open),
+    ];
+    crate::cmd::tab_todo::prioritize_state_changes(&mut changes);
+
+    assert_eq!(
+        changes,
+        vec![
+            ("completed".into(), TabTodoState::Done),
+            ("old-active".into(), TabTodoState::Open),
+            ("new-active".into(), TabTodoState::InProgress),
+        ]
+    );
+}

@@ -31,6 +31,7 @@ pub(crate) mod remote_recovery;
 mod routing;
 pub(crate) mod startup;
 mod tab_reservation;
+mod todo_seed;
 mod unplanned;
 mod workspace_admission;
 
@@ -43,6 +44,7 @@ use dispatch_failure::{
     cleanup_succeeded, dispatch_startup_failed_event, dispatch_wait_failed,
     DispatchFailureDisposition, DispatchWaitFailure,
 };
+use dispatch_helpers::verify_dispatched_task_binding;
 pub(super) use dispatch_helpers::{
     dispatch_reasoning_effort, owned_str, respawn_worker_params, set_local_task_name_description,
     task_tab_description,
@@ -81,23 +83,6 @@ fn dispatch_failed(stage: &str, message: String) -> JsonRpcError {
             "stage": stage,
             "reason": message,
         })),
-    }
-}
-
-fn verify_dispatched_task_binding(
-    store: &codeterm_service_core::service::plan::PlanStore,
-    plan_id: &str,
-    task_id: &str,
-    tab_id: &str,
-) -> Result<(), String> {
-    match store.task_binding_for_tab(tab_id) {
-        Some((bound_plan, bound_task)) if bound_plan == plan_id && bound_task == task_id => Ok(()),
-        binding => Err(format!(
-            "ORCHESTRATION PRODUCT INCIDENT: dispatched Worker tab '{tab_id}' has no matching \
-             authoritative task binding. Impact: zero-flag reports cannot be attached safely. \
-             Fallback: pass explicit --plan {plan_id} --task {task_id} and alert the Orchestrator; \
-             no plan or task was guessed. Resolved binding: {binding:?}"
-        )),
     }
 }
 
@@ -943,6 +928,22 @@ where
                 return Err(error);
             }
         };
+    let provisioned_lane = match todo_seed::seed_acceptance_or_rollback(todo_seed::DispatchSeed {
+        svc,
+        store,
+        plan_id: &plan_id,
+        task_id: &task_id,
+        parent_tab_id: &parent_tab_id,
+        tab_id: &reserved_tab_id,
+        attempt_id: &attempt_id,
+        original_task: &original_task,
+        original_plan_mode: &original_plan_mode,
+        provisioned_lane,
+        now,
+    }) {
+        Ok(lane) => lane,
+        Err(error) => return Err(error),
+    };
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let spawn = match spawn_agent(svc, spawn_params, Some(ready_tx)) {
         Ok(spawn) => spawn,

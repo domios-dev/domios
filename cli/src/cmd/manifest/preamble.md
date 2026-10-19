@@ -14,6 +14,8 @@ backlog or debt reaches the threshold. Dispatch, compete, and respawn do not nee
 capacity grants. Prioritize review closures; all ownership, dependency, evidence,
 and review-verdict requirements remain unchanged.
 
+Tab checklists are bounded service records, independent of tab snapshots. Task dispatch seeds locked items from acceptance criteria. `codeterm todo list` reads the current agent tab; `codeterm todo write --from-pad todos.json` accepts a JSON array of `{ "content", "status": "pending|in_progress|completed", "activeForm", "link?" }`, where content matches an existing title, optional link is a string matching its current label/URL/task id, and at most one status is `in_progress`. Write changes statuses only; omitted locked items stay in place and the reply reports their count. `codeterm tab todo list --tab <child-id>` uses the authorized parent-list API. Parent `init` reads a JSON array of criteria strings; QA `append` reads checklist drafts and requires the current `--generation`; Orchestrator `amend` reads one draft. Drafts use `{ "title", "description?", "link?" }`, with link `{ "kind": "url", "url", "label" }` or `{ "kind": "domios_task", "task_ref", "plan_ref?", "label?" }`. User `reset --from-file` starts a generation from a draft array; `clear <item-id>` and `clear --all` remove one or all items.
+
 `workspace current` prints a bare id for shell use. Its point-query `--json`
 form identifies `explicit`, `caller-tab`, `workspace-env`, or `focus-fallback`
 as the source. When no identity resolves, it exits 1 with empty stdout.

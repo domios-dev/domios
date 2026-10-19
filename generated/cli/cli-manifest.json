@@ -16959,6 +16959,260 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "todo",
+          "about": "Manage a tab-owned bounded checklist through the daemon service",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "amend",
+              "about": "Amend one checklist item (Orchestrator only)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "from-file",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "One JSON checklist draft from a file",
+                  "aliases": []
+                },
+                {
+                  "name": "from-pad",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "One JSON checklist draft from this tab's pad",
+                  "aliases": []
+                },
+                {
+                  "name": "item_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ITEM_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Stable checklist item id",
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Child tab id",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "append",
+              "about": "Append ordered checks to a child checklist (QA Worker only)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "from-file",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "JSON array of checklist drafts from a file",
+                  "aliases": []
+                },
+                {
+                  "name": "from-pad",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "JSON array of checklist drafts from this tab's pad",
+                  "aliases": []
+                },
+                {
+                  "name": "generation",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "GENERATION",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Current checklist generation, supplied by the authorized Orchestrator",
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Child tab id",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "clear",
+              "about": "Clear one item or the entire checklist as the user",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "all",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ALL",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Clear every item in the current generation",
+                  "aliases": []
+                },
+                {
+                  "name": "item_id",
+                  "positional": true,
+                  "required": false,
+                  "value_name": "ITEM_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Stable checklist item id; omit when using --all",
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Target tab id (default: this tab when invoked from the host)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "complete",
+              "about": "Mark one checklist item complete",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "item_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ITEM_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Stable checklist item id",
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Target tab id (default: this tab)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "init",
+              "about": "Seed a child tab's locked checklist from acceptance criteria (Orchestrator only)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "from-file",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "JSON array of acceptance-criteria strings from a file",
+                  "aliases": []
+                },
+                {
+                  "name": "from-pad",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "JSON array of acceptance-criteria strings from this tab's pad",
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Child tab id to initialize",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List the current tab's checklist or inspect one child as its parent",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Child tab id. Requires this tab to be its authorized parent",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "reset",
+              "about": "Reset/rewrite a checklist as the user, starting a new generation",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "from-file",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "JSON array of checklist drafts from a file",
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Target tab id (default: this tab when invoked from the host)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
         }
       ]
     },
@@ -17462,6 +17716,39 @@
               "possible_values": [],
               "default": null,
               "help": "Theme ID (filename without .toml)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "todo",
+      "about": "Read or update the current agent tab's bounded checklist",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "list",
+          "about": "Read this agent tab's current bounded checklist",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "write",
+          "about": "Reconcile checklist statuses while retaining locked item ids",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "JSON array of {content,status,activeForm,link?} from this tab's pad",
               "aliases": []
             }
           ],

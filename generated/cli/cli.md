@@ -14,6 +14,8 @@ backlog or debt reaches the threshold. Dispatch, compete, and respawn do not nee
 capacity grants. Prioritize review closures; all ownership, dependency, evidence,
 and review-verdict requirements remain unchanged.
 
+Tab checklists are bounded service records, independent of tab snapshots. Task dispatch seeds locked items from acceptance criteria. `codeterm todo list` reads the current agent tab; `codeterm todo write --from-pad todos.json` accepts a JSON array of `{ "content", "status": "pending|in_progress|completed", "activeForm", "link?" }`, where content matches an existing title, optional link is a string matching its current label/URL/task id, and at most one status is `in_progress`. Write changes statuses only; omitted locked items stay in place and the reply reports their count. `codeterm tab todo list --tab <child-id>` uses the authorized parent-list API. Parent `init` reads a JSON array of criteria strings; QA `append` reads checklist drafts and requires the current `--generation`; Orchestrator `amend` reads one draft. Drafts use `{ "title", "description?", "link?" }`, with link `{ "kind": "url", "url", "label" }` or `{ "kind": "domios_task", "task_ref", "plan_ref?", "label?" }`. User `reset --from-file` starts a generation from a draft array; `clear <item-id>` and `clear --all` remove one or all items.
+
 `workspace current` prints a bare id for shell use. Its point-query `--json`
 form identifies `explicit`, `caller-tab`, `workspace-env`, or `focus-fallback`
 as the source. When no identity resolves, it exits 1 with empty stdout.
@@ -3640,6 +3642,64 @@ Reset an owned utility shell's lifetime from now, or disable it with none
 - `--tab`
 - `--timeout`
 
+#### `codeterm tab todo`
+
+Manage a tab-owned bounded checklist through the daemon service
+
+#### `codeterm tab todo amend`
+
+Amend one checklist item (Orchestrator only)
+
+- `--from-file` — One JSON checklist draft from a file
+- `--from-pad` — One JSON checklist draft from this tab's pad
+- `<item_id>` — Stable checklist item id
+- `--tab` — Child tab id
+
+#### `codeterm tab todo append`
+
+Append ordered checks to a child checklist (QA Worker only)
+
+- `--from-file` — JSON array of checklist drafts from a file
+- `--from-pad` — JSON array of checklist drafts from this tab's pad
+- `--generation` — Current checklist generation, supplied by the authorized Orchestrator
+- `--tab` — Child tab id
+
+#### `codeterm tab todo clear`
+
+Clear one item or the entire checklist as the user
+
+- `--all` — Clear every item in the current generation
+- `<item_id>` — Stable checklist item id; omit when using --all
+- `--tab` — Target tab id (default: this tab when invoked from the host)
+
+#### `codeterm tab todo complete`
+
+Mark one checklist item complete
+
+- `<item_id>` — Stable checklist item id
+- `--tab` — Target tab id (default: this tab)
+
+#### `codeterm tab todo init`
+
+Seed a child tab's locked checklist from acceptance criteria (Orchestrator only)
+
+- `--from-file` — JSON array of acceptance-criteria strings from a file
+- `--from-pad` — JSON array of acceptance-criteria strings from this tab's pad
+- `--tab` — Child tab id to initialize
+
+#### `codeterm tab todo list`
+
+List the current tab's checklist or inspect one child as its parent
+
+- `--tab` — Child tab id. Requires this tab to be its authorized parent
+
+#### `codeterm tab todo reset`
+
+Reset/rewrite a checklist as the user, starting a new generation
+
+- `--from-file` — JSON array of checklist drafts from a file
+- `--tab` — Target tab id (default: this tab when invoked from the host)
+
 #### `codeterm task`
 
 Plan-backed tasks across active plans
@@ -3768,6 +3828,20 @@ Save a custom theme from a TOML file
 - `--apply` — Apply the theme immediately after saving
 - `<file>` — Path to theme TOML file
 - `<id>` — Theme ID (filename without .toml)
+
+#### `codeterm todo`
+
+Read or update the current agent tab's bounded checklist
+
+#### `codeterm todo list`
+
+Read this agent tab's current bounded checklist
+
+#### `codeterm todo write`
+
+Reconcile checklist statuses while retaining locked item ids
+
+- `--from-pad` — JSON array of {content,status,activeForm,link?} from this tab's pad
 
 #### `codeterm trace`
 
