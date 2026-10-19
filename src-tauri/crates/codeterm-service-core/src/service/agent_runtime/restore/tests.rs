@@ -13,7 +13,7 @@ fn register_runtime(svc: &ServiceContext) {
                 "agentRuntime":{
                 "runtime":"stdio-jsonrpc", "command":{"binary":"fixture-cli","args":[]},
                 "requestMethods":{"initialize":["handshake"]},"notificationMethods":[]}},
-            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"executionSandbox":{"platforms":["windows","linux","macos"],
+            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"},"executionSandbox":{"platforms":["windows","linux","macos"],
                 "readOnly":{"launchArgs":[],"runtimeMode":"read-only"},
                 "mutating":{"launchArgs":[],"runtimeMode":"workspace-write"}}},
             "permissions":{"subprocess":{"allow":["fixture-cli"]}}
