@@ -76,8 +76,12 @@ pub async fn stop_agent_turn(
                 "ok": true, "stopped": false, "reason": "not_working", "status": status.label(),
             })),
             StopDecision::Interrupt { .. } => {
-                super::agent_runtime::controls::interrupt(&svc, &runtime_tab)?;
-                Ok(serde_json::json!({"ok": true, "stopped": true, "reason": "stopped", "route": "runtime"}))
+                let stopped = super::agent_runtime::controls::interrupt(&svc, &runtime_tab)?;
+                if stopped {
+                    Ok(serde_json::json!({"ok": true, "stopped": true, "reason": "stopped", "route": "runtime"}))
+                } else {
+                    Ok(serde_json::json!({"ok": true, "stopped": false, "reason": "not_working", "status": crate::agent::status::TabStatus::Idle.label(), "route": "runtime"}))
+                }
             }
         })
         .await
