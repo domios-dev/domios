@@ -41,11 +41,11 @@ export function MessengersCard({
     <SettingsCard
       icon={<MessageCircle size={16} />}
       title="Messengers"
-      headerRight={bridge ? <SettingsPill tone={PILL_TONE[bridge.phase]}>Telegram: {connectStatus(bridge.phase).label.toLowerCase()}</SettingsPill> : undefined}
+      headerRight={bridge ? <span role="status"><SettingsPill tone={PILL_TONE[bridge.phase]}>Telegram: {connectStatus(bridge.phase).label.toLowerCase()}</SettingsPill></span> : undefined}
       description="Talk to your General Agent from a chat app. Replies go back to the chat you wrote from."
     >
       {snapshot.kind === "loading" && <p className="m-0 text-xs text-[var(--ct-muted-fg)]">Checking the Telegram bridge…</p>}
-      {snapshot.kind === "unavailable" && <InlineErrorNotice error={snapshot.message} operation="reading Telegram status" />}
+      {snapshot.kind === "unavailable" && <p role="status" className="m-0 text-xs text-[var(--ct-muted-fg)]">Telegram status is unavailable.</p>}
       {bridge && <TelegramConnection bridge={bridge} store={store} />}
       <FormRow label="Allowed user IDs" htmlFor={usersId} hint="Comma-separated Telegram user IDs. Empty allows anyone who finds the bot.">
         <input
@@ -132,7 +132,6 @@ function TelegramConnection({ bridge, store }: { bridge: BridgeConnectInfo; stor
           <div className="min-w-0 flex-1 text-[var(--ct-fg)]">
             {bridge.phase === "connected" && (bridge.identity ? `Connected as ${bridge.identity}.` : "Connected.")}
             {bridge.phase === "connecting" && "Starting. Waiting for Telegram to answer."}
-            {bridge.phase === "failing" && <InlineErrorNotice error={bridge.error} operation="connecting Telegram" />}
           </div>
           {confirming ? (
             <>

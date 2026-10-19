@@ -1,6 +1,7 @@
 import { PageDataContext } from "../../hooks/PageDataContext";
 import { useCallback, useEffect, useRef, useState, useContext } from "react";
 import { orchestrationTransport, listenOrchestration as listen } from "../../lib/transport/orchestrationRuntime";
+import { DEV_BUILD } from "../../lib/devBuild";
 import type { CronJob } from "../../lib/types";
 
 export interface CronJobsState {
@@ -27,9 +28,15 @@ function useCronJobsLoader(workspaceId: string | null, enabled: boolean) {
     try {
       const next = await orchestrationTransport().cron_list(workspaceId === null ? {} : { workspaceId });
       if (!active.current || read !== sequence.current) return;
-      setState(Array.isArray(next) ? { jobs: next, failed: false } : (current) => ({ jobs: current.jobs, failed: true }));
-    } catch {
-      if (active.current && read === sequence.current) setState((current) => ({ jobs: current.jobs, failed: true }));
+      if (Array.isArray(next)) setState({ jobs: next, failed: false });
+      else {
+        if (DEV_BUILD) console.debug("Background Cron list refresh returned invalid data");
+        setState((current) => ({ jobs: current.jobs, failed: true }));
+      }
+    } catch (error) {
+      if (!active.current || read !== sequence.current) return;
+      if (DEV_BUILD) console.debug("Background Cron list refresh failed", error);
+      setState((current) => ({ jobs: current.jobs, failed: true }));
     }
   }, [workspaceId]);
 

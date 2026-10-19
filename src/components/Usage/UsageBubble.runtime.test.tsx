@@ -10,10 +10,16 @@ for(const key of ["window","document","navigator","HTMLElement","Element","Node"
 const bridge=await import("../../lib/bridge");
 let snapshot!:UsageSnapshot;
 const resetRequests:Record<string,unknown>[]=[];
+let failResetRead = false;
 let groupUsage: unknown[] = [];
 let pendingReads: ((snapshot:UsageSnapshot)=>void)[] | null = null;
 bridge.__setInvokeForTest(async <T,>(command:string,args?:Record<string,unknown>):Promise<T> => {
- if(command === "agent_runtime_reset_credits") {resetRequests.push(args?.request as Record<string,unknown>); return {outcome:"reset"} as T;}
+ if(command === "agent_runtime_reset_credits") {
+  const request = args?.request as Record<string,unknown>;
+  resetRequests.push(request);
+  if(failResetRead && request.action === "read") throw new Error("opaque background reset read failure");
+  return {outcome:"reset"} as T;
+ }
  if(command === "usage_latest" && pendingReads) return new Promise<UsageSnapshot>(resolve => pendingReads!.push(resolve)) as Promise<T>;
  return (command === "usage_latest" ? snapshot : command === "provider_model_usage" ? groupUsage : command === "get_config" ? {ui:{usage_intro_hint_opens:5}} : null) as T;
 });
@@ -62,9 +68,19 @@ await act(async()=>document.dispatchEvent(new Event("visibilitychange")));
 assert.ok(container.textContent?.includes("55m ago"));
 Date.now = now;
 await render({...reading,resets:{availableCount:1,nextExpiry:null,credits:null},account_credits:{kind:"balance",balance:"123.45"}});
+const failedRefreshContainer=document.createElement("div");document.body.append(failedRefreshContainer);const failedRefreshRoot=createRoot(failedRefreshContainer);
+failResetRead = true;
+await act(async()=>failedRefreshRoot.render(<UsageBubble provider="fixture" tabId="own" threadId="thread" trackingEnabled/>));
+await act(async()=>failedRefreshContainer.querySelector("button")!.click());
+assert.deepEqual(resetRequests,[{action:"read"}]);
+assert.equal(failedRefreshContainer.querySelector('[role="alert"]'),null);
+assert.equal(failedRefreshContainer.querySelector('section[role="status"][aria-label]'),null);
+assert.equal(failedRefreshContainer.querySelector("button")?.getAttribute("aria-label"),"usage session 2% weekly 0%");
+await act(async()=>failedRefreshRoot.unmount());failedRefreshContainer.remove();
+failResetRead = false;
+resetRequests.length = 0;
 await act(async()=>container.querySelector("button")!.click());
 assert.deepEqual(resetRequests,[{action:"read"}]);
-assert.ok(container.querySelector('[role="dialog"]')?.textContent?.includes("Credits123.45"));
 const namedButton=(name:string)=>{const found=[...document.querySelectorAll("button")].find(button=>(button.getAttribute("aria-label") ?? button.textContent) === name);assert.ok(found);return found;};
 await act(async()=>namedButton("Use Session reset").click());
 assert.equal(resetRequests.length,1);

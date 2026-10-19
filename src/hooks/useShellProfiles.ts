@@ -1,6 +1,7 @@
 import { PageDataContext } from "./PageDataContext";
 import { useCallback, useEffect, useRef, useState, useContext } from "react";
 import { invoke, listen } from "../lib/bridge";
+import { DEV_BUILD } from "../lib/devBuild";
 import type { ShellProfile } from "../lib/types";
 
 export function useShellProfiles() {
@@ -14,7 +15,7 @@ export function useShellProfilesLoader(enabled = true) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const generation = useRef(0);
-  const load = useCallback(async (refresh = false) => {
+  const load = useCallback(async (refresh = false, userInitiated = false) => {
     const current = ++generation.current;
     setLoading(true);
     try {
@@ -24,7 +25,9 @@ export function useShellProfilesLoader(enabled = true) {
         setError(null);
       }
     } catch (reason) {
-      if (generation.current === current) setError(String(reason));
+      if (generation.current !== current) return;
+      if (userInitiated) setError(String(reason));
+      else if (DEV_BUILD) console.debug("Background shell profile refresh failed", reason);
     } finally {
       if (generation.current === current) setLoading(false);
     }
@@ -48,5 +51,5 @@ export function useShellProfilesLoader(enabled = true) {
       window.removeEventListener("codeterm-peer-switch-rebind", rebind);
     };
   }, [load, enabled]);
-  return { profiles, error, loading, refresh: () => load(true) };
+  return { profiles, error, loading, refresh: () => load(true, true) };
 }

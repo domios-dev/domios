@@ -1,6 +1,7 @@
 import { installConsentRequests } from "./pluginConsentModel";
 import { requestPluginConsent } from "./pluginConsentStore";
 import { useSyncExternalStore } from "react";
+import { DEV_BUILD } from "./devBuild";
 import { invoke } from "./bridge";
 import type { PluginSnapshot } from "../components/Extensions/types";
 
@@ -91,9 +92,10 @@ async function fetchSnapshot({
     })
     .catch((error: unknown) => {
       if (epoch !== snapshotEpoch) return snapshotState.snapshot;
+      if (DEV_BUILD) console.debug("Background plugin catalogue refresh failed", error);
       setSnapshotState({
         snapshot: snapshotState.lastSuccessfulSnapshot ?? EMPTY_SNAPSHOT,
-        error: String(error),
+        error: background && hasCachedRows ? null : String(error),
         loading: false,
         refreshing: false,
         hasLoaded: snapshotState.hasLoaded || snapshotState.lastSuccessfulSnapshot !== null,

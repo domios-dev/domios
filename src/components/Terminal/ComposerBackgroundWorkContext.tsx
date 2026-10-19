@@ -5,7 +5,7 @@ import { useMuxSelector } from "../../store/multiplexer";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 
 type BackgroundWork = ReturnType<typeof useComposerBackgroundWork>;
-const ComposerBackgroundWorkContext = createContext<BackgroundWork>({items:[],error:null,stop:async()=>{}});
+const ComposerBackgroundWorkContext = createContext<BackgroundWork>({items:[],stop:async()=>{}});
 
 export function ComposerBackgroundWorkProvider({ tabId, messages, children }: { tabId: string; messages: readonly NormalizedChatMessage[]; children: ReactNode }) {
   const providerId = useMuxSelector(state => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../lib/bridge";
+import { DEV_BUILD } from "../lib/devBuild";
 
 import type { ModelCatalogueChanged, ProviderDescriptor } from "../lib/types";
 import { acceptModelCatalogueChange, listAgentDescriptors, resetAgentCatalogueVersions, setAgentDescriptors } from "../lib/agentDescriptorCache";
@@ -89,6 +90,7 @@ export function useAgentProviders(): {
   const [items, setItems] = useState<ProviderDescriptor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const hasLoaded = useRef(false);
   const generation = useRef(0);
   const queued = useRef(false);
   const active = useRef(false);
@@ -104,10 +106,13 @@ export function useAgentProviders(): {
       void catalogueResource.load().then((next) => {
         if (!active.current || generation.current !== current) return;
         persistProviderIcons(next);
+        hasLoaded.current = true;
         setItems(next);
         setError(null);
       }).catch((reason: unknown) => {
-        if (active.current && generation.current === current) setError(String(reason));
+        if (!active.current || generation.current !== current) return;
+        if (DEV_BUILD) console.debug("Background agent provider catalogue refresh failed", reason);
+        if (!hasLoaded.current) setError(String(reason));
       }).finally(() => {
         if (active.current && generation.current === current) setLoading(false);
       });
@@ -127,6 +132,7 @@ export function useAgentProviders(): {
       generation.current++;
       resetAgentCatalogueVersions();
       serverIdentity = undefined;
+      hasLoaded.current = false;
       setItems([]);
       setError(null);
       setLoading(true);

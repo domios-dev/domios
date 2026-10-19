@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { createFrameFeed, type FrameFeed } from "./frameFeed";
 import { frameMatchesViewport, type FrameMetadata, type StreamViewport } from "./streamModel";
 import { streamLifecycleAction } from "./streamLifecycle";
@@ -41,7 +42,7 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
   const sendResize = useCallback((viewport: StreamViewport) => {
     connection.current.sent = viewport;
     transport.invoke(SURFACE_METHOD.resize, resizeArgs(viewport)).catch((error: unknown) => {
-      setNotice({ text: error instanceof Error ? error.message : String(error), tone: "error" });
+      if (DEV_BUILD) console.debug("Background surface resize failed", error);
     });
   }, [transport]);
 

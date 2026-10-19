@@ -1,5 +1,6 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useState } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { Cable } from "lucide-react";
 import {
   checkProviderIntegration,
@@ -83,7 +84,7 @@ export function ProviderIntegrationHealthCard({
     }).catch((nextError) => {
       if (!active) return;
       setPhase("error");
-      setError(errorMessage(nextError));
+      if (DEV_BUILD) console.debug("Background provider integration status check failed", nextError);
     });
     return () => {
       active = false;

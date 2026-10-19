@@ -344,6 +344,7 @@ function PluginRow({
 }) {
   const updates = useOptionalUpdatePanel();
   const updateAvailable = updates ? updates.pluginHasUpdate(entry.id) : entry.updateAvailable;
+  const loadFailure = entry.loadError && !entry.loadError.keptPrevious ? entry.loadError : null;
   return (
     <div>
       <div
@@ -391,7 +392,7 @@ function PluginRow({
               entry.installed && <Badge tone="installed">Installed</Badge>
             )}
             {updateAvailable && <Badge tone="update">Update</Badge>}
-            {entry.loadError && <Badge tone="error">Error</Badge>}
+            {loadFailure && <Badge tone="error">Error</Badge>}
           </div>
           <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10, color: "var(--ct-muted)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {catalogKindLabel(entry)}
@@ -401,7 +402,7 @@ function PluginRow({
           <PluginActivityInline activity={activity} display={display} compact />
         </div>
       </div>
-      {entry.loadError && <div data-testid="extensions-plugin-load-error"><InlineErrorNotice error={{ code: entry.loadError.keptPrevious ? "plugin_reload_failed" : "plugin_load_failed", raw: `${entry.loadError.message}\n${entry.loadError.path}` }} /></div>}
+      {loadFailure && <div data-testid="extensions-plugin-load-error"><InlineErrorNotice error={{ code: "plugin_load_failed", raw: `${loadFailure.message}\n${loadFailure.path}` }} /></div>}
     </div>
   );
 }

@@ -157,6 +157,44 @@ test("Team switch removes old details and subscribes with the exact attachment",
   } finally { await view.close(); }
 });
 
+test("a background graph failure is a quiet accessible unavailable state", async () => {
+  const transport = new FixtureTransport();
+  transport.readOverride = async () => { throw new Error("opaque graph refresh failure"); };
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => { root.render(<AutomationGraphView adapter={transport} attachment={attachment} />); });
+    await act(async () => { await transport.readStarted.promise; await Promise.resolve(); });
+    await act(async () => {});
+    assert.ok(host.querySelector('[role="status"]'), "the unavailable graph is announced as a status");
+    assert.equal(host.querySelector('[role="alert"]'), null, "background graph failure does not create an alert");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("a failed background refresh keeps a loaded Blueprint without an error notice", async () => {
+  const view = await mount();
+  let failRead!: () => void;
+  const failedReadStarted = new Promise<void>((resolve) => { failRead = resolve; });
+  try {
+    assert.ok(view.host.querySelector('[aria-label="Automation graph"]'), "the scoped Blueprint is loaded");
+    view.transport.readOverride = async () => {
+      failRead();
+      throw new Error("opaque scoped graph refresh failure");
+    };
+    await act(async () => {
+      view.transport.changed?.();
+      await failedReadStarted;
+      await Promise.resolve();
+    });
+    assert.ok(view.host.querySelector('[aria-label="Automation graph"]'), "the last good graph stays available");
+    assert.equal(view.host.querySelector('[role="alert"]'), null, "a cached graph refresh failure does not create an alert");
+  } finally { await view.close(); }
+});
+
 let finished = false;
 async function main() {
   for (const [name, run] of tests) { await run(); console.log(`✓ ${name}`); }

@@ -141,6 +141,31 @@ async function testHealthyHookHasNoRepairAction() {
   });
 }
 
+async function testBackgroundHealthFailureIsQuietAndExplicitRetryRemainsActionable() {
+  let fail = true;
+  await withInvoke(async (command) => {
+    assert(command === "check_provider_integration", "health surface must use the provider integration check");
+    if (fail) throw new Error("opaque integration probe failure");
+    return { hooks_installed: true, session_start_hook: true };
+  }, async () => {
+    const { host, root } = await renderCard();
+    await flush();
+    assert(host.querySelector('[data-provider-integration-state="error"]'), "background probe failure stays visible as the card state");
+    assert(host.querySelector('[role="alert"]') === null, "background probe failure does not create an alert");
+    const retry = host.querySelector('[data-provider-integration-action="refresh"]') as HTMLButtonElement | null;
+    assert(retry, "explicit retry remains available");
+    await act(async () => retry.click());
+    await flush();
+    assert(host.querySelectorAll('[role="alert"]').length === 1, "failed explicit retry creates one alert");
+    fail = false;
+    await act(async () => retry.click());
+    await flush();
+    assert(host.querySelector('[data-provider-integration-state="healthy"]'), "explicit retry recovers the integration state");
+    assert(host.querySelector('[role="alert"]') === null, "successful explicit retry creates no alert");
+    await cleanup(root);
+  });
+}
+
 async function testFallbackBindingIsVisibleInIntegrationStatus() {
   await withInvoke(async () => ({
     integration_state: "installed",
@@ -281,6 +306,7 @@ async function main() {
   await testCodexIntegrationStatesStayDistinguishable();
   await testUnknownIntegrationStateStaysUnverified();
   await testHealthyHookHasNoRepairAction();
+  await testBackgroundHealthFailureIsQuietAndExplicitRetryRemainsActionable();
   await testFallbackBindingIsVisibleInIntegrationStatus();
   await testMissingStopHookIsDegraded();
   await testStopHookHealthyWithSessionStart();

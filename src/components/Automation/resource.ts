@@ -1,4 +1,5 @@
 import { scopedAutomationGraph } from "./model";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { automationKey, type AutomationAttachment, type AutomationGraph, type AutomationGraphAdapter, type AutomationIdentity } from "./types";
 
 export interface AutomationSnapshot {
@@ -48,8 +49,10 @@ export class AutomationResource {
       if (generation !== this.generation) return off();
       this.unlisten = off;
       void this.refresh();
-    }, () => {
-      if (generation === this.generation) this.publish({ loading: false, failed: true });
+    }, (error: unknown) => {
+      if (generation !== this.generation) return;
+      if (DEV_BUILD) console.debug("Background automation listener setup failed", error);
+      this.publish({ loading: false, failed: true });
     });
   }
 
@@ -64,8 +67,10 @@ export class AutomationResource {
     try {
       const graph = scopedAutomationGraph(await this.adapter.read(this.attachment, controller.signal), this.attachment);
       if (generation === this.generation && !this.dirty) this.publish({ graph, loading: false, failed: false });
-    } catch {
-      if (generation === this.generation && !this.dirty) this.publish({ loading: false, failed: true });
+    } catch (error) {
+      if (generation !== this.generation || this.dirty) return;
+      if (DEV_BUILD) console.debug("Background automation graph refresh failed", error);
+      this.publish({ loading: false, failed: true });
     } finally {
       if (generation === this.generation) {
         this.reading = false;

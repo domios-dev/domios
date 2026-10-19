@@ -132,7 +132,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
   }, [graphs, selection]);
   const openedBlueprint = selection?.kind === "blueprint" ? pipelines.find(({ pipeline }) => pipeline.id === selection.id) : undefined;
   const missing = selection?.kind === "scenario" && graphsRead && !opened;
-  const notices = useMemo(() => ({ graph: graphs.find((graph) => graph.graph?.truncated)?.graph ?? null, loading: false, failed: graphsFailed, stopping: null, stopFailed: null }), [graphs, graphsFailed]);
+  const notices = useMemo(() => ({ graph: graphs.find((graph) => graph.graph?.truncated)?.graph ?? graphs.find((graph) => graph.graph)?.graph ?? null, loading: false, failed: graphsFailed, stopping: null, stopFailed: null }), [graphs, graphsFailed]);
   const refreshAll = useCallback(() => Promise.all([crons.refresh(), ...graphs.map((graph) => graph.refresh())]), [crons.refresh, graphs]);
   const back = (key: string) => { if (onReturn?.()) return; returnTo.current = key; setSelection(null); };
   const openedDirectly = useRef(initialScenarioId ?? null);
@@ -244,7 +244,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
       <div className="min-w-0 px-4 py-3">
         {openedBlueprint
           ? <BlueprintPipelineCanvas pipeline={openedBlueprint.pipeline} initialRunId={initialRunId} />
-          : graphsRead ? <InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /> : <p role="status" className="ct-job-note">Reading Blueprint…</p>}
+          : graphsRead ? <InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /> : graphsFailed ? <p role="status" className="ct-job-note">Blueprint is unavailable.</p> : <p role="status" className="ct-job-note">Reading Blueprint…</p>}
       </div>
     </section>;
   }
@@ -256,7 +256,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
   const empty = jobs.length === 0 && crons.jobs !== null && graphsRead && !crons.failed && !graphsFailed;
   return <div ref={list} className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-4 sm:px-6">
     {missing && <div ref={removed} tabIndex={-1} role="status" className="mb-3 rounded-md border border-[var(--ct-border)] px-3 py-2 outline-none"><InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /></div>}
-    {crons.failed && <InlineErrorNotice error={{ code: "cron_list_unavailable", raw: "" }} />}
+    {crons.failed && crons.jobs === null && <p role="status" aria-label="Jobs unavailable" className="ct-job-note">Jobs are unavailable.</p>}
     <AutomationNotices state={notices} noun="Blueprints" />
     {reading && <p role="status" className="mb-3 text-[var(--ct-muted-fg)]">Reading jobs…</p>}
     <div role="status" aria-label={empty ? "No jobs" : undefined} className={empty ? "flex flex-1 flex-col items-center justify-center gap-1.5 py-10 text-center" : undefined}>
