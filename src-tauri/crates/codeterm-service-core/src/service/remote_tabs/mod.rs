@@ -101,6 +101,9 @@ pub fn merge_ordinary_tab_projection(
                         "peer_name": "",
                     }),
                 );
+                // Remote viewers belong to the local workspace that owns their
+                // controller in the UI projection. Their peer workspace is
+                // never a local workspace assignment.
                 for field in ["workspace_id", "team_id"] {
                     object.insert(
                         field.into(),
@@ -117,6 +120,20 @@ pub fn merge_ordinary_tab_projection(
     projected
 }
 
+pub fn scope_ordinary_tab_projection(
+    tabs: Vec<serde_json::Value>,
+    workspace_id: Option<&str>,
+) -> Vec<serde_json::Value> {
+    let Some(workspace_id) = workspace_id else {
+        return tabs;
+    };
+    tabs.into_iter()
+        .filter(|tab| {
+            tab.get("workspace_id").and_then(serde_json::Value::as_str) == Some(workspace_id)
+        })
+        .collect()
+}
+
 type RemoteTabCache = std::collections::HashMap<String, Vec<serde_json::Value>>;
 
 fn cache() -> &'static std::sync::Mutex<RemoteTabCache> {
@@ -129,6 +146,7 @@ pub async fn ordinary_tab_projection(
     mesh: &crate::MeshStateHandle,
     remote_workers: &crate::service::remote_workers::RemoteWorkerRegistry,
     local: Vec<serde_json::Value>,
+    workspace_id: Option<&str>,
 ) -> Vec<serde_json::Value> {
     let registered = remote_workers.snapshot();
     let peers = {
@@ -224,7 +242,7 @@ pub async fn ordinary_tab_projection(
             controllers,
         });
     }
-    merge_ordinary_tab_projection(&local, &remote)
+    scope_ordinary_tab_projection(merge_ordinary_tab_projection(&local, &remote), workspace_id)
 }
 
 #[cfg(test)]
