@@ -68,6 +68,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         PlanError::OverrideNotAuthorized => StatusCode::FORBIDDEN,
         PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
         PlanError::ReadbackMismatch { .. }
+        | PlanError::RespawnAttemptNotCurrent { .. }
         | PlanError::TeamAlreadyHasActivePlan { .. }
         | PlanError::PlanAlreadyBoundToTeam { .. }
         | PlanError::PlanSkillAlreadyExists { .. }

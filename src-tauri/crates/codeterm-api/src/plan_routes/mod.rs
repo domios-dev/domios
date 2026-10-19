@@ -124,7 +124,9 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
     let status = match e {
         PlanError::NotFound | PlanError::TaskNotFound => StatusCode::NOT_FOUND,
         PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
-        PlanError::ReadbackMismatch { .. } | PlanError::ReviewHoldRequired => StatusCode::CONFLICT,
+        PlanError::ReadbackMismatch { .. }
+        | PlanError::RespawnAttemptNotCurrent { .. }
+        | PlanError::ReviewHoldRequired => StatusCode::CONFLICT,
         _ => StatusCode::BAD_REQUEST,
     };
     let body = serde_json::json!({
