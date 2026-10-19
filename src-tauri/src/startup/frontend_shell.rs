@@ -587,6 +587,9 @@ fn navigate_frontend(
         return Err(error.to_string());
     }
     ON_RECOVERY_SURFACE.store(false, Ordering::Release);
+    crate::host_ports::native_client::startup_reached(
+        crate::host_ports::native_client::ClientStartupStage::Frontend,
+    );
     Ok(())
 }
 
