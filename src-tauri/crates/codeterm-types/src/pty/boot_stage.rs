@@ -50,6 +50,12 @@ pub struct ProvisionalLaunch {
     pub reason: String,
     #[serde(default)]
     pub awaiting_binding_ack: bool,
+    #[serde(default)]
+    pub first_turn_input_ready: bool,
+    #[serde(default)]
+    pub first_turn_payload_written: bool,
+    #[serde(skip)]
+    pub first_turn_admitted_send_id: Option<String>,
 }
 
 impl BootStage {

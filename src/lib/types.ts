@@ -181,6 +181,16 @@ export interface TabBootStageEvent {
   agent_booting?: boolean;
   session_bound?: boolean;
   reason?: string | null;
+  provisional_launch?: ProvisionalLaunch | null;
+}
+
+export interface ProvisionalLaunch {
+  pty_id: string;
+  binding_nonce: string;
+  reason: string;
+  awaiting_binding_ack?: boolean;
+  first_turn_input_ready?: boolean;
+  first_turn_payload_written?: boolean;
 }
 
 export interface Tab {
@@ -271,6 +281,7 @@ export interface Tab {
   boot_stage?: BootStage | null;
   session_bound?: boolean;
   boot_failure_reason?: string | null;
+  provisional_launch?: ProvisionalLaunch | null;
   /** Machine+watcher chatBackend session — read-only tab with tick-driven inputs. */
   watcher?: WatcherSpec | null;
   remote_peer_id?: string;

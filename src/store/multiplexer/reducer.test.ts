@@ -73,6 +73,41 @@ test("AgentReady event clears launching with no snapshot", () => {
   assert(!tabActivity(next.tabs.ready).launching, "event releases launch");
 });
 
+test("same-attempt lazy composer event releases Starting until the binding event", () => {
+  const state = base();
+  state.tabs.lazy = {
+    ...tab("lazy"),
+    agent_type: "fixture",
+    pty_id: "own-pty",
+    session_binding_nonce: "own-nonce",
+    boot_stage: "launch_written",
+  };
+  const provisional = {
+    pty_id: "own-pty",
+    binding_nonce: "own-nonce",
+    reason: "composer-ready",
+    awaiting_binding_ack: true,
+    first_turn_input_ready: true,
+  };
+  const composing = reducer(state, {
+    type: "UPDATE_BOOT_STAGE",
+    tabId: "lazy",
+    stage: "launch_binding_unconfirmed",
+    provisional_launch: provisional,
+  });
+  assert(composing.tabs.lazy.provisional_launch === provisional, "event records own-launch evidence");
+  assert(!tabActivity(composing.tabs.lazy).launching, "live composer ends Starting before session binding");
+  const ready = reducer(composing, {
+    type: "UPDATE_BOOT_STAGE",
+    tabId: "lazy",
+    stage: "agent_ready",
+    session_bound: true,
+    provisional_launch: null,
+  });
+  assert(ready.tabs.lazy.provisional_launch === null, "AgentReady retires provisional composer evidence");
+  assert(!tabActivity(ready.tabs.lazy).launching, "bound session remains ready");
+});
+
 test("SET_STATE copies the exact incoming teams array", () => {
   const teams: Team[] = [{
     id: "team-1",

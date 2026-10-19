@@ -1,4 +1,191 @@
 use super::*;
+use crate::service::test_fixture::ServiceFixture;
+
+fn mark_lazy_composer_ready(fixture: &ServiceFixture, tab_id: &str) {
+    attach_fixture_pty(fixture, tab_id);
+    let attempt = {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(tab_id).unwrap();
+        tab.agent_session_id = None;
+        tab.reported_session_binding_nonce = None;
+        crate::service::launch_readiness::LaunchAttempt {
+            tab_id: tab_id.to_string(),
+            pty_id: tab.pty_id.clone().unwrap(),
+            binding_nonce: tab.session_binding_nonce.clone().unwrap(),
+        }
+    };
+    fixture.service.record_first_turn_input_ready(
+        &attempt,
+        "provider composer accepts the first turn; session binding is pending",
+    );
+}
+
+#[test]
+fn lazy_composer_admits_one_first_turn_then_binding_releases_the_queue() {
+    let (fixture, tab) = queue_fixture_with_session_mode(false, None, true);
+    mark_lazy_composer_ready(&fixture, &tab);
+    let authority = fixture.service.user_send_authority(&tab).unwrap();
+    assert!(!fixture.service.user_authority_is_ready(&authority));
+
+    let (writes_tx, writes_rx) = mpsc::channel();
+    let _submit = UserSubmitBoundary::install(
+        &tab,
+        Arc::new(move |record, text| {
+            writes_tx
+                .send((record.send_id.clone(), text.to_owned()))
+                .unwrap();
+            Ok(())
+        }),
+    );
+    let first = fixture
+        .service
+        .start_chat_send(&tab, "first turn".into(), None, Some("first-client".into()))
+        .unwrap();
+    await_owner_idle(&fixture, &tab);
+    assert_eq!(
+        writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+        (first.send_id.clone(), "first turn".into())
+    );
+    let provisional = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .provisional_launch
+        .clone()
+        .unwrap();
+    assert!(provisional.first_turn_input_ready);
+    assert!(provisional.first_turn_payload_written);
+
+    let second = fixture
+        .service
+        .start_chat_send(
+            &tab,
+            "second turn".into(),
+            None,
+            Some("second-client".into()),
+        )
+        .unwrap();
+    await_owner_idle(&fixture, &tab);
+    fixture.service.drain_user_owner(&tab).unwrap();
+    assert!(matches!(
+        writes_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .iter()
+        .any(|record| record.send_id == second.send_id));
+
+    let (pty_id, binding_nonce) = {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab).unwrap();
+        tab.agent_session_id = Some("first-turn-session".into());
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+        (
+            tab.pty_id.clone().unwrap(),
+            tab.session_binding_nonce.clone().unwrap(),
+        )
+    };
+    assert!(fixture.service.retire_provisional_launch(
+        &tab,
+        &crate::service::ProviderSessionBinding {
+            pty_id,
+            binding_nonce,
+        },
+    ));
+    await_owner_idle(&fixture, &tab);
+    assert_eq!(
+        writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+        (second.send_id.clone(), "second turn".into())
+    );
+    assert!(matches!(
+        writes_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    assert_eq!(
+        fixture.service.mux.read().get_tab(&tab).unwrap().boot_stage,
+        Some(codeterm_types::pty::BootStage::AgentReady)
+    );
+}
+
+#[test]
+fn non_lazy_launch_binding_unconfirmed_does_not_get_first_turn_admission() {
+    let (fixture, tab) = queue_fixture_with_session_mode(false, None, false);
+    mark_lazy_composer_ready(&fixture, &tab);
+    let (writes_tx, writes_rx) = mpsc::channel();
+    let _submit = UserSubmitBoundary::install(
+        &tab,
+        Arc::new(move |record, _| {
+            writes_tx.send(record.send_id.clone()).unwrap();
+            Ok(())
+        }),
+    );
+    let send = fixture
+        .service
+        .start_chat_send(&tab, "held turn".into(), None, Some("held-client".into()))
+        .unwrap();
+    await_owner_idle(&fixture, &tab);
+    assert!(matches!(
+        writes_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .iter()
+        .any(|record| record.send_id == send.send_id));
+}
+
+#[test]
+fn dead_lazy_launch_fails_held_send_without_first_turn_admission() {
+    let (fixture, tab) = queue_fixture_with_session_mode(false, None, true);
+    attach_fixture_pty(&fixture, &tab);
+    fixture.service.emit_boot_stage(
+        &tab,
+        codeterm_types::pty::BootStage::SpawnFailed,
+        Some("provider exited"),
+    );
+    let (writes_tx, writes_rx) = mpsc::channel();
+    let _submit = UserSubmitBoundary::install(
+        &tab,
+        Arc::new(move |record, _| {
+            writes_tx.send(record.send_id.clone()).unwrap();
+            Ok(())
+        }),
+    );
+    let send = fixture
+        .service
+        .start_chat_send(
+            &tab,
+            "never written".into(),
+            None,
+            Some("dead-client".into()),
+        )
+        .unwrap();
+    await_owner_idle(&fixture, &tab);
+    assert!(matches!(
+        writes_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&send.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Failed
+    );
+}
 
 #[test]
 fn lazy_session_provider_writes_every_send_after_agent_readiness() {

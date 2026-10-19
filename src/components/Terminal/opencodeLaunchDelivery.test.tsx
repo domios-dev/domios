@@ -11,10 +11,24 @@ import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 beforeEach(() => __setChatSendRepositoryForTest(new MemoryChatSendRepository()));
 
 test("a lazy provider's ready composer ends Starting before a session exists", () => {
-  const tab = { agent_type: "lazy-fixture", agent_session_id: null, agent_booting: false };
+  const tab = {
+    agent_type: "lazy-fixture", agent_session_id: null, agent_booting: false,
+    pty_id: "own-pty", session_binding_nonce: "own-nonce",
+  };
   expect(tabActivity({ ...tab, boot_stage: "launch_written" }).kind).toBe("starting");
   expect(tabActivity({ ...tab, boot_stage: "agent_ready" }).kind).toBe("idle");
   expect(tabActivity({ ...tab, boot_stage: "agent_ready", pending_prompt: { question: "opaque", options: [] } }).kind).toBe("waiting-on-user");
+  const composerReady = {
+    ...tab,
+    boot_stage: "launch_binding_unconfirmed" as const,
+    provisional_launch: {
+      pty_id: "own-pty", binding_nonce: "own-nonce", reason: "opaque",
+      awaiting_binding_ack: true, first_turn_input_ready: true,
+    },
+  };
+  expect(tabActivity(composerReady).kind).toBe("idle");
+  expect(tabActivity({ ...composerReady, provisional_launch: { ...composerReady.provisional_launch, pty_id: "other-pty" } }).kind).toBe("starting");
+  expect(tabActivity({ ...composerReady, session_binding_nonce: "other-nonce" }).kind).toBe("starting");
 });
 
 test("continuation status hydrates one bubble and never enables retry of uncertain input", async () => {
