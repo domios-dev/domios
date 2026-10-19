@@ -57,7 +57,7 @@ CLIENT="src-tauri/target/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}release/domi
 node scripts/release-stage.mjs stage-full --target "$TARGET" --source-sha "$(git rev-parse HEAD)" \
   --cargo-log "release-artifacts/build-logs/$TARGET/server.jsonl" \
   --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" --client-file "$CLIENT"
-pnpm tauri bundle ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} \
+pnpm tauri bundle --no-binary-patching ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} \
   --features "$CODETERM_RELEASE_FEATURES" --bundles "$BUNDLES" \
   --config '{"bundle":{"createUpdaterArtifacts":false}}'
 

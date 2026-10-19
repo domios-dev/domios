@@ -10,6 +10,9 @@ description: >-
 
 # End-to-end Domios release to GitHub
 
+Shared-stage bundles require the pinned Tauri CLI 2.12.2 and `tauri bundle --no-binary-patching`.
+Earlier bundlers change the packaged native client after its component digest is frozen; extraction readback must reject that mismatch.
+
 ## Branches and the release flow (since 1.14.4)
 
 | Branch | What lands there | CI |
