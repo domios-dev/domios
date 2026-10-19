@@ -302,6 +302,17 @@ jobs:
       arch: arm64
     secrets: inherit
 
+  dry-run-manifest:
+    name: local dry-run manifest verification
+    needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests]
+    if: ${{ needs.prepare.outputs.dry_run == 'true' }}
+    uses: ./.github/workflows/release-manifest-dry-run.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.source_sha }}
+      artifact_run_id: ${{ format('{0}', github.run_id) }}
+    secrets: inherit
+
   release-manifest:
     name: release manifest, mirror, and verification
     needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests]

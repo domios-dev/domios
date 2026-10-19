@@ -245,6 +245,12 @@ jobs:
             node scripts/verify-updater-manifest.mjs --manifest "$RUNNER_TEMP/verify-$type.json" --local "$root" --require-version "${TAG#v}" --require-platform linux-x86_64
           done
 
+      - name: Retain private dry-run updater evidence
+        if: ${{ inputs.dry_run }}
+        run: >-
+          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID"
+          linux-x86_64 "src-tauri/target/$TARGET/release/bundle" release-artifacts "$RUNNER_TEMP/dry-run-linux-x86_64"
+
       - name: Publish the Linux bundles
         if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
