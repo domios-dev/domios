@@ -83,13 +83,17 @@ export function headlessComponentManifest(full, target) {
 }
 
 export function verifyFinalPair({ target, sourceSha, manifest, stagedServer, packagedServer,
-  stagedCli, packagedCli, packagedClient, stagedManifest, packagedManifest }) {
+  stagedCli, packagedCli, packagedClient, stagedManifest, packagedManifest, paths = {} }) {
   const metadata = metadataFor(target);
   const reviewed = validateManifest(manifest);
   if (!Buffer.from(stagedManifest).equals(Buffer.from(packagedManifest))) fail('full packaged manifest differs from finalized stage');
   if (reviewed.server_build !== sourceSha || reviewed.server_sha256 !== sha256(stagedServer) ||
-      !Buffer.from(stagedServer).equals(Buffer.from(packagedServer))) fail('full packaged server differs from common final server');
-  if (!Buffer.from(stagedCli).equals(Buffer.from(packagedCli))) fail('full packaged CLI differs from common final CLI');
+      !Buffer.from(stagedServer).equals(Buffer.from(packagedServer))) {
+    fail(`full packaged server differs from common final server: ${paths.server ?? 'final server'} != ${paths.packagedServer ?? 'packaged server'}`);
+  }
+  if (!Buffer.from(stagedCli).equals(Buffer.from(packagedCli))) {
+    fail(`full packaged CLI differs from common final CLI: ${paths.cli ?? 'final CLI'} != ${paths.packagedCli ?? 'packaged CLI'}`);
+  }
   if (metadata.platform.startsWith('darwin-')) {
     if (reviewed.client_identity.kind !== 'macos_designated_requirement') fail('Mac full app lacks its designated requirement');
   } else if (reviewed.client_identity.kind !== 'sha256' ||
@@ -330,7 +334,8 @@ export async function produceCommonStage({ repo = root, target, tag, version, so
       stagedCli: await regularBytes(path.join(fullStage, 'cli', metadata.cli), 'staged full CLI'),
       packagedCli: await regularBytes(cli, 'full packaged CLI'),
       packagedClient: await regularBytes(client, 'full packaged client'),
-      stagedManifest: fullManifestBytes, packagedManifest: await regularBytes(component, 'full packaged manifest') });
+      stagedManifest: fullManifestBytes, packagedManifest: await regularBytes(component, 'full packaged manifest'),
+      paths: { server, packagedServer, cli: path.join(fullStage, 'cli', metadata.cli), packagedCli: cli } });
     if (sha256(await regularBytes(cli, 'full packaged CLI')) !== cliHash) fail('full packaged CLI differs from signed CLI');
     if (metadata.platform.startsWith('darwin-')) {
       const app = path.dirname(path.dirname(path.dirname(client)));
