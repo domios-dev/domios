@@ -120,6 +120,7 @@ fn print_plan_body(val: &Value) {
 }
 
 pub(crate) fn print_plan_result(json: bool, val: &Value) {
+    crate::cmd::print::exit_if_cli_refusal(json, val);
     if json {
         if let Some(envelope) = planner_json_envelope(val) {
             crate::cmd::print::print_json(&envelope);
@@ -183,6 +184,7 @@ pub(crate) fn print_plan_error(json: bool, message: &str) {
 }
 
 pub(crate) fn print_mutation_tail(json: bool, val: &Value) {
+    crate::cmd::print::exit_if_cli_refusal(json, val);
     if json {
         if let Some(envelope) = planner_json_envelope(val) {
             crate::cmd::print::print_json(&envelope);

@@ -129,6 +129,7 @@ pub(crate) fn rpc_explanation(message: &str) -> String {
 pub fn handle_cli_result(json: bool, result: Result<serde_json::Value, CliError>) {
     match result {
         Ok(value) => {
+            exit_if_cli_refusal(json, &value);
             if json {
                 print_json(&value);
             } else {
@@ -137,6 +138,56 @@ pub fn handle_cli_result(json: bool, result: Result<serde_json::Value, CliError>
         }
         Err(error) => exit_with_cli_error(json, &error),
     }
+}
+
+/// Exit after emitting a domain-level refusal returned as a successful RPC
+/// result. Some daemon operations encode refusals in their result object rather
+/// than using JSON-RPC's error member.
+pub fn exit_if_cli_refusal(json: bool, value: &serde_json::Value) {
+    if !is_cli_refusal(value) {
+        return;
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(value).unwrap());
+    } else {
+        let message = refusal_message(value).unwrap_or("command was refused");
+        eprintln!("Error: {message}");
+    }
+    std::process::exit(CLI_ERROR_EXIT_CODE);
+}
+
+fn is_cli_refusal(value: &serde_json::Value) -> bool {
+    if value.get("ok").and_then(serde_json::Value::as_bool) == Some(false) {
+        return true;
+    }
+    [
+        value,
+        &value["error"],
+        &value["data"],
+        &value["error"]["data"],
+    ]
+    .iter()
+    .any(|object| {
+        ["kind", "type", "outcome"]
+            .iter()
+            .filter_map(|field| object.get(*field).and_then(serde_json::Value::as_str))
+            .any(|tag| {
+                tag == "refusal"
+                    || tag == "refused"
+                    || tag.ends_with("_refusal")
+                    || tag.ends_with("_refused")
+            })
+    })
+}
+
+fn refusal_message(value: &serde_json::Value) -> Option<&str> {
+    [&value["error"], value, &value["data"]]
+        .iter()
+        .find_map(|object| {
+            ["message", "reason", "error"]
+                .iter()
+                .find_map(|field| object.get(*field).and_then(serde_json::Value::as_str))
+        })
 }
 
 pub fn exit_with_cli_error(json: bool, error: &CliError) -> ! {
@@ -592,6 +643,16 @@ mod tests {
             String::from_utf8(out).expect("stdout is utf8"),
             String::from_utf8(err).expect("stderr is utf8"),
         )
+    }
+
+    #[test]
+    fn refusal_detection_covers_false_results_and_typed_refusal_discriminants() {
+        assert!(is_cli_refusal(&json!({"ok": false, "error": "refused"})));
+        assert!(is_cli_refusal(&json!({
+            "ok": true,
+            "data": {"type": "attempt_binding_restore_refused"}
+        })));
+        assert!(!is_cli_refusal(&json!({"ok": true, "kind": "task"})));
     }
 
     #[test]
