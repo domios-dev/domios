@@ -339,7 +339,7 @@ jobs:
           $bundles = @(Get-ChildItem -File "src-tauri/target/$env:TARGET/release/bundle/nsis" -Filter '*-setup.exe')
           if ($bundles.Count -ne 1) { Write-Error "Expected one full NSIS installer; found $($bundles.Count)"; exit 1 }
           $version = "${{ inputs.tag }}".Substring(1)
-          node scripts/release-stage.mjs finalize --target "$env:TARGET" --tag "${{ inputs.tag }}" `
+          & .\build.ps1 release-finalize --target "$env:TARGET" --tag "${{ inputs.tag }}" `
             --version $version --source-sha "${{ inputs.source_ref }}" `
             --cargo-log "release-artifacts/build-logs/$env:TARGET/server.jsonl" `
             --tree-log "release-artifacts/build-logs/$env:TARGET/closure.txt" `
