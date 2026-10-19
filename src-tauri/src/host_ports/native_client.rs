@@ -1,6 +1,7 @@
 mod bootstrap;
 mod quit;
 mod recovery;
+mod startup_log;
 #[cfg(test)]
 pub(super) use bootstrap::read_single_bounded_line;
 #[cfg(test)]
