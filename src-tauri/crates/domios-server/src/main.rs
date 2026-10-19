@@ -40,7 +40,9 @@ fn execute() -> io::Result<()> {
         ));
     }
     let command = std::env::args().nth(1).ok_or_else(|| {
-        io::Error::other("Expected launch, serve, or attach; options arrive on protected stdin")
+        io::Error::other(
+            "Expected launch, serve, attach, or observe; options arrive on protected stdin",
+        )
     })?;
     let mut input = String::new();
     std::io::stdin().lock().take(32769).read_line(&mut input)?;
