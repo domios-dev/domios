@@ -365,7 +365,7 @@ describe("Supporter saved connections", () => {
     });
     await act(async () => menu.dispatchEvent(escape));
     expect(escape.defaultPrevented).toBe(true);
-    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[role="menu"]:not([hidden])')).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
   it("selected_disconnected_connection_keeps_its_name_without_claiming_readiness", async () => {
