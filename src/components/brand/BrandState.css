@@ -6,6 +6,8 @@
 }
 
 .brand-state {
+  position: relative;
+  isolation: isolate;
   color: var(--ct-fg);
 }
 
@@ -30,6 +32,22 @@
   width: min(100%, 32rem);
 }
 
+.brand-state-matrix {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--ct-accent);
+  pointer-events: none;
+}
+
+.brand-state--loading > :not(canvas),
+.brand-state--error > :not(canvas) {
+  position: relative;
+  z-index: 1;
+}
+
 .brand-state-copy h2,
 .brand-state--error h2 {
   margin: 0;
@@ -45,23 +63,6 @@
   color: var(--ct-muted-fg);
   font-size: 0.875rem;
   line-height: 1.5;
-}
-
-.brand-state-dots {
-  display: flex;
-  height: 1rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.3rem;
-}
-
-.brand-state-dots span {
-  --dot-position: calc(var(--dot-index) - 3);
-  width: 0.2rem;
-  height: 0.2rem;
-  border-radius: 50%;
-  background: var(--ct-accent);
-  animation: brand-dot-spread 1.35s var(--ct-ease-liquid-breathe) calc(var(--dot-index) * 75ms) infinite;
 }
 
 .brand-connection-layer {
@@ -105,15 +106,4 @@
   font-size: 0.75rem;
   pointer-events: none;
   transform: translateX(-50%);
-}
-
-@keyframes brand-dot-spread {
-  0% { opacity: 0.85; transform: translateX(calc(var(--dot-position) * 0.15rem)) scale(0.65); }
-  72% { opacity: 0.08; transform: translateX(calc(var(--dot-position) * 0.65rem)) scale(1); }
-  100% { opacity: 0; transform: translateX(calc(var(--dot-position) * 0.85rem)) scale(0.7); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .brand-state-dots { display: none; }
-  .brand-state-dots span { animation: none; }
 }
