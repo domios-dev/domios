@@ -351,16 +351,22 @@ fn qa_pass_rejects_live_competition_and_superseded_replacement_without_mutation(
     assert_eq!(claimed.judge_verdict.as_deref(), Some("superseded"));
     assert_eq!(claimed.judged_at, Some(7));
     assert_eq!(claimed.closed_at, Some(7));
-    for untouched_id in [&peer.attempt.id, &replacement.attempt.id] {
-        let untouched = task
-            .execution_attempts
-            .iter()
-            .find(|attempt| attempt.id == untouched_id.as_str())
-            .unwrap();
-        assert_eq!(untouched.judge_verdict, None);
-        assert_eq!(untouched.judged_at, None);
-        assert_eq!(untouched.closed_at, None);
-    }
+    let respawn_source = task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == peer.attempt.id)
+        .unwrap();
+    assert_eq!(respawn_source.judge_verdict, None);
+    assert_eq!(respawn_source.judged_at, None);
+    assert_eq!(respawn_source.closed_at, Some(8));
+    let replacement_attempt = task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == replacement.attempt.id)
+        .unwrap();
+    assert_eq!(replacement_attempt.judge_verdict, None);
+    assert_eq!(replacement_attempt.judged_at, None);
+    assert_eq!(replacement_attempt.closed_at, None);
     assert_eq!(task.assigned_tab_id.as_deref(), Some("replacement-tab"));
     assert_eq!(task.lane.tab_id.as_deref(), Some("replacement-tab"));
     // A respawn hands the work back: the replacement owes an ack before this is
