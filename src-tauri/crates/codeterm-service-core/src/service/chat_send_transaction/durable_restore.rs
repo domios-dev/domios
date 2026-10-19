@@ -136,7 +136,6 @@ impl ChatSendLedger {
                 current.state,
                 ChatSendState::Written | ChatSendState::Pending
             ) && receipt.state == ReceiptState::Uncertain
-                && !state.rpc_by_id.contains_key(&receipt.send_id)
             {
                 if let Some(status) = state.by_id.get_mut(&receipt.send_id) {
                     status.state = ChatSendState::Unknown;
