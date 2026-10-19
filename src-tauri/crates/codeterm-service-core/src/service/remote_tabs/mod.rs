@@ -101,9 +101,8 @@ pub fn merge_ordinary_tab_projection(
                         "peer_name": "",
                     }),
                 );
-                // Remote viewers belong to the local workspace that owns their
-                // controller in the UI projection. Their peer workspace is
-                // never a local workspace assignment.
+                // A remote viewer lives in its controller's local workspace; the
+                // peer's workspace id is never a local assignment.
                 for field in ["workspace_id", "team_id"] {
                     object.insert(
                         field.into(),
