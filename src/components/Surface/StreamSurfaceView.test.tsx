@@ -130,6 +130,15 @@ const pointer = (type: string, clientX: number, clientY: number) =>
 const snipOverlay = (scope: ParentNode) => scope.querySelector<HTMLElement>("[data-testid='surface-snip']");
 const escape = () => new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
 const snipFrame = (scope: ParentNode) => scope.querySelector<HTMLElement>("[data-testid='surface-snip-frame']");
+const byTestId = (scope: ParentNode, id: string) => scope.querySelector<HTMLElement>(`[data-testid='${id}']`);
+
+function assertSnipRestored(scope: ParentNode) {
+  assert.equal(snipOverlay(scope), null, "the selection overlay is gone");
+  assert.equal(snipFrame(scope), null, "the selected frame is gone");
+  assert.equal(queryByRole(scope, "dialog"), null, "the ask dialog is closed");
+  assert.equal(scope.querySelector<HTMLCanvasElement>(".ct-surface-canvas")?.dataset.mode, "watch", "the canvas is live and unobscured");
+  assert.equal((getByRole(scope, "button", "Snip and ask") as HTMLButtonElement).getAttribute("aria-pressed"), "false");
+}
 
 function assertFrameAtSelection(scope: ParentNode) {
   const frame = snipFrame(scope);
@@ -195,9 +204,28 @@ suite.test("snip and ask works beside the agent: drag, capture in page coords, o
   await ask(host, "why is this cut off?");
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend).map((call) => call.args), [{ id: "s1", comment: "why is this cut off?", image: true }]);
   assert.equal(fake.callsTo(SURFACE_METHOD.snipCancel).length, 0, "a sent capture is not discarded");
-  assert.equal(queryByRole(host, "dialog"), null);
-  assert.equal(snipFrame(region()), null, "sending clears the frame with the composer");
+  assertSnipRestored(region());
   control.assertUntouched(region());
+  await unmount();
+});
+
+suite.test("a failed send closes the ask UI and restores the live canvas", async () => {
+  const { fake, region, host, unmount } = await startSnip();
+  fake.respond(SURFACE_METHOD.snipSend, () => Promise.reject(new Error("send failed")));
+  await dragArea(region());
+  await ask(host, "what is this?");
+  assertSnipRestored(region());
+  assert.ok(byTestId(region(), "surface-notice"), "the send failure is reported");
+  await unmount();
+});
+
+suite.test("a failed capture removes its pending frame and selection state", async () => {
+  const { fake, region, unmount } = await startSnip();
+  fake.respond(SURFACE_METHOD.snipCapture, () => Promise.reject(new Error("capture failed")));
+  await dragArea(region());
+  assertSnipRestored(region());
+  assert.ok(byTestId(region(), "surface-notice"), "the capture failure is reported");
+  assert.equal(fake.callsTo(SURFACE_METHOD.snipSend).length, 0);
   await unmount();
 });
 
@@ -218,7 +246,11 @@ suite.test("Esc cancels the selection and the composer without sending anything"
   const { fake, region, host, control, unmount } = await startSnip();
   await act(async () => { snipOverlay(region())!.dispatchEvent(escape()); });
   assert.equal(snipOverlay(region()), null, "Esc leaves the selection");
+  assert.equal(region().querySelector<HTMLCanvasElement>(".ct-surface-canvas")?.dataset.mode, "watch");
   assert.deepEqual(fake.calls.filter((call) => call.method.startsWith("snip.")), [], "nothing captured");
+  await act(async () => getByRole(region(), "button", "Snip and ask").click());
+  await act(async () => { snipOverlay(region())!.dispatchEvent(escape()); });
+  assertSnipRestored(region());
   await act(async () => getByRole(region(), "button", "Snip and ask").click());
   await dragArea(region());
   assertFrameAtSelection(region());
@@ -226,11 +258,30 @@ suite.test("Esc cancels the selection and the composer without sending anything"
   await changeValue(editor as unknown as HTMLInputElement, "draft", "input");
   await act(async () => { editor.dispatchEvent(escape()); });
   await flushAsync();
-  assert.equal(queryByRole(host, "dialog"), null);
-  assert.equal(snipFrame(region()), null, "Esc clears the frame with the composer");
+  assertSnipRestored(region());
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend), [], "nothing sent");
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCancel).map((call) => call.args), [{ id: "s1" }], "the capture is discarded");
   control.assertUntouched(region());
+  await unmount();
+});
+
+suite.test("closing an empty ask dialog from outside cancels the snip exactly once", async () => {
+  const { fake, region, unmount } = await startSnip();
+  await dragArea(region());
+  await act(async () => { document.body.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await flushAsync();
+  assertSnipRestored(region());
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCancel).map((call) => call.args), [{ id: "s1" }]);
+  await unmount();
+});
+
+suite.test("toggling the snip button off closes the ask dialog and restores watch mode", async () => {
+  const { fake, region, unmount } = await startSnip();
+  await dragArea(region());
+  await act(async () => { getByRole(region(), "button", "Snip and ask").click(); });
+  await flushAsync();
+  assertSnipRestored(region());
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCancel).map((call) => call.args), [{ id: "s1" }]);
   await unmount();
 });
 
@@ -463,7 +514,6 @@ for (const [name, overrides] of [
 }
 
 const pausedNotice = { text: PREVIEW_PAUSED_TEXT, kind: "preview_paused", detail: "no frame: window not rendering (timeout)" } as const;
-const byTestId = (scope: ParentNode, id: string) => scope.querySelector<HTMLElement>(`[data-testid='${id}']`);
 
 suite.test("a paused preview shows a quiet inline state, never the notice bar, and clears on the next frame", async () => {
   const { fake, region, unmount } = await mount();

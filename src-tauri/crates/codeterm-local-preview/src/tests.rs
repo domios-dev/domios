@@ -234,3 +234,39 @@ fn native_attachment_buckets_preview_before_send_with_configured_denials() {
     assert!(denied.authorize(&chat.join("image.png"), None).is_err());
     assert!(policy.authorize(&root.join("other.png"), None).is_err());
 }
+
+#[test]
+fn referenced_evidence_uploads_bypass_only_the_data_root_denial() {
+    let temp = tempfile::tempdir().unwrap();
+    let data = temp.path().join("data");
+    let screenshots = data.join("runtime/agent-pads/owner/screenshots");
+    std::fs::create_dir_all(&screenshots).unwrap();
+    let image = screenshots.join("snip-s1-1.png");
+    std::fs::write(&image, b"the captured snip bytes").unwrap();
+    let sibling = screenshots.join("unreferenced.png");
+    std::fs::write(&sibling, b"other bytes").unwrap();
+    let arbitrary = data.join("config.json");
+    std::fs::write(&arbitrary, b"private").unwrap();
+    let policy = PreviewPolicy::new([path_key(&image)].into(), std::slice::from_ref(&data))
+        .unwrap()
+        .with_referenced_uploads(&screenshots, &[])
+        .unwrap();
+
+    let preview =
+        read_local_preview_file_guarded(image.to_str().unwrap(), "image", |path, canonical| {
+            policy.authorize(path, canonical)
+        })
+        .unwrap();
+    assert_eq!(
+        preview.data,
+        "data:image/png;base64,dGhlIGNhcHR1cmVkIHNuaXAgYnl0ZXM="
+    );
+    assert!(
+        policy.authorize(&sibling, None).is_err(),
+        "an unreferenced sibling stays unavailable"
+    );
+    assert!(
+        policy.authorize(&arbitrary, None).is_err(),
+        "other data-dir files stay private"
+    );
+}
