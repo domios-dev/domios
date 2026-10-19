@@ -27,7 +27,7 @@ fn attempt_model_fields_round_trip() {
                 .iter_mut()
                 .find(|attempt| attempt.id == attempt_id)
                 .unwrap();
-            attempt.provider = Some("codex".into());
+            attempt.provider = Some("fixture-agent".into());
             attempt.model = Some("gpt-6-luna".into());
             attempt.reasoning_effort = Some("xhigh".into());
             attempt.session_model = Some("gpt-runtime".into());
@@ -43,7 +43,7 @@ fn attempt_model_fields_round_trip() {
         .next()
         .unwrap();
     let json = serde_json::to_value(&saved).unwrap();
-    assert_eq!(json["provider"], "codex");
+    assert_eq!(json["provider"], "fixture-agent");
     assert_eq!(json["model"], "gpt-6-luna");
     assert_eq!(json["reasoning_effort"], "xhigh");
     assert_eq!(json["session_model"], "gpt-runtime");
@@ -62,7 +62,7 @@ fn attempt_model_fields_round_trip() {
         draft.execution_intent,
         crate::plan::ExecutionIntent::Mutating
     );
-    assert_eq!(draft.provider, "codex");
+    assert_eq!(draft.provider, "fixture-agent");
     assert_eq!(draft.model.as_deref(), Some("gpt-6-luna"));
     assert_eq!(draft.reasoning_effort.as_deref(), Some("xhigh"));
 
@@ -70,7 +70,7 @@ fn attempt_model_fields_round_trip() {
         .record_task_respawn_attempt(&plan_id, &task_id, "worker-next", &draft, Some("worker"), 5)
         .unwrap();
     assert_eq!(respawned.attempt.id, draft.attempt_id);
-    assert_eq!(respawned.attempt.provider.as_deref(), Some("codex"));
+    assert_eq!(respawned.attempt.provider.as_deref(), Some("fixture-agent"));
     assert_eq!(respawned.attempt.model.as_deref(), Some("gpt-6-luna"));
     assert_eq!(respawned.attempt.reasoning_effort.as_deref(), Some("xhigh"));
     assert_eq!(respawned.attempt.session_model, None);
@@ -89,14 +89,14 @@ fn respawn_uses_source_resolved_model_instead_of_conflicting_task_model() {
                 .iter_mut()
                 .find(|task| task.id == task_id)
                 .unwrap();
-            task.model = Some("codex:gpt-6-luna".into());
+            task.model = Some("fixture-agent:model".into());
             let attempt = task
                 .execution_attempts
                 .iter_mut()
                 .find(|attempt| attempt.id == source_attempt_id)
                 .unwrap();
-            attempt.provider = Some("claude".into());
-            attempt.agent_type = Some("claude".into());
+            attempt.provider = Some("fixture-agent".into());
+            attempt.agent_type = Some("fixture-agent".into());
             attempt.model = None;
             attempt.provider_resolved_model = Some("haiku".into());
             attempt.requested_model = Some("haiku".into());
@@ -115,7 +115,7 @@ fn respawn_uses_source_resolved_model_instead_of_conflicting_task_model() {
         )
         .unwrap();
 
-    assert_eq!(draft.provider, "claude");
+    assert_eq!(draft.provider, "fixture-agent");
     assert_eq!(draft.model.as_deref(), Some("haiku"));
 }
 

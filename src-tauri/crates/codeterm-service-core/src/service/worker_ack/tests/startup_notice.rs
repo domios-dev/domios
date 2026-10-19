@@ -105,7 +105,7 @@ fn worker_ack_notice_is_a_short_single_line_with_agent_provider_and_attempt() {
 fn dispatched_chat_backend_readiness_notice_names_ready_state_and_task() {
     let notice = worker_lifecycle_notice(
         "Router",
-        Some("codex"),
+        Some("fixture-agent"),
         None,
         &json!({
             "kind": "dispatch_ready",
@@ -117,7 +117,7 @@ fn dispatched_chat_backend_readiness_notice_names_ready_state_and_task() {
 
     assert_eq!(
         notice,
-        "Agent Router (codex) is ready for task task_cjymmf, attempt attempt_svwudi."
+        "Agent Router (fixture-agent) is ready for task task_cjymmf, attempt attempt_svwudi."
     );
 }
 
