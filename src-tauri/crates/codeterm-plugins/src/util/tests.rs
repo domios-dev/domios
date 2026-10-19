@@ -92,7 +92,7 @@ mod git_never_prompts {
         let error = run_git(vec!["fetch".into()]).expect_err("fake git fails");
         assert_eq!(
             error,
-            "Plugin updates need access to the Domios plugin repository; Domios will retry"
+            "Plugin updates are unavailable right now. Domios will retry."
         );
         assert!(!error.contains("remote denied"));
     }

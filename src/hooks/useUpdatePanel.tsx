@@ -1,16 +1,22 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { listen } from "../lib/bridge";
 import { checkUpdateAvailability, type UpdateAvailabilitySnapshot } from "../lib/updateAvailability";
-import { availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, type UpdateIntent, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
+import { availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, updateableItems, type UpdateIntent, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
 import { acceptFrontendUpdate, setFrontendUpdateHeld, frontendUpdateOffer, subscribeFrontendUpdateOffer } from "../lib/frontendUpdate/browser";
 import { runPluginSnapshotAction } from "../lib/pluginSnapshotStore";
 import { useUpdate } from "./useUpdate";
-import { classifyUpdateFailure, classifyUpdateStatus, type UpdateFailure } from "../lib/updateStatusModel";
+import { classifyUpdateFailure, classifyUpdateStatus, PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE, type UpdateFailure } from "../lib/updateStatusModel";
 
 import { DEV_BUILD } from "../lib/devBuild";
 
 function debugFailure(failure: unknown) {
   if (DEV_BUILD) console.debug("Background update check failed", failure);
+}
+
+function logChannelErrors(snapshot: UpdateAvailabilitySnapshot) {
+  for (const [channel, detail] of Object.entries(snapshot.errors)) {
+    debugFailure(new Error(`Plugin channel '${channel}' refresh failed: ${detail}`));
+  }
 }
 
 const EMPTY: UpdateAvailabilitySnapshot = { items: [], errors: {} };
@@ -33,14 +39,16 @@ function useUpdatePanelController() {
   const [ready, setReady] = useState(false);
   const running = useRef(false);
   const offer = useSyncExternalStore(subscribeFrontendUpdateOffer, frontendUpdateOffer, () => null);
-  const items = panelItems(snapshot.items);
   const status = classifyUpdateStatus(snapshot);
+  const items = panelItems(snapshot.items, status.errors);
+  const updateable = panelItems(updateableItems(snapshot.items, status.errors));
 
   const refresh = useCallback(async (force = false) => {
     try {
       const next = await checkUpdateAvailability(force);
       setSnapshot(next);
       setReady(true);
+      logChannelErrors(next);
       return next;
     } catch (failure) {
       debugFailure(failure);
@@ -54,7 +62,7 @@ function useUpdatePanelController() {
     void listen<UpdateAvailabilitySnapshot>("update-availability-changed", event => {
       if (!disposed) {
         setSnapshot(event.payload); setReady(true);
-        for (const failure of Object.values(classifyUpdateStatus(event.payload).errors)) debugFailure(failure);
+        logChannelErrors(event.payload);
       }
     }).then(unlisten => {
       if (disposed) { unlisten(); return; }
@@ -62,7 +70,7 @@ function useUpdatePanelController() {
       void checkUpdateAvailability().then(next => {
         if (!disposed) {
           setSnapshot(next); setReady(true);
-          for (const failure of Object.values(classifyUpdateStatus(next).errors)) debugFailure(failure);
+          logChannelErrors(next);
         }
       }).catch(failure => { if (!disposed) debugFailure(failure); });
     }).catch(failure => { if (!disposed) debugFailure(failure); });
@@ -76,10 +84,13 @@ function useUpdatePanelController() {
   }, []);
 
   const hostVersion = snapshot.items.find(item => item.kind === "app")?.installed;
-  const nextStep = ready && intent && !error && Object.keys(status.errors).length === 0 && hostVersion
-    ? nextUpdateStep(intent, hostVersion, items) : null;
+  const nextStep = ready && intent && !error && hostVersion
+    ? nextUpdateStep(intent, hostVersion, updateable) : null;
   const stepKind = nextStep?.kind === "interface" && !offer ? "waitForApp" : nextStep?.kind;
   const pluginId = nextStep?.kind === "plugin" ? nextStep.id : null;
+  const pluginChannel = pluginId
+    ? snapshot.items.find(item => item.kind === "plugin" && item.id === pluginId)?.channel ?? null
+    : null;
   const intentKey = intent ? JSON.stringify(intent) : null;
 
   useEffect(() => {
@@ -97,10 +108,19 @@ function useUpdatePanelController() {
           save(null);
           acceptFrontendUpdate();
         } else save(null);
-      } catch (failure) { setError(classifyUpdateFailure("update", failure)); }
+      } catch (failure) {
+        const classified = classifyUpdateFailure("update", failure);
+        if (classified?.message === PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE && pluginId && pluginChannel) {
+          setSnapshot(previous => ({
+            ...previous,
+            errors: { ...previous.errors, [pluginChannel]: PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE },
+          }));
+          save({ ...currentIntent, stage: "plugins", pluginIds: currentIntent.pluginIds.filter(id => id !== pluginId) });
+        } else setError(classified);
+      }
       finally { running.current = false; }
     })();
-  }, [intentKey, stepKind, pluginId, refresh, save]);
+  }, [intentKey, stepKind, pluginId, pluginChannel, refresh, save]);
 
   const updateAll = async () => {
     if (intent || running.current || app.installing) return;
@@ -109,8 +129,8 @@ function useUpdatePanelController() {
     setError(null);
     try {
       const fresh = await refresh(true);
-      if (Object.keys(classifyUpdateStatus(fresh).errors).length > 0) throw new Error(Object.values(classifyUpdateStatus(fresh).errors).join("\n"));
-      const next = availabilityIntent(fresh.items);
+      const freshErrors = classifyUpdateStatus(fresh).errors;
+      const next = availabilityIntent(updateableItems(fresh.items, freshErrors));
       running.current = false;
       save(next);
       if (next.appTarget) {
@@ -123,8 +143,9 @@ function useUpdatePanelController() {
 
   const applyItem = async (id: string) => {
     if (intent || running.current || app.installing) return;
+    const row = items.find(item => item.id === id);
     const item = snapshot.items.find(item => item.id === id);
-    if (!item || !hasUpdateBadge(item)) return;
+    if (!item || row?.channelError || !hasUpdateBadge(item)) return;
     running.current = true;
     setStarting(true);
     setError(null);
@@ -139,8 +160,6 @@ function useUpdatePanelController() {
     setError(null);
     try {
       const fresh = await refresh(true);
-      const failures = Object.values(classifyUpdateStatus(fresh).errors);
-      if (failures.length) throw new Error(failures.join("\n"));
       const host = fresh.items.find(item => item.kind === "app")?.installed;
       if (intent?.stage === "app" && host !== intent.appTarget && !await app.applyUpdate({ failureSurface: "inline" })) {
         throw new Error("App update failed");

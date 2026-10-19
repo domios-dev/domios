@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { classifyUpdateFailure, classifyUpdateStatus } from "./updateStatusModel";
+import { classifyUpdateFailure, classifyUpdateStatus, PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE } from "./updateStatusModel";
 import type { UpdateAvailabilitySnapshot } from "./updateAvailability";
 
 const ahead = "system plugin 'codex' is not installable: local_ahead";
@@ -19,6 +19,8 @@ assert.deepEqual(classifyUpdateStatus({ items: [], errors: { core: `${ahead}; sy
 for (const message of ["local_ahead", "download failed: local_ahead", `${ahead}: download failed`, "system plugin 'codex' is not installable: same_version"]) {
   assert.deepEqual(classifyUpdateStatus({ items: [], errors: { core: message } }).errors, { core: message });
 }
+assert.deepEqual(classifyUpdateStatus({ items: [], errors: { "codeterm-core": "git_non_interactive: remote: Repository not found" } }).errors,
+  { "codeterm-core": PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE });
 for (const reason of ["same_version", "newer_version", "incompatible"]) {
   assert.deepEqual(classifyUpdateStatus({ items: [{ ...snapshot.items[0], reason }], errors: {} }), { errors: {}, information: [] });
 }
@@ -32,5 +34,8 @@ for (const detail of [new Error("InvalidJsonResponseError: raw daemon failure"),
     assert.equal(failure.details, String(detail));
   }
 }
+const channelFailure = classifyUpdateFailure("update", new Error("git_non_interactive: remote: Repository not found"))!;
+assert.deepEqual(channelFailure, { message: PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE, details: PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE });
+assert.deepEqual(classifyUpdateFailure("check", new Error("git_non_interactive: remote: Repository not found")), channelFailure);
 
-console.log("update status classification: 18 cases passed");
+console.log("update status classification: 21 cases passed");

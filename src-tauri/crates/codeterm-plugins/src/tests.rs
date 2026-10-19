@@ -200,7 +200,7 @@ mod store_index_tests {
 
         assert_eq!(
             error,
-            "Plugin updates need access to the Domios plugin repository; Domios will retry"
+            "Plugin updates are unavailable right now. Domios will retry."
         );
         assert!(!error.contains("Repository not found"));
     }

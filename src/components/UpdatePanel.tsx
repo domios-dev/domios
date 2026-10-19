@@ -24,15 +24,17 @@ export function UpdatePanelContents() {
             <h3 className="mb-1 text-xs font-semibold text-[var(--ct-muted)]">{section.group}</h3>
             {section.items.map(item => <div key={item.id} className="flex items-center justify-between gap-3 py-1 text-xs">
               <span>{item.name}</span>
-              <span className="font-mono text-[var(--ct-muted)]">{item.currentVersion} → {item.targetVersion}</span>
-              <Button size="sm" disabled={update.busy} aria-label={`Apply ${item.name} update`} onClick={() => void update.applyItem(item.id)}>Apply</Button>
+              {item.channelError
+                ? <span role="status" aria-label={`${item.name} plugin updates unavailable`}>{item.channelError}</span>
+                : <span className="font-mono text-[var(--ct-muted)]">{item.currentVersion} → {item.targetVersion}</span>}
+              <Button size="sm" disabled={update.busy || Boolean(item.channelError)} aria-label={`Apply ${item.name} update`} onClick={() => void update.applyItem(item.id)}>Apply</Button>
             </div>)}
           </section>
         ))}
         {update.error && <InlineErrorNotice error={update.errorDetails ?? update.error} operation="updating Domios" blocking />}
         {update.information.map(message => <div role="status" aria-label="Installed plugin ahead of channel" key={message} className="text-xs text-[var(--ct-muted)]">{message}</div>)}
         <div className="flex gap-2">
-          <Button size="sm" variant="accent" disabled={update.busy || !update.items.length} onClick={() => void update.updateAll()} loading={update.busy}>Update all</Button>
+          <Button size="sm" variant="accent" disabled={update.busy || !update.items.some(item => !item.channelError)} onClick={() => void update.updateAll()} loading={update.busy}>Update all</Button>
           <Button size="sm" disabled={update.busy && !update.error} onClick={() => void update.retry()}>Check again</Button>
         </div>
       </div>
