@@ -74,6 +74,89 @@
   color: color-mix(in srgb, var(--ct-accent) 85%, var(--ct-fg));
 }
 
+.sidebar-checklist-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: 16px;
+  margin-right: 2px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0 3px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.sidebar-tab:hover .sidebar-checklist-toggle,
+.sidebar-tab:focus-within .sidebar-checklist-toggle,
+.sidebar-tab-touch .sidebar-checklist-toggle,
+.sidebar-checklist-toggle[data-expanded="true"] {
+  opacity: 1;
+}
+
+.sidebar-checklist-toggle:hover {
+  background: var(--ct-hover);
+  color: var(--ct-fg);
+}
+
+.sidebar-worker-checklist {
+  margin: 0 0.5rem 0.25rem 2.25rem;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--ct-muted-fg);
+}
+
+.sidebar-worker-checklist__note {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.sidebar-worker-checklist__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sidebar-worker-checklist__item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar-worker-checklist__glyph {
+  flex: none;
+}
+
+.sidebar-worker-checklist__item[data-state="in_progress"] .sidebar-worker-checklist__glyph {
+  color: var(--ct-accent);
+}
+
+.sidebar-worker-checklist__item[data-state="done"] .sidebar-worker-checklist__glyph {
+  color: var(--ct-green);
+}
+
+.sidebar-worker-checklist__title {
+  min-width: 0;
+  flex: 1;
+  overflow: clip;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ct-fg);
+}
+
+.sidebar-worker-checklist__item[data-state="done"] .sidebar-worker-checklist__title {
+  color: var(--ct-muted-fg);
+}
+
+.sidebar-worker-checklist__state {
+  flex: none;
+  opacity: 0.7;
+}
+
 /* overflow:hidden labels become wheel-capturing scrollers; clip keeps the ellipsis without that. */
 .sidebar-tab .truncate {
   overflow: clip;

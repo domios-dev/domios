@@ -50,11 +50,15 @@ export function SidebarOwnerTabRow({ tabs, planIndex, attachments, closingTabIds
     renderAttachment={(tab, index) => renderRow(tab, index, {
       group: "child", groupKey: row.tab.id, pinnedIds: [], variant: "attachment",
       insetPx: attachmentInset(ownerRowInset(context, row.touchMode)), ownerBadgeTab: compact ? row.tab : null,
-      startedBy: null,
+      startedBy: null, checklistToggle: null,
     })} />;
 }
 
-export function SidebarShellRow({ showStartedBy = true, ...props }: Omit<SidebarOwnerTabRowProps, "context"> & { showStartedBy?: boolean }) {
+export function SidebarShellRow({ showStartedBy = true, detail = null, ...props }: Omit<SidebarOwnerTabRowProps, "context"> & {
+  showStartedBy?: boolean;
+  /** Row detail that stays inside the member block, below its row. */
+  detail?: ReactNode;
+}) {
   const creatorId = props.tab.spawned_by_tab_id ?? null;
   const creator = creatorId ? props.tabs[creatorId] : null;
   const origin = terminalOrigin(creatorId, creator?.title, Boolean(creator));
@@ -64,9 +68,11 @@ export function SidebarShellRow({ showStartedBy = true, ...props }: Omit<Sidebar
   if (props.sortable === false) {
     return <div className="sidebar-team-member">
       <SidebarOwnerTabRow {...props} context="team" startedBy={showStartedBy ? startedBy : undefined} />
+      {detail}
     </div>;
   }
   return <SidebarSortableBlock {...props} className="sidebar-team-member">
     <SidebarOwnerTabRow {...props} context="team" ownerSortable={false} startedBy={showStartedBy ? startedBy : undefined} />
+    {detail}
   </SidebarSortableBlock>;
 }

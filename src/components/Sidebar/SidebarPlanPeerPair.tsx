@@ -6,6 +6,7 @@ import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX, type SortableGroupData } from "./sortable";
 import { TabItem, type AttachmentToggle, type TabStartedBy } from "./TabItem";
+import type { ChecklistToggle } from "./WorkerChecklist";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import type { TabAttention } from "./tabAttention";
 
@@ -57,6 +58,7 @@ export interface SidebarTabItemRowProps {
   insetPx?: number;
   ownerBadgeTab?: Tab | null;
   attachmentToggle?: AttachmentToggle | null;
+  checklistToggle?: ChecklistToggle | null;
   startedBy?: TabStartedBy | null;
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
@@ -89,6 +91,7 @@ function SidebarTabItemRow({
   insetPx,
   ownerBadgeTab,
   attachmentToggle,
+  checklistToggle,
   startedBy,
   onActivateTab,
   onCloseTab,
@@ -129,6 +132,7 @@ function SidebarTabItemRow({
       insetPx={insetPx}
       ownerBadgeTab={ownerBadgeTab}
       attachmentToggle={attachmentToggle}
+      checklistToggle={checklistToggle}
       startedBy={startedBy}
     />
   );
