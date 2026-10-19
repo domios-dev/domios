@@ -1,4 +1,4 @@
-Set `--timeout 10m` on utility shells for tests, QA and builds; leave it unset for servers.
+Set `--timeout 30m` on utility shells for tests, QA and builds; leave it unset for servers.
 
 ## Domios Terminal
 
