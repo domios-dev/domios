@@ -104,7 +104,7 @@ fn remote_projection_stamps_worker_role_for_roleless_source() {
         }],
     );
     assert_eq!(projected[1]["role"], "Worker");
-    assert!(projected[1]["team_id"].is_null());
+    assert_eq!(projected[1]["team_id"], "team-a");
 }
 
 #[test]
