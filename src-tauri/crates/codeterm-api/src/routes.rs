@@ -20,6 +20,8 @@ use super::{
     usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
+mod frontend_missing;
+
 const FRONTEND_REQUEST_HEADERS: [&str; 10] = [
     "authorization",
     "if-none-match",
@@ -1052,7 +1054,10 @@ pub(super) fn create_router_with_preview_admission(
             )
             .route("/web", get(legacy_web_route_gone))
             .route("/web/{*path}", get(legacy_web_route_gone))
-            .fallback_service(root_serve)
+            .fallback(move |request| {
+                let root_serve = root_serve.clone();
+                frontend_missing::serve_or_missing(root_serve, request)
+            })
     } else {
         router
     };

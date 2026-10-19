@@ -86,7 +86,7 @@ async function main() {
     assert(chatSetupView(tab("shell_ready"), true).kind === "none", "ShellReady is stale after hydration");
   });
 
-  await test("starting renders only the provider progress glyph", async () => {
+  await test("starting renders the accessible threshold loading state", async () => {
     const p = { ...tab("preparing_role_instructions"), cwd: "/work/identity-card", role: "Worker", agent_session_model: "Focused" } as Tab;
     const host = await render(
       <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Claude Code" providerIconSvg="<svg><path /></svg>" providerIconColor="#d97757" />,

@@ -37,6 +37,7 @@
 @import "../components/Sidebar/teamRoster.css";
 @import "../components/Automation/blueprint.css";
 @import "../components/Terminal/tabPanel/tabPanel.css";
+@import "../components/brand/BrandState.css";
 
 /* The app shell's one responsive boundary, px so the terminal font size cannot move it.
    Mirrors SHELL_NARROW_QUERY / SHELL_WIDE_QUERY in src/lib/shellBreakpoint.ts. */
