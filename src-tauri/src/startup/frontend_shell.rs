@@ -166,7 +166,9 @@ fn packaged_fallback(app: &codeterm_host_runtime::app_runtime::AppHandle) -> Res
 }
 
 fn unavailable_url() -> Result<Url, url::ParseError> {
-    let html = include_str!("frontend_shell_unavailable.html");
+    let html = codeterm_service_core::startup::brand_fallback_page(
+        codeterm_service_core::startup::BrandFallback::Reconnecting,
+    );
     let encoded: String = url::form_urlencoded::byte_serialize(html.as_bytes()).collect();
     Url::parse(&format!("data:text/html;charset=utf-8,{encoded}"))
 }
