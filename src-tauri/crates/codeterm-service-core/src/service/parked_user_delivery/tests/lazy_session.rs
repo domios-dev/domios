@@ -167,16 +167,14 @@ fn non_lazy_launch_binding_unconfirmed_does_not_get_first_turn_admission() {
         writes_rx.try_recv(),
         Err(mpsc::TryRecvError::Empty)
     ));
-    assert!(
-        fixture
-            .service
-            .pending_delivery_payloads
-            .user_sends
-            .records(&tab)
-            .unwrap()
-            .iter()
-            .any(|record| record.send_id == send.send_id)
-    );
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .iter()
+        .any(|record| record.send_id == send.send_id));
 }
 
 #[test]
@@ -283,16 +281,14 @@ fn lazy_session_provider_writes_every_send_after_agent_readiness() {
                 .status
         })
         .collect::<Vec<_>>();
-    assert!(
-        fixture
-            .service
-            .pending_delivery_payloads
-            .user_sends
-            .records(&tab)
-            .unwrap()
-            .iter()
-            .all(|record| !record.held_before_readiness)
-    );
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .iter()
+        .all(|record| !record.held_before_readiness));
     release_tx.send(()).unwrap();
     await_owner_idle(&fixture, &tab);
 
@@ -319,15 +315,13 @@ fn lazy_session_provider_writes_every_send_after_agent_readiness() {
             "\n\nthird lazy send"
         ],
     );
-    assert!(
-        fixture
-            .service
-            .pending_delivery_payloads
-            .user_sends
-            .records(&tab)
-            .unwrap()
-            .is_empty()
-    );
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .is_empty());
     assert!(sends.iter().all(|status| {
         fixture
             .service
