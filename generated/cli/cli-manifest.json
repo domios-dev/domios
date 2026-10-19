@@ -454,26 +454,6 @@
               "aliases": []
             },
             {
-              "name": "reasoning-effort",
-              "positional": false,
-              "required": false,
-              "value_name": "LEVEL",
-              "possible_values": [],
-              "default": null,
-              "help": "Reasoning effort declared for the selected model",
-              "aliases": []
-            },
-            {
-              "name": "runtime-mode",
-              "positional": false,
-              "required": false,
-              "value_name": "MODE",
-              "possible_values": [],
-              "default": null,
-              "help": "Structured runtime mode declared by the selected provider",
-              "aliases": []
-            },
-            {
               "name": "speed",
               "positional": false,
               "required": false,
