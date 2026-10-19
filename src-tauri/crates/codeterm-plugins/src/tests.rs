@@ -170,6 +170,39 @@ mod store_index_tests {
             git_ref, "develop",
             "the default system channel installs as System trust; it must not track unreleased code"
         );
+        assert_eq!(
+            DEFAULT_PLUGIN_CHANNEL_URL,
+            "https://github.com/rollacode/codeterm-plugins.git"
+        );
+    }
+
+    #[test]
+    fn system_channel_url_defaults_to_private_source() {
+        with_data_root(|_| {
+            std::env::remove_var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL");
+            assert_eq!(system_channel_url(), DEFAULT_SYSTEM_CHANNEL_URL);
+        });
+    }
+
+    #[test]
+    fn system_channel_url_honors_developer_override() {
+        with_data_root(|root| {
+            let override_url = format!("file://{}", root.join("developer-channel").display());
+            std::env::set_var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", &override_url);
+            assert_eq!(system_channel_url(), override_url);
+        });
+    }
+
+    #[test]
+    fn git_channel_errors_are_actionable_and_hide_raw_details() {
+        let error =
+            git_non_interactive_error("remote: Repository not found. fatal: repository is private");
+
+        assert_eq!(
+            error,
+            "Plugin updates are unavailable right now. Domios will retry."
+        );
+        assert!(!error.contains("Repository not found"));
     }
 
     #[test]
