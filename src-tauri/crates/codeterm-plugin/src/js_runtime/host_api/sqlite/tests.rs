@@ -10,7 +10,7 @@ fn catalogue_rejection_query_never_materializes_oversized_transcript_rows() {
         INSERT INTO message VALUES('old', json_object('role', 'assistant', 'providerID', 'fixture', 'modelID', 'old', 'error', json_object('name', 'APIError', 'data', json_object('statusCode', 410, 'isRetryable', json('false')))), 1);");
     let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../plugins/provider-opencode/src/modelRejections.json"
+        "/../../../plugins/fixture-provider/src/modelRejections.json"
     )))
     .unwrap();
     let result = rows(
