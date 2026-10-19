@@ -91,12 +91,16 @@ async function choosePort() {
 
 function deadlineSignal(ms) { return AbortSignal.timeout(ms); }
 
+export function earlyExitMessage(code, signal) {
+  return `isolated server exited before READY (code=${code ?? 'none'}, signal=${signal ?? 'none'})`;
+}
+
 function waitForReady(child, build, port, signal) {
   return new Promise((resolve, reject) => {
     let pending = '';
     const cleanup = () => { child.stdout.off('data', onData); child.off('exit', onExit); signal.removeEventListener('abort', onAbort); };
     const finish = (error, value) => { cleanup(); error ? reject(error) : resolve(value); };
-    const onExit = () => finish(new Error('isolated server exited before READY'));
+    const onExit = (code, exitSignal) => finish(new Error(earlyExitMessage(code, exitSignal)));
     const onAbort = () => finish(new Error('isolated server READY deadline expired'));
     const onData = bytes => {
       pending += bytes.toString('utf8');
@@ -171,6 +175,8 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
     child = spawn(command.binary, command.args,
       { cwd: scratch, env: { ...process.env, CODETERM_API_PORT: '', CODETERM_DATA_DIR: data },
         stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    // Drain diagnostics without forwarding protected runtime output into release logs.
+    child.stderr.resume();
     const deadline = deadlineSignal(30000);
     await waitForReady(child, manifest.server_build, port, deadline);
     const healthResponse = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: deadline });

@@ -3,7 +3,12 @@ import test from 'node:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { executionPlan, parseApiToken, recordSmokeReceipt, resolveExecution, targetCommand, validateReady } from '../release-pair-smoke.mjs';
+import { earlyExitMessage, executionPlan, parseApiToken, recordSmokeReceipt, resolveExecution, targetCommand, validateReady } from '../release-pair-smoke.mjs';
+
+test('early server exit distinguishes refusal from OS termination without runtime output', () => {
+  assert.equal(earlyExitMessage(1, null), 'isolated server exited before READY (code=1, signal=none)');
+  assert.equal(earlyExitMessage(null, 'SIGKILL'), 'isolated server exited before READY (code=none, signal=SIGKILL)');
+});
 
 test('Windows ARM64 on x64 refuses any native spawn and records the architecture gap', async () => {
   const plan = await resolveExecution(executionPlan('aarch64-pc-windows-msvc', 'win32', 'x64'), () => {
