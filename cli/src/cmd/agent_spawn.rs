@@ -159,8 +159,16 @@ pub(super) fn unsupported_team_orchestrator_flags(
         .collect()
 }
 
+/// A kind without an explicit intent mutates unless its registry row launches
+/// read-only; an explicit `--execution-intent` is the parent's separate grant.
 fn resolved_execution_intent(kind: Option<&str>, intent: Option<String>) -> Option<String> {
-    intent.or_else(|| kind.is_some().then(|| MUTATING.to_string()))
+    intent.or_else(|| {
+        kind.map(|kind| {
+            let read_only = codeterm_types::agent::role_kind::builtin_kind(kind.trim())
+                .is_some_and(|descriptor| descriptor.is_read_only_by_default());
+            if read_only { READ_ONLY } else { MUTATING }.to_string()
+        })
+    })
 }
 
 /// The `agent spawn` verb: validate the flag combination, resolve file-backed
@@ -684,7 +692,7 @@ mod tests {
             resolved_execution_intent(Some("release_manager"), None).as_deref(),
             Some(MUTATING)
         );
-        for kind in ["qa", "release_manager"] {
+        for kind in ["qa", "release_manager", "reviewer"] {
             for has_plan_task in [false, true] {
                 assert!(
                     validate_spawn_context(&SpawnContext {
@@ -735,6 +743,32 @@ mod tests {
                 "{kind} with task"
             );
         }
+    }
+
+    #[test]
+    fn reviewer_kind_defaults_to_a_read_only_taskless_review() {
+        assert_eq!(
+            resolved_execution_intent(Some("reviewer"), None).as_deref(),
+            Some(READ_ONLY)
+        );
+        assert_eq!(
+            resolved_execution_intent(Some("reviewer"), Some(MUTATING.into())).as_deref(),
+            Some(MUTATING),
+            "only the parent's explicit intent makes a reviewer mutate"
+        );
+        assert_eq!(
+            resolved_execution_intent(Some("code-reviewer"), None).as_deref(),
+            Some(MUTATING)
+        );
+        let reviewer = SpawnContext {
+            role: Some(&SpawnRole::Worker),
+            kind: Some("reviewer"),
+            has_parent: true,
+            execution_intent: Some(READ_ONLY),
+            ..Default::default()
+        };
+        assert!(validate_spawn_context(&reviewer).is_ok());
+        assert!(reviewer.is_verification_worker());
     }
 
     /// codeterm#305: an unbound Worker spawn is accepted (prod-docs/SKILLS.md's

@@ -54,6 +54,7 @@ Both read `GET /api/tabs/{id}/agent/runtime/usage` (exact-tab, binding-checked p
 ```bash
 codeterm agent spawn PROVIDER --role Worker --kind qa --parent-tab TAB_ID
 codeterm agent spawn PROVIDER --role Worker --kind release_manager --parent-tab TAB_ID
+codeterm agent spawn PROVIDER --role Worker --kind reviewer --parent-tab TAB_ID --task "exact review scope"
 ```
 
 Message and pad file options accept `-` as UTF-8 stdin, including `plan task remote-report --message-file -`, `send --from-file -`, and `--from-pad -`. For `plan create`, an implicit project path from a Team-bound caller is the caller Team workspace cwd; explicit `--project` remains an override.
@@ -212,4 +213,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 50 -->
+<!-- revision: 51 -->

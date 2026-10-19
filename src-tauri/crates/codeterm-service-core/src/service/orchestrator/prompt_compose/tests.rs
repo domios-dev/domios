@@ -551,7 +551,7 @@ fn built_in_plugins_follow_the_routing_contract_and_are_absent_without_contribut
 #[test]
 fn worker_kind_prompt_reaches_task_bound_and_taskless_launches() {
     use codeterm_types::agent::role_kind::builtins;
-    for kind in [builtins::QA, builtins::RELEASE_MANAGER] {
+    for kind in [builtins::QA, builtins::RELEASE_MANAGER, builtins::REVIEWER] {
         let guidance = crate::service::role_preset::builtin_guidance(kind).unwrap();
         for task_id in [None, Some("opaque-task")] {
             for system_prompt_capable in [false, true] {

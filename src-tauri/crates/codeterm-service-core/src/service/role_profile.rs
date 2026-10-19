@@ -3,6 +3,7 @@ use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER, WATCHER}
 
 use super::{json_str, orchestrator::SpawnAgentParams};
 use crate::multiplexer::types::AgentRole;
+use crate::plan::ExecutionIntent;
 use crate::service::SpawnIdentityProvenance;
 
 impl SpawnAgentParams {
@@ -164,6 +165,18 @@ pub(super) fn normalize_spawn_params(params: &mut SpawnAgentParams) -> Result<()
         Some("Worker") => {
             params.role = Some("Worker".into());
             params.role_profile = profile.map(normalize_worker_profile).transpose()?;
+            let unspecified = matches!(
+                params.execution_intent,
+                None | Some(ExecutionIntent::Unspecified)
+            );
+            if unspecified
+                && role_kind::read_only_by_default(
+                    Some(AgentRole::Worker),
+                    params.role_profile.as_deref(),
+                )
+            {
+                params.execution_intent = Some(ExecutionIntent::ReadOnly);
+            }
         }
         Some(other) => {
             return Err(format!(
@@ -267,7 +280,7 @@ fn json_string_list(params: &serde_json::Value, key: &str) -> Vec<String> {
 #[cfg(test)]
 mod normalization_tests {
     use codeterm_types::agent::role_kind::builtins::{
-        CARTOGRAPHER, GENERAL_AGENT, QA, RELEASE_MANAGER,
+        CARTOGRAPHER, GENERAL_AGENT, QA, RELEASE_MANAGER, REVIEWER,
     };
 
     use super::*;
@@ -382,7 +395,7 @@ mod normalization_tests {
 
     #[test]
     fn worker_kinds_normalize_and_promote_from_task_executor_roles() {
-        for kind in [QA, RELEASE_MANAGER] {
+        for kind in [QA, RELEASE_MANAGER, REVIEWER] {
             assert_eq!(
                 normalized("Worker", Some(kind)),
                 (Some("Worker".into()), Some(kind.into()))
@@ -401,9 +414,44 @@ mod normalization_tests {
         }
     }
 
+    /// The reviewer kind grants no mutation: an unspecified intent normalizes to
+    /// read-only, while a parent's explicit intent is kept as its separate grant.
+    #[test]
+    fn reviewer_kind_defaults_to_read_only_and_keeps_an_explicit_parent_intent() {
+        let intent_after = |kind: &str, intent: Option<ExecutionIntent>| {
+            let mut params = SpawnAgentParams {
+                role: Some("Worker".into()),
+                role_profile: Some(kind.into()),
+                execution_intent: intent,
+                ..Default::default()
+            };
+            params.normalize_role_profile().expect("normalizes");
+            params.execution_intent
+        };
+        for unspecified in [None, Some(ExecutionIntent::Unspecified)] {
+            assert_eq!(
+                intent_after(REVIEWER, unspecified.clone()),
+                Some(ExecutionIntent::ReadOnly)
+            );
+            for kind in [QA, RELEASE_MANAGER, "code-reviewer"] {
+                assert_eq!(
+                    intent_after(kind, unspecified.clone()),
+                    unspecified,
+                    "{kind}"
+                );
+            }
+        }
+        for explicit in [ExecutionIntent::ReadOnly, ExecutionIntent::Mutating] {
+            assert_eq!(
+                intent_after(REVIEWER, Some(explicit.clone())),
+                Some(explicit)
+            );
+        }
+    }
+
     #[test]
     fn dispatch_worker_kind_composes_the_selected_prompt_with_or_without_a_task() {
-        for kind in [QA, RELEASE_MANAGER] {
+        for kind in [QA, RELEASE_MANAGER, REVIEWER] {
             for task_id in [None, Some("task-bound")] {
                 let profile = dispatch_worker_profile(Some("repository-integrator"), Some(kind))
                     .expect("the selected builtin Worker kind is valid")
