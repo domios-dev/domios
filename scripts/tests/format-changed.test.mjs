@@ -59,6 +59,7 @@ test('selects committed, staged, unstaged and untracked files while skipping del
 test('formats a changed Rust file with its package edition', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'codeterm-fmt-rust-'));
   temporaryDirectories.push(root);
+  write(root, 'rust-toolchain.toml', readFileSync(new URL('../../rust-toolchain.toml', import.meta.url), 'utf8'));
   git(root, 'init', '-b', 'develop');
   git(root, 'config', 'user.name', 'Fixture');
   git(root, 'config', 'user.email', 'fixture@example.invalid');
