@@ -193,6 +193,41 @@ async fn the_first_page_adopts_a_running_restored_turn_before_ready() {
 }
 
 #[tokio::test]
+async fn replay_cannot_restore_a_finished_turn_as_running() {
+    let (session, epoch) = session();
+    session.completions.lock().record(THREAD, "finished");
+    let mut replay = replay_for(&session, epoch);
+    let command = ChatMsg {
+        id: "finished-command".into(),
+        kind: "tool_call".into(),
+        tool_flow_id: Some("finished".into()),
+        tool_status: Some("running".into()),
+        ..Default::default()
+    };
+    let mut port = FakePort::with(vec![(
+        None,
+        Ok(RuntimeResult::HistoryPage {
+            thread_id: THREAD.into(),
+            items: vec![command.clone()],
+            open_items: vec![OpenItem {
+                turn_id: "finished".into(),
+                item: command,
+            }],
+            next_cursor: None,
+            questions: None,
+            order: Some(HistoryOrder::Desc),
+        }),
+    )]);
+    replay.first(&session, &mut port).await.unwrap();
+    assert!(session.context.lock().active_turn_id.is_none());
+    assert!(!port.states.contains(&RuntimeTurnState::Working));
+    assert_eq!(
+        session.cache.lock().snapshot()[0].tool_status.as_deref(),
+        Some("interrupted")
+    );
+}
+
+#[tokio::test]
 async fn restored_status_uses_only_the_newest_page_of_the_bound_thread() {
     for foreign in [false, true] {
         let (session, epoch) = session();

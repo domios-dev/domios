@@ -104,7 +104,7 @@ impl InterruptTarget {
     }
 }
 
-pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String> {
     crate::async_runtime::block_on(async {
         let session = engine::ensure(svc, tab).await?;
         let permit = session
@@ -114,6 +114,31 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
         engine::validate_binding(svc, &session)?;
         let context = session.context.lock().clone();
         let target = InterruptTarget::capture(&context)?;
+        let had_turn = !target.turns.is_empty();
+        if !had_turn {
+            super::super::subscriber::publish_events(
+                svc,
+                &session,
+                context.epoch,
+                vec![
+                    codeterm_plugin::agent_runtime::AgentRuntimeEvent::TurnState {
+                        thread_id: target.thread.clone(),
+                        turn_id: None,
+                        parent_thread_id: None,
+                        state: codeterm_plugin::agent_runtime::RuntimeTurnState::Idle,
+                        detail: None,
+                        status_line: None,
+                        started_at: None,
+                        completed_at: None,
+                    },
+                ],
+                chrono::Utc::now().timestamp_millis().max(1) as u64,
+            )
+            .await?;
+            if !super::super::background::supported(&session) {
+                return Ok(false);
+            }
+        }
         {
             let mut current = session.context.lock();
             if current.epoch != context.epoch
@@ -205,9 +230,9 @@ pub(super) fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
             && engine::validate_binding(svc, &session).is_ok()
             && session.context.lock().epoch == target.epoch
         {
-            return Ok(());
+            return Ok(had_turn);
         }
-        interrupted
+        interrupted.map(|()| had_turn)
     })
     .map_err(|reason: RuntimeFailure| reason.to_string())
 }

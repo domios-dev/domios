@@ -31,11 +31,18 @@ pub(in crate::service::agent_runtime) async fn publish_events(
     let mut run_completed = false;
     let mut run_chat_item = false;
     for event in enriched {
+        if session.context.lock().epoch != epoch {
+            return Err(RuntimeFailure::Superseded);
+        }
+        engine::validate_binding(svc, session)?;
         if matches!(&event.event, AgentRuntimeEvent::SendEvidence { send_id, item_id, .. } if !evidence.contains(&(send_id.clone(), item_id.clone())))
         {
             continue;
         }
-        let runtime = events::translate(&event.event);
+        let mut runtime = events::translate(&event.event);
+        if !super::turn_lifecycle::prepare(svc, session, at, &mut runtime) {
+            continue;
+        }
         events::fold(&mut session.maps.lock(), epoch, &runtime);
         if let RuntimeEvent::RequestUpdated {
             thread_id,
@@ -279,7 +286,9 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
             let live = crate::agent::state_verdict::live_state_for_runtime(
                 &state,
                 detail,
-                status_line.as_deref(),
+                status_line
+                    .as_deref()
+                    .filter(|_| !matches!(state, RuntimeTurnState::Idle)),
             );
             crate::agent::state_verdict::apply_live(&svc.mux, &context.tab_id, &thread_id, live);
             session.context.lock().active_turn_id = match state {

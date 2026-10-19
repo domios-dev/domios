@@ -912,6 +912,11 @@ async fn run_inner(
                     process.client.notify(&notification).await?;
                 }
                 if let Some(events) = events {
+                    let current = session.context.lock().clone();
+                    let events = events
+                        .into_iter()
+                        .filter(|event| model::accepts_response_event(&context, &current, event))
+                        .collect();
                     let at = chrono::Utc::now().timestamp_millis().max(0) as u64;
                     super::subscriber::publish_events(svc, session, context.epoch, events, at)
                         .await?;

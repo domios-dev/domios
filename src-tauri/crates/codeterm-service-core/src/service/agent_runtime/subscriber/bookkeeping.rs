@@ -237,14 +237,24 @@ pub(super) async fn resync(
             return Err(RuntimeFailure::Superseded);
         }
         let epoch = session.context.lock().epoch;
-        for item in items {
+        for mut item in items {
+            super::turn_lifecycle::reconcile_finished_item(session, &thread_id, &mut item);
             session.cache.lock().reconcile(item.clone());
             events::reconcile_history(&mut session.maps.lock(), epoch, &thread_id, item);
         }
-        for open in open_items {
+        for mut open in open_items {
+            super::turn_lifecycle::reconcile_finished_item(session, &thread_id, &mut open.item);
             session.cache.lock().reconcile(open.item.clone());
             events::reconcile_history(&mut session.maps.lock(), epoch, &thread_id, open.item);
-            session.context.lock().active_turn_id = Some(open.turn_id);
+            let mut current = session.context.lock();
+            if current.active_turn_id.is_none()
+                && !session
+                    .completions
+                    .lock()
+                    .contains(&thread_id, &open.turn_id)
+            {
+                current.active_turn_id = Some(open.turn_id);
+            }
         }
         let Some(next) = next_cursor else {
             break;

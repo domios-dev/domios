@@ -208,6 +208,26 @@ fn autonomous_following_turn_is_allowed_and_old_completion_cannot_stop_it() {
 }
 
 #[test]
+fn resume_idle_without_a_turn_cannot_settle_a_turn_started_after_the_request() {
+    use codeterm_plugin::agent_runtime::*;
+    let before = RuntimeContext::default();
+    let mut current = before.clone();
+    let idle = AgentRuntimeEvent::TurnState {
+        thread_id: "own".into(),
+        turn_id: None,
+        parent_thread_id: None,
+        state: RuntimeTurnState::Idle,
+        detail: None,
+        status_line: None,
+        started_at: None,
+        completed_at: None,
+    };
+    assert!(accepts_response_event(&before, &current, &idle));
+    current.active_turn_id = Some("newer".into());
+    assert!(!accepts_response_event(&before, &current, &idle));
+}
+
+#[test]
 fn completed_parent_retains_ancestry_and_descendant_interrupt_authority() {
     use codeterm_plugin::agent_runtime::*;
     let mut context = RuntimeContext {
