@@ -3,7 +3,7 @@ import type { ProviderDescriptor } from "../../lib/types";
 import type { TeamMemberRole } from "../../lib/teamActions";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { tab, TEAM } from "./SidebarWorkspaceTabs.fixtures.testdata";
-import { addableTeamRoles } from "./SidebarWorkspaceTabs";
+import { addableTeamRoles } from "./workspaceTeamModel";
 import {
   act,
   assert,

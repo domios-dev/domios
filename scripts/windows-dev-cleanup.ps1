@@ -10,6 +10,7 @@ param(
   [Parameter(Mandatory = $true)][int] $CdpPort,
   [Parameter(Mandatory = $false)][int[]] $OwnedProcessIds = @(),
   [switch] $OwnedOnly,
+  [switch] $KeepVite,
   [string] $FixturePath,
   [switch] $PlanOnly
 )
@@ -102,7 +103,7 @@ if (-not $OwnedOnly) {
     $matchesWebView = $cmd -and
       $cmd.IndexOf("$Identifier\EBWebView", [StringComparison]::OrdinalIgnoreCase) -ge 0
     $isRepoScriptHost = @("node.exe", "npm.exe", "pnpm.exe", "cmd.exe", "sh.exe", "bash.exe") -contains $name.ToLowerInvariant()
-    $matchesVite = $isRepoScriptHost -and $cmd -and
+    $matchesVite = -not $KeepVite -and $isRepoScriptHost -and $cmd -and
       $cmd.IndexOf($nodeModules, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
       ($cmd -match 'vite[\\/]bin[\\/]vite\.js|@tauri-apps[\\/]cli[\\/]tauri\.js') -and
       ($cmd.IndexOf(":$VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
@@ -115,7 +116,9 @@ if (-not $OwnedOnly) {
       [void]$victimRoots.Add($procId)
     }
   }
-  foreach ($port in @($ApiPort, $VitePort, $CdpPort)) {
+  # dev-back owns only the API and CDP ports; dev-front keeps its Vite port.
+  $ownedPorts = if ($KeepVite) { @($ApiPort, $CdpPort) } else { @($ApiPort, $VitePort, $CdpPort) }
+  foreach ($port in $ownedPorts) {
     foreach ($listener in @($listeners | Where-Object { [int]$_.port -eq $port })) {
       [void]$victimRoots.Add([int]$listener.process_id)
     }

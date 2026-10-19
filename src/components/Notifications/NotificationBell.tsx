@@ -9,6 +9,7 @@ export { anchoredPanelPosition } from "./notificationPanelPosition";
 
 interface NotificationBellProps {
   notifications: Notification[];
+  loading?: boolean;
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
   onDelete: (id: string) => void;
@@ -19,6 +20,7 @@ interface NotificationBellProps {
 
 export function NotificationBell({
   notifications,
+  loading = false,
   onMarkRead,
   onMarkAllRead,
   onDelete,
@@ -113,6 +115,7 @@ export function NotificationBell({
           style={{ top: position.top, right: position.right, maxWidth: position.maxWidth }}
         >
           <NotificationPanel
+            loading={loading}
             notifications={notifications}
             onMarkRead={onMarkRead}
             onMarkAllRead={onMarkAllRead}

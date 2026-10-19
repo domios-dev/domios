@@ -20,7 +20,7 @@ export function BrandState({ model, className, children }: {
     return (
       <div className={`brand-state brand-state--loading ${className ?? ""}`} role="status" aria-live="polite" aria-label={model.label} aria-busy="true">
         <DotMatrixCanvas ref={matrixRef} mode="loading" reducedMotion={reducedMotion || !model.animate} />
-        <BrandMark motion={model.animate && !reducedMotion ? "load" : "static"} onRelease={emitRelease} size={92} />
+        <BrandMark motion="static" onRelease={emitRelease} size={92} />
         <div className="brand-state-copy">
           <h2>{model.label}</h2>
           {model.detail && <p>{model.detail}</p>}

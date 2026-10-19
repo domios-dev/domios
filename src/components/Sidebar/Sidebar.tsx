@@ -37,6 +37,7 @@ import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import { GeneralInventory } from "./GeneralInventory";
 import { GeneralWorkspaceTabs } from "./GeneralWorkspaceTabs";
+import { SidebarSkeleton } from "./SidebarSkeleton";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
@@ -57,33 +58,14 @@ import { tabAttentionByTab } from "./tabAttention";
 import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
 import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
 import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
+import {
+  loadWorkspacesSectionExpanded,
+  persistWorkspacesSectionExpanded,
+  toggleWorkspacesSectionExpanded,
+  workspaceSectionBodyVisible,
+} from "./workspacesSectionModel";
 
-
-export const SIDEBAR_WORKSPACES_SECTION_EXPANDED_KEY = "codeterm.sidebar.workspaces-section-expanded";
-
-export function loadWorkspacesSectionExpanded(): boolean {
-  try {
-    return window.localStorage.getItem(SIDEBAR_WORKSPACES_SECTION_EXPANDED_KEY) !== "0";
-  } catch {
-    return true;
-  }
-}
-
-export function persistWorkspacesSectionExpanded(expanded: boolean) {
-  try {
-    window.localStorage.setItem(SIDEBAR_WORKSPACES_SECTION_EXPANDED_KEY, expanded ? "1" : "0");
-  } catch {}
-}
-
-export function workspaceSectionBodyVisible(isCompact: boolean, expanded: boolean): boolean {
-  return isCompact || expanded;
-}
-
-export function toggleWorkspacesSectionExpanded(expanded: boolean): boolean {
-  return !expanded;
-}
-
-export const SIDEBAR_REGION_ID = "codeterm-sidebar";
+const SIDEBAR_REGION_ID = "codeterm-sidebar";
 const SIDEBAR_COLLAPSED_WIDTH = 0;
 const SIDEBAR_COMPACT_WIDTH = 64;
 const SIDEBAR_COMPACT_SNAP = 150;
@@ -108,6 +90,7 @@ interface SidebarProps {
   onCollapsedChange?: (collapsed: boolean) => void;
   /** Bumped by the titlebar burger to bring a collapsed sidebar back. */
   expandRequest?: number;
+  restoring?: boolean;
 }
 
 export function Sidebar({
@@ -125,6 +108,7 @@ export function Sidebar({
   teamActions,
   onCollapsedChange,
   expandRequest = 0,
+  restoring = false,
 }: SidebarProps) {
   const {
     createWorkspace,
@@ -728,7 +712,8 @@ export function Sidebar({
           {(!isSidebarCollapsed || isPeeking) && (
             <>
             <div className="ct-sidebar-content flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
-              {isCompact && (
+              {restoring && <SidebarSkeleton compact={isCompact} />}
+              {isCompact && !restoring && (
                 <SidebarCompactRail
                   groups={compactGroups}
                   attentionByTab={attention}
@@ -739,7 +724,7 @@ export function Sidebar({
                   }}
                 />
               )}
-              {!isCompact && generalWorkspace && (() => {
+              {!isCompact && !restoring && generalWorkspace && (() => {
                 const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
                 const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
                 const generalTabs = tabsInWorkspace(generalWorkspace.tabs, state.tabs);
@@ -809,7 +794,7 @@ export function Sidebar({
                   </section>
                 );
               })()}
-              {!isCompact && <div className="sidebar-structural-section">
+              {!isCompact && !restoring && <div className="sidebar-structural-section">
                 <div className="sidebar-structural-header">
                   <SidebarDisclosure
                     data-testid="workspaces-section-toggle"

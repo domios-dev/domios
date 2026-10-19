@@ -1,19 +1,14 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
-import { ChevronDown, LogIn, Mail, UserPlus, UserRound } from "lucide-react";
+import { ChevronDown, UserRound } from "lucide-react";
+import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS, type SignInOption } from "../Settings/accountSignInOptions";
 import { useAccount } from "../Settings/useAccount";
 import { useAccountPlan } from "../Settings/useAccountPlan";
 import { DropdownMenu, type DropdownMenuEntry } from "../shared/DropdownMenu";
+import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 import { UI_TRAY_BTN } from "../shared/design";
 import { communityMenu } from "../shared/CommunityLinks";
 import { accountTrayModel } from "./accountTrayModel";
-
-const googleIcon = new URL("../../assets/account/google.svg", import.meta.url).href;
-const facebookIcon = new URL("../../assets/account/facebook-badge.svg", import.meta.url).href;
-
-function BrandIcon({ source }: { source: string }) {
-  return <img src={source} alt="" width={16} height={16} className="shrink-0" />;
-}
 
 export function AccountTray() {
   const account = useAccount();
@@ -21,18 +16,19 @@ export function AccountTray() {
   const model = accountTrayModel(account.model, billing.plan);
   const [open, setOpen] = useState(false);
   const pending = model.kind === "pending";
+  const signInEntry = (option: SignInOption): DropdownMenuEntry =>
+    ({ label: option.label, icon: option.icon, disabled: pending, onClick: () => void account.signIn(option.hint) });
   const items: DropdownMenuEntry[] = model.kind === "signed_in" ? [
     { label: model.identity, description: model.email ?? undefined, disabled: true },
     { label: model.plan, disabled: true },
     { label: "Manage subscription", onClick: () => void billing.manage() },
     { label: "Sign out", onClick: () => void account.signOut() },
+  ] : pending ? [
+    { label: "Loading account…", disabled: true },
   ] : [
-    { label: "Sign in", icon: <LogIn size={16} />, disabled: pending, onClick: () => void account.signIn({mode:"signin"}) },
-    { label: "Create account", icon: <UserPlus size={16} />, disabled: pending, onClick: () => void account.signIn({mode:"signup"}) },
+    ...ACCOUNT_ENTRY_OPTIONS.map(signInEntry),
     { separator: true, key: "account-methods" },
-    { label: "Continue with Google", icon: <BrandIcon source={googleIcon} />, disabled: pending, onClick: () => void account.signIn({provider:"google",mode:"signin"}) },
-    { label: "Continue with Facebook", icon: <BrandIcon source={facebookIcon} />, disabled: pending, onClick: () => void account.signIn({provider:"facebook",mode:"signin"}) },
-    { label: "Continue with email", icon: <Mail size={16} />, disabled: pending, onClick: () => void account.signIn({provider:"email",mode:"signin"}) },
+    ...SIGN_IN_PROVIDER_OPTIONS.map(signInEntry),
   ];
   if (account.model.kind === "signed_in" && account.model.sessionOnly) {
     items.unshift({label: "Signed in for this session only", description: "Secure storage is unavailable. Sign in again after restarting Domios.", disabled: true});
@@ -43,9 +39,11 @@ export function AccountTray() {
     <DropdownMenu menuLabel="Account" items={items} onOpenChange={setOpen} trigger={
       <button type="button" className={UI_TRAY_BTN} aria-label={model.name} title={model.name}
         aria-haspopup="menu" aria-expanded={open} aria-busy={pending}>
-        <span className="flex h-4 w-4 items-center justify-center rounded-full border border-[var(--ct-border-subtle)] text-[11px]" aria-hidden="true">
-          {model.kind === "signed_in" ? model.initial : <UserRound size={13} />}
-        </span>
+        {pending
+          ? <Skeleton inline><SkeletonBlock shape="circle" width={16} height={16} /></Skeleton>
+          : <span className="flex h-4 w-4 items-center justify-center rounded-full border border-[var(--ct-border-subtle)] text-[11px]" aria-hidden="true">
+            {model.kind === "signed_in" ? model.initial : <UserRound size={13} />}
+          </span>}
         <ChevronDown size={12} className="shrink-0 text-[var(--ct-muted-fg)]" aria-hidden="true" />
       </button>
     } />

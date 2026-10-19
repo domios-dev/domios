@@ -5691,3 +5691,8 @@ button.plan-recent-activity-item:hover .plan-recent-activity-task {
 .ct-markdown-ordered-list {
   padding-inline-start: max(1.25rem, var(--ct-list-marker-gutter));
 }
+
+.ct-skeleton-block { background: color-mix(in srgb, var(--ct-fg) 8%, transparent); }
+.ct-skeleton { animation: ct-skeleton-breathe 1.6s ease-in-out infinite; }
+@keyframes ct-skeleton-breathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ct-skeleton { animation: none; } }

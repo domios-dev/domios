@@ -11,6 +11,8 @@ import { DEV_BUILD } from "../../lib/devBuild";
 export interface ExtendedState extends MultiplexerState {
   teams: Team[];
   notifications: Notification[];
+  /** False until the stored history has answered once, so an empty list is not mistaken for "no notifications". */
+  notificationsLoaded?: boolean;
   tabStatuses: Record<string, TabStatus>;
   toasts: Notification[];
   activeTabIds: Record<string, string>;

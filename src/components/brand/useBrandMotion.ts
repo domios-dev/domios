@@ -1,9 +1,23 @@
 import { useLayoutEffect, useRef } from "react";
-import { compression, liquidEasing, release, REST, surfaceTension } from "./motion";
+import { REST, surfaceTension } from "./motion";
 import type { BrandPose } from "./motion";
 import { DOT_MATRIX_WAVE_DURATION_MS } from "./dotMatrixModel";
 
 export type BrandMotion = "static" | "load";
+
+/** Fraction of the period where the mark is brightest; each dot wave leaves the mark here. */
+export const BEAT_PEAK = 0.08;
+
+/** One beat per dot wave: sharp rise, short fall, rest. Must match the pulse keyframes and DOT_WAVES in codeterm-service-core startup/brand_fallback.{html,rs}. */
+export function beatLevel(cycleProgress: number): number {
+  const rise = BEAT_PEAK, fall = 0.35;
+  if (cycleProgress < rise) return 1 - (1 - cycleProgress / rise) ** 3;
+  if (cycleProgress < fall) {
+    const t = (cycleProgress - rise) / (fall - rise);
+    return 1 - t * t * (3 - 2 * t);
+  }
+  return 0;
+}
 
 export function useBrandMotion(motion: BrandMotion, onRelease?: (timestamp: number) => void) {
   const ref = useRef<SVGSVGElement>(null);
@@ -22,16 +36,23 @@ export function useBrandMotion(motion: BrandMotion, onRelease?: (timestamp: numb
     let frame: number | null = null;
     let phaseStarted = 0;
     let cycleStarted = 0;
-    let phase: "rest" | "open" | "compress" | "release" | "pause" = "rest";
-    let releaseAmount = 0;
+    let beats = 0;
+    let phase: "rest" | "open" | "beat" = "rest";
     let disposed = false;
-    let ease = (progress: number) => progress;
 
     const enabled = () => !disposed && !preference.matches && !document.hidden && motionOwner?.getAttribute("data-motion") !== "paused";
     const paint = (pose: BrandPose) => {
       path.setAttribute("d", pose.path);
       if (pose === REST) group.removeAttribute("transform");
       else group.setAttribute("transform", `translate(32 ${40 + pose.y}) scale(${pose.scaleX} ${pose.scaleY}) translate(-32 -40)`);
+      svg.style.opacity = "";
+      svg.dataset.brandState = phase;
+    };
+    const paintBeat = (level: number) => {
+      path.setAttribute("d", REST.path);
+      const scale = 0.94 + 0.1 * level;
+      group.setAttribute("transform", `translate(32 32) scale(${scale}) translate(-32 -32)`);
+      svg.style.opacity = String(0.5 + 0.5 * level);
       svg.dataset.brandState = phase;
     };
     const reset = () => {
@@ -44,39 +65,26 @@ export function useBrandMotion(motion: BrandMotion, onRelease?: (timestamp: numb
     function tick(timestamp: number) {
       frame = null;
       if (!enabled()) return reset();
-      const seconds = Math.max(0, (timestamp - phaseStarted) / 1000);
       if (phase === "open") {
-        const pose = surfaceTension(seconds);
+        const pose = surfaceTension(Math.max(0, (timestamp - phaseStarted) / 1000));
         if (pose === REST) {
-          phase = "compress";
-          phaseStarted = timestamp;
+          phase = "beat";
           cycleStarted = timestamp;
-          paint(REST);
+          beats = 0;
         } else paint(pose);
-      } else if (phase === "compress") {
-        const progress = Math.min(1, seconds / .32);
-        releaseAmount = .2 * ease(progress);
-        paint(compression(releaseAmount));
-        if (seconds >= .32) {
-          phase = "release";
-          phaseStarted = timestamp;
-          onReleaseRef.current?.(timestamp);
+      }
+      if (phase === "beat") {
+        const elapsed = timestamp - cycleStarted;
+        const peakOffset = BEAT_PEAK * DOT_MATRIX_WAVE_DURATION_MS;
+        if (elapsed >= peakOffset) {
+          const cycle = Math.floor((elapsed - peakOffset) / DOT_MATRIX_WAVE_DURATION_MS);
+          if (cycle >= beats) {
+            beats = cycle + 1;
+            onReleaseRef.current?.(cycleStarted + peakOffset + cycle * DOT_MATRIX_WAVE_DURATION_MS);
+          }
         }
-      } else if (phase === "release") {
-        const pose = release(seconds, releaseAmount);
-        if (pose === REST) {
-          phase = "pause";
-          phaseStarted = timestamp;
-          paint(REST);
-        } else paint(pose);
-      } else if (phase === "pause") {
-        // One pulse per dot wave: the mark and the matrix share a single period.
-        if (timestamp - cycleStarted >= DOT_MATRIX_WAVE_DURATION_MS) {
-          phase = "compress";
-          phaseStarted = timestamp;
-          cycleStarted = timestamp;
-        }
-      } else return;
+        paintBeat(beatLevel((elapsed % DOT_MATRIX_WAVE_DURATION_MS) / DOT_MATRIX_WAVE_DURATION_MS));
+      } else if (phase !== "open") return;
       schedule();
     }
     const startLoad = () => {
@@ -92,7 +100,6 @@ export function useBrandMotion(motion: BrandMotion, onRelease?: (timestamp: numb
     };
 
     paint(REST);
-    if (motion === "load") ease = liquidEasing(getComputedStyle(path).getPropertyValue("--ct-ease-liquid-settle"));
     const observer = new MutationObserver(sync);
     if (motionOwner) observer.observe(motionOwner, { attributes: true, attributeFilter: ["data-motion"] });
     document.addEventListener("visibilitychange", sync);

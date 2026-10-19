@@ -13,11 +13,26 @@ This skill owns only development instances. Local production installation is
 `.agents/skills/build/SKILL.md#local-production-build-and-self-install`; public publishing is
 the `github-release` skill. Do not use `dev` output as an installer artifact.
 
+## How we run DEV: two tabs
+
+DEV runs as two independent processes so every change updates live without losing the
+window: frontend edits hot-reload in place, server edits swap the backend while the window
+shows Reconnecting and returns, and only native client changes restart the window.
+
+| Tab (purpose `dev`, no timeout) | Command | Owns |
+|---|---|---|
+| `domios-front` | `./build.sh dev-front` | Vite dev server with HMR on 127.0.0.1:1420, proxying `/api`, `/frontend`, `/bundled` to DEV |
+| `domios-back` | `./build.sh dev-back` | Build, `domios-server` and the native window; uses the front tab's frontend |
+
+Start `domios-front` first; the window shows the branded loader and retries until it
+answers. Restarting either tab never stops the other. Plain `./build.sh dev` still runs
+everything in one tab with the production-mode bundle watcher.
+
 ## Reload by change type
 
 | Changed inputs | Command |
 |---|---|
-| Frontend `src/`, styles or `public/` | Nothing; the existing production-mode Vite watcher refreshes the staged bundle |
+| Frontend `src/`, styles or `public/` | Nothing; `domios-front` hot-reloads the module in place (single-tab `dev`: the bundle watcher rebuilds and the window reloads) |
 | Server crates, embedded server prompts, server plugins | `./build.sh dev-server` |
 | CLI or its local dependencies | `./build.sh dev-server` rebuilds the CLI when its sources changed |
 | Native client `src-tauri/src/` (including `host_ports`, `startup/frontend_shell`), client identity/runtime crates, Tauri config, build configuration | `./build.sh dev` |

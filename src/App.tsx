@@ -1,5 +1,7 @@
 import { WorkspacePaneState } from "./components/shared/FolderPaneState";
 import { BrandState } from "./components/brand/BrandState";
+import { DeferredPresence } from "./components/shared/DeferredPresence";
+import { releaseBootCover } from "./lib/bootCover";
 import { brandStateModel } from "./components/brand/brandStateModel";
 import { ServerConnectionLayer } from "./components/brand/ServerConnectionLayer";
 import { initialRouteReady } from "./store/multiplexer/pageSelection";
@@ -318,6 +320,13 @@ function AppInner() {
     selectWorkspace: setActiveWorkspace,
     selectTab: setActiveTab,
   });
+  const interfaceReady = routeRestored || state.storageUnavailable;
+  useEffect(() => {
+    if (!interfaceReady) return;
+    // Release after the restored interface has painted, so the cover hands over to a complete frame.
+    const frame = requestAnimationFrame(() => requestAnimationFrame(releaseBootCover));
+    return () => cancelAnimationFrame(frame);
+  }, [interfaceReady]);
 
   const navigateToNotificationTab = useCallback(
     (tabId: string, workspaceId: string | null) => {
@@ -695,6 +704,7 @@ function AppInner() {
         onToggleAnalytics={toggleAnalytics}
         analyticsButtonRef={analyticsButtonRef}
         notifications={state.notifications}
+        notificationsLoaded={state.notificationsLoaded ?? false}
         showBell={config.notifications?.show_bell !== false}
         toasts={state.toasts}
         onMarkNotificationRead={markRead}
@@ -742,6 +752,7 @@ function AppInner() {
                 onOpenWorkspaceMap={openWorkspaceMap}
                 onOpenWorkspaceAutomation={openWorkspaceAutomation}
                 teamActions={teamActions}
+                restoring={!interfaceReady}
               />
             </SidebarDrawer>
           </>
@@ -750,7 +761,9 @@ function AppInner() {
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
           {!routeRestored && !state.storageUnavailable ? (
-            <BrandState model={brandStateModel({ loading: true, label: "Restoring workspace" })} />
+            <DeferredPresence present className="absolute inset-0">
+              <BrandState model={brandStateModel({ loading: true, label: "Restoring workspace" })} />
+            </DeferredPresence>
           ) : <>
           {/* All panels stay mounted — switching mainView only changes visibility.
               Unmounting the workspace would tear down xterm + re-run get_tab_text

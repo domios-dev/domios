@@ -329,8 +329,10 @@ kill_dev() {
       done
     fi
     local vite_pids
-    vite_pids="$(lsof -ti:"$CT_VITE_PORT" 2>/dev/null || true)"
-    [ -z "$vite_pids" ] || echo "$vite_pids" | xargs kill -9 2>/dev/null || true
+    if [ "${DEV_FRONT_EXTERNAL:-0}" != 1 ]; then
+      vite_pids="$(lsof -ti:"$CT_VITE_PORT" 2>/dev/null || true)"
+      [ -z "$vite_pids" ] || echo "$vite_pids" | xargs kill -9 2>/dev/null || true
+    fi
     if [ -f "$CT_DATA_DIR/daemon.pid" ]; then
       kill "$(cat "$CT_DATA_DIR/daemon.pid")" 2>/dev/null || true
       rm -f "$CT_DATA_DIR/daemon.pid"
@@ -348,9 +350,12 @@ kill_dev() {
     kill_web_watch 2>/dev/null || true
     kill_dev_static_server 2>/dev/null || true
     local vite_pid
-    vite_pid=$(netstat -ano 2>/dev/null | grep ":$CT_VITE_PORT.*LISTEN" | awk '{print $5}' | head -1 || true)
-    if [ -n "$vite_pid" ] && [ "$vite_pid" != "0" ]; then
-      taskkill //PID "$vite_pid" //T //F 2>/dev/null || true
+    # dev-back keeps the separately owned dev-front (Vite HMR) process alive.
+    if [ "${DEV_FRONT_EXTERNAL:-0}" != 1 ]; then
+      vite_pid=$(netstat -ano 2>/dev/null | grep ":$CT_VITE_PORT.*LISTEN" | awk '{print $5}' | head -1 || true)
+      if [ -n "$vite_pid" ] && [ "$vite_pid" != "0" ]; then
+        taskkill //PID "$vite_pid" //T //F 2>/dev/null || true
+      fi
     fi
     windows_dev_leftover_cleanup
   fi
@@ -2107,6 +2112,9 @@ windows_dev_leftover_cleanup() {
   if [ "${#owned_pids[@]}" -gt 0 ]; then
     cleanup_args+=(-OwnedProcessIds "${owned_pids[@]}" -OwnedOnly)
   fi
+  if [ "${DEV_FRONT_EXTERNAL:-0}" = 1 ]; then
+    cleanup_args+=(-KeepVite)
+  fi
   "${cleanup_args[@]}" 2>/dev/null || true
 }
 
@@ -2397,6 +2405,8 @@ CodeTerm build commands
 
   dev                         Start the visible shared dev instance
   dev-prebuilt                Restart a validated dev build without Cargo
+  dev-back                    DEV server + native window; the frontend comes from dev-front
+  dev-front                   DEV frontend on Vite with hot reload (pair with dev-back)
   dev-server                  Rebuild/reload only the selected DEV server; keep the window
   retain-pdb <sha> [pdb] [key]  Keep a linked dev build's symbol file (last 3)
   check                       Fast Rust compile check
@@ -3340,8 +3350,11 @@ LOCK_STORM_PY
     configure_dev_cargo
     export CODETERM_WEB_DIST="$(pwd -P)/dist"
     export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
-    start_web_watch
-    start_dev_static_server
+    # dev-back leaves the frontend to the separate dev-front (Vite HMR) tab.
+    if [ "${DEV_FRONT_EXTERNAL:-0}" != 1 ]; then
+      start_web_watch
+      start_dev_static_server
+    fi
     if [ "$CT_DEV_WAIT" -eq 1 ]; then
       DEV_NOTIFY_STAGE=launch
       node scripts/dev-prep.mjs --launch-prebuilt \
@@ -3400,6 +3413,18 @@ LOCK_STORM_PY
         exec node scripts/dev-prep.mjs --run-prebuilt --app "$(dev_app_path)" --record "$(dev_provenance_record)" --api-port "$CT_PORT" --log "/tmp/codeterm-dev${CT_SUFFIX}.interactive.log"
       fi
     fi
+    ;;
+  dev-back)
+    export DEV_FRONT_EXTERNAL=1
+    exec "$0" dev "${@:2}"
+    ;;
+  dev-front)
+    kill_web_watch 2>/dev/null || true
+    kill_dev_static_server 2>/dev/null || true
+    ensure_deps
+    echo "Vite dev server with HMR on http://127.0.0.1:${CT_VITE_PORT} (DEV API ${CT_PORT})"
+    exec env CODETERM_FRONTEND_DEV=1 CODETERM_API_PORT="$CT_PORT" CODETERM_VITE_PORT="$CT_VITE_PORT" \
+      node node_modules/vite/bin/vite.js --host 127.0.0.1 --port "$CT_VITE_PORT" --strictPort
     ;;
   dev)
     DEV_NOTIFY_STAGE=preflight
