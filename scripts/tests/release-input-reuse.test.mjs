@@ -11,13 +11,15 @@ test('shared-stage bundles preserve the final client bytes used by the component
   const files = [
     '../../build.sh', '../../.github/workflows/release-linux.yml',
     '../../.codeterm/build-machine/scripts/build-linux.sh',
-    '../../.agents/skills/github-release/scripts/build-mac.sh', '../release-macos-x86_64.sh',
   ];
   for (const file of files) {
     const text = readFileSync(new URL(file, import.meta.url), 'utf8');
     const commands = text.split('\n').filter(line => line.includes('pnpm tauri bundle '));
     assert.ok(commands.length > 0, file);
     for (const command of commands) assert.match(command, /tauri bundle --no-binary-patching\b/, file);
+  }
+  for (const file of ['../../.agents/skills/github-release/scripts/build-mac.sh', '../release-macos-x86_64.sh']) {
+    assert.match(readFileSync(new URL(file, import.meta.url), 'utf8'), /node scripts\/release-macos-bundle\.mjs/);
   }
   const dependencies = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).devDependencies;
   assert.equal(dependencies['@tauri-apps/cli'], '^2.12.2');

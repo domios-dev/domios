@@ -16,6 +16,10 @@ Linux `tauri build --no-bundle` overrides resources and externalBin with empty a
 The following `tauri bundle` uses the full platform resource map; never carry that compile-only override into packaging.
 Release callers use `release-inputs --for-bundle` so preparation builds frontend, CLI and server once;
 the following Tauri no-bundle command is the only native-client compile.
+macOS uses `release-macos-bundle.mjs`: Tauri assembles an unsigned app without changing binary bytes,
+then codesign seals only the outer app. The helper verifies frozen CLI/server/manifest bytes before and
+after signing, creates a standard app-only DMG with hdiutil, mounts it read-only and verifies its bytes.
+The existing notary step then staples both the DMG and app before packaging the updater archive.
 
 For one platform concern, dispatch `release-linux.yml`, `release-windows.yml` or `release-macos-build.yml`
 with the exact `source_ref`, version tag and one architecture. The event plus workflow name distinguishes direct dispatch
