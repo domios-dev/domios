@@ -38,7 +38,7 @@ pub(crate) fn persist_switched_session(provider: &str, session: &str) {
 
 pub use first_run::{
     complete_first_run_core, ensure_first_run_tab, needs_first_run_picker, purge_snapshot_ghosts,
-    snapshot_has_protected_main, FIRST_RUN_TAB_MARKER,
+    purge_snapshot_ghosts_with_evictions, snapshot_has_protected_main, FIRST_RUN_TAB_MARKER,
 };
 pub use fresh_session::FreshGeneralSessionRequest;
 pub use identity::{confine_general_agent_kind, is_general_agent, GENERAL_AGENT_KIND};
@@ -53,7 +53,7 @@ pub use team_membership::{
 pub(crate) use watchdog::WatchdogEvent;
 pub use workspace::{
     apply_general_chat_view_default, default_chat_view_for_provider, ensure_general_workspace,
-    general_workspace_id,
+    ensure_general_workspace_with_evictions, general_workspace_id,
 };
 
 pub const GENERAL_ALIAS: &str = "general";

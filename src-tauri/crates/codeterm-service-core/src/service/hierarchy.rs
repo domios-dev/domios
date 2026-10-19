@@ -49,6 +49,14 @@ pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
     plan_reminder_nudge::start_plan_reminder_scheduler(svc);
 }
 
+pub(crate) fn deliver_tab_todo_recitation(
+    svc: &ServiceContext,
+    tab_id: &str,
+    text: &str,
+) -> Result<bool, String> {
+    plan_reminder_nudge::deliver_tab_todo_recitation(svc, tab_id, text)
+}
+
 impl ServiceContext {
     pub(crate) fn schedule_planner_replay(&self, tab_id: &str) {
         let svc = self.clone();

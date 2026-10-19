@@ -73,6 +73,14 @@ pub fn ensure_first_run_tab(mux: &mut crate::multiplexer::state::MultiplexerStat
 /// them via `close_tab` so they appear in Recently Closed, and emits an INFO
 /// log per drop. Returns the number of tabs purged.
 pub fn purge_snapshot_ghosts(mux: &mut crate::multiplexer::state::MultiplexerState) -> usize {
+    purge_snapshot_ghosts_with_evictions(mux).0
+}
+
+/// Purge ephemeral restored tabs and report any older closed tabs evicted by
+/// closed-history retention so their per-tab records can be cleaned up.
+pub fn purge_snapshot_ghosts_with_evictions(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+) -> (usize, Vec<String>) {
     // Collect (ws_id, tab_id) while holding only an immutable borrow.
     let mut to_drop: Vec<(String, String)> = Vec::new();
     for ws_info in mux.list_workspaces() {
@@ -104,10 +112,11 @@ pub fn purge_snapshot_ghosts(mux: &mut crate::multiplexer::state::MultiplexerSta
         }
         let _ = mux.close_tab(&tab_id);
     }
-    if let Some(batch) = mux.take_closed_history_batch() {
-        batch.persist_on_blocking_thread();
-    }
-    count
+    let evicted = mux
+        .take_closed_history_batch()
+        .map(|batch| batch.persist_on_blocking_thread_collect_evicted())
+        .unwrap_or_default();
+    (count, evicted)
 }
 
 fn close_first_run_tabs(
@@ -174,7 +183,8 @@ pub fn complete_first_run_core(
         (result, mux_guard.take_closed_history_batch())
     };
     if let Some(batch) = history_batch {
-        batch.persist_on_blocking_thread();
+        let evicted = batch.persist_on_blocking_thread_collect_evicted();
+        svc.forget_evicted_tab_todos(evicted);
     }
     let duplicate_generals_closed = close_result?;
     if duplicate_generals_closed > 0 {

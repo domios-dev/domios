@@ -479,6 +479,20 @@ fn task_events(plan: &Plan, titles: &BTreeMap<String, String>, out: &mut Vec<Pla
         });
         for milestone in &task.milestones {
             let (author, author_tab_id) = resolve_author(titles, &milestone.from);
+            if milestone.kind == "tab_todo_linked" {
+                out.push(PlanEvent {
+                    ts: milestone.ts,
+                    last_ts: milestone.ts,
+                    count: 1,
+                    kind: "tab_todo_linked".into(),
+                    author,
+                    author_tab_id,
+                    task_id: Some(task.id.clone()),
+                    task_name: Some(task.name.clone()),
+                    text: first_line(&milestone.text),
+                });
+                continue;
+            }
             out.push(PlanEvent {
                 ts: milestone.ts,
                 last_ts: milestone.ts,

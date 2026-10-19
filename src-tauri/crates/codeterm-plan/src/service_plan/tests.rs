@@ -2,6 +2,7 @@ use super::*;
 use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, Plan, PlanStatus, TaskStatus};
 use crate::service_plan::task_queries::TaskListFilter;
 
+mod tab_todo_link;
 mod tag_retag;
 mod task_queries;
 mod task_text_caps;

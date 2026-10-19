@@ -21,6 +21,9 @@ pub(super) fn dispatch(
     mux: &MuxState,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
+    if method.starts_with("tab.todo.") {
+        return super::tab_todos::dispatch(method, params, svc);
+    }
     match method {
         "tab.shells" => {
             let refresh = params

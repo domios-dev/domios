@@ -667,3 +667,34 @@ fn orphaned_plan_next_action_is_adoption_not_dispatch() {
     assert!(snap.next_actions[0].message.contains(&plan.id));
     assert!(snap.next_actions[0].message.contains("reason-token"));
 }
+
+#[test]
+fn mission_control_projects_tab_todo_link_as_one_task_event() {
+    let mut plan = fixture();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == "t_done")
+        .unwrap();
+    task.milestones.push(Milestone {
+        id: "tab_todo_item-1".into(),
+        from: crate::plan::AgentRef::from_tab("worker"),
+        kind: "tab_todo_linked".into(),
+        text: "Checklist item linked: Review source".into(),
+        ts: 500,
+        links: vec![],
+        loop_id: None,
+        iteration: None,
+        canvas: Default::default(),
+        attachments: vec![],
+    });
+    let log = super::mission_control::build_plan_event_log(&plan);
+    let events: Vec<_> = log
+        .entries
+        .iter()
+        .filter(|event| event.kind == "tab_todo_linked")
+        .collect();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].task_id.as_deref(), Some("t_done"));
+    assert_eq!(events[0].text, "Checklist item linked: Review source");
+}
