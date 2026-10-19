@@ -267,14 +267,37 @@ fn launch_child(
         Ok(reply)
     })();
     match result {
-        Ok(reply) => Ok((child, reply)),
+        Ok(reply) => {
+            drain_stderr(child.stderr.take());
+            Ok((child, reply))
+        }
         Err(error) => {
             if child.try_wait()?.is_none() {
                 child.kill()?;
                 child.wait()?;
             }
-            Err(error)
+            Err(match last_stderr_line(child.stderr.take()) {
+                Some(detail) => io::Error::new(error.kind(), format!("{error}: {detail}")),
+                None => error,
+            })
         }
+    }
+}
+
+/// A supervised child that fails before its logger exists leaves its cause only on stderr.
+fn last_stderr_line(stderr: Option<std::process::ChildStderr>) -> Option<String> {
+    let mut bytes = Vec::new();
+    stderr?.take(16 * 1024).read_to_end(&mut bytes).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let line = text.lines().rev().map(str::trim).find(|line| !line.is_empty())?;
+    Some(line.chars().take(240).collect())
+}
+
+fn drain_stderr(stderr: Option<std::process::ChildStderr>) {
+    if let Some(mut stderr) = stderr {
+        std::thread::spawn(move || {
+            let _ = io::copy(&mut stderr, &mut io::sink());
+        });
     }
 }
 
@@ -555,7 +578,7 @@ fn spawn_supervised(executable: &Path) -> io::Result<Child> {
         .arg("serve")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
     command.spawn()
 }
 
