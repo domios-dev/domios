@@ -149,3 +149,80 @@ fn close_undo_preserves_model_and_effort_overrides_through_sqlite() {
     assert!(tab.session_binding_nonce.is_none());
     assert!(tab.reported_session_binding_nonce.is_none());
 }
+
+#[test]
+fn close_undo_restores_chat_runtime_settings_into_the_desk_snapshot() {
+    use crate::multiplexer::types::{RestorableLaunchParameters, TabBacking};
+    use serde_json::json;
+
+    let (mut state, id) = MultiplexerState::new();
+    let workspace = state.list_workspaces()[0].id.clone();
+    let config = json!({
+        "model":"gpt-6-luna",
+        "effort":"low",
+        "serviceTier":{"id":"priority"},
+        "mode":"auto",
+        "confirmedServiceTier":{
+            "selection":{"id":"priority"},
+            "sessionId":"exact-own-thread",
+            "bindingNonce":"old-nonce"
+        }
+    });
+    let launch = RestorableLaunchParameters {
+        captured: true,
+        model: Some("gpt-6-luna".into()),
+        requested_model: Some("gpt-6-luna".into()),
+        requested_reasoning_effort: Some("low".into()),
+        resolved_reasoning_effort: Some("low".into()),
+        structured_runtime_mode: Some("auto".into()),
+        ..Default::default()
+    };
+    {
+        let tab = state.get_tab_mut(&id).unwrap();
+        tab.agent_type = Some("provider".into());
+        tab.agent_session_id = Some("exact-own-thread".into());
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: "provider".into(),
+            session_id: "exact-own-thread".into(),
+        };
+        tab.agent_runtime_config = Some(config.clone());
+        tab.restorable_launch = launch.clone();
+    }
+
+    state.close_tab(&id).unwrap();
+    let closed = state.list_recently_closed(&workspace);
+    assert_eq!(closed[0].agent_runtime_config, Some(config.clone()));
+    assert!(serde_json::to_value(&closed[0])
+        .unwrap()
+        .get("agent_runtime_config")
+        .is_none());
+
+    let restored_id = state.reopen_closed_tab(&workspace, None).unwrap();
+    let restored_tab = state.get_tab(&restored_id).unwrap();
+    assert_eq!(
+        restored_tab.agent_session_id.as_deref(),
+        Some("exact-own-thread")
+    );
+    assert_eq!(restored_tab.agent_runtime_config, Some(config.clone()));
+    assert_eq!(restored_tab.restorable_launch, launch);
+    assert_eq!(
+        restored_tab.structured_runtime_mode.as_deref(),
+        Some("auto")
+    );
+    assert_eq!(
+        restored_tab.reasoning_effort_identity.requested.as_deref(),
+        Some("low")
+    );
+    assert_eq!(
+        restored_tab.reasoning_effort_identity.resolved.as_deref(),
+        Some("low")
+    );
+
+    let snapshot = state.to_session_snapshot();
+    let restored_snapshot = MultiplexerState::from_session_snapshot(
+        &serde_json::from_value(serde_json::to_value(snapshot).unwrap()).unwrap(),
+    );
+    let tab = restored_snapshot.get_tab(&restored_id).unwrap();
+    assert_eq!(tab.agent_runtime_config, Some(config));
+    assert_eq!(tab.structured_runtime_mode.as_deref(), Some("auto"));
+}
