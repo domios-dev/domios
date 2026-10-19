@@ -637,8 +637,17 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       const tab = state.tabs[action.tabId];
       if (!tab) return state;
       const launch = action.launchGeneration;
-      if ((launch?.pty_id && tab.pty_id && launch.pty_id !== tab.pty_id)
-        || (launch?.binding_nonce && tab.session_binding_nonce && launch.binding_nonce !== tab.session_binding_nonce)) return state;
+      if (launch) {
+        const currentEpoch = tab.lifecycle_epoch;
+        const identityMismatch = Boolean((launch.operation_id && tab.lifecycle_operation_id && launch.operation_id !== tab.lifecycle_operation_id)
+          || (launch.pty_id && tab.pty_id && launch.pty_id !== tab.pty_id)
+          || (launch.binding_nonce && tab.session_binding_nonce && launch.binding_nonce !== tab.session_binding_nonce));
+        if (launch.epoch != null && currentEpoch != null) {
+          if (launch.epoch < currentEpoch || (launch.epoch === currentEpoch && identityMismatch)) return state;
+        } else if (identityMismatch) {
+          return state;
+        }
+      }
       const ready = action.stage === "agent_ready";
       return {
         ...state,
@@ -649,6 +658,10 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             boot_stage: action.stage,
             agent_booting: action.agent_booting ?? tab.agent_booting,
             session_bound: action.session_bound ?? tab.session_bound,
+            pty_id: launch?.pty_id ?? tab.pty_id,
+            session_binding_nonce: launch?.binding_nonce ?? tab.session_binding_nonce,
+            lifecycle_epoch: launch?.epoch ?? tab.lifecycle_epoch,
+            lifecycle_operation_id: launch?.operation_id ?? tab.lifecycle_operation_id,
             frozen: ready ? false : tab.frozen,
             slept_at_ms: ready ? null : tab.slept_at_ms,
             boot_failure_reason: STAGES_CARRYING_REASON.has(action.stage)

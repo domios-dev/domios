@@ -13,11 +13,18 @@ fn should_latch_user_input(
 }
 
 pub(super) fn requires_composer(svc: &ServiceContext, provider: &str, tab: &str) -> bool {
+    let has_resume_session = svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .and_then(|tab| tab.agent_session_id.as_deref())
+        .is_some_and(|session_id| !session_id.trim().is_empty());
     svc.agent_registry
         .with_provider(provider, |provider| {
             provider.session_starts_on_first_user_turn()
         })
         .unwrap_or(false)
+        && !has_resume_session
         && lifecycle::delivery_state(tab) == DeliveryState::Plain
         && lifecycle::for_tab(tab).is_none()
 }
