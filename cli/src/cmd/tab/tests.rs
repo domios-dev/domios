@@ -203,6 +203,20 @@ fn render_tree_groups_by_workspace_and_nests_children() {
 }
 
 #[test]
+fn render_tree_keeps_remote_workspace_identity_separate_from_local() {
+    let output = super::render::render_tab_tree_with_current(
+        &[
+            json!({"id":"local","title":"Local","workspace_name":"CodeTerm","workspace_id":"994f16ae"}),
+            json!({"id":"mesh:peer-a/remote","title":"Remote","workspace_name":"CodeTerm","workspace_id":"994f16ae","remote_peer":"Peer A","remote_peer_id":"peer-a"}),
+        ],
+        None,
+    );
+
+    assert!(output.contains("CodeTerm  994f16ae\n"));
+    assert!(output.contains("CodeTerm  994f16ae @Peer A\n"));
+}
+
+#[test]
 fn tab_list_uses_ordinary_remote_projection_without_remote_worker_ghosts() {
     let tabs = vec![
         json!({
