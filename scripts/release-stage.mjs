@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { assertServerClosure, serverArtifact } from './server-artifact.mjs';
 import { SERVER_COMPONENT_SCHEMA, SUPPORTED_BOOTSTRAP_PROTOCOL, validateManifest } from './package-server-component-manifest.mjs';
 import { HEADLESS_TARGETS, packageHeadless, validateHeadlessStage } from './headless-release-package.mjs';
+import { prepareCompileBundleStubs } from './prepare-bundle-resource-stubs.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const targetMetadata = new Map(Object.entries(HEADLESS_TARGETS).map(([platform, metadata]) => [metadata.target, { platform, ...metadata }]));
@@ -147,7 +148,31 @@ export async function signAndVerifyServer(options) {
   return { binary, sha256: sha256(await regularBytes(binary, 'final release server')) };
 }
 
+export async function prepareNativeBuildResources({ repo = root, target }) {
+  metadataFor(target);
+  await regularBytes(path.join(repo, 'dist', 'index.html'), 'built frontend entry');
+  const final = path.join(repo, 'target', 'domios-package');
+  const temporary = final + '.' + randomUUID() + '.tmp';
+  try {
+    await copyRegularTree(path.join(repo, 'dist'), path.join(temporary, 'dist'));
+    await replaceStage(temporary, final);
+    prepareCompileBundleStubs({ root: repo, target });
+    return { stageDirectory: final, frontendFileCount: (await inventory(path.join(final, 'dist'))).length };
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
+export async function verifyPreparedFrontend({ repo = root }) {
+  const source = await inventory(path.join(repo, 'dist'));
+  const prepared = await inventory(path.join(repo, 'target', 'domios-package', 'dist'));
+  if (source.length === 0 || JSON.stringify(source) !== JSON.stringify(prepared)) {
+    fail('native build frontend differs from final package frontend');
+  }
+}
+
 export async function stageFullResources({ repo = root, target, sourceSha, cargoLog, treeLog, clientFile }) {
+  await verifyPreparedFrontend({ repo });
   const metadata = metadataFor(target);
   const cliSha256 = await releaseCliDigest({ repo, target });
   const server = await verifyServerBuild({ repo, target, sourceSha, cargoLog, treeLog, expectedCliSha256: cliSha256 });
@@ -359,6 +384,8 @@ async function main() {
   const target = arg('--target');
   if (command === 'cli-digest') {
     process.stdout.write(await releaseCliDigest({ target }) + '\n');
+  } else if (command === 'stage-build-resources') {
+    process.stdout.write(JSON.stringify(await prepareNativeBuildResources({ target })) + '\n');
   } else if (command === 'prepare') {
     const result = await signAndVerifyServer({ target, sourceSha: arg('--source-sha'), cargoLog: arg('--cargo-log'),
       treeLog: arg('--tree-log'), expectedCliSha256: arg('--cli-sha256') });

@@ -41,6 +41,15 @@ test("packaging prepares checked frontend and CLI inputs without compiling the a
   ]);
 });
 
+test('shared-stage release places the built frontend before native compilation', () => {
+  const frontend = preparation.indexOf('  pnpm build');
+  const stage = preparation.indexOf('stage-build-resources');
+  const cli = preparation.indexOf('cargo build --release --timings --manifest-path cli/Cargo.toml');
+  const server = preparation.indexOf('cargo build --release --manifest-path src-tauri/Cargo.toml -p domios-server');
+  assert.ok(frontend >= 0 && frontend < stage && stage < cli && cli < server);
+  assert.equal(preparation.match(/\bpnpm build\b/g)?.length, 1);
+});
+
 test("each packaging entrypoint leaves native compilation to Tauri's final config", () => {
   for (const verb of ["release-bundle", "build", "install-local"]) {
     const entrypoint = source.match(new RegExp(`^  ${verb}\\)\\n([\\s\\S]*?)^    ;;`, "m"))?.[1];

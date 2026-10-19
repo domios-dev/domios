@@ -1,11 +1,38 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
-import { fullComponentManifest, headlessComponentManifest, verifyFinalPair } from '../release-stage.mjs';
+import { fullComponentManifest, headlessComponentManifest, prepareNativeBuildResources,
+  verifyFinalPair, verifyPreparedFrontend } from '../release-stage.mjs';
 
 const sourceSha = 'a'.repeat(40);
 const serverSha256 = 'b'.repeat(64);
 const clientSha256 = 'c'.repeat(64);
+
+test('native compile sees the freshly built frontend before final pair staging on every platform', async () => {
+  for (const target of ['x86_64-pc-windows-msvc', 'x86_64-unknown-linux-gnu', 'aarch64-apple-darwin']) {
+    const repo = await mkdtemp(path.join(os.tmpdir(), 'codeterm-release-frontend-'));
+    try {
+      await mkdir(path.join(repo, 'dist', 'assets'), { recursive: true });
+      await writeFile(path.join(repo, 'dist', 'index.html'), '<main>fresh frontend</main>');
+      await writeFile(path.join(repo, 'dist', 'assets', 'app.js'), 'fresh asset');
+      await mkdir(path.join(repo, 'target', 'domios-package'), { recursive: true });
+      await writeFile(path.join(repo, 'target', 'domios-package', 'stale.txt'), 'stale');
+      const result = await prepareNativeBuildResources({ repo, target });
+      assert.equal(result.frontendFileCount, 2);
+      assert.equal(await readFile(path.join(result.stageDirectory, 'dist', 'assets', 'app.js'), 'utf8'), 'fresh asset');
+      await assert.rejects(readFile(path.join(result.stageDirectory, 'stale.txt')));
+      assert.match(await readFile(path.join(result.stageDirectory, '.codeterm-compile-stubs'), 'utf8'), /never package/);
+      await verifyPreparedFrontend({ repo });
+      await writeFile(path.join(repo, 'dist', 'assets', 'app.js'), 'changed after native compile');
+      await assert.rejects(verifyPreparedFrontend({ repo }), /frontend differs/);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  }
+});
 
 for (const target of [
   'x86_64-pc-windows-msvc', 'aarch64-pc-windows-msvc',
