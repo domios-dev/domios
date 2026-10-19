@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke, listen } from "../../lib/bridge";
+import { DEV_BUILD } from "../../lib/devBuild";
 import type { MeshPeersResponse } from "../../lib/types";
 
 export function useJobsMachines(enabled = true) {
@@ -15,8 +16,10 @@ export function useJobsMachines(enabled = true) {
         const result = await invoke<MeshPeersResponse>("mesh_list_peers");
         if (!Array.isArray(result.paired)) throw new Error("Peer list unavailable");
         if (active && read === sequence) setState({ peers: result.paired, failed: false });
-      } catch {
-        if (active && read === sequence) setState((current) => ({ ...current, failed: true }));
+      } catch (error) {
+        if (!active || read !== sequence) return;
+        if (DEV_BUILD) console.debug("Background paired machine refresh failed", error);
+        setState((current) => ({ ...current, failed: true }));
       }
     };
     void refresh();

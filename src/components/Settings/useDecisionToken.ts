@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import type { SupporterAdapter, SupporterFailure, SupporterMutation, SupporterStatus } from "./supporterTypes";
 import { isSupporterCatalog, isSupporterStatus, redactSupporterError } from "./supporterResponse";
 export type * from "./supporterTypes";
@@ -30,6 +31,7 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
   const [catalog, setCatalog] = useState<SupporterAdapter[]>([]);
   const [statusFailed, setStatusFailed] = useState(false);
   const [catalogFailed, setCatalogFailed] = useState(false);
+  const [manualRefreshFailure, setManualRefreshFailure] = useState<"status" | "catalog" | null>(null);
   const [errors, setErrors] = useState<Record<string, SupporterFailure>>({});
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -39,10 +41,12 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
   const refreshingCount = useRef(0);
   const statusRef = useRef<SupporterStatus | null>(null);
   const statusFresh = useRef(false);
+  const catalogLoaded = useRef(false);
   const generation = useRef(0);
   authRef.current = apiHeaders;
 
-  const refreshStatus = useCallback(async (): Promise<boolean> => {
+  const refreshStatus = useCallback(async (userInitiated = false): Promise<boolean> => {
+    if (userInitiated) setManualRefreshFailure(null);
     const current = ++generation.current;
     refreshingCount.current++;
     setRefreshing(true);
@@ -70,7 +74,9 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
       const statusOk = nextStatus.status === "fulfilled";
       statusFresh.current = statusOk;
       setStatusFailed(!statusOk);
-      setCatalogFailed(nextCatalog.status === "rejected");
+      setCatalogFailed(nextCatalog.status === "rejected" && !catalogLoaded.current);
+      if (nextStatus.status === "rejected" && DEV_BUILD) console.debug("Supporter status refresh failed", nextStatus.reason);
+      if (nextCatalog.status === "rejected" && DEV_BUILD) console.debug("Supporter catalogue refresh failed", nextCatalog.reason);
       if (statusOk) {
         statusRef.current = nextStatus.value;
         setStatus(nextStatus.value);
@@ -78,7 +84,13 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
           Object.fromEntries(Object.entries(old).filter(([, error]) => error.code !== "outcome_unconfirmed")),
         );
       }
-      if (nextCatalog.status === "fulfilled") setCatalog(nextCatalog.value.adapters);
+      if (nextCatalog.status === "fulfilled") {
+        catalogLoaded.current = true;
+        setCatalog(nextCatalog.value.adapters);
+      }
+      if (userInitiated) {
+        setManualRefreshFailure(!statusOk ? "status" : nextCatalog.status === "rejected" ? "catalog" : null);
+      }
       return statusOk;
     } finally {
       refreshingCount.current--;
@@ -330,6 +342,7 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
     saved,
     statusFailed,
     catalogFailed,
+    manualRefreshFailure,
     refreshStatus,
     activate,
     connect,

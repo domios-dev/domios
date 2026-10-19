@@ -38,3 +38,41 @@ it("shows unavailable provider state and refuses a submit without a live adapter
     expect(call.mock.calls.map(args => args[0])).toEqual(["read"]);
   } finally {await act(async () => root.unmount());}
 });
+
+it("keeps the new-task form usable and quiet when the background read fails", async () => {
+  const host = document.createElement("div"); const root = createRoot(host);
+  const call = vi.fn<RemoteTaskCall>(async method => {
+    if (method === "read") throw new Error("temporary read failure");
+    return binding;
+  });
+  try {
+    await act(async () => root.render(<RemoteTaskTab pluginId="fixture" sessionId="tab" capability={capability} call={call} />));
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('section[role="status"][aria-label]')).toBeNull();
+    expect(host.querySelectorAll('[role="status"]')).toHaveLength(2);
+    expect(host.querySelector<HTMLTextAreaElement>("textarea")?.disabled).toBe(false);
+    expect(host.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
+    const refresh = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Refresh remote task");
+    expect(refresh?.disabled).toBe(false);
+    await act(async () => refresh?.click());
+    expect(host.querySelector<HTMLTextAreaElement>("textarea")).toBeNull();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+  } finally {await act(async () => root.unmount());}
+});
+
+it("announces a failed explicit remote-task refresh once", async () => {
+  const host = document.createElement("div"); const root = createRoot(host);
+  const call = vi.fn<RemoteTaskCall>(async method => {
+    if (method === "refresh") throw new Error("refresh denied");
+    return binding;
+  });
+  try {
+    await act(async () => root.render(<RemoteTaskTab pluginId="fixture" sessionId="tab" capability={capability} call={call} />));
+    const refresh = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Refresh remote task");
+    await act(async () => {
+      refresh?.click();
+      await vi.waitFor(() => expect(call.mock.calls.map(args => args[0])).toContain("refresh"));
+    });
+    expect(host.querySelectorAll('section[role="status"][aria-label]')).toHaveLength(1);
+  } finally {await act(async () => root.unmount());}
+});

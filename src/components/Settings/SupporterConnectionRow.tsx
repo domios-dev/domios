@@ -110,7 +110,7 @@ export function SupporterConnectionRow({ row, controls, stale, unavailableReason
       onClick: () => run(() => setConfirming(true)),
     },
   ];
-  const failureReason = failure?.message || (stale ? "Last-known status; refresh to verify." : unavailableReason || tokenReason);
+  const failureReason = failure?.message || (stale ? null : unavailableReason || tokenReason);
   const tokenSummary = row.token_mode === "none"
     ? "No token needed"
     : !row.token_mode

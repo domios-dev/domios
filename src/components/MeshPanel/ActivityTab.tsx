@@ -1,4 +1,3 @@
-import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useActivityLog } from "./useActivityLog";
 import type { ActivitySource, ActivityLevel } from "./types";
 
@@ -28,7 +27,7 @@ export function ActivityTab({ active }: Props) {
           <span className="text-[10px] text-[var(--ct-muted-fg)] font-mono">{new Date(ev.occurred_at).toLocaleTimeString()}</span>
           <span className="text-[10px] text-[var(--ct-muted-fg)]">{ev.source_peer ?? "this"}</span>
           <span>{SOURCE_ICON[ev.source] ?? "•"}</span>
-          {ev.level === "error" ? <InlineErrorNotice error={ev.message} operation="handling this mesh event" /> : <span className="text-xs">{ev.message}</span>}
+          <span className="text-xs">{ev.message}</span>
         </div>
       ))}
     </div>

@@ -14,11 +14,24 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
 
 async function main() {
   const requests: unknown[] = [];
+  let failInitial = true;
+  let failRefresh = false;
   __setInvokeForTest(async <T,>(command: string, args?: unknown): Promise<T> => {
     assert.equal(command, "shell_profiles");
     requests.push(args);
+    if ((args as { refresh?: boolean } | undefined)?.refresh === false && failInitial) throw new Error("opaque background shell scan failure");
+    if ((args as { refresh?: boolean } | undefined)?.refresh === true && failRefresh) throw new Error("opaque explicit shell scan failure");
     return [{ id: "wsl:Ubuntu", name: "WSL: Ubuntu", executable: "wsl.exe", args: [], wsl_distro: "Ubuntu" }] as T;
   });
+  const quietHost = document.createElement("div");
+  document.body.appendChild(quietHost);
+  const quietRoot = createRoot(quietHost);
+  await act(async () => quietRoot.render(<ShellProfilesCard config={defaultConfig()} onUpdate={() => {}} />));
+  assert.equal(quietHost.querySelector('[role="alert"]'), null, "automatic shell detection failure does not create an alert");
+  await act(async () => quietRoot.unmount());
+  quietHost.remove();
+  failInitial = false;
+
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -38,7 +51,10 @@ async function main() {
     const refresh = host.querySelector<HTMLButtonElement>("button");
     assert(refresh);
     await act(async () => refresh.click());
-    assert.deepEqual(requests, [{ refresh: false }, { refresh: true }]);
+    failRefresh = true;
+    await act(async () => refresh.click());
+    assert.equal(host.querySelectorAll('[role="alert"]').length, 1, "failed explicit shell refresh creates one alert");
+    assert.deepEqual(requests, [{ refresh: false }, { refresh: false }, { refresh: true }, { refresh: true }]);
   } finally {
     await act(async () => root.unmount());
     host.remove();

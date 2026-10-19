@@ -1,5 +1,6 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useState } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { Shield } from "lucide-react";
 import { PRODUCT_EVENT_CATALOG, PRODUCT_EVENT_ENUMS } from "../../lib/productAnalytics.generated";
 import { localJson } from "../../lib/webApi";
@@ -13,7 +14,8 @@ const api: PrivacyApi = {
 
 export function PrivacyTab() {
   const [status, setStatus] = useState<AnalyticsStatus | null>(null);
-  const [error, setError] = useState(false);
+  const [loadUnavailable, setLoadUnavailable] = useState(false);
+  const [actionError, setActionError] = useState(false);
   const [pending, setPending] = useState(false);
   const [showCollection, setShowCollection] = useState(false);
   useEffect(() => {
@@ -21,16 +23,20 @@ export function PrivacyTab() {
     api.status().then((value) => {
       if (!active) return;
       setStatus(value);
-    }).catch(() => { if (active) setError(true); });
+    }).catch((error: unknown) => {
+      if (!active) return;
+      if (DEV_BUILD) console.debug("Background analytics status refresh failed", error);
+      setLoadUnavailable(true);
+    });
     return () => { active = false; };
   }, []);
 
   const change = async (enabled: boolean) => {
     if (pending || !status) return;
     setPending(true);
-    setError(false);
+    setActionError(false);
     try { setStatus(await changeAnalyticsConsent(api, enabled)); }
-    catch { setError(true); }
+    catch { setActionError(true); }
     finally { setPending(false); }
   };
 
@@ -44,6 +50,7 @@ export function PrivacyTab() {
       <p>Properties are limited to numeric app version, platform, machine and workspace counts, registered provider ID, agent role, update kind, authentication provider, plan, subscription status and a closed feature category. Active days and each feature are counted at most once per local calendar day, with those days saved across restarts. Each event carries a random installation ID, event ID and timestamp. While signed in, events also carry your exact Firebase account UID as the Amplitude user ID; signing out removes it from subsequent events.</p>
       <p>We never collect prompts, messages, terminal output, names, paths, email addresses, session IDs or peer identities. Turning analytics off clears queued events and analytics identifiers and stops analytics network traffic. The installation ID is generated on opt-in and replaced after opting out and back in.</p>
     </section>}
-    {error && <InlineErrorNotice error={{ code: "analytics_settings_unavailable", raw: "" }} />}
+    {loadUnavailable && !status && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">Analytics settings are unavailable.</p>}
+    {actionError && <InlineErrorNotice error={{ code: "analytics_settings_unavailable", raw: "" }} />}
   </SettingsCard>;
 }

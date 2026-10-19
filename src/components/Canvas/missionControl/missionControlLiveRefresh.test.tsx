@@ -307,6 +307,26 @@ describe("Mission Control live refresh", () => {
     await rendered.unmount();
   });
 
+  it("mission_control_keeps_the_last_snapshot_without_alerting_on_background_failure", async () => {
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(response(boardState({ tasks: 100, eventCount: 1 })));
+    fetchMock.mockRejectedValueOnce(new Error("Mission Control temporarily unavailable"));
+    const capture: { current: PlanBoardStateResult | null } = { current: null };
+    const rendered = await render(<Probe revision={7} capture={capture} />);
+    await act(async () => flush());
+
+    await act(async () => {
+      emit("graph-worker-progress", {});
+      await flush();
+    });
+
+    expect(rendered.host.querySelector('[data-testid="mc-board-row"]')).not.toBeNull();
+    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("100");
+    expect(rendered.host.querySelector('[role="alert"]')).toBeNull();
+    expect(capture.current?.state?.task_counts.total).toBe(100);
+    await rendered.unmount();
+  });
+
   it("mission_control_animates_changed_figures", async () => {
     const rendered = await render(
         <MissionControlBoard plan={PLAN} state={boardState({ output: 100, turns: 10, allowance: 20, tasks: 1 })} now={NOW} />,

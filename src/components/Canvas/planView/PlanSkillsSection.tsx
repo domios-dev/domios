@@ -1,5 +1,6 @@
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useEffect, useState } from "react";
+import { DEV_BUILD } from "../../../lib/devBuild";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import type { ApiConfig } from "../../../lib/types";
 import type { Milestone, Plan } from "../types";
@@ -99,6 +100,7 @@ function SkillDetailPanel({
       })
       .catch((e: unknown) => {
         if (cancelled) return;
+        if (DEV_BUILD) console.debug("Background plan skills refresh failed", e);
         setError(e instanceof Error ? e.message : String(e));
       });
     return () => {
@@ -151,10 +153,10 @@ export function PlanSkillsSection({
         setSkills(rows);
         setLoadFailed(false);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (cancelled) return;
+        if (DEV_BUILD) console.debug("Background plan skills refresh failed", error);
         setLoadFailed(true);
-        setSkills([]);
       });
     return () => {
       cancelled = true;
@@ -168,7 +170,7 @@ export function PlanSkillsSection({
   };
 
   if (!api) return null;
-  if (loadFailed) {
+  if (loadFailed && skills.length === 0) {
     return (
       <PlanFetchErrorState
         loading={false}
@@ -185,6 +187,7 @@ export function PlanSkillsSection({
   return (
     <section data-testid="plan-skills-section" className={`plan-skills-section${compact ? " is-compact" : ""}`}>
       <div className="plan-skills-label">Plan skills</div>
+      {loadFailed && <p role="status" className="plan-skills-empty">Showing previously loaded skills.</p>}
       {skills.length === 0 ? (
         <p data-testid="plan-skills-empty" className="plan-skills-empty">
           No plan skills yet.

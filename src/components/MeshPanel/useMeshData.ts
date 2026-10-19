@@ -191,6 +191,8 @@ export interface MeshDataResult extends MeshData {
 
 export function useMeshData(refreshKey: number): MeshDataResult {
   const [data, setData] = useState<MeshData>(DEFAULT_DATA);
+  const dataRef = useRef(data);
+  dataRef.current = data;
   const liveAcceptedRef = useRef(false);
   const refreshFailedRef = useRef(false);
 
@@ -259,16 +261,28 @@ export function useMeshData(refreshKey: number): MeshDataResult {
             );
             return { peerId: p.instance_id, peerName: p.name, view };
           } catch (e) {
-            console.warn(`[mesh] services fetch failed for ${p.name}:`, e);
+            if (DEV_BUILD) console.debug(`[mesh] services fetch failed for ${p.name}`, e);
             return { peerId: p.instance_id, peerName: p.name, view: null };
           }
         });
       const remoteResults = await Promise.all(remotePromises);
       for (const err of collectPeerErrors(remoteResults)) {
-        console.warn(`[mesh] peer services: ${err}`);
+        if (DEV_BUILD) console.debug(`[mesh] peer services refresh failed: ${err}`);
       }
 
-      const remoteById = new Map(remoteResults.map((r) => [r.peerId, r] as const));
+      const previous = dataRef.current;
+      const remoteWithCached = remoteResults.map((result) => {
+        if (result.view) return result;
+        const peer = paired.find((candidate) => candidate.instance_id === result.peerId);
+        const lastPeer = previous.peers.find((candidate) => candidate.instance_id === result.peerId);
+        if (!peer || !lastPeer?.services_loaded) return result;
+        const services = previous.services.filter((service) => service.source_peer_id === result.peerId || service.machine_id === result.peerId);
+        return { ...result, view: {
+          services, stale: true, fetched_at: lastPeer.services_fetched_at ?? null, peer_online: peer.online,
+          error: null, freshness: "stale" as const, partial_error: null,
+        } };
+      });
+      const remoteById = new Map(remoteWithCached.map((r) => [r.peerId, r] as const));
       const peersWithServiceState = paired.map((p) => {
         const r = remoteById.get(p.instance_id);
         if (!r) return p;
@@ -287,7 +301,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           ip: status?.local_ip ?? status?.tailscale_ip ?? "",
         },
         peers: [...peersWithServiceState, ...pending],
-        services: mergeServicesView(local, remoteResults),
+        services: mergeServicesView(local, remoteWithCached),
       };
       liveAcceptedRef.current = true;
       setData({ ...next, loading: false, error: null });

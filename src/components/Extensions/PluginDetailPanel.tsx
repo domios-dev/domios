@@ -130,7 +130,7 @@ export function PluginDetailPanel({
         </div>
       )}
 
-      {entry.loadError && <div data-testid="extensions-plugin-load-error"><InlineErrorNotice error={{ code: entry.loadError.keptPrevious ? "plugin_reload_failed" : "plugin_load_failed", raw: `${entry.loadError.message}\n${entry.loadError.path}` }} /></div>}
+      {entry.loadError && !entry.loadError.keptPrevious && <div data-testid="extensions-plugin-load-error"><InlineErrorNotice error={{ code: "plugin_load_failed", raw: `${entry.loadError.message}\n${entry.loadError.path}` }} /></div>}
 
       {action.reason && action.disabled && (
         <div data-testid="extensions-action-disabled-reason"><InlineErrorNotice error={action.reason} operation="changing this plugin" /></div>

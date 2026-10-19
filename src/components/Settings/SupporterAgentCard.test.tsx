@@ -298,7 +298,8 @@ describe("Supporter saved connections", () => {
   it("initial_unknown_status_is_unavailable_without_token_claims", async () => {
     stale = true;
     await mount();
-    expect(host.textContent).toContain("Status unavailable");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('section[role="status"][aria-label]')).toBeNull();
     expect(host.textContent).not.toContain("No token");
     expect(host.querySelectorAll("[data-adapter]")).toHaveLength(0);
     expect(button("+ Connect another adapter").disabled).toBe(true);
@@ -309,20 +310,28 @@ describe("Supporter saved connections", () => {
     invalidStatus = true;
     await click("Refresh Spinal Cord status and models");
     expect(section("required")).toBeDefined();
-    expect(host.textContent).toContain("Status stale");
+    expect(host.querySelectorAll('section[role="status"][aria-label]')).toHaveLength(1);
     expect((await menuItem("optional", "Make active")).disabled).toBe(true);
     invalidStatus = false;
     await click("Refresh Spinal Cord status and models");
     expect((await menuItem("optional", "Make active")).disabled).toBe(false);
   });
-  it("malformed_catalogue_keeps_rows_and_disables_model_selection", async () => {
+  it("malformed_catalogue_keeps_cached_model_choices_available", async () => {
     await mount();
     invalidCatalog = true;
     await click("Refresh Spinal Cord status and models");
     expect(section("required")).toBeDefined();
-    expect(host.textContent).toContain("catalogue is unavailable");
+    expect(host.querySelectorAll('section[role="status"][aria-label]')).toHaveLength(1);
+    expect(host.querySelector<HTMLSelectElement>("#supporter-model-required")?.disabled).toBe(false);
+    expect(button("+ Connect another adapter").disabled).toBe(false);
+  });
+  it("keeps an automatic catalogue failure quiet while marking the unavailable control", async () => {
+    invalidCatalog = true;
+    await mount();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('section[role="status"][aria-label]')).toBeNull();
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
     expect(host.querySelector<HTMLSelectElement>("#supporter-model-required")?.disabled).toBe(true);
-    expect(button("+ Connect another adapter").disabled).toBe(true);
   });
   it("connections_render_as_one_compact_list_without_duplicate_current_header", async () => {
     await mount();

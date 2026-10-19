@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import type { ApiConfig } from "../../lib/types";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import {
@@ -108,7 +109,8 @@ export function useAgentRunStream({
         const result = parser.feed(text);
         pushParseResult(result.events, result.rawLines);
         setError(null);
-      } catch {
+      } catch (error) {
+        if (DEV_BUILD) console.debug("Background agent run history refresh failed", error);
         setError("(failed to load historical log)");
       }
     };
@@ -163,6 +165,7 @@ export function useAgentRunStream({
         }
       } catch (e) {
         if (cancelled || (e as Error).name === "AbortError") return;
+        if (DEV_BUILD) console.debug("Background agent run stream failed", e);
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         setConnected(false);

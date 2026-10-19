@@ -1,6 +1,7 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Clock3 } from "lucide-react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { BackPill } from "../shared/BackPill";
 import { invoke, listen } from "../../lib/bridge";
 import { orchestrationTransport } from "../../lib/transport/orchestrationRuntime";
@@ -34,6 +35,7 @@ export function CronWorkspaceView({ cronId, actionAdapter, automation, backLabel
   const [job, setJob] = useState<CronJob | null>(null);
   const [service, setService] = useState<Service | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const loadedCronId = useRef<string | null>(null);
 
   const refresh = async () => {
     try {
@@ -44,14 +46,21 @@ export function CronWorkspaceView({ cronId, actionAdapter, automation, backLabel
       setJob(nextJob);
       setService(selectCronService(inventory, cronId));
       setError(null);
+      loadedCronId.current = cronId;
     } catch (cause) {
-      setError(String(cause));
+      if (DEV_BUILD) console.debug("Background Cron details refresh failed", cause);
+      if (loadedCronId.current !== cronId) setError(String(cause));
     }
   };
 
   useEffect(() => {
     let active = true;
     let unlisten: (() => void) | undefined;
+    if (loadedCronId.current !== cronId) {
+      setJob(null);
+      setService(null);
+      setError(null);
+    }
     void refresh();
     void listen("cron-run-finished", () => {
       if (active) void refresh();
@@ -68,7 +77,7 @@ export function CronWorkspaceView({ cronId, actionAdapter, automation, backLabel
   const back = onBack
     ? <BackPill label={backLabel} onBack={onBack} />
     : <BackPill ariaLabel="Close cron details" onBack={() => cronSelectionStore.close()} />;
-  if (error) {
+  if (error && loadedCronId.current !== cronId) {
     return <div className="h-full grid place-items-center gap-3 text-sm text-[var(--ct-red)]"><InlineErrorNotice error={error} operation="loading scheduled jobs" blocking />{back}</div>;
   }
   if (!job || !service) return <div className="p-4">{back}</div>;

@@ -19,7 +19,7 @@ export interface AutomationGraphViewProps {
 export function AutomationNotices({ state, noun }: { state: AutomationSnapshot; noun: string }) {
   return <>
     {state.loading && <p role="status" className="px-4 py-3 text-[var(--ct-muted-fg)]">Reading {noun}…</p>}
-    {state.failed && <InlineErrorNotice error={{ code: "automation_unavailable", raw: "" }} />}
+    {state.failed && !state.graph && <p role="status" className="px-4 py-3 text-[var(--ct-muted-fg)]">{noun} are unavailable.</p>}
     {state.graph?.truncated && <InlineErrorNotice error={{ code: "automation_incomplete", raw: "" }} />}
   </>;
 }

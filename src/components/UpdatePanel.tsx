@@ -2,6 +2,7 @@ import { InlineErrorNotice } from "./shared/ErrorNotice";
 import { Download } from "lucide-react";
 import { useUpdatePanel } from "../hooks/useUpdatePanel";
 import { groupUpdates } from "../lib/updatePanelModel";
+import { PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE } from "../lib/updateStatusModel";
 import { SettingsCard, SettingsPill } from "./Settings/shared";
 import { Button } from "./shared/Button";
 
@@ -25,7 +26,11 @@ export function UpdatePanelContents() {
             {section.items.map(item => <div key={item.id} className="flex items-center justify-between gap-3 py-1 text-xs">
               <span>{item.name}</span>
               {item.channelError
-                ? <span role="status" aria-label={`${item.name} plugin updates unavailable`}>{item.channelError}</span>
+                ? (
+                  <span role="status" aria-label={`${item.name} plugin updates unavailable`}>
+                    {PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE}
+                  </span>
+                )
                 : <span className="font-mono text-[var(--ct-muted)]">{item.currentVersion} → {item.targetVersion}</span>}
               <Button size="sm" disabled={update.busy || Boolean(item.channelError)} aria-label={`Apply ${item.name} update`} onClick={() => void update.applyItem(item.id)}>Apply</Button>
             </div>)}

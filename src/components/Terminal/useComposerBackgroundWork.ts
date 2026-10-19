@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { useMuxSelector } from "../../store/multiplexer";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import {
@@ -61,12 +62,10 @@ export function useComposerBackgroundWork(tabId: string, supported: boolean, sub
   const { identity, rootThreadId: parentThreadId, refreshKey } = useBackgroundProcessState(tabId);
   const revision = workRevision(messages);
   const [loaded, setLoaded] = useState<LoadedProcesses>({ identity: null, processes: [] });
-  const [error, setError] = useState<string | null>(null);
 
   const acceptSnapshot = useCallback((snapshot: BackgroundProcessSnapshot, expected: BackgroundProcessAuthority) => {
     if (!validSnapshot(snapshot, expected)) throw new Error("Background process binding changed");
     setLoaded({ identity: expected, processes: snapshot.processes });
-    setError(null);
   }, []);
 
   const rootThreadId = identity?.rootThreadId;
@@ -75,7 +74,6 @@ export function useComposerBackgroundWork(tabId: string, supported: boolean, sub
   useEffect(() => {
     if (!supported || rootThreadId === undefined || bindingNonce === undefined || epoch === undefined) {
       setLoaded({ identity: null, processes: [] });
-      setError(null);
       return;
     }
     const request: BackgroundProcessAuthority = { rootThreadId, bindingNonce, epoch };
@@ -87,7 +85,7 @@ export function useComposerBackgroundWork(tabId: string, supported: boolean, sub
     }).then((snapshot) => {
       if (!controller.signal.aborted) acceptSnapshot(snapshot, request);
     }).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason));
+      if (!controller.signal.aborted && DEV_BUILD) console.debug("Background work refresh failed", reason);
     });
     return () => controller.abort();
   }, [tabId, supported, rootThreadId, bindingNonce, epoch, refreshKey, revision, acceptSnapshot]);
@@ -104,5 +102,5 @@ export function useComposerBackgroundWork(tabId: string, supported: boolean, sub
 
   const terminals = sameAuthority(loaded.identity, identity) ? loaded.processes : [];
   const items = composerBackgroundWorkItems(messages, terminals, Date.now(), { subagentsVisible, rootThreadId: parentThreadId, authority: identity ?? undefined });
-  return { items, error, stop };
+  return { items, stop };
 }
