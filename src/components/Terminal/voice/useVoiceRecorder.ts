@@ -115,7 +115,9 @@ export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = s
 
   function releaseRecordingStream() {
     if (retainStreamRef.current) pageMicrophone.pause();
-    else streamRef.current?.getTracks().forEach((track) => track.stop());
+    else streamRef.current?.getTracks().forEach((track) => {
+      if (track.readyState !== "ended") track.stop();
+    });
     streamRef.current = null;
   }
 

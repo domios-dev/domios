@@ -4,6 +4,7 @@ import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
+import { SUPPORTED_BOOTSTRAP_PROTOCOL } from './package-server-component-manifest.mjs';
 
 export const HEADLESS_TARGETS = Object.freeze({
   'darwin-aarch64': Object.freeze({ target: 'aarch64-apple-darwin', server: 'domios-server', cli: 'codeterm' }),
@@ -16,7 +17,7 @@ export const HEADLESS_TARGETS = Object.freeze({
 
 const TARGETS_BY_TRIPLE = new Map(Object.entries(HEADLESS_TARGETS).map(([platform, value]) => [value.target, { platform, ...value }]));
 const RECEIPT_FIELDS = ['schema_version', 'platform', 'target', 'tag', 'version', 'source_sha', 'files'];
-const COMPONENT_FIELDS = ['schema', 'server_build', 'server_executable', 'server_sha256', 'client_sha256', 'api_version', 'bootstrap_protocol'];
+const COMPONENT_FIELDS = ['schema', 'server_build', 'server_executable', 'server_sha256', 'client_identity', 'api_version', 'bootstrap_protocol'];
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 const TAG_PATTERN = /^v\d+\.\d+\.\d+$/;
@@ -159,7 +160,7 @@ function validateComponentManifest(bytes, metadata, discovered) {
     fail('server-component.json is not valid JSON');
   }
   exactFields(manifest, COMPONENT_FIELDS, 'server-component.json');
-  if (manifest.schema !== 1) fail('server-component.json schema must be 1');
+  if (manifest.schema !== 2) fail('server-component.json schema must be 2');
   if (typeof manifest.server_build !== 'string' || manifest.server_build.length === 0 ||
       manifest.server_build.trim() !== manifest.server_build || /[\u0000-\u001f\u007f]/.test(manifest.server_build)) {
     fail('server-component.json server_build must identify the built server');
@@ -170,11 +171,13 @@ function validateComponentManifest(bytes, metadata, discovered) {
   if (!SHA256_PATTERN.test(manifest.server_sha256 ?? '')) {
     fail('server-component.json server_sha256 must be a lowercase SHA-256 digest');
   }
-  if (!SHA256_PATTERN.test(manifest.client_sha256 ?? '')) {
-    fail('server-component.json client_sha256 must be a lowercase SHA-256 digest');
+  if (JSON.stringify(manifest.client_identity) !== JSON.stringify({ kind: 'none' })) {
+    fail('headless server-component.json must declare no native client identity');
   }
   if (manifest.api_version !== 3) fail('server-component.json api_version must be 3');
-  if (manifest.bootstrap_protocol !== 1) fail('server-component.json bootstrap_protocol must be 1');
+  if (manifest.bootstrap_protocol !== SUPPORTED_BOOTSTRAP_PROTOCOL) {
+    fail('server-component.json bootstrap_protocol must be ' + SUPPORTED_BOOTSTRAP_PROTOCOL);
+  }
   const server = discovered.get(serverPath(metadata));
   if (!server) fail('staged server executable is missing');
   if (manifest.server_sha256 !== server.sha256) {

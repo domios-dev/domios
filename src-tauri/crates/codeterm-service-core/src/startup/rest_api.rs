@@ -109,7 +109,6 @@ enum RestApiCommand {
         generation: u64,
         completed: oneshot::Sender<RestApiStatus>,
     },
-    #[cfg(test)]
     Shutdown {
         completed: oneshot::Sender<()>,
     },
@@ -119,7 +118,6 @@ enum GenerationEvent {
     Replace,
     ServerExited,
     Restart(oneshot::Sender<RestApiStatus>),
-    #[cfg(test)]
     Shutdown(oneshot::Sender<()>),
 }
 
@@ -424,8 +422,7 @@ impl RestApiControl {
         })
     }
 
-    #[cfg(test)]
-    async fn shutdown_and_wait(&self) -> Result<(), String> {
+    pub async fn shutdown_and_wait(&self) -> Result<(), String> {
         let (completed, response) = oneshot::channel();
         self.signal(RestApiCommand::Shutdown { completed })?;
         tokio::time::timeout(Duration::from_secs(5), response)
@@ -594,7 +591,6 @@ async fn await_bind_recovery(
                     return Some(event);
                 }
             }
-            #[cfg(test)]
             Some(RestApiCommand::Shutdown { completed }) => {
                 return Some(GenerationEvent::Shutdown(completed))
             }
@@ -743,7 +739,6 @@ where
                     Some(RestApiCommand::ReservedRestart { generation, completed }) => {
                         if let Some(event) = reserved_restart(control, generation, completed) { return Some(event); }
                     },
-                    #[cfg(test)]
                     Some(RestApiCommand::Shutdown { completed }) => {
                         return Some(GenerationEvent::Shutdown(completed));
                     }
@@ -842,7 +837,6 @@ pub async fn start(control: RestApiControlState, bind_addr: String, router: axum
                         pending_completions.push_back(completed);
                         continue;
                     }
-                    #[cfg(test)]
                     Some(GenerationEvent::Shutdown(completed)) => {
                         let _ = completed.send(());
                         return;
@@ -881,7 +875,6 @@ pub async fn start(control: RestApiControlState, bind_addr: String, router: axum
                         pending_completions.push_back(completed);
                         continue;
                     }
-                    #[cfg(test)]
                     Some(GenerationEvent::Shutdown(completed)) => {
                         let _ = completed.send(());
                         return;
@@ -1002,7 +995,6 @@ pub async fn start(control: RestApiControlState, bind_addr: String, router: axum
                         Some(RestApiCommand::ReservedRestart { generation, completed }) => {
                             if let Some(event) = reserved_restart(&control, generation, completed) { break event; }
                         },
-                        #[cfg(test)]
                         Some(RestApiCommand::Shutdown { completed }) => {
                             break GenerationEvent::Shutdown(completed);
                         }
@@ -1023,7 +1015,6 @@ pub async fn start(control: RestApiControlState, bind_addr: String, router: axum
             GenerationEvent::Replace => {}
             GenerationEvent::ServerExited => unreachable!("server exit is normalized"),
             GenerationEvent::Restart(completed) => pending_completions.push_back(completed),
-            #[cfg(test)]
             GenerationEvent::Shutdown(completed) => {
                 let _ = completed.send(());
                 return;

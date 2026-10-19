@@ -14,7 +14,10 @@ const state = vi.hoisted(() => ({ status: "Idle", launching: false }));
 vi.mock("../../lib/useTabActivity", () => ({ useTabActivity: () => state as unknown as TabActivity }));
 vi.mock("../../lib/useAgentDescriptor", () => ({ useAgentDescriptors: () => [
   { id: "source", display_name: "Source", transport: "pty", available_models: [] },
-  { id: "target", display_name: "Target", transport: "chat_backend", agent_runtime: {}, available_models: [{ id: "model-token", display_name: "Model", reasoning_efforts: [{ id: "effort-token", display_name: "Effort" }] }] },
+  { id: "target", display_name: "Target", transport: "chat_backend", agent_runtime: {}, default_model: "model-token", available_models: [
+    { id: "model-token", display_name: "Sonnet 5.5", reasoning_efforts: [{ id: "effort-token", display_name: "Effort" }] },
+    { id: "haiku-token", display_name: "Haiku 5.5" },
+  ] },
 ] }));
 
 const tab = { id: "owned", agent_type: "source", title: "Baton" } as Tab;
@@ -37,9 +40,9 @@ it("confirmation sends one target selection and shows its result", async () => {
   try {
     await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(document.querySelector('[aria-label="Target provider"]')).not.toBeNull();
-    expect(document.querySelector('[aria-label="Target model"]')).not.toBeNull();
-    expect(document.querySelector('[aria-label="Reasoning effort"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Target provider: Target"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Target model: Sonnet 5.5"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Reasoning effort: Effort"]')).not.toBeNull();
     expect(send).not.toHaveBeenCalled();
     await act(async () => { const confirm = button("Switch provider"); confirm.click(); confirm.click(); });
     expect(send).toHaveBeenCalledExactlyOnceWith("owned", "target", { model: "model-token", reasoningEffort: "effort-token", force: false });
@@ -51,6 +54,56 @@ it("confirmation sends one target selection and shows its result", async () => {
     });
     await act(async () => button("Previous provider: source").click());
     expect(document.querySelector('[aria-label="Previous provider transcript"]')?.textContent).toContain("opaque-prior-🪵");
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("exposes the selected value and menu state, and changes selection by keyboard", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<ProviderSwitchDialog tab={tab} initialProviderId="target" onClose={() => {}} />));
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label="Target model: Sonnet 5.5"]');
+    expect(trigger).not.toBeNull();
+    expect(trigger?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+    const menuId = trigger?.getAttribute("aria-controls");
+    expect(menuId).toBeTruthy();
+    expect(document.getElementById(menuId!)?.hidden).toBe(true);
+
+    await act(async () => trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+    const menu = document.getElementById(menuId!);
+    expect(menu?.getAttribute("role")).toBe("menu");
+    const sonnet = Array.from(menu?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [])
+      .find((item) => item.textContent?.includes("Sonnet 5.5"));
+    const haiku = Array.from(menu?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [])
+      .find((item) => item.textContent?.includes("Haiku 5.5"));
+    expect(sonnet?.getAttribute("aria-checked")).toBe("true");
+    expect(haiku?.getAttribute("aria-checked")).toBe("false");
+    expect(document.activeElement).toBe(sonnet);
+
+    await act(async () => {
+      sonnet?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+      expect(document.activeElement).toBe(haiku);
+      haiku?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    const updatedTrigger = document.querySelector<HTMLButtonElement>('button[aria-label="Target model: Haiku 5.5"]');
+    expect(updatedTrigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(updatedTrigger);
+
+    await act(async () => updatedTrigger?.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true })));
+    expect(updatedTrigger?.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(updatedTrigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(updatedTrigger);
+
+    await act(async () => updatedTrigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
+    const selectedHaiku = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'))
+      .find((item) => item.textContent?.includes("Haiku 5.5"));
+    expect(selectedHaiku?.getAttribute("aria-checked")).toBe("true");
+    await act(async () => selectedHaiku?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(updatedTrigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(updatedTrigger);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 

@@ -3,8 +3,8 @@ use super::*;
 #[test]
 fn live_lazy_composer_supersedes_clean_wrapper_exit_on_the_same_launch() {
     use crate::service::launch_readiness::{
-        LaunchAttempt, LaunchEvidence, LaunchExitProof, LaunchObservation, LaunchSettlement, arm,
-        note_first_turn_input_ready, observe, settle_evidence, suspect_exit,
+        arm, note_first_turn_input_ready, observe, settle_evidence, suspect_exit, LaunchAttempt,
+        LaunchEvidence, LaunchExitProof, LaunchObservation, LaunchSettlement,
     };
     use crate::service::process_tree::{
         ProviderProcessTreeSnapshot, ProviderTreeKey, ProviderTreeWitnesses,

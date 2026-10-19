@@ -144,6 +144,7 @@ pub fn run(
     codeterm_service_core::crash::record_startup();
     note(&mut audit, "config-credential-hook-state")?;
     let native_events: NativeEventPort = Arc::new(parking_lot::RwLock::new(None));
+    let (exact_quit, mut headless_quit) = crate::exact_quit::ExactQuitCoordinator::new();
     let running = crate::composition::compose_observed(
         |events| {
             Arc::new(ServerEvents {
@@ -155,6 +156,9 @@ pub fn run(
         frontend_dev_url.clone(),
         Some(resources.clone()),
         worker_observer,
+        Some(codeterm_api::app_quit_routes::AppQuitPortHandle(
+            exact_quit.clone(),
+        )),
     )
     .map_err(io::Error::other)?;
     let ready = runtime.block_on(async {
@@ -234,6 +238,10 @@ pub fn run(
     if let Some(server) = &native_server {
         *native_events.write() = Some(server.endpoint());
     }
+    exact_quit.install(
+        ready.clone(),
+        native_server.as_ref().map(|server| server.endpoint()),
+    );
     let token = running.states.config.lock().api.token.clone();
     log::debug!("[bootstrap] inherited ready acknowledgement started");
     let acknowledgement = acknowledge(&ready, token.as_deref());
@@ -245,7 +253,13 @@ pub fn run(
         runtime.block_on(async {
             let control = channel::serve(listener, ready, token);
             tokio::select! {
-                result = control => result.map(Some),
+                result = control => result.map(|completion| Some(QuitControl::Bootstrap(completion))),
+                _ = async {
+                    while let Some(expected) = headless_quit.recv().await {
+                        if exact_quit.admit_headless(&expected) { return; }
+                    }
+                    std::future::pending::<()>().await;
+                } => Ok(Some(QuitControl::Headless)),
                 result = shutdown_signal() => result.map(|_| None),
                 result = serve_native(native_server, native_events) => result.map(|_| None),
             }
@@ -254,12 +268,31 @@ pub fn run(
     let result = finish_server_control(
         control_result,
         || shutdown(&running),
-        |completion, cleanup| runtime.block_on(completion.complete(cleanup)),
+        |completion, cleanup| {
+            let result = match completion {
+                QuitControl::Bootstrap(completion) => {
+                    runtime.block_on(completion.complete(cleanup))
+                }
+                QuitControl::Headless => cleanup,
+            };
+            exact_quit.complete(&result);
+            result
+        },
     );
+    if exact_quit.completion_sent() {
+        if let Err(error) = runtime.block_on(running.states.rest_api.shutdown_and_wait()) {
+            log::debug!("[exact-quit] HTTP response drain failed: {error}");
+        }
+    }
     runtime.shutdown_timeout(std::time::Duration::from_secs(6));
     drop(process);
     let _ = owner;
     result
+}
+
+enum QuitControl {
+    Bootstrap(channel::ShutdownCompletion),
+    Headless,
 }
 
 fn finish_server_control<T>(

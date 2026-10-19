@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct PluginId(String);
@@ -66,6 +67,11 @@ pub(super) const DEFAULT_PLUGIN_CHANNEL_URL: &str =
     "https://github.com/rollacode/codeterm-plugins.git";
 include!(concat!(env!("OUT_DIR"), "/bundled_plugins.rs"));
 
+const EMBEDDED_SYSTEM_CHANNEL_MANIFEST: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../plugins/channel.json"
+));
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(super) struct ChannelRegistry {
     #[serde(default)]
@@ -126,6 +132,8 @@ pub(super) struct PluginManifest {
 pub(super) struct ChannelManifest {
     pub(super) name: String,
     pub(super) plugins: Vec<ChannelPlugin>,
+    #[serde(default)]
+    pub(super) retired: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -218,4 +226,31 @@ pub(super) struct PluginEvent {
 }
 pub(super) fn is_reserved_system_id(id: &str) -> bool {
     SYSTEM_PLUGIN_IDS.contains(&id)
+        || retired_system_plugin_ids()
+            .iter()
+            .any(|retired| retired == id)
+}
+
+pub(super) fn retired_system_plugin_ids() -> &'static [String] {
+    static RETIRED_IDS: OnceLock<Vec<String>> = OnceLock::new();
+    RETIRED_IDS.get_or_init(|| {
+        let manifest: ChannelManifest = serde_json::from_str(EMBEDDED_SYSTEM_CHANNEL_MANIFEST)
+            .expect("embedded system channel manifest must parse");
+        assert_eq!(manifest.name, SYSTEM_CHANNEL_NAME);
+
+        let current_ids: BTreeSet<_> = manifest
+            .plugins
+            .iter()
+            .map(|plugin| plugin.id.as_str())
+            .collect();
+        let mut retired_ids = manifest.retired;
+        let unique_ids: BTreeSet<_> = retired_ids.iter().map(String::as_str).collect();
+        assert_eq!(unique_ids.len(), retired_ids.len());
+        for id in &retired_ids {
+            PluginId::parse(id.clone()).expect("retired system plugin ids must be valid");
+            assert!(!current_ids.contains(id.as_str()));
+        }
+        retired_ids.sort();
+        retired_ids
+    })
 }

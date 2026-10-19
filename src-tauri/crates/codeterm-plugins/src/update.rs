@@ -103,12 +103,18 @@ pub(super) fn update_system_cached(id: Option<String>) -> Result<serde_json::Val
         .ok_or_else(|| format!("channel '{SYSTEM_CHANNEL_NAME}' not registered"))?;
     let channel_path = PathBuf::from(&channel.path);
     let manifest = read_channel_manifest(&channel_path)?;
+    if manifest.name != SYSTEM_CHANNEL_NAME {
+        return Err(format!(
+            "expected {SYSTEM_CHANNEL_NAME} channel manifest, got '{}'",
+            manifest.name
+        ));
+    }
     let current_ids: Vec<String> = manifest
         .plugins
         .iter()
         .map(|plugin| plugin.id.clone())
         .collect();
-    let retired = retirement::retire_missing_official_plugins(&current_ids)?;
+    let retired = retirement::retire_missing_official_plugins(&current_ids, &manifest.retired)?;
     let requested = match id {
         Some(id) => {
             let plugin = manifest

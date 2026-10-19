@@ -20,15 +20,13 @@ fn fresh_lazy_session_accepts_input_at_provider_ready() {
                 },
             ),
     ));
-    assert!(
-        harness
-            .service
-            .agent_registry
-            .with_provider("resume-first-turn-fixture", |provider| {
-                provider.provider_readiness_strategy().requires_composer()
-            })
-            .unwrap()
-    );
+    assert!(harness
+        .service
+        .agent_registry
+        .with_provider("resume-first-turn-fixture", |provider| {
+            provider.provider_readiness_strategy().requires_composer()
+        })
+        .unwrap());
 
     assert!(launch_waits_for_first_turn_binding(
         &harness.service,
@@ -174,6 +172,19 @@ fn restored_retained_session_does_not_wait_for_a_lazy_first_turn() {
         false,
         crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
     ));
+    assert!(!super::user_input::requires_composer(
+        &harness.service,
+        "resume-first-turn-fixture",
+        &tab_id,
+    ));
+
+    harness
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .agent_session_id = None;
     assert!(super::user_input::requires_composer(
         &harness.service,
         "resume-first-turn-fixture",

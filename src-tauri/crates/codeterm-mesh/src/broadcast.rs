@@ -1,6 +1,6 @@
 use std::sync::{
-    Arc, OnceLock,
     atomic::{AtomicU64, Ordering},
+    Arc, OnceLock,
 };
 
 use parking_lot::Mutex;

@@ -5,12 +5,14 @@
 //! describes the binary on disk.
 
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use notify::event::{MetadataKind, ModifyKind};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::Mutex;
+use sha2::{Digest, Sha256};
 
 use codeterm_plugin::chatbackend_provider::ChatBackendProvider;
 use codeterm_plugin::provider::AgentProvider;
@@ -38,22 +40,69 @@ enum WatchInstall {
     Unavailable,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct InputStamp {
     len: u64,
     modified: Option<std::time::SystemTime>,
+    content_digest: Option<[u8; 32]>,
+}
+
+impl InputStamp {
+    fn same_input(&self, other: &Self) -> bool {
+        match (self.content_digest, other.content_digest) {
+            (Some(left), Some(right)) => left == right,
+            (None, None) => self.len == other.len && self.modified == other.modified,
+            _ => false,
+        }
+    }
+}
+
+const MAX_INPUT_DIGEST_BYTES: u64 = 1024 * 1024;
+
+fn bounded_content_digest(path: &std::path::Path, len: u64) -> Option<[u8; 32]> {
+    if len > MAX_INPUT_DIGEST_BYTES {
+        return None;
+    }
+    let mut reader = std::fs::File::open(path)
+        .ok()?
+        .take(MAX_INPUT_DIGEST_BYTES + 1);
+    let mut contents = Vec::new();
+    reader.read_to_end(&mut contents).ok()?;
+    if contents.len() as u64 > MAX_INPUT_DIGEST_BYTES {
+        return None;
+    }
+    Some(Sha256::digest(&contents).into())
 }
 
 fn input_stamps(targets: &[PathBuf]) -> Vec<Option<InputStamp>> {
     targets
         .iter()
         .map(|path| {
-            std::fs::metadata(path).ok().map(|metadata| InputStamp {
-                len: metadata.len(),
-                modified: metadata.modified().ok(),
+            std::fs::metadata(path).ok().map(|metadata| {
+                let len = metadata.len();
+                InputStamp {
+                    len,
+                    modified: metadata.modified().ok(),
+                    content_digest: metadata
+                        .is_file()
+                        .then(|| bounded_content_digest(path, len))
+                        .flatten(),
+                }
             })
         })
         .collect()
+}
+
+fn same_input_stamps(left: &[Option<InputStamp>], right: &[Option<InputStamp>]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| match (left, right) {
+                (Some(left), Some(right)) => left.same_input(right),
+                (None, None) => true,
+                _ => false,
+            })
 }
 
 fn changes_input(event: &Event, targets: &[PathBuf]) -> bool {
@@ -75,7 +124,7 @@ fn accept_input_event(
         return false;
     }
     let current = input_stamps(targets);
-    if current == *stamps && matches!(event.kind, EventKind::Modify(ModifyKind::Metadata(_))) {
+    if same_input_stamps(&current, stamps) {
         return false;
     }
     *stamps = current;
@@ -111,6 +160,7 @@ impl ProviderBinaryWatchers {
             return WatchInstall::Unavailable;
         }
         let watched_targets = targets.clone();
+        let watch_key = key.clone();
         let callback = Arc::new(Mutex::new(on_change));
         let event_callback = callback.clone();
         let role = format!("catalogue-watch:{key}");
@@ -119,8 +169,21 @@ impl ProviderBinaryWatchers {
             let _role = codeterm_util::named_thread::Scope::enter(&role);
             let Ok(event) = event else { return };
             if !accept_input_event(&event, &watched_targets, &mut stamps) {
+                if changes_input(&event, &watched_targets) {
+                    log::debug!(
+                        "[model_catalog] coalesced duplicate input event provider={} kind={:?}",
+                        watch_key,
+                        event.kind
+                    );
+                }
                 return;
             }
+            log::debug!(
+                "[model_catalog] input watcher triggered refresh provider={} kind={:?} paths={:?}",
+                watch_key,
+                event.kind,
+                event.paths
+            );
             let on_change = event_callback.lock().clone();
             on_change();
         });
@@ -162,6 +225,10 @@ fn touches_any(event: &Event, targets: &[PathBuf]) -> bool {
 
 /// Re-probe without the TTL after a declared catalogue input changes.
 pub fn on_catalogue_input_changed(provider: Arc<dyn AgentProvider>) {
+    log::debug!(
+        "[model_catalog] refresh trigger source=input-watcher provider={}",
+        provider.id()
+    );
     crate::service::capability_probe::invalidate_and_rebuild(provider.id());
     model_catalog::invalidate_inputs(provider.id());
     refresh_agent_provider(provider, true);
@@ -170,11 +237,23 @@ pub fn on_catalogue_input_changed(provider: Arc<dyn AgentProvider>) {
 pub fn refresh_agent_provider(provider: Arc<dyn AgentProvider>, force: bool) {
     install(provider.clone());
     if !refresh_requests().lock().begin(provider.id(), force) {
+        log::debug!(
+            "[model_catalog] coalesced provider refresh provider={} source=active-refresh",
+            provider.id()
+        );
         return;
     }
+    log::debug!(
+        "[model_catalog] starting provider refresh provider={} force={force}",
+        provider.id()
+    );
     crate::async_runtime::spawn(async move {
         let mut force = force;
         loop {
+            log::debug!(
+                "[model_catalog] running provider discovery provider={} force={force}",
+                provider.id()
+            );
             let _ = model_catalog::refresh_models(provider.clone(), force).await;
             install(provider.clone());
             let next = refresh_requests().lock().next(provider.id());
@@ -281,6 +360,7 @@ pub fn refresh_after_settings_change(
     provider_ids: impl IntoIterator<Item = String>,
 ) {
     for provider_id in provider_ids {
+        log::debug!("[model_catalog] refresh trigger source=settings provider={provider_id}");
         if chat_backends
             .get(&provider_id)
             .is_some_and(|backend| backend.remote_task_capability().is_none())

@@ -90,6 +90,7 @@ export const TerminalTab = memo(function TerminalTab({
   const muxState = useMuxState();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
+  const viewerLocalGeometry = Boolean(tab?.remote_peer_id);
   const agentActivity = useTabActivity(tabId);
   const managedView = managedTabPresentation(tab?.managed);
   const inputFailure = useInputWriteFailure(tabId, ptyId ?? tab?.pty_id ?? null);
@@ -140,6 +141,7 @@ export const TerminalTab = memo(function TerminalTab({
     containerRef, theme, fontConfig, terminalConfig,
     priority: isVisible || isFocused,
     renderEnabled: renderTerminal,
+    viewerLocalGeometry,
   });
   const stopManagedGeneration = useManagedTerminal(termRef, connectedPtyRef, termReady, managedView.locked, tabId);
   const resizeClientId = useMemo(() => getResizeClientId(), []);
@@ -160,7 +162,7 @@ export const TerminalTab = memo(function TerminalTab({
     isFocused,
     resizeEnabled: terminalVisible && isVisible,
     resizeClientId,
-    isRemote: Boolean(tab?.remote_peer_id),
+    isRemote: viewerLocalGeometry,
   });
 
   const shell = useShellIntegration({
@@ -193,7 +195,7 @@ export const TerminalTab = memo(function TerminalTab({
 
   const activateTerminal = useTerminalActivationResize({
     active: isVisible && terminalVisible,
-    viewerLocalGeometry: Boolean(tab?.remote_peer_id),
+    viewerLocalGeometry,
     isFocused,
     termReady: termReady && terminalIoReady,
     tabId,
