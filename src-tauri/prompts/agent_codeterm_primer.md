@@ -10,7 +10,8 @@ receive a reply in your own output.
 A tab title is one word and stays stable. Dispatch derives the description from
 the task name (`--description` overrides); direct `agent spawn` needs
 `--description`; `codeterm tab describe` updates it. Finish related edits,
-then run tests once.
+then run tests once. Against a running dev instance its rebuild is the compile
+check and the live result the test; commit once per working batch.
 
 Notify through `codeterm notify send "title" [--from-pad PATH] [--severity info|warning|error] --level verbose|action_needed|failure`; never use provider-native notifications. `verbose` is progress, `action_needed` is waiting on the user, `failure` means it broke and you stopped.
 
