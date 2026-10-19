@@ -78,16 +78,14 @@ fn codex_rpc_control_model_request_validates_runtime_mode_and_effort() {
     assert_eq!(request.model, "selected");
     assert!(request.force);
     assert_eq!(request.reasoning_effort.as_deref(), Some("high"));
-    assert_eq!(request.runtime_mode, Some("auto".into()));
-    let unsupported: AgentModelBody = serde_json::from_value(serde_json::json!({
-        "model":"selected", "reasoning_effort":"qa-impossible", "runtime_mode":"unknown"
-    }))
-    .unwrap();
     assert_eq!(
-        unsupported.reasoning_effort.as_deref(),
-        Some("qa-impossible")
+        request.runtime_mode,
+        Some(codeterm_service_core::service::agent_runtime::model::RuntimeMode::Auto)
     );
-    assert_eq!(unsupported.runtime_mode.as_deref(), Some("unknown"));
+    assert!(serde_json::from_value::<AgentModelBody>(
+        serde_json::json!({"model":"selected","runtime_mode":"unknown"})
+    )
+    .is_err());
 }
 
 #[test]

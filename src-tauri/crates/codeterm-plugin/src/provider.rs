@@ -9,15 +9,6 @@ pub mod reply_relay;
 pub struct StructuredControl {
     pub protocol: String,
     pub min_version: String,
-    #[serde(default)]
-    pub runtime_modes: Vec<StructuredRuntimeMode>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct StructuredRuntimeMode {
-    pub id: String,
-    pub display_name: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -405,7 +396,7 @@ pub struct ProviderUpdateAvailability {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 23;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 22;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file

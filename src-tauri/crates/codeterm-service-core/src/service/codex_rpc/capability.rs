@@ -37,7 +37,6 @@ mod tests {
         let cap = StructuredControl {
             protocol: "codex-app-server".into(),
             min_version: "0.160.0".into(),
-            runtime_modes: Vec::new(),
         };
         let mut config = crate::config::schema::ProviderConfig::default();
         assert!(enabled(Some(&cap), &config));

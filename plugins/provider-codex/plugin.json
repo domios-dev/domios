@@ -11,13 +11,7 @@
     "subagentVisibility": true,
     "structuredControl": {
       "protocol": "codex-app-server",
-      "minVersion": "0.159.0",
-      "runtimeModes": [
-        { "id": "approval-required", "displayName": "Approval required" },
-        { "id": "auto-accept-edits", "displayName": "Auto accept edits" },
-        { "id": "auto", "displayName": "Auto" },
-        { "id": "full-access", "displayName": "Full access" }
-      ]
+      "minVersion": "0.159.0"
     },
     "agentRuntime": {
       "storedHistory": true,
@@ -529,7 +523,7 @@
       "-m",
       "{model}"
     ],
-    "modelSwitch": "live",
+    "modelSwitch": "next_turn",
     "reasoningEffortLaunchArgsFormat": [
       "-c",
       "model_reasoning_effort=\"{effort}\""
