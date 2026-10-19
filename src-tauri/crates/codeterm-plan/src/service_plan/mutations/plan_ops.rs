@@ -538,6 +538,52 @@ impl PlanStore {
         Ok(mid)
     }
 
+    /// Append the narrow, idempotent checklist-link audit event. This method only
+    /// mutates the task's milestone log; it does not alter task state or ownership.
+    pub fn record_tab_todo_linked(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        todo_item_id: &str,
+        label: &str,
+        from_tab_id: &str,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        crate::service_plan::text_bounds::validate_plan_label("todo item id", todo_item_id)?;
+        crate::service_plan::text_bounds::validate_plan_label("todo link label", label)?;
+        let milestone_id = format!("tab_todo_{todo_item_id}");
+        let text = format!("Checklist item linked: {label}");
+        crate::service_plan::text_bounds::validate_plan_text("todo link event", &text)?;
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            if task
+                .milestones
+                .iter()
+                .any(|milestone| milestone.id == milestone_id)
+            {
+                return Ok(());
+            }
+            task.milestones.push(Milestone {
+                id: milestone_id.clone(),
+                from: AgentRef::from_tab(from_tab_id),
+                kind: "tab_todo_linked".into(),
+                text,
+                ts: now_ms,
+                links: vec![],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            });
+            Ok(())
+        })?;
+        Ok(milestone_id)
+    }
+
     // Append a plan-level, task-less working point (surfaced in recent_strides).
     pub fn add_plan_stride(
         &self,

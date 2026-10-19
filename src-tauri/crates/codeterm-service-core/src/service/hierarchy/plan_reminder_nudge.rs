@@ -702,6 +702,14 @@ impl ServiceContext {
     }
 }
 
+pub(crate) fn deliver_tab_todo_recitation(
+    svc: &ServiceContext,
+    tab_id: &str,
+    text: &str,
+) -> Result<bool, String> {
+    svc.deliver_automated_plan_reminder(tab_id, text, None)
+}
+
 fn plan_reminder_state_key(plan_id: &str, kind: NudgeKind, plan: &Plan) -> String {
     let tasks = plan
         .tasks

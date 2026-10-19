@@ -92,6 +92,31 @@ impl ClosedHistoryBatch {
         });
     }
 
+    /// Persist close history and return tabs made permanently unavailable by retention caps.
+    pub fn persist_on_blocking_thread_collect_evicted(self) -> Vec<String> {
+        std::thread::spawn(move || {
+            let mut evicted = Vec::new();
+            for write in self.writes {
+                let _permit = self.store.wait_for_write(write.sequence);
+                match self
+                    .store
+                    .insert_group_collect_evicted(&write.group, &write.tabs)
+                {
+                    Ok(ids) => evicted.extend(ids),
+                    Err(error) => {
+                        log::error!("[closed-history] {}: {error}", write.failure_context)
+                    }
+                }
+            }
+            evicted
+        })
+        .join()
+        .unwrap_or_else(|_| {
+            log::error!("[closed-history] persistence worker panicked");
+            Vec::new()
+        })
+    }
+
     fn persist_on_blocking_thread_with(
         self,
         write_group: impl FnMut(&ClosedTabsStore, &ClosedHistoryWrite) -> Result<(), String>

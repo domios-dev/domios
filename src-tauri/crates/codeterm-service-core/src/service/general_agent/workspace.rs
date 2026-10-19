@@ -52,11 +52,20 @@ pub fn ensure_general_workspace(
     mux: &mut crate::multiplexer::state::MultiplexerState,
     default_chat_view: bool,
 ) -> usize {
+    ensure_general_workspace_with_evictions(mux, default_chat_view).0
+}
+
+/// Ensure the General workspace and return tabs evicted from closed history.
+pub fn ensure_general_workspace_with_evictions(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    default_chat_view: bool,
+) -> (usize, Vec<String>) {
     let closed = ensure_general_workspace_inner(mux, default_chat_view);
-    if let Some(batch) = mux.take_closed_history_batch() {
-        batch.persist_on_blocking_thread();
-    }
-    closed
+    let evicted = mux
+        .take_closed_history_batch()
+        .map(|batch| batch.persist_on_blocking_thread_collect_evicted())
+        .unwrap_or_default();
+    (closed, evicted)
 }
 
 pub(super) fn ensure_general_workspace_without_persist(

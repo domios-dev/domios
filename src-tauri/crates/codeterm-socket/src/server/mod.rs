@@ -53,6 +53,7 @@ mod safety_nudge;
 mod services;
 mod spec;
 mod tab;
+mod tab_todos;
 mod team;
 mod workspace;
 
