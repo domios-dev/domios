@@ -170,7 +170,10 @@ fn unavailable_url() -> Result<Url, url::ParseError> {
     let html = codeterm_service_core::startup::brand_fallback_page(
         codeterm_service_core::startup::BrandFallback::Reconnecting,
     );
-    let encoded: String = url::form_urlencoded::byte_serialize(html.as_bytes()).collect();
+    // Form encoding turns spaces into '+', which a data: URL keeps literally.
+    let encoded = url::form_urlencoded::byte_serialize(html.as_bytes())
+        .collect::<String>()
+        .replace('+', "%20");
     Url::parse(&format!("data:text/html;charset=utf-8,{encoded}"))
 }
 

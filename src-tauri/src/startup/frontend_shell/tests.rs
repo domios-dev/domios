@@ -197,3 +197,10 @@ fn frontend_shell_contract_cors_origins_match_declared_navigation_origins() {
     assert!(!origins.contains(&"http://localhost:1463".into()));
     assert!(!origins.contains(&"https://tauri.localhost".into()));
 }
+
+#[test]
+fn reconnect_surface_data_url_keeps_spaces_and_styles() {
+    let url = super::unavailable_url().unwrap();
+    assert!(!url.as_str().contains('+'));
+    assert!(url.as_str().contains("body%20%7B%20margin%3A%200%3B"));
+}
