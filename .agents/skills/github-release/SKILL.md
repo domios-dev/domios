@@ -12,6 +12,8 @@ description: >-
 
 Shared-stage bundles require the pinned Tauri CLI 2.12.2 and `tauri bundle --no-binary-patching`.
 Earlier bundlers change the packaged native client after its component digest is frozen; extraction readback must reject that mismatch.
+Linux `tauri build --no-bundle` overrides resources and externalBin with empty arrays to avoid the raw server file/resource-directory collision.
+The following `tauri bundle` uses the full platform resource map; never carry that compile-only override into packaging.
 
 ## Branches and the release flow (since 1.14.4)
 
