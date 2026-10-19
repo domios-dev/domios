@@ -50,6 +50,10 @@ module.exports = {
     if (op.kind === 'initialize') result = {kind:'initialized'};
     if (op.kind === 'resumeThread') result = {kind:'threadLoaded',threadId:op.threadId,settings:op.settings};
     if (op.kind === 'readHistory') result = {kind:'historyPage',threadId:op.threadId,items:[],openItems:[]};
+    if (op.kind === 'submitTurn') {
+      result = {kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'restored-turn'};
+      events = [{kind:'controlsConfirmed',threadId:op.threadId,settings:reply.value.params.settings}];
+    }
     if (op.kind === 'interrupt') events = [{kind:'turnState',threadId:op.threadId,turnId:op.activeTurnId,state:'idle'}];
     if (op.kind === 'control') {
       if (op.value.model === 'refuse') return {kind:'refused',reason:{code:'provider_refused',message:'settings refused'}};
@@ -108,6 +112,7 @@ pub(super) fn runtime_fixture() -> (RuntimeFixture, String) {
         "initialize",
         "resumeThread",
         "readHistory",
+        "submitTurn",
         "control",
         "interrupt",
     ]
@@ -253,6 +258,83 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
         Some("mid-turn")
     );
     engine::stop_blocking(&fixture.service, &id).unwrap();
+}
+
+#[test]
+fn close_restore_reapplies_runtime_settings_to_the_exact_thread_on_first_turn() {
+    let (mut fixture, original_id) = runtime_fixture();
+    let workspace = fixture.service.mux.read().list_workspaces()[0].id.clone();
+    let config = json!({
+        "model":"gpt-6-luna",
+        "effort":"low",
+        "serviceTier":{"id":"priority"},
+        "mode":"auto",
+        "confirmedServiceTier":{
+            "selection":{"id":"priority"},
+            "sessionId":"own-thread",
+            "bindingNonce":"original-nonce"
+        }
+    });
+    let launch = crate::multiplexer::types::RestorableLaunchParameters {
+        captured: true,
+        model: Some("gpt-6-luna".into()),
+        requested_model: Some("gpt-6-luna".into()),
+        requested_reasoning_effort: Some("low".into()),
+        resolved_reasoning_effort: Some("low".into()),
+        structured_runtime_mode: Some("auto".into()),
+        ..Default::default()
+    };
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&original_id).unwrap();
+        tab.agent_runtime_config = Some(config);
+        tab.restorable_launch = launch;
+        tab.structured_runtime_mode = Some("auto".into());
+        mux.close_tab(&original_id).unwrap();
+    }
+    let restored_id = fixture
+        .service
+        .mux
+        .write()
+        .reopen_closed_tab(&workspace, None)
+        .unwrap();
+    let restored_nonce = "restored-nonce";
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&restored_id).unwrap();
+        assert_eq!(tab.agent_session_id.as_deref(), Some("own-thread"));
+        tab.session_binding_nonce = Some(restored_nonce.into());
+        tab.reported_session_binding_nonce = Some(restored_nonce.into());
+    }
+    super::super::authority::record_spawn(&fixture.service, &restored_id, PROVIDER, restored_nonce)
+        .unwrap();
+    fixture.tab = restored_id.clone();
+
+    crate::service::agent_runtime::transport::send(
+        &fixture.service,
+        &restored_id,
+        "first restored turn",
+        None,
+    )
+    .unwrap();
+
+    let session = engine::for_tab(&restored_id).unwrap();
+    let settings = session.context.lock().settings.clone();
+    assert_eq!(settings.model.as_deref(), Some("gpt-6-luna"));
+    assert_eq!(settings.effort.as_deref(), Some("low"));
+    assert_eq!(settings.service_tier, Some(tier_selection(true)));
+    assert_eq!(settings.mode.as_deref(), Some("auto"));
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&restored_id).unwrap();
+    assert!(matches!(
+        &tab.backing,
+        TabBacking::ChatBackend { session_id, .. } if session_id == "own-thread"
+    ));
+    assert_eq!(tab.structured_runtime_mode.as_deref(), Some("auto"));
+    assert_eq!(
+        tab.agent_runtime_config.as_ref().unwrap()["confirmedServiceTier"],
+        json!({"selection":{"id":"priority"},"sessionId":"own-thread","bindingNonce":restored_nonce})
+    );
 }
 
 #[test]
