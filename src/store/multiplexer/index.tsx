@@ -37,10 +37,10 @@ import type {
   TabBootStageEvent,
   MeshPeersResponse,
 } from "../../lib/types";
-import type { ExtendedState } from "./tree";
 import { reducer, type Action } from "./reducer";
 import { acceptsPageFocus, initialPageSelection } from "./pageSelection";
 import { loadClientPageSelection } from "../../lib/clientPageSelection";
+import { buildInitialState, HYDRATED_GENERATION } from "./initialState";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
 import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
@@ -70,7 +70,6 @@ export { useMultiplexer } from "./context";
 export { useMuxState, useMuxSelector } from "./selectorStore";
 export { highestTitleLevel } from "./tree";
 
-const HYDRATED_GENERATION = 0.5;
 export const STORAGE_UNAVAILABLE_MESSAGE =
   "Storage unavailable, your data is preserved, see the incident.";
 
@@ -82,36 +81,6 @@ export function isStorageUnavailableError(error: unknown): boolean {
 /** True when this runtime already has a cache projection before reconcile. */
 export function webBootHasSyncCache(): boolean {
   return IS_WEB && loadCachedStateSync() !== null;
-}
-
-function buildInitialState(): ExtendedState {
-  const empty: ExtendedState = {
-    workspaces: [],
-    tabs: {},
-    teams: [],
-    active_workspace_id: null,
-    focused_tab_id: null,
-    notifications: [],
-    tabStatuses: {},
-    toasts: [],
-    activeTabIds: {},
-    generation: 0,
-    pendingCloses: [],
-    storageUnavailable: false,
-  };
-  if (!IS_WEB) return empty;
-  const cached = loadCachedStateSync();
-  if (!cached) return empty;
-  return {
-    ...empty,
-    workspaces: cached.workspaces,
-    tabs: cached.tabs,
-    teams: cached.teams ?? [],
-    ...initialPageSelection(cached, loadClientPageSelection()),
-    recently_closed: cached.recently_closed,
-    closed_structures: cached.closed_structures, tabStatuses: cached.tab_statuses ?? {},
-    generation: HYDRATED_GENERATION,
-  };
 }
 
 /** The daemon refuses snapshots under load or while lifecycle locks are held.
@@ -147,6 +116,7 @@ export function tabBootStageEventAction(payload: TabBootStageEvent): Action {
     agent_booting: payload.agent_booting,
     session_bound: payload.session_bound,
     provisional_launch: payload.provisional_launch,
+    launchGeneration: payload.launch_generation,
   };
 }
 

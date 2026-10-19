@@ -46,5 +46,6 @@
       "version": "1.12.4",
       "minCodeterm": "1.12.4"
     }
-  ]
+  ],
+  "retired": ["codex-cloud"]
 }

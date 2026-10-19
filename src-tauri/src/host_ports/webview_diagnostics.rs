@@ -55,6 +55,7 @@ impl DiagnosticsSession {
         }
     }
 
+    #[cfg(windows)]
     pub(crate) fn set_port_preflight(&self, port: u16, available: bool) {
         if self.requested_port == Some(port) {
             self.occupied.store(!available, Ordering::Release);
@@ -285,10 +286,7 @@ pub(crate) async fn inspect_main_webview_diagnostics(
         return unavailable();
     }
     #[cfg(windows)]
-    let listener_pid = windows_listener::listener_process_id(port);
-    #[cfg(not(windows))]
-    let listener_pid = None;
-    let Some(listener_pid) = listener_pid else {
+    let Some(listener_pid) = windows_listener::listener_process_id(port) else {
         return unavailable();
     };
     #[cfg(windows)]

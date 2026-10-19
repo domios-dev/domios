@@ -18,7 +18,9 @@ pub(crate) fn project_timeline(segments: Vec<TimelineSegment>) -> Vec<ChatMsg> {
         if let (Some(previous), Some(boundary)) =
             (previous_session_id.as_deref(), segment.boundary_before)
         {
-            output.push(boundary_message(previous, &segment.session_id, boundary));
+            let mut message = boundary_message(previous, &segment.session_id, boundary);
+            message.seq = sequence(output.len());
+            output.push(message);
         }
         for mut message in segment.messages {
             if segment.read_only {
@@ -95,14 +97,27 @@ fn archived_session_messages(svc: &ServiceContext, archive: &ContextEpochArchive
             0,
         )
         .map(|(messages, _)| messages),
-        ContextEpochTransport::ChatBackend => svc
-            .chatbackend_registry
-            .get(&archive.provider)
-            .ok_or_else(|| "chat backend provider is unavailable".to_owned())
-            .and_then(|provider| {
-                super::chatbackend_transcript_snapshot(provider.as_ref(), &archive.session_id, 0)
-            })
-            .map(|(messages, _)| messages),
+        ContextEpochTransport::ChatBackend => super::runtime_stored::archived_messages(
+            svc,
+            &archive.provider,
+            &archive.cwd,
+            &archive.session_id,
+        )
+        .and_then(|stored| match stored {
+            Some(messages) => Ok(messages),
+            None => svc
+                .chatbackend_registry
+                .get(&archive.provider)
+                .ok_or_else(|| "chat backend provider is unavailable".to_owned())
+                .and_then(|provider| {
+                    super::chatbackend_transcript_snapshot(
+                        provider.as_ref(),
+                        &archive.session_id,
+                        0,
+                    )
+                })
+                .map(|(messages, _)| messages),
+        }),
     };
     match result {
         Ok(messages) => messages,
@@ -116,7 +131,7 @@ fn archived_session_messages(svc: &ServiceContext, archive: &ContextEpochArchive
             vec![ChatMsg {
                 id: format!("archived-session-unavailable-{}", archive.session_id),
                 kind: "system".into(),
-                content: "Archived provider conversation is unavailable.".into(),
+                content: format!("Archived provider conversation is unavailable: {error}"),
                 system_subtype: Some("archived_session_unavailable".into()),
                 ..Default::default()
             }]

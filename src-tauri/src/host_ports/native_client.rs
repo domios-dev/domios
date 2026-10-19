@@ -1,4 +1,5 @@
 mod bootstrap;
+mod quit;
 #[cfg(test)]
 pub(super) use bootstrap::read_single_bounded_line;
 #[cfg(test)]
@@ -149,6 +150,7 @@ impl NativeHostClientSlot {
     pub(crate) async fn request_exact_server_shutdown(
         &self,
         api: &super::ServerApiAttachmentSlot,
+        expected: Option<&codeterm_types::app_quit::QuitSnapshot>,
     ) -> ExactServerShutdownResult {
         let Some(server_api) = api.current() else {
             return ExactServerShutdownResult::RefusedBeforeDispatch(
@@ -160,6 +162,11 @@ impl NativeHostClientSlot {
                 ExactServerShutdownRefusal::NativeHostUnavailable,
             );
         };
+        if expected.is_some_and(|expected| !quit::matches(&client, expected, server_api.ready())) {
+            return ExactServerShutdownResult::RefusedBeforeDispatch(
+                ExactServerShutdownRefusal::ApiAttachmentUnavailable,
+            );
+        }
         client
             .request_exact_server_shutdown(server_api.ready().clone(), api, self)
             .await
@@ -200,6 +207,7 @@ impl NativeHostClientSlot {
         client.diagnostics_snapshot()
     }
 
+    #[cfg(windows)]
     pub(crate) fn set_diagnostics_port_preflight(&self, port: u16, available: bool) {
         if let Some(client) = self.0.read().as_ref() {
             client.diagnostics.set_port_preflight(port, available);
@@ -895,6 +903,11 @@ impl NativeHostClient {
         if !self.scope_is_current(&request.scope) {
             return Some(self.reply_rejected(request, NativeHostRejection::InvalidView));
         }
+        if matches!(&request.operation, NativeHostOperation::ExactQuit { .. })
+            && !matches!(&request.scope, NativeHostScope::Client)
+        {
+            return Some(self.reply_rejected(request, NativeHostRejection::Unauthorized));
+        }
         let observation = match &request.operation {
             NativeHostOperation::ObserveNativeUpdate { operation_id, .. } => {
                 Some(!operation_id.value().is_nil())
@@ -943,6 +956,7 @@ impl NativeHostClient {
     ) -> NativeLocalOutcome {
         let shell = super::TauriShell(self.app.clone());
         match operation {
+            NativeHostOperation::ExactQuit { expected } => quit::dispatch(self, *expected),
             NativeHostOperation::FocusWindow { label } => {
                 map_shell_result(shell.focus_window_native(label), |_| {
                     NativeHostResult::Acknowledged

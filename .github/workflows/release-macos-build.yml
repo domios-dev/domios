@@ -59,6 +59,7 @@ jobs:
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CODETERM_RELEASE_FEATURES: embeddings
+      CODETERM_RELEASE_COMMON_STAGE: '1'
       CARGO_INCREMENTAL: '0'
       ART: ${{ github.workspace }}/release-artifacts/macos-${{ matrix.arch }}
       ASSET_SCOPE: ${{ matrix.artifact_arch == 'aarch64' && 'darwin-aarch64' || 'darwin-x86_64' }}
@@ -139,17 +140,35 @@ jobs:
           if [ "${{ matrix.arch }}" = arm64 ]; then root=src-tauri/target/release; else root=src-tauri/target/x86_64-apple-darwin/release; fi
           cp "$root/bundle/dmg/CodeTerm_${{ steps.ver.outputs.ver }}_${{ matrix.artifact_arch }}.dmg" "$ART/"
 
+      - name: Produce shared headless stage and package
+        run: |
+          if [ "${{ matrix.arch }}" = arm64 ]; then target=aarch64-apple-darwin; else target=x86_64-apple-darwin; fi
+          bundle="$ART/CodeTerm_${{ steps.ver.outputs.ver }}_${{ matrix.artifact_arch }}.app.tar.gz"
+          test -f "$bundle"
+          node scripts/release-stage.mjs finalize --target "$target" --tag "${{ inputs.tag }}" \
+            --version "${{ steps.ver.outputs.ver }}" --source-sha "${{ inputs.source_ref }}" \
+            --cargo-log "release-artifacts/build-logs/$target/server.jsonl" \
+            --tree-log "release-artifacts/build-logs/$target/closure.txt" \
+            --bundle "$bundle" --output-dir "$ART"
+
       - name: Smoke built release bundle
         run: node scripts/release-bundle-smoke.mjs macos "$ART" "${{ inputs.source_ref }}"
+
+      - name: Smoke packaged client and isolated server pair
+        run: |
+          if [ "${{ matrix.arch }}" = arm64 ]; then target=aarch64-apple-darwin; else target=x86_64-apple-darwin; fi
+          node scripts/release-pair-smoke.mjs "$target" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "release-artifacts/common-stage/$target" "$ART"
 
       - name: Verify updater signatures (including dry run)
         env:
           RELEASE_VERIFY_ONLY: 'true'
+          SOURCE_SHA: ${{ inputs.source_ref }}
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART"
 
       - name: Verify and publish platform assets and updater fragment
         if: ${{ !inputs.dry_run }}
         env:
+          SOURCE_SHA: ${{ inputs.source_ref }}
           PUBLISH_PUBLIC_MIRROR: ${{ inputs.mirror }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART"

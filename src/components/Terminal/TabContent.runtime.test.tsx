@@ -3,17 +3,28 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import type { AgentRuntimeStateEvent } from "../../lib/agentRuntimeState";
-import type { ProviderDescriptor, Tab, ThemeConfig } from "../../lib/types";
+import type { ApiConfig, ProviderDescriptor, Tab, ThemeConfig } from "../../lib/types";
 import {setAgentDescriptors} from "../../lib/agentDescriptorCache";
 import { MuxStateStoreContext, MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
+import { tabBootStageEventAction } from "../../store/multiplexer";
+import { reducer } from "../../store/multiplexer/reducer";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { insertIntoComposer } from "./composerInsertion";
 import { RestoreStatePanel } from "./RestoreStatePanel";
 import { restoreStageView } from "../../lib/restoreStageView";
+import { setClientTabUiMode } from "../../lib/clientTabUiMode";
 import { TabContent } from "./TabContent";
 
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
+vi.mock("./TerminalTab", async () => {
+  const { createElement } = await import("react");
+  const { TabSessionChat } = await import("./TabSessionChat");
+  return {
+    TerminalTab: ({ tabId, api, isVisible }: { tabId: string; api?: ApiConfig; isVisible?: boolean }) =>
+      createElement(TabSessionChat, { tabId, api, isVisible }),
+  };
+});
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 it("routes a non-PTY task tab through its backing provider even without a local agent identity", async () => {
@@ -240,6 +251,77 @@ it("requests one wake when a sleeping tab becomes visible without awaiting mater
   } finally {
     await act(async () => root.unmount());
     host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});
+
+it("releases a restored PTY Chat on its own agent_ready lifecycle without PTY output", async () => {
+  const tab: Tab = {
+    id: "restored-pty-chat", title: "Grok", tab_type: "Terminal", cwd: null, pty_id: "pty-own",
+    backing: { kind: "pty" }, agent_type: "fixture", agent_session_id: "own-session",
+    session_binding_nonce: "old-binding", frozen: true, slept_at_ms: null, boot_stage: "pty_starting",
+    lifecycle_epoch: 1, lifecycle_operation_id: "prior-launch",
+  };
+  const otherTab: Tab = {
+    ...tab, id: "other-pty-chat", pty_id: "pty-other", agent_session_id: "other-session",
+    session_binding_nonce: "other-binding", boot_stage: "pty_starting",
+  };
+  let state: ExtendedState = {
+    workspaces: [], tabs: { [tab.id]: tab, [otherTab.id]: otherTab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+  };
+  const store = createMuxStateStore(() => state);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command: string) => {
+    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] }
+      : command === "chat_start" ? { messages: [], pending: false, text: "", start_offset: 0, offset: 0,
+        source_session_id: "own-session", session_binding_nonce: state.tabs[tab.id].session_binding_nonce }
+      : command === "wake_tab" ? { accepted: true }
+      : {};
+    return value as T;
+  });
+  setClientTabUiMode(tab.id, "chat");
+  const render = async () => act(async () => root.render(
+    <MuxStateStoreContext.Provider value={store}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={state.tabs[tab.id]} isFocused isVisible onFocusTab={() => {}} onPtySpawned={() => {}}
+          theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>,
+  ));
+  try {
+    await render();
+    expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Message composer"]')).toBeNull();
+
+    state = reducer(state, tabBootStageEventAction({
+      tab_id: tab.id,
+      stage: "agent_ready",
+      agent_booting: false,
+      session_bound: true,
+      launch_generation: { epoch: 2, operation_id: "restored-launch", pty_id: "pty-restored", binding_nonce: "restored-binding" },
+    }));
+    await act(async () => store.notify());
+    await render();
+
+    expect(state.tabs[otherTab.id].frozen).toBe(true);
+    expect(state.tabs[tab.id].pty_id).toBe("pty-restored");
+    expect(state.tabs[tab.id].session_binding_nonce).toBe("restored-binding");
+    expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).toBeNull();
+    const composer = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message composer"]');
+    expect(composer).not.toBeNull();
+    expect(composer?.disabled).toBe(false);
+    expect(composer?.closest("[inert]")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    setClientTabUiMode(tab.id, "terminal");
     __setInvokeForTest(null);
     __setListenForTest(null);
   }

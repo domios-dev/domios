@@ -885,3 +885,27 @@ mod tests {
         assert!(value.get("parentPaneId").is_none());
     }
 }
+
+pub fn finish_app_quit(output: codeterm_types::app_quit::QuitOutput, json: bool) -> ! {
+    use codeterm_types::app_quit::QuitOutput;
+    let confirmed = matches!(output, QuitOutput::Confirmed { .. });
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&output).expect("Quit output serializes")
+        );
+    } else {
+        match &output {
+            QuitOutput::Confirmed { .. } => {
+                println!("Application and server exited after successful cleanup.")
+            }
+            QuitOutput::Refused { reason } => {
+                println!("Quit refused: {reason:?}. No replacement is authorized.")
+            }
+            QuitOutput::Uncertain { reason } => {
+                println!("Quit uncertain: {reason:?}. No replacement is authorized.")
+            }
+        }
+    }
+    std::process::exit(if confirmed { 0 } else { 1 });
+}

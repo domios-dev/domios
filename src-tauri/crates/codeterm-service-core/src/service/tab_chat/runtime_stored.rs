@@ -1,5 +1,8 @@
 use super::results::{ChatBackfillResult, ChatOffsetKind, ChatStartResult};
-use crate::{agent::chat_types::ChatMsg, service::ServiceContext};
+use crate::{
+    agent::{chat_types::ChatMsg, provider::AgentProvider},
+    service::ServiceContext,
+};
 use std::{collections::HashSet, path::Path, sync::LazyLock};
 
 mod projection;
@@ -70,6 +73,15 @@ struct Window {
     frozen: bool,
 }
 
+struct StoredWindow {
+    messages: Vec<ChatMsg>,
+    start: u64,
+    end: u64,
+    elapsed_ms: u128,
+    read_us: u128,
+    projection_us: u128,
+}
+
 enum StoredInput {
     Text(String, u64, u64),
     Records(codeterm_plugin::jsonl_window::records::RecordWindow),
@@ -110,12 +122,6 @@ fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Optio
     else {
         return Ok(None);
     };
-    if !provider
-        .agent_runtime()
-        .is_some_and(|capability| capability.stored_history)
-    {
-        return Ok(None);
-    }
     let Some(session) = tab
         .agent_session_id
         .as_deref()
@@ -123,21 +129,67 @@ fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Optio
     else {
         return Ok(None);
     };
-    if !provider.runtime_stored_history_available(tab.cwd.as_deref().unwrap_or_default(), session) {
+    let Some(stored) = read_stored_window(
+        provider.as_ref(),
+        tab.cwd.as_deref().unwrap_or_default(),
+        session,
+        before,
+        crate::service::agent_runtime::engine::has_live_bound_session(&tab),
+    )?
+    else {
+        return Ok(None);
+    };
+    let current = svc.mux.read().get_tab(tab_id).is_some_and(|current| {
+        current.agent_type == tab.agent_type
+            && current.agent_session_id == tab.agent_session_id
+            && current.session_binding_nonce == tab.session_binding_nonce
+    });
+    if !current {
+        return Err("Transcript binding changed during stored read".into());
+    }
+    log::debug!(
+        "[chat-attach] tab={tab_id} phase=stored_snapshot elapsed_ms={} read_us={} projection_us={} bytes={} rows={}",
+        stored.elapsed_ms,
+        stored.read_us,
+        stored.projection_us,
+        stored.end.saturating_sub(stored.start),
+        stored.messages.len()
+    );
+    Ok(Some(Window {
+        messages: stored.messages,
+        session: session.to_owned(),
+        nonce: tab.session_binding_nonce,
+        start: stored.start,
+        end: stored.end,
+        frozen: tab.frozen,
+    }))
+}
+
+fn read_stored_window(
+    provider: &dyn AgentProvider,
+    cwd: &str,
+    session: &str,
+    before: Option<u64>,
+    live_session_may_be_unmaterialized: bool,
+) -> Result<Option<StoredWindow>, String> {
+    if !provider
+        .agent_runtime()
+        .is_some_and(|capability| capability.stored_history)
+        || !provider.runtime_stored_history_available(cwd, session)
+    {
         return Ok(None);
     }
     let path = provider
-        .session_file_path(tab.cwd.as_deref().unwrap_or_default(), session)
+        .session_file_path(cwd, session)
         .ok_or("Provider has no recorded runtime session")?;
-    if !path.try_exists().map_err(|error| error.to_string())?
-        && crate::service::agent_runtime::engine::has_live_bound_session(&tab)
+    if !path.try_exists().map_err(|error| error.to_string())? && live_session_may_be_unmaterialized
     {
         return Ok(None);
     }
     let started = std::time::Instant::now();
     let input = if provider.record_source("storedHistory").is_some() {
         StoredInput::Records(super::jsonl_kernel::stored_window(
-            provider.as_ref(),
+            provider,
             session,
             &path,
             before,
@@ -162,28 +214,37 @@ fn read(svc: &ServiceContext, tab_id: &str, before: Option<u64>) -> Result<Optio
         ),
     };
     let projection_us = projecting.elapsed().as_micros();
-    let current = svc.mux.read().get_tab(tab_id).is_some_and(|current| {
-        current.agent_type == tab.agent_type
-            && current.agent_session_id == tab.agent_session_id
-            && current.session_binding_nonce == tab.session_binding_nonce
-    });
-    if !current {
-        return Err("Transcript binding changed during stored read".into());
-    }
-    log::debug!(
-        "[chat-attach] tab={tab_id} phase=stored_snapshot elapsed_ms={} read_us={read_us} projection_us={projection_us} bytes={} rows={}",
-        started.elapsed().as_millis(),
-        end.saturating_sub(start),
-        messages.len()
-    );
-    Ok(Some(Window {
+    Ok(Some(StoredWindow {
         messages,
-        session: session.to_owned(),
-        nonce: tab.session_binding_nonce,
         start,
         end,
-        frozen: tab.frozen,
+        elapsed_ms: started.elapsed().as_millis(),
+        read_us,
+        projection_us,
     }))
+}
+
+pub(super) fn archived_messages(
+    svc: &ServiceContext,
+    provider_id: &str,
+    cwd: &str,
+    session: &str,
+) -> Result<Option<Vec<ChatMsg>>, String> {
+    let Some(provider) = svc.agent_registry.provider_arc(provider_id) else {
+        return Ok(None);
+    };
+    if !provider
+        .agent_runtime()
+        .is_some_and(|capability| capability.stored_history)
+    {
+        return Ok(None);
+    }
+    let Some(window) = read_stored_window(provider.as_ref(), cwd, session, None, false)? else {
+        return Err(format!(
+            "Stored runtime history is unavailable for session {session}"
+        ));
+    };
+    Ok(Some(window.messages))
 }
 
 pub fn start(

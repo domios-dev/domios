@@ -7,6 +7,19 @@ pub(super) fn read_install_record(id: &str) -> Result<InstallRecord, String> {
     serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))
 }
 
+pub(super) fn read_install_record_if_present(id: &str) -> Result<Option<InstallRecord>, String> {
+    let id = PluginId::parse(id.to_string())?;
+    let path = plugin_dir(&id).join(".codeterm-install.json");
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("read {}: {error}", path.display())),
+    };
+    serde_json::from_str(&text)
+        .map(Some)
+        .map_err(|error| format!("parse {}: {error}", path.display()))
+}
+
 pub(super) fn installed_ids() -> Result<Vec<String>, String> {
     let root = plugins_root();
     if !root.exists() {

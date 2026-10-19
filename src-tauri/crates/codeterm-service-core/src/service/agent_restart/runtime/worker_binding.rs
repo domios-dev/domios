@@ -43,7 +43,7 @@ impl ServiceContext {
                 nonce,
                 RuntimeRestartMode::ProviderSwitch,
             )?
-            .ok_or_else(|| "provider_switch_binding_refused: task attempt cannot be carried")?;
+            .ok_or("provider_switch_binding_refused: task attempt cannot be carried")?;
         authority.request.target_provider = Some(target.into());
         Ok(Some(authority))
     }

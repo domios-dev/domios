@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "resources": {
+      "../target/domios-package/domios-server/": "domios-server",
+      "../target/domios-package/conpty/": "conpty"
+    }
+  }
+}
