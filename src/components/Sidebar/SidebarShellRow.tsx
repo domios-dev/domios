@@ -3,10 +3,10 @@ import type { Tab } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
-import { SidebarSingleTabRow, type SidebarSingleTabRowProps } from "./SidebarPlanPeerPair";
+import { isTabDragDisabled, SidebarSingleTabRow, type SidebarSingleTabRowProps } from "./SidebarPlanPeerPair";
 import { SurfaceOwnerBlock } from "./SurfaceAttachments";
 import { attachmentInset, ownerRowInset, type OwnerRowContext } from "./surfaceAttachmentModel";
-import { SortableContext, TAB_PREFIX, verticalListSortingStrategy } from "./sortable";
+import { SortableContext, SortableRow, TAB_PREFIX, verticalListSortingStrategy } from "./sortable";
 import { terminalOrigin } from "./teamRowLabels";
 
 export interface SidebarOwnerTabRowProps extends Omit<SidebarSingleTabRowProps, "activity" | "isClosing" | "isAppearing"> {
@@ -18,9 +18,23 @@ export interface SidebarOwnerTabRowProps extends Omit<SidebarSingleTabRowProps, 
   compact: boolean;
   context: OwnerRowContext;
   renderOwner?: Parameters<typeof SurfaceOwnerBlock>[0]["renderOwner"];
+  /** False when an enclosing sortable carries the owner together with its attachments. */
+  ownerSortable?: boolean;
 }
 
-export function SidebarOwnerTabRow({ tabs, planIndex, attachments, closingTabIds, appearingTabIds, compact, context, renderOwner, ...row }: SidebarOwnerTabRowProps) {
+/** Drags an owner, its attached surfaces and anything nested under it as one unit. */
+export function SidebarSortableBlock({ tab, group, groupKey, pinnedIds, toWorkspaceOrder, className, children }: Pick<SidebarSingleTabRowProps, "tab" | "group" | "groupKey" | "pinnedIds" | "toWorkspaceOrder"> & {
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <SortableRow id={`${TAB_PREFIX}${tab.id}`} disabled={isTabDragDisabled(tab)} data={{ group, groupKey, pinnedIds, toWorkspaceOrder }}>
+      <div className={className}>{children}</div>
+    </SortableRow>
+  );
+}
+
+export function SidebarOwnerTabRow({ tabs, planIndex, attachments, closingTabIds, appearingTabIds, compact, context, renderOwner, ownerSortable = true, ...row }: SidebarOwnerTabRowProps) {
   const renderRow = (tab: Tab, index: number, extra: Partial<SidebarSingleTabRowProps> = {}) => (
     <SidebarSingleTabRow {...row} tab={tab} index={index}
       ownerTitle={surfaceOwnerTitle(tab, tabs)}
@@ -31,7 +45,7 @@ export function SidebarOwnerTabRow({ tabs, planIndex, attachments, closingTabIds
     <SortableContext items={attachments.map((tab) => `${TAB_PREFIX}${tab.id}`)} strategy={verticalListSortingStrategy}>{rows}</SortableContext>
   );
   return <SurfaceOwnerBlock ownerId={row.tab.id} attachments={attachments} compact={compact}
-    renderOwner={renderOwner ?? ((toggle) => renderRow(row.tab, row.index, { attachmentToggle: toggle }))}
+    renderOwner={renderOwner ?? ((toggle) => renderRow(row.tab, row.index, { attachmentToggle: toggle, sortable: ownerSortable && row.sortable !== false }))}
     wrapAttachments={wrapAttachments}
     renderAttachment={(tab, index) => renderRow(tab, index, {
       group: "child", groupKey: row.tab.id, pinnedIds: [], variant: "attachment",
@@ -47,7 +61,12 @@ export function SidebarShellRow({ showStartedBy = true, ...props }: Omit<Sidebar
   const startedBy = origin.kind === "tab"
     ? { id: origin.id, label: origin.label, onOpen: () => props.onActivateTab(origin.id) }
     : { id: origin.kind === "closed" ? origin.id : null, label: origin.kind === "closed" ? "a closed tab" : "an unknown tab" };
-  return <div className="sidebar-team-member">
-    <SidebarOwnerTabRow {...props} context="team" startedBy={showStartedBy ? startedBy : undefined} />
-  </div>;
+  if (props.sortable === false) {
+    return <div className="sidebar-team-member">
+      <SidebarOwnerTabRow {...props} context="team" startedBy={showStartedBy ? startedBy : undefined} />
+    </div>;
+  }
+  return <SidebarSortableBlock {...props} className="sidebar-team-member">
+    <SidebarOwnerTabRow {...props} context="team" ownerSortable={false} startedBy={showStartedBy ? startedBy : undefined} />
+  </SidebarSortableBlock>;
 }

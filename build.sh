@@ -1967,6 +1967,82 @@ dev_conf_path() {
   echo "$out"
 }
 
+# A Team dev tab lets processes leave its kill-on-close job; the DEV window must, so restarting the tab keeps it.
+run_outside_tab_job() {
+  if [[ "$OSTYPE" != msys* && "$OSTYPE" != cygwin* ]]; then
+    "$@"
+    return
+  fi
+  local log status=0 line="" arg
+  for arg in "$@"; do line+="\"$arg\" "; done
+  log="$(mktemp)"
+  BREAKAWAY_COMMAND_LINE="$line" powershell.exe -NoProfile -ExecutionPolicy Bypass \
+    -File "$(cygpath -w scripts/windows-breakaway-run.ps1)" -Log "$(cygpath -w "$log")" || status=$?
+  cat "$log"
+  rm -f "$log"
+  if [ "$status" = 250 ]; then
+    echo "This tab's job refuses breakaway; the DEV window stays tied to this tab."
+    "$@"
+    return
+  fi
+  return "$status"
+}
+
+# The live DEV window's executable when it runs from this instance's recorded target directory.
+dev_live_window_exe() {
+  [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]] || return 1
+  local target_win
+  target_win="$(cat "$(dev_target_record)" 2>/dev/null || true)"
+  [ -n "$target_win" ] || return 1
+  powershell.exe -NoProfile -Command "\$dir = [IO.Path]::GetFullPath('$target_win').TrimEnd('\\'); Get-Process codeterm -ErrorAction SilentlyContinue | Where-Object { \$_.Path -and [IO.Path]::GetDirectoryName(\$_.Path) -ieq \$dir } | Select-Object -First 1 -ExpandProperty Path" 2>/dev/null | tr -d '\r' | grep -m1 .
+}
+
+# Only the split dev-back owns a window it can keep; Windows proves an unchanged client through its exe lock.
+dev_window_retainable() {
+  [ "${DEV_FRONT_EXTERNAL:-0}" = 1 ] && dev_live_window_exe >/dev/null
+}
+
+# The running window locks its executable, so a build that succeeds beside it left the client unchanged.
+build_dev_client() {
+  local conf="$1" log
+  shift
+  if [ "${CT_DEV_RETAIN_WINDOW:-0}" != 1 ]; then
+    TAURI_CONFIG="$(cat "$conf")" cargo build "$@"
+    return
+  fi
+  log="$(tauri_debug_dir)/.domios-dev-build/client.log"
+  if TAURI_CONFIG="$(cat "$conf")" cargo build "$@" 2>&1 | tee "$log"; [ "${PIPESTATUS[0]}" = 0 ]; then
+    return 0
+  fi
+  grep -qE "LNK1104|failed to (link or copy|remove)|os error (5|32)|Access is denied" "$log" || return 1
+  echo "Native client changed; replacing the DEV window."
+  CT_DEV_RETAIN_WINDOW=0
+  kill_dev || echo "WARNING: dev cleanup failed; continuing." >&2
+  TAURI_CONFIG="$(cat "$conf")" cargo build "$@"
+}
+
+# Swaps only the server under a retained window, which shows Reconnecting and reattaches.
+swap_dev_server_keep_window() {
+  local split_logs="$1" build_sha="$2" receipt="$1/reload-server.json" listener
+  if node scripts/dev-server.mjs inspect "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$receipt"; then
+    node scripts/dev-server.mjs stop "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$receipt"
+  fi
+  node scripts/server-artifact.mjs stage-dev "$split_logs/server.jsonl" "$split_logs/server-tree.txt" \
+    "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$build_sha"
+  write_dev_provenance "$build_sha"
+  retain_dev_pdb "$build_sha"
+  release_stable_build_path
+  record_dev_target "$(tauri_debug_dir)"
+  complete_build_gateway_before_handoff
+  export CODETERM_CLI_PATH="$(dev_cli_path)"
+  node scripts/dev-server.mjs start "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT"
+  listener="$(dev_listener_pid)"
+  echo "DEV server swapped; native client/window retained."
+  if [ -n "$DEV_NOTIFY_TAB" ]; then
+    dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$build_sha" "$listener" "$(pwd -P)"
+  fi
+}
+
 build_and_launch_dev() {
   local conf build_sha
   export CODETERM_DEV=1
@@ -1987,9 +2063,16 @@ build_and_launch_dev() {
   if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
     build_args+=(--features "$CT_DEV_CARGO_FEATURES")
   fi
-  TAURI_CONFIG="$(cat "$conf")" cargo build "${build_args[@]}"
+  build_dev_client "$conf" "${build_args[@]}"
   build_sha="$CODETERM_BUILD_SHA"
   build_dev_frontend
+  if [ "${CT_DEV_RETAIN_WINDOW:-0}" = 1 ]; then
+    if dev_live_window_exe >/dev/null; then
+      swap_dev_server_keep_window "$split_logs" "$build_sha"
+      return
+    fi
+    kill_dev || echo "WARNING: dev cleanup failed; continuing." >&2
+  fi
   node scripts/server-artifact.mjs stage-dev "$split_logs/server.jsonl" "$split_logs/server-tree.txt" \
     "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$build_sha"
   write_dev_provenance "$build_sha"
@@ -3357,7 +3440,7 @@ LOCK_STORM_PY
     fi
     if [ "$CT_DEV_WAIT" -eq 1 ]; then
       DEV_NOTIFY_STAGE=launch
-      node scripts/dev-prep.mjs --launch-prebuilt \
+      run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt \
         --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT" --record "$(dev_provenance_record)"
       HEALTH="$(dev_health_status)"
       EXPECTED_BUILD_SHA="$CODETERM_BUILD_SHA"
@@ -3416,7 +3499,8 @@ LOCK_STORM_PY
     ;;
   dev-back)
     export DEV_FRONT_EXTERNAL=1
-    exec "$0" dev "${@:2}"
+    # The window launches detached so restarting this tab never closes it.
+    exec "$0" dev --wait "${@:2}"
     ;;
   dev-front)
     kill_web_watch 2>/dev/null || true
@@ -3429,7 +3513,11 @@ LOCK_STORM_PY
   dev)
     DEV_NOTIFY_STAGE=preflight
     DEV_NOTIFY_STAGE=build
-    kill_dev || echo "WARNING: dev cleanup failed; continuing to build gateway acquisition." >&2
+    if dev_window_retainable; then
+      export CT_DEV_RETAIN_WINDOW=1
+    else
+      kill_dev || echo "WARNING: dev cleanup failed; continuing to build gateway acquisition." >&2
+    fi
     if named_dev_isolated; then prepare_named_dev_target; fi
     enter_cargo_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist

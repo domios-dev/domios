@@ -27,7 +27,7 @@ import type { JobsTarget } from "../Jobs/JobsView";
 import type { TabAttention } from "./tabAttention";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { SidebarCronRow } from "./SidebarResourceRow";
-import { SidebarShellRow, SidebarOwnerTabRow } from "./SidebarShellRow";
+import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./SidebarShellRow";
 import { surfaceAttachmentsByOwner, type OwnerRowContext } from "./surfaceAttachmentModel";
 
 import {
@@ -283,10 +283,13 @@ export function SidebarWorkspaceTabs({
   ): ReactNode => {
     const children = looseTabs.filter((candidate) => candidate.parent_tab_id === tab.id);
     const childItems = children.map((child) => `${TAB_PREFIX}${child.id}`);
+    const toWorkspaceOrder = group === "tab" ? reorderUnits : reorderSiblings;
     return (
-      <div key={tab.id} className="sidebar-tab-tree-row">
+      <SidebarSortableBlock key={tab.id} tab={tab} group={group} groupKey={groupKey} pinnedIds={pinnedIds}
+        toWorkspaceOrder={toWorkspaceOrder} className="sidebar-tab-tree-row">
         {renderOwnerWithAttachments(tab, attachmentsByOwner.get(tab.id) ?? [], "loose", (toggle) => (
           <SidebarSingleTabRow
+            sortable={false}
             tab={tab}
             ownerTitle={surfaceOwnerTitle(tab, tabs)}
             index={index}
@@ -297,7 +300,7 @@ export function SidebarWorkspaceTabs({
             group={group}
             groupKey={groupKey}
             pinnedIds={pinnedIds}
-            toWorkspaceOrder={group === "tab" ? reorderUnits : reorderSiblings}
+            toWorkspaceOrder={toWorkspaceOrder}
             attachmentToggle={toggle}
             {...sharedRow}
           />
@@ -309,7 +312,7 @@ export function SidebarWorkspaceTabs({
             )}
           </SortableContext>
         )}
-      </div>
+      </SidebarSortableBlock>
     );
   };
 

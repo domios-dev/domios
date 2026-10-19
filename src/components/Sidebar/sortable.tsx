@@ -98,7 +98,6 @@ export function SortableRow({
         touchAction: "auto",
         transform: CSS.Translate.toString(transform),
         transition,
-        opacity: isDragging ? 0.5 : undefined,
         position: "relative",
         zIndex: isDragging ? 10 : undefined,
         boxShadow: isTouchDragging ? "0 3px 8px rgb(0 0 0 / 18%)" : undefined,
@@ -166,22 +165,37 @@ export const lockListRowsToVerticalAxis: Modifier = ({ active, transform }) => {
   return group && group !== "workspace" ? { ...transform, x: 0 } : transform;
 };
 
-const LIST_AXIS_MODIFIERS = [lockListRowsToVerticalAxis];
 const VERTICAL_AUTO_SCROLL = { threshold: { x: 0, y: 0.2 } };
 
 function sameGroup(a: SortableGroupData | undefined, b: SortableGroupData | undefined): boolean {
   return Boolean(a && b && a.group === b.group && a.groupKey === b.groupKey);
 }
 
-/** Only rows of the dragged row's own group can be targets, so nested groups never steal the drop. */
+/**
+ * Only movable rows of the dragged row's own group can be targets: nested groups never steal the drop,
+ * and a pinned row is never chosen only to have the reorder refused and the row fly back.
+ */
 export const sameGroupCollision: CollisionDetection = (args) => {
   const activeData = args.active.data.current as SortableGroupData | undefined;
   return closestCenter({
     ...args,
     droppableContainers: args.droppableContainers.filter((container) =>
-      sameGroup(activeData, container.data.current as SortableGroupData | undefined)),
+      !container.disabled && sameGroup(activeData, container.data.current as SortableGroupData | undefined)),
   });
 };
+
+/** A dragged row cannot travel above the pinned rows that head its own list. */
+export const keepBelowPinnedRows: Modifier = ({ active, activeNodeRect, transform }) => {
+  const data = active?.data.current as SortableGroupData | undefined;
+  if (!data || !activeNodeRect || data.group === "workspace") return transform;
+  const pinned = document.querySelectorAll(`[data-dnd-group="${globalThis.CSS.escape(`${data.group}:${data.groupKey}`)}"][data-dnd-disabled="true"]`);
+  let floor = -Infinity;
+  for (const node of pinned) floor = Math.max(floor, node.getBoundingClientRect().bottom);
+  if (floor === -Infinity) return transform;
+  return { ...transform, y: Math.max(transform.y, floor - activeNodeRect.top) };
+};
+
+const LIST_AXIS_MODIFIERS = [lockListRowsToVerticalAxis, keepBelowPinnedRows];
 
 export function commitSidebarDrag(event: DragEndEvent, handlers: ReorderHandlers): void {
   const { active, over } = event;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { UpdateTray } from "./UpdateTray";
 import { GearIcon } from "../Icons";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
@@ -7,13 +7,15 @@ import { SETTINGS_SECTIONS, type SectionId } from "../Settings/sections";
 
 interface SettingsMenuProps {
   onOpenSection: (section?: SectionId) => void;
+  /** Sits between the gear and the update control, e.g. the account circle. */
+  afterGear?: ReactNode;
 }
 
 /**
  * Gear button in the titlebar tray that opens the settings menu.
  * Each row deep-links into the full settings panel at that section.
  */
-export function SettingsMenu({ onOpenSection }: SettingsMenuProps) {
+export function SettingsMenu({ onOpenSection, afterGear }: SettingsMenuProps) {
   const [open, setOpen] = useState(false);
   const items: DropdownMenuItem[] = SETTINGS_SECTIONS.map((s) => {
     const Icon = s.icon;
@@ -50,6 +52,7 @@ export function SettingsMenu({ onOpenSection }: SettingsMenuProps) {
 
   return <div className="flex items-center gap-1">
     {gear(`${UI_TRAY_BTN} ${open ? "bg-[var(--ct-hover)] text-[var(--ct-fg)]" : ""}`)}
+    {afterGear}
     <UpdateTray />
   </div>;
 }

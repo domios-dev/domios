@@ -1,6 +1,6 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
-import { ChevronDown, UserRound } from "lucide-react";
+import { UserRound } from "lucide-react";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS, type SignInOption } from "../Settings/accountSignInOptions";
 import { useAccount } from "../Settings/useAccount";
 import { useAccountPlan } from "../Settings/useAccountPlan";
@@ -40,11 +40,14 @@ export function AccountTray() {
       <button type="button" className={UI_TRAY_BTN} aria-label={model.name} title={model.name}
         aria-haspopup="menu" aria-expanded={open} aria-busy={pending}>
         {pending
-          ? <Skeleton inline><SkeletonBlock shape="circle" width={16} height={16} /></Skeleton>
-          : <span className="flex h-4 w-4 items-center justify-center rounded-full border border-[var(--ct-border-subtle)] text-[11px]" aria-hidden="true">
-            {model.kind === "signed_in" ? model.initial : <UserRound size={13} />}
-          </span>}
-        <ChevronDown size={12} className="shrink-0 text-[var(--ct-muted-fg)]" aria-hidden="true" />
+          ? <Skeleton inline><SkeletonBlock shape="circle" width={20} height={20} /></Skeleton>
+          : model.kind === "signed_in"
+            ? <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--ct-accent)_22%,transparent)] text-[11px] font-semibold text-[var(--ct-accent)]" aria-hidden="true">
+              {model.initial}
+            </span>
+            : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--ct-fg)_10%,transparent)] text-[var(--ct-fg)]" aria-hidden="true">
+              <UserRound size={13} />
+            </span>}
       </button>
     } />
     {error && <InlineErrorNotice error={error} operation="signing in" blocking />}

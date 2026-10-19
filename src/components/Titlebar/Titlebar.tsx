@@ -16,6 +16,8 @@ import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import type { Notification } from "../../lib/types";
 import { NotificationBell } from "../Notifications/NotificationBell";
 import { developmentBuildLabel } from "./buildIdentity";
+import { DevBuildDot } from "./DevBuildDot";
+import "./Titlebar.css";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 
 interface TitlebarProps {
@@ -77,9 +79,8 @@ export function Titlebar({
   return (
     <div
       data-testid="titlebar"
-      className={`flex min-w-0 items-center bg-[var(--ct-titlebar-bg)] select-none shrink-0 ${IS_WEB ? "relative z-50 max-sm:min-h-[calc(44px+var(--ct-safe-top,0px))]" : ""}`}
+      className={`ct-titlebar flex min-w-0 items-center select-none shrink-0 ${IS_WEB ? "relative z-50 max-sm:min-h-[calc(44px+var(--ct-safe-top,0px))]" : ""}`}
       style={{
-        boxShadow: "inset 0 -0.5px 0 var(--ct-border-subtle)",
         height: "calc(2rem + var(--ct-safe-top, 0px))",
         paddingTop: "var(--ct-safe-top, 0px)",
       }}
@@ -116,18 +117,10 @@ export function Titlebar({
         className="hidden h-full shrink-0 items-center gap-2 pl-3 pr-2 min-[430px]:flex"
         data-tauri-drag-region
       >
-        {buildLabel && (
-          <span
-            className="rounded bg-[var(--ct-accent)] px-1.5 py-0.5 font-mono text-[8px] font-bold leading-none tracking-wide text-[var(--ct-bg)]"
-            aria-label={`Development build, version ${__APP_VERSION__}`}
-            data-tauri-drag-region
-          >
-            {buildLabel}
-          </span>
-        )}
+        {buildLabel && <DevBuildDot label={buildLabel} version={__APP_VERSION__} />}
       </div>
 
-      <div className="min-w-0 flex-1" data-tauri-drag-region />
+      <div className="min-w-0 flex-1 self-stretch" data-tauri-drag-region />
 
       <div className="flex shrink-0 items-center gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
         <div className="relative flex items-center">
@@ -153,8 +146,7 @@ export function Titlebar({
         {onOpenSettings && (
           <>
             <span className={UI_TRAY_DIVIDER} aria-hidden />
-            <AccountTray />
-            <SettingsMenu onOpenSection={onOpenSettings} />
+            <SettingsMenu onOpenSection={onOpenSettings} afterGear={<AccountTray />} />
           </>
         )}
       </div>

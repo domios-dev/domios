@@ -14,6 +14,7 @@ import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig, CronJob, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
 import { ExtensionsIcon } from "../Icons";
+import { MemoryGraphIcon, MeshIcon, SidebarNavButton } from "./SidebarNavButton";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RecentlyClosed } from "./RecentlyClosed";
@@ -471,6 +472,7 @@ export const Sidebar = memo(function Sidebar({
   const sidebarActionText = pickUiFontScaleValue(uiFontScale, ["text-[10px]", "text-[11px]", "text-[12px]", "text-[13px]"]);
   const sidebarNavText = pickUiFontScaleValue(uiFontScale, ["text-[10px]", "text-[11px]", "text-[12px]", "text-[13px]"]);
   const sidebarNavTouchText = pickUiFontScaleValue(uiFontScale, ["text-[12px]", "text-[13px]", "text-[14px]", "text-[15px]"]);
+  const navIconSize = touchMode ? 18 : 14;
   const scaledTouchSidebarWidth = Math.round(sidebarWidth * 1.3);
   const visibleSidebarWidth = isSidebarCollapsed
     ? SIDEBAR_COLLAPSED_WIDTH
@@ -478,6 +480,7 @@ export const Sidebar = memo(function Sidebar({
       ? `min(85vw, ${scaledTouchSidebarWidth}px)`
       : sidebarWidth;
   const isCompact = !touchMode && !isSidebarCollapsed && sidebarWidth < SIDEBAR_COMPACT_SNAP;
+  const navButtonLayout = { compact: isCompact, touchMode, labelClassName: touchMode ? sidebarNavTouchText : sidebarNavText };
   const isPeeking = isSidebarCollapsed && peeking && !touchMode;
   const peekWidth = sidebarWidth >= SIDEBAR_COMPACT_SNAP ? sidebarWidth : 240;
   const prevTabIdsRef = useRef<Set<string>>(new Set());
@@ -857,67 +860,33 @@ export const Sidebar = memo(function Sidebar({
               aria-label="Sidebar views"
               className={`sidebar-footer ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}
             >
-              <button
-                data-testid="nav-extensions"
-                aria-current={mainView === "extensions" ? "page" : undefined}
+              <SidebarNavButton
+                testId="nav-extensions"
+                label="Plugins"
+                icon={<ExtensionsIcon size={navIconSize} className="shrink-0" />}
+                current={mainView === "extensions"}
                 onClick={onOpenExtensions}
-                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
-                  mainView === "extensions"
-                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                    : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                }`}
-                title="Plugins"
-              >
-                <ExtensionsIcon size={touchMode ? 18 : 14} className="shrink-0" />
-                {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Plugins</span>}
-              </button>
-              <button
-                data-testid="nav-memory"
-                aria-current={mainView === "memory" ? "page" : undefined}
-                onClick={onOpenMemory}
-                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
-                  mainView === "memory"
-                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                    : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                }`}
+                {...navButtonLayout}
+              />
+              <SidebarNavButton
+                testId="nav-memory"
+                label="Memory"
                 title="Memory Graph (Ctrl+Shift+M)"
-              >
-                <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                  <circle cx="12" cy="5" r="2" />
-                  <circle cx="5" cy="19" r="2" />
-                  <circle cx="19" cy="19" r="2" />
-                  <circle cx="12" cy="13" r="2" />
-                  <line x1="12" y1="7" x2="12" y2="11" />
-                  <line x1="10.5" y1="14.5" x2="6.5" y2="17.5" />
-                  <line x1="13.5" y1="14.5" x2="17.5" y2="17.5" />
-                </svg>
-                {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Memory</span>}
-              </button>
+                icon={<MemoryGraphIcon size={navIconSize} />}
+                current={mainView === "memory"}
+                onClick={onOpenMemory}
+                {...navButtonLayout}
+              />
               <div className={`flex items-center ${isCompact ? "justify-center" : "gap-1 w-full"}`}>
-                <button
-                  data-testid="nav-mesh"
-                  aria-current={mainView === "mesh" ? "page" : undefined}
+                <SidebarNavButton
+                  testId="nav-mesh"
+                  label="Mesh"
+                  icon={<MeshIcon size={navIconSize} />}
+                  current={mainView === "mesh"}
                   onClick={onOpenMesh}
-                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 flex-1 min-w-0 px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
-                    mainView === "mesh"
-                      ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                      : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                  }`}
-                  title="Mesh"
-                >
-                  <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                    <circle cx="12" cy="12" r="2" />
-                    <circle cx="4" cy="6" r="2" />
-                    <circle cx="20" cy="6" r="2" />
-                    <circle cx="4" cy="18" r="2" />
-                    <circle cx="20" cy="18" r="2" />
-                    <line x1="6" y1="6" x2="10.5" y2="11" />
-                    <line x1="18" y1="6" x2="13.5" y2="11" />
-                    <line x1="6" y1="18" x2="10.5" y2="13" />
-                    <line x1="18" y1="18" x2="13.5" y2="13" />
-                  </svg>
-                  {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Mesh</span>}
-                </button>
+                  grow
+                  {...navButtonLayout}
+                />
                 {!isCompact && (
                   <LiquidFlip
                     data-testid="mesh-presence-toggle"
