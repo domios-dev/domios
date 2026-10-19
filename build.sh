@@ -2673,7 +2673,7 @@ EOF
         --cargo-log "release-artifacts/build-logs/$local_target/server.jsonl" \
         --tree-log "release-artifacts/build-logs/$local_target/closure.txt" \
         --client-file "src-tauri/target/$local_target/release/domios.exe"
-      pnpm tauri bundle "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" --bundles nsis
+      pnpm tauri bundle --no-binary-patching "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" --bundles nsis
     else
       pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" "${bundle_args[@]}"
     fi
