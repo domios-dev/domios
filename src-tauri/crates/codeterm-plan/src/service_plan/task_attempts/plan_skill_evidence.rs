@@ -193,8 +193,17 @@ impl PlanStore {
                 ));
             }
             let manifest = super::super::plan_skills::plan_skill_manifest(self, plan_id)?;
-            if attempt.plan_skill_manifest == manifest {
-                announced = manifest;
+            // Only content identity matters; a reworded purpose must not rewrite the attempt.
+            let same_content = attempt.plan_skill_manifest.len() == manifest.len()
+                && attempt
+                    .plan_skill_manifest
+                    .iter()
+                    .zip(&manifest)
+                    .all(|(held, current)| {
+                        held.slug == current.slug && held.content_digest == current.content_digest
+                    });
+            if same_content {
+                announced = attempt.plan_skill_manifest.clone();
                 return Ok(None);
             }
             let attempt = task

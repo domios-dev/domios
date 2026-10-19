@@ -288,12 +288,9 @@ pub(crate) async fn retry_initialize_client(
         .acquire()
         .ok_or_else(|| "Native client initialization is already active".to_string())?;
     let inputs = recovery::retry_inputs(gate.inputs.as_ref().clone()).await?;
-    let initialized = initialize_client_once(
-        app,
-        Arc::new(inputs),
-        !gate.attached_once.load(Ordering::Acquire),
-    )
-    .await?;
+    // A dead server leaves the attach "unavailable"; relaunching it is safe unless the user is quitting.
+    let allow_launch = !crate::crash::exit::is_client_exit_pending();
+    let initialized = initialize_client_once(app, Arc::new(inputs), allow_launch).await?;
     gate.attached_once.store(true, Ordering::Release);
     Ok(initialized)
 }
