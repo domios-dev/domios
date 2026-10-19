@@ -141,6 +141,11 @@ impl super::super::ServiceContext {
                 head = bound;
             }
             if !store.eligible(&head) {
+                let owner = store.tab(tab_id);
+                if owner.revoked.load(Ordering::Acquire) || owner.failed.load(Ordering::Acquire) {
+                    self.pending_user_send(&head, "user_owner_revoked_before_claim");
+                    return Ok(UserDrain::Idle);
+                }
                 if store.waiting_for_preparation(&head) {
                     hold!(&head, "owner_preparation_pending", Settlement);
                 }
