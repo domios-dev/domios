@@ -52,7 +52,7 @@ TARGET="${CARGO_BUILD_TARGET:-$(rustc -vV | awk '/^host:/ { print $2 }')}"
 CODETERM_RELEASE_COMMON_STAGE=1 ./build.sh release-inputs
 pnpm tauri build --no-bundle ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} \
   --features "$CODETERM_RELEASE_FEATURES" \
-  --config '{"bundle":{"createUpdaterArtifacts":false}}'
+  --config '{"bundle":{"createUpdaterArtifacts":false,"resources":[],"externalBin":[]}}'
 CLIENT="src-tauri/target/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}release/domios"
 node scripts/release-stage.mjs stage-full --target "$TARGET" --source-sha "$(git rev-parse HEAD)" \
   --cargo-log "release-artifacts/build-logs/$TARGET/server.jsonl" \
