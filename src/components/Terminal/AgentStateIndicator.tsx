@@ -36,6 +36,7 @@ export function AgentStateIndicator({
   onRebind,
   renderIdentity,
   showActivity = true,
+  workingInTranscript = false,
   channelLoadingLabel,
   activeTool,
 }: {
@@ -52,6 +53,7 @@ export function AgentStateIndicator({
   onRebind?: () => void;
   renderIdentity?: (label: string) => ReactNode;
   showActivity?: boolean;
+  workingInTranscript?: boolean;
   channelLoadingLabel?: string;
   activeTool?: ActivityTool & { id?: string; sourceSessionId?: string };
 }) {
@@ -62,14 +64,22 @@ export function AgentStateIndicator({
   const work = useComposerBackgroundWorkStatus();
   const background = backgroundOwnsTool(activeTool, work.items);
   const runningTool = activity.kind === "working" && !background ? activeTool : undefined;
-  const status = runtimeActivityLabel(background && activity.kind === "working" ? activity.status : runningTool ? activityLabel(runningTool) : activity.label, activity.kind, runtimeState, Date.now());
+  const activityMovedToTranscript = workingInTranscript && activity.kind === "working";
+  const statusMessage = background && activity.kind === "working"
+    ? activity.status
+    : runningTool ? activityLabel(runningTool) : activity.label;
+  const status = activityMovedToTranscript ? "" : runtimeActivityLabel(statusMessage, activity.kind, runtimeState, Date.now());
   const detail = runningTool ? activityCommand(runningTool) : undefined;
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
     : null;
   const identity = [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
   const text = [identity, status].filter(Boolean).join(" · ");
-  const dots = channelLoadingLabel ? <ChatChannelLoadingStatus label={channelLoadingLabel} /> : !showActivity || background ? null : activity.kind === "starting" ? <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : "Agent starting"} compact /> : activity.active ? (
+  const dots = channelLoadingLabel
+    ? <ChatChannelLoadingStatus label={channelLoadingLabel} />
+    : !showActivity || background || activityMovedToTranscript ? null
+      : activity.kind === "starting" ? <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : "Agent starting"} compact />
+        : activity.active ? (
     <ActivityDots
       data-testid="agent-activity-dots"
       size="small"
@@ -87,9 +97,9 @@ export function AgentStateIndicator({
       data-tab-activity={activity.kind}
       data-agent-subtype={activity.subtype ?? undefined}
       data-agent-phase={phase}
-      role="status"
-      aria-live="polite"
-      aria-label={text ? `Agent ${text}` : "Agent idle"}
+      role={activityMovedToTranscript ? undefined : "status"}
+      aria-live={activityMovedToTranscript ? undefined : "polite"}
+      aria-label={activityMovedToTranscript ? undefined : text ? `Agent ${text}` : "Agent idle"}
     >
       {renderIdentity && identity ? (
         <>
