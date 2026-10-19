@@ -25,6 +25,19 @@ test('shared-stage bundles preserve the final client bytes used by the component
   assert.equal(dependencies['@tauri-apps/cli'], '^2.12.2');
 });
 
+test('macOS native compilation cannot overwrite the signed server with the sidecar stub', () => {
+  for (const file of ['../../.agents/skills/github-release/scripts/build-mac.sh', '../release-macos-x86_64.sh']) {
+    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
+    const config = text.match(/pnpm tauri build --no-bundle[\s\S]*?--config '(\{[^\n]+\})'/)?.[1];
+    assert.ok(config, file);
+    assert.deepEqual(JSON.parse(config).bundle.externalBin, [], file);
+    assert.match(text, /node scripts\/release-macos-bundle\.mjs/);
+  }
+  const assembly = readFileSync(new URL('../release-macos-bundle.mjs', import.meta.url), 'utf8');
+  assert.match(assembly, /'--config', '\{"bundle":\{"createUpdaterArtifacts":false\}\}'/);
+  assert.doesNotMatch(assembly, /externalBin/);
+});
+
 test('Linux native compilation defers resource copying until the full package bundle', () => {
   for (const file of ['../../.github/workflows/release-linux.yml', '../../.codeterm/build-machine/scripts/build-linux.sh']) {
     const text = readFileSync(new URL(file, import.meta.url), 'utf8');
