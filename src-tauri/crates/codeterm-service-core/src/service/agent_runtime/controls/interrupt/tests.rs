@@ -41,6 +41,47 @@ fn captured_root_and_descendants_require_every_exact_completion() {
 }
 
 #[test]
+fn stop_without_a_live_turn_clears_stale_working_state_and_returns_not_working() {
+    let (fixture, id) = super::super::tests::runtime_fixture();
+    crate::async_runtime::block_on(async {
+        let session = engine::ensure(&fixture.service, &id).await.unwrap();
+        session.state.lock().working(false, 1, None);
+        engine::publish(&fixture.service, &id, &session);
+        let live = crate::agent::state_verdict::live_state_for_runtime(
+            &codeterm_plugin::agent_runtime::RuntimeTurnState::Working,
+            None,
+            Some("stale command"),
+        );
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&id)
+            .unwrap()
+            .agent_state = Some(live);
+        assert!(session.context.lock().active_turn_id.is_none());
+        assert!(session.context.lock().active_turns.is_empty());
+        let result =
+            crate::service::stop_execution::stop_agent_turn(fixture.service.clone(), id.clone())
+                .await
+                .unwrap();
+        assert_eq!(
+            result,
+            serde_json::json!({"ok":true,"stopped":false,"reason":"not_working","status":"idle","route":"runtime"})
+        );
+        assert!(session.state.lock().active_turn_started_at_ms.is_none());
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&id).unwrap();
+        assert_eq!(
+            tab.agent_state.as_ref().unwrap().state,
+            codeterm_types::pty::TimelineState::Idle
+        );
+        assert!(tab.agent_state.as_ref().unwrap().status_line.is_none());
+        assert!(tab.agent_runtime_state.as_ref().unwrap()["active_turn_started_at_ms"].is_null());
+    });
+}
+
+#[test]
 fn captured_current_root_turn_replaces_a_stale_roster_entry() {
     let mut context = context();
     context.active_turns.push(RuntimeActiveTurn {

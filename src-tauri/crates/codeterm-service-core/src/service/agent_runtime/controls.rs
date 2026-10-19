@@ -400,7 +400,7 @@ mod tests;
 
 mod interrupt;
 
-pub fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+pub fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String> {
     interrupt::interrupt(svc, tab)
 }
 

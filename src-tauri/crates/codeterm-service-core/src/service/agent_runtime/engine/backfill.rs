@@ -119,7 +119,7 @@ impl Replay {
             thread_id,
             items,
             next_cursor,
-            open_items,
+            mut open_items,
             questions,
             order,
         } = result?
@@ -166,12 +166,21 @@ impl Replay {
             ));
         }
         self.pages += 1;
+        open_items.retain(|open| {
+            !session
+                .completions
+                .lock()
+                .contains(&self.thread, &open.turn_id)
+        });
         self.has_open_turn |= !open_items.is_empty();
         let mut rows = items;
         for open in &open_items {
             if !rows.iter().any(|row| row.id == open.item.id) {
                 rows.push(open.item.clone());
             }
+        }
+        for row in &mut rows {
+            super::super::subscriber::reconcile_finished_item(session, &self.thread, row);
         }
         session.cache.lock().note_history_page();
         if self.descending {
@@ -239,11 +248,10 @@ impl Replay {
 
 fn adopt_open_turns(session: &Session, thread: &str, open_items: &[OpenItem]) {
     for open in open_items {
-        if session.completions.lock().contains(thread, &open.turn_id) {
-            continue;
-        }
         let mut context = session.context.lock();
-        if context.active_turn_id.is_none() {
+        if context.active_turn_id.is_none()
+            && !session.completions.lock().contains(thread, &open.turn_id)
+        {
             context.active_turn_id = Some(open.turn_id.clone());
         }
     }
