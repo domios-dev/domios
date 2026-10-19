@@ -43,6 +43,8 @@ and a pinned process-exit observation. It stages the new server/inventory,
 refreshes provenance and launches the same instance, config, data and API port.
 The client process/window, static frontend server and watcher stay alive.
 A shutdown uncertainty refuses; it never force-kills or retries the swap.
+Windows publishes server replacements by rename; pinned old images remain as
+`.retired` artifacts under the target directory until target cleanup.
 
 The native window shows branded Reconnecting while detached. Its existing
 10-second recovery verifies the current DEV inventory, reattaches to the new
