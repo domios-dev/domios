@@ -279,6 +279,11 @@ fn rejected_effort_and_runtime_mode_leave_inspected_and_persisted_settings_uncha
     }
     crate::service::session_persist::write_session_snapshot(&fixture.service, &fixture.service.mux)
         .unwrap();
+    let persisted_before =
+        crate::session::store::StorageDeskAdapter::from_storage(fixture.storage.clone())
+            .snapshot()
+            .unwrap();
+    let persisted_before = MultiplexerState::from_session_snapshot(&persisted_before);
     let before = {
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(&id).unwrap();
@@ -348,10 +353,23 @@ fn rejected_effort_and_runtime_mode_leave_inspected_and_persisted_settings_uncha
             .unwrap();
     let restored = MultiplexerState::from_session_snapshot(&persisted);
     let restored = restored.get_tab(&id).unwrap();
-    assert_eq!(restored.agent_runtime_config, before.0);
-    assert_eq!(restored.reasoning_effort_identity, before.1);
-    assert_eq!(restored.structured_runtime_mode, before.2);
-    assert_eq!(restored.restorable_launch.structured_runtime_mode, before.3);
+    let persisted_before = persisted_before.get_tab(&id).unwrap();
+    assert_eq!(
+        restored.agent_runtime_config,
+        persisted_before.agent_runtime_config
+    );
+    assert_eq!(
+        restored.reasoning_effort_identity,
+        persisted_before.reasoning_effort_identity
+    );
+    assert_eq!(
+        restored.structured_runtime_mode,
+        persisted_before.structured_runtime_mode
+    );
+    assert_eq!(
+        restored.restorable_launch.structured_runtime_mode,
+        persisted_before.restorable_launch.structured_runtime_mode
+    );
 }
 
 #[test]

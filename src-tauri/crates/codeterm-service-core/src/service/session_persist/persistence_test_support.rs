@@ -16,6 +16,33 @@ pub(super) fn test_worker(
     worker
 }
 
+pub(crate) fn install_blocked_test_worker(
+    svc: &super::super::ServiceContext,
+) -> (
+    std::sync::mpsc::Receiver<()>,
+    std::sync::mpsc::Sender<()>,
+    SessionPersistenceWorker,
+) {
+    let (started_tx, started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let block_first_write = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let block_first_write_for_worker = block_first_write.clone();
+    let worker = test_worker(move |_| {
+        if block_first_write_for_worker.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            started_tx.send(()).map_err(|error| error.to_string())?;
+            release_rx.recv().map_err(|error| error.to_string())?;
+        }
+        Ok(SaveOutcome::Saved)
+    });
+    svc.set_ext(worker.clone())
+        .unwrap_or_else(|_| panic!("session persistence worker already registered"));
+    (started_rx, release_tx, worker)
+}
+
+pub(crate) fn stop_installed_test_worker(worker: &SessionPersistenceWorker) {
+    stop_test_worker(worker);
+}
+
 pub(super) fn stop_test_worker(worker: &SessionPersistenceWorker) {
     let (response, completion) = mpsc::channel();
     worker.configure(WorkerMessage::Stop(response)).unwrap();
