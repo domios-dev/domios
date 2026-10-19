@@ -166,7 +166,7 @@ pub enum SplitNodeSnapshot {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         agent_type_locked: bool,
         /// Agent session ID for --resume, persisted under `LEAF_SESSION_ID_KEY`.
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "Option::is_none", alias = "claude_session_id")]
         agent_session_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent_identity: Option<AgentIdentitySnapshot>,

@@ -502,7 +502,7 @@ fn restore_keeps_a_full_fidelity_1_7_7_leaf() {
     "title_level": "Default",
     "agent_type": "claude",
     "agent_type_locked": true,
-    "agent_session_id": "b0937780-2ad6-4ceb-a8dc-571a3c491d6b",
+    "claude_session_id": "b0937780-2ad6-4ceb-a8dc-571a3c491d6b",
     "agent_identity": {
       "session_binding_nonce": "0244b07f-7746-4d22-9e73-9bc396c3af48",
       "reported_session_binding_nonce": "0244b07f-7746-4d22-9e73-9bc396c3af48",
@@ -643,7 +643,7 @@ fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_value
                             "tab_id":"tab-a",
                             "cwd":"C:/project",
                             "agent_type":"provider-unverified",
-                            "agent_session_id":"session-unverified",
+                            "claude_session_id":"session-unverified",
                             "agent_identity":{"session_binding_nonce":"nonce-unverified"},
                             "role":"Worker",
                             "role_profile":null,
@@ -736,6 +736,49 @@ fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_value
     assert_eq!(identity[0].record_provider, "stored-provider-value");
     assert_eq!(identity[0].session_id, "session-a");
     assert_eq!(identity[0].parent_tab_id.as_deref(), Some("missing-parent"));
+}
+
+#[test]
+fn stored_legacy_desk_field_restores_agent_session_id() {
+    let root = tempfile::tempdir().unwrap();
+    let mut snapshot = desk(&[("ws-a", &["tab-a"])]);
+    if let SplitNodeSnapshot::Leaf {
+        agent_session_id, ..
+    } = &mut snapshot.workspaces[0].tabs[0].split_tree
+    {
+        *agent_session_id = Some("session-unverified".into());
+    }
+    let mut persisted = project_snapshot(&snapshot, Vec::new()).unwrap();
+    let codeterm_storage::DeskLayoutNode::Leaf { fields, .. } =
+        &mut persisted.workspaces[0].tabs[0].layout
+    else {
+        panic!("tab layout remains a leaf")
+    };
+    let object = fields.values.as_object_mut().unwrap();
+    let session_id = object.remove("agent_session_id").unwrap();
+    object.insert(
+        codeterm_storage::LEGACY_SESSION_ID_FIELD.to_string(),
+        session_id,
+    );
+
+    let storage = codeterm_storage::Storage::open(
+        root.path().join("state"),
+        codeterm_storage::StorageConfig::default(),
+    )
+    .unwrap();
+    storage
+        .desk()
+        .import(persisted)
+        .wait(std::time::Duration::from_secs(30))
+        .unwrap();
+    let adapter = StorageDeskAdapter::from_storage(storage);
+    let restored = adapter.snapshot().unwrap();
+    match &restored.workspaces[0].tabs[0].split_tree {
+        SplitNodeSnapshot::Leaf {
+            agent_session_id, ..
+        } => assert_eq!(agent_session_id.as_deref(), Some("session-unverified")),
+        SplitNodeSnapshot::Split { .. } => panic!("tab layout remains a leaf"),
+    }
 }
 
 #[test]

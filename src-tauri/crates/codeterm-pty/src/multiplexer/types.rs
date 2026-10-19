@@ -638,7 +638,11 @@ pub struct Tab {
     #[serde(skip_deserializing, default)]
     pub agent_booting: bool,
     /// Agent session ID for resume (e.g. Claude Code session).
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default,
+        alias = "claude_session_id"
+    )]
     pub agent_session_id: Option<String>,
     /// Human-readable session name emitted by the agent's TUI (e.g. Claude
     /// Code's "vivid-bhabha-1234" handle). Captured once per agent run via
