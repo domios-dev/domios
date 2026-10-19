@@ -4,7 +4,7 @@
 //! Rehearse on a COPY first — never run live against the only checkout.
 //!
 //! ```bash
-//! cargo run -p codeterm --bin convert-plan-storage -- --project /path/to/copy --dry-run
+//! cargo run -p codeterm --features dev-tools --bin convert-plan-storage -- --project /path/to/copy --dry-run
 //! ```
 
 fn main() {
