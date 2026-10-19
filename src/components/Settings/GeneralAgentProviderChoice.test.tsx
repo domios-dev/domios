@@ -4,7 +4,8 @@ import { expect, it, vi } from "vitest";
 import { GeneralAgentProviderChoice } from "./GeneralAgentProviderChoice";
 
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [
-  { id: "first", display_name: "First" }, { id: "second", display_name: "Second" },
+  { id: "first", display_name: "First", transport: "pty" },
+  { id: "second", display_name: "Second", transport: "pty" },
 ] }) }));
 
 it("both settings entrypoints can reuse a choice that cancels without writes and confirms once", async () => {
