@@ -1,5 +1,8 @@
-import { useId, type CSSProperties, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { BrandMark } from "./BrandMark";
+import { DotMatrixCanvas } from "./DotMatrixCanvas";
+import type { DotMatrixCanvasHandle } from "./DotMatrixCanvas";
+import { ErrorNotice } from "../shared/ErrorNotice";
 import type { BrandStateModel } from "./brandStateModel";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
 
@@ -9,14 +12,15 @@ export function BrandState({ model, className, children }: {
   children?: ReactNode;
 }) {
   const reducedMotion = usePrefersReducedMotion();
-  const headingId = useId();
+  const matrixRef = useRef<DotMatrixCanvasHandle>(null);
+  const emitRelease = (timestamp: number) => matrixRef.current?.emitRelease(timestamp);
 
   if (model.kind === "hidden") return null;
   if (model.kind === "loading") {
     return (
       <div className={`brand-state brand-state--loading ${className ?? ""}`} role="status" aria-live="polite" aria-label={model.label} aria-busy="true">
-        <BrandMark motion={model.animate && !reducedMotion ? "load" : "static"} size={92} />
-        {model.animate && !reducedMotion && <div className="brand-state-dots" aria-hidden="true">{[0, 1, 2, 3, 4, 5, 6].map(index => <span key={index} style={{ "--dot-index": index } as CSSProperties} />)}</div>}
+        <DotMatrixCanvas ref={matrixRef} mode="loading" reducedMotion={reducedMotion || !model.animate} />
+        <BrandMark motion={model.animate && !reducedMotion ? "load" : "static"} onRelease={emitRelease} size={92} />
         <div className="brand-state-copy">
           <h2>{model.label}</h2>
           {model.detail && <p>{model.detail}</p>}
@@ -27,10 +31,12 @@ export function BrandState({ model, className, children }: {
   }
   if (model.kind === "error") {
     return (
-      <section className={`brand-state brand-state--error ${className ?? ""}`} role="alert" aria-live="assertive" aria-labelledby={headingId}>
+      <section className={`brand-state brand-state--error ${className ?? ""}`}>
+        <DotMatrixCanvas mode="error" reducedMotion={reducedMotion} />
         <BrandMark motion="static" size={76} />
-        <h2 id={headingId}>{model.title}</h2>
-        <p>{model.detail}</p>
+        <div className="brand-state-error-copy">
+          <ErrorNotice description={{ title: model.title, cause: model.detail, actions: [], raw: "" }} role="alert" ariaLive="assertive" />
+        </div>
         {children}
       </section>
     );
