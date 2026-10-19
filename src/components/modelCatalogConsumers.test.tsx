@@ -538,7 +538,7 @@ test("effort trigger names the control and shows the selected level", async () =
   const trigger = host.querySelector('[data-testid="effort-select"]')!;
   assert(trigger.textContent?.includes("Medium"), "the trigger shows the selected level");
   assert(
-    trigger.getAttribute("aria-label") === "Agent effort",
+    trigger.getAttribute("aria-label") === "Agent effort: Medium",
     `the trigger names the role and control, got "${trigger.getAttribute("aria-label")}"`,
   );
   await act(async () => root.unmount());
