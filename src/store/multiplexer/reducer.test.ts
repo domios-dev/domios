@@ -66,27 +66,63 @@ test("AgentReady event clears launching with no snapshot", () => {
   const state = base();
   state.tabs.ready = { ...tab("ready"), agent_type: "fixture", agent_booting: true, frozen: true, slept_at_ms: 1000,
     pty_id: "pty-ready", session_binding_nonce: "binding-ready", boot_stage: "agent_launching",
+    lifecycle_epoch: 3, lifecycle_operation_id: "launch-3",
     backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "" } };
   const other = { ...tab("other"), frozen: true, boot_stage: "pty_starting" as const };
   state.tabs.other = other;
-  const next = reducer(state, { type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", agent_booting: false, session_bound: true,
-    launchGeneration: { epoch: 3, operation_id: "launch-3", pty_id: "pty-ready", binding_nonce: "binding-ready" } });
+  const next = reducer(state, {
+    type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", agent_booting: false, session_bound: true,
+    launchGeneration: { epoch: 3, operation_id: "launch-3", pty_id: "pty-ready", binding_nonce: "binding-ready" },
+  });
   assert(next.tabs.ready.agent_booting === false, "event clears booting");
   assert(next.tabs.ready.session_bound === true, "event binds session");
   assert(next.tabs.ready.frozen === false, "ready event releases the target tab from frozen state");
   assert(next.tabs.ready.slept_at_ms === null, "ready event clears the sleep timestamp");
+  assert(next.tabs.ready.lifecycle_epoch === 3 && next.tabs.ready.lifecycle_operation_id === "launch-3", "ready event records launch identity");
   assert(next.tabs.other === other && next.tabs.other.frozen === true, "event leaves other tabs untouched");
   assert(!tabActivity(next.tabs.ready).launching, "event releases launch");
 });
 
-test("boot-stage events from an older PTY binding cannot release the current tab", () => {
+test("a restored lifecycle can replace stale PTY and binding identity for the same session", () => {
+  const state = base();
+  state.tabs.ready = { ...tab("ready"), agent_type: "fixture", agent_session_id: "same-session", frozen: true,
+    pty_id: "pty-before-restore", session_binding_nonce: "binding-before-restore", lifecycle_epoch: 7,
+    lifecycle_operation_id: "prior-launch", boot_stage: "pty_starting" };
+  const next = reducer(state, {
+    type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", agent_booting: false, session_bound: true,
+    launchGeneration: { epoch: 8, operation_id: "restored-launch", pty_id: "pty-after-restore", binding_nonce: "binding-after-restore" },
+  });
+  assert(next.tabs.ready.frozen === false, "new restored lifecycle releases the same tab");
+  assert(next.tabs.ready.agent_session_id === "same-session", "restore retains its bound session");
+  assert(next.tabs.ready.pty_id === "pty-after-restore", "restore installs its PTY identity");
+  assert(next.tabs.ready.session_binding_nonce === "binding-after-restore", "restore installs its session binding");
+  assert(next.tabs.ready.lifecycle_epoch === 8 && next.tabs.ready.lifecycle_operation_id === "restored-launch", "restore records the current lifecycle");
+});
+
+test("boot-stage events from an older lifecycle cannot release the current tab", () => {
   const state = base();
   state.tabs.ready = { ...tab("ready"), agent_type: "fixture", frozen: true, pty_id: "pty-current",
-    session_binding_nonce: "binding-current", boot_stage: "agent_launching" };
-  const next = reducer(state, { type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", session_bound: true,
-    launchGeneration: { epoch: 2, operation_id: "old-launch", pty_id: "pty-old", binding_nonce: "binding-old" } });
-  assert(next === state, "stale generation is ignored");
-  assert(next.tabs.ready.frozen === true, "stale event does not wake the current tab");
+    session_binding_nonce: "binding-current", lifecycle_epoch: 3, lifecycle_operation_id: "current-launch", boot_stage: "agent_launching" };
+  const older = reducer(state, {
+    type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", session_bound: true,
+    launchGeneration: { epoch: 2, operation_id: "old-launch", pty_id: "pty-old", binding_nonce: "binding-old" },
+  });
+  const sameEpochMismatch = reducer(state, {
+    type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", session_bound: true,
+    launchGeneration: { epoch: 3, operation_id: "foreign-launch", pty_id: "pty-old", binding_nonce: "binding-old" },
+  });
+  assert(older === state, "stale lifecycle is ignored");
+  assert(sameEpochMismatch === state, "mismatched identity within the current lifecycle is ignored");
+  assert(state.tabs.ready.frozen === true, "stale events do not wake the current tab");
+
+  const identityless = reducer(state, {
+    type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_launching",
+    launchGeneration: { epoch: null, operation_id: null, pty_id: null, binding_nonce: null },
+  });
+  assert(identityless.tabs.ready.pty_id === "pty-current", "identity-less events preserve the current PTY");
+  assert(identityless.tabs.ready.session_binding_nonce === "binding-current", "identity-less events preserve the current binding");
+  assert(identityless.tabs.ready.lifecycle_epoch === 3 && identityless.tabs.ready.lifecycle_operation_id === "current-launch",
+    "identity-less events preserve the current lifecycle");
 });
 
 test("SET_STATE copies the exact incoming teams array", () => {

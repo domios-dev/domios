@@ -156,6 +156,19 @@ fn restored_retained_session_does_not_wait_for_a_lazy_first_turn() {
         false,
         crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
     ));
+    assert!(!super::user_input::requires_composer(
+        &harness.service,
+        "resume-first-turn-fixture",
+        &tab_id,
+    ));
+
+    harness
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .agent_session_id = None;
     assert!(super::user_input::requires_composer(
         &harness.service,
         "resume-first-turn-fixture",

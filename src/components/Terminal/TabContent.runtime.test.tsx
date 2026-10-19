@@ -260,7 +260,8 @@ it("releases a restored PTY Chat on its own agent_ready lifecycle without PTY ou
   const tab: Tab = {
     id: "restored-pty-chat", title: "Grok", tab_type: "Terminal", cwd: null, pty_id: "pty-own",
     backing: { kind: "pty" }, agent_type: "fixture", agent_session_id: "own-session",
-    session_binding_nonce: "own-binding", frozen: true, slept_at_ms: null, boot_stage: "pty_starting",
+    session_binding_nonce: "old-binding", frozen: true, slept_at_ms: null, boot_stage: "pty_starting",
+    lifecycle_epoch: 1, lifecycle_operation_id: "prior-launch",
   };
   const otherTab: Tab = {
     ...tab, id: "other-pty-chat", pty_id: "pty-other", agent_session_id: "other-session",
@@ -280,7 +281,7 @@ it("releases a restored PTY Chat on its own agent_ready lifecycle without PTY ou
     const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
       : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] }
       : command === "chat_start" ? { messages: [], pending: false, text: "", start_offset: 0, offset: 0,
-        source_session_id: "own-session", session_binding_nonce: "own-binding" }
+        source_session_id: "own-session", session_binding_nonce: state.tabs[tab.id].session_binding_nonce }
       : command === "wake_tab" ? { accepted: true }
       : {};
     return value as T;
@@ -304,12 +305,14 @@ it("releases a restored PTY Chat on its own agent_ready lifecycle without PTY ou
       stage: "agent_ready",
       agent_booting: false,
       session_bound: true,
-      launch_generation: { epoch: 2, operation_id: "own-launch", pty_id: "pty-own", binding_nonce: "own-binding" },
+      launch_generation: { epoch: 2, operation_id: "restored-launch", pty_id: "pty-restored", binding_nonce: "restored-binding" },
     }));
     await act(async () => store.notify());
     await render();
 
     expect(state.tabs[otherTab.id].frozen).toBe(true);
+    expect(state.tabs[tab.id].pty_id).toBe("pty-restored");
+    expect(state.tabs[tab.id].session_binding_nonce).toBe("restored-binding");
     expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).toBeNull();
     const composer = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message composer"]');
     expect(composer).not.toBeNull();
