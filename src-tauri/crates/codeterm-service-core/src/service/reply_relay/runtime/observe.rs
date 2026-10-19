@@ -194,9 +194,7 @@ impl ServiceContext {
             ),
             _ => return,
         };
-        let mut envelope = MessageEnvelope::tab(label, target.to_string())
-            .model(model)
-            .from_agent(Some(true));
+        let mut envelope = reply_relay_envelope(label, target, model);
         envelope.id = Some(format!("reply-relay:{}", pending.delivery_id));
         if crate::paths::is_dev_instance() {
             envelope.trace_id = Some(
@@ -242,3 +240,12 @@ impl ServiceContext {
         }
     }
 }
+
+fn reply_relay_envelope(label: String, target: &str, model: Option<String>) -> MessageEnvelope {
+    MessageEnvelope::report(label, target.to_string())
+        .model(model)
+        .from_agent(Some(true))
+}
+
+#[cfg(test)]
+mod tests;

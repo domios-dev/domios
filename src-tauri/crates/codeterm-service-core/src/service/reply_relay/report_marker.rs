@@ -69,6 +69,10 @@ mod tests {
             parse_report_marker("<domios type=\"report\">\r\nbody"),
             Some((ReportStatus::InReview, "body"))
         );
+        assert_eq!(
+            parse_report_marker("<domios type=\"report\" status=\"partial\">\n"),
+            Some((ReportStatus::Partial, ""))
+        );
         for answer in [
             "ordinary",
             "prefix\n<domios type=\"report\">\nbody",
