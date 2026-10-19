@@ -7,6 +7,15 @@ const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${n
 const release = workflow('release');
 const macos = workflow('release-macos-build');
 const linuxArm64 = workflow('release-linux-arm64');
+
+test('Linux bundle-only step receives updater signing material after native compilation', () => {
+  const steps = workflow('release-linux').jobs.build.steps;
+  const bundle = steps.find(step => step.name === 'Stage final pair resources and bundle without compilation');
+  assert.match(bundle.run, /pnpm tauri bundle --no-binary-patching/);
+  assert.equal(bundle.env.TAURI_SIGNING_PRIVATE_KEY, '${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}');
+  assert.equal(bundle.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD, '${{ secrets.TAURI_KEY_PASSWORD }}');
+  assert.doesNotMatch(bundle.run, /echo.*TAURI_SIGNING|printenv/);
+});
 test('macOS and Linux arm64 have separate jobs, routing variables and manifest dependencies', () => {
   const callers = [
     ['macos-arm64', 'release-macos-build', 2, 'arm64'], ['macos-x64', 'release-macos-build', 2, 'x86_64'],
