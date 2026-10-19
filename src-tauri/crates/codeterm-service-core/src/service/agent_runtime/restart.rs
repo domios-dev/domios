@@ -58,7 +58,11 @@ async fn restart_inner(
         None => None,
     };
     if let Some(session) = &session {
-        engine::validate_binding(svc, session)?;
+        if idle_only {
+            engine::validate_binding(svc, session)?;
+        } else {
+            engine::validate_restart_binding(svc, session)?;
+        }
         if idle_only
             && (super::update::busy(session)
                 || !crate::service::background_work::running(svc, tab).is_empty())
@@ -71,6 +75,9 @@ async fn restart_inner(
         .read()
         .get_tab(tab)
         .and_then(|target| target.agent_session_id.clone());
+    let rebound = session
+        .as_ref()
+        .is_some_and(|session| session.context.lock().thread_id != old_thread);
     let binding = svc
         .authorize_runtime_restart_binding(tab, provider, old_nonce, fresh)
         .map_err(RuntimeFailure::Refused)?;
@@ -94,7 +101,9 @@ async fn restart_inner(
         {
             let mut context = session.context.lock();
             context.epoch = epoch;
-            context.binding_nonce = nonce.clone();
+            if !rebound {
+                context.binding_nonce = nonce.clone();
+            }
             if fresh {
                 context.thread_id = None;
             }
@@ -118,11 +127,22 @@ async fn restart_inner(
         let target = mux.get_tab_mut(tab).ok_or(RuntimeFailure::Superseded)?;
         if target.agent_type.as_deref() != Some(provider)
             || target.session_binding_nonce.as_deref() != Some(nonce.as_str())
+            || target.agent_session_id != old_thread
         {
             return Err(RuntimeFailure::Superseded);
         }
         target.agent_booting = true;
         target.boot_stage = None;
+        if rebound {
+            let mut state = RuntimeState::unloaded(old_thread.clone());
+            state.restore_timing(target.agent_runtime_state.as_ref());
+            if let Some(session) = &session {
+                state.epoch = state.epoch.max(session.state.lock().epoch);
+            }
+            state.active_turn_started_at_ms = None;
+            state.last_turn_duration_ms = None;
+            target.agent_runtime_state = serde_json::to_value(state.snapshot()).ok();
+        }
         if fresh {
             target.agent_session_id = None;
             target.agent_session_name = None;
@@ -146,10 +166,11 @@ async fn restart_inner(
         svc.prepare_agent_runtime_launch_env(tab, &environment)
             .map_err(RuntimeFailure::Refused)?;
         if let Some(session) = &session {
-            let process = session.process.lock().take();
+            let process = session.process.lock().clone();
             if let Some(process) = process {
                 process.finish().await?;
             }
+            session.process.lock().take();
         }
         Ok(())
     }
@@ -164,6 +185,9 @@ async fn restart_inner(
             "Fresh runtime returned the previous thread".into(),
         ));
     }
+    if !fresh && loaded.context.lock().thread_id != old_thread {
+        return Err(RuntimeFailure::Superseded);
+    }
     Ok(Some(loaded))
 }
 
@@ -174,7 +198,7 @@ fn publish_failure(
     session: Option<&Arc<Session>>,
     reason: &RuntimeFailure,
 ) {
-    if let Some(session) = session {
+    if let Some(session) = session.filter(|session| session.context.lock().binding_nonce == nonce) {
         let epoch = session.state.lock().epoch;
         session.state.lock().degrade(epoch, reason);
         session.thread_loaded.store(false, Ordering::Release);
