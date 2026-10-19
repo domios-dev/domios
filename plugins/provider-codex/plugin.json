@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.45",
+  "version": "1.14.46",
   "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Codex",
@@ -13,10 +13,22 @@
       "protocol": "codex-app-server",
       "minVersion": "0.159.0",
       "runtimeModes": [
-        { "id": "approval-required", "displayName": "Approval required" },
-        { "id": "auto-accept-edits", "displayName": "Auto accept edits" },
-        { "id": "auto", "displayName": "Auto" },
-        { "id": "full-access", "displayName": "Full access" }
+        {
+          "id": "approval-required",
+          "displayName": "Approval required"
+        },
+        {
+          "id": "auto-accept-edits",
+          "displayName": "Auto accept edits"
+        },
+        {
+          "id": "auto",
+          "displayName": "Auto"
+        },
+        {
+          "id": "full-access",
+          "displayName": "Full access"
+        }
       ]
     },
     "agentRuntime": {

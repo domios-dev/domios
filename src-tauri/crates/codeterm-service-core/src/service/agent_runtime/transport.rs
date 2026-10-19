@@ -392,5 +392,5 @@ pub fn snapshot(
 mod tests;
 
 pub fn interrupt(svc: &ServiceContext, tab: &str) -> Result<(), String> {
-    super::controls::interrupt(svc, tab)
+    super::controls::interrupt(svc, tab).map(|_| ())
 }

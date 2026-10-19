@@ -16,6 +16,10 @@ pub(super) use compaction::CompactionState;
 mod apply;
 pub(super) use apply::publish_events;
 
+#[path = "subscriber/turn_lifecycle.rs"]
+mod turn_lifecycle;
+pub(super) use turn_lifecycle::reconcile_finished_item;
+
 #[path = "subscriber/bookkeeping.rs"]
 mod bookkeeping;
 
@@ -269,3 +273,7 @@ mod batch_tests;
 #[cfg(test)]
 #[path = "subscriber/fixtures.rs"]
 mod fixtures;
+
+#[cfg(test)]
+#[path = "subscriber/turn_lifecycle_tests.rs"]
+mod turn_lifecycle_tests;

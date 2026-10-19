@@ -1,5 +1,6 @@
 import { goalPlan, goalResponse, goalIntent } from "./runtimeGoal";
 import { initializedResult, runtimeBinaryVersion } from "./runtimeVersion";
+import { threadStatus } from "./runtimeTurnStatus";
 import type {
   RuntimeContext, Operation, RuntimePlan, RuntimeStep, RpcReply, RuntimeSettings,
   RuntimeFailure, JsonValue, ChatMsg, OpenItem, RuntimeHistoryQuestion,
@@ -241,7 +242,9 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
       if (state.stage === "unarchive") return continuation(request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions),threadId:op.threadId,excludeTurns:true},{stage:"thread/resume",unarchived:true}));
       if (!userThread(value,op.threadId)) return refused("Resumed thread identity unverified");
       if (state.stage !== "verify") return continuation(request("thread/read",{threadId:op.threadId,includeTurns:false},{stage:"verify",settings:codexEffectiveSettings(op.settings,value)}));
-      return {kind:"complete",result:{kind:"threadLoaded",threadId:op.threadId,settings:state.settings as RuntimeSettings}};
+      const idle = threadStatus(object(value.thread).status)?.state === "idle";
+      return {kind:"complete",result:{kind:"threadLoaded",threadId:op.threadId,settings:state.settings as RuntimeSettings},
+        ...(idle ? {events:[{kind:"turnState",threadId:op.threadId,state:"idle",...(ctx.activeTurnId ? {turnId:ctx.activeTurnId} : {})}]} : {})};
     }
     case "readHistory": return historyResponse(op,state,value);
     case "submitTurn": {

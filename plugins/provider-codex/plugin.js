@@ -947,6 +947,29 @@ var serverRequestMethods = [
   "mcpServer/elicitation/request"
 ];
 
+// plugins/provider-codex/src/runtimeTurnStatus.ts
+function threadStatus(raw) {
+  const status = object(raw);
+  const type = typeof raw === "string" ? raw : status.type;
+  if (type === "idle") return { state: "idle" };
+  if (type === "systemError") return { state: "needs_input", detail: "systemError" };
+  if (type !== "active") return void 0;
+  const flags = list(status.activeFlags);
+  if (flags.includes("waitingOnApproval")) return { state: "needs_input", detail: "awaitingApproval" };
+  if (flags.includes("waitingOnUserInput")) return { state: "needs_input", detail: "awaitingInput" };
+  return { state: "working" };
+}
+function turnOutcome(turn) {
+  const status = object(turn).status;
+  return status === "interrupted" ? "interrupted" : status === "failed" ? "failed" : void 0;
+}
+function requestDetail(method) {
+  return method.endsWith("/requestApproval") ? "awaitingApproval" : "awaitingInput";
+}
+function withDetail(status, compacting) {
+  return status.state === "working" && compacting ? { state: "working", detail: "compacting" } : status;
+}
+
 // plugins/provider-codex/src/runtimeHistoryBounds.ts
 var HISTORY_CHUNK_BYTES = 512 * 1024;
 var ITEM_BYTES = 64 * 1024;
@@ -2561,29 +2584,6 @@ function reduceRuntimeAgents(state, items, parents, parent, raw, seq) {
   });
 }
 
-// plugins/provider-codex/src/runtimeTurnStatus.ts
-function threadStatus(raw) {
-  const status = object(raw);
-  const type = typeof raw === "string" ? raw : status.type;
-  if (type === "idle") return { state: "idle" };
-  if (type === "systemError") return { state: "needs_input", detail: "systemError" };
-  if (type !== "active") return void 0;
-  const flags = list(status.activeFlags);
-  if (flags.includes("waitingOnApproval")) return { state: "needs_input", detail: "awaitingApproval" };
-  if (flags.includes("waitingOnUserInput")) return { state: "needs_input", detail: "awaitingInput" };
-  return { state: "working" };
-}
-function turnOutcome(turn) {
-  const status = object(turn).status;
-  return status === "interrupted" ? "interrupted" : status === "failed" ? "failed" : void 0;
-}
-function requestDetail(method) {
-  return method.endsWith("/requestApproval") ? "awaitingApproval" : "awaitingInput";
-}
-function withDetail(status, compacting) {
-  return status.state === "working" && compacting ? { state: "working", detail: "compacting" } : status;
-}
-
 // plugins/provider-codex/src/runtimeStateBudget.ts
 var STATE_TEXT_CAP = 16 * 1024;
 var STATE_TOTAL_BUDGET = 192 * 1024;
@@ -3344,7 +3344,12 @@ function respondOperation(ctx, op, raw, reply) {
       if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
       if (!userThread(value, op.threadId)) return refused("Resumed thread identity unverified");
       if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify", settings: codexEffectiveSettings(op.settings, value) }));
-      return { kind: "complete", result: { kind: "threadLoaded", threadId: op.threadId, settings: state.settings } };
+      const idle = threadStatus(object(value.thread).status)?.state === "idle";
+      return {
+        kind: "complete",
+        result: { kind: "threadLoaded", threadId: op.threadId, settings: state.settings },
+        ...idle ? { events: [{ kind: "turnState", threadId: op.threadId, state: "idle", ...ctx.activeTurnId ? { turnId: ctx.activeTurnId } : {} }] } : {}
+      };
     }
     case "readHistory":
       return historyResponse(op, state, value);

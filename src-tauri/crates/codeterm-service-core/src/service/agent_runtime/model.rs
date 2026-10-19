@@ -422,6 +422,9 @@ impl ItemCache {
     pub fn snapshot(&self) -> Vec<ChatMsg> {
         self.items.iter().cloned().collect()
     }
+    pub fn get(&self, id: &str) -> Option<&ChatMsg> {
+        self.index(id).map(|index| &self.items[index])
+    }
     pub fn has_turn(&self, turn: &str) -> bool {
         self.items
             .iter()
@@ -627,6 +630,17 @@ pub fn accepts_turn_transition(
     ) || current.is_none()
         || incoming.is_none()
         || current == incoming
+}
+
+pub fn accepts_response_event(
+    before: &codeterm_plugin::agent_runtime::RuntimeContext,
+    current: &codeterm_plugin::agent_runtime::RuntimeContext,
+    event: &codeterm_plugin::agent_runtime::AgentRuntimeEvent,
+) -> bool {
+    !matches!(
+        event,
+        codeterm_plugin::agent_runtime::AgentRuntimeEvent::TurnState { turn_id: None, .. }
+    ) || current.active_turn_id == before.active_turn_id
 }
 
 #[cfg(test)]
