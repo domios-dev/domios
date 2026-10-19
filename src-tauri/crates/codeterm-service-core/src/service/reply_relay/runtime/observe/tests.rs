@@ -31,7 +31,7 @@ fn reply_relay_frames_acknowledgement_and_status_fragments_as_reports() {
     for fragment in ["opaque-fragment-a", "opaque-fragment-b"] {
         let routed = Messenger::from(reply_relay_envelope(
             "source-label".into(),
-            "source-tab",
+            "8c7a2f10-9d41-4a81-9f33-d57e1b201408",
             None,
         ))
         .wrap(fragment);
@@ -39,7 +39,7 @@ fn reply_relay_frames_acknowledgement_and_status_fragments_as_reports() {
 
         assert_eq!(parsed.attr("from"), Some("report"));
         assert_eq!(parsed.attr("label"), Some("source-label"));
-        assert_eq!(parsed.attr("tab"), Some("source-tab"));
+        assert_eq!(parsed.attr("tab"), Some("8c7a2f10"));
         assert!(!routed.contains("<tip>"));
         assert!(!routed.contains(Messenger::AGENT_REPLY_HINT_PREFIX));
     }
