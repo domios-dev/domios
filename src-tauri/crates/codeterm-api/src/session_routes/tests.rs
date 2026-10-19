@@ -31,7 +31,7 @@ async fn sessions_resume_refuses_a_degraded_bound_tab_with_a_recovery_command() 
     )
     .unwrap();
     let source = format!(
-        "module.exports = {{findSession(id) {{return {{session_id:id,project_path:{},file_path:'opaque-session-record'}};}}}};",
+        "module.exports = {{findSession(id) {{return {{sessionId:id,projectPath:{},filePath:'opaque-session-record'}};}}}};",
         serde_json::to_string(&fixture.temp.path().display().to_string()).unwrap(),
     );
     fixture
@@ -41,6 +41,17 @@ async fn sessions_resume_refuses_a_degraded_bound_tab_with_a_recovery_command() 
             manifest,
             Arc::new(PluginVm::from_source("resume-fixture", source).unwrap()),
         )));
+    let metadata = fixture
+        .service
+        .agent_registry
+        .find_session("owned-session")
+        .expect("fixture session must resolve before testing resume refusal");
+    assert_eq!(metadata.session_id, "owned-session");
+    assert_eq!(metadata.provider, "resume-fixture");
+    assert_eq!(
+        metadata.project_path.as_deref(),
+        Some(fixture.temp.path().to_str().unwrap())
+    );
     let state = crate::test_support::app_state(&fixture);
     let error = resume_session_api(
         AxumState(state),
