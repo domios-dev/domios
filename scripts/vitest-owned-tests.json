@@ -1,6 +1,7 @@
 [
   "src/components/Terminal/TabSessionChat.streamingInput.test.tsx",
   "src/components/Terminal/SubagentCapsules.test.tsx",
+  "src/components/Terminal/useBodyPainted.test.tsx",
   "src/components/Terminal/childTranscriptViewModel.test.ts",
   "src/components/AgentPicker/FirstRunGeneralPicker.test.tsx",
   "src/components/Sidebar/cronRowMenu.test.ts",
