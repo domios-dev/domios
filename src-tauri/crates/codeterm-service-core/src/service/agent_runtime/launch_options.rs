@@ -203,7 +203,7 @@ fn runtime_settings(options: &RestorableRuntimeLaunchOptions) -> RuntimeSettings
 }
 
 pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSettings, String> {
-    let (provider, nonce, requested, settings) = {
+    let (provider, nonce, requested, settings, structured_runtime_mode) = {
         let mux = svc.mux.read();
         let tab = mux.get_tab(tab_id).ok_or("Runtime tab unavailable")?;
         (
@@ -219,6 +219,7 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
                     .as_ref()
                     .unwrap_or(&serde_json::Value::Null),
             ),
+            tab.restorable_launch.structured_runtime_mode.clone(),
         )
     };
     let worker = svc
@@ -253,12 +254,12 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
         .get_tab(tab_id)
         .and_then(|tab| tab.restorable_launch.runtime_launch_options.as_ref())
         .ok_or("Runtime launch options unavailable")?;
-    Ok(RuntimeSettings {
-        service_tier: settings.service_tier,
-        model: settings.model,
-        effort: settings.effort,
-        ..runtime_settings(options)
-    })
+    let mut restored = runtime_settings(options);
+    restored.service_tier = settings.service_tier;
+    restored.model = settings.model;
+    restored.effort = settings.effort;
+    restored.mode = structured_runtime_mode.or(settings.mode).or(restored.mode);
+    Ok(restored)
 }
 
 #[cfg(test)]
