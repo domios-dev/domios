@@ -289,7 +289,11 @@ fn last_stderr_line(stderr: Option<std::process::ChildStderr>) -> Option<String>
     let mut bytes = Vec::new();
     stderr?.take(16 * 1024).read_to_end(&mut bytes).ok()?;
     let text = String::from_utf8_lossy(&bytes);
-    let line = text.lines().rev().map(str::trim).find(|line| !line.is_empty())?;
+    let line = text
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
     Some(line.chars().take(240).collect())
 }
 
