@@ -1077,6 +1077,10 @@ As of 2026-05-12 this skill is the canonical release procedure. No `.claude/agen
 Release inputs and the Tauri build use the same `CARGO_TARGET_DIR`, target triple,
 `CARGO_INCREMENTAL=0`, and `embeddings` feature set. The paired release path builds the frontend,
 CLI, and server once per target, then runs `pnpm tauri build --no-bundle` once for the client.
+`release-inputs` copies the freshly built `dist/` into the target-selected compile resource stage
+before that Tauri invocation. The stage carries explicit compile-only stubs for resources that
+cannot be finalized until the client exists; `stage-full` verifies the frontend did not change,
+then replaces the entire stage before `tauri bundle`.
 The release stage freezes the final executable bytes and writes schema-2 component inventory
 before `pnpm tauri bundle` packages the existing binaries. Full-package extraction must read back
 the same server and CLI bytes before the separate headless archive is produced from that stage.
@@ -1339,6 +1343,7 @@ without sccache refuses before Rust compilation.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| `tauri build --no-bundle` says `Unable to find your web assets` at `target/domios-package/dist` | The release inputs built root `dist/` but did not stage it at Tauri's configured `frontendDist` before native compilation | Run the shared `release-inputs` path, require `stage-build-resources` after `pnpm build`, and verify `stage-full` replaces the marked compile stage before bundling. Do not run another frontend build. |
 | Release compiles hundreds of crates with no sccache output | Wrapper setup was omitted from release inputs or the later Tauri environment | Use the shared release-input policy, job-scoped wrapper, preflight verification and final stats. Repeat one SHA with a clean owned target and require nonzero hits. |
 | S3 stats show zero requests although no cache server is running | `sccache --show-stats` manufactures configured zero counters on connection failure | Require the configured endpoint to be live through `cache-verify` and `cache-stats`; preserve before/after counters and logs rather than treating a configured S3 label as proof. |
 | Windows Rust tests refuse before compiling because bash is absent from PATH | The Actions step requested `shell: bash` instead of the Windows forwarder | Use the pwsh `build.ps1 ci-tests` step; its owning build implementation still lives in `build.sh`. |

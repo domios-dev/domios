@@ -2249,6 +2249,9 @@ prepare_release_bundle_inputs() {
     cargo_target_args=(--target "$CARGO_BUILD_TARGET")
   fi
   pnpm build
+  if [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" = 1 ]; then
+    node scripts/release-stage.mjs stage-build-resources --target "${CARGO_BUILD_TARGET:-$(ct_host_triple)}"
+  fi
   cargo build --release --timings --manifest-path cli/Cargo.toml "${cargo_target_args[@]}"
   node scripts/bundle-cli.js
   if [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" = 1 ]; then
