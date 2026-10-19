@@ -50,6 +50,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 },
         } => team_pair_to_api(orchestrator, planner, workspace, title, *acknowledge_leaf),
         Commands::Identify => ("GET".into(), "/api/identify".into(), None),
+        Commands::Todo { .. } => {
+            unsupported("agent todo checklists are local to the owning tab")
+        }
         Commands::SendText {
             text,
             tab,
@@ -261,6 +264,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
         },
         Commands::Tab { action } => match action {
+            crate::TabAction::Todo { .. } => {
+                return unsupported("tab todo checklists must run on the owning daemon")
+            }
             crate::TabAction::List {
                 workspace,
                 all_workspaces,

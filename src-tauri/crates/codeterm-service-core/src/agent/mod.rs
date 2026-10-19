@@ -10,7 +10,7 @@ pub use codeterm_agent_model::agent::{
 pub const DOMIOS_HOST_OWNED_CAPABILITIES: provider::HostOwnedCapabilities =
     provider::HostOwnedCapabilities {
         questions: true,
-        todos: false,
+        todos: true,
     };
 pub mod interactive_prompt;
 pub mod kpi;

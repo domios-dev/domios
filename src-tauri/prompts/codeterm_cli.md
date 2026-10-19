@@ -42,7 +42,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Task mentions… | Use | Docs |
 |---|---|---|
 | Version, abilities, documents | `identify`, `capabilities`, `docs` | — |
-| Tabs: list, read, search, send | `tab list`, then `tab inspect` / `tab get-text --tab <ID>`; `tab search <PATTERN>` spans every workspace; `send`; chat backends: `tab chat`; a numbered prompt the provider classifier confirmed: `tab respond OPTION --tab <ID>` | `docs ROUTING` |
+| Tabs: list, read, search, send, todos | `tab list`, then `tab inspect` / `tab get-text --tab <ID>`; `tab search <PATTERN>` spans every workspace; `tab todo list --tab <CHILD_ID>` inspects a child checklist through the authorized parent API; `send`; chat backends: `tab chat`; a numbered prompt the provider classifier confirmed: `tab respond OPTION --tab <ID>` | `docs ROUTING` |
 | A tab with a wrong or stale agent binding | `tab rebind`, `tab repair --from-evidence`, `tab adopt-agent` (read `--help` first). Never type task or ACK text into an unverified shell or picker | `docs ROUTING` |
 | Servers, watchers | `tab new --purpose dev --cmd "..."`; replace it with `tab restart --tab ID --cmd "..."` | — |
 | Agents: spawn, restart, switch provider, report | `agent spawn`, `agent restart`, `agent switch-provider`, `agent switch-provider-status`, `agent report`, `agent providers` / `agent models` | `docs ORCHESTRATION` |
@@ -74,6 +74,8 @@ Each command's `--help` has the flags; the Docs column has the depth.
 Plans, tasks, Teams: `codeterm plan --help` / `codeterm task --help` / `codeterm team --help`, with the full rules in `codeterm docs PLAN-EDITING` and `codeterm docs ORCHESTRATION`. Orchestrator, Planner and Worker launches carry their own flag contract.
 
 Workers default to full machine access for either execution intent. For explicit confinement pass `--sandbox read-only` or `--sandbox workspace-write` to `codeterm agent spawn` or local `codeterm plan task dispatch`. Execution intent still limits task and report authority; saved sandbox policies remain immutable.
+
+Workers use `codeterm todo write --from-pad todos.json` instead of the built-in todo tool. The JSON array uses `{ "content", "status": "pending|in_progress|completed", "activeForm", "link?" }`; content matches an existing checklist title, status changes are persisted by stable item id, and omitted locked checklist items remain unchanged.
 
 After `codeterm tab rebind SESSION_ID --tab ID` on an `agentRuntime` Chat tab, use `codeterm agent restart --tab ID` to resume the recorded session and its own history. `sessions resume` refuses an unusable already-bound tab and names that restart command.
 

@@ -36,6 +36,7 @@ use super::surface::SurfaceAction;
 use super::system::SystemAction;
 use super::task::{CanvasAction, TaskAction};
 use super::team::TeamAction;
+use super::todo::TodoAction;
 use super::update::UpdateAction;
 use super::usage::UsageAction;
 
@@ -129,6 +130,12 @@ pub enum Commands {
     Team {
         #[command(subcommand)]
         action: TeamAction,
+    },
+
+    /// Read or update the current agent tab's bounded checklist.
+    Todo {
+        #[command(subcommand)]
+        action: TodoAction,
     },
 
     /// Orchestrator helpers
