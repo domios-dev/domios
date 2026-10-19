@@ -3,9 +3,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { MessageBubble } from "@codeterm/chat-ui";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
-import { ChatWorkingRow } from "./ChatWorkingRow";
 import { ChatWindowRow } from "./ChatWindowRow";
-import { chatLiveOperationLabel, chatWorkingRowMessage } from "./chatTranscriptActivity";
+import { chatLiveOperationLabel } from "./chatTranscriptActivity";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -86,22 +85,4 @@ it("rebuilds one live operation row from restored transcript state", async () =>
   expect(restored.querySelectorAll('[data-chat-window-row="operation"]')).toHaveLength(1);
   expect(restored.querySelectorAll('[data-testid="chat-tool-call"]')).toHaveLength(1);
   expect(restored.querySelector('[data-chat-window-row="operation"]')?.getAttribute("role")).toBe("status");
-});
-
-it("renders a compact accessible Working tail row", async () => {
-  const onContentLayout = vi.fn();
-  const message = chatWorkingRowMessage("tab");
-  host = document.body.appendChild(document.createElement("div"));
-  root = createRoot(host);
-  await act(async () => root?.render(
-    <ChatWindowRow message={message} liveActivityLabel="Working">
-      <ChatWorkingRow onContentLayout={onContentLayout} />
-    </ChatWindowRow>,
-  ));
-  const row = host.querySelector(`[data-chat-window-row="${message.id}"]`);
-  expect(row?.getAttribute("role")).toBe("status");
-  expect(row?.getAttribute("aria-live")).toBe("polite");
-  expect(host.querySelector('[data-testid="chat-working-row"]')?.textContent).toBe("Working…");
-  expect(host.querySelector('[data-testid="chat-working-row"] .activity-dots')?.getAttribute("aria-hidden")).toBe("true");
-  expect(onContentLayout).toHaveBeenCalledTimes(1);
 });

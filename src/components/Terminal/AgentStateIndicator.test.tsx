@@ -39,24 +39,6 @@ async function main(): Promise<void> {
     await act(async () => running.root.unmount());
     running.host.remove();
   }
-  const chatWorking = await render(
-    <AgentStateIndicator
-      activity={tabActivity({ agent_session_id: "chat-session", agent_state: { state: "working", status_line: "Running command" } })}
-      providerName="Provider"
-      model="fixture-model"
-      renderIdentity={(label) => <button>{label}</button>}
-      workingInTranscript
-      onStop={() => {}}
-      activeTool={{ toolKind: "command", toolDetail: command }}
-    />,
-  );
-  assert(chatWorking.host.querySelector(".ct-agent-msg")?.textContent === "Provider · fixture-model", "Chat composer status keeps provider and model identity without duplicating operation activity");
-  assert(chatWorking.host.querySelector('[data-testid="agent-stop"]'), "Chat composer status keeps the Stop control");
-  assert(!chatWorking.host.textContent?.includes("Running command"), "Chat composer status omits the live operation label");
-  assert(!chatWorking.host.querySelector('[role="status"], [aria-live]'), "Chat composer stops announcing activity when it is in the transcript");
-  await act(async () => chatWorking.root.unmount());
-  chatWorking.host.remove();
-
   const idle = await render(
     <AgentStateIndicator
       activity={tabActivity({ agent_state: { state: "idle" } })}
@@ -66,7 +48,7 @@ async function main(): Promise<void> {
     />,
   );
   assert(idle.host.querySelectorAll('[data-testid="agent-state"]').length === 1, "idle keeps exactly one status row mounted");
-  assert(!idle.host.querySelector('[data-testid="agent-activity-dots"]'), "idle row has no working indicator");
+  assert(idle.host.querySelector('[data-testid="agent-activity-dots"]')?.getAttribute("data-activity-state") === "still", "idle row keeps still dots in the fixed activity slot");
   assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol · high", "idle row includes session-owned actual effort");
 
   let stopCalls = 0;

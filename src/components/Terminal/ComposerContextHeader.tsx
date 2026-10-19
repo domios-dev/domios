@@ -5,7 +5,7 @@ import { removedChatPluginId } from "./removedChatPluginError";
 import type { ChatSessionIntent } from "@codeterm/chat-core";
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { memo, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { Activity, ChevronUp, CircleCheck, Clock3, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Target, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
@@ -124,9 +124,9 @@ function delayedTone(message: DelayedMessage): string {
 
 type ResolvedPlan = ReturnType<typeof useResolvedTabActivity>;
 
-export function ComposerContextHeader(props: ComposerContextHeaderProps) {
+export const ComposerContextHeader = memo(function ComposerContextHeader(props: ComposerContextHeaderProps) {
   return useTabHasPlan(props.tabId) ? <PlannedContextHeader {...props} /> : <ContextHeaderBody {...props} plan={null} />;
-}
+});
 
 function PlannedContextHeader(props: ComposerContextHeaderProps) {
   const plan = useResolvedTabActivity(props.tabId, props.workspaceId);

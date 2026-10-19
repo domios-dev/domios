@@ -39,6 +39,7 @@ import {
   tabAttention, type TabAttention,
 } from "./tabAttention";
 import { tabRowText } from "./tabRowModel";
+import { sameRowTab } from "./tabRowEquality";
 
 interface TabItemProps {
   tab: Tab;
@@ -543,9 +544,6 @@ function TabItemInner({
 function backingPluginId(p: Tab | null | undefined): string | undefined {
   return p?.backing?.kind === "chat_backend" ? p.backing.plugin_id : undefined;
 }
-function backingSessionId(p: Tab): string | undefined {
-  return p.backing?.kind === "chat_backend" ? p.backing.session_id : undefined;
-}
 
 function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
   if (
@@ -592,60 +590,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pa.planCount !== na.planCount
   )) return false;
 
-  const pp = prev.tab;
-  const np = next.tab;
-  if (pp === np) return true;
-  if (!pp || !np) return false;
-  return (
-    pp.id === np.id &&
-    // a stale label after wake/cache-reconcile.
-    pp.title === np.title &&
-    pp.title_level === np.title_level &&
-    pp.purpose === np.purpose &&
-    pp.shell_command_state?.activity === np.shell_command_state?.activity &&
-    pp.shell_command_state?.last_exit_code === np.shell_command_state?.last_exit_code &&
-    pp.description === np.description &&
-    pp.agent_type === np.agent_type &&
-    pp.agent_session_id === np.agent_session_id &&
-    // The row menu's model entry needs a live PTY to write the switch into.
-    pp.pty_id === np.pty_id &&
-    // shell model itself comes from a hook (useShellSessionModel), not a prop.
-    pp.backing?.kind === np.backing?.kind &&
-    backingPluginId(pp) === backingPluginId(np) &&
-    backingSessionId(pp) === backingSessionId(np) &&
-    pp.protected === np.protected &&
-    pp.frozen === np.frozen &&
-    pp.slept_at_ms === np.slept_at_ms &&
-    pp.boot_stage === np.boot_stage &&
-    pp.boot_failure_reason === np.boot_failure_reason &&
-    pp.role_profile === np.role_profile &&
-    pp.role === np.role &&
-    pp.roleless_tracked === np.roleless_tracked &&
-    pp.role_profile === np.role_profile &&
-    JSON.stringify(pp.remote_channels) === JSON.stringify(np.remote_channels) &&
-    pp.ownership?.controller_title === np.ownership?.controller_title &&
-    pp.ownership?.team?.id === np.ownership?.team?.id &&
-    pp.remote_peer_name === np.remote_peer_name &&
-    pp.remote_peer_id === np.remote_peer_id &&
-    pp.chat_view === np.chat_view &&
-    pp.permission_auto_confirm === np.permission_auto_confirm &&
-    pp.pending_prompt === np.pending_prompt &&
-    pp.agent_session_model === np.agent_session_model &&
-    pp.agent_runtime_config?.confirmedServiceTier === np.agent_runtime_config?.confirmedServiceTier &&
-    pp.session_binding_nonce === np.session_binding_nonce &&
-    pp.agent_provider_resolved_model === np.agent_provider_resolved_model &&
-    pp.agent_requested_model === np.agent_requested_model &&
-    pp.boot_stage === np.boot_stage &&
-    pp.agent_booting === np.agent_booting &&
-    pp.pty_id === np.pty_id &&
-    pp.agent_state?.status_line === np.agent_state?.status_line &&
-    pp.agent_state?.state === np.agent_state?.state &&
-    pp.agent_state?.phase === np.agent_state?.phase &&
-    pp.agent_state?.subtype === np.agent_state?.subtype &&
-    pp.parent_tab_id === np.parent_tab_id &&
-    pp.depth === np.depth &&
-    JSON.stringify(pp.connected_services) === JSON.stringify(np.connected_services)
-  );
+  return sameRowTab(prev.tab, next.tab);
 }
 
 export const TabItem = memo(TabItemInner, tabItemPropsEqual);

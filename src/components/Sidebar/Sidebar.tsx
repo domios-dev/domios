@@ -1,6 +1,6 @@
 import { useTeamClose } from "./useTeamClose";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { nativeFolderDialog as open } from "../../lib/nativeBridge";
 import { IS_WEB } from "../../lib/webApi";
@@ -15,7 +15,6 @@ import type { AppConfig, CronJob, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
 import { ExtensionsIcon } from "../Icons";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
-import { WorkspaceItem } from "./WorkspaceItem";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RecentlyClosed } from "./RecentlyClosed";
 import {
@@ -34,15 +33,13 @@ import { selectActiveWork } from "../Canvas/planView/activeWork";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
-import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
-import { GeneralInventory } from "./GeneralInventory";
-import { GeneralWorkspaceTabs } from "./GeneralWorkspaceTabs";
+import { SidebarWorkspaceDetail, type SidebarWorkspaceDetailActions, type SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
+import { SidebarGeneralSection } from "./SidebarGeneralSection";
 import { SidebarSkeleton } from "./SidebarSkeleton";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
 import { SidebarCompactRail, type CompactRailGroup } from "./SidebarCompactRail";
-import { SpinalCordButton } from "./SpinalCord";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
@@ -93,7 +90,8 @@ interface SidebarProps {
   restoring?: boolean;
 }
 
-export function Sidebar({
+// Memoized: App re-renders on every store change; the sidebar has its own selector.
+export const Sidebar = memo(function Sidebar({
   onCollapse,
   onOpenMemory,
   onOpenMesh,
@@ -156,10 +154,12 @@ export function Sidebar({
   const { providers, loading: providersLoading } = useAgentProviders();
   const { index: planIndex, refetch: refetchPlanIndex } = usePlanIndexOptional();
   const fullPlans = useSidebarPlansOptional();
-  const handleRenamePlan = config?.api ? async (planId: string, title: string) => {
-    await renamePlan(config.api, planId, title);
-    await Promise.all([refetchPlanIndex(), fullPlans.refetch()]);
-  } : undefined;
+  const planApi = config?.api;
+  const refetchFullPlans = fullPlans.refetch;
+  const handleRenamePlan = useMemo(() => planApi ? async (planId: string, title: string) => {
+    await renamePlan(planApi, planId, title);
+    await Promise.all([refetchPlanIndex(), refetchFullPlans()]);
+  } : undefined, [planApi, refetchPlanIndex, refetchFullPlans]);
   const activeWork = useMemo(
     () => selectActiveWork(fullPlans.plans, state.tabs),
     [fullPlans.plans, state.tabs],
@@ -668,6 +668,55 @@ export function Sidebar({
     () => ordinaryWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
     [ordinaryWorkspaces],
   );
+  const selectedWorkspace = ordinaryWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null;
+  const orchestratorTabs = useMemo(() => Object.values(state.tabs).filter((tab) => anchorsTeam(tab)), [state.tabs]);
+  const closingTabIds = useMemo(() => new Set(closingTabs.keys()), [closingTabs]);
+  const workspaceDetailData = useMemo<SidebarWorkspaceDetailData>(() => ({
+    tabs: state.tabs,
+    tabStatuses: state.tabStatuses,
+    attention,
+    teams: state.teams,
+    planIndex,
+    plans: fullPlans.plans,
+    activeWork,
+    providers: visibleProviders,
+    providersLoading,
+    closingTabIds,
+    appearingTabIds: appearingTabs,
+    closingTeamIds,
+    activeTabIds: state.activeTabIds,
+    activeWorkspaceId: state.active_workspace_id,
+    isWorkspaceMode,
+    workspaceCanvasActive,
+    touchMode,
+    uiFontScale,
+    compact: isCompact,
+    sidebarActionText,
+    orchestrators: orchestratorTabs,
+    newSessionDisabled: firstRunActive,
+  }), [state.tabs, state.tabStatuses, attention, state.teams, planIndex, fullPlans.plans, activeWork, visibleProviders,
+    providersLoading, closingTabIds, appearingTabs, closingTeamIds, state.activeTabIds, state.active_workspace_id,
+    isWorkspaceMode, workspaceCanvasActive, touchMode, uiFontScale, isCompact, sidebarActionText, orchestratorTabs, firstRunActive]);
+  const workspaceDetailActions = useMemo<SidebarWorkspaceDetailActions>(() => ({
+    activateWorkspace: (workspaceId) => { setActiveWorkspace(workspaceId); onNavigateToTab?.(); },
+    activateTab: (workspaceId, tabId) => { setActiveTab(workspaceId, tabId); onNavigateToTab?.(); },
+    closeTab: animatedCloseTab,
+    renameTab: setTabTitle,
+    renameWorkspace,
+    closeWorkspace: requestWorkspaceClose,
+    newTerminal: (workspaceId, shell) => createTab(workspaceId, undefined, shell),
+    newSession: handleNewSession,
+    newAgent: handleAgentSpawn,
+    openRemoteTab: setRemotePickerWorkspaceId,
+    openMap: onOpenWorkspaceMap,
+    openAutomation: onOpenWorkspaceAutomation,
+    renamePlan: handleRenamePlan,
+    renameTeam: teamActions?.onRenameTeam,
+    addTeamMember: teamActions?.onAddTeamMember,
+    closeTeam: teamActions?.onCloseTeam ? requestTeamClose : undefined,
+  }), [setActiveWorkspace, onNavigateToTab, setActiveTab, animatedCloseTab, setTabTitle, renameWorkspace, requestWorkspaceClose,
+    createTab, handleNewSession, handleAgentSpawn, onOpenWorkspaceMap, onOpenWorkspaceAutomation, handleRenamePlan,
+    teamActions?.onRenameTeam, teamActions?.onAddTeamMember, teamActions?.onCloseTeam, requestTeamClose]);
   const dndHandlers = useMemo(
     () => ({ reorderTabs, reorderDisplay, reorderWorkspaces }),
     [reorderTabs, reorderDisplay, reorderWorkspaces],
@@ -724,76 +773,21 @@ export function Sidebar({
                   }}
                 />
               )}
-              {!isCompact && !restoring && generalWorkspace && (() => {
-                const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
-                const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
-                const generalTabs = tabsInWorkspace(generalWorkspace.tabs, state.tabs);
-                const generalOrchestrators = Object.values(state.tabs).filter((tab) => anchorsTeam(tab));
-                return (
-                  <section
-                    data-testid="general-section"
-                    className="sidebar-general-section"
-                    role="region"
-                    aria-label={`${generalWorkspace.name} workspace contents`}
-                  >
-                    <div className="sidebar-structural-header sidebar-general-header w-full">
-                      <SidebarDisclosure
-                        data-testid="general-section-toggle"
-                        className="sidebar-structural-toggle min-w-0"
-                        expanded={generalExpanded}
-                        onClick={() => toggleExpanded(generalWorkspace.id)}
-                      >
-                        <span className="sidebar-structural-label">GENERAL</span>
-                      </SidebarDisclosure>
-                      <SpinalCordButton api={config?.api} />
-                    </div>
-                    {generalExpanded && <GeneralWorkspaceTabs
-                      workspace={generalWorkspace}
-                      providerId={config?.general_agent.agent_provider}
-                      generalCwd={generalWorkspace.cwd ?? generalTabs.find((tab) => tab.protected)?.cwd ?? null}
-                      activeTabId={state.activeTabIds[generalWorkspace.id] ?? null}
-                      sortedTabs={generalTabs}
-                      tabs={state.tabs}
-                      tabStatuses={state.tabStatuses}
-                      tabAttentionByTab={attention}
-                      teams={state.teams}
-                      planIndex={planIndex}
-                      plans={fullPlans.plans}
-                      activeWork={activeWork}
-                      providers={visibleProviders}
-                      providersLoading={providersLoading}
-                      closingTabIds={new Set(closingTabs.keys())}
-                      appearingTabIds={appearingTabs}
-                      isActiveVisual={generalActive}
-                      workspaceCanvasActive={workspaceCanvasActive}
-                      touchMode={touchMode}
-                      uiFontScale={uiFontScale}
-                      compact={false}
-                      sidebarActionText={sidebarActionText}
-                      orchestrators={generalOrchestrators}
-                      onBeforeOpenPlan={() => { setActiveWorkspace(generalWorkspace.id); onNavigateToTab?.(); }}
-                      onActivateTab={(tabId) => { setActiveTab(generalWorkspace.id, tabId); onNavigateToTab?.(); }}
-                      onCloseTab={(tabId) => animatedCloseTab(generalWorkspace.id, tabId)}
-                      onRenameTab={(tabId, title) => setTabTitle(generalWorkspace.id, tabId, title)}
-                      onOpenRemoteTab={() => setRemotePickerWorkspaceId(generalWorkspace.id)}
-                      newSessionDisabled={firstRunActive}
-                      onRenameTeam={teamActions?.onRenameTeam}
-                      onRenamePlan={handleRenamePlan}
-                      onAddTeamMember={teamActions?.onAddTeamMember}
-                      closingTeamIds={closingTeamIds}
-                      onCloseTeam={teamActions?.onCloseTeam
-                        ? (teamId) => requestTeamClose(generalWorkspace.id, teamId)
-                        : undefined}
-                      onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(generalWorkspace.id, target) : undefined}
-                    />}
-                    {generalExpanded && <GeneralInventory generalWorkspaceId={generalWorkspace.id} onShowAllJobs={() => onOpenWorkspaceAutomation?.(generalWorkspace.id, undefined, "machine")} workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} touchMode={touchMode}
-                      rowState={{ tabStatuses: state.tabStatuses, tabAttentionByTab: attention, planIndex, activeWork,
-                        closingTabIds: new Set(closingTabs.keys()), appearingTabIds: appearingTabs, orchestrators: generalOrchestrators, uiFontScale }}
-                      onCloseTab={animatedCloseTab} onRenameTab={setTabTitle}
-                      onNavigate={(workspaceId, tabId) => { setActiveTab(workspaceId, tabId); onNavigateToTab?.(); }} />}
-                  </section>
-                );
-              })()}
+              {/* One drag context for the whole sidebar; groups keep every drop inside its own list. */}
+              <SidebarDnd handlers={dndHandlers}>
+              {!isCompact && !restoring && generalWorkspace && (
+                <SidebarGeneralSection
+                  workspace={generalWorkspace}
+                  expanded={expandedWorkspaces.has(generalWorkspace.id)}
+                  onToggle={() => toggleExpanded(generalWorkspace.id)}
+                  providerId={config?.general_agent.agent_provider}
+                  api={config?.api}
+                  data={workspaceDetailData}
+                  actions={workspaceDetailActions}
+                  workspaces={state.workspaces}
+                  onOpenJobs={onOpenWorkspaceAutomation}
+                />
+              )}
               {!isCompact && !restoring && <div className="sidebar-structural-section">
                 <div className="sidebar-structural-header">
                   <SidebarDisclosure
@@ -807,7 +801,7 @@ export function Sidebar({
                   <div className="sidebar-structural-action" />
                 </div>
                 {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (
-                  <SidebarDnd handlers={dndHandlers}>
+                  <>
                     <WorkspaceCardGrid
                       workspaces={ordinaryWorkspaces}
                       selectedWorkspaceId={selectedWorkspaceId}
@@ -820,92 +814,19 @@ export function Sidebar({
                       }}
                       onCreate={handleNewWorkspace}
                     />
-                    {ordinaryWorkspaces.map((ws) => {
-                      const sortedTabs = tabsInWorkspace(ws.tabs, state.tabs);
-                      const selected = ws.id === selectedWorkspaceId;
-                      const isActiveVisual = ws.id === state.active_workspace_id && isWorkspaceMode;
-                      const wsOrchestrators = Object.values(state.tabs).filter((tab) => anchorsTeam(tab));
-                      return (
-                        <div
-                          key={ws.id}
-                          data-testid="workspace-detail"
-                          data-workspace-id={ws.id}
-                          role="region"
-                          aria-label={`${ws.name} workspace contents`}
-                          hidden={!selected}
-                        >
-                      <WorkspaceItem
-                        workspace={ws}
-                        isActive={isActiveVisual}
-                        isExpanded
-                        onClick={() => { setActiveWorkspace(ws.id); onNavigateToTab?.(); }}
-                        onToggleExpand={() => {}}
-                        onClose={() => requestWorkspaceClose(ws.id)}
-                        onRename={(name) => renameWorkspace(ws.id, name)}
-                        onNewTerminal={(shell) => createTab(ws.id, undefined, shell)}
-                        onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
-                        onOpenMap={() => onOpenWorkspaceMap?.(ws.id)}
-                        onOpenAutomation={() => onOpenWorkspaceAutomation?.(ws.id)}
-                        newSessionDisabled={firstRunActive}
-                        onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
-                        canClose={true}
-                        status={workspaceStatuses[ws.id]}
-                        showDisclosure={false}
-                        detailHeader
-                        touchMode={touchMode}
-                        countActiveJobs={selected}
-                        uiFontScale={uiFontScale}
+                    {selectedWorkspace && (
+                      <SidebarWorkspaceDetail
+                        key={selectedWorkspace.id}
+                        workspace={selectedWorkspace}
+                        status={workspaceStatuses[selectedWorkspace.id] ?? null}
+                        data={workspaceDetailData}
+                        actions={workspaceDetailActions}
                       />
-                      <SidebarWorkspaceTabs
-                            workspace={ws}
-                            activeTabId={state.activeTabIds[ws.id] ?? null}
-                            sortedTabs={sortedTabs}
-                            tabs={state.tabs}
-                            tabStatuses={state.tabStatuses}
-                            tabAttentionByTab={attention}
-                            teams={state.teams}
-                            planIndex={planIndex}
-                            plans={fullPlans.plans}
-                            activeWork={activeWork}
-                            providers={visibleProviders}
-                            providersLoading={providersLoading}
-                            closingTabIds={new Set(closingTabs.keys())}
-                            appearingTabIds={appearingTabs}
-                            isActiveVisual={isActiveVisual}
-                            workspaceCanvasActive={workspaceCanvasActive}
-                            touchMode={touchMode}
-                            uiFontScale={uiFontScale}
-                            compact={isCompact}
-                            sidebarActionText={sidebarActionText}
-                            orchestrators={wsOrchestrators}
-                            onBeforeOpenPlan={() => {
-                              setActiveWorkspace(ws.id);
-                              onNavigateToTab?.();
-                            }}
-                            onActivateTab={(tabId) => {
-                              setActiveTab(ws.id, tabId);
-                              onNavigateToTab?.();
-                            }}
-                            onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
-                            onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
-                            onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
-                            onOpenRemoteTab={() => setRemotePickerWorkspaceId(ws.id)}
-                            newSessionDisabled={firstRunActive}
-                            onRenameTeam={teamActions?.onRenameTeam}
-                            onRenamePlan={handleRenamePlan}
-                            onAddTeamMember={teamActions?.onAddTeamMember}
-                            closingTeamIds={closingTeamIds}
-                            onCloseTeam={teamActions?.onCloseTeam
-                              ? (teamId) => requestTeamClose(ws.id, teamId)
-                              : undefined}
-                            onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(ws.id, target) : undefined}
-                          />
-                        </div>
-                      );
-                    })}
-                  </SidebarDnd>
+                    )}
+                  </>
                 )}
               </div>}
+              </SidebarDnd>
             </div>
             {remotePickerWorkspaceId && (
               <RemoteTabPicker
@@ -1103,4 +1024,4 @@ export function Sidebar({
       )}
     </>
   );
-}
+});

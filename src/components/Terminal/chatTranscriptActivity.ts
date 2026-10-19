@@ -10,7 +10,6 @@ export interface ChatTranscriptActivityRow {
 export interface ChatTranscriptActivityProjection {
   supported: boolean;
   liveToolId: string | null;
-  showWorkingTail: boolean;
 }
 
 export function projectChatTranscriptActivity(
@@ -27,24 +26,16 @@ export function projectChatTranscriptActivity(
     || hasChatBackend
     || backing?.kind === "chat_backend"
   );
-  if (!supported || activityKind !== "working") return { supported, liveToolId: null, showWorkingTail: false };
+  if (!supported || activityKind !== "working") return { supported, liveToolId: null };
 
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const message = rows[index]?.msg;
     if (message?.type === "tool_call" && message.toolStatus === "running") {
-      return { supported, liveToolId: message.id, showWorkingTail: false };
+      return { supported, liveToolId: message.id };
     }
   }
 
-  return { supported, liveToolId: null, showWorkingTail: true };
-}
-
-export function chatWorkingRowId(tabId: string): string {
-  return `chat-working:${tabId}`;
-}
-
-export function chatWorkingRowMessage(tabId: string): NormalizedChatMessage {
-  return { id: chatWorkingRowId(tabId), type: "status", content: "Working…" };
+  return { supported, liveToolId: null };
 }
 
 export function chatLiveOperationLabel(message: NormalizedChatMessage): string {

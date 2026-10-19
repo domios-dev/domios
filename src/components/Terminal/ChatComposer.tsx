@@ -95,7 +95,9 @@ function cliFallbackCommandPayload(text: string): string | null {
   return `${trimmed}\r`;
 }
 
-function SlashPicker({
+const NO_SUGGESTIONS: SlashCommandSuggestion[] = [];
+
+const SlashPicker = memo(function SlashPicker({
   suggestions,
   highlighted,
   onHighlight,
@@ -134,7 +136,7 @@ function SlashPicker({
       ))}
     </div>
   );
-}
+});
 
 const SUGGESTION_MENU_STYLE = { zIndex: 10, "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties;
 
@@ -512,7 +514,13 @@ function ChatComposerImpl({
     });
   }
 
-  const openScheduleModal = () => setDelayedModal({ kind: "create", text: input.trim() });
+  // Stable identities so the memoized header and pickers sit out keystrokes.
+  const openScheduleModal = useLatestCallback(() => setDelayedModal({ kind: "create", text: input.trim() }), []);
+  const editDelayed = useLatestCallback((message: DelayedMessage) => setDelayedModal({ kind: "edit", message }), []);
+  const deleteDelayed = useLatestCallback((id: string) => void withDelayedBusy(id, async () => {
+    await deleteDelayedMessage(id);
+  }), []);
+  const pickSlashCommand = useLatestCallback(pickSuggestion, []);
 
   if (replacement) return <ComposerDock mode={composerLayout.mode} ref={shellRef}>{replacement}</ComposerDock>;
 
@@ -525,10 +533,8 @@ function ChatComposerImpl({
           tabId={tabId}
           workspaceId={workspaceId}
           delayed={delayedMessages}
-          onEditDelayed={(message) => setDelayedModal({ kind: "edit", message })}
-          onDeleteDelayed={(id) => void withDelayedBusy(id, async () => {
-            await deleteDelayedMessage(id);
-          })}
+          onEditDelayed={editDelayed}
+          onDeleteDelayed={deleteDelayed}
           onScheduleDelayed={openScheduleModal}
           draftActive={input.length > 0}
         />,
@@ -580,10 +586,10 @@ function ChatComposerImpl({
           </>}
         >
           <SlashPicker
-            suggestions={pickerOpen ? suggestions : []}
+            suggestions={pickerOpen ? suggestions : NO_SUGGESTIONS}
             highlighted={pickerHighlight}
             onHighlight={setPickerHighlight}
-            onPick={pickSuggestion}
+            onPick={pickSlashCommand}
           />
           <ComposerMentionPicker
             mentions={mentionPicker.mentions}

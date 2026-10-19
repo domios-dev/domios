@@ -38,6 +38,9 @@ export default defineConfig(({ command }) => {
       __CODETERM_HTML_TAILWIND_RUNTIME__: JSON.stringify(htmlTailwindRuntime),
     },
     plugins: [
+      // React's dev build diffs every changed prop object into the Performance track when console.timeStamp exists;
+      // with hundreds of tab rows that froze typing for seconds, so the dev server hides it before React loads.
+      { name: "dev-no-react-perf-track", apply: "serve", transformIndexHtml: () => [{ tag: "script", children: "console.timeStamp = undefined;", injectTo: "head-prepend" }] },
       react(),
       tailwindcss(),
       buildIdentityAsset(buildHash),

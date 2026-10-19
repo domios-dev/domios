@@ -28,6 +28,21 @@ Start `domios-front` first; the window shows the branded loader and retries unti
 answers. Restarting either tab never stops the other. Plain `./build.sh dev` still runs
 everything in one tab with the production-mode bundle watcher.
 
+## Measuring the live window
+
+`scripts/dev-perf/` attaches to the DEV webview over CDP (`CODETERM_DEV_CDP_PORT`, default
+9223; never prod) and measures what the user feels:
+
+| Command | Answers |
+|---|---|
+| `node scripts/dev-perf/typing.mjs --prompt "Write a long poem"` | Keystroke-to-frame latency at rest and while the active agent answers, React commits, which components rendered and why (context or hook) |
+| `node scripts/dev-perf/connections.mjs --seconds 30` | Daemon requests held open by the page; about six per origin starve everything else |
+| `node scripts/dev-perf/profile.mjs --seconds 10` | CPU self time and app-frame totals |
+
+Activate a cheap agent tab first (Haiku, Luna). `typing` and `connections` reload the page
+once to install their hook before React loads. The Vite dev server hides `console.timeStamp`
+so React's dev-only prop-diff logging does not distort these numbers.
+
 ## Reload by change type
 
 | Changed inputs | Command |

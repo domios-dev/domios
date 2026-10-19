@@ -1,9 +1,9 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import {useCallback, useState} from "react";
+import {memo, useCallback, useState} from "react";
 import {invoke} from "../../lib/bridge";
 import {capabilityBadge} from "../../lib/providerCapabilities";
 import {useMuxSelector} from "../../store/multiplexer";
-export function ProviderCapabilityBadge({tabId}:{tabId:string}) {
+export const ProviderCapabilityBadge = memo(function ProviderCapabilityBadge({tabId}:{tabId:string}) {
   const label=useMuxSelector(useCallback(state=>capabilityBadge(state.tabs[tabId]?.provider_signals?.capabilities),[tabId]));
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string | null>(null);
@@ -17,4 +17,4 @@ export function ProviderCapabilityBadge({tabId}:{tabId:string}) {
       finally {setBusy(false);}
     }}>Refresh</button>
   </div>;
-}
+});

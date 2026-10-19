@@ -202,7 +202,11 @@ async fn ensure_with_fork(
                 .clone()
                 .ok_or(RuntimeFailure::Superseded)?,
             target.agent_runtime_config.clone().unwrap_or(Value::Null),
-            target.cwd.clone().unwrap_or_default(),
+            target.cwd.clone().filter(|cwd| !cwd.is_empty()).ok_or_else(|| {
+                RuntimeFailure::Refused(
+                    "The agent needs a working folder: start it in a workspace that has a folder, or pass --cwd".into(),
+                )
+            })?,
             target.agent_runtime_state.clone(),
         )
     };

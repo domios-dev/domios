@@ -527,6 +527,9 @@ function AppInner() {
     setWorkspaceMapWorkspaceId(workspaceId);
     closeSidebarOnMobile();
   }, [closePluginView, closeSidebarOnMobile, setActiveWorkspace]);
+  const openMemoryFromSidebar = useCallback(() => { setMemoryOpen(true); closeSidebarOnMobile(); }, [closeSidebarOnMobile, setMemoryOpen]);
+  const openMeshFromSidebar = useCallback(() => { setMeshOpen(true); closeSidebarOnMobile(); }, [closeSidebarOnMobile, setMeshOpen]);
+  const openExtensionsFromSidebar = useCallback(() => { setExtensionsOpen(true); closeSidebarOnMobile(); }, [closeSidebarOnMobile, setExtensionsOpen]);
   const handleNavigateToTab = useCallback(() => {
     setAutomationWorkspaceId(null);
     closeWorkspaceMap();
@@ -741,9 +744,9 @@ function AppInner() {
                 onCollapse={closeSidebar}
                 onCollapsedChange={setSidebarRailCollapsed}
                 expandRequest={sidebarExpandRequest}
-                onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
-                onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
-                onOpenExtensions={() => { setExtensionsOpen(true); closeSidebarOnMobile(); }}
+                onOpenMemory={openMemoryFromSidebar}
+                onOpenMesh={openMeshFromSidebar}
+                onOpenExtensions={openExtensionsFromSidebar}
                 onNavigateToTab={handleNavigateToTab}
                 mainView={mainView}
                 config={config}
