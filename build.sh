@@ -2452,6 +2452,24 @@ enter_cargo_gateway() {
   ct_configure_sccache
 }
 
+# Compiles the client once, replaces the compile stage with the final pair resources, then bundles NSIS.
+# Arguments, when given, prefix each Tauri command (the local install adds its build config).
+bundle_windows_common_stage() {
+  local target="${CARGO_BUILD_TARGET:-$(ct_host_triple)}" client_dir="${CARGO_TARGET_DIR:-src-tauri/target}"
+  local target_args=() run=("$@")
+  if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
+    target_args=(--target "$CARGO_BUILD_TARGET")
+    client_dir="$client_dir/$CARGO_BUILD_TARGET"
+  fi
+  "${run[@]}" pnpm tauri build --no-bundle "${target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}"
+  node scripts/release-stage.mjs stage-full --target "$target" \
+    --source-sha "$(git rev-parse HEAD)" \
+    --cargo-log "release-artifacts/build-logs/$target/server.jsonl" \
+    --tree-log "release-artifacts/build-logs/$target/closure.txt" \
+    --client-file "$client_dir/release/domios.exe"
+  "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" --bundles nsis
+}
+
 case "$CMD" in
   check-queue|nextest|test-one)
     for arg in "${@:2}"; do
@@ -2832,14 +2850,7 @@ EOF
     [ -z "${CARGO_BUILD_TARGET:-}" ] || bundle_target_args=(--target "$CARGO_BUILD_TARGET")
     if [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" = 1 ]; then
       [ "${#bundle_args[@]}" -eq 0 ] || { echo "Shared-stage release-bundle takes no extra Tauri flags" >&2; exit 2; }
-      local_target="${CARGO_BUILD_TARGET:-$(ct_host_triple)}"
-      pnpm tauri build --no-bundle "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}"
-      node scripts/release-stage.mjs stage-full --target "$local_target" \
-        --source-sha "$(git rev-parse HEAD)" \
-        --cargo-log "release-artifacts/build-logs/$local_target/server.jsonl" \
-        --tree-log "release-artifacts/build-logs/$local_target/closure.txt" \
-        --client-file "src-tauri/target/$local_target/release/domios.exe"
-      pnpm tauri bundle --no-binary-patching "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" --bundles nsis
+      bundle_windows_common_stage
     else
       pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" "${bundle_args[@]}"
     fi
@@ -3076,12 +3087,14 @@ EOF
     ct_load_release_signing_key
     prepare_local_install_target
     ensure_deps
+    # The installed client/server pair packages exactly as the release does, from the shared stage.
+    export CODETERM_RELEASE_COMMON_STAGE=1
     prepare_release_bundle_inputs bundle
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
     ct_snapshot_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
     rm -rf "$CARGO_TARGET_DIR/release/bundle/nsis"
-    ct_with_firebase_build_config pnpm tauri build
+    bundle_windows_common_stage ct_with_firebase_build_config
     ct_check_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
     VERSION="$(node -p "require('./package.json').version")"
