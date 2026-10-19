@@ -17,6 +17,7 @@ export function useBodyPainted(ref: RefObject<HTMLElement | null>, tabId: string
       setPainted(true);
       return;
     }
+    if (typeof MutationObserver === "undefined") return;
     const observer = new MutationObserver(() => {
       if (!hasPaintedContent(root)) return;
       setPainted(true);
