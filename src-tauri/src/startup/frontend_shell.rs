@@ -335,6 +335,7 @@ pub fn create_window(
         "[frontend-shell] window creation: frontend_origin={origin:?}, daemon_origin={:?}",
         bootstrap.as_ref().map(|bootstrap| &bootstrap.origin)
     );
+    let shell_app = app.clone();
     let mut builder = WebviewWindowBuilder::from_config(app, &window_config)?;
     #[cfg(windows)]
     if let crate::LocalWebviewDiagnosticsMode::RequestedPort(port) = app
@@ -396,6 +397,10 @@ pub fn create_window(
             }
         })
         .on_navigation(move |url| {
+            if url.scheme() == SHELL_ACTION_SCHEME {
+                run_shell_action(&shell_app, url);
+                return false;
+            }
             let allowed = navigation_allowed(url, origin.as_deref(), &unavailable, &fallback);
             log::debug!(
                 "[frontend-shell] navigation allowed={allowed}: {}",
@@ -455,6 +460,33 @@ fn show_unavailable(window: &WebviewWindow) {
 pub(crate) fn server_disconnected(app: codeterm_host_runtime::app_runtime::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         show_unavailable(&window);
+    }
+}
+
+const SHELL_ACTION_SCHEME: &str = "domios-shell";
+
+/// The recovery page has no IPC, so its titlebar and Retry button navigate to `domios-shell://<action>`.
+fn run_shell_action(app: &codeterm_host_runtime::app_runtime::AppHandle, url: &Url) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let outcome = match url.host_str().unwrap_or_default() {
+        "drag" => window.start_dragging().map_err(|error| error.to_string()),
+        "minimize" => window.minimize().map_err(|error| error.to_string()),
+        "maximize" => match window.is_maximized() {
+            Ok(true) => window.unmaximize().map_err(|error| error.to_string()),
+            Ok(false) => window.maximize().map_err(|error| error.to_string()),
+            Err(error) => Err(error.to_string()),
+        },
+        "close" => window.close().map_err(|error| error.to_string()),
+        "retry" => {
+            retry(app);
+            Ok(())
+        }
+        other => Err(format!("unknown shell action {other}")),
+    };
+    if let Err(error) = outcome {
+        log::debug!("[frontend-shell] shell action failed: {error}");
     }
 }
 
@@ -753,6 +785,36 @@ pub fn start(app: codeterm_host_runtime::app_runtime::AppHandle) {
     });
 }
 
+async fn reinitialize_client(app: codeterm_host_runtime::app_runtime::AppHandle) {
+    match crate::host_ports::native_client::retry_initialize_client(app.clone()).await {
+        Ok(initialized) => {
+            #[cfg(debug_assertions)]
+            if initialized.native == crate::host_ports::native_client::NativeClientStatus::Attached
+            {
+                eprintln!(
+                    "DOMIOS_DEV_ATTACHMENT {}",
+                    serde_json::json!({ "protocol": initialized.ready.protocol,
+                            "client_pid": std::process::id(), "server_pid": initialized.ready.process.pid,
+                            "epoch": initialized.ready.epoch,
+                            "api_address": initialized.ready.api_address.to_string() })
+                );
+            }
+            if let Err(error) = recover_for_attachment(app.clone(), &initialized.ready).await {
+                log::error!("[frontend-shell] attachment recovery failed: {error}");
+                if let Some(window) = app.get_webview_window("main") {
+                    show_unavailable(&window);
+                }
+            }
+        }
+        Err(error) => {
+            log::error!("[frontend-shell] client retry refused: {error}");
+            if let Some(window) = app.get_webview_window("main") {
+                show_unavailable(&window);
+            }
+        }
+    }
+}
+
 pub fn retry(app: &codeterm_host_runtime::app_runtime::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -760,36 +822,7 @@ pub fn retry(app: &codeterm_host_runtime::app_runtime::AppHandle) {
             .try_state::<ServerApiAttachmentSlot>()
             .and_then(|slot| slot.current())
         else {
-            match crate::host_ports::native_client::retry_initialize_client(app.clone()).await {
-                Ok(initialized) => {
-                    #[cfg(debug_assertions)]
-                    if initialized.native
-                        == crate::host_ports::native_client::NativeClientStatus::Attached
-                    {
-                        eprintln!(
-                            "DOMIOS_DEV_ATTACHMENT {}",
-                            serde_json::json!({ "protocol": initialized.ready.protocol,
-                                "client_pid": std::process::id(), "server_pid": initialized.ready.process.pid,
-                                "epoch": initialized.ready.epoch,
-                                "api_address": initialized.ready.api_address.to_string() })
-                        );
-                    }
-                    if let Err(error) =
-                        recover_for_attachment(app.clone(), &initialized.ready).await
-                    {
-                        log::error!("[frontend-shell] attachment recovery failed: {error}");
-                        if let Some(window) = app.get_webview_window("main") {
-                            show_unavailable(&window);
-                        }
-                    }
-                }
-                Err(error) => {
-                    log::error!("[frontend-shell] client retry refused: {error}");
-                    if let Some(window) = app.get_webview_window("main") {
-                        show_unavailable(&window);
-                    }
-                }
-            }
+            reinitialize_client(app).await;
             return;
         };
         let Some(window) = app.get_webview_window("main") else {
@@ -811,8 +844,11 @@ pub fn retry(app: &codeterm_host_runtime::app_runtime::AppHandle) {
                 }
             }
             Err(error) => {
-                log::error!("[frontend-shell] native frontend retry refused: {error}");
-                show_unavailable(&window);
+                // A dead server keeps its stale attachment; attach to or launch a live one.
+                log::debug!(
+                    "[frontend-shell] attached interface unreachable ({error}); reinitializing"
+                );
+                reinitialize_client(app).await;
             }
         }
     });
