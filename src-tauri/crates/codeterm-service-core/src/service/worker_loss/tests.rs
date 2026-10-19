@@ -17,6 +17,8 @@ use crate::service::pty_io::SendBatchItem;
 use crate::service::test_fixture::ServiceFixture;
 use codeterm_events::SystemEvent;
 
+mod recovery;
+
 struct BusyWorker {
     fx: ServiceFixture,
     orchestrator: String,
@@ -395,12 +397,12 @@ fn agentless_orchestrator_withholds_losses_and_replays_each_once() {
     assert_eq!(pending.lock().pending_for("orch-tab").len(), 2);
     assert!(pending.lock().alert_open("orch-tab"));
 
-    assert!(replay_losses(&gateway, &seam, &pending, "orch-tab").is_empty());
+    assert!(replay_losses(&gateway, &seam, &pending, "orch-tab", |loss| loss).is_empty());
     assert_eq!(pending.lock().pending_for("orch-tab").len(), 2);
 
     seam.refuse.set(false);
-    let replayed = replay_losses(&gateway, &seam, &pending, "orch-tab");
-    let again = replay_losses(&gateway, &seam, &pending, "orch-tab");
+    let replayed = replay_losses(&gateway, &seam, &pending, "orch-tab", |loss| loss);
+    let again = replay_losses(&gateway, &seam, &pending, "orch-tab", |loss| loss);
 
     assert_eq!(replayed.len(), 2);
     assert!(replayed
