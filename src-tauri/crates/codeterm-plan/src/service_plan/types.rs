@@ -42,6 +42,10 @@ pub enum PlanError {
         attempt_id: String,
         tab_id: String,
     },
+    RespawnAttemptNotCurrent {
+        current_attempt_id: String,
+        tab_id: String,
+    },
     HeartbeatRequiresExecution,
     TaskPausedSystemOnly,
     ReviewHoldRequired,
@@ -246,6 +250,13 @@ impl fmt::Display for PlanError {
                 f,
                 "dispatch refused: live attempt '{attempt_id}' is already running in tab '{tab_id}'"
             ),
+            PlanError::RespawnAttemptNotCurrent {
+                current_attempt_id,
+                tab_id,
+            } => write!(
+                f,
+                "respawn refused: the named attempt is no longer current; current attempt '{current_attempt_id}' is assigned to tab '{tab_id}'"
+            ),
             PlanError::HeartbeatRequiresExecution => write!(
                 f,
                 "heartbeat is for active execution; approve the plan or store planning-only policy in spec/plan sections or mem"
@@ -435,6 +446,7 @@ impl PlanError {
             PlanError::AttemptBindingRestoreRefused { .. } => -32003,
             PlanError::UnauthorizedGateClaim { .. } => RPC_UNAUTHORIZED_GATE_CLAIM,
             PlanError::DispatchInFlight { .. } => RPC_DISPATCH_IN_FLIGHT,
+            PlanError::RespawnAttemptNotCurrent { .. } => RPC_DISPATCH_IN_FLIGHT,
             PlanError::InvalidExecutorName(_) | PlanError::InvalidPlanText(_) => -32602,
             PlanError::InvalidSplitParent { .. } => -32602,
             _ => RPC_INTERNAL_ERROR,
@@ -478,6 +490,14 @@ impl PlanError {
             PlanError::DispatchInFlight { attempt_id, tab_id } => serde_json::json!({
                 "type": "dispatch_in_flight",
                 "attempt_id": attempt_id,
+                "tab_id": tab_id
+            }),
+            PlanError::RespawnAttemptNotCurrent {
+                current_attempt_id,
+                tab_id,
+            } => serde_json::json!({
+                "type": "respawn_attempt_not_current",
+                "current_attempt_id": current_attempt_id,
                 "tab_id": tab_id
             }),
             PlanError::HeartbeatRequiresExecution => {
