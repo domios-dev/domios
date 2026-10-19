@@ -20,13 +20,15 @@ const fastJobs = ["guards", "plugins", "clippy-linux", "ts-static", "frontend-wi
 const longJobs = ["rust-tests", "rust-platform", "rust-embeddings", "rust-receipts"];
 const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
 
-test("warning collection resolves Git Bash explicitly on Windows", () => {
+test("warning collection runs its node wrapper under stock shells and never fails the build", () => {
   const action = parse(readFileSync(new URL("../../.github/actions/rust-warnings/action.yml", import.meta.url), "utf8"));
+  assert.deepEqual(action.runs.steps.map(step => step.run), [
+    "node scripts/ci-rust-warning-artifact.mjs collect",
+    "node scripts/ci-rust-warning-artifact.mjs store",
+  ]);
   for (const step of action.runs.steps) {
-    assert.match(step.shell, /runner\.os == 'Windows'/);
-    assert.ok(step.shell.includes('"C:\\Program Files\\Git\\bin\\bash.exe"'));
-    assert.ok(step.shell.includes("{0}"));
-    assert.ok(step.shell.endsWith("|| 'bash' }}"));
+    assert.equal(step.shell, "${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}");
+    assert.equal(step["continue-on-error"], true);
   }
 });
 
