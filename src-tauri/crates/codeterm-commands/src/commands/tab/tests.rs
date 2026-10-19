@@ -334,11 +334,7 @@ fn oversized_claude_session_snapshots_a_bounded_tail() {
         snap.bytes_read
     );
     assert_eq!(snap.total, total, "tailer must resume at file length");
-    assert_eq!(
-        snap.start_offset + snap.bytes_read,
-        total,
-        "window must end exactly at EOF"
-    );
+    assert_eq!(snap.end_offset, total, "window must end exactly at EOF");
     let last = snap.messages.last().expect("tail window has messages");
     assert_eq!(last.kind, "user");
     assert_eq!(last.content, "the last message");
