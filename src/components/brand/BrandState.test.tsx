@@ -35,9 +35,10 @@ test("error is a static alert and preserves its recovery action", () => {
   const alert = host.querySelector('[role="alert"]');
   assert.ok(alert);
   assert.equal(alert.getAttribute("aria-live"), "assertive");
-  assert.equal(alert.querySelector("h2")?.textContent, "Could not start");
-  assert.equal(alert.querySelector("p")?.textContent, "Retry the session.");
-  assert.equal(alert.querySelector(".brand-state-matrix")?.getAttribute("data-wave-enabled"), "false");
+  assert.equal(alert.getAttribute("aria-label"), "Could not start");
+  assert.equal(alert.querySelector("p")?.textContent, "Could not start");
+  assert.equal(alert.querySelectorAll("p")[1]?.textContent, "Retry the session.");
+  assert.equal(host.querySelector(".brand-state-matrix")?.getAttribute("data-wave-enabled"), "false");
   assert.equal(host.querySelector("button")?.textContent, "Retry");
 });
 
