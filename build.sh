@@ -1212,6 +1212,23 @@ cli_release_binary() {
   cli_profile_binary release
 }
 
+dev_cli_target_dir() {
+  if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+    printf '%s/cli\n' "$CARGO_TARGET_DIR"
+  else
+    printf '%s\n' cli/target
+  fi
+}
+
+build_dev_cli() {
+  local cli_target_dir
+  cli_target_dir="$(dev_cli_target_dir)"
+  CARGO_TARGET_DIR="$cli_target_dir" cargo build --manifest-path cli/Cargo.toml \
+    --message-format=json-render-diagnostics > "$1"
+  built_cli_artifact="$(CARGO_TARGET_DIR="$cli_target_dir" cli_profile_binary debug)"
+  built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
+}
+
 cli_file_sha256() {
   local path="$1" output hash
   if command -v sha256sum >/dev/null 2>&1; then
@@ -1434,9 +1451,7 @@ reload_dev_server() {
   export CODETERM_DEV=1
   configure_dev_cargo
   if [[ "$plan" == cli:* ]]; then
-    cargo build --manifest-path cli/Cargo.toml --message-format=json-render-diagnostics > "$split_logs/cli.jsonl"
-    built_cli_artifact="$(cli_profile_binary debug)"
-    built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
+    build_dev_cli "$split_logs/cli.jsonl"
   else
     built_cli_artifact="$(dev_cli_path)"
     built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
@@ -3396,10 +3411,7 @@ LOCK_STORM_PY
     ensure_deps
     echo "Building CLI..."
     mkdir -p "$(tauri_debug_dir)/.domios-dev-build"
-    cargo build --manifest-path cli/Cargo.toml --message-format=json-render-diagnostics \
-      > "$(tauri_debug_dir)/.domios-dev-build/cli.jsonl"
-    built_cli_artifact="$(cli_profile_binary debug)"
-    built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
+    build_dev_cli "$(tauri_debug_dir)/.domios-dev-build/cli.jsonl"
     # Every dev instance gets its own CLI; production updates its bundled CLI.
     install_cli_to "$CT_DATA_DIR/bin" "$built_cli_artifact" "$built_cli_hash"
     export PATH="$CT_DATA_DIR/bin:$PATH"

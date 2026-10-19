@@ -30,6 +30,10 @@ provenance, releases the build gateway, then launches through `dev-prebuilt`.
 `--wait` returns after authenticated native attachment and exact health proof.
 Foreground launch stays in its Dev shell and owns the client process.
 
+Server reload/staging tool updates also use `dev-server`; native source and
+Tauri/Cargo configuration changes still require `dev`. Named DEV CLI artifacts
+build into the instance target's `cli/` child so the native build cannot overwrite them.
+
 `dev-server` validates the existing instance/artifacts and classifies current
 bytes against the last build snapshot, including uncommitted edits and deletions.
 Client/build changes refuse with `run ./build.sh dev instead` before shutdown.
