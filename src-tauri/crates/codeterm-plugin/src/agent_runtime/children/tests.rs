@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 
 fn context() -> RuntimeContext {
     RuntimeContext {
+        host_owned: Default::default(),
         epoch: 1,
         tab_id: "tab".into(),
         binding_nonce: "nonce".into(),

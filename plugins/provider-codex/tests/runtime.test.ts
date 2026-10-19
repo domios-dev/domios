@@ -22,6 +22,7 @@ interface Fixture {
   expected: {results:{operation:number;step:RuntimeStep}[];events:AgentEvent[]};
 }
 const root = new URL("./fixtures/runtime/",import.meta.url);
+const hostOwnedConfigFixture = JSON.parse(fs.readFileSync(new URL("../../../tests/fixtures/codex-app-server-host-owned-config.json",import.meta.url),"utf8")) as Record<string,boolean>;
 const descriptor = JSON.parse(fs.readFileSync(new URL("./runtime-manifest.json",import.meta.url),"utf8")) as {agentRuntime:StdioAgentRuntimeCapability};
 const sandbox = vm.createContext({module:{exports:{}},exports:{},host:new Proxy({}, {get:()=>{throw new Error("Runtime hooks accessed host");}})});
 sandbox.exports = sandbox.module.exports;
@@ -41,6 +42,14 @@ hooks.runtimeReduce = (...args) => {
 const plain = <T>(value:T): T => JSON.parse(JSON.stringify(value));
 let count = 0;
 function check(name:string, run:()=>void) {run();count++;console.log(`  ✓ runtime ${name}`);}
+function assertHostOwnedConfig(plan:RuntimePlan, method:string) {
+  assert.equal(plan.action.kind,"request");
+  if (plan.action.kind !== "request") throw new Error("Expected thread start request");
+  assert.equal(plan.action.call.method,method);
+  const params = plan.action.call.params as Record<string,JsonValue>;
+  const config = params.config as Record<string,JsonValue>;
+  assert.deepEqual(Object.fromEntries(Object.entries(config).filter(([key])=>key.startsWith("features."))),hostOwnedConfigFixture);
+}
 check("descendant reads require an unambiguous chain to the current root",()=> {
   const fixture = JSON.parse(fs.readFileSync(new URL("captured/subagent.json",root),"utf8")) as Fixture;
   const context = {...fixture.context,threadParents:[{threadId:"child",parentThreadId:fixture.context.threadId!},
@@ -278,6 +287,26 @@ check("fresh thread binds from verified start without model input",()=> {
   for (const thread of [{}, {id:"foreign",parentThreadId:"parent"}, {id:"child",source:{subAgent:{}}}])
     assert.equal(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"success",value:{thread}}).kind,"refused");
   assert.equal(hooks.runtimeResponse(ctx,operation,plan.state,{kind:"error",error:{code:-32000,message:"failed"}}).kind,"refused");
+});
+check("host-owned questions disable native input in fresh, resumed and forked threads",()=> {
+  const hostOwned = {...ctx,hostOwned:{questions:true,todos:false}};
+  const unbound = {...hostOwned,threadId:undefined,activeTurnId:undefined,activeTurns:[]};
+  const open:Operation = {kind:"openThread",instructions:"Own instructions",settings:ctx.settings};
+  assertHostOwnedConfig(hooks.runtimePlan(unbound,open),"thread/start");
+  const resume:Operation = {kind:"resumeThread",instructions:"Resume instructions",threadId:ctx.threadId!,settings:ctx.settings};
+  assertHostOwnedConfig(hooks.runtimePlan(hostOwned,resume),"thread/resume");
+  const fork:Operation = {kind:"forkThread",sourceThreadId:"source-thread",turnId:"target-turn"};
+  const forkPlan = hooks.runtimePlan(unbound,fork);
+  const forkStep = hooks.runtimeResponse(unbound,fork,forkPlan.state,{kind:"success",value:{data:[{id:"target-turn",status:"completed"}],nextCursor:null}});
+  assert.equal(forkStep.kind,"continue");
+  if (forkStep.kind !== "continue") throw new Error("Expected fork request");
+  assertHostOwnedConfig(forkStep.plan,"thread/fork");
+  const control:Operation = {kind:"control",threadId:"source-thread",action:"threadHistory",value:{action:"fork",turnId:"target-turn"}};
+  const controlPlan = hooks.runtimePlan(unbound,control);
+  const controlStep = hooks.runtimeResponse(unbound,control,controlPlan.state,{kind:"success",value:{data:[{id:"target-turn",status:"completed"}],nextCursor:null}});
+  assert.equal(controlStep.kind,"continue");
+  if (controlStep.kind !== "continue") throw new Error("Expected control fork request");
+  assertHostOwnedConfig(controlStep.plan,"thread/fork");
 });
 check("resume never accepts another thread",()=> {
   const operation:Operation = {kind:"resumeThread",instructions:"resume-instructions",threadId:ctx.threadId!,settings:ctx.settings};

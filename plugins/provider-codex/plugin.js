@@ -2559,7 +2559,7 @@ function codexRuntimePolicy(settings) {
     ...policy[2] === "workspaceWrite" && settings.additionalDirectories?.length ? { writableRoots: [...settings.additionalDirectories] } : {}
   } };
 }
-function codexThreadConfig(settings) {
+function codexThreadConfig(settings, hostOwned) {
   const workspaceWrite = codexRuntimePolicy(settings).sandboxPolicy.type === "workspaceWrite";
   return {
     check_for_update_on_startup: false,
@@ -2571,7 +2571,8 @@ function codexThreadConfig(settings) {
     } : {},
     ...workspaceWrite && settings.networkAccess !== void 0 ? { "sandbox_workspace_write.network_access": settings.networkAccess } : {},
     ...settings.additionalDirectories?.length ? { "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories] } : {},
-    ...settings.effort ? { model_reasoning_effort: settings.effort } : {}
+    ...settings.effort ? { model_reasoning_effort: settings.effort } : {},
+    ...hostOwned?.questions ? { "features.default_mode_request_user_input": false } : {}
   };
 }
 function codexReportedSettings(raw) {
@@ -3282,7 +3283,7 @@ function settingsParams(ctx, settings, instructions) {
     model: settings.model,
     ...codexServiceTier(settings),
     threadSource: "user",
-    config: codexThreadConfig(settings),
+    config: codexThreadConfig(settings, ctx.hostOwned),
     approvalPolicy: policies.approvalPolicy,
     approvalsReviewer: policies.approvalsReviewer,
     sandbox: { readOnly: "read-only", workspaceWrite: "workspace-write", dangerFullAccess: "danger-full-access" }[String(sandbox)],
@@ -3342,7 +3343,11 @@ function threadHistoryTurns(ctx, op, state, value) {
     if (turn.status === "inProgress") return refused("Active turns cannot be forked or reverted");
     if (action === "fork") return continuation(request(
       "thread/fork",
-      { threadId: thread, lastTurnId: turnId },
+      {
+        threadId: thread,
+        lastTurnId: turnId,
+        ...ctx.hostOwned?.questions ? { config: codexThreadConfig(ctx.settings, ctx.hostOwned) } : {}
+      },
       { stage: "thread/fork", turnId, sourceThreadId: thread }
     ));
     targetFound = true;

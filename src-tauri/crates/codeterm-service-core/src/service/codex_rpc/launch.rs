@@ -21,6 +21,7 @@ pub fn spawn_from(
         model: selection.model,
         effort: selection.effort,
         full_access,
+        host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
     }
 }
 
@@ -218,6 +219,7 @@ fn deferred_spawn(
         model: params.model.clone(),
         effort: params.reasoning_effort.clone(),
         full_access: params.permission_bypass_requested(provider),
+        host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
     }
 }
 

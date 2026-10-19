@@ -34,7 +34,7 @@ function request(method: string, params: unknown, state: unknown = {stage:method
 function settingsParams(ctx: RuntimeContext, settings: RuntimeSettings, instructions?: string): Record<string,unknown> {
   const policies = codexRuntimePolicy(settings);
   const sandbox = object(policies.sandboxPolicy).type;
-  return {cwd:ctx.cwd,model:settings.model,...codexServiceTier(settings),threadSource:"user",config:codexThreadConfig(settings),
+  return {cwd:ctx.cwd,model:settings.model,...codexServiceTier(settings),threadSource:"user",config:codexThreadConfig(settings,ctx.hostOwned),
     approvalPolicy:policies.approvalPolicy,approvalsReviewer:policies.approvalsReviewer,
     sandbox:({readOnly:"read-only",workspaceWrite:"workspace-write",dangerFullAccess:"danger-full-access"} as Record<string,string>)[String(sandbox)],
     ...(instructions !== undefined ? {developerInstructions:instructions} : {})};
@@ -79,7 +79,8 @@ function threadHistoryTurns(ctx: RuntimeContext, op: Extract<Operation,{kind:"co
     }
     if (id !== turnId) continue;
     if (turn.status === "inProgress") return refused("Active turns cannot be forked or reverted");
-    if (action === "fork") return continuation(request("thread/fork",{threadId:thread,lastTurnId:turnId},
+    if (action === "fork") return continuation(request("thread/fork",{threadId:thread,lastTurnId:turnId,
+      ...(ctx.hostOwned?.questions ? {config:codexThreadConfig(ctx.settings,ctx.hostOwned)} : {})},
       {stage:"thread/fork",turnId,sourceThreadId:thread}));
     targetFound = true;
   }
