@@ -17,7 +17,7 @@ import { fireResync } from "./resync";
 import { replayCursorForTarget } from "./resyncModel";
 import { createSeqGapTracker } from "./eventSeqGaps";
 import { RECONNECT_FIRST_MS, nextReconnectBackoff, reconnectDelay, shouldResetReconnectBackoff, transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
-import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
+import { TERMINAL_VIEWER_DISCONNECTED_EVENT, TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
 import { signalEventStreamReady } from "./eventStreamReady";
 import { WEB_BOOT_CHANGED_EVENT, WEB_EVENTS_READY_EVENT, type BootChangedDetail } from "./buildDriftReload";
 
@@ -114,7 +114,7 @@ function waitForReconnectFailure(delay: number, hiddenDelay: number, generation:
     document.addEventListener("visibilitychange", onVisibilityChange);
     wakeReconnectWait = () => finish("wake");
     cancelReconnectWait = () => finish("stop");
-    window.dispatchEvent(new Event("codeterm-event-stream-disconnected"));
+    window.dispatchEvent(new Event(TERMINAL_VIEWER_DISCONNECTED_EVENT));
   });
 }
 

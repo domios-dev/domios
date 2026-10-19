@@ -42,6 +42,42 @@ async fn frontend_bundle_routes_contract_bundled_index_and_relative_assets() {
 }
 
 #[tokio::test]
+async fn missing_frontend_index_returns_branded_self_contained_html() {
+    use crate::routes::create_router;
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+
+    let dist = tempfile::tempdir().unwrap();
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let mut state = fixture::app_state(&fixture);
+    state.web_dist = Some(dist.path().to_path_buf());
+    let response = create_router(state)
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        response.headers()["content-type"],
+        "text/html; charset=utf-8"
+    );
+    assert_eq!(response.headers()["cache-control"], "no-cache");
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 16_384)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("The interface could not load"));
+    assert!(html.contains("M8 8H32C46 8 56 18 56 32S46 56 32 56H24L40 40V24H24V40L8 56Z"));
+    assert!(!html.contains("asset not found: index.html"));
+    assert!(!html.contains("<script"));
+    assert!(!html.contains("https://"));
+}
+
+#[tokio::test]
 async fn frontend_bundle_routes_contract_central_bearer_registration() {
     use crate::routes::create_router_with_frontend;
     use codeterm_frontend_bundle::FrontendBundles;
