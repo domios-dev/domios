@@ -392,8 +392,9 @@ pub async fn resume_session_api(
 
     // both spawn.
     {
+        let existing_tab = state.svc.existing_session_resume_tab(&session_id)
+            .map_err(|message| (StatusCode::CONFLICT, message))?;
         let mux = state.svc.mux.read();
-        let existing_tab = mux.tab_ids_with_session(&session_id).into_iter().next();
         if let Some(tab_id) = existing_tab {
             let snap = mux.snapshot();
             let ws_id = snap
@@ -609,74 +610,4 @@ pub async fn resume_session_api(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sessions_resume_restores_role_without_replaying_starter() {
-        let worker = ResumableIdentity {
-            role: "Worker".into(),
-            role_profile: None,
-            parent_tab_id: Some("parent".into()),
-            can_spawn: false,
-        };
-        assert!(restorable_identity(Some(worker.clone()), |parent| parent == "parent").is_some());
-        assert!(restorable_identity(Some(worker), |_| false).is_none());
-
-        let orchestrator = ResumableIdentity {
-            role: "Orchestrator".into(),
-            role_profile: None,
-            parent_tab_id: None,
-            can_spawn: true,
-        };
-        assert!(restorable_identity(Some(orchestrator), |_| false).is_some());
-    }
-
-    #[test]
-    fn restored_worker_identity_has_no_historical_task_input() {
-        let params = codeterm_service_core::service::SpawnAgentParams {
-            role: Some("Worker".into()),
-            parent_tab_id: Some("orchestrator".into()),
-            can_spawn: Some(false),
-            task: None,
-            starter_prompt: codeterm_service_core::agent::provider::StarterPrompt::NoStarter,
-            task_id: None,
-            plan_task: None,
-            resume_session_id: Some("owned-session".into()),
-            ..Default::default()
-        };
-        assert_eq!(params.task, None);
-        assert_eq!(
-            params.starter_prompt,
-            codeterm_service_core::agent::provider::StarterPrompt::NoStarter
-        );
-        assert_eq!(params.task_id, None);
-        assert_eq!(params.plan_task, None);
-        let restored_context =
-            codeterm_service_core::service::spawn_onboarding_task(&params).unwrap();
-        assert!(!restored_context.contains("historical"));
-        assert!(!restored_context.contains("one assigned brief"));
-
-        let fresh = codeterm_service_core::service::SpawnAgentParams {
-            role: Some("Worker".into()),
-            task: Some("one assigned brief".into()),
-            starter_prompt: codeterm_service_core::agent::provider::StarterPrompt::AssignedTask,
-            ..Default::default()
-        };
-        let fresh_context = codeterm_service_core::service::spawn_onboarding_task(&fresh).unwrap();
-        assert_eq!(fresh_context.matches("one assigned brief").count(), 1);
-    }
-
-    #[test]
-    fn roleless_resume_reports_exact_promotion_and_relink_actions() {
-        let actions = roleless_actions("tab-resumed");
-        assert_eq!(
-            actions["promotion"],
-            "codeterm agent set-orchestrator --tab tab-resumed"
-        );
-        assert_eq!(
-            actions["relink"],
-            "codeterm agent link --parent-tab <orchestrator-tab> --tab tab-resumed"
-        );
-    }
-}
+mod tests;
