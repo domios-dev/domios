@@ -114,6 +114,8 @@ Chat send and transcript routes: API-CHAT
 
 User-facing recovery is `codeterm tab rebind SESSION_ID --tab ID`: it binds the named existing provider session with `SessionStart` validation, without restarting or interrupting the agent. The response names `found_session_id`, `requested_session_id`, and whether the binding changed. A missing session cannot evict a materialized session and returns a conflict naming both ids.
 
+For an `agentRuntime` Chat tab, follow a rebind with `codeterm agent restart --tab ID`. Restart stops the stale runtime and resumes exactly the newly recorded session with its own history under a new nonce and epoch. A failed load preserves that target; retry the same restart command after resolving the provider failure. Use `--fresh` only when intentionally starting a new conversation.
+
 `GET /api/tabs/{id}/session/binding-state` reads the daemon's tab-scoped fact, never an inference: `healthy`, `deferred_pending`, `refused`, `unbound`, or `stale_pending`, with the current and requested session identities when known. `healthy` is the ordinary answer and carries no registry entry, so an absent entry alone never means trouble. Repair: `codeterm docs API-REPAIR`. Adopt a live foreign PTY as an agent send target: `codeterm docs API-ADOPT`.
 
 #### Hook auth
@@ -208,4 +210,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 60 -->
+<!-- revision: 61 -->
