@@ -30,61 +30,27 @@ Refusals carry a stable `data.type`: `caller_is_not_task_owner_or_plan_owner` wh
 
 `codeterm plan goal set <plan> [--vector V] [--vision T] [--vision-file P] [--constraint C ...] [--postulate P ...]`
 
-**A field you do not pass is kept.** Setting `--vector` alone leaves the vision, constraints and postulates exactly as
-they were; setting `--constraint` alone leaves the vector. Passing a repeatable flag replaces that whole list; passing
-it with an empty value clears the list. There is no wholesale-replacement mode: naming every field is how you replace
-everything.
+**A field you do not pass is kept.** Setting `--vector` alone leaves the vision, constraints and postulates exactly as they were; setting `--constraint` alone leaves the vector. Passing a repeatable flag replaces that whole list; passing it with an empty value clears the list. There is no wholesale-replacement mode: naming every field is how you replace everything.
 
-`--vector` is required only when the plan has no goal yet, and when it is missing the refusal names the flag: `data.type
-= "goal_vector_required"`, with `data.remedy.flag = "--vector"`.
+`--vector` is required only when the plan has no goal yet, and when it is missing the refusal names the flag: `data.type = "goal_vector_required"`, with `data.remedy.flag = "--vector"`.
 
 ### Dispatch stores the lane it reports
 
-`plan.task.dispatch` onto a **pre-created worktree** (`--cwd <path>`) records `lane.branch`, `lane.worktree_path` and
-`lane.base` in the same transition that emits the `dispatch_ready` block, so the stored lane equals the reported one.
-Lane revisions and ancestry resolve in the repository that owns the worktree, discovered from its common Git directory; an extracted repository lane can belong to a plan rooted elsewhere. Every candidate checkout is checked for safety against the plan's canonical project path, never against itself; collapsing those
-two made a resolved lane look like the canonical checkout and dropped it (codeterm#425). A readiness report is no longer
-refused with "cannot locate your lane worktree" for a task dispatched this way.
+`plan.task.dispatch` onto a **pre-created worktree** (`--cwd <path>`) records `lane.branch`, `lane.worktree_path` and `lane.base` in the same transition that emits the `dispatch_ready` block, so the stored lane equals the reported one. Lane revisions and ancestry resolve in the repository that owns the worktree, discovered from its common Git directory; an extracted repository lane can belong to a plan rooted elsewhere. Every candidate checkout is checked for safety against the plan's canonical project path, never against itself; collapsing those two made a resolved lane look like the canonical checkout and dropped it (codeterm#425). A readiness report is no longer refused with "cannot locate your lane worktree" for a task dispatched this way.
 
 ### A mutating dispatch with no lane provisions one
 
-A repository-mutating `plan.task.dispatch` whose task records no lane no longer resolves the canonical checkout as the
-worker checkout. The dispatcher branches one sibling lane off the plan's canonical project, commits its worktree,
-branch, base and Team workspace identity as a single value, and only then spawns. A lane the task already records is
-still used as-is, and a recorded lane that names the canonical checkout or another task's lane is refused before any tab
-is created (`data.type = "unsafe_mutating_lane"`). A recorded lane that fails verification is refused with
-`checkout_required` rather than replaced by a fresh one.
+A repository-mutating `plan.task.dispatch` whose task records no lane no longer resolves the canonical checkout as the worker checkout. The dispatcher branches one sibling lane off the plan's canonical project, commits its worktree, branch, base and Team workspace identity as a single value, and only then spawns. A lane the task already records is still used as-is, and a recorded lane that names the canonical checkout or another task's lane is refused before any tab is created (`data.type = "unsafe_mutating_lane"`). A recorded lane that fails verification is refused with `checkout_required` rather than replaced by a fresh one.
 
-Both payloads that report the lane — the synchronous dispatch response and the `dispatch_ready` block — carry
-`lane.canonical_project_path` as the **plan's** canonical checkout and `lane.worktree_path` as the **worker's** lane,
-for a provisioned and a pre-created lane alike.
+Both payloads that report the lane — the synchronous dispatch response and the `dispatch_ready` block — carry `lane.canonical_project_path` as the **plan's** canonical checkout and `lane.worktree_path` as the **worker's** lane, for a provisioned and a pre-created lane alike.
 
 ### Canonical writer placement is an explicit dispatch parameter
 
-`plan.task.dispatch` accepts `placement: "isolated_lane" | "canonical_writer"`; absent or null is `isolated_lane`, and
-nothing else ever selects the canonical placement. `canonical_writer` requires `execution_intent: "mutating"`, a
-repository task, and no recorded lane (otherwise `invalid_task_dispatch`). It verifies canonical as an attached
-checkout, skips lane provisioning, and runs the checkout occupancy preflight against canonical, so any live attempt
-there refuses it with `checkout_occupied`. The attempt persists `placement`; readiness reports use that placement to
-validate `--sha` against the plan's canonical checkout, including when the attempt has no `worktree_path`. Canonical
-reports keep no base, so they require the reported commit to match canonical `HEAD` and refuse any dirty checkout, even
-with `--acknowledge-dirty`. `task.lane` stays empty, so lane cleanup never touches canonical. The dispatch response
-echoes `placement`.
+`plan.task.dispatch` accepts `placement: "isolated_lane" | "canonical_writer"`; absent or null is `isolated_lane`, and nothing else ever selects the canonical placement. `canonical_writer` requires `execution_intent: "mutating"`, a repository task, and no recorded lane (otherwise `invalid_task_dispatch`). It verifies canonical as an attached checkout, skips lane provisioning, and runs the checkout occupancy preflight against canonical, so any live attempt there refuses it with `checkout_occupied`. The attempt persists `placement`; readiness reports use that placement to validate `--sha` against the plan's canonical checkout, including when the attempt has no `worktree_path`. Canonical reports keep no base, so they require the reported commit to match canonical `HEAD` and refuse any dirty checkout, even with `--acknowledge-dirty`. `task.lane` stays empty, so lane cleanup never touches canonical. The dispatch response echoes `placement`.
 
-For local dispatch, `worker_kind: "qa"` or `"release_manager"` explicitly selects the
-built-in Worker prompt kind for that attempt without changing `task.executor_role`. When
-omitted, an exact built-in leaf in `executor_role` selects the prompt kind. A kind affects
-prompt composition only; the live Plan owner still authorizes dispatch and the attempt
-reservation still controls task-bound canonical occupancy. Direct `agent spawn --plan-task`
-does not reserve that attempt and remains refused for task-bound canonical mutation. Task-less
-kinds with Plan context retain parent-directed placement behavior and do not reserve task
-attempts or participate in canonical writer occupancy, so the parent coordinates those writes.
-Read-only verification may still run there.
+For local dispatch, `worker_kind: "qa"` or `"release_manager"` explicitly selects the built-in Worker prompt kind for that attempt without changing `task.executor_role`. When omitted, an exact built-in leaf in `executor_role` selects the prompt kind. A kind affects prompt composition only; the live Plan owner still authorizes dispatch and the attempt reservation still controls task-bound canonical occupancy. Direct `agent spawn --plan-task` does not reserve that attempt and remains refused for task-bound canonical mutation. Task-less kinds with Plan context retain parent-directed placement behavior and do not reserve task attempts or participate in canonical writer occupancy, so the parent coordinates those writes. Read-only verification may still run there.
 
-While such an attempt is live, `plan.review.accept` on another task that records a lane is refused with code `-32015`,
-`data.type = "canonical_writer_holds_checkout"`, `violation_id =
-"lane.integration_while_canonical_writer_holds_checkout"`, and the holder task and attempt ids. Gate claims stay bound
-to the attempt's exact `authorized_gates`.
+While such an attempt is live, `plan.review.accept` on another task that records a lane is refused with code `-32015`, `data.type = "canonical_writer_holds_checkout"`, `violation_id = "lane.integration_while_canonical_writer_holds_checkout"`, and the holder task and attempt ids. Gate claims stay bound to the attempt's exact `authorized_gates`.
 
 ### Recording an executor that runs elsewhere
 
@@ -94,157 +60,58 @@ A task executed by an agent on another machine records its executor with the own
 codeterm plan task assign <plan> <task> --tab <tab-id> [--mesh <peer>]
 ```
 
-This stores `assigned_tab_id`, `lane.tab_id` and `peer` as structured fields and reads them back. An explicit remote
-peer has no local-liveness requirement and never inherits the identity of a same-named local tab. A local assignment
-requires the target's verified live session binding and a pending task before creating its attempt; missing binding or
-an active/review-held task refuses without mutation. Ordinary assignment never clears a review hold; use review
-continuation or the genuine respawn lifecycle. A fresh attempt still requires its own task ACK. `codeterm plan task
-show` renders an `executor: tab <id> on peer <peer> (role <role>)` line. Never record an executor in a pause reason or
-other free text; nothing reads it. `plan task update` has no assign flag: assignment is execution authority, outside
-Planner writes.
+This stores `assigned_tab_id`, `lane.tab_id` and `peer` as structured fields and reads them back. An explicit remote peer has no local-liveness requirement and never inherits the identity of a same-named local tab. A local assignment requires the target's verified live session binding and a pending task before creating its attempt; missing binding or an active/review-held task refuses without mutation. Ordinary assignment never clears a review hold; use review continuation or the genuine respawn lifecycle. A fresh attempt still requires its own task ACK. `codeterm plan task show` renders an `executor: tab <id> on peer <peer> (role <role>)` line. Never record an executor in a pause reason or other free text; nothing reads it. `plan task update` has no assign flag: assignment is execution authority, outside Planner writes.
 
 ### Recovering a tab-gone task
 
-When a Worker's tab is gone, its owner epoch is stale by definition, so the
-epoch never blocks recovery. The **live authenticated Plan owner** may `cancel`,
-`pend`, reassign, respawn, or **dispatch** such a task. The recovery retires the
-stale attempt in the *same* transition that clears the dead owner identity, so no
-half-applied state is observable and a later `dispatch_ready` for the retired
-attempt is rejected instead of resurrecting ownership. A non-owner, non-epoch
-caller is still refused.
+When a Worker's tab is gone, its owner epoch is stale by definition, so the epoch never blocks recovery. The **live authenticated Plan owner** may `cancel`, `pend`, reassign, respawn, or **dispatch** such a task. The recovery retires the stale attempt in the *same* transition that clears the dead owner identity, so no half-applied state is observable and a later `dispatch_ready` for the retired attempt is rejected instead of resurrecting ownership. A non-owner, non-epoch caller is still refused.
 
-Plan ownership is proven against the caller's **live tab binding**: tab present,
-agent session live, binding nonce both stored and reported back, and that tab
-recorded as the plan's owner with Team-Orchestrator authority. It is never proven
-from the owner record's `session_id`, so an Orchestrator whose session moved by
-restore, compaction, or provider relaunch stays its own plan's owner.
+Plan ownership is proven against the caller's **live tab binding**: tab present, agent session live, binding nonce both stored and reported back, and that tab recorded as the plan's owner with Team-Orchestrator authority. It is never proven from the owner record's `session_id`, so an Orchestrator whose session moved by restore, compaction, or provider relaunch stays its own plan's owner.
 
-Both Plan-owner paths are gated on **closed verb allowlists**: recovery verbs are
-a subset of the verbs where the Plan owner has authority over a task it does not
-hold. A verb asserting the *caller's own* task binding, such as a Worker report,
-is on neither list and can never ride the recovery hatch. Refusals carry a stable
-`data.type` naming the blocking state, so a tab-gone task is never reported as a
-stale epoch.
+Both Plan-owner paths are gated on **closed verb allowlists**: recovery verbs are a subset of the verbs where the Plan owner has authority over a task it does not hold. A verb asserting the *caller's own* task binding, such as a Worker report, is on neither list and can never ride the recovery hatch. Refusals carry a stable `data.type` naming the blocking state, so a tab-gone task is never reported as a stale epoch.
 
-A genuine respawn preserves predecessor reports and review evidence, retires the
-prior attempt, and enters pending startup. Runtime readiness precedes the
-awaiting-ACK label; only the fresh Worker's ACK starts execution.
+A genuine respawn preserves predecessor reports and review evidence, retires the prior attempt, and enters pending startup. Runtime readiness precedes the awaiting-ACK label; only the fresh Worker's ACK starts execution.
 
-Dispatch refuses `paused`, `done`, `cancelled`, and `in_review` tasks before
-spawning. Explicit dispatch of a blocked task clears it to pending in the same
-mutation that reserves its attempt and records the prior block reason in a plan
-stride. Respawn also clears a blocked task atomically and records that reason;
-respawn is additionally the supported way to replace an attempt held in review.
+Dispatch refuses `paused`, `done`, `cancelled`, and `in_review` tasks before spawning. Explicit dispatch of a blocked task clears it to pending in the same mutation that reserves its attempt and records the prior block reason in a plan stride. Respawn also clears a blocked task atomically and records that reason; respawn is additionally the supported way to replace an attempt held in review.
 
-Plan writes require the caller's live bound session. When the caller presents
-its own launch nonce while binding is still in flight, the daemon waits for the
-binding event through the startup deadline. A timed-out write returns
-`data.type = "session_binding_pending"` with `data.retryable = true`; a settled
-launch without a registered session remains the distinct
-`plan_binding_session_unregistered` error.
+Plan writes require the caller's live bound session. When the caller presents its own launch nonce while binding is still in flight, the daemon waits for the binding event through the startup deadline. A timed-out write returns `data.type = "session_binding_pending"` with `data.retryable = true`; a settled launch without a registered session remains the distinct `plan_binding_session_unregistered` error.
 
 ### Bouncing a cleaned terminal review generation
 
-The existing authenticated review-bounce transition can recover a cleaned terminal
-generation when its original closed-attempt selector finds zero candidates. A unique
-original match keeps its existing behavior, and multiple original matches remain an
-ambiguity refusal.
+The existing authenticated review-bounce transition can recover a cleaned terminal generation when its original closed-attempt selector finds zero candidates. A unique original match keeps its existing behavior, and multiple original matches remain an ambiguity refusal.
 
-The recovery requires an `in_review` task with no assigned executor, peer, or remaining
-lane tab, workspace, worktree, or branch, and `cleanup_status: done`. Every attempt
-must be closed and noncompetitive. Persisted attempt order must agree with strictly
-increasing, present assignment times; duplicate identities, overlapping generations,
-and contradictory times refuse selection. Only the last appended generation is
-considered, and it must have a nonblank executor session and binding nonce, an ACK, a
-persisted own-session `in_review` report, and ordered assignment, ACK, report, closure,
-and retirement facts. Continuation round metadata must describe the current review
-round, and replay labels or continuation-state conflicts refuse the fallback. An
-incomplete terminal generation blocks the transition even when an earlier generation
-has a valid report.
+The recovery requires an `in_review` task with no assigned executor, peer, or remaining lane tab, workspace, worktree, or branch, and `cleanup_status: done`. Every attempt must be closed and noncompetitive. Persisted attempt order must agree with strictly increasing, present assignment times; duplicate identities, overlapping generations, and contradictory times refuse selection. Only the last appended generation is considered, and it must have a nonblank executor session and binding nonce, an ACK, a persisted own-session `in_review` report, and ordered assignment, ACK, report, closure, and retirement facts. Continuation round metadata must describe the current review round, and replay labels or continuation-state conflicts refuse the fallback. An incomplete terminal generation blocks the transition even when an earlier generation has a valid report.
 
-A successful bounce records one review evidence item and milestone, advances the review
-round and credit through the existing transaction, marks the selected predecessor
-`executor_gone`, and returns the task to pending with no continuation. The transaction
-preserves historical reports, launch metadata, and closure and retirement times. The
-retired executor receives no delivery; fresh placement follows ordinary dispatch.
-Refusals leave task, review credit, and milestones unchanged. This contract adds no
-command or wire fields.
+A successful bounce records one review evidence item and milestone, advances the review round and credit through the existing transaction, marks the selected predecessor `executor_gone`, and returns the task to pending with no continuation. The transaction preserves historical reports, launch metadata, and closure and retirement times. The retired executor receives no delivery; fresh placement follows ordinary dispatch. Refusals leave task, review credit, and milestones unchanged. This contract adds no command or wire fields.
 
-This verb requires the live owning Orchestrator's top-level `caller_tab_id` and
-`session_binding_nonce`; `session_id` is optional under existing current-tab
-resolution. `from` remains attribution only and never supplies authority. The v3 gate
-refuses v2 clients before dispatch with `-32002`, `data.type = "version_skew"`, and
-the recovery command.
+This verb requires the live owning Orchestrator's top-level `caller_tab_id` and `session_binding_nonce`; `session_id` is optional under existing current-tab resolution. `from` remains attribution only and never supplies authority. The v3 gate refuses v2 clients before dispatch with `-32002`, `data.type = "version_skew"`, and the recovery command.
 
 ### Review credit repair and evidence reporters
 
-`codeterm plan review delegate <plan> <task> --qa-tab <tab>` hands an
-`in_review` task to a direct child QA: only that bound session may accept or
-bounce it, with a non-empty evidence note; the verdict consumes the grant, which
-never authorizes hold, dispatch or other transitions.
+`codeterm plan review delegate <plan> <task> --qa-tab <tab>` hands an `in_review` task to a direct child QA: only that bound session may accept or bounce it, with a non-empty evidence note; the verdict consumes the grant, which never authorizes hold, dispatch or other transitions.
 
-`codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"`
-auditably repairs review credit leaked by older builds. Credit repair and capacity
-classification require the live bound Orchestrator session and record an immutable
-plan stride. For task-less review or canonical-QA
-evidence, the live Plan owner runs `codeterm plan review authorize-reporter <plan>
-<tab> --class review|canonical_qa`; that exact session gains evidence-only
-authority and reports with `codeterm agent report --plan <plan>` and no
-task/status, producing a Plan stride and an ordinary owner event without a task
-transition. Missing, foreign, rebound, task-bound, or stale-owner grants fail
-before persistence or delivery. A fresh shell may omit `CODETERM_SESSION_ID`:
-evidence reporting resolves the registered tab session only with a matching
-stored and hook-reported nonce; never inject another tab's session.
+`codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"` auditably repairs review credit leaked by older builds. Credit repair and capacity classification require the live bound Orchestrator session and record an immutable plan stride. For task-less review or canonical-QA evidence, the live Plan owner runs `codeterm plan review authorize-reporter <plan> <tab> --class review|canonical_qa`; that exact session gains evidence-only authority and reports with `codeterm agent report --plan <plan>` and no task/status, producing a Plan stride and an ordinary owner event without a task transition. Missing, foreign, rebound, task-bound, or stale-owner grants fail before persistence or delivery. A fresh shell may omit `CODETERM_SESSION_ID`: evidence reporting resolves the registered tab session only with a matching stored and hook-reported nonce; never inject another tab's session.
 
-Planner spawns (CLI, REST, service) resolve an omitted `--parent-tab` from the
-Plan owner before provisioning; a missing owner refuses with no tab created.
+Planner spawns (CLI, REST, service) resolve an omitted `--parent-tab` from the Plan owner before provisioning; a missing owner refuses with no tab created.
 
 ### Task-bound plan skill reads
 
-An omitted `--plan` on `codeterm plan skill` uses the authenticated caller's Team active plan. Inherited launch plan, task, and attempt values do not override that live binding.
-An explicit `--plan` reads the named plan without rebinding the Team; a read of another plan records no current-task skill-load receipt.
+An omitted `--plan` on `codeterm plan skill` uses the authenticated caller's Team active plan. Inherited launch plan, task, and attempt values do not override that live binding. An explicit `--plan` reads the named plan without rebinding the Team; a read of another plan records no current-task skill-load receipt.
 
-The caller supplies its tab and binding nonce. The daemon derives its session only when the issued and session-reported nonces match; a supplied session must match too.
-Same-plan task evidence requires exactly one current assignment and an exact announced content digest. Explicit task or attempt conflicts, ambiguous assignments, unannounced skills, and changed bytes refuse.
+The caller supplies its tab and binding nonce. The daemon derives its session only when the issued and session-reported nonces match; a supplied session must match too. Same-plan task evidence requires exactly one current assignment and an exact announced content digest. Explicit task or attempt conflicts, ambiguous assignments, unannounced skills, and changed bytes refuse.
 
-Dispatch announces the manifest in its brief. For a supported existing-tab assignment, an authenticated `codeterm agent ack` returns the current manifest and its brief, recording that announcement on the current attempt before a load can be recorded.
-Repeating ACK retains an existing announcement and ACK; it never copies predecessor loads or replaces an announced digest. A startup ACK can still precede runtime binding; the first ACK returns only the manifest already announced by dispatch.
-Repeated ACK can complete both missing attempt binding fields only with retained launch authority for the exact creator, Team, task/attempt, owner epoch, PTY and nonce, plus the current session's matching issued and reported nonce. A verified session occupying the tab cannot mint that authority.
-The guarded write preserves ACK/timestamps, history, manifest, loads, status and lane. Exact already-bound equality is idempotent; partial, foreign, ambiguous, closed or retired ownership, absent/finalized launch proof and unannounced or changed manifests refuse without repair.
-A refusal returns `plan_skill_attempt_binding_missing`, the retained ACK timestamp, and the plan, task and attempt identifiers. Report those identifiers to the Orchestrator for launch-proven binding repair; this operation never rearms finalized launches or assigns a replacement attempt.
+Dispatch announces the manifest in its brief. For a supported existing-tab assignment, an authenticated `codeterm agent ack` returns the current manifest and its brief, recording that announcement on the current attempt before a load can be recorded. Repeating ACK retains an existing announcement and ACK; it never copies predecessor loads or replaces an announced digest. A startup ACK can still precede runtime binding; the first ACK returns only the manifest already announced by dispatch. Repeated ACK can complete both missing attempt binding fields only with retained launch authority for the exact creator, Team, task/attempt, owner epoch, PTY and nonce, plus the current session's matching issued and reported nonce. A verified session occupying the tab cannot mint that authority. The guarded write preserves ACK/timestamps, history, manifest, loads, status and lane. Exact already-bound equality is idempotent; partial, foreign, ambiguous, closed or retired ownership, absent/finalized launch proof and unannounced or changed manifests refuse without repair. A refusal returns `plan_skill_attempt_binding_missing`, the retained ACK timestamp, and the plan, task and attempt identifiers. Report those identifiers to the Orchestrator for launch-proven binding repair; this operation never rearms finalized launches or assigns a replacement attempt.
 
 ### A spawned Worker is not an accepted dispatch
 
-The immediate response to `plan.task.dispatch` reports `state`
-`awaiting_worker_ack` with `spawned: true` and `accepted: false`. Durable
-acceptance is the later `dispatch_ready` block, emitted once the session binds. A
-session binding that is merely late — the tab is alive but has not bound before
-the deadline — is not a dispatch failure: the dispatch stays spawned-and-awaiting
-and the provider's own launch detection or the worker-ack deadline settles it.
-Only a confirmed-gone tab fails the dispatch.
+The immediate response to `plan.task.dispatch` reports `state` `awaiting_worker_ack` with `spawned: true` and `accepted: false`. Durable acceptance is the later `dispatch_ready` block, emitted once the session binds. A session binding that is merely late — the tab is alive but has not bound before the deadline — is not a dispatch failure: the dispatch stays spawned-and-awaiting and the provider's own launch detection or the worker-ack deadline settles it. Only a confirmed-gone tab fails the dispatch.
 
 ### Reviewed remote lane integration
 
-`plan.task.merge_remote_lane` requires the authenticated origin Orchestrator,
-an origin-accepted remote attempt, and a persisted Worker report. The origin
-requests a Git bundle from the recorded paired peer over signed mesh transport,
-fetches the recorded branch into a Domios-owned ref, then runs a real
-`git merge --no-ff`. It persists the lane tip and merge commit after
-`git merge-base --is-ancestor <lane-tip> <target>` succeeds. Repeating an
-already-recorded integration is idempotent.
+`plan.task.merge_remote_lane` requires the authenticated origin Orchestrator, an origin-accepted remote attempt, and a persisted Worker report. The origin requests a Git bundle from the recorded paired peer over signed mesh transport, fetches the recorded branch into a Domios-owned ref, then runs a real `git merge --no-ff`. It persists the lane tip and merge commit after `git merge-base --is-ancestor <lane-tip> <target>` succeeds. Repeating an already-recorded integration is idempotent.
 
 ### Splitting an in-progress task
 
-The Plan Orchestrator can create child tasks beneath an in-progress task with
-`codeterm plan task split <plan> <task> --child <name>` or a JSON child file.
-Children inherit the parent's sections, tags (including its `work:<value>`),
-executor role, model routing, and quality fields unless overridden; a child tag
-replaces the inherited tag of the same facet key. They retain the same plan
-approval and may be dispatched while the parent remains in progress; each
-dispatch provisions the child's own lane. Task detail and plan state expose child statuses, and the
-parent presents as `blocked_on_subtasks` while any child is open. Marking the
-parent done or cancelled is refused until all children are done or cancelled.
-Worker briefs carry the parent task id; a Worker may propose children in its
-report but cannot dispatch or spawn them.
+The Plan Orchestrator can create child tasks beneath an in-progress task with `codeterm plan task split <plan> <task> --child <name>` or a JSON child file. Children inherit the parent's sections, tags (including its `work:<value>`), executor role, model routing, and quality fields unless overridden; a child tag replaces the inherited tag of the same facet key. They retain the same plan approval and may be dispatched while the parent remains in progress; each dispatch provisions the child's own lane. Task detail and plan state expose child statuses, and the parent presents as `blocked_on_subtasks` while any child is open. Marking the parent done or cancelled is refused until all children are done or cancelled. Worker briefs carry the parent task id; a Worker may propose children in its report but cannot dispatch or spawn them.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->
