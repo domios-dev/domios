@@ -26,6 +26,7 @@ pub enum ModelProviderError {
     Ambiguous,
     InvalidRequest,
     Conflict,
+    HarnessIdCollision,
     NotFound,
     Config,
     Busy,
@@ -545,6 +546,23 @@ impl ServiceContext {
         provider: Option<&str>,
         request: ModelProviderRequest,
     ) -> Result<Value, ModelProviderError> {
+        if let ModelProviderRequest::Add { provider, .. }
+        | ModelProviderRequest::AddFromSecret { provider, .. } = &request
+        {
+            if self
+                .agent_registry
+                .provider_ids()
+                .iter()
+                .any(|id| id.eq_ignore_ascii_case(&provider.id))
+                || self
+                    .chatbackend_registry
+                    .ids()
+                    .iter()
+                    .any(|id| id.eq_ignore_ascii_case(&provider.id))
+            {
+                return Err(ModelProviderError::HarnessIdCollision);
+            }
+        }
         let owner = select_owner_for(&self.agent_registry.all_provider_arcs(), provider)?;
         let adapter = owner
             .model_provider_config()
