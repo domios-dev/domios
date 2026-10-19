@@ -518,8 +518,7 @@ impl PluginVm {
                     _ => None,
                 },
             )
-            .and_then(|path| crate::model_catalog::fingerprint_path(&path))
-            .and_then(|fingerprint| serde_json::to_string(&fingerprint).ok())
+            .and_then(|path| crate::model_catalog::binary_fingerprint_path(&path))
     }
 
     pub fn plugin_id(&self) -> &str {

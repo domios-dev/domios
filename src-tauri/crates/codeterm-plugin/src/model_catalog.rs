@@ -157,6 +157,22 @@ pub fn fingerprint_path(path: &std::path::Path) -> Option<BinaryFingerprint> {
     })
 }
 
+pub fn binary_fingerprint_path(path: &std::path::Path) -> Option<String> {
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0; 8192];
+    loop {
+        let count = file.read(&mut buffer).ok()?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+    }
+    Some(format!("{:x}", digest.finalize()))
+}
+
 fn fingerprint_bin(bin: &str) -> Option<BinaryFingerprint> {
     fingerprint_path(&crate::js_runtime::resolved_bin_path(bin)?)
 }
