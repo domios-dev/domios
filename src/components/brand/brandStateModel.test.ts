@@ -35,8 +35,8 @@ test("error presentation takes precedence over loading", () => {
   assert.deepEqual(brandStateModel({
     loading: true,
     label: "Loading",
-    error: { title: "Could not start", detail: "Retry the session." },
-  }), { kind: "error", title: "Could not start", detail: "Retry the session." });
+    error: { title: "Could not start", sentence: "Retry the session." },
+  }), { kind: "error", title: "Could not start", sentence: "Retry the session." });
   assert.deepEqual(brandStateModel({ loading: true, label: "Restoring workspace" }), {
     kind: "loading",
     label: "Restoring workspace",

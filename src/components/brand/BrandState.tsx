@@ -30,7 +30,7 @@ export function BrandState({ model, className, children }: {
       <section className={`brand-state brand-state--error ${className ?? ""}`} role="alert" aria-live="assertive" aria-labelledby={headingId}>
         <BrandMark motion="static" size={76} />
         <h2 id={headingId}>{model.title}</h2>
-        <p>{model.detail}</p>
+        <p>{model.sentence}</p>
         {children}
       </section>
     );
