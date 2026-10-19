@@ -198,6 +198,10 @@ certificate and pinned Apple intermediates into a unique RUNNER_TEMP keychain, v
 and notary credentials, and clean up only their own keychain/files in always(). No persistent login
 keychain changes or copied private keys are a release prerequisite. Updater keys use temporary
 restricted files; Tauri needs `TAURI_SIGNING_PRIVATE_KEY` pointing to the prepared key file.
+Off-CI recovery copies live in Bitwarden, read with `codeterm mem secret get --name <slug>` and
+never printed: `codeterm-tauri-minisign-private-key` (updater signing, empty password; its public
+key is `tauri.conf.json` `plugins.updater.pubkey`) and `codeterm-apple-notary-env`. The Developer ID
+certificate is backed up only as the `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` repo secrets.
 Windows updater signatures are not Authenticode: no Authenticode signing is currently configured.
 
 Use the existing sccache policy and named cache-verify/cache-stats operations. Configured zero
@@ -245,6 +249,11 @@ private draft bytes, publishes and verifies public served bytes with a cache-bus
 version/platforms using `scripts/verify-updater-manifest.mjs`. HTTP 200 alone proves no installability.
 A partial recovery cannot mint complete release evidence. Manual mirror repair needs owner GO and
 must reuse original verified artifacts/fragments, not handwrite a reduced latest.json.
+
+Served bytes are not the whole proof: on a host still running the previous version,
+`codeterm update install --auto` must install this release and come back on the new pair with
+sessions restored. A published defect ships as the next patch version through this same train;
+never move a tag or re-upload changed bytes under a published version.
 
 `sync-release-notes.mjs` maintains one substantive notes body across both repositories. Historical
 backfill mutates published notes and needs explicit authorization.
