@@ -563,6 +563,22 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
+    fn requested_diagnostics_are_unsupported_off_windows() {
+        for occupied in [true, false] {
+            assert_eq!(
+                initial_status(Some(9222), occupied),
+                NativeWebviewDiagnosticsStatus::Unsupported
+            );
+        }
+        assert_eq!(
+            initial_status(None, false),
+            NativeWebviewDiagnosticsStatus::Disabled
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
     fn unavailable_diagnostics_never_claims_a_foreign_or_unverified_listener() {
         assert!(matches!(
             initial_status(Some(9222), true),
