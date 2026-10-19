@@ -26,8 +26,12 @@ pub mod spec;
 pub mod supporter;
 pub mod surface;
 pub mod system;
+pub mod tab_todo;
+#[cfg(test)]
+mod tab_todo_tests;
 pub mod task;
 pub mod team;
+pub mod todo;
 pub mod trace;
 pub mod update;
 pub mod usage;

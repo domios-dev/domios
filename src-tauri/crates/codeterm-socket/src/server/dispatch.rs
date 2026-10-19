@@ -95,6 +95,7 @@ pub(super) fn dispatch(
                 "tab.todo.clear_all",
                 "tab.todo.reset",
                 "tab.todo.list",
+                "tab.todo.parent_list",
                 "tab.todo.summary",
                 "tab.todo.recite",
                 "tab.inspect",

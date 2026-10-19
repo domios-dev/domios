@@ -3,6 +3,23 @@ use serde_json::Value;
 
 pub(in crate::server) use codeterm_service_core::service::task_tab_description;
 
+pub(super) fn verify_dispatched_task_binding(
+    store: &codeterm_service_core::service::plan::PlanStore,
+    plan_id: &str,
+    task_id: &str,
+    tab_id: &str,
+) -> Result<(), String> {
+    match store.task_binding_for_tab(tab_id) {
+        Some((bound_plan, bound_task)) if bound_plan == plan_id && bound_task == task_id => Ok(()),
+        binding => Err(format!(
+            "ORCHESTRATION PRODUCT INCIDENT: dispatched Worker tab '{tab_id}' has no matching \
+             authoritative task binding. Impact: zero-flag reports cannot be attached safely. \
+             Fallback: pass explicit --plan {plan_id} --task {task_id} and alert the Orchestrator; \
+             no plan or task was guessed. Resolved binding: {binding:?}"
+        )),
+    }
+}
+
 pub(in crate::server) fn owned_str(params: Option<&Value>, key: &str) -> Option<String> {
     params
         .and_then(|params| params.get(key))

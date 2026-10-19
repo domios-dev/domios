@@ -331,6 +331,18 @@ impl ServiceContext {
         Ok(Some(summary(&checklist)))
     }
 
+    /// Full bounded checklist inspection for the target's same-Team Orchestrator.
+    /// The store caps current-generation checklists at `MAX_TAB_TODO_ITEMS`.
+    pub async fn tab_todo_parent_list(
+        &self,
+        target_tab_id: &str,
+        parent_tab_id: &str,
+    ) -> Result<Option<TabTodoChecklist>, String> {
+        let target = self.todo_tab(target_tab_id)?;
+        self.require_parent_orchestrator(&target, parent_tab_id)?;
+        self.todo_store()?.get(target.id).await
+    }
+
     /// Bounded event recitation for the owning agent. Open/in-progress items are
     /// ordered before completed items; at most the 16 persisted items are emitted.
     pub async fn tab_todo_recite(
