@@ -6,7 +6,7 @@ use codeterm_types::agent::role_kind::builtins;
 
 use crate::multiplexer::types::AgentRole;
 use crate::service::orchestrator::role_onboarding_task;
-use crate::service::persona::{Occasion, deliver, guidance_for};
+use crate::service::persona::{deliver, guidance_for, Occasion};
 
 /// The launch assignment decoration as it read before the occasion table
 /// existed, applied to the kind Task 1 resolves rather than the raw stored
@@ -90,11 +90,9 @@ fn legacy_worker_system_prompt(assignment: Option<&str>) -> String {
     let (identity, assignment) = assignment
         .map(crate::service::plan::worker_identity::split_worker_identity)
         .unwrap_or((None, ""));
-    let mut sections = vec![
-        identity
-            .unwrap_or(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY)
-            .to_string(),
-    ];
+    let mut sections = vec![identity
+        .unwrap_or(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY)
+        .to_string()];
     sections.push(crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string());
     sections.push(crate::prompts::AGENT_ROUTING_CONTRACT.trim().to_string());
     sections.extend(crate::service::plugin_prompt::built_in_plugins_section());

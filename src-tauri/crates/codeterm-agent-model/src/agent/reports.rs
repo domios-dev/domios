@@ -824,7 +824,7 @@ mod tests {
              skipped: manual UI step\n\
              the freeform body";
         let body = report.inject_body();
-        assert_eq!(body.rsplit_once('\n').unwrap().0, expected);
+        assert_eq!(body, expected);
     }
 
     #[test]
@@ -849,11 +849,12 @@ mod tests {
         let body = report.inject_body();
         assert!(body.contains(BLOCK_PROPOSAL_NOTICE));
         assert!(body.contains("tests: focused-check -> blocked by dependency"));
-        assert!(body
-            .rsplit_once('\n')
-            .unwrap()
-            .0
-            .ends_with("dependency unavailable"));
+        assert_eq!(
+            body,
+            format!(
+                "task: pl_1/task_1\n{BLOCK_PROPOSAL_NOTICE}\ntests: focused-check -> blocked by dependency\ndependency unavailable"
+            )
+        );
         assert_eq!(report.status, Some(ReportStatus::Blocked));
     }
 
