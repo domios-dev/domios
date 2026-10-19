@@ -7,6 +7,18 @@ import {
   brandStateModel,
   transitionBrandConnection,
 } from "./brandStateModel";
+import {
+  DOT_MATRIX_GRID_STEP,
+  DOT_MATRIX_REST_ALPHA,
+  DOT_MATRIX_REST_RADIUS,
+  DOT_MATRIX_WAVE_BAND_WIDTH,
+  DOT_MATRIX_WAVE_DURATION_MS,
+  DOT_MATRIX_WAVE_GROWTH,
+  DOT_MATRIX_WAVE_PEAK_ALPHA,
+  emitDotMatrixWave,
+  sampleDotMatrixWave,
+} from "./dotMatrixModel";
+import type { DotMatrixWave } from "./dotMatrixModel";
 
 test("disconnect remains hidden until the exact grace deadline", () => {
   const disconnected = transitionBrandConnection({ kind: "connected" }, "disconnect", 500);
@@ -42,4 +54,31 @@ test("error presentation takes precedence over loading", () => {
     label: "Restoring workspace",
     animate: true,
   });
+});
+
+test("each loading release emits one timed matrix wave", () => {
+  const first: DotMatrixWave = { releasedAt: 100, originX: 50, originY: 40, maxRadius: 100 };
+  const second: DotMatrixWave = { ...first, releasedAt: 3_700 };
+  const waves = emitDotMatrixWave([], first, "loading", false);
+  const afterSecondRelease = emitDotMatrixWave(waves, second, "loading", false);
+  assert.equal(afterSecondRelease.length, 2);
+  assert.deepEqual(sampleDotMatrixWave(first, 100 + DOT_MATRIX_WAVE_DURATION_MS / 2), {
+    progress: 0.5,
+    radius: 50,
+    fade: 0.5,
+  });
+  assert.equal(sampleDotMatrixWave(first, 100 + DOT_MATRIX_WAVE_DURATION_MS), null);
+  assert.equal(DOT_MATRIX_WAVE_PEAK_ALPHA, 0.28);
+  assert.equal(DOT_MATRIX_WAVE_GROWTH, 0.3);
+  assert.equal(DOT_MATRIX_WAVE_BAND_WIDTH, 20);
+  assert.equal(DOT_MATRIX_GRID_STEP, 11);
+  assert.equal(DOT_MATRIX_REST_ALPHA, 0.025);
+  assert.equal(DOT_MATRIX_REST_RADIUS, 0.8);
+});
+
+test("error and reduced-motion states emit no matrix waves", () => {
+  const wave: DotMatrixWave = { releasedAt: 1_000, originX: 12, originY: 12, maxRadius: 80 };
+  const waves = [wave];
+  assert.equal(emitDotMatrixWave(waves, { ...wave, releasedAt: 2_000 }, "error", false), waves);
+  assert.equal(emitDotMatrixWave(waves, { ...wave, releasedAt: 2_000 }, "loading", true), waves);
 });
