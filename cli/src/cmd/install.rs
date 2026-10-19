@@ -57,12 +57,17 @@ fn windows_install_script(
     installer_path: &str,
     target_exe: &std::path::Path,
 ) -> String {
+    let install_dir = target_exe
+        .parent()
+        .map(|dir| dir.display().to_string())
+        .unwrap_or_default()
+        .replace('\'', "''");
+    // Match by install path: dev builds share the domios/domios-server image names.
     format!(
         "@echo off\r\n\
         set \"LOG={log}\"\r\n\
         echo [self-install] starting at %date% %time% > \"%LOG%\"\r\n\
-        taskkill /F /IM codeterm.exe >> \"%LOG%\" 2>&1\r\n\
-        taskkill /F /IM codeterm-embed.exe >> \"%LOG%\" 2>&1\r\n\
+        powershell.exe -NoProfile -NonInteractive -Command \"$p = Get-Process | Where-Object {{ $_.Path -and $_.Path.StartsWith('{install_dir}\\', 'OrdinalIgnoreCase') }}; $p | ForEach-Object {{ 'stopping ' + $_.Name + ' ' + $_.Id }}; $p | Stop-Process -Force; $p | Wait-Process -Timeout 15 -ErrorAction SilentlyContinue\" >> \"%LOG%\" 2>&1\r\n\
         echo [self-install] running installer >> \"%LOG%\"\r\n\
         \"{installer}\" /S >> \"%LOG%\" 2>&1\r\n\
         echo [self-install] installer exited %errorlevel% >> \"%LOG%\"\r\n\
@@ -91,7 +96,7 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
     let local_app_data = std::env::var("LocalAppData").unwrap_or_default();
     let target_exe = std::path::PathBuf::from(&local_app_data)
         .join("codeterm")
-        .join("codeterm.exe");
+        .join("domios.exe");
 
     let log_path = std::path::PathBuf::from(&local_app_data)
         .join("codeterm")
@@ -342,8 +347,18 @@ mod tests {
         windows_install_script(
             std::path::Path::new("install.log"),
             "CodeTerm_setup.exe",
-            std::path::Path::new("codeterm.exe"),
+            std::path::Path::new(r"C:\Users\me\AppData\Local\codeterm\domios.exe"),
         )
+    }
+
+    #[test]
+    fn helper_stops_only_installed_processes_and_relaunches_the_domios_client() {
+        let script = install_script();
+
+        assert!(script
+            .contains(r"StartsWith('C:\Users\me\AppData\Local\codeterm\', 'OrdinalIgnoreCase')"));
+        assert!(!script.contains("taskkill /F /IM"));
+        assert!(script.contains(r#"start "" "C:\Users\me\AppData\Local\codeterm\domios.exe""#));
     }
 
     #[test]
@@ -369,7 +384,9 @@ mod tests {
         let script = install_script();
 
         let scrub = script.find("set CODETERM ").unwrap();
-        let launch = script.find("start \"\" \"codeterm.exe\"").unwrap();
+        let launch = script
+            .find("start \"\" \"C:\\Users\\me\\AppData\\Local\\codeterm\\domios.exe\"")
+            .unwrap();
         assert!(scrub < launch);
         for variable in [
             "CARGO_TARGET_DIR",

@@ -481,6 +481,11 @@ fn default_app_binary() -> Result<std::path::PathBuf, String> {
         std::env::var_os("LOCALAPPDATA").map(|p| {
             std::path::PathBuf::from(p)
                 .join("codeterm")
+                .join("domios.exe")
+        }),
+        std::env::var_os("LOCALAPPDATA").map(|p| {
+            std::path::PathBuf::from(p)
+                .join("codeterm")
                 .join("codeterm.exe")
         }),
         std::env::var_os("LOCALAPPDATA").map(|p| {
