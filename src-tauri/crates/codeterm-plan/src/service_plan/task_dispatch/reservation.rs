@@ -38,14 +38,7 @@ impl PlanStore {
             .get(plan_id)
             .and_then(|plan| crate::plan::task_key::find_task(&plan.tasks, task_id).cloned())
             .ok_or(PlanError::TaskNotFound)?;
-        if let Some(attempt) =
-            super::super::task_attempts::newer_live_respawn_attempt(&task, source_attempt_id)
-        {
-            return Err(PlanError::DispatchInFlight {
-                attempt_id: attempt.id.clone(),
-                tab_id: attempt.executor_tab_id.clone(),
-            });
-        }
+        super::super::task_attempts::ensure_respawn_source_current(&task, source_attempt_id)?;
 
         let key = (plan_id.to_string(), task_id.to_string());
         let mut reservations = self.dispatch_reservations.lock();

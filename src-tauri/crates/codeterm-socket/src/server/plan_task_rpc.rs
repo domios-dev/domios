@@ -1069,6 +1069,14 @@ pub(super) fn dispatch(
                     data: None,
                 })?;
             draft.parent_tab_id = Some(parent_tab_id.clone());
+            let _respawn_reservation = store
+                .reserve_task_respawn_startup(
+                    &id,
+                    &tid,
+                    &draft.source_attempt.id,
+                    &draft.attempt_id,
+                )
+                .map_err(plan_rpc_err)?;
             let spawn_params = super::plan_task_dispatch::respawn_worker_params(
                 &draft,
                 &task.name,
