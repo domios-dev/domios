@@ -199,6 +199,24 @@ impl ChatBackendProvider for JsChatBackend {
         self.remote_task.clone()
     }
 
+    fn discover_remote_task(
+        &self,
+    ) -> Result<Option<crate::remote_tasks::RemoteTaskDiscovery>, ChatBackendError> {
+        if self.remote_task.is_none() {
+            return Ok(None);
+        }
+        match call_json::<crate::remote_tasks::RemoteTaskDiscovery>(
+            &self.vm,
+            "discoverRemoteTask",
+            &[],
+        ) {
+            Ok(discovery) => Ok(Some(discovery)),
+            Err(VmError::MissingFunction(_)) => Ok(None),
+            Err(VmError::Script(message)) if message.contains("not a function") => Ok(None),
+            Err(error) => Err(map_err("discoverRemoteTask", error)),
+        }
+    }
+
     fn id(&self) -> &str {
         &self.id
     }
