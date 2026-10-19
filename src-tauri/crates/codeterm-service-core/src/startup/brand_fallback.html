@@ -22,7 +22,11 @@
     main[data-pulse] svg { animation: pulse 2.6s ease-in-out infinite; }
     h1 { margin: .5rem 0 0; font-size: 1.2rem; font-weight: 600; }
     p { max-width: 28rem; margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.6; }
-    .retry { margin-top: .5rem; padding: .45rem 1rem; border: 1px solid var(--border); border-radius: 8px; color: #f0f6fc; text-decoration: none; font-size: .85rem; }
+    .retry { margin-top: .5rem; display: inline-flex; align-items: center; gap: .5rem; padding: .45rem .9rem; border: 1px solid var(--border); border-radius: 8px; color: #f0f6fc; text-decoration: none; font-size: .85rem; }
+    .retry .ring { width: 1.1rem; height: 1.1rem; transform: rotate(-90deg); animation: none; }
+    .retry .ring circle { fill: none; stroke: var(--border); stroke-width: 2.4; }
+    .retry .ring .left { stroke: var(--accent); stroke-dasharray: 100; stroke-linecap: round; }
+    .retry .count { min-width: 1.1em; color: var(--muted); font-variant-numeric: tabular-nums; }
     .retry:hover { border-color: var(--accent); }
     @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.96); } }
     @media (prefers-color-scheme: light) {

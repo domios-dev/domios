@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { compression, liquidEasing, release, REST, surfaceTension } from "./motion";
 import type { BrandPose } from "./motion";
+import { DOT_MATRIX_WAVE_DURATION_MS } from "./dotMatrixModel";
 
 export type BrandMotion = "static" | "load";
 
@@ -20,6 +21,7 @@ export function useBrandMotion(motion: BrandMotion, onRelease?: (timestamp: numb
     const motionOwner = svg.closest("[data-motion]");
     let frame: number | null = null;
     let phaseStarted = 0;
+    let cycleStarted = 0;
     let phase: "rest" | "open" | "compress" | "release" | "pause" = "rest";
     let releaseAmount = 0;
     let disposed = false;
@@ -48,6 +50,7 @@ export function useBrandMotion(motion: BrandMotion, onRelease?: (timestamp: numb
         if (pose === REST) {
           phase = "compress";
           phaseStarted = timestamp;
+          cycleStarted = timestamp;
           paint(REST);
         } else paint(pose);
       } else if (phase === "compress") {
@@ -67,9 +70,11 @@ export function useBrandMotion(motion: BrandMotion, onRelease?: (timestamp: numb
           paint(REST);
         } else paint(pose);
       } else if (phase === "pause") {
-        if (seconds >= .32) {
+        // One pulse per dot wave: the mark and the matrix share a single period.
+        if (timestamp - cycleStarted >= DOT_MATRIX_WAVE_DURATION_MS) {
           phase = "compress";
           phaseStarted = timestamp;
+          cycleStarted = timestamp;
         }
       } else return;
       schedule();
