@@ -565,7 +565,7 @@ pub(super) fn validate_ready(
         || ready.process.created.trim().is_empty()
         || process_executable != install.server_executable
         || resources != install.resource_root
-        || !ready.api_address.ip().is_loopback()
+        || ready.loopback_api_address().is_none()
         || codeterm_types::native_host::native_host_socket_address(&ready.bootstrap_address)
             .is_none()
     {

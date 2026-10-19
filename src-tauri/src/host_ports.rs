@@ -1,6 +1,6 @@
 #[cfg(test)]
 use std::time::Instant;
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::Duration};
 
 use codeterm_types::server_bootstrap::{ServerIdentity, ServerReady};
 use reqwest::redirect::Policy;
@@ -188,15 +188,19 @@ pub(crate) struct ServerApiAttachmentSlot(Arc<parking_lot::RwLock<Option<ServerA
 #[derive(Clone)]
 pub(crate) struct ServerApiAttachment {
     ready: ServerReady,
+    api_address: SocketAddr,
     token: String,
     client: reqwest::Client,
 }
 
 impl ServerApiAttachmentSlot {
     pub(crate) fn install(&self, ready: ServerReady, token: String) -> Result<(), String> {
-        if !ready.api_address.ip().is_loopback() || token.trim().is_empty() {
+        let Some(api_address) = ready
+            .loopback_api_address()
+            .filter(|_| !token.trim().is_empty())
+        else {
             return Err("Authenticated server attachment is invalid".into());
-        }
+        };
         let client = reqwest::Client::builder()
             .no_proxy()
             .redirect(Policy::none())
@@ -205,6 +209,7 @@ impl ServerApiAttachmentSlot {
             .map_err(|error| error.to_string())?;
         *self.0.write() = Some(ServerApiAttachment {
             ready,
+            api_address,
             token,
             client,
         });
@@ -247,7 +252,7 @@ impl ServerApiAttachment {
     }
 
     pub(crate) fn api_origin(&self) -> String {
-        format!("http://{}", self.ready.api_address)
+        format!("http://{}", self.api_address)
     }
 
     pub(crate) async fn refresh_plan(&self) -> Result<(), String> {
