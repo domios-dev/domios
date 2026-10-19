@@ -12,6 +12,7 @@ pub fn decode_snapshot(json: &str) -> Result<DecodedSnapshot, String> {
         serde_json::from_str(json).map_err(|error| error.to_string())?;
     codeterm_types::startup_records::normalize_pane_id_fields(&mut value)
         .map_err(|error| error.to_string())?;
+    codeterm_storage::normalize_legacy_session_id(&mut value);
     let snapshot = serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
     let layouts = decode_layouts(&value)?;
     Ok(DecodedSnapshot { snapshot, layouts })
