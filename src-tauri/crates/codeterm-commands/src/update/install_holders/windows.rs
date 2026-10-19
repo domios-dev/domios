@@ -95,6 +95,29 @@ impl Session {
     }
 }
 
+fn holds_registered_file(info: &RM_PROCESS_INFO, files: &[PathBuf]) -> Result<bool, String> {
+    let process = &info.Process;
+    for file in files {
+        let session = Session::register(std::slice::from_ref(file))?;
+        if session.holders()?.iter().any(|candidate| {
+            candidate.Process.dwProcessId == process.dwProcessId
+                && same_process_identity(
+                    (
+                        candidate.Process.ProcessStartTime.dwLowDateTime,
+                        candidate.Process.ProcessStartTime.dwHighDateTime,
+                    ),
+                    (
+                        process.ProcessStartTime.dwLowDateTime,
+                        process.ProcessStartTime.dwHighDateTime,
+                    ),
+                )
+        }) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 struct PinnedHolder {
     holder: Holder,
     handle: Option<Handle>,
@@ -147,6 +170,11 @@ fn inspect_directory(
         let parents = process_parents()?;
         let mut pinned = Vec::new();
         for info in session.holders()? {
+            if info.Process.dwProcessId == std::process::id()
+                || !holds_registered_file(&info, &files)?
+            {
+                continue;
+            }
             if let Some(holder) = pin_holder(&info, &parents, &clis, &helpers, svc)? {
                 pinned.push(holder);
             }
