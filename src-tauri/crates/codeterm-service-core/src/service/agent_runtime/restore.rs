@@ -2,6 +2,7 @@ use crate::{
     multiplexer::types::{Tab, TabBacking},
     service::ServiceContext,
 };
+use codeterm_types::plan::ExecutionIntent;
 
 fn materialize(tab: &mut Tab, runtime_declared: bool) -> bool {
     if tab.restorable_launch.execution_mode.is_some()
@@ -46,12 +47,7 @@ pub fn tab(svc: &ServiceContext, tab_id: &str) -> Result<bool, String> {
     {
         return Err("Restored runtime tab still owns a live terminal process".into());
     }
-    if sanitize_saved_controls(svc, tab_id, &provider)? {
-        let outcome = crate::service::session_persist::write_session_snapshot(svc, &svc.mux)?;
-        if !matches!(outcome, crate::session::store::SaveOutcome::Saved) {
-            return Err("Sanitized runtime settings persistence refused".into());
-        }
-    }
+    sanitize_saved_controls(svc, tab_id, &provider)?;
     let nonce = svc.ensure_session_binding_nonce(tab_id);
     let thread = {
         let mut mux = svc.mux.write();
@@ -78,11 +74,11 @@ fn sanitize_saved_controls(
     svc: &ServiceContext,
     tab_id: &str,
     provider_id: &str,
-) -> Result<bool, String> {
+) -> Result<(), String> {
     let (model, saved_efforts, saved_modes) = {
         let mux = svc.mux.read();
         let Some(tab) = mux.get_tab(tab_id) else {
-            return Ok(false);
+            return Ok(());
         };
         let config = tab.agent_runtime_config.as_ref();
         let non_empty = |value: Option<&str>| {
@@ -112,6 +108,12 @@ fn sanitize_saved_controls(
                 non_empty(config.and_then(|config| config["mode"].as_str())),
                 non_empty(tab.structured_runtime_mode.as_deref()),
                 non_empty(tab.restorable_launch.structured_runtime_mode.as_deref()),
+                non_empty(
+                    tab.restorable_launch
+                        .runtime_launch_options
+                        .as_ref()
+                        .map(|options| options.mode.as_str()),
+                ),
             ]
             .into_iter()
             .flatten()
@@ -127,7 +129,7 @@ fn sanitize_saved_controls(
             } else {
                 model_efforts
             };
-            let modes: Vec<String> = provider
+            let mut modes: Vec<String> = provider
                 .structured_control()
                 .map(|control| {
                     control
@@ -137,6 +139,17 @@ fn sanitize_saved_controls(
                         .collect()
                 })
                 .unwrap_or_default();
+            if let Some(sandbox) = provider.execution_sandbox_capability() {
+                for intent in [ExecutionIntent::ReadOnly, ExecutionIntent::Mutating] {
+                    if let Ok(Some(mode)) = sandbox.resolve(&intent, std::env::consts::OS, true) {
+                        if let Some(runtime_mode) = mode.runtime_mode {
+                            if !modes.contains(&runtime_mode) {
+                                modes.push(runtime_mode);
+                            }
+                        }
+                    }
+                }
+            }
             (
                 efforts
                     .into_iter()
@@ -160,10 +173,19 @@ fn sanitize_saved_controls(
         .filter(|mode| !supported_modes.iter().any(|supported| supported == *mode))
         .cloned()
         .collect::<Vec<_>>();
+    if !unsupported_modes.is_empty() {
+        log::error!(
+            "[agent-runtime-restore] tab={tab_id}: saved runtime modes {:?} are unsupported; refusing to resume",
+            unsupported_modes
+        );
+        return Err(format!(
+            "Saved runtime modes {:?} are unsupported for provider {provider_id}; refusing to resume",
+            unsupported_modes
+        ));
+    }
     let drop_effort = !unsupported_efforts.is_empty();
-    let drop_mode = !unsupported_modes.is_empty();
-    if !drop_effort && !drop_mode {
-        return Ok(false);
+    if !drop_effort {
+        return Ok(());
     }
     {
         let mut mux = svc.mux.write();
@@ -187,21 +209,8 @@ fn sanitize_saved_controls(
                 unsupported_efforts, model
             );
         }
-        if drop_mode {
-            if let Some(config) = tab.agent_runtime_config.as_mut() {
-                if let Some(object) = config.as_object_mut() {
-                    object.remove("mode");
-                }
-            }
-            tab.structured_runtime_mode = None;
-            tab.restorable_launch.structured_runtime_mode = None;
-            log::warn!(
-                "[agent-runtime-restore] tab={tab_id}: saved runtime modes {:?} are unsupported; using runtime default",
-                unsupported_modes
-            );
-        }
     }
-    Ok(true)
+    Ok(())
 }
 
 pub fn all(svc: &ServiceContext) {
