@@ -10,6 +10,7 @@ mod plan_skill_evidence;
 pub mod remote_dispatch;
 mod remote_retirement;
 mod report_ingest;
+mod respawn_guard;
 mod restore_binding;
 mod runtime_restart;
 mod runtime_restore;
@@ -17,6 +18,7 @@ pub use runtime_restart::{RuntimeRestartBinding, RuntimeRestartMode};
 pub use runtime_restore::RestoredRuntimeSessionBinding;
 
 pub use launch_binding::CompleteAcknowledgedDispatchBinding;
+pub(super) use respawn_guard::ensure_respawn_source_current;
 pub use restore_binding::{RestoreCurrentAttemptBinding, RestoreCurrentAttemptBindingResult};
 
 #[cfg(test)]
@@ -1034,14 +1036,7 @@ impl PlanStore {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             super::task_dispatch::task_respawn_status(&plan.tasks[task_index].status)?;
-            if let Some(attempt) =
-                newer_live_respawn_attempt(&plan.tasks[task_index], &draft.source_attempt.id)
-            {
-                return Err(PlanError::DispatchInFlight {
-                    attempt_id: attempt.id.clone(),
-                    tab_id: attempt.executor_tab_id.clone(),
-                });
-            }
+            ensure_respawn_source_current(&plan.tasks[task_index], &draft.source_attempt.id)?;
             if matches!(
                 plan.tasks[task_index].status,
                 TaskStatus::Pending | TaskStatus::Blocked
@@ -1060,6 +1055,15 @@ impl PlanStore {
                 now_ms,
             );
             let task = &mut plan.tasks[task_index];
+            let source = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == draft.source_attempt.id)
+                .ok_or(PlanError::TaskNotFound)?;
+            source.retired_at = Some(now_ms);
+            if source.closed_at.is_none() {
+                source.closed_at = Some(now_ms);
+            }
             task.assigned_tab_id = Some(tab_id.into());
             task.lane.tab_id = Some(tab_id.into());
             task.taken_by_role = role.map(str::to_string);
@@ -1181,18 +1185,4 @@ impl PlanStore {
             attempt: judged.expect("attempt set before successful write"),
         })
     }
-}
-
-pub(super) fn newer_live_respawn_attempt<'a>(
-    task: &'a crate::plan::Task,
-    source_attempt_id: &str,
-) -> Option<&'a crate::plan::TaskExecutionAttempt> {
-    let source_index = task
-        .execution_attempts
-        .iter()
-        .position(|attempt| attempt.id == source_attempt_id)?;
-    task.execution_attempts
-        .iter()
-        .skip(source_index + 1)
-        .find(|attempt| attempt.closed_at.is_none() && attempt.retired_at.is_none())
 }
