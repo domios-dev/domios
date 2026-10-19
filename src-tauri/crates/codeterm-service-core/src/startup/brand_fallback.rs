@@ -12,7 +12,7 @@ const NATIVE_CHROME: &str = r#"<header><div class="drag" onmousedown="if(event.b
 
 const RETRY_ACTION: &str = r#"<a class="retry" href="domios-shell://retry">Retry now</a>"#;
 
-/// Faint dot grid with soft waves spreading from the centre, matching the in-app brand matrix.
+/// Faint dot grid; each wave leaves the mark at its pulse peak (CSS and canvas share one 2.6 s period from time zero).
 const DOT_WAVES: &str = r#"<script>
 (() => {
   const canvas = document.querySelector("canvas");
@@ -28,8 +28,12 @@ const DOT_WAVES: &str = r#"<script>
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
     context.fillStyle = getComputedStyle(canvas).color;
-    const cx = width / 2, cy = height / 2, extent = Math.hypot(cx, cy);
-    const radius = ((now % period) / period) * extent;
+    const mark = document.querySelector("main svg").getBoundingClientRect();
+    const box = canvas.getBoundingClientRect();
+    const cx = mark.left + mark.width / 2 - box.left, cy = mark.top + mark.height / 2 - box.top;
+    const extent = Math.max(Math.hypot(cx, cy), Math.hypot(width - cx, height - cy));
+    const start = mark.width / 2;
+    const radius = start + ((now % period) / period) * (extent - start);
     for (let x = spacing / 2; x < width; x += spacing) {
       for (let y = spacing / 2; y < height; y += spacing) {
         const distance = Math.hypot(x - cx, y - cy);

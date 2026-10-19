@@ -451,6 +451,7 @@ fn show_unavailable(window: &WebviewWindow) {
     {
         Ok(()) => {
             log::debug!("[frontend-shell] native recovery surface selected");
+            ON_RECOVERY_SURFACE.store(true, Ordering::Release);
             keep_reconnecting(window.app_handle().clone());
         }
         Err(error) => log::error!("[frontend-shell] recovery surface failed: {error}"),
@@ -492,6 +493,7 @@ fn run_shell_action(app: &codeterm_host_runtime::app_runtime::AppHandle, url: &U
 
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(10);
 static RECONNECTING: AtomicBool = AtomicBool::new(false);
+static ON_RECOVERY_SURFACE: AtomicBool = AtomicBool::new(false);
 
 /// Owner-requested: while the recovery surface is showing, retry the interface every 10 s.
 fn keep_reconnecting(app: codeterm_host_runtime::app_runtime::AppHandle) {
@@ -501,11 +503,7 @@ fn keep_reconnecting(app: codeterm_host_runtime::app_runtime::AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(RECONNECT_INTERVAL).await;
-            let on_recovery_surface = app
-                .get_webview_window("main")
-                .and_then(|window| window.url().ok())
-                .is_some_and(|url| url.scheme() == "data");
-            if !on_recovery_surface {
+            if !ON_RECOVERY_SURFACE.load(Ordering::Acquire) {
                 break;
             }
             log::debug!("[frontend-shell] recovery surface retrying the interface");
@@ -562,6 +560,7 @@ fn navigate_frontend(
         app.state::<ShellSupervisor>().root_render.retire();
         return Err(error.to_string());
     }
+    ON_RECOVERY_SURFACE.store(false, Ordering::Release);
     Ok(())
 }
 
