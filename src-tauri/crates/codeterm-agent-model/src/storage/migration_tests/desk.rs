@@ -100,6 +100,7 @@ fn storage_migration_desk_import_preserves_snapshot_catalogue_and_archived_sourc
     };
     assert_eq!(tab_id, "tab-a");
     assert_eq!(fields.values["title"], serde_json::Value::Null);
+    assert_eq!(fields.values["agent_session_id"], "session-unverified");
     assert_eq!(
         fields.values["agent_session_model"],
         serde_json::Value::Null

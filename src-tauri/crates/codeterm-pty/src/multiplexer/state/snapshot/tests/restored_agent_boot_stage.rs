@@ -24,7 +24,7 @@ fn restoring_agent_identity_does_not_restore_stale_input_readiness() {
 fn restored_provider_activity_requires_fresh_own_session_evidence() {
     use codeterm_types::pty::{TabVerdict, TimelineState};
 
-    for provider in ["grok", "codex", "claude", "fixture-provider"] {
+    for provider in ["grok", "fixture-agent", "fixture-provider"] {
         for saved in [
             TimelineState::Working,
             TimelineState::Question,

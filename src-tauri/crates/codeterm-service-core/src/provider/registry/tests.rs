@@ -17,12 +17,23 @@ struct Shell {
 }
 
 #[test]
-fn bundled_codex_cloud_is_one_unavailable_execution_mode_on_codex() {
+fn bundled_cloud_runtime_is_one_unavailable_execution_mode() {
     use crate::agent::provider::AgentProvider;
     let agents = Arc::new(AgentRegistry::new());
-    let manifest = crate::test_support::fixture_manifest_dir()
-        .join("../../../plugins/provider-codex/plugin.json");
-    let provider = codeterm_plugin::js_runtime::load_one(&manifest).unwrap();
+    let plugins_root = crate::test_support::fixture_manifest_dir().join("../../../plugins");
+    let provider = std::fs::read_dir(plugins_root)
+        .expect("bundled plugins directory")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("plugin.json"))
+        .filter(|path| path.is_file())
+        .filter_map(|path| codeterm_plugin::js_runtime::load_one(&path).ok())
+        .find(|provider| {
+            provider.agent_runtime().is_some()
+                && provider
+                    .remote_task_capability()
+                    .is_some_and(|capability| capability.mode == "cloud")
+        })
+        .expect("a bundled provider declares a cloud runtime capability");
     let runtime = provider
         .agent_runtime()
         .expect("Bundled runtime capability");
@@ -32,7 +43,7 @@ fn bundled_codex_cloud_is_one_unavailable_execution_mode_on_codex() {
     let registry = ProviderRegistry::new(agents, Arc::new(ChatBackendRegistry::new()));
     let descriptors = registry.describe_all();
     assert_eq!(descriptors.len(), 1);
-    assert_eq!(descriptors[0].id, "codex");
+    assert_eq!(descriptors[0].id, provider_id);
     assert_eq!(descriptors[0].agent_runtime.as_ref(), Some(&runtime));
     assert_eq!(descriptors[0].structured_control, structured_control);
     assert_eq!(descriptors[0].transport, ProviderTransport::ChatBackend);

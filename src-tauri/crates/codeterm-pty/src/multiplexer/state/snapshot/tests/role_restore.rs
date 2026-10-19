@@ -18,7 +18,7 @@ fn role_claim_leaf(role: &str, role_profile: Option<&str>) -> SplitNodeSnapshot 
         title_level: Some("User".into()),
         agent_type: None,
         agent_type_locked: false,
-        claude_session_id: None,
+        agent_session_id: None,
         agent_identity: None,
         role: Some(role.into()),
         role_profile: role_profile.map(str::to_string),

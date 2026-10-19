@@ -35,13 +35,13 @@ fn snapshot_role_bindings(
         match node {
             SplitNodeSnapshot::Leaf {
                 tab_id,
-                claude_session_id,
+                agent_session_id,
                 role,
                 ..
             } if role.is_some() => {
                 bindings.push(codeterm_service_core::crash::lifecycle::BindingIdentity {
                     tab_id: tab_id.clone(),
-                    agent_session_id: claude_session_id.clone(),
+                    agent_session_id: agent_session_id.clone(),
                 })
             }
             SplitNodeSnapshot::Leaf { .. } => {}
@@ -60,7 +60,7 @@ fn snapshot_role_bindings(
 }
 
 /// Every agent/worker pane the snapshot held — role tabs AND bare agent panes
-/// (codex workers carry an `agent_type`, not always a role). This is the input
+/// (some providers carry an `agent_type`, not always a role). This is the input
 /// to the per-pane restore report, so it must be broader than role bindings.
 fn snapshot_agent_panes(
     snapshot: &codeterm_service_core::session::store::SessionSnapshot,
@@ -71,7 +71,7 @@ fn snapshot_agent_panes(
         match node {
             SplitNodeSnapshot::Leaf {
                 tab_id,
-                claude_session_id,
+                agent_session_id,
                 role,
                 agent_type,
                 ..
@@ -79,7 +79,7 @@ fn snapshot_agent_panes(
                 tab_id: tab_id.clone(),
                 role: role.clone(),
                 agent_type: agent_type.clone(),
-                agent_session_id: claude_session_id.clone(),
+                agent_session_id: agent_session_id.clone(),
                 exited_session_id: None,
             }),
             SplitNodeSnapshot::Leaf { .. } => {}

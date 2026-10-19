@@ -169,17 +169,9 @@ pub(crate) fn compose_observed(
         });
     }
 
-    {
-        use plugin::agent_claude::AgentClaudePlugin;
-        let manifest = AgentClaudePlugin::manifest();
-        plugin_manager.register(manifest);
-        plugin_manager
-            .attach_native(Box::new(AgentClaudePlugin::new()))
-            .expect("agent-claude plugin attach failed");
-        plugin_manager
-            .activate(plugin::agent_claude::PLUGIN_ID)
-            .expect("agent-claude plugin activation failed");
-    }
+    plugin_manager
+        .activate_builtin_native_plugins()
+        .expect("built-in native plugin activation failed");
     log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
     {
         let plugin_manager = std::sync::Arc::new(plugin_manager);

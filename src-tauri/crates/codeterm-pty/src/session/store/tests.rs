@@ -222,7 +222,7 @@ fn leaf(id: &str) -> SplitNodeSnapshot {
         title_level: None,
         agent_type: None,
         agent_type_locked: false,
-        claude_session_id: None,
+        agent_session_id: None,
         agent_identity: None,
         role: None,
         role_profile: None,
@@ -546,7 +546,7 @@ fn restore_keeps_a_full_fidelity_1_7_7_leaf() {
             spawned_by_tab_id,
             report_target_tab_id,
             agent_type,
-            claude_session_id,
+            agent_session_id,
             agent_identity,
             role,
             role_profile,
@@ -560,7 +560,7 @@ fn restore_keeps_a_full_fidelity_1_7_7_leaf() {
             assert_eq!(spawned_by_tab_id.as_deref(), Some("p0"));
             assert_eq!(report_target_tab_id.as_deref(), Some("p0"));
             assert_eq!(
-                claude_session_id.as_deref(),
+                agent_session_id.as_deref(),
                 Some("b0937780-2ad6-4ceb-a8dc-571a3c491d6b"),
                 "resume identity must survive or the agent restarts blank",
             );
@@ -702,13 +702,13 @@ fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_value
             match &children[0] {
                 SplitNodeSnapshot::Leaf {
                     tab_id,
-                    claude_session_id,
+                    agent_session_id,
                     agent_identity,
                     permission_auto_confirm,
                     ..
                 } => {
                     assert_eq!(tab_id, "tab-a");
-                    assert_eq!(claude_session_id.as_deref(), Some("session-unverified"));
+                    assert_eq!(agent_session_id.as_deref(), Some("session-unverified"));
                     assert_eq!(
                         agent_identity
                             .as_ref()
@@ -736,6 +736,49 @@ fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_value
     assert_eq!(identity[0].record_provider, "stored-provider-value");
     assert_eq!(identity[0].session_id, "session-a");
     assert_eq!(identity[0].parent_tab_id.as_deref(), Some("missing-parent"));
+}
+
+#[test]
+fn stored_legacy_desk_field_restores_agent_session_id() {
+    let root = tempfile::tempdir().unwrap();
+    let mut snapshot = desk(&[("ws-a", &["tab-a"])]);
+    if let SplitNodeSnapshot::Leaf {
+        agent_session_id, ..
+    } = &mut snapshot.workspaces[0].tabs[0].split_tree
+    {
+        *agent_session_id = Some("session-unverified".into());
+    }
+    let mut persisted = project_snapshot(&snapshot, Vec::new()).unwrap();
+    let codeterm_storage::DeskLayoutNode::Leaf { fields, .. } =
+        &mut persisted.workspaces[0].tabs[0].layout
+    else {
+        panic!("tab layout remains a leaf")
+    };
+    let object = fields.values.as_object_mut().unwrap();
+    let session_id = object.remove("agent_session_id").unwrap();
+    object.insert(
+        codeterm_storage::LEGACY_SESSION_ID_FIELD.to_string(),
+        session_id,
+    );
+
+    let storage = codeterm_storage::Storage::open(
+        root.path().join("state"),
+        codeterm_storage::StorageConfig::default(),
+    )
+    .unwrap();
+    storage
+        .desk()
+        .import(persisted)
+        .wait(std::time::Duration::from_secs(30))
+        .unwrap();
+    let adapter = StorageDeskAdapter::from_storage(storage);
+    let restored = adapter.snapshot().unwrap();
+    match &restored.workspaces[0].tabs[0].split_tree {
+        SplitNodeSnapshot::Leaf {
+            agent_session_id, ..
+        } => assert_eq!(agent_session_id.as_deref(), Some("session-unverified")),
+        SplitNodeSnapshot::Split { .. } => panic!("tab layout remains a leaf"),
+    }
 }
 
 #[test]
