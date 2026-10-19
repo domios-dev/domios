@@ -81,12 +81,14 @@ async fn native_config_and_auth_events_refresh_the_warm_authoritative_catalogue(
     let vm = PluginVm::from_source_with(
         id,
         r#"
-        const sources = new Map();
+        let discoveries = 0;
         module.exports.default = {
-            discoverModels: function(stamp) {
-                if (!/^[a-f0-9]{64}$/.test(stamp)) throw new Error("invalid fixture token");
-                if (!sources.has(stamp)) sources.set(stamp, sources.size + 1);
-                return [{id: "fixture/model-" + sources.get(stamp), displayName: "Fixture"}];
+            discoverModels: function(binaryFingerprint) {
+                if (binaryFingerprint !== null && !/^[a-f0-9]{64}$/.test(binaryFingerprint)) {
+                    throw new Error("invalid binary fingerprint");
+                }
+                discoveries += 1;
+                return [{id: "fixture/model-" + discoveries, displayName: "Fixture"}];
             }
         };
     "#
