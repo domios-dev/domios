@@ -169,7 +169,6 @@ impl PlanStore {
             if attempt.id != attempt_id
                 || attempt.session_id.as_deref() != Some(session_id)
                 || attempt.session_binding_nonce.as_deref() != Some(nonce)
-                || attempt.acknowledged_at.is_none()
             {
                 return Err(PlanError::Io(
                     "plan skill announcement binding is not current".into(),
