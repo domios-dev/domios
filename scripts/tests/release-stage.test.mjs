@@ -96,4 +96,10 @@ test('full package readback rejects changed shared server, CLI, client and manif
     { packagedClient: Buffer.from('changed client') },
     { packagedManifest: Buffer.from('{}') },
   ]) assert.throws(() => verifyFinalPair({ ...inputs, ...changed }));
+  assert.throws(() => verifyFinalPair({ ...inputs, packagedServer: Buffer.from('resigned server'),
+    paths: { server: '/final/server', packagedServer: '/CodeTerm.app/Contents/MacOS/domios-server' } }),
+  /\/final\/server != \/CodeTerm.app\/Contents\/MacOS\/domios-server/);
+  assert.throws(() => verifyFinalPair({ ...inputs, packagedCli: Buffer.from('resigned CLI'),
+    paths: { cli: '/final/cli', packagedCli: '/CodeTerm.app/Contents/Resources/cli/codeterm' } }),
+  /\/final\/cli != \/CodeTerm.app\/Contents\/Resources\/cli\/codeterm/);
 });

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import test from 'node:test';
 import { parse } from 'yaml';
 const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), 'utf8'));
@@ -149,8 +150,28 @@ test('Windows Rust tests invoke the owning build forwarder without a bash shell'
   assert.ok(archive);
   assert.equal(archive.shell, 'pwsh');
   assert.equal(archive.if, "runner.os == 'Windows'");
-  const unixArchive = steps.find(step => step.run === 'bash build.sh ci-tests ${{ matrix.suite }}');
+  const unixArchive = steps.find(step => step.run?.includes('bash build.sh ci-tests ${{ matrix.suite }}'));
   assert.equal(unixArchive.if, "runner.os != 'Windows'");
+});
+
+test('compact unwind workaround belongs only to macOS platform tests, preserving release link flags', () => {
+  const tests = workflow('tests');
+  const step = tests.jobs['rust-platform'].steps.find(step => step.run?.includes('bash build.sh ci-tests'));
+  assert.match(step.run, /\[ "\$RUNNER_OS" = macOS \] && \[ "\$\{\{ matrix.suite \}\}" = platform \]/);
+  for (const triple of ['AARCH64', 'X86_64']) {
+    const name = `CARGO_TARGET_${triple}_APPLE_DARWIN_RUSTFLAGS`;
+    assert.ok(step.run.includes(`export ${name}="\${${name}:+$${name} }-C link-arg=-Wl,-no_compact_unwind"`));
+  }
+  for (const name of ['release', 'release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows']) {
+    assert.doesNotMatch(JSON.stringify(workflow(name)), /no_compact_unwind|CARGO_TARGET_.*_RUSTFLAGS/);
+  }
+  const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
+  for (const [os, suite, expected] of [['macOS', 'platform', true], ['Linux', 'platform', false], ['macOS', 'full', false]]) {
+    const preparation = step.run.split('bash build.sh')[0].replaceAll('${{ matrix.suite }}', suite);
+    const flags = execFileSync(bash, ['-c', preparation + '\nprintf "%s" "$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS"'],
+      { encoding: 'utf8', env: { ...process.env, RUNNER_OS: os, CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: '-C debuginfo=1' } });
+    assert.equal(flags, '-C debuginfo=1' + (expected ? ' -C link-arg=-Wl,-no_compact_unwind' : ''));
+  }
 });
 
 test('Docker forwards credential names and captures its own server counters', () => {

@@ -321,7 +321,13 @@ jobs:
           CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
           RUST_WARNING_LOG: ci-rust-warnings.log
         shell: bash
-        run: bash build.sh ci-tests ${{ matrix.suite }}
+        run: |
+          if [ "$RUNNER_OS" = macOS ] && [ "${{ matrix.suite }}" = platform ]; then
+            # The large platform test binaries exceed Mach-O compact-unwind offsets; release binaries keep compact unwind.
+            export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
+            export CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
+          fi
+          bash build.sh ci-tests ${{ matrix.suite }}
       - name: Compile and run ${{ matrix.suite }} Rust tests (Windows)
         if: runner.os == 'Windows'
         env:

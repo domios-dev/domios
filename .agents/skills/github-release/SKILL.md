@@ -1084,6 +1084,17 @@ then replaces the entire stage before `tauri bundle`.
 The release stage freezes the final executable bytes and writes schema-2 component inventory
 before `pnpm tauri bundle` packages the existing binaries. Full-package extraction must read back
 the same server and CLI bytes before the separate headless archive is produced from that stage.
+Pair smoke always verifies archive, manifest and stage bytes. A runner unable to execute the
+target writes `release-pair-smoke-<target>.json` with `unverified_cross_arch` and an **UNVERIFIED**
+step summary. macOS x64 on Apple Silicon first probes Rosetta and runs server and CLI through
+`arch -x86_64` when available. Windows payload receipts say updater-signature only; no Authenticode
+signing is configured. These rows require native execution elsewhere before runtime acceptance.
+
+macOS platform Rust tests append `-C link-arg=-Wl,-no_compact_unwind` to their target-specific
+Rust flags because the large test binaries exceed compact-unwind offsets. Release jobs retain
+their existing link flags. Test and release Cargo targets/profiles are separate; shared sccache
+storage remains safe because [sccache keys include rustc arguments](https://github.com/mozilla/sccache/blob/main/docs/Caching.md).
+This is source/configuration evidence; the next Mac CI run must prove the linker warning is gone.
 The reusable platform jobs do not use Rust target caches; clean
 checkouts therefore remain explicit and reproducible.
 
