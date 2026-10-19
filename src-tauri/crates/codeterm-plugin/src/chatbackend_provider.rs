@@ -75,6 +75,14 @@ pub trait ChatBackendProvider: Send + Sync {
         None
     }
 
+    /// Refresh the account-backed state of a declared remote task mode.
+    /// Implementations that use only their manifest keep the cached descriptor.
+    fn discover_remote_task(
+        &self,
+    ) -> Result<Option<crate::remote_tasks::RemoteTaskDiscovery>, ChatBackendError> {
+        Ok(None)
+    }
+
     fn supports_agent_tasks(&self) -> bool {
         false
     }
@@ -325,14 +333,17 @@ impl ChatBackendRegistry {
         id: String,
         provider: Arc<dyn ChatBackendProvider>,
     ) -> Option<std::thread::JoinHandle<()>> {
-        if provider.remote_task_capability().is_some() {
-            return None;
-        }
+        let refresh_remote_task = provider.remote_task_capability().is_some();
         let entries = self.entries.clone();
         let thread_id = id.clone();
         match std::thread::Builder::new()
             .name(format!("chatbackend-catalog-{id}"))
             .spawn(move || {
+                if refresh_remote_task {
+                    let result = provider.discover_remote_task();
+                    Self::apply_remote_task_result(&entries, &thread_id, &provider, result);
+                    return;
+                }
                 let presets = provider.list_presets();
                 let result = provider.list_models();
                 Self::apply_capability_result(&entries, &thread_id, &provider, presets, result);
@@ -343,6 +354,40 @@ impl ChatBackendRegistry {
                 None
             }
         }
+    }
+
+    fn apply_remote_task_result(
+        entries: &RwLock<HashMap<String, RegisteredChatBackend>>,
+        id: &str,
+        provider: &Arc<dyn ChatBackendProvider>,
+        result: Result<Option<crate::remote_tasks::RemoteTaskDiscovery>, ChatBackendError>,
+    ) {
+        let mut entries = entries.write();
+        let Some(entry) = entries.get_mut(id) else {
+            return;
+        };
+        if !Arc::ptr_eq(&entry.provider, provider) {
+            return;
+        }
+        let Some(capability) = entry.descriptor.remote_task.as_mut() else {
+            return;
+        };
+        match result {
+            Ok(Some(discovery)) => {
+                capability.availability = discovery.availability;
+                capability.environments = discovery.environments;
+            }
+            Ok(None) => return,
+            Err(_) => {
+                capability.availability =
+                    crate::remote_tasks::RemoteTaskAvailability::Unavailable {
+                        reason: "Could not refresh remote environments. Try again.".into(),
+                    };
+                capability.environments.clear();
+            }
+        }
+        let change = model_catalog::invalidate(id);
+        entry.descriptor.catalogue_version = change.version;
     }
 
     pub fn refresh_and_wait(&self, id: &str) -> bool {

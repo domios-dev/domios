@@ -4,6 +4,7 @@ import { launchProviderInstaller } from "../../lib/providerInstall";
 import type { AppConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useModelPresets } from "../../hooks/useModelPresets";
+import { invoke } from "../../lib/bridge";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { setAgentSettings } from "../../lib/clientSettings";
 import {
@@ -47,7 +48,7 @@ export function NewSessionPicker({
   section?: NewSessionSection;
   onClose: () => void;
 }) {
-  const { providers, refetch: refreshProviders } = useAgentProviders();
+  const { providers, loading: providersLoading, refetch: refreshProviders } = useAgentProviders();
   const { spawnAgentTab, createOrchestrationPair, selectTabByTab, addNotification } = useMultiplexer();
   const state = useMuxState();
   const { presets, loading: presetsLoading, error: presetsError } = useModelPresets();
@@ -80,6 +81,26 @@ export function NewSessionPicker({
   );
 
   const hasRestoredRef = useRef(false);
+  const remoteRefreshStartedRef = useRef(false);
+
+  const refreshRemoteProviders = useCallback(async () => {
+    const remoteProviderIds = providers.filter((provider) => provider.remote_task).map((provider) => provider.id);
+    await Promise.all(remoteProviderIds.map(async (providerId) => {
+      try {
+        await invoke("refresh_provider_models", { providerId });
+      } catch {
+        // Keep the cached descriptor visible; the next open or explicit refresh can retry.
+      }
+    }));
+    refreshProviders();
+  }, [providers, refreshProviders]);
+
+  useEffect(() => {
+    if (providersLoading || remoteRefreshStartedRef.current) return;
+    if (!providers.some((provider) => provider.remote_task)) return;
+    remoteRefreshStartedRef.current = true;
+    void refreshRemoteProviders();
+  }, [providers, providersLoading, refreshRemoteProviders]);
 
   useEffect(() => {
     if (visibleProviders.length === 0) return;
@@ -379,7 +400,7 @@ export function NewSessionPicker({
               {choice.mode === "single" && <ExecutionLocationPicker provider={remote} location={location} environmentId={environmentId}
                 onLocation={next => setExecution({providerId: localId, location: next, environmentId})}
                 onEnvironment={id => setExecution({providerId: localId, location, environmentId: id})}
-                onRefresh={refreshProviders} />}
+                onRefresh={() => { void refreshRemoteProviders(); }} />}
               {choice.mode === "single" ? (
                 <OrchestrationRoleRow
                   label="Agent"

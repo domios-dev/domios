@@ -9,6 +9,9 @@ export interface RemoteTaskCapability {
   applyDiff: boolean;
 }
 
+/** Runtime account and environment discovery for a declared remote mode. */
+export type RemoteTaskDiscovery = Pick<RemoteTaskCapability, "availability" | "environments">;
+
 export interface RemoteEnvironment {
   id: string;
   label: string;
