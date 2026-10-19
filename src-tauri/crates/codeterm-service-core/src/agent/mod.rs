@@ -7,6 +7,11 @@ pub use codeterm_agent_model::agent::{
     semantic_marker, shell_command_state, signal_extractor, status, structured_prompt, stub_launch,
     tab_state, usage_parser,
 };
+pub const DOMIOS_HOST_OWNED_CAPABILITIES: provider::HostOwnedCapabilities =
+    provider::HostOwnedCapabilities {
+        questions: true,
+        todos: false,
+    };
 pub mod interactive_prompt;
 pub mod kpi;
 pub mod kpi_ledger;

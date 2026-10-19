@@ -239,6 +239,13 @@ function starterPrompt(prompt, hostText) {
   if (prompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return FILE_TASK_PROMPT;
 }
+function hostOwnedLaunchArgs(hostOwned) {
+  const tools = [
+    ...hostOwned?.questions ? ["AskUserQuestion"] : [],
+    ...hostOwned?.todos ? ["TodoWrite"] : []
+  ];
+  return tools.length ? ["--disallowedTools", tools.join(",")] : [];
+}
 function hasResume(input) {
   const resume = input.resume;
   return typeof resume === "object" && resume !== null && "sessionId" in resume && typeof resume.sessionId === "string";
@@ -249,6 +256,7 @@ function buildClaudeLaunchSpec(input) {
     args: ["--resume", input.resume.sessionId, ...input.resume.args || []],
     task: input.resume.systemPrompt ?? void 0,
     skipPermissions: input.resume.skipPermissions,
+    hostOwned: input.resume.hostOwned,
     starterPrompt: "no_starter"
   } : input;
   const args = [];
@@ -258,6 +266,7 @@ function buildClaudeLaunchSpec(input) {
   const extra = statuslineLaunchArgs(params.args || []);
   if (!extra) return null;
   args.push(...extra);
+  args.push(...hostOwnedLaunchArgs(params.hostOwned));
   const path = writeClaudeLaunchPrompt(params.task || "");
   if (!path) return null;
   args.push("--append-system-prompt-file", path);
@@ -2705,6 +2714,7 @@ var plugin = {
     if (resumeArgs.length > 0) {
       for (const arg of resumeArgs) parts.push(quoteArg(String(arg)));
     }
+    parts.push(...hostOwnedLaunchArgs(p.hostOwned).map(quoteArg));
     const systemPrompt = p.systemPrompt;
     {
       const visiblePath = writeClaudeLaunchPrompt(systemPrompt || "");

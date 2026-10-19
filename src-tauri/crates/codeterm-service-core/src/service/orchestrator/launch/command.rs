@@ -359,6 +359,7 @@ fn build_agent_command_inner(
             tool_less_instructions_path: None,
             session_id: session_id.clone(),
             skip_permissions,
+            host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
             agent_name: params.agent_name.clone(),
             system_prompt: command_task
                 .as_ref()
@@ -409,6 +410,7 @@ fn build_agent_command_inner(
             Some(args.clone())
         },
         skip_permissions,
+        host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
         session_id: params
             .resume_session_id
             .clone()

@@ -161,6 +161,7 @@ impl AgentTransport for PtyTransport {
             starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
             args: (!args.is_empty()).then_some(args),
             skip_permissions: ctx.skip_permissions,
+            host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
             session_id: None,
             structured_prompt_server,
             launch_marker: None,

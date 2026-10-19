@@ -59,6 +59,22 @@ for (const platform of ["windows", "linux", "macos"]) {
     ]);
     assert.ok(!resumed.args.includes("--session-id"));
     assert.ok(!resumed.args.includes("--"));
+    const questionsOnly = JSON.parse(JSON.stringify(plugin.buildLaunchSpec!({
+      ...params,
+      hostOwned: { questions: true, todos: false },
+    })!));
+    const questionsIndex = questionsOnly.args.indexOf("--disallowedTools");
+    assert.deepEqual(questionsOnly.args.slice(questionsIndex, questionsIndex + 2), [
+      "--disallowedTools", "AskUserQuestion",
+    ]);
+    const questionsAndTodos = JSON.parse(JSON.stringify(plugin.buildLaunchSpec!({ resume: {
+      sessionId: "own-session",
+      hostOwned: { questions: true, todos: true },
+    } })!));
+    const allToolsIndex = questionsAndTodos.args.indexOf("--disallowedTools");
+    assert.deepEqual(questionsAndTodos.args.slice(allToolsIndex, allToolsIndex + 2), [
+      "--disallowedTools", "AskUserQuestion,TodoWrite",
+    ]);
     enabled = false;
     assert.equal(plugin.buildLaunchSpec!(params), null);
     cases++;

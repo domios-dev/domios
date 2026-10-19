@@ -1,5 +1,5 @@
 import { sessionRecords, type SessionRecordInput } from "../../provider-shared/sessionRecords";
-import { buildClaudeLaunchCommand, buildClaudeLaunchSpec, starterPrompt } from "./launchSpec";
+import { buildClaudeLaunchCommand, buildClaudeLaunchSpec, hostOwnedLaunchArgs, starterPrompt } from "./launchSpec";
 import { parseSwitchConfirmationPrompt } from "./switchConfirmation";
 import { writeClaudeLaunchPrompt } from "./launchPrompt";
 import { isImageDisplayMetadata } from "./imageMetadata";
@@ -364,6 +364,7 @@ const plugin: PluginModule = {
     if (resumeArgs.length > 0) {
       for (const arg of resumeArgs) parts.push(quoteArg(String(arg)));
     }
+    parts.push(...hostOwnedLaunchArgs(p.hostOwned).map(quoteArg));
     const systemPrompt = p.systemPrompt;
     {
       const visiblePath = writeClaudeLaunchPrompt(systemPrompt || "");

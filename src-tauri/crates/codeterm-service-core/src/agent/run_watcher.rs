@@ -780,6 +780,7 @@ fn resume_hidden_run(
         context_files: launch.context_files,
         session_id: sid,
         skip_permissions: full_access,
+        host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
         system_prompt: system_prompt.map(str::to_string),
         instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
         ..Default::default()
@@ -822,6 +823,7 @@ fn hidden_recovery_resume_command(
                     tool_less_instructions_path: None,
                     session_id: session_id.to_string(),
                     skip_permissions: full_access,
+                    host_owned: crate::agent::DOMIOS_HOST_OWNED_CAPABILITIES,
                     agent_name: None,
                     system_prompt: system_prompt.map(str::to_string),
                     instance_id: Some(crate::paths::codeterm_instance_id().to_string()),

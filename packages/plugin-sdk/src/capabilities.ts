@@ -108,12 +108,14 @@ export interface StructuredControl {
 
 export interface ContextAttach { editable: boolean; readOnly: boolean; }
 export interface ContextFiles { edit: string[]; read: string[]; }
+export interface HostOwnedCapabilities { questions: boolean; todos: boolean; }
 
 export interface LaunchParams {
   contextFiles?: ContextFiles;
   /** Absolute host-owned shared instructions file; an unreadable supplied path must refuse launch. */
   toolLessInstructionsPath?: string;
   skipPermissions?: boolean;
+  hostOwned?: HostOwnedCapabilities;
   args?: string[];
   agentName?: string;
   sessionId?: string;
@@ -200,6 +202,7 @@ export interface ResumeParams {
   toolLessInstructionsPath?: string | null;
   sessionId: string;
   skipPermissions?: boolean;
+  hostOwned?: HostOwnedCapabilities;
   agentName?: string | null;
   instanceId?: string | null;
   /** Composed system prompt to re-apply; absent when the host has none. */
