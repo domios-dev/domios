@@ -5,6 +5,10 @@ on:
     tags:
       - 'plugin-*-v*'
 
+concurrency:
+  group: plugin-release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -57,55 +61,3 @@ jobs:
           gh release create "$PLUGIN_TAG" "$PLUGIN_TAG.tar.gz" "$PLUGIN_TAG.tar.gz.sha256" \
             --verify-tag --latest=false --title "$PLUGIN_TAG" \
             --notes-file plugin-release.json
-  publish_channel:
-    name: publish public plugin channel
-    needs: publish
-    runs-on: [self-hosted, linux-build]
-    concurrency:
-      group: plugin-release-channel-publication
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          ref: ${{ github.sha }}
-      - name: Checkout public release mirror
-        uses: actions/checkout@v5
-        with:
-          repository: rollacode/codeterm-releases
-          ref: main
-          path: public-release-mirror
-          token: ${{ secrets.GH_RELEASE_TOKEN }}
-      - name: Publish public system plugin channel
-        env:
-          PLUGIN_TAG: ${{ github.ref_name }}
-          SOURCE_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          mirror=public-release-mirror
-          if git -C "$mirror" fetch origin plugin-channels; then
-            previous_sha=$(git -C "$mirror" show FETCH_HEAD:channels/codeterm-core.source-commit 2>/dev/null || true)
-            if [ -n "$previous_sha" ] && ! git merge-base --is-ancestor "$previous_sha" "$SOURCE_SHA"; then
-              if git merge-base --is-ancestor "$SOURCE_SHA" "$previous_sha"; then
-                echo "Public plugin channel already contains a newer source commit"
-                exit 0
-              fi
-              echo "Public plugin channel source commits do not share history" >&2
-              exit 1
-            fi
-            git -C "$mirror" switch --force-create plugin-channels FETCH_HEAD
-          else
-            git -C "$mirror" switch --create plugin-channels
-          fi
-          rm -rf "$mirror/channels/codeterm-core"
-          mkdir -p "$mirror/channels/codeterm-core"
-          cp -a plugins/. "$mirror/channels/codeterm-core/"
-          printf '%s\n' "$SOURCE_SHA" > "$mirror/channels/codeterm-core.source-commit"
-          git -C "$mirror" config user.name "github-actions[bot]"
-          git -C "$mirror" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C "$mirror" add --all -- channels/codeterm-core channels/codeterm-core.source-commit
-          if git -C "$mirror" diff --cached --quiet; then
-            exit 0
-          fi
-          git -C "$mirror" commit -m "chore: publish codeterm-core channel $PLUGIN_TAG"
-          git -C "$mirror" push origin plugin-channels

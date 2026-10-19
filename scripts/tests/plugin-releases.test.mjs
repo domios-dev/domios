@@ -4,7 +4,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parse } from "yaml";
 import { bumpPlugin, channelPlugins, checkPluginTag, compareVersions } from "../plugin-release-metadata.mjs";
 
 function fixture(t) {
@@ -83,28 +82,4 @@ test("release orders stable and prerelease versions using semver precedence", ()
   assert.equal(compareVersions("1.14.2-rc.10", "1.14.2-rc.2"), 1);
   assert.equal(compareVersions("1.14.2+build", "1.14.2"), 0);
   assert.throws(() => compareVersions("1.14.2-rc.01", "1.14.2"));
-});
-
-test("tagged plugin releases publish the system channel to the public mirror", () => {
-  const workflow = parse(fs.readFileSync(path.resolve(import.meta.dirname, "../../.github/workflows/plugin-release.yml"), "utf8"));
-  const channelJob = workflow.jobs.publish_channel;
-  const steps = channelJob.steps;
-  const sourceCheckout = steps.find((step) => step.uses === "actions/checkout@v5" && !step.with?.repository);
-  const publicCheckout = steps.find((step) => step.name === "Checkout public release mirror");
-  const channelPublish = steps.find((step) => step.name === "Publish public system plugin channel");
-  const channelPublishIndex = steps.findIndex((step) => step.name === "Publish public system plugin channel");
-
-  assert.deepEqual(workflow.on.push.tags, ["plugin-*-v*"]);
-  assert.deepEqual(channelJob.needs, "publish");
-  assert.equal(channelJob.concurrency.group, "plugin-release-channel-publication");
-  assert.equal(sourceCheckout.with["fetch-depth"], 0);
-  assert.equal(publicCheckout.with.repository, "rollacode/codeterm-releases");
-  assert.equal(publicCheckout.with.ref, "main");
-  assert.match(publicCheckout.with.token, /GH_RELEASE_TOKEN/);
-  assert.ok(channelPublishIndex >= 0);
-  assert.match(channelPublish.run, /channels\/codeterm-core/);
-  assert.match(channelPublish.run, /plugin-channels/);
-  assert.match(channelPublish.run, /git merge-base --is-ancestor/);
-  assert.match(channelPublish.run, /already contains a newer source commit/);
-  assert.match(channelPublish.run, /git -C "\$mirror" push origin plugin-channels/);
 });
