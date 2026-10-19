@@ -83,8 +83,8 @@ fn remote_projection_uses_the_local_controller_context() {
     let remote = &projected[1];
     assert_eq!(remote["parent_tab_id"], "controller");
     assert_eq!(remote["spawned_by_tab_id"], "controller");
-    assert_eq!(remote["workspace_id"], "remote-workspace");
-    assert_eq!(remote["team_id"], "remote-team");
+    assert_eq!(remote["workspace_id"], "workspace-a");
+    assert_eq!(remote["team_id"], "team-a");
     assert_eq!(remote["ownership"]["controller_title"], "Coordinator");
     assert_eq!(remote["ownership"]["controller_tab_id"], "controller");
 }
@@ -108,7 +108,7 @@ fn remote_projection_stamps_worker_role_for_roleless_source() {
 }
 
 #[test]
-fn workspace_scoping_keeps_remote_tabs_under_their_source_workspace() {
+fn workspace_scoping_excludes_remote_tabs_and_keeps_them_with_the_local_controller() {
     let projected = merge_ordinary_tab_projection(
         &[
             serde_json::json!({"id":"local-a","workspace_id":"994f16ae"}),
@@ -134,7 +134,7 @@ fn workspace_scoping_keeps_remote_tabs_under_their_source_workspace() {
         .iter()
         .find(|tab| tab["id"] == "mesh:peer-a/worker")
         .unwrap();
-    assert_eq!(remote["workspace_id"], "994f16af");
+    assert_eq!(remote["workspace_id"], "994f16ae");
 }
 
 #[test]
