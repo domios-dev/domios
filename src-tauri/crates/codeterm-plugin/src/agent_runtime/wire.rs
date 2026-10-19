@@ -166,6 +166,8 @@ pub struct RuntimeContext {
     pub epoch: u64,
     pub tab_id: String,
     pub binding_nonce: String,
+    #[serde(default)]
+    pub host_owned: crate::provider::HostOwnedCapabilities,
     pub cwd: String,
     pub host_version: String,
     pub claimed_sends: Vec<ClaimedSend>,

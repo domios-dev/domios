@@ -39,6 +39,7 @@ pub(crate) fn loaded_runtime(
         provider: tab.agent_type.clone().unwrap(),
         adapter: Mutex::new(adapter),
         context: Mutex::new(RuntimeContext {
+            host_owned: Default::default(),
             epoch,
             tab_id: tab.id.clone(),
             binding_nonce: tab.session_binding_nonce.clone().unwrap(),

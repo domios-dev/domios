@@ -4,6 +4,7 @@ use std::future::Future;
 
 fn context() -> RuntimeContext {
     RuntimeContext {
+        host_owned: Default::default(),
         epoch: 7,
         binding_nonce: "nonce".into(),
         thread_id: Some("root".into()),
