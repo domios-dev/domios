@@ -434,7 +434,6 @@ function TabSessionChatBody({
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
   const [pendingThreadRevertTurn, setPendingThreadRevertTurn] = useState<string | null>(null);
-  const [attachSlot, setAttachSlot] = useState<HTMLDivElement | null>(null);
   const [contextSlot, setContextSlot] = useState<HTMLDivElement | null>(null);
   const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
   const runThreadHistory = useLatestCallback(async (action: "fork" | "revert", turnId: string, confirmed = false) => {
@@ -1077,7 +1076,6 @@ function TabSessionChatBody({
       <>
       <div ref={setContextSlot} className="ct-ctx-slot" />
       <div className="ct-composer-status w-full">
-        <div ref={setAttachSlot} className="ct-composer-mobile-attach" />
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}
@@ -1134,7 +1132,6 @@ function TabSessionChatBody({
           pluginError={!runtimeUnavailable && effectiveChatBackend ? error : null}
           sessionIntent={sessionIntent}
           contextSlot={contextSlot}
-          attachSlot={attachSlot}
           onWillSendMessage={willSendMessage}
           addOptimistic={addOptimistic}
           updateOptimistic={updateOptimistic}

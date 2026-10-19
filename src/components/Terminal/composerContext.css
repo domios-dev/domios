@@ -208,10 +208,17 @@ button.ct-ctx__title:hover .ct-ctx__primary {
 
 .ct-ctx-pill[aria-expanded="true"] .ct-ctx-pill__chev { transform: rotate(180deg); }
 
+/* On phones the head carries only the pill, which floats above the composer box as a
+   bubble; the head itself keeps no height, so the box never grows to make room for it. */
 .ct-ctx[data-phone] .ct-ctx__head {
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
+  min-height: 0;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.ct-ctx[data-phone] .ct-ctx__compact .ct-ctx-pill {
+  position: absolute;
+  max-width: calc(100% - 56px);
 }
 
 .ct-ctx[data-phone] .ct-ctx__kinds { flex-wrap: wrap; margin-left: auto; margin-right: 8px; }

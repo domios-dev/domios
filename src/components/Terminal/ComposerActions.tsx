@@ -1,5 +1,3 @@
-import { createPortal } from "react-dom";
-import { usePhoneViewport } from "../../hooks/useSidebarViewport";
 import { useRef, type ReactNode } from "react";
 import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
@@ -14,7 +12,6 @@ export { storeBrowserFiles, useWebFileDrop } from "./composerFiles";
 
 interface Props {
   tabId?: string;
-  attachSlot?: HTMLElement | null;
   onAttach: (paths: string[]) => void;
   onSend: () => void;
   onSchedule?: () => void;
@@ -39,7 +36,6 @@ export function ComposerActions(props: Props) {
 
 function ComposerActionsBody({
   tabId,
-  attachSlot,
   onAttach,
   onSend,
   onSchedule,
@@ -53,7 +49,6 @@ function ComposerActionsBody({
   canAttach = true,
   uploadFiles,
 }: Props) {
-  const phone = usePhoneViewport();
   const fileRef = useRef<HTMLInputElement>(null);
   const uploads = useAttachmentUploads(onAttach);
   const voiceUploads = useAttachmentUploads(onSendWithAttachments);
@@ -72,8 +67,6 @@ function ComposerActionsBody({
 
   return (
     <>
-      {phone && attachSlot && createPortal(attachButton, attachSlot)}
-      {phone && !attachSlot && <div className="mb-1">{attachButton}</div>}
       {canAttach && <input
         ref={fileRef}
         type="file"
@@ -91,7 +84,7 @@ function ComposerActionsBody({
       {uploads.status}
       {voiceUploads.status}
       <div className="relative flex w-full items-end gap-1.5">
-        {!phone && attachButton}
+        {attachButton}
         <ComposerInputShell voiceUi={voiceUi} header={cardHeader} footer={cardFooter}
           actions={voiceUi.mainIsSend && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}>
           {children}
