@@ -195,7 +195,6 @@ function ChatComposerImpl({
   pluginError,
   sessionIntent,
   contextSlot = null,
-  attachSlot = null,
   chatBackend = false,
   isActive = true,
 }: {
@@ -229,7 +228,6 @@ function ChatComposerImpl({
   sessionIntent?: ChatSessionIntent | null;
   /** Element above the status line that hosts the context header. */
   contextSlot?: HTMLElement | null;
-  attachSlot?: HTMLElement | null;
 }) {
   recordComposerRender(tabId);
   const isActiveRef = useRef(isActive);
@@ -571,7 +569,6 @@ function ChatComposerImpl({
       <div data-testid="composer-row" className="relative">
         <ComposerActions
           tabId={tabId}
-          attachSlot={attachSlot}
           onAttach={(paths) => void attachInline(paths)}
           uploadFiles={capsules.uploads.addFiles}
           onSend={() => void send()}
@@ -757,7 +754,6 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.pluginError === b.pluginError
   && a.sessionIntent === b.sessionIntent
   && a.contextSlot === b.contextSlot
-  && a.attachSlot === b.attachSlot
   && a.chatBackend === b.chatBackend
   && a.isActive === b.isActive
 );
