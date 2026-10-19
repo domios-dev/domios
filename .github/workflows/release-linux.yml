@@ -196,6 +196,8 @@ jobs:
         shell: bash
         env:
           SOURCE_SHA: ${{ inputs.source_ref }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           node scripts/release-stage.mjs stage-full --target "$TARGET" --source-sha "$SOURCE_SHA" \
