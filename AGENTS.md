@@ -35,7 +35,6 @@
 - Use named `build.sh` operations; PowerShell uses `.\build.ps1`. All build logic belongs in `build.sh`; PowerShell only forwards. Update the owning skill with reusable recipes and failure recovery.
 - Run builds/tests in Team utility tabs with `--timeout 30m`; use purpose `dev` without a timeout for servers. Follow `utility-shell-reports` for pushed results.
 - Run `build.sh fmt` once per batch, then one verification pass (one `lane-check` call for all touched crates and affected non-Rust checks); on failure, fix all reported errors and recheck only what failed. Cold checks require Orchestrator GO; no worker builds, Rust execution, Clippy, workspace or reverse-dependency checks without an exact assignment.
-- Iterating against a running DEV: its rebuild is the compile check and the live result is the test; skip lane-check/fmt/tests between attempts, then fmt, focused checks and one commit once it works.
 - The Orchestrator serializes canonical `check-queue` and focused `test-one` checks. Rust tests use `scripts/test-capped.sh`; broad regression runs once on the release SHA.
 - Run `fmt-check`, changed TS/JS tests, size/boundary guards, and `pnpm check:api-effects` when effects change. Require zero compiler errors/warnings and report unrun checks honestly.
 - A busy gateway is a refusal: continue source work, never poll/retry. `--wait-build` requires intentional blocking. Stop foreground dev before canonical QA; do not evade the gateway with another target directory.
