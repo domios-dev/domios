@@ -169,21 +169,23 @@ fn plan_task_dispatch_sends_explicit_description_override() {
 
 #[test]
 fn plan_task_dispatch_sends_selected_worker_kind() {
-    let mut client = FakeRpc::scripted([owner_epoch_task(), json!({"tab_id":"worker"})]);
-    let mut action = dispatch_action("lane");
-    let PlanTaskAction::Dispatch { worker_kind, .. } = &mut action else {
-        unreachable!()
-    };
-    *worker_kind = Some("release_manager".into());
+    for kind in ["release_manager", "reviewer"] {
+        let mut client = FakeRpc::scripted([owner_epoch_task(), json!({"tab_id":"worker"})]);
+        let mut action = dispatch_action("lane");
+        let PlanTaskAction::Dispatch { worker_kind, .. } = &mut action else {
+            unreachable!()
+        };
+        *worker_kind = Some(kind.into());
 
-    let _ = run_dispatch(&mut client, true, action, None).expect("dispatch runs");
-    let params = client
-        .calls
-        .iter()
-        .find(|(method, _)| method == "plan.task.dispatch")
-        .and_then(|(_, params)| params.as_ref())
-        .expect("dispatch params");
-    assert_eq!(params["worker_kind"], "release_manager");
+        let _ = run_dispatch(&mut client, true, action, None).expect("dispatch runs");
+        let params = client
+            .calls
+            .iter()
+            .find(|(method, _)| method == "plan.task.dispatch")
+            .and_then(|(_, params)| params.as_ref())
+            .expect("dispatch params");
+        assert_eq!(params["worker_kind"], kind);
+    }
 }
 
 fn owner_epoch_task() -> Value {

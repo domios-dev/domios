@@ -104,7 +104,10 @@ fn dispatch_remedy(plan_id: &str, task_id: &str) -> String {
 fn canonical_dispatch_remedy(plan_id: &str, task_id: &str, selected_kind: Option<&str>) -> String {
     let kind_flag = selected_kind
         .map(|kind| kind.trim().to_ascii_lowercase())
-        .filter(|kind| matches!(kind.as_str(), "qa" | "release_manager"))
+        .filter(|kind| {
+            codeterm_types::agent::role_kind::builtin_kind(kind)
+                .is_some_and(|descriptor| descriptor.is_taskless_worker())
+        })
         .map(|kind| format!(" --kind {kind}"))
         .unwrap_or_default();
     format!(
@@ -220,7 +223,7 @@ mod tests {
 
     #[test]
     fn taskless_builtin_worker_with_plan_context_skips_task_bound_guard() {
-        for kind in ["qa", "release_manager"] {
+        for kind in ["qa", "release_manager", "reviewer"] {
             for intent in [ExecutionIntent::Mutating, ExecutionIntent::ReadOnly] {
                 let params = SpawnAgentParams {
                     role: Some("Worker".into()),
@@ -252,7 +255,7 @@ mod tests {
 
     #[test]
     fn canonical_dispatch_remedy_preserves_selected_builtin_worker_kind() {
-        for kind in ["qa", "release_manager"] {
+        for kind in ["qa", "release_manager", "reviewer"] {
             assert_eq!(
                 canonical_dispatch_remedy("plan", "task", Some(kind)),
                 format!(

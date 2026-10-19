@@ -207,6 +207,7 @@ pub const CARTOGRAPHER_SUFFIX: &str = include_str!("../../../prompts/cartographe
 
 pub const QA_ROLE_PROMPT: &str = include_str!("../../../prompts/qa.md");
 pub const RELEASE_MANAGER_ROLE_PROMPT: &str = include_str!("../../../prompts/release_manager.md");
+pub const REVIEWER_ROLE_PROMPT: &str = include_str!("../../../prompts/reviewer.md");
 
 /// Compact control context placed after a Worker's task-owned identity.
 pub const WORKER_CODETERM_CONTEXT: &str =

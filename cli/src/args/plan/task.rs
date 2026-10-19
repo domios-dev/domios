@@ -623,30 +623,32 @@ mod tests {
     #[test]
     fn plan_task_dispatch_accepts_a_worker_kind_override() {
         use clap::Parser;
-        let parsed = Cli::try_parse_from([
-            "codeterm",
-            "plan",
-            "task",
-            "dispatch",
-            "plan-id",
-            "task-id",
-            "--execution-intent",
-            "mutating",
-            "--canonical-writer",
-            "--kind",
-            "release_manager",
-        ])
-        .expect("dispatch kind parses");
-        let crate::Commands::Plan {
-            action:
-                crate::PlanAction::Task {
-                    action: super::PlanTaskAction::Dispatch { worker_kind, .. },
-                },
-        } = parsed.command
-        else {
-            panic!("expected plan task dispatch")
-        };
-        assert_eq!(worker_kind.as_deref(), Some("release_manager"));
+        for kind in ["release_manager", "reviewer"] {
+            let parsed = Cli::try_parse_from([
+                "codeterm",
+                "plan",
+                "task",
+                "dispatch",
+                "plan-id",
+                "task-id",
+                "--execution-intent",
+                "mutating",
+                "--canonical-writer",
+                "--kind",
+                kind,
+            ])
+            .expect("dispatch kind parses");
+            let crate::Commands::Plan {
+                action:
+                    crate::PlanAction::Task {
+                        action: super::PlanTaskAction::Dispatch { worker_kind, .. },
+                    },
+            } = parsed.command
+            else {
+                panic!("expected plan task dispatch")
+            };
+            assert_eq!(worker_kind.as_deref(), Some(kind));
+        }
     }
 
     #[test]

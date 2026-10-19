@@ -118,6 +118,7 @@ pub fn builtin_guidance(kind_id: &str) -> Option<String> {
         builtins::WORKER => Some(crate::prompts::worker_suffix()),
         builtins::QA => Some(crate::prompts::QA_ROLE_PROMPT.to_string()),
         builtins::RELEASE_MANAGER => Some(crate::prompts::RELEASE_MANAGER_ROLE_PROMPT.to_string()),
+        builtins::REVIEWER => Some(crate::prompts::REVIEWER_ROLE_PROMPT.to_string()),
         builtins::CARTOGRAPHER => Some(crate::prompts::CARTOGRAPHER_SUFFIX.to_string()),
         _ => None,
     }

@@ -88,31 +88,38 @@ fn taskless_worker_kind_prompts_are_delivered_after_the_worker_contract() {
 }
 
 #[test]
-fn release_manager_prompt_is_delivered_after_the_worker_contract() {
-    let preset = resolve(
-        Some(AgentRole::Worker),
-        Some(builtins::RELEASE_MANAGER),
-        None,
-    )
-    .expect("taskless Release Manager preset");
+fn release_manager_and_reviewer_prompts_are_delivered_after_the_worker_contract() {
+    for (kind, label, prompt) in [
+        (
+            builtins::RELEASE_MANAGER,
+            "Release Manager",
+            crate::prompts::RELEASE_MANAGER_ROLE_PROMPT,
+        ),
+        (
+            builtins::REVIEWER,
+            "Reviewer",
+            crate::prompts::REVIEWER_ROLE_PROMPT,
+        ),
+    ] {
+        let preset = resolve(Some(AgentRole::Worker), Some(kind), None).expect("taskless preset");
 
-    assert_eq!(
-        preset
-            .fragments
-            .iter()
-            .map(|fragment| fragment.source.label())
-            .collect::<Vec<_>>(),
-        vec!["inherited_base", "builtin"]
-    );
-    assert_eq!(
-        preset.contract_guidance(),
-        format!(
-            "{}\n\n{}",
-            crate::prompts::worker_suffix(),
-            crate::prompts::RELEASE_MANAGER_ROLE_PROMPT
-        )
-    );
-    assert_eq!(preset.task_guidance(), "");
+        assert_eq!(preset.label, label);
+        assert_eq!(
+            preset
+                .fragments
+                .iter()
+                .map(|fragment| fragment.source.label())
+                .collect::<Vec<_>>(),
+            vec!["inherited_base", "builtin"],
+            "{kind}"
+        );
+        assert_eq!(
+            preset.contract_guidance(),
+            format!("{}\n\n{}", crate::prompts::worker_suffix(), prompt),
+            "{kind}"
+        );
+        assert_eq!(preset.task_guidance(), "", "{kind}");
+    }
 }
 
 #[test]

@@ -2,6 +2,7 @@ import type { Tab } from "../../lib/types";
 import {
   ORCHESTRATOR_KIND,
   RELEASE_MANAGER_KIND,
+  REVIEWER_KIND,
   QA_KIND,
   WORKER_KIND,
   roleKind,
@@ -31,6 +32,7 @@ export function sectionForRole(
     key !== WORKER_KIND &&
     key !== QA_KIND &&
     key !== RELEASE_MANAGER_KIND &&
+    key !== REVIEWER_KIND &&
     role === "Worker"
   ) {
     console.debug(`[orchestrationSections] worker role_profile "${roleProfile}" ignored`);
@@ -54,7 +56,7 @@ export function roleShieldLabel(
   if (!tab?.role) return null;
   const kind = roleKind(tab);
   if (tab.role === "Manager") return kind?.toUpperCase() ?? null;
-  return kind === QA_KIND || kind === RELEASE_MANAGER_KIND
+  return kind === QA_KIND || kind === RELEASE_MANAGER_KIND || kind === REVIEWER_KIND
     ? roleKindLabel(tab)?.toUpperCase() ?? null
     : null;
 }
