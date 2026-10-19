@@ -39,7 +39,7 @@ use codeterm_service_core::startup::{
 };
 use serde::Serialize;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -325,6 +325,7 @@ pub fn create_window(
         .cloned()
         .ok_or("Main window configuration is missing")?;
     window_config.url = WebviewUrl::CustomProtocol(unavailable.clone());
+    ON_RECOVERY_SURFACE.store(true, Ordering::Release);
     let origin = bootstrap.as_ref().map(|bootstrap| {
         bootstrap
             .frontend_origin
@@ -444,7 +445,14 @@ fn navigation_identity(url: &Url) -> String {
     identity.to_string()
 }
 
+/// WebView reports data: URLs inconsistently, so the recovery surface is tracked explicitly.
+static ON_RECOVERY_SURFACE: AtomicBool = AtomicBool::new(false);
+
 fn show_unavailable(window: &WebviewWindow) {
+    // Re-navigating would restart the page (and its retry ring) on every failed attempt.
+    if ON_RECOVERY_SURFACE.swap(true, Ordering::AcqRel) {
+        return;
+    }
     match unavailable_url()
         .map_err(|error| error.to_string())
         .and_then(|url| window.navigate(url).map_err(|error| error.to_string()))
@@ -452,7 +460,10 @@ fn show_unavailable(window: &WebviewWindow) {
         Ok(()) => {
             log::debug!("[frontend-shell] native recovery surface selected");
         }
-        Err(error) => log::error!("[frontend-shell] recovery surface failed: {error}"),
+        Err(error) => {
+            ON_RECOVERY_SURFACE.store(false, Ordering::Release);
+            log::error!("[frontend-shell] recovery surface failed: {error}");
+        }
     }
 }
 
@@ -536,6 +547,7 @@ fn navigate_frontend(
         app.state::<ShellSupervisor>().root_render.retire();
         return Err(error.to_string());
     }
+    ON_RECOVERY_SURFACE.store(false, Ordering::Release);
     Ok(())
 }
 
@@ -867,7 +879,9 @@ pub(crate) async fn recover_for_attachment(
         navigate_frontend(&app, &window, url)?;
         return Ok(());
     }
-    if !same_navigation_document(&current_url, &unavailable) {
+    if !ON_RECOVERY_SURFACE.load(Ordering::Acquire)
+        && !same_navigation_document(&current_url, &unavailable)
+    {
         start(app);
         return Ok(());
     }
@@ -890,7 +904,8 @@ pub(crate) async fn recover_for_attachment(
     run_on_main_thread(app.clone(), move |handle| {
         let state = handle.state::<ShellSupervisor>();
         let live_url = close_window.url().map_err(|error| error.to_string())?;
-        if !same_navigation_document(&live_url, &unavailable)
+        if (!ON_RECOVERY_SURFACE.load(Ordering::Acquire)
+            && !same_navigation_document(&live_url, &unavailable))
             || state.active_view_generation.load(Ordering::Acquire) != old_view
             || state.navigation.load(Ordering::Acquire) != old_navigation
         {
