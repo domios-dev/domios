@@ -19,7 +19,8 @@ CARGO_BUILD_TARGET=x86_64-apple-darwin \
   ./build.sh release-inputs --for-bundle
 export CARGO_BUILD_TARGET=x86_64-apple-darwin
 pnpm tauri build --no-bundle --target x86_64-apple-darwin \
-  --features "${CODETERM_RELEASE_FEATURES:-embeddings}"
+  --features "${CODETERM_RELEASE_FEATURES:-embeddings}" \
+  --config '{"bundle":{"externalBin":[]}}'
 node scripts/release-stage.mjs stage-full --target x86_64-apple-darwin \
   --source-sha "$(git rev-parse HEAD)" \
   --cargo-log release-artifacts/build-logs/x86_64-apple-darwin/server.jsonl \

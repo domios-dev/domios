@@ -131,6 +131,8 @@ consume the same final server/CLI/resources; packaging must not compile them aga
 2. `tauri build --no-bundle` compiles the native client (`domios`, with .exe on Windows); the
    packaged CLI stays `codeterm`. Linux's compile-only config empties resources/externalBin to
    avoid the raw server-file/resource-directory collision. Restore full platform maps for bundling.
+   macOS also empties compile-only externalBin: tauri-build otherwise copies the sidecar stub
+   over the already signed Cargo server when both share the target release directory.
 3. `scripts/release-stage.mjs stage-full` replaces the compile stage with complete resources and
    manifests from final executable bytes. The stable Tauri source is `target/domios-package/`;
    the target receipt stage is `release-artifacts/common-stage/<rust-target>/`.
@@ -298,4 +300,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
