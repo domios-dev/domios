@@ -34,7 +34,10 @@ fn lazy_composer_admits_one_first_turn_then_binding_releases_the_queue() {
             writes_tx
                 .send((record.send_id.clone(), text.to_owned()))
                 .unwrap();
-            Ok(())
+            Err(DeliveryError::SubmitUnconfirmed {
+                tab: "lazy-tab".into(),
+                detail: "payload queued; turn evidence pending".into(),
+            })
         }),
     );
     let first = fixture
@@ -45,6 +48,16 @@ fn lazy_composer_admits_one_first_turn_then_binding_releases_the_queue() {
     assert_eq!(
         writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
         (first.send_id.clone(), "first turn".into())
+    );
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&first.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Unknown,
+        "a queued first turn with missing evidence remains submit_unconfirmed"
     );
     let provisional = fixture
         .service
@@ -67,20 +80,25 @@ fn lazy_composer_admits_one_first_turn_then_binding_releases_the_queue() {
             Some("second-client".into()),
         )
         .unwrap();
+    let third = fixture
+        .service
+        .start_chat_send(&tab, "third turn".into(), None, Some("third-client".into()))
+        .unwrap();
     await_owner_idle(&fixture, &tab);
     fixture.service.drain_user_owner(&tab).unwrap();
     assert!(matches!(
         writes_rx.try_recv(),
         Err(mpsc::TryRecvError::Empty)
     ));
-    assert!(fixture
+    let parked = fixture
         .service
         .pending_delivery_payloads
         .user_sends
         .records(&tab)
-        .unwrap()
-        .iter()
-        .any(|record| record.send_id == second.send_id));
+        .unwrap();
+    assert_eq!(parked.len(), 2);
+    assert_eq!(parked[0].send_id, second.send_id);
+    assert_eq!(parked[1].send_id, third.send_id);
 
     let (pty_id, binding_nonce) = {
         let mut mux = fixture.service.mux.write();
@@ -104,6 +122,10 @@ fn lazy_composer_admits_one_first_turn_then_binding_releases_the_queue() {
         writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
         (second.send_id.clone(), "second turn".into())
     );
+    assert_eq!(
+        writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+        (third.send_id.clone(), "third turn".into())
+    );
     assert!(matches!(
         writes_rx.try_recv(),
         Err(mpsc::TryRecvError::Empty)
@@ -111,6 +133,16 @@ fn lazy_composer_admits_one_first_turn_then_binding_releases_the_queue() {
     assert_eq!(
         fixture.service.mux.read().get_tab(&tab).unwrap().boot_stage,
         Some(codeterm_types::pty::BootStage::AgentReady)
+    );
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&first.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Unknown,
+        "binding never replays the uncertain first turn"
     );
 }
 
