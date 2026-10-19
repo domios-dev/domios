@@ -207,6 +207,7 @@ impl NativeHostClientSlot {
         client.diagnostics_snapshot()
     }
 
+    #[cfg(windows)]
     pub(crate) fn set_diagnostics_port_preflight(&self, port: u16, available: bool) {
         if let Some(client) = self.0.read().as_ref() {
             client.diagnostics.set_port_preflight(port, available);
