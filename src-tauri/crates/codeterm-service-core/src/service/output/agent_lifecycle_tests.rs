@@ -169,9 +169,10 @@ fn restore_live_planner_fixture(
 
 fn assert_live_planner_identity(tab: &crate::multiplexer::types::Tab) {
     assert_planner_session_identity(tab);
-    assert!(tab.agent_state.as_ref().is_some_and(|state| {
-        matches!(state.state, TimelineState::Working | TimelineState::Idle)
-    }));
+    assert!(tab
+        .agent_state
+        .as_ref()
+        .is_some_and(|state| { matches!(state.state, TimelineState::Working) }));
 }
 
 fn assert_planner_session_identity(tab: &crate::multiplexer::types::Tab) {
