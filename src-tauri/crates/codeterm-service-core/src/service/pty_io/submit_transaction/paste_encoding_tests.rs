@@ -132,7 +132,7 @@ fn pasted_tail_is_a_second_bracketed_paste_in_the_same_write_only_after_a_bracke
     );
 
     for (live_mode, capability) in [
-        (Some(false), PasteEncodingCapability::MultilineTui),
+        (Some(false), PasteEncodingCapability::LiveModeOnly),
         (Some(true), PasteEncodingCapability::Unsupported),
         (Some(true), PasteEncodingCapability::TaggedBlock),
     ] {
