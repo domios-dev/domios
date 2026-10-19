@@ -180,7 +180,15 @@ fn loss_from_task(plan: &Plan, task: &Task, tab_id: &str, cause: WorkerLossCause
                 replacement.id, replacement.executor_tab_id
             )
         })
-        .unwrap_or_else(|| recovery_command(&plan.id, &task.id, attempt_id.as_deref()));
+        .unwrap_or_else(|| {
+            recovery_command(
+                &plan.id,
+                &task.id,
+                task.execution_attempts
+                    .last()
+                    .map(|latest| latest.id.as_str()),
+            )
+        });
     WorkerLoss {
         plan_id: plan.id.clone(),
         task_id: task.id.clone(),
@@ -325,6 +333,7 @@ impl ServiceContext {
     pub(crate) fn report_worker_losses(&self, losses: Vec<WorkerLoss>) {
         let mut routed = Vec::new();
         for loss in losses {
+            let loss = self.refresh_worker_loss_recovery(loss);
             if !claim_report(&loss) {
                 continue;
             }
@@ -347,5 +356,15 @@ impl ServiceContext {
             self.events.publish_generic(WORKER_LOST_EVENT, payload);
         }
         self.alert_withheld_worker_losses_if_opened(&routed);
+    }
+
+    fn refresh_worker_loss_recovery(&self, mut loss: WorkerLoss) -> WorkerLoss {
+        if let Some(plan) = self.plan_store.get(&loss.plan_id) {
+            if let Some(task) = plan.tasks.iter().find(|task| task.id == loss.task_id) {
+                loss.recovery =
+                    loss_from_task(&plan, task, &loss.worker_tab_id, loss.cause).recovery;
+            }
+        }
+        loss
     }
 }
