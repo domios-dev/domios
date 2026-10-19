@@ -8,6 +8,24 @@ const release = workflow('release');
 const macos = workflow('release-macos-build');
 const linuxArm64 = workflow('release-linux-arm64');
 
+test('dry-run consolidated manifests depend on all six builds and use only private CI transport', () => {
+  const caller = release.jobs['dry-run-manifest'];
+  assert.equal(caller.if, "${{ needs.prepare.outputs.dry_run == 'true' }}");
+  for (const job of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64', 'quick-checks', 'tests']) {
+    assert.ok(caller.needs.includes(job));
+  }
+  const local = workflow('release-manifest-dry-run');
+  assert.deepEqual(local.permissions, { contents: 'read' });
+  const text = readFileSync(new URL('../../.github/workflows/release-manifest-dry-run.yml', import.meta.url), 'utf8');
+  assert.doesNotMatch(text, /gh release|git (?:push|tag)|PACKAGE_REPOS_TOKEN|GH_RELEASE_TOKEN/);
+  assert.match(text, /release-dry-run-manifest\.mjs aggregate/);
+  for (const name of ['release-linux', 'release-linux-arm64', 'release-windows', 'release-macos-build']) {
+    const step = workflow(name).jobs.build.steps.find(step => step.name === 'Retain private dry-run updater evidence');
+    assert.equal(step.if, '${{ inputs.dry_run }}');
+    assert.match(step.run, /release-dry-run-manifest\.mjs capture/);
+  }
+});
+
 test('Windows finalization reacquires the stable gateway mapping without compiling', () => {
   const step = workflow('release-windows').jobs.build.steps.find(step => step.name === 'Produce shared headless stage and package');
   assert.match(step.run, /build\.ps1 release-finalize/);

@@ -186,6 +186,12 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_ref }}
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART"
 
+      - name: Retain private dry-run updater evidence
+        if: ${{ inputs.dry_run }}
+        run: >-
+          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID"
+          "$ASSET_SCOPE" "$ART" "$ART" "$RUNNER_TEMP/dry-run-$ASSET_SCOPE"
+
       - name: Verify and publish platform assets and updater fragment
         if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release macOS') && !inputs.dry_run }}
         env:
