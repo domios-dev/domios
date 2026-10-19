@@ -7,13 +7,14 @@ pub const WATCHER: &str = "watcher";
 pub const WORKER: &str = "worker";
 pub const QA: &str = "qa";
 pub const RELEASE_MANAGER: &str = "release_manager";
+pub const REVIEWER: &str = "reviewer";
 /// Manager-kind leaf that authors the essence map. It is non-anchoring and
 /// carries no spawn, plan, release or team-staffing authority.
 pub const CARTOGRAPHER: &str = "cartographer";
 
 // Embedded in the binary and non-overridable: a disk overlay able to rewrite
 // these rows could mint a Team-anchoring, plan-owning agent.
-static BUILTINS: [RoleKindDescriptor; 8] = [
+static BUILTINS: [RoleKindDescriptor; 9] = [
     RoleKindDescriptor::anchoring(ORCHESTRATOR, "Orchestrator"),
     RoleKindDescriptor::anchoring(GENERAL_AGENT, "General Agent"),
     RoleKindDescriptor::managing_leaf(PLANNER, "Planner"),
@@ -21,6 +22,7 @@ static BUILTINS: [RoleKindDescriptor; 8] = [
     RoleKindDescriptor::leaf(WORKER, "Worker"),
     RoleKindDescriptor::taskless_worker(QA, "QA"),
     RoleKindDescriptor::taskless_worker(RELEASE_MANAGER, "Release Manager"),
+    RoleKindDescriptor::read_only_taskless_worker(REVIEWER, "Reviewer"),
     RoleKindDescriptor::managing_leaf_withheld(CARTOGRAPHER, "Cartographer"),
 ];
 

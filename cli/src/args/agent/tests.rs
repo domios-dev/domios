@@ -494,6 +494,36 @@ fn taskless_worker_kind_cli_contract_needs_no_plan_task() {
         }
         _ => panic!("expected agent spawn"),
     }
+
+    let action = parse_spawn(&[
+        "codex",
+        "--role",
+        "Worker",
+        "--kind",
+        "reviewer",
+        "--parent-tab",
+        "parent_tab",
+        "--task",
+        "Review the exact diff named here",
+    ])
+    .expect("task-less reviewer Worker spawn parses");
+    match action {
+        AgentAction::Spawn {
+            kind,
+            task,
+            plan_task,
+            bound_task,
+            execution_intent,
+            ..
+        } => {
+            assert_eq!(kind.as_deref(), Some("reviewer"));
+            assert_eq!(task.as_deref(), Some("Review the exact diff named here"));
+            assert!(plan_task.is_none());
+            assert!(bound_task.is_none());
+            assert!(execution_intent.is_none());
+        }
+        _ => panic!("expected agent spawn"),
+    }
 }
 
 /// The reported defect: clap demanded `--plan-task` for any
