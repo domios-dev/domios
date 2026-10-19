@@ -40,6 +40,19 @@ on:
       - 'essences/**'
       - 'evals/**'
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact source commit SHA
+        required: true
+        type: string
+      phase:
+        type: choice
+        default: fast
+        options: [fast]
+      scope:
+        type: choice
+        default: full
+        options: [full, frontend]
   # Release CI through workflow_call and manual dispatch run the full matrix.
 
 # A branch is tested through its pull request, never through its own pushes:

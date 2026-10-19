@@ -18,6 +18,27 @@ name: Release Windows platforms
 # encrypted — it evaluates to empty when unset).
 
 "on":
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Package version (vX.Y.Z)
+        required: true
+        type: string
+      source_ref:
+        description: Exact source commit SHA
+        required: true
+        type: string
+      arch:
+        type: choice
+        required: true
+        options: [x64, arm64]
+      dry_run:
+        description: Direct dispatch never publishes
+        type: boolean
+        default: true
+      mirror:
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       tag:
@@ -172,7 +193,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Clear incomplete release uploads for retry
-        if: ${{ !inputs.dry_run }}
+        if: ${{ github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
@@ -354,7 +375,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Publish per-platform updater fragment
-        if: ${{ !inputs.dry_run }}
+        if: ${{ github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -403,7 +424,7 @@ jobs:
 
       # Mirror the updater bundle so the caller can publish the manifest after all builds pass.
       - name: Mirror to public release repo
-        if: ${{ inputs.mirror && !inputs.dry_run }}
+        if: ${{ inputs.mirror && github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -423,7 +444,7 @@ jobs:
           gh release upload "$env:TAG" "$bundle" --clobber --repo "$env:MIRROR_REPO"
 
       - name: Publish and read back headless source assets
-        if: ${{ !inputs.dry_run }}
+        if: ${{ github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -432,7 +453,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Publish and read back headless mirror assets
-        if: ${{ inputs.mirror && !inputs.dry_run }}
+        if: ${{ inputs.mirror && github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
