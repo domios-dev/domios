@@ -4,8 +4,10 @@ import type { BrandPose } from "./motion";
 
 export type BrandMotion = "static" | "load";
 
-export function useBrandMotion(motion: BrandMotion) {
+export function useBrandMotion(motion: BrandMotion, onRelease?: (timestamp: number) => void) {
   const ref = useRef<SVGSVGElement>(null);
+  const onReleaseRef = useRef(onRelease);
+  onReleaseRef.current = onRelease;
 
   useLayoutEffect(() => {
     const svg = ref.current;
@@ -55,6 +57,7 @@ export function useBrandMotion(motion: BrandMotion) {
         if (seconds >= .32) {
           phase = "release";
           phaseStarted = timestamp;
+          onReleaseRef.current?.(timestamp);
         }
       } else if (phase === "release") {
         const pose = release(seconds, releaseAmount);

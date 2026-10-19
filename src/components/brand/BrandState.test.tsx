@@ -14,14 +14,15 @@ function parsed(markup: string) {
   return host;
 }
 
-test("loading is announced and includes the threshold motion and dots", () => {
+test("loading is announced and includes the threshold motion and an animated matrix canvas", () => {
   const host = parsed(renderToStaticMarkup(<BrandState model={brandStateModel({ loading: true, label: "Restoring workspace" })} />));
   const status = host.querySelector('[role="status"]');
   assert.ok(status);
   assert.equal(status.getAttribute("aria-live"), "polite");
   assert.equal(status.getAttribute("aria-busy"), "true");
   assert.equal(status.getAttribute("aria-label"), "Restoring workspace");
-  assert.equal(host.querySelectorAll(".brand-state-dots span").length, 7);
+  assert.equal(host.querySelector(".brand-state-matrix")?.getAttribute("aria-hidden"), "true");
+  assert.equal(host.querySelector(".brand-state-matrix")?.getAttribute("data-wave-enabled"), "true");
   assert.equal(host.querySelector(".brand-mark path")?.getAttribute("d"), "M8 8H32C46 8 56 18 56 32S46 56 32 56H24L40 40V24H24V40L8 56Z");
 });
 
@@ -36,16 +37,17 @@ test("error is a static alert and preserves its recovery action", () => {
   assert.equal(alert.getAttribute("aria-live"), "assertive");
   assert.equal(alert.querySelector("h2")?.textContent, "Could not start");
   assert.equal(alert.querySelector("p")?.textContent, "Retry the session.");
-  assert.equal(host.querySelector(".brand-state-dots"), null);
+  assert.equal(alert.querySelector(".brand-state-matrix")?.getAttribute("data-wave-enabled"), "false");
   assert.equal(host.querySelector("button")?.textContent, "Retry");
 });
 
-test("reduced motion keeps loading static and omits the dot pattern", () => {
+test("reduced motion keeps the mark and faint matrix static without waves", () => {
   const original = globalThis.matchMedia;
   globalThis.matchMedia = (() => ({ matches: true, addEventListener() {}, removeEventListener() {} })) as unknown as typeof matchMedia;
   try {
     const host = parsed(renderToStaticMarkup(<BrandState model={brandStateModel({ loading: true, label: "Loading" })} />));
-    assert.equal(host.querySelector(".brand-state-dots"), null);
+    assert.equal(host.querySelector(".brand-state-matrix")?.getAttribute("data-wave-enabled"), "false");
+    assert.equal(host.querySelector(".brand-state-matrix")?.getAttribute("aria-hidden"), "true");
     assert.equal(host.querySelector("[data-brand-state='open']"), null);
   } finally {
     globalThis.matchMedia = original;
@@ -64,6 +66,7 @@ test("disconnect status blocks stale content without trapping focus", () => {
   assert.ok(status);
   assert.equal(status.getAttribute("aria-live"), "polite");
   assert.equal(status.textContent?.replace(/\s+/g, " ").trim(), "Reconnecting…");
+  assert.equal(host.querySelector(".brand-state-matrix"), null);
   assert.equal(host.querySelector("[aria-modal='true']"), null);
   assert.equal(status.querySelectorAll("button, a, input, select, textarea, [tabindex]").length, 0);
   const tab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
