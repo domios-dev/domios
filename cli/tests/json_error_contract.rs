@@ -253,6 +253,12 @@ fn stub_reply(request: &Value) -> Value {
     let method = request["method"].as_str().unwrap_or_default();
     match method {
         "system.identify" => json!({ "result": { "ok": true } }),
+        "workspace.close" => json!({
+            "result": {
+                "ok": false,
+                "error": "[TEAM CLOSE REFUSED] caller not member"
+            }
+        }),
         "api.request" => {
             let params = &request["params"];
             let verb = params["method"].as_str().unwrap_or_default();
@@ -398,6 +404,25 @@ fn not_found_maps_to_code_end_to_end() {
         }
     }
     assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+#[test]
+fn refused_workspace_close_keeps_its_json_body_and_exits_nonzero() {
+    let env = CliEnv::new(Some(start_stub()));
+    let output = run_cli(
+        &env,
+        &json_args(&["workspace", "close", "workspace-refused", "--force"]),
+    );
+
+    assert!(!output.status.success(), "a refused close must fail");
+    assert_eq!(
+        stdout_value(&output).expect("refusal is one JSON value"),
+        json!({
+            "ok": false,
+            "error": "[TEAM CLOSE REFUSED] caller not member"
+        })
+    );
+    assert!(output.stderr.is_empty());
 }
 
 #[test]
