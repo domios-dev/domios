@@ -1974,7 +1974,11 @@ run_outside_tab_job() {
     return
   fi
   local log status=0 line="" arg
-  for arg in "$@"; do line+="\"$arg\" "; done
+  # MSYS converts POSIX paths only for programs bash starts itself, not inside a raw command line.
+  for arg in "$@"; do
+    [[ "$arg" == /* ]] && arg="$(cygpath -w "$arg")"
+    line+="\"$arg\" "
+  done
   log="$(mktemp)"
   BREAKAWAY_COMMAND_LINE="$line" powershell.exe -NoProfile -ExecutionPolicy Bypass \
     -File "$(cygpath -w scripts/windows-breakaway-run.ps1)" -Log "$(cygpath -w "$log")" || status=$?
@@ -2035,7 +2039,11 @@ swap_dev_server_keep_window() {
   record_dev_target "$(tauri_debug_dir)"
   complete_build_gateway_before_handoff
   export CODETERM_CLI_PATH="$(dev_cli_path)"
-  node scripts/dev-server.mjs start "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT"
+  # The retained window relaunches its server on detachment, so a refused start may only mean it won the race.
+  if ! node scripts/dev-server.mjs start "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT"; then
+    node scripts/dev-server.mjs inspect "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$receipt"
+    echo "The retained window already relaunched the recorded DEV server build."
+  fi
   listener="$(dev_listener_pid)"
   echo "DEV server swapped; native client/window retained."
   if [ -n "$DEV_NOTIFY_TAB" ]; then

@@ -28,10 +28,10 @@ fn bundled_cli_resource_names() -> Vec<String> {
     #[cfg(not(windows))]
     let target_name: Option<&str> = None;
 
-    target_name
-        .into_iter()
-        .map(str::to_string)
-        .chain(std::iter::once(format!("cli/{}", cli_bin_name())))
+    // The release stage ships only the plain name; an upgrade can leave the old triple-named
+    // copy behind, and preferring it pins a stale CLI the server refuses to run.
+    std::iter::once(format!("cli/{}", cli_bin_name()))
+        .chain(target_name.map(str::to_string))
         .collect()
 }
 
@@ -308,6 +308,12 @@ mod tests {
         fn add_dir(&self, dir: &std::path::Path) {
             self.added.lock().unwrap().push(dir.to_path_buf());
         }
+    }
+
+    #[test]
+    fn the_staged_plain_cli_name_wins_over_a_leftover_triple_named_copy() {
+        let names = super::bundled_cli_resource_names();
+        assert_eq!(names[0], format!("cli/{}", super::cli_bin_name()));
     }
 
     #[test]

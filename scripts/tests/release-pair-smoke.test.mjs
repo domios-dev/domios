@@ -1,9 +1,24 @@
 import { strict as assert } from 'node:assert';
 import test from 'node:test';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { earlyExitMessage, executionPlan, parseApiToken, recordSmokeReceipt, refusalCapture, resolveExecution, targetCommand, validateReady } from '../release-pair-smoke.mjs';
+import { earlyExitMessage, executionPlan, parseApiToken, recordSmokeReceipt, refusalCapture, reportServerLogTail, resolveExecution, targetCommand, validateReady } from '../release-pair-smoke.mjs';
+
+test('a failed smoke reports the isolated server log tail, or that none was written', async () => {
+  const data = await mkdtemp(path.join(os.tmpdir(), 'pair-smoke-log-'));
+  try {
+    const written = [];
+    await reportServerLogTail(data, { write: text => written.push(text) });
+    assert.match(written[0], /wrote no log/);
+    await mkdir(path.join(data, 'logs'));
+    await writeFile(path.join(data, 'logs', 'codeterm.log'), ['line-a', 'line-b', 'line-c', ''].join('\n'));
+    await reportServerLogTail(data, { lines: 2, write: text => written.push(text) });
+    assert.equal(written[1], 'isolated server log tail:\nline-b\nline-c\n');
+  } finally {
+    await rm(data, { recursive: true, force: true });
+  }
+});
 
 test('refusal diagnostics accept only three bounded product lines across stream chunks', () => {
   const capture = refusalCapture();
