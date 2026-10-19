@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { readFileSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, realpathSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateReady } from '../dev-server.mjs';
+import { validateReady, devServerIdentity } from '../dev-server.mjs';
 const { changeKind, reloadPlan, cliSourceRoots } = createRequire(import.meta.url)('../dev-reload-inputs.cjs');
 const repo = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -14,7 +14,7 @@ test('client and build changes refuse a half reload, including deletions and pre
   for (const file of ['src-tauri/src/host_ports/native_client.rs', 'src-tauri/src/startup/frontend_shell.rs',
     'src-tauri/tauri.conf.json', 'src-tauri/tauri.dev.conf.json', 'src-tauri/Cargo.toml',
     'src-tauri/build.rs', 'src-tauri/crates/codeterm-host-runtime/src/lib.rs',
-    'src-tauri/crates/codeterm-types/src/server_bootstrap.rs', 'build.sh', 'scripts/dev-server.mjs']) {
+    'src-tauri/crates/codeterm-types/src/server_bootstrap.rs', 'scripts/dev-build-configuration.mjs']) {
     assert.equal(changeKind(file), 'client');
     for (const [before, after] of [[{[file]: 'dirty-at-build'}, {[file]: 'edited'}], [{[file]: 'old'}, {}], [{}, {[file]: 'added'}]]) {
       assert.throws(() => reloadPlan(before, after, []), /run \.\/build.sh dev instead/);
@@ -29,6 +29,11 @@ test('server-only changes retain CLI; frontend changes stay with the watcher', (
   assert.deepEqual(reloadPlan({[server]: 'old'}, {[server]: 'new'}, ['cli']), {changed: [server], cli: false});
   assert.equal(changeKind(frontend), 'frontend');
   assert.equal(reloadPlan({[frontend]: 'old'}, {[frontend]: 'new'}, ['cli']).cli, false);
+  for (const file of ['build.sh', 'scripts/dev-server.mjs', 'scripts/dev-server-bootstrap.ps1',
+    'scripts/dev-reload-inputs.cjs', 'scripts/server-artifact.mjs']) {
+    assert.equal(changeKind(file), 'server');
+    assert.equal(reloadPlan({[file]: 'old'}, {[file]: 'new'}, ['cli']).cli, false);
+  }
 });
 
 test('CLI closure includes transitive local dependencies and rebuilds on their source changes', () => {
@@ -43,13 +48,29 @@ test('CLI closure includes transitive local dependencies and rebuilds on their s
 });
 
 test('readiness binds the exact new build, process image, resources and selected instance port', () => {
-  const target = { identity: {data: '/data', config: '/data'}, executable: '/resources/domios-server', resources: '/resources', build: 'new', port: 7887 };
+  const target = { identity: {data: '/data', config: '/data/config.toml'}, executable: '/resources/domios-server', resources: '/resources', build: 'new', port: 7887 };
   const ready = { protocol: 2, api_version: 3, build: 'new', epoch: 'new-epoch', instance_id: 'instance',
     identity: target.identity, process: {pid: 42, created: '123', executable: target.executable}, resources: target.resources, api_address: '127.0.0.1:7887' };
   validateReady(ready, target);
-  for (const mutation of [{build: 'old'}, {protocol: 1}, {api_address: '127.0.0.1:7685'}, {identity: {data: '/foreign', config: '/data'}}, {epoch: ''}, {process: {...ready.process, executable: '/foreign'}}]) {
+  for (const mutation of [{build: 'old'}, {protocol: 1}, {api_address: '127.0.0.1:7685'}, {identity: {data: '/foreign', config: '/data/config.toml'}}, {identity: {data: '/data', config: '/data'}}, {epoch: ''}, {process: {...ready.process, executable: '/foreign'}}]) {
     assert.throws(() => validateReady({...ready, ...mutation}, target));
   }
+});
+
+test('bootstrap identity pins the config file, matching ResolvedInstancePaths rather than a config directory', () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'dev-server-identity-'));
+  try {
+    const config = path.join(directory, 'config.toml');
+    writeFileSync(config, 'opaque fixture config');
+    const identity = devServerIdentity(directory);
+    assert.deepEqual(identity, {
+      data: path.toNamespacedPath(realpathSync.native(directory)),
+      config: path.toNamespacedPath(realpathSync.native(config)),
+    });
+    assert.notEqual(identity.config, identity.data);
+    rmSync(config);
+    assert.throws(() => devServerIdentity(directory), /ENOENT/);
+  } finally { rmSync(directory, {recursive: true, force: true}); }
 });
 
 test('build verb never invokes whole-client cleanup, frontend build, or native compilation', () => {

@@ -3,8 +3,11 @@ const { existsSync, readFileSync } = require('node:fs');
 const path = require('node:path');
 
 const fullDev = 'Client/build inputs changed; run ./build.sh dev instead.';
+const serverToolInputs = new Set(['build.sh', 'scripts/dev-server.mjs', 'scripts/dev-server-bootstrap.ps1',
+  'scripts/dev-reload-inputs.cjs', 'scripts/server-artifact.mjs']);
 
 function changeKind(file) {
+  if (serverToolInputs.has(file)) return 'server';
   if (/^src-tauri\/crates\/(codeterm-host-runtime|codeterm-process-identity|codeterm-paths|codeterm-types|codeterm-build-info|codeterm-frontend-bundle)\//.test(file)) return 'client';
   if (/^(src\/|public\/)/.test(file)) return 'frontend';
   if (/^(src-tauri\/crates\/|cli\/|crates\/|plugins\/|skills\/)/.test(file)) return 'server';

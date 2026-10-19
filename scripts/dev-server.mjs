@@ -63,16 +63,23 @@ function attachRequest(ready, identity, operation = 'inspect') {
     challenge: randomUUID(), operation, expected: ready.process ? { process: ready.process, epoch: ready.epoch } : null };
 }
 
+export function devServerIdentity(data) {
+  return {
+    data: path.toNamespacedPath(realpathSync.native(data)),
+    config: path.toNamespacedPath(realpathSync.native(path.join(data, 'config.toml'))),
+  };
+}
+
 function selected(recordFile, data, port) {
   if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 7685) throw Error('Invalid DEV port');
   const record = JSON.parse(readFileSync(recordFile, 'utf8'));
   if (record.schema !== 3 || Number(record.instance.apiPort) !== port) throw Error('DEV provenance/port mismatch');
-  const directory = path.toNamespacedPath(realpathSync.native(data));
+  const identity = devServerIdentity(data);
   const executable = record.artifacts.server.path;
   const resources = record.artifacts.resources.path;
   const manifest = JSON.parse(readFileSync(record.artifacts.inventory.path, 'utf8'));
   if (manifest.bootstrap_protocol !== 2 || manifest.server_build !== record.buildSha) throw Error('DEV inventory/build mismatch');
-  return { record, identity: { data: directory, config: directory }, executable, resources, build: record.buildSha, port };
+  return { record, identity, executable, resources, build: record.buildSha, port };
 }
 
 async function inspect(target) {
