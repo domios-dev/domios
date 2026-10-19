@@ -287,7 +287,7 @@ pub(crate) async fn inspect_main_webview_diagnostics(
     #[cfg(windows)]
     let listener_pid = windows_listener::listener_process_id(port);
     #[cfg(not(windows))]
-    let listener_pid = None;
+    let listener_pid: Option<u32> = None;
     let Some(listener_pid) = listener_pid else {
         return unavailable();
     };
