@@ -415,34 +415,122 @@ fn current_attempt_other_plan_read_does_not_rebind_or_record_a_load() {
 }
 
 #[test]
-fn current_attempt_ack_keeps_announced_digest_when_skill_bytes_change() {
+fn current_attempt_skill_read_refreshes_manifest_after_post_dispatch_create_and_edit() {
     let caller = LiveCaller::new();
     let first = ack(&caller);
-    let before = caller
+    let first_manifest: Vec<PlanSkillManifestEntry> =
+        serde_json::from_value(first["plan_skill_manifest"].clone()).unwrap();
+    assert_eq!(first_manifest.len(), 1);
+    let plan = caller.svc.plan_store.get(&caller.plan_id).unwrap();
+    let plan_dir = plan_dir(plan_sidecar_root(&plan), &plan.status, &plan.id).unwrap();
+    let created = create_plan_skill(
+        &caller.svc.plan_store,
+        &caller.plan_id,
+        NewPlanSkill {
+            slug: "after-dispatch".into(),
+            title: Some("After dispatch".into()),
+            area: None,
+            check: None,
+            rationale: Some("created after worker ACK".into()),
+        },
+    )
+    .unwrap();
+    let skill_path = std::path::PathBuf::from(&created.skill_md);
+    let ledger_path = plan_dir.join("skills").join("ledger.jsonl");
+    let read_as_worker = |slug: &str| {
+        let mut params = caller.production_params();
+        params["slug"] = json!(slug);
+        params.as_object_mut().unwrap().remove("task_id");
+        params.as_object_mut().unwrap().remove("attempt_id");
+        caller.show(params).unwrap()
+    };
+    let append_keep_edit = |seq: u64| {
+        use std::io::Write;
+        let mut ledger = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&ledger_path)
+            .unwrap();
+        writeln!(
+            ledger,
+            "{}",
+            json!({
+                "seq": seq,
+                "kind": "skill",
+                "slug": created.slug,
+                "verdict": "keep",
+                "rationale": "body edited after worker ACK"
+            })
+        )
+        .unwrap();
+    };
+
+    let first_edit = "---\ntitle: After dispatch\ndescription: Created after dispatch.\n---\n\nfirst-edited-body\n";
+    std::fs::write(&skill_path, first_edit).unwrap();
+    append_keep_edit(created.ledger_seq + 1);
+
+    let first_read = read_as_worker("after-dispatch");
+    assert_eq!(first_read["skill"]["body"], first_edit);
+    assert_eq!(
+        first_read["skill"]["ledger"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["seq"]
+            .as_u64(),
+        Some(created.ledger_seq + 1)
+    );
+    let first_digest = format!("sha256:{:x}", sha2::Sha256::digest(first_edit.as_bytes()));
+    let after_first_read = caller
         .svc
         .plan_store
         .show_task(&caller.task_id)
         .unwrap()
         .task;
-    let plan = caller.svc.plan_store.get(&caller.plan_id).unwrap();
-    let path = plan_dir(plan_sidecar_root(&plan), &plan.status, &plan.id)
-        .unwrap()
-        .join("skills")
-        .join(CALLER_SKILL)
-        .join("SKILL.md");
-    std::fs::write(path, "changed-body-token").unwrap();
-    assert!(caller.show(caller.production_params()).is_err());
-    let replay = ack(&caller);
-    assert_eq!(replay["plan_skill_manifest"], first["plan_skill_manifest"]);
+    let attempt = after_first_read.execution_attempts.last().unwrap();
+    assert!(attempt
+        .plan_skill_manifest
+        .iter()
+        .any(|entry| { entry.slug == created.slug && entry.content_digest == first_digest }));
+    assert!(attempt
+        .loaded_plan_skills
+        .iter()
+        .any(|entry| { entry.slug == created.slug && entry.content_digest == first_digest }));
+    assert!(attempt
+        .plan_skill_manifest
+        .iter()
+        .any(|entry| entry.slug == CALLER_SKILL));
+
+    let second_edit = "---\ntitle: After dispatch\ndescription: Edited again after dispatch.\n---\n\nsecond-edited-body\n";
+    std::fs::write(&skill_path, second_edit).unwrap();
+    append_keep_edit(created.ledger_seq + 2);
+
+    let second_read = read_as_worker("after-dispatch");
+    assert_eq!(second_read["skill"]["body"], second_edit);
     assert_eq!(
-        caller
-            .svc
-            .plan_store
-            .show_task(&caller.task_id)
+        second_read["skill"]["ledger"]
+            .as_array()
             .unwrap()
-            .task,
-        before
+            .last()
+            .unwrap()["seq"]
+            .as_u64(),
+        Some(created.ledger_seq + 2)
     );
+    let second_digest = format!("sha256:{:x}", sha2::Sha256::digest(second_edit.as_bytes()));
+    let after_second_read = caller
+        .svc
+        .plan_store
+        .show_task(&caller.task_id)
+        .unwrap()
+        .task;
+    let attempt = after_second_read.execution_attempts.last().unwrap();
+    assert!(attempt
+        .plan_skill_manifest
+        .iter()
+        .any(|entry| { entry.slug == created.slug && entry.content_digest == second_digest }));
+    assert!(attempt
+        .loaded_plan_skills
+        .iter()
+        .any(|entry| { entry.slug == created.slug && entry.content_digest == second_digest }));
 }
 
 #[test]
