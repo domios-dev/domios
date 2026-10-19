@@ -34,6 +34,9 @@ export function resolveDevNotifyTarget({ explicitTab, shellTab, parentHint, tabM
   }
 
   if (remotePeer && remoteTab) return { kind: "send", tab: remoteTab, mesh: remotePeer };
+  // An agent runs its own checks and reads its own receipts; the parent route below is for
+  // utility shells, whose parent is the agent that opened them.
+  if (shell && nonEmpty(current?.agent_type)) return { kind: "send", tab: shell, mesh: "" };
 
   const parent = nonEmpty(current?.parent_tab_id);
   if (parent) return { kind: "send", tab: parent, mesh: "" };
