@@ -38,7 +38,7 @@ for (const boot_stage of ["agent_launching", "launch_binding_unconfirmed"] as co
   assert.ok(chat.querySelector('[role="progressbar"][aria-valuetext]'));
   assert.ok(chat.querySelector('[role="status"][aria-label]'));
   assertLoading(parsed(<TabBootOverlay view={tabBootOverlayView(starting)} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />), mark.label);
-  assertLoading(parsed(<AgentStateIndicator tab={starting} activity={tabActivity(starting, "Working")} />), mark.label);
+  assert.equal(parsed(<AgentStateIndicator tab={starting} activity={tabActivity(starting, "Working")} />).querySelector('[data-testid="tab-loading-mark"]'), null, "the composer row never shifts the model capsule with a starting mark");
 }
 assertLoading(parsed(<TabBootOverlay view={{ kind: "none" }} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />));
 const lazyComposerReady: Tab = {
