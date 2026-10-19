@@ -3,7 +3,24 @@ import test from 'node:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { earlyExitMessage, executionPlan, parseApiToken, recordSmokeReceipt, resolveExecution, targetCommand, validateReady } from '../release-pair-smoke.mjs';
+import { earlyExitMessage, executionPlan, parseApiToken, recordSmokeReceipt, refusalCapture, resolveExecution, targetCommand, validateReady } from '../release-pair-smoke.mjs';
+
+test('refusal diagnostics accept only three bounded product lines across stream chunks', () => {
+  const capture = refusalCapture();
+  capture.write(Buffer.from('unrelated secret output\n domios-server refused: not a prefix\ndomios-server ref'));
+  capture.write(Buffer.from('used: first\r\ndomios-server refused: ' + 'x'.repeat(10000)));
+  capture.write(Buffer.from('\ndomios-server refused: third\ndomios-server refused: fourth\n'));
+  capture.finish();
+  assert.deepEqual(capture.lines(), ['domios-server refused: first',
+    ('domios-server refused: ' + 'x'.repeat(10000)).slice(0, 300), 'domios-server refused: third']);
+});
+
+test('refusal diagnostics preserve an unterminated product line but discard other stderr', () => {
+  const capture = refusalCapture();
+  capture.write(Buffer.from('token=never-forward-this\ndomios-server refused: launch failed'));
+  capture.finish();
+  assert.deepEqual(capture.lines(), ['domios-server refused: launch failed']);
+});
 
 test('early server exit distinguishes refusal from OS termination without runtime output', () => {
   assert.equal(earlyExitMessage(1, null), 'isolated server exited before READY (code=1, signal=none)');
