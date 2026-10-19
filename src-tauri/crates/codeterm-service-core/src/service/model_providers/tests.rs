@@ -3,6 +3,8 @@ use crate::secrets::{mock::MockStore, SecretStore};
 use codeterm_plugin::model_providers::{ConfigUpdate, EndpointKind};
 use std::path::PathBuf;
 
+mod endpoint_routing;
+
 struct Adapter {
     path: PathBuf,
     inner: Arc<dyn ModelProviderConfig>,
