@@ -610,17 +610,11 @@ fn install_leaf(
         .as_ref()
         .map(|identity| identity.restorable_launch.clone())
         .unwrap_or_default();
-    let mut reasoning_effort_identity = restored_identity
-        .map(|identity| identity.reasoning_effort.clone())
-        .unwrap_or_default();
-    if !restorable_launch.is_empty() {
-        reasoning_effort_identity.requested = restorable_launch.requested_reasoning_effort.clone();
-        reasoning_effort_identity.resolved = restorable_launch.resolved_reasoning_effort.clone();
-        reasoning_effort_identity.actual = None;
-        reasoning_effort_identity.actual_source = (reasoning_effort_identity.requested.is_some()
-            || reasoning_effort_identity.resolved.is_some())
-        .then(|| "provider-default-unverified".to_string());
-    }
+    let reasoning_effort_identity = restorable_launch.restored_reasoning_effort_identity(
+        restored_identity
+            .map(|identity| identity.reasoning_effort.clone())
+            .unwrap_or_default(),
+    );
     // Provider identity is committed state, never read off a title.
     let restored_agent_type = agent_type.clone();
     let scrollback_seed_pending = restored_agent_type.is_none()

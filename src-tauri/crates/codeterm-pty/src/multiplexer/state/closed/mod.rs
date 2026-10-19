@@ -476,7 +476,12 @@ impl MultiplexerState {
             tab.role_profile = record.role_profile.clone();
             tab.worker_id = record.worker_id.clone();
             tab.agent_session_model = record.model.clone();
+            tab.agent_runtime_config = record.agent_runtime_config.clone();
             tab.restorable_launch = record.restorable_launch.clone();
+            tab.structured_runtime_mode = record.restorable_launch.structured_runtime_mode.clone();
+            tab.reasoning_effort_identity = record
+                .restorable_launch
+                .restored_reasoning_effort_identity(Default::default());
             tab.close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
                 exact_session: record.agent_type.is_some(),
                 session_cwd: record.cwd.clone(),

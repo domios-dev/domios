@@ -156,6 +156,8 @@ pub struct ClosedTab {
     pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub agent_runtime_config: Option<serde_json::Value>,
     #[serde(default)]
     pub restorable_launch: RestorableLaunchParameters,
     #[serde(default)]
@@ -191,6 +193,7 @@ impl From<&Tab> for ClosedTab {
                 .agent_session_model
                 .clone()
                 .or_else(|| tab.agent_provider_resolved_model.clone()),
+            agent_runtime_config: tab.agent_runtime_config.clone(),
             restorable_launch: tab.restorable_launch.clone(),
             chat_view: tab.chat_view,
             closed_at: std::time::SystemTime::now()

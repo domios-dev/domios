@@ -63,6 +63,20 @@ pub struct RestorableLaunchParameters {
 }
 
 impl RestorableLaunchParameters {
+    pub fn restored_reasoning_effort_identity(
+        &self,
+        mut identity: ReasoningEffortIdentity,
+    ) -> ReasoningEffortIdentity {
+        if !self.is_empty() {
+            identity.requested = self.requested_reasoning_effort.clone();
+            identity.resolved = self.resolved_reasoning_effort.clone();
+            identity.actual = None;
+            identity.actual_source = (identity.requested.is_some() || identity.resolved.is_some())
+                .then(|| "provider-default-unverified".to_string());
+        }
+        identity
+    }
+
     pub fn is_empty(&self) -> bool {
         self.execution_mode.is_none()
             && self.execution_sandbox.is_none()
