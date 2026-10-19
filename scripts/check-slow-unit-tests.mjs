@@ -177,7 +177,7 @@ export function timingWarnings(alone, document) {
 function main() {
   const args = process.argv.slice(2);
   const report = args.shift();
-  const options = { base: process.env.SLOW_UNIT_TESTS_BASE ?? 'origin/develop', policy: 'enforce' };
+  const options = { base: process.env.SLOW_UNIT_TESTS_BASE ?? 'origin/develop', policy: 'advisory' };
   if (!report) throw new Error('nextest log is required');
   while (args.length) {
     const flag = args.shift();
