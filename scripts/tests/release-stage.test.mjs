@@ -1,15 +1,35 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fullComponentManifest, headlessComponentManifest, prepareNativeBuildResources,
-  verifyFinalPair, verifyPreparedFrontend } from '../release-stage.mjs';
+  verifyFinalPair, verifyPreparedFrontend, verifyServerSource } from '../release-stage.mjs';
 
 const sourceSha = 'a'.repeat(40);
 const serverSha256 = 'b'.repeat(64);
 const clientSha256 = 'c'.repeat(64);
+
+test('server source identity resolves checkout aliases but rejects another source or duplicate build', async () => {
+  const repo = await mkdtemp(path.join(os.tmpdir(), 'release-source-'));
+  try {
+    const actual = path.join(repo, 'actual');
+    const alias = path.join(repo, 'alias');
+    await mkdir(actual);
+    await writeFile(path.join(actual, 'main.rs'), 'fixture');
+    await writeFile(path.join(actual, 'other.rs'), 'fixture');
+    await symlink(actual, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    const artifact = { reason: 'compiler-artifact', target: { name: 'domios-server', kind: ['bin'],
+      src_path: path.join(alias, 'main.rs') }, executable: 'fixture-server', profile: { test: false } };
+    assert.equal(verifyServerSource([artifact], path.join(actual, 'main.rs')), artifact);
+    assert.throws(() => verifyServerSource([artifact], path.join(actual, 'other.rs')), /source differs/);
+    assert.throws(() => verifyServerSource([artifact, artifact], path.join(actual, 'main.rs')), /found 2/);
+    assert.throws(() => verifyServerSource([{ ...artifact, profile: { test: true } }], path.join(actual, 'main.rs')), /found 0/);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
 
 test('native compile sees the freshly built frontend before final pair staging on every platform', async () => {
   for (const target of ['x86_64-pc-windows-msvc', 'x86_64-unknown-linux-gnu', 'aarch64-apple-darwin']) {
