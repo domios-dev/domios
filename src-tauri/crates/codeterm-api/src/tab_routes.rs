@@ -42,13 +42,28 @@ pub async fn list_tabs(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let focused_workspace = !query.all_workspaces && query.focused_workspace;
+    let requested_workspace = query
+        .workspace_id
+        .as_deref()
+        .map(|selector| {
+            let snapshot = state.svc.mux.read().snapshot();
+            codeterm_service_core::dispatch::resolve_workspace_selector(&snapshot, selector)
+        })
+        .transpose()
+        .map_err(|error| {
+            if error.starts_with("Ambiguous workspace id prefix") {
+                (StatusCode::BAD_REQUEST, "Ambiguous workspace id prefix")
+            } else {
+                (StatusCode::NOT_FOUND, "Workspace not found")
+            }
+        })?;
     let caller_tab_id = if focused_workspace {
         caller_tab_header(&headers)
     } else {
         None
     };
     let command = codeterm_service_core::dispatch::Command::TabSummary {
-        workspace_id: query.workspace_id,
+        workspace_id: requested_workspace.clone(),
         caller_tab_id,
         focused_workspace,
         agents_only: query.agents,
@@ -86,6 +101,7 @@ pub async fn list_tabs(
             &state.mesh,
             state.svc.remote_workers.as_ref(),
             local,
+            requested_workspace.as_deref(),
         )
         .await,
     )))
