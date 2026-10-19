@@ -1019,13 +1019,8 @@ mod tests {
     }
 
     fn futures_poll_ready<T>(mut future: Pin<Box<dyn Future<Output = T> + Send + '_>>) -> T {
-        use std::task::{Context, Poll, Wake, Waker};
-        struct ReadyWake;
-        impl Wake for ReadyWake {
-            fn wake(self: std::sync::Arc<Self>) {}
-        }
-        let waker = Waker::from(std::sync::Arc::new(ReadyWake));
-        let mut context = Context::from_waker(&waker);
+        use std::task::{Context, Poll, Waker};
+        let mut context = Context::from_waker(Waker::noop());
         match future.as_mut().poll(&mut context) {
             Poll::Ready(value) => value,
             Poll::Pending => panic!("the test port resolves synchronously"),
