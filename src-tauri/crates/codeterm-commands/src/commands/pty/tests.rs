@@ -386,7 +386,7 @@ mod spawn_pty_restore_tests {
         );
         assert!(!tab.auto_approve);
         assert!(
-            codeterm_service_core::service::launch_waits_for_first_turn_binding(
+            !codeterm_service_core::service::launch_waits_for_first_turn_binding(
                 &fixture.service,
                 &tab_id,
                 PROVIDER,

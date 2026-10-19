@@ -268,36 +268,12 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
             2,
         )
         .unwrap();
-    let source_draft = codeterm_service_core::service::plan::task_attempts::TaskRespawnDraft {
-        plan_id: plan.id.clone(),
-        task_id: task_id.clone(),
-        execution_intent: codeterm_service_core::plan::ExecutionIntent::Mutating,
-        attempt_id: "attempt-source".into(),
-        source_attempt: Default::default(),
-        provider: "claude".into(),
-        planned_model: None,
-        model: Some("sonnet".into()),
-        reasoning_effort: Some("high".into()),
-        parent_tab_id: None,
-        workspace_id: Some("ws-rest".into()),
-        title: None,
-        explicit_title: false,
-        cwd: dir.path().display().to_string(),
-        task_prompt: "prompt".into(),
-        report_command: "report".into(),
-        plan_skill_manifest: vec![],
-        authorized_gates: None,
-    };
-    let created = store
-        .record_task_respawn_attempt(
-            &plan.id,
-            &task_id,
-            "source-tab",
-            &source_draft,
-            Some("worker"),
-            3,
-        )
+    store
+        .assign_task(&plan.id, &task_id, "source-tab", None, 3)
         .unwrap();
+    let source_attempt_id = store.list_task_attempts(&plan.id, &task_id).unwrap()[0]
+        .attempt_id
+        .clone();
     let ws = mux
         .write()
         .create_workspace("REST".into(), Some(dir.path().display().to_string()))
@@ -309,7 +285,7 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
             &plan.id,
             &task_id,
             codeterm_service_core::service::plan::task_attempts::TaskRespawnRequest {
-                attempt_id: created.attempt.id.clone(),
+                attempt_id: source_attempt_id,
                 provider: None,
                 model: None,
                 parent_tab_id: None,
