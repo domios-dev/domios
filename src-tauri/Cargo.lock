@@ -1128,7 +1128,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-account"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1147,7 +1147,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-agent-detect"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "codeterm-paths",
  "codeterm-plugin",
@@ -1195,7 +1195,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-analytics"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "log",
@@ -1269,7 +1269,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-billing"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1288,7 +1288,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-blueprint-types"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1297,7 +1297,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-bridge"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1318,7 +1318,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-browser"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1340,7 +1340,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-build-info"
-version = "0.1.0"
+version = "0.0.0"
 
 [[package]]
 name = "codeterm-commands"
@@ -1386,7 +1386,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-config"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "codeterm-mesh",
  "codeterm-notify-types",
@@ -1432,7 +1432,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-cron"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -1442,7 +1442,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-decision"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1450,7 +1450,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-entitlements"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -1462,7 +1462,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-events"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "codeterm-plugin",
  "parking_lot",
@@ -1475,7 +1475,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-frontend-bundle"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "codeterm-plugins",
  "flate2",
@@ -1507,11 +1507,11 @@ dependencies = [
 
 [[package]]
 name = "codeterm-input-macos"
-version = "0.1.0"
+version = "0.0.0"
 
 [[package]]
 name = "codeterm-input-windows"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "codeterm-local-recording",
  "codeterm-types",
@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-keepawake"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "codeterm-paths",
  "codeterm-util",
@@ -1571,14 +1571,14 @@ dependencies = [
 
 [[package]]
 name = "codeterm-local-recording"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "codeterm-mem"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "annembed",
  "async-trait",
@@ -1616,7 +1616,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-mem-store"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "codeterm-paths",
@@ -1628,7 +1628,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-mesh"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -1655,7 +1655,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-notification-core"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "codeterm-notify-types",
  "codeterm-types",
@@ -1691,7 +1691,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-notify-types"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "serde",
 ]
@@ -1716,7 +1716,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-paths"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "dirs 6.0.0",
  "tempfile",
@@ -1724,7 +1724,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-plan"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "codeterm-paths",
@@ -1748,7 +1748,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-plugin"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1793,7 +1793,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-plugins"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "codeterm-util",
@@ -1864,7 +1864,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-provider-signals"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1872,7 +1872,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-pty"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -1921,7 +1921,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-repowatch"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "codeterm-util",
  "git2",
@@ -1936,7 +1936,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-secrets"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "async-trait",
  "codeterm-config",
@@ -1955,7 +1955,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-sentinel"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "codeterm-blueprint-types",
@@ -2136,7 +2136,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-shutdown"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "parking_lot",
  "serde",
@@ -2181,7 +2181,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-storage"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "codeterm-blueprint-types",
  "codeterm-paths",
@@ -2245,7 +2245,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-types"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "codeterm-notify-types",
  "codeterm-provider-signals",
@@ -2261,7 +2261,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-usage"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "codeterm-types",
@@ -2273,7 +2273,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-util"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "codeterm-paths",
  "libc",
@@ -2294,7 +2294,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-wire"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",

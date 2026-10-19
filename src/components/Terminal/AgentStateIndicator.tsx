@@ -4,6 +4,9 @@ import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
 import type { ReactNode } from "react";
 import { Square, Terminal, X } from "lucide-react";
 import { ActivityDots } from "../shared/ActivityDots";
+import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
+import { tabStartingLabel } from "../Sidebar/tabAttention";
+import { useStableStatusLabel } from "./useStableStatusLabel";
 import { ChatChannelLoadingStatus } from "./ChatChannelLoadingStatus";
 import type { Tab } from "../../lib/types";
 import { useComposerBackgroundWorkStatus } from "./ComposerBackgroundWorkContext";
@@ -22,6 +25,7 @@ function compactStatusMessage(text: string): string {
 
 export function AgentStateIndicator({
   activity,
+  tab,
   runtimeState,
   providerName,
   model,
@@ -33,7 +37,6 @@ export function AgentStateIndicator({
   onRebind,
   renderIdentity,
   showActivity = true,
-  workingInTranscript = false,
   channelLoadingLabel,
   activeTool,
 }: {
@@ -50,7 +53,6 @@ export function AgentStateIndicator({
   onRebind?: () => void;
   renderIdentity?: (label: string) => ReactNode;
   showActivity?: boolean;
-  workingInTranscript?: boolean;
   channelLoadingLabel?: string;
   activeTool?: ActivityTool & { id?: string; sourceSessionId?: string };
 }) {
@@ -61,30 +63,33 @@ export function AgentStateIndicator({
   const work = useComposerBackgroundWorkStatus();
   const background = backgroundOwnsTool(activeTool, work.items);
   const runningTool = activity.kind === "working" && !background ? activeTool : undefined;
-  const activityMovedToTranscript = workingInTranscript && activity.kind === "working";
   const statusMessage = background && activity.kind === "working"
     ? activity.status
     : runningTool ? activityLabel(runningTool) : activity.label;
-  const status = activityMovedToTranscript ? "" : runtimeActivityLabel(statusMessage, activity.kind, runtimeState, Date.now());
+  const status = useStableStatusLabel(runtimeActivityLabel(statusMessage, activity.kind, runtimeState, Date.now()), activity.kind);
   const detail = runningTool ? activityCommand(runningTool) : undefined;
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
     : null;
   const identity = [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
   const text = [identity, status].filter(Boolean).join(" · ");
+  const animated = activity.active && !background;
+  // One fixed-width slot: still dots at rest, moving dots while working, the clock while starting.
   const dots = channelLoadingLabel
     ? <ChatChannelLoadingStatus label={channelLoadingLabel} />
-    : !showActivity || background || activityMovedToTranscript ? null
-      : activity.kind === "starting" ? null
-        : activity.active ? (
-    <ActivityDots
-      data-testid="agent-activity-dots"
-      size="small"
-      tone={isWorking ? (phase === "thinking" ? "thinking" : "accent") : "muted"}
-      rhythm={phase}
-      active={activity.active}
-    />
-  ) : null;
+    : !showActivity ? null : (
+      <span data-testid="agent-activity-slot" className="inline-flex w-6 shrink-0 items-center justify-center">
+        {activity.kind === "starting"
+          ? <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : "Agent starting"} compact />
+          : <ActivityDots
+            data-testid="agent-activity-dots"
+            size="small"
+            tone={animated && isWorking ? (phase === "thinking" ? "thinking" : "accent") : "muted"}
+            rhythm={phase}
+            active={animated}
+          />}
+      </span>
+    );
 
   return (
     <div
@@ -94,9 +99,9 @@ export function AgentStateIndicator({
       data-tab-activity={activity.kind}
       data-agent-subtype={activity.subtype ?? undefined}
       data-agent-phase={phase}
-      role={activityMovedToTranscript ? undefined : "status"}
-      aria-live={activityMovedToTranscript ? undefined : "polite"}
-      aria-label={activityMovedToTranscript ? undefined : text ? `Agent ${text}` : "Agent idle"}
+      role="status"
+      aria-live="polite"
+      aria-label={text ? `Agent ${text}` : "Agent idle"}
     >
       {renderIdentity && identity ? (
         <>

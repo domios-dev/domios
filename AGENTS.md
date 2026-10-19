@@ -20,6 +20,7 @@
 - **No external user base yet** — this is Andrey's personal project. No backward-compat shims, no migration paths. Breaking changes are fine. Delete legacy aggressively. When in doubt, rewrite rather than patch.
 - **Never kill prod Domios.** Prod = port 7685, dev = port 7686. See *Process safety* below.
 - **Hot-reload over restart.** Subsystems should support stop/start without restarting the whole daemon when possible.
+- **Internal crates are version `0.0.0`.** Only the shipped app and CLI crates carry the product version (set by `npm run sync:versions`); never read an internal crate's own version at runtime.
 - **Windows reserved names are forbidden.** Never create a file or directory named `NUL` (or another Windows device name). Use ordinary temporary filenames instead; remove any accidental reserved-name artifact immediately with an extended `\\?\` path.
 
 ## Source file size discipline

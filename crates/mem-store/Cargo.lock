@@ -72,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-mem-store"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "codeterm-paths",
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-paths"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "dirs",
 ]

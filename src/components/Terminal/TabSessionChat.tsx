@@ -16,8 +16,7 @@ import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
 import { ChatWindowRow } from "./ChatWindowRow";
 import { chatWindowRows } from "./chatWindowRowsModel";
-import { ChatWorkingRow } from "./ChatWorkingRow";
-import { chatLiveOperationLabel, chatWorkingRowMessage, projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { chatLiveOperationLabel, projectChatTranscriptActivity } from "./chatTranscriptActivity";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
@@ -382,23 +381,13 @@ function TabSessionChatBody({
     ),
     [agentActivity.kind, descriptor, effectiveChatBackend, renderedEnrichedMessages, tab?.backing, transcriptActivityAvailable],
   );
-  const workingRow = useMemo(
-    () => chatTranscriptActivity.showWorkingTail
-      ? { isWorkingTail: true as const, msg: chatWorkingRowMessage(tabId) }
-      : null,
-    [chatTranscriptActivity.showWorkingTail, tabId],
-  );
-  const mountedRows = useMemo(
-    () => workingRow ? [...renderedEnrichedMessages, workingRow] : renderedEnrichedMessages,
-    [renderedEnrichedMessages, workingRow],
-  );
   const sharedScrollRef = useRef<HTMLDivElement | null>(null);
   const chatUserScrollingRef = useRef(false);
-  const mountedWindow = useMountedChatWindow({ rows: mountedRows, scrollRef: sharedScrollRef,
+  const mountedWindow = useMountedChatWindow({ rows: renderedEnrichedMessages, scrollRef: sharedScrollRef,
     active: isActive, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}`, userScrollingRef: chatUserScrollingRef });
   const mountedContentVersion = useMemo(() => ({ enrichedMessages, start: mountedWindow.range.start,
-    end: mountedWindow.range.end, revision: mountedWindow.revision, workingTail: chatTranscriptActivity.showWorkingTail }),
-    [chatTranscriptActivity.showWorkingTail, enrichedMessages, mountedWindow.range.start, mountedWindow.range.end, mountedWindow.revision]);
+    end: mountedWindow.range.end, revision: mountedWindow.revision }),
+    [enrichedMessages, mountedWindow.range.start, mountedWindow.range.end, mountedWindow.revision]);
   const {
     scrollRef,
     showScrollDown,
@@ -417,7 +406,7 @@ function TabSessionChatBody({
     sessionKey: `${tabId}:${agentSessionId ?? ""}`,
     active: isActive,
     loading,
-    messageCount: mountedRows.length,
+    messageCount: enrichedMessages.length,
     contentVersion: mountedContentVersion,
     prependVersion: enrichedMessages[0]?.msg.id ?? null,
     followTailRef: chatFollowTailRef,
@@ -952,14 +941,8 @@ function TabSessionChatBody({
         {isActive && railsVisible && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
         <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.topSpacer }} />
         <div ref={mountedWindow.rowsRef}>
-        {mountedRows.slice(mountedWindow.range.start, mountedWindow.range.end).map((row, mountedIndex) => {
+        {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map(({ msg, item, origin }, mountedIndex) => {
           const messageIndex = mountedWindow.range.start + mountedIndex;
-          if ("isWorkingTail" in row) {
-            return <ChatWindowRow key={row.msg.id} message={row.msg} liveActivityLabel="Working">
-              <ChatWorkingRow onContentLayout={handleContentLayout} />
-            </ChatWindowRow>;
-          }
-          const { msg, item, origin } = row;
           const originProps = originPropsById.get(msg.id);
           const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
           const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
@@ -1098,10 +1081,7 @@ function TabSessionChatBody({
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}
-          activeTool={chatTranscriptActivity.supported && transcriptActivityAvailable
-            ? undefined
-            : allMessages.find((message) => message.type === "tool_call" && message.toolStatus === "running")}
-          workingInTranscript={chatTranscriptActivity.supported && transcriptActivityAvailable}
+          activeTool={allMessages.find((message) => message.type === "tool_call" && message.toolStatus === "running")}
           runtimeState={runtime.state}
           showActivity={setupView.kind === "none" && !chatLoading}
           channelLoadingLabel={chatChannelLoadingRow(chatLoading, setupView, snapshotReady, hasHeldWindow) === "model"

@@ -81,40 +81,44 @@ async fn cached_plugin_snapshot(rebuild: SnapshotRebuild) -> Result<Value, Strin
         }
     }
 
-    let role = snapshot_flight_role();
-    match role {
+    let mut done = match snapshot_flight_role() {
         SnapshotFlightRole::Leader(flight, epoch) => {
-            let result = tokio::task::spawn_blocking(move || rebuild())
-                .await
-                .map_err(|e| e.to_string())
-                .and_then(|v| v);
-
-            if let Ok(mut in_progress) = SNAPSHOT_FLIGHT.lock() {
-                if in_progress
-                    .as_ref()
-                    .is_some_and(|current| current.finish.same_channel(&flight.finish))
-                {
-                    *in_progress = None;
-                }
-            }
-            if let Ok(snap) = result.as_ref() {
-                if SNAPSHOT_EPOCH.load(std::sync::atomic::Ordering::SeqCst) == epoch {
-                    if let Ok(mut guard) = SNAPSHOT_CACHE.lock() {
-                        *guard = Some((std::time::Instant::now(), snap.clone()));
-                    }
-                }
-            }
-            let _ = flight.finish.send(Some(result.clone()));
-            result
+            let done = flight.done.clone();
+            // Detached so a cancelled HTTP request cannot strand the shared flight and every later caller.
+            tokio::spawn(finish_snapshot_flight(flight, epoch, rebuild));
+            done
         }
-        SnapshotFlightRole::Follower(mut flight) => loop {
-            let result = { flight.done.borrow().as_ref().cloned() };
-            if let Some(result) = result {
-                return result.clone();
-            }
-            flight.done.changed().await.map_err(|e| e.to_string())?;
-        },
+        SnapshotFlightRole::Follower(flight) => flight.done,
+    };
+    loop {
+        if let Some(result) = done.borrow().as_ref().cloned() {
+            return result;
+        }
+        done.changed().await.map_err(|e| e.to_string())?;
     }
+}
+
+async fn finish_snapshot_flight(flight: SnapshotFlight, epoch: u64, rebuild: SnapshotRebuild) {
+    let result = tokio::task::spawn_blocking(move || rebuild())
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|v| v);
+    if let Ok(mut in_progress) = SNAPSHOT_FLIGHT.lock() {
+        if in_progress
+            .as_ref()
+            .is_some_and(|current| current.finish.same_channel(&flight.finish))
+        {
+            *in_progress = None;
+        }
+    }
+    if let Ok(snap) = result.as_ref() {
+        if SNAPSHOT_EPOCH.load(std::sync::atomic::Ordering::SeqCst) == epoch {
+            if let Ok(mut guard) = SNAPSHOT_CACHE.lock() {
+                *guard = Some((std::time::Instant::now(), snap.clone()));
+            }
+        }
+    }
+    let _ = flight.finish.send(Some(result));
 }
 
 fn snapshot_flight_role() -> SnapshotFlightRole {

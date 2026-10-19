@@ -302,7 +302,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "codeterm-blueprint-types"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -311,7 +311,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-build-info"
-version = "0.1.0"
+version = "0.0.0"
 
 [[package]]
 name = "codeterm-cli"
@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-decision"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -360,14 +360,14 @@ dependencies = [
 
 [[package]]
 name = "codeterm-local-recording"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "codeterm-mem-store"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "codeterm-paths",
@@ -379,7 +379,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-mesh"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -406,7 +406,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-notification-core"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "codeterm-notify-types",
  "codeterm-types",
@@ -419,21 +419,21 @@ dependencies = [
 
 [[package]]
 name = "codeterm-notify-types"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "codeterm-paths"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "dirs 6.0.0",
 ]
 
 [[package]]
 name = "codeterm-plugin"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -476,7 +476,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-plugins"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "codeterm-util",
@@ -504,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-provider-signals"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -512,7 +512,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-types"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "codeterm-notify-types",
  "codeterm-provider-signals",
@@ -527,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-usage"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "chrono",
  "codeterm-types",
@@ -539,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-util"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "codeterm-paths",
  "libc",
@@ -559,7 +559,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm-wire"
-version = "1.6.2"
+version = "0.0.0"
 dependencies = [
  "serde",
  "ts-rs",

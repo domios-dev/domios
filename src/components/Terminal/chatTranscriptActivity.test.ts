@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { ProviderDescriptor } from "../../lib/types";
-import { chatLiveOperationLabel, chatWorkingRowId, projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { chatLiveOperationLabel, projectChatTranscriptActivity } from "./chatTranscriptActivity";
 
 const chatProvider = { transport: "chat_backend" } as Pick<ProviderDescriptor, "transport" | "agent_runtime">;
 const runtimeProvider = { agent_runtime: {} } as Pick<ProviderDescriptor, "transport" | "agent_runtime">;
@@ -26,27 +26,21 @@ test("enables transcript activity from chat transport capabilities and leaves PT
   assert.equal(projectChatTranscriptActivity([], "working", undefined, undefined, true).supported, true);
 });
 
-test("marks the latest running tool in place and shows Working only when no tool row is live", () => {
+test("marks the latest running tool in place and nothing when no tool row is live", () => {
   const projection = projectChatTranscriptActivity([
     { msg: tool("completed", "completed") },
     { msg: tool("first-running", "running") },
     { msg: tool("latest-running", "running") },
   ], "working", chatProvider, undefined, false);
-  assert.deepEqual(projection, { supported: true, liveToolId: "latest-running", showWorkingTail: false });
+  assert.deepEqual(projection, { supported: true, liveToolId: "latest-running" });
 
-  assert.deepEqual(projectChatTranscriptActivity([], "working", chatProvider, undefined, false), {
-    supported: true,
-    liveToolId: null,
-    showWorkingTail: true,
-  });
+  assert.deepEqual(projectChatTranscriptActivity([], "working", chatProvider, undefined, false), { supported: true, liveToolId: null });
   assert.deepEqual(projectChatTranscriptActivity([{ msg: tool("stale", "running") }], "idle", chatProvider, undefined, false), {
     supported: true,
     liveToolId: null,
-    showWorkingTail: false,
   });
 });
 
-test("restored operation labels and working row identities are deterministic", () => {
+test("restored operation labels are deterministic", () => {
   assert.equal(chatLiveOperationLabel(tool("operation", "running")), "gh run view 39149606573");
-  assert.equal(chatWorkingRowId("tab"), chatWorkingRowId("tab"));
 });

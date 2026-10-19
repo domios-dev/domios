@@ -21,6 +21,7 @@ import {
 } from "../../lib/stateCache";
 import { mountWebLifecycle } from "../../lib/lifecycle";
 import { uid } from "../../lib/uid";
+import { reorderFailureToast } from "./reorderFailure";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
 import { defaultSpawnProviderId, getAgentDescriptor } from "../../lib/agentDescriptorCache";
 import {atomicSpawnPreset} from "../../lib/remoteExecution";
@@ -778,34 +779,35 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "MOVE_TAB", tabId, fromWorkspaceId, toWorkspaceId });
   }, [guardedInvoke]);
 
+  // The optimistic order stays until the daemon's state arrives; a refused save snaps back now and says why.
+  const commitReorder = useCallback((command: string, args: Record<string, unknown>, workspaceId: string | null) => {
+    guardedInvoke(command, args).catch((error: unknown) => {
+      void refreshFromBackend();
+      dispatch({ type: "UPSERT_TOAST", toast: reorderFailureToast(workspaceId, error) });
+    });
+  }, [guardedInvoke, refreshFromBackend]);
+
   const reorderTabs = useCallback(
     (args: { workspaceId?: string; parentTabId?: string; orderedTabIds: string[] }) => {
-      // authoritative SET_STATE (mux-state-changed) arrives.
       dispatch({ type: "REORDER_TABS", orderedTabIds: args.orderedTabIds });
       if (args.parentTabId) {
-        guardedInvoke("mux_reorder_child", {
-          parentTabId: args.parentTabId,
-          orderedTabIds: args.orderedTabIds,
-        }).catch(() => {});
+        commitReorder("mux_reorder_child", { parentTabId: args.parentTabId, orderedTabIds: args.orderedTabIds }, args.workspaceId ?? null);
       } else if (args.workspaceId) {
-        guardedInvoke("mux_reorder_tab", {
-          workspaceId: args.workspaceId,
-          orderedTabIds: args.orderedTabIds,
-        }).catch(() => {});
+        commitReorder("mux_reorder_tab", { workspaceId: args.workspaceId, orderedTabIds: args.orderedTabIds }, args.workspaceId);
       }
     },
-    [guardedInvoke],
+    [commitReorder],
   );
 
   const reorderDisplay = useCallback((args: { workspaceId: string; orderedTabIds: string[] }) => {
     dispatch({ type: "REORDER_DISPLAY", orderedTabIds: args.orderedTabIds });
-    guardedInvoke("mux_reorder_display", args).catch(() => {});
-  }, [guardedInvoke]);
+    commitReorder("mux_reorder_display", args, args.workspaceId);
+  }, [commitReorder]);
 
   const reorderWorkspaces = useCallback((orderedWorkspaceIds: string[]) => {
     dispatch({ type: "REORDER_WORKSPACES", orderedWorkspaceIds });
-    guardedInvoke("mux_reorder_workspace", { orderedWorkspaceIds }).catch(() => {});
-  }, [guardedInvoke]);
+    commitReorder("mux_reorder_workspace", { orderedWorkspaceIds }, null);
+  }, [commitReorder]);
 
   const setWorkspaceCwd = useCallback(async (workspaceId: string, cwd: string) => {
     const result = await guardedInvoke<{ warnings: string[] }>("mux_set_workspace_cwd", { workspaceId, cwd });
