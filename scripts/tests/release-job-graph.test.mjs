@@ -20,7 +20,8 @@ test('macOS and Linux arm64 have separate jobs, routing variables and manifest d
     assert.equal(release.jobs[id].with.arch, arch);
     assert.equal(release.jobs[id].secrets, 'inherit');
     const reusable = workflow(name);
-    assert.deepEqual(Object.keys(reusable.on), ['workflow_call']);
+    assert.deepEqual(Object.keys(reusable.on), name === 'release-macos-build'
+      ? ['workflow_dispatch', 'workflow_call'] : ['workflow_call']);
     assert.deepEqual(Object.keys(reusable.on.workflow_call.inputs), ['tag', 'source_ref', 'mirror', 'dry_run', ...(arch ? ['arch'] : [])]);
     assert.deepEqual(Object.keys(reusable.jobs), ['build']);
     assert.equal(reusable.jobs.build.if, undefined);
@@ -40,6 +41,25 @@ test('macOS and Linux arm64 have separate jobs, routing variables and manifest d
   assert.deepEqual(macos.jobs.build.strategy.matrix.include.map(entry => entry.arch), ['${{ inputs.arch }}']);
   assert.deepEqual(['macos-arm64', 'macos-x64'].map(id => release.jobs[id].with.arch), ['arm64', 'x86_64']);
   for (const entry of macos.jobs.build.strategy.matrix.include) assert.match(entry.runner_label, /RELEASE_MACOS_.*_LABEL.*codeterm-builder/);
+});
+test('direct platform dispatch is scoped and cannot mutate release assets', () => {
+  for (const name of ['release-linux', 'release-windows', 'release-macos-build']) {
+    const platform = workflow(name);
+    const inputs = platform.on.workflow_dispatch.inputs;
+    assert.equal(inputs.source_ref.required, true, name);
+    assert.equal(inputs.tag.required, true, name);
+    assert.equal(inputs.dry_run.default, true, name);
+    assert.equal(inputs.mirror.default, false, name);
+    assert.deepEqual(Object.keys(platform.jobs), ['build'], name);
+    for (const step of platform.jobs.build.steps) {
+      if (/gh release upload|release-clear-wedged-assets|release-upload-assets|release-headless-assets\.mjs publish|release-publish-platform/.test(step.run || '') &&
+          !step.env?.RELEASE_VERIFY_ONLY) {
+        assert.match(step.if || '', /github\.event_name != 'workflow_dispatch'/, `${name}: ${step.name}`);
+        assert.match(step.if, /!inputs\.dry_run/, `${name}: ${step.name}`);
+      }
+    }
+  }
+  assert.deepEqual(workflow('tests').on.workflow_dispatch.inputs.phase.options, ['fast']);
 });
 test('every platform checks its own built bundle before any upload, with independent Windows retries', () => {
   for (const name of ['release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows']) {
