@@ -168,7 +168,7 @@ export function formatChangedFiles(root, baseRef = 'origin/develop') {
     const [command, prefixArgs] = biomeCommand();
     run(command, [
       ...prefixArgs, 'exec', 'biome', 'check', '--write', '--formatter-enabled=false',
-      '--organize-imports-enabled=true', '--', ...biomeFiles,
+      '--no-errors-on-unmatched', '--', ...biomeFiles,
     ], { cwd: absoluteRoot });
   }
 
