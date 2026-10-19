@@ -67,6 +67,34 @@ test("fake transport proves create shape, status/diff, restart binding, and expl
   assert.equal(restarted.poll(ctx.tabId, rendered.cursor).messages.length, 0);
 });
 
+test("Settings environment IDs use the Codex task API and retain the environment_id field", () => {
+  const environment = {id: "asenvcfg_redacted-one", label: "domios 1", accountRef: CODEX_CLOUD_ACCOUNT_REF};
+  const currentCapability = {...capability, environments: [environment]};
+  const calls: Array<{method: string; path: string; body: unknown}> = [];
+  const backend = cloudTaskBackend(currentCapability, {
+    discoverRemoteTask: () => ({availability: {status: "available"}, environments: [environment]}),
+    request(method, path, _account, body) {
+      calls.push({method, path, body});
+      return method === "POST" ? {task: {id: "task-redacted"}} : {...fixture("task_details_with_diff"), task: {id: "task-redacted"}};
+    },
+  });
+  const created = backend.create({environmentId: environment.id, accountRef: environment.accountRef, branch: "master", prompt: "Read-only verification"});
+  backend.read({
+    revision: 1, providerId: "codex", executionMode: "cloud", backend: currentCapability.backend,
+    environmentId: environment.id, accountRef: environment.accountRef, branch: "master", phase: "bound",
+    snapshot: {taskId: created.taskId, attempt: null, status: "pending", result: "", diff: null, cursor: null, error: null},
+  });
+  assert.deepEqual(calls, [
+    {
+      method: "POST", path: "/api/codex/tasks", body: {
+        new_task: {environment_id: "asenvcfg_redacted-one", branch: "master", run_environment_in_qa_mode: false},
+        input_items: [{type: "message", role: "user", content: [{content_type: "text", text: "Read-only verification"}]}],
+      },
+    },
+    {method: "GET", path: "/api/codex/tasks/task-redacted", body: undefined},
+  ]);
+});
+
 test("source fixtures project nested diffs, errors, and successful no-diff tasks", () => {
   const f = setup(); const plugin = f.open();
   plugin.openSession({tabId: "tab-fixture", config: {executionMode: "cloud"}, preset: "env-fixture"});
@@ -82,7 +110,7 @@ test("source fixtures project nested diffs, errors, and successful no-diff tasks
   assert.throws(() => cloudTaskSnapshot({task: {id: "foreign"}}, binding));
 });
 
-test("Codex transport discovers repo environments through host credentials without persisting account identity", () => {
+test("Codex transport discovers Settings environments through host credentials without persisting account identity", () => {
   const calls: Array<{url: string; method: string; headers: Record<string, string>; credential: unknown}> = [];
   const host = {
     credentialPublic(id: string) {
@@ -92,7 +120,7 @@ test("Codex transport discovers repo environments through host credentials witho
     fetch(raw: string) {
       const request = JSON.parse(raw) as {url: string; method: string; headers: Record<string, string>; credential: unknown};
       calls.push(request);
-      const name = request.url.includes("/by-repo/") ? "repo_environments" : "environments";
+      const name = request.url.includes("environment-configs") ? "environment_configs" : request.url.includes("/by-repo/") ? "repo_environments" : "environments";
       return JSON.stringify({status: 200, body: JSON.stringify(fixture(name))});
     },
   } as unknown as Host;
@@ -101,17 +129,17 @@ test("Codex transport discovers repo environments through host credentials witho
   assert.deepEqual(discovery, {
     availability: {status: "available"},
     environments: [
-      {id: "env-redacted-one", label: "domios 1", accountRef: CODEX_CLOUD_ACCOUNT_REF},
-      {id: "env-redacted-two", label: "domios 2", accountRef: CODEX_CLOUD_ACCOUNT_REF},
+      {id: "asenvcfg_redacted-one", label: "domios 1", accountRef: CODEX_CLOUD_ACCOUNT_REF},
+      {id: "asenvcfg_redacted-two", label: "domios 2", accountRef: CODEX_CLOUD_ACCOUNT_REF},
     ],
   });
-  assert.deepEqual(calls.map(call => [call.method, new URL(call.url).pathname]), [
-    ["GET", "/backend-api/wham/environments/by-repo/github/rollacode/codeterm"],
-    ["GET", "/backend-api/wham/environments"],
+  assert.deepEqual(calls.map(call => [call.method, `${new URL(call.url).pathname}${new URL(call.url).search}`]), [
+    ["GET", "/api/codex-cloud/v1/environment-configs?scope=user&limit=100&omitDraft=true"],
   ]);
   assert.equal(calls[0].headers["ChatGPT-Account-Id"], "redacted-account-fixture");
   assert.deepEqual(calls[0].credential, {id: "codexAuth", headers: {Authorization: "Bearer {accessToken}"}});
   assert.equal(discovery.environments.some(environment => environment.accountRef === "redacted-account-fixture"), false);
+  assert.equal(discovery.environments.some(environment => environment.id.startsWith("cecfgver_")), false);
 });
 
 test("Codex transport falls back to the account environment list and redacts expiry and fetch errors", () => {
@@ -128,6 +156,7 @@ test("Codex transport falls back to the account environment list and redacts exp
   const transport = createCodexCloudTransport(host);
   assert.deepEqual(transport.discoverRemoteTask().environments.map(environment => environment.label), ["domios 1", "domios 2"]);
   assert.deepEqual(paths, [
+    "/api/codex-cloud/v1/environment-configs",
     "/backend-api/wham/environments/by-repo/github/rollacode/codeterm",
     "/backend-api/wham/environments",
   ]);
@@ -168,6 +197,13 @@ test("Codex transport uses the read-only task list route", () => {
   const tasks = createCodexCloudTransport(host).request("GET", "/wham/tasks/list?limit=10", CODEX_CLOUD_ACCOUNT_REF);
   assert.equal(requestedPath, "/backend-api/wham/tasks/list?limit=10");
   assert.deepEqual(tasks, fixture("tasks_list"));
+
+  const currentTasks = createCodexCloudTransport(host).request("GET", "/api/codex/tasks/list?limit=100", CODEX_CLOUD_ACCOUNT_REF);
+  assert.equal(requestedPath, "/api/codex/tasks/list?limit=100");
+  assert.deepEqual(currentTasks, fixture("tasks_list"));
+  const transport = createCodexCloudTransport(host);
+  assert.throws(() => transport.request("POST", "/api/codex/tasks/list", CODEX_CLOUD_ACCOUNT_REF));
+  assert.throws(() => transport.request("GET", "/api/codex/tasks", CODEX_CLOUD_ACCOUNT_REF));
 });
 
 test("built production plugin shows a safe sign-in reason without an account", () => {
