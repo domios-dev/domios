@@ -49,7 +49,7 @@ These commands always name the target tab. `usage read` returns session/weekly l
 
 Both read `GET /api/tabs/{id}/agent/runtime/usage` (exact-tab, binding-checked projection); a missing post-consume count stays `null`.
 
-Use `codeterm agent model --tab TAB_ID [MODEL]` to switch a model or change its settings. `--reasoning-effort LEVEL` and `--runtime-mode MODE` select values advertised by the selected model/provider catalogue; omit `MODEL` to keep the current model. Unsupported values fail with a non-zero exit and the supported choices. `--json` preserves the daemon's `mode_used`, `model_confirmation`, and `evidence` fields. `--speed TIER` selects a runtime service tier, `--speed default` clears it, and `--list-speeds` inspects the exact tab's model-scoped choices. Worker kinds work with or without `--plan-task`:
+Use `codeterm agent model --tab TAB_ID --speed TIER` to select a runtime service tier, `--speed default` to clear it, or `--list-speeds` to inspect the exact tab's model-scoped choices. Worker kinds work with or without `--plan-task`:
 
 ```bash
 codeterm agent spawn PROVIDER --role Worker --kind qa --parent-tab TAB_ID
@@ -212,4 +212,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 48 -->
+<!-- revision: 47 -->

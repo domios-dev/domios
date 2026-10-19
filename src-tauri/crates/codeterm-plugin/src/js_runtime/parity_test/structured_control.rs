@@ -45,24 +45,6 @@ impl AgentProvider for Native {
         Some(StructuredControl {
             protocol: "codex-app-server".into(),
             min_version: "0.159.0".into(),
-            runtime_modes: vec![
-                StructuredRuntimeMode {
-                    id: "approval-required".into(),
-                    display_name: "Approval required".into(),
-                },
-                StructuredRuntimeMode {
-                    id: "auto-accept-edits".into(),
-                    display_name: "Auto accept edits".into(),
-                },
-                StructuredRuntimeMode {
-                    id: "auto".into(),
-                    display_name: "Auto".into(),
-                },
-                StructuredRuntimeMode {
-                    id: "full-access".into(),
-                    display_name: "Full access".into(),
-                },
-            ],
         })
     }
 }

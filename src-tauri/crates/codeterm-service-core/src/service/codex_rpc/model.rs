@@ -221,7 +221,7 @@ impl crate::service::ServiceContext {
         tab: &str,
         model: &str,
         effort: Option<&str>,
-        mode: Option<&str>,
+        mode: Option<RuntimeMode>,
         options: ModelSwitchOptions,
     ) -> Result<
         crate::service::agent_restart::ModelSwitchOutcome,
@@ -245,18 +245,11 @@ impl crate::service::ServiceContext {
             );
         }
         if !options.restart_resume {
-            if mode.is_some() {
-                return Err(
-                    crate::service::agent_restart::ModelSwitchError::NotSwitchable(
-                        "Runtime mode requires a structured control endpoint".into(),
-                    ),
-                );
-            }
             return self.agent_switch_model_with_controls_and_force(
                 tab,
                 model,
                 effort,
-                None,
+                mode,
                 options.force,
             );
         }
@@ -283,18 +276,8 @@ impl crate::service::ServiceContext {
     > {
         use crate::service::agent_restart::ModelSwitchError;
         if let Some(tab) = crate::service::agent_runtime::controls::routed_tab(self, tab) {
-            let mode = mode.and_then(|mode| {
-                serde_json::to_value(mode)
-                    .ok()
-                    .and_then(|value| value.as_str().map(str::to_owned))
-            });
             return crate::service::agent_runtime::controls::switch(
-                self,
-                &tab,
-                model,
-                effort,
-                mode.as_deref(),
-                None,
+                self, &tab, model, effort, mode, None,
             );
         }
         if mode.is_some() && for_tab(tab).is_none() {

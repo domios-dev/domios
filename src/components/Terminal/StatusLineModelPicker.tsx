@@ -51,7 +51,6 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
       modelCandidates={[statusLineModelName(tab)]}
       currentServiceTier={confirmedTabServiceTier(tab, descriptor)}
       serviceTierAvailability={tabServiceTierAvailability(tab)}
-      currentRuntimeMode={tab.structured_runtime_mode ?? undefined}
       currentEffort={effort?.actual ?? effort?.resolved ?? effort?.requested ?? undefined}
       pendingSelection={tab.pending_model_selection ?? (tab.pending_model_switch_observation ? {
         model: tab.pending_model_switch_observation.launched_model,
@@ -69,7 +68,6 @@ export function StatusLineModelPicker({
   modelCandidates,
   currentEffort,
   currentServiceTier,
-  currentRuntimeMode,
   serviceTierAvailability,
   pendingSelection,
 }: {
@@ -80,7 +78,6 @@ export function StatusLineModelPicker({
   modelCandidates: Array<string | null | undefined>;
   currentEffort: string | undefined;
   currentServiceTier?: ServiceTierSelection;
-  currentRuntimeMode?: string;
   serviceTierAvailability?: Record<string,readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>;
   pendingSelection?: { model: string; effort: string | null };
 }) {
@@ -96,10 +93,10 @@ export function StatusLineModelPicker({
   const actions = useContext(MultiplexerActionsContext);
   const commitRef = useRef<(selection: PickerSelection, restart: boolean) => Promise<void>>(async () => undefined);
   useEffect(() => {
-    if (descriptor && applied && selectionReached(descriptor, applied, currentModel, currentEffort, currentServiceTier, currentRuntimeMode)) {
+    if (descriptor && applied && selectionReached(descriptor, applied, currentModel, currentEffort, currentServiceTier)) {
       setApplied(null);
     }
-  }, [descriptor, applied, currentModel, currentEffort, currentServiceTier, currentRuntimeMode]);
+  }, [descriptor, applied, currentModel, currentEffort, currentServiceTier]);
   const close = useCallback(() => {
     setOpen(false);
     triggerRef.current?.focus({ preventScroll: true });
@@ -114,12 +111,12 @@ export function StatusLineModelPicker({
       const api = getTabModelApi();
       if (restart) {
         if (!api.restartAndSwitchModel) throw new Error("Restart fallback is unavailable");
-        const result = await api.restartAndSwitchModel(tabId, selection.model, selection.effort, selection.runtimeMode);
+        const result = await api.restartAndSwitchModel(tabId, selection.model, selection.effort);
         if (result?.staged) setApplied(null);
       } else {
-        const result = selection.runtimeMode === undefined && selection.serviceTier === undefined
+        const result = selection.serviceTier === undefined
           ? await api.switchModel(tabId, selection.model, selection.effort)
-          : await api.switchModel(tabId, selection.model, selection.effort, selection.runtimeMode, selection.serviceTier);
+          : await api.switchModel(tabId, selection.model, selection.effort, undefined, selection.serviceTier);
         if (result?.staged) setApplied(null);
       }
     } catch (error) {
@@ -139,7 +136,7 @@ export function StatusLineModelPicker({
   commitRef.current = commit;
 
   const selection = pendingSelection ? { model: pendingSelection.model, effort: pendingSelection.effort ?? undefined }
-    : applied ?? { model: currentModel ?? "Unknown model", effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor?.structured_control?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) };
+    : applied ?? { model: currentModel ?? "Unknown model", effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}) };
   const modelName = descriptor?.available_models.find((model) => matchesModel(model, selection.model))?.display_name
     || selection.model;
   const afterTurn = Boolean(pendingSelection);
@@ -188,7 +185,6 @@ export function StatusLineModelPicker({
           triggerRef={triggerRef}
           currentModel={selection.model}
           currentServiceTier={selection.serviceTier}
-          currentRuntimeMode={selection.runtimeMode}
           serviceTierAvailability={serviceTierAvailability}
           currentEffort={selection.effort}
           busy={applying}
@@ -212,11 +208,10 @@ function selectionReached(
   currentModel: string | undefined,
   currentEffort: string | undefined,
   currentServiceTier: ServiceTierSelection | undefined,
-  currentRuntimeMode: string | undefined,
 ): boolean {
   const model = descriptor.available_models.find((entry) => entry.id === selection.model);
   const modelReached = model ? matchesModel(model, currentModel) : selection.model === currentModel;
-  return modelReached && selection.effort === currentEffort && selection.serviceTier?.id === currentServiceTier?.id && selection.runtimeMode === currentRuntimeMode;
+  return modelReached && selection.effort === currentEffort && selection.serviceTier?.id === currentServiceTier?.id;
 }
 
 export function ModelPickerPopover({
@@ -226,7 +221,6 @@ export function ModelPickerPopover({
   currentModel,
   currentEffort,
   currentServiceTier,
-  currentRuntimeMode,
   serviceTierAvailability,
   showReasoning = true,
   busy,
@@ -240,7 +234,6 @@ export function ModelPickerPopover({
   currentModel: string | undefined;
   currentEffort: string | undefined;
   currentServiceTier?: ServiceTierSelection;
-  currentRuntimeMode?: string;
   serviceTierAvailability?: Record<string,readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>;
   showReasoning?: boolean;
   busy: boolean;
@@ -254,7 +247,7 @@ export function ModelPickerPopover({
   const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(() => readPickerShowAll(descriptor.id));
   const [staged, setStaged] = useState<PickerSelection | null>(
-    failure?.selection ?? (currentModel ? pickerSelection(descriptor, currentModel, currentEffort, currentServiceTier, currentRuntimeMode) : null),
+    failure?.selection ?? (currentModel ? pickerSelection(descriptor, currentModel, currentEffort, currentServiceTier) : null),
   );
   const [confirming, setConfirming] = useState<PickerSelection | null>(null);
   const [restartFallback, setRestartFallback] = useState(false);
@@ -265,7 +258,7 @@ export function ModelPickerPopover({
   const groups = pickerModelGroups(descriptor, staged?.model, query, showAll);
   const efforts = showReasoning ? effortChoices(descriptor, staged?.model) : [];
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
-  const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.structured_control?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged) : { action: "none" };
+  const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}) }, staged) : { action: "none" };
 
   useLayoutEffect(() => {
     const place = () => {
@@ -317,7 +310,7 @@ export function ModelPickerPopover({
 
   function commit() {
     if (busy || !staged) return;
-    const plan = planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.structured_control?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged);
+    const plan = planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}) }, staged);
     if (plan.action === "confirm") setConfirming(plan.selection);
     if (plan.action === "apply") apply(plan.selection);
   }
@@ -451,22 +444,6 @@ export function ModelPickerPopover({
           {showAll ? "Show primary models" : "Show all models"}
         </button>
       )}
-      {descriptor.structured_control?.runtimeModes?.length && staged && (
-        <label className="ct-model-picker__effort">
-          <span className="ct-model-picker__label">Runtime mode</span>
-          <select
-            role="combobox"
-            aria-label="Runtime mode"
-            value={staged.runtimeMode ?? currentRuntimeMode ?? ""}
-            disabled={busy}
-            onChange={(event) => choose({ ...staged, runtimeMode: event.currentTarget.value })}
-          >
-            {descriptor.structured_control.runtimeModes.map((mode) => (
-              <option key={mode.id} value={mode.id}>{mode.displayName}</option>
-            ))}
-          </select>
-        </label>
-      )}
       {efforts.length > 0 && staged && stagedEffort && (
         <div className="ct-model-picker__effort">
           <span className="ct-model-picker__label">Reasoning</span>
@@ -486,7 +463,7 @@ export function ModelPickerPopover({
         <div className="ct-model-picker__confirm" role="group" aria-label="Confirm restart">
           <p>Switching restarts this session on {stagedLabel} and resumes it.</p>
           <div className="ct-model-picker__actions">
-            <button type="button" className={UI_BUTTON.ghost} onClick={() => { setConfirming(null); setStaged(currentModel ? pickerSelection(descriptor, currentModel, currentEffort, currentServiceTier, currentRuntimeMode) : null); }}>
+            <button type="button" className={UI_BUTTON.ghost} onClick={() => { setConfirming(null); setStaged(currentModel ? pickerSelection(descriptor, currentModel, currentEffort, currentServiceTier) : null); }}>
               Keep current
             </button>
             <button type="button" className={UI_BUTTON.primary} disabled={busy} onClick={() => apply(confirming, restartFallback)}>

@@ -92,15 +92,6 @@ pub enum ModelSwitchError {
         provider: String,
     },
     InvalidModel(crate::service::spawn::InvalidModelError),
-    UnsupportedReasoningEffort {
-        model: String,
-        requested: String,
-        supported: Vec<String>,
-    },
-    UnsupportedRuntimeMode {
-        requested: String,
-        supported: Vec<String>,
-    },
     NotSwitchable(String),
     RateLimited {
         retry_after_secs: u64,
@@ -131,16 +122,6 @@ impl std::fmt::Display for ModelSwitchError {
                 "provider {provider} cannot switch a live agent's model; respawn with `codeterm agent spawn {provider} --model MODEL`"
             ),
             Self::InvalidModel(error) => write!(formatter, "{error}"),
-            Self::UnsupportedReasoningEffort { model, requested, supported } => write!(
-                formatter,
-                "model '{model}' does not support reasoning effort '{requested}'; supported: {}",
-                if supported.is_empty() { "none".to_owned() } else { supported.join(", ") }
-            ),
-            Self::UnsupportedRuntimeMode { requested, supported } => write!(
-                formatter,
-                "runtime mode '{requested}' is unsupported; supported: {}",
-                if supported.is_empty() { "none".to_owned() } else { supported.join(", ") }
-            ),
             Self::RateLimited { retry_after_secs } => write!(
                 formatter,
                 "this Tab restarted moments ago; retry the model switch in {retry_after_secs} seconds"

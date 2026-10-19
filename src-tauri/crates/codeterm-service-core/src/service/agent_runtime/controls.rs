@@ -37,16 +37,16 @@ pub(crate) fn switch(
     tab: &str,
     model: &str,
     effort: Option<&str>,
-    mode: Option<&str>,
+    mode: Option<RuntimeMode>,
     service_tier: Option<codeterm_plugin::agent_runtime::RuntimeServiceTierSelection>,
 ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
-    let provider = svc
-        .mux
-        .read()
-        .get_tab(tab)
-        .and_then(|target| target.agent_type.clone())
-        .ok_or_else(|| ModelSwitchError::NotFound(tab.into()))?;
     if !model.trim().is_empty() {
+        let provider = svc
+            .mux
+            .read()
+            .get_tab(tab)
+            .and_then(|target| target.agent_type.clone())
+            .ok_or_else(|| ModelSwitchError::NotFound(tab.into()))?;
         crate::service::spawn::validate_agent_model(
             &svc.agent_registry,
             &provider,
@@ -54,78 +54,6 @@ pub(crate) fn switch(
         )
         .map_err(ModelSwitchError::InvalidModel)?;
     }
-    let effective_model = svc
-        .mux
-        .read()
-        .get_tab(tab)
-        .and_then(|target| {
-            (!model.trim().is_empty())
-                .then(|| model.trim().to_owned())
-                .or_else(|| {
-                    target
-                        .agent_runtime_config
-                        .as_ref()
-                        .and_then(|config| config["model"].as_str())
-                        .map(str::to_owned)
-                })
-                .or_else(|| target.agent_session_model.clone())
-                .or_else(|| target.agent_provider_resolved_model.clone())
-        })
-        .unwrap_or_default();
-    if let Some(requested) = effort.map(str::trim).filter(|value| !value.is_empty()) {
-        let supported = svc
-            .agent_registry
-            .with_provider(&provider, |provider| {
-                let model_levels = provider.reasoning_efforts_for_model(Some(&effective_model));
-                let levels = if model_levels.is_empty() {
-                    provider.reasoning_efforts()
-                } else {
-                    model_levels
-                };
-                levels.into_iter().map(|level| level.id).collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        if !supported.iter().any(|level| level == requested) {
-            return Err(ModelSwitchError::UnsupportedReasoningEffort {
-                model: effective_model,
-                requested: requested.to_owned(),
-                supported,
-            });
-        }
-    }
-    let mode = if let Some(requested) = mode.map(str::trim).filter(|value| !value.is_empty()) {
-        let supported = svc
-            .agent_registry
-            .with_provider(&provider, |provider| {
-                provider
-                    .structured_control()
-                    .map(|control| {
-                        control
-                            .runtime_modes
-                            .iter()
-                            .map(|mode| mode.id.clone())
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default()
-            })
-            .unwrap_or_default();
-        if !supported.iter().any(|value| value == requested) {
-            return Err(ModelSwitchError::UnsupportedRuntimeMode {
-                requested: requested.to_owned(),
-                supported,
-            });
-        }
-        Some(
-            serde_json::from_value(serde_json::json!(requested)).map_err(|_| {
-                ModelSwitchError::UnsupportedRuntimeMode {
-                    requested: requested.to_owned(),
-                    supported: Vec::new(),
-                }
-            })?,
-        )
-    } else {
-        None
-    };
     crate::async_runtime::block_on(async {
         switch_inner(svc, tab, model, effort, mode, service_tier)
             .await
