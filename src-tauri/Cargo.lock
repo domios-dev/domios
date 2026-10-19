@@ -1070,6 +1070,7 @@ dependencies = [
 name = "codeterm"
 version = "1.14.9"
 dependencies = [
+ "async-trait",
  "axum",
  "base64 0.22.1",
  "chrono",

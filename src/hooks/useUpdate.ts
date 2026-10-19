@@ -242,6 +242,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<UpdatePhase>("idle");
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [channel, setChannelState] = useState<UpdateChannel | null>(null);
+  const channelRef = useRef<UpdateChannel | null>(null);
+  channelRef.current = channel;
   const [channelSupported, setChannelSupported] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -271,7 +273,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       if (!silent) setStatus("checking");
       setError(null);
       try {
-        const data: unknown = await checkForUpdate(force);
+        const data: unknown = await checkForUpdate(force, channelRef.current ?? undefined);
         if (!isUpdateInfo(data)) throw new Error("Malformed update info");
         handleInfo(data);
       } catch (e) {
@@ -344,7 +346,6 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       }
 
       setPhase(next.phase);
-      setChannelState(next.channel);
       setDownloadedBytes(next.downloaded_bytes);
       setDownloadTotalBytes(next.download_total_bytes);
 
@@ -427,7 +428,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     setProgress((prev) => Math.max(prev, 8));
     setError(null);
     try {
-      const response = normalizeInstallResponse(await installAppUpdate());
+      const response = normalizeInstallResponse(await installAppUpdate(channelRef.current ?? undefined));
       if (response.status === "already_in_flight") userInstallRef.current = false;
       if (response.status !== "already_in_flight") installCallReturnedRef.current = true;
       if (response.status !== "already_in_flight") await fetchRuntimeStatus();
