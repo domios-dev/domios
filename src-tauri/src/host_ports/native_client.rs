@@ -8,7 +8,7 @@ pub(super) use bootstrap::read_single_bounded_line;
 pub(super) use bootstrap::HelperFailure;
 use bootstrap::VerifiedClientInstall;
 pub(crate) use bootstrap::{
-    startup_io_error, startup_refused, startup_started, ClientStartupStage,
+    startup_io_error, startup_reached, startup_refused, startup_started, ClientStartupStage,
 };
 
 use codeterm_process_identity::PinnedProcess;

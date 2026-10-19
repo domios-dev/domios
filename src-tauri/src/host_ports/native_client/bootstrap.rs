@@ -113,6 +113,10 @@ fn record_trail(
 pub(crate) fn startup_started(stage: ClientStartupStage) {
     record_startup(stage, "started", None, None, false);
 }
+/// The stage completed; the interface is on screen once `Frontend` is reached.
+pub(crate) fn startup_reached(stage: ClientStartupStage) {
+    record_startup(stage, "reached", None, None, false);
+}
 pub(crate) fn startup_refused(stage: ClientStartupStage) {
     record_startup(stage, "refused", None, None, true);
 }
