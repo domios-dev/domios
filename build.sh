@@ -5,6 +5,7 @@
 #   ./build.sh dev --wait — same, but backgrounds and blocks until /api/health
 #                          responds (handy for scripts/agents)
 #   ./build.sh dev-prebuilt --wait — restart a provenance-validated dev build without Cargo
+#   ./build.sh dev-server — rebuild/reload the selected DEV server, retaining its window
 #   ./build.sh check     — integration-owner cargo check
 #   ./build.sh frontend  — production frontend typecheck + bundle
 #   ./build.sh release-inputs — build target-aware frontend/CLI bundle inputs
@@ -40,7 +41,7 @@ DEV_NOTIFY_TARGET_MESH="${DEV_NOTIFY_TARGET_MESH:-}"
 
 # Long operations stream one receipt through the shell's live Domios return route.
 case "$CMD" in
-  process-probe|qa-lock-storm|feature-cycle|lane-check|embedding-parity|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
+  dev-server|process-probe|qa-lock-storm|feature-cycle|lane-check|embedding-parity|check|check-queue|check-tests|test-one|nextest|nextest-archive|release-preflight|release-rust|install-local|build|test|verify|fmt-check)
     if [ "${BUILD_NOTIFY_CHILD:-0}" != 1 ]; then
       BUILD_NOTIFY_GIVEN=0
       BUILD_NOTIFY_WANT_VALUE=0
@@ -276,7 +277,7 @@ initialize_build_identity() {
       [[ ! "$short_hash" =~ ^[0-9a-f]{7,40}$ ]] || [[ "$full_hash" != "$short_hash"* ]]; then
     CT_DEV_PROVENANCE_SHA=
     case "$CMD" in
-      dev|dev-prebuilt|build|install-local)
+      dev|dev-prebuilt|dev-server|build|install-local)
         echo "ERROR: $CMD requires a valid build identity from Git or its internal launch handoff" >&2
         return 1
         ;;
@@ -576,7 +577,7 @@ CT_VITE_PORT="${CODETERM_VITE_PORT:-}"
 CT_CDP_PORT="${CODETERM_CDP_PORT:-}"
 CT_INSTANCE_HASH=""
 case "$CMD" in
-  dev|dev-prebuilt|kill|e2e|e2e:llm)
+  dev|dev-prebuilt|dev-server|kill|e2e|e2e:llm)
     CT_DEV_SELECTION="$(node scripts/dev-instance-policy.mjs)" || exit $?
     CT_INSTANCE="${CT_DEV_SELECTION%:*}"
     CT_PORT="${CT_DEV_SELECTION##*:}"
@@ -1407,7 +1408,7 @@ validate_dev_provenance() {
   if [ -n "${CT_DEV_PROVENANCE_SHA:-}" ]; then
     launch_args=(--launch-sha "$CT_DEV_PROVENANCE_SHA")
   fi
-  node scripts/dev-prep.mjs --check-provenance \
+  node scripts/dev-prep.mjs "${CT_DEV_PROVENANCE_OPERATION:---check-provenance}" \
     "${launch_args[@]}" \
     --record "$(dev_provenance_record)" \
     --app "$(dev_app_path)" \
@@ -1418,6 +1419,54 @@ validate_dev_provenance() {
     --vite-port "$CT_VITE_PORT" \
     --cdp-port "$CT_CDP_PORT" \
     --identifier "$CT_IDENTIFIER"
+}
+
+reload_dev_server() {
+  local plan split_logs receipt build_sha started
+  started="$(date +%s)"
+  CT_SPLIT_DEV=1
+  if named_dev_isolated; then export CARGO_TARGET_DIR="$(named_dev_target_dir)"; fi
+  plan="$(CT_DEV_PROVENANCE_OPERATION=--check-server-reload validate_dev_provenance)"
+  split_logs="$(tauri_debug_dir)/.domios-dev-build"
+  receipt="$split_logs/reload-server.json"
+  node scripts/dev-server.mjs inspect "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$receipt"
+  enter_cargo_gateway "$CMD"
+  export CODETERM_DEV=1
+  configure_dev_cargo
+  if [[ "$plan" == cli:* ]]; then
+    cargo build --manifest-path cli/Cargo.toml --message-format=json-render-diagnostics > "$split_logs/cli.jsonl"
+    built_cli_artifact="$(cli_profile_binary debug)"
+    built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
+  else
+    built_cli_artifact="$(dev_cli_path)"
+    built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
+  fi
+  export CODETERM_SERVER_CLI_SHA256="$built_cli_hash"
+  export CODETERM_SERVER_DEV_FRONTEND_ORIGIN="http://127.0.0.1:$CT_VITE_PORT"
+  cargo build --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
+    --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --features domios-server/embeddings \
+    --message-format=json-render-diagnostics > "$split_logs/server.jsonl"
+  cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
+    --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
+  # Refuse edits made during compilation before touching the running instance.
+  [ "$plan" = "$(CT_DEV_PROVENANCE_OPERATION=--check-server-reload validate_dev_provenance)" ] || {
+    echo 'Build inputs changed during compilation; rerun ./build.sh dev-server.' >&2
+    return 2
+  }
+  node scripts/server-artifact.mjs check-dev-server "$split_logs/server.jsonl" "$split_logs/server-tree.txt" \
+    "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$CODETERM_BUILD_SHA"
+  node scripts/dev-server.mjs stop "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$receipt"
+  if [[ "$plan" == cli:* ]]; then install_cli_to "$CT_DATA_DIR/bin" "$built_cli_artifact" "$built_cli_hash"; fi
+  build_sha="$CODETERM_BUILD_SHA"
+  node scripts/server-artifact.mjs stage-dev-server "$split_logs/server.jsonl" "$split_logs/server-tree.txt" \
+    "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$build_sha"
+  write_dev_provenance "$build_sha"
+  CT_DEV_PROVENANCE_SHA="$build_sha" validate_dev_provenance
+  release_stable_build_path
+  complete_build_gateway_before_handoff
+  export CODETERM_CLI_PATH="$(dev_cli_path)"
+  node scripts/dev-server.mjs start "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT"
+  echo "DEV server reload completed in $(( $(date +%s) - started ))s; native client/window retained."
 }
 
 run_prebuilt_preflight() {
@@ -2333,6 +2382,7 @@ CodeTerm build commands
 
   dev                         Start the visible shared dev instance
   dev-prebuilt                Restart a validated dev build without Cargo
+  dev-server                  Rebuild/reload only the selected DEV server; keep the window
   retain-pdb <sha> [pdb] [key]  Keep a linked dev build's symbol file (last 3)
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
@@ -3234,6 +3284,9 @@ LOCK_STORM_PY
   kill)
     kill_dev
     echo "Done."
+    ;;
+  dev-server)
+    reload_dev_server
     ;;
   dev-prebuilt)
     CT_SPLIT_DEV=1

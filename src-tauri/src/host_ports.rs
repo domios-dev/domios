@@ -214,6 +214,19 @@ impl ServerApiAttachmentSlot {
     pub(crate) fn current(&self) -> Option<ServerApiAttachment> {
         self.0.read().clone()
     }
+
+    pub(crate) fn clear_if_current(&self, expected: &ServerReady) -> bool {
+        let mut current = self.0.write();
+        if current
+            .as_ref()
+            .is_some_and(|active| active.ready() == expected)
+        {
+            current.take();
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl ServerApiAttachment {

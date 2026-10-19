@@ -1,5 +1,6 @@
 mod bootstrap;
 mod quit;
+mod recovery;
 #[cfg(test)]
 pub(super) use bootstrap::read_single_bounded_line;
 #[cfg(test)]
@@ -91,6 +92,7 @@ struct NativeClientInstallInputs {
 struct NativeClientInitializationGate {
     inputs: Arc<NativeClientInstallInputs>,
     running: Arc<AtomicBool>,
+    attached_once: Arc<AtomicBool>,
 }
 
 impl NativeClientInitializationGate {
@@ -231,13 +233,16 @@ impl NativeHostClientSlot {
         }
     }
 
-    fn clear_if_current(&self, client: &Arc<NativeHostClient>) {
+    fn clear_if_current(&self, client: &Arc<NativeHostClient>) -> bool {
         let mut active = self.0.write();
         if active
             .as_ref()
             .is_some_and(|current| Arc::ptr_eq(current, client))
         {
             active.take();
+            true
+        } else {
+            false
         }
     }
 }
@@ -259,6 +264,7 @@ pub(crate) async fn initialize_client(
     let gate = NativeClientInitializationGate {
         inputs: inputs.clone(),
         running: Arc::new(AtomicBool::new(false)),
+        attached_once: Arc::new(AtomicBool::new(false)),
     };
     if !app.manage(gate.clone()) {
         return Err("Native client initialization inputs could not be retained".into());
@@ -266,7 +272,9 @@ pub(crate) async fn initialize_client(
     let _permit = gate
         .acquire()
         .ok_or_else(|| "Native client initialization is already active".to_string())?;
-    initialize_client_once(app, inputs).await
+    let initialized = initialize_client_once(app, inputs, true).await?;
+    gate.attached_once.store(true, Ordering::Release);
+    Ok(initialized)
 }
 
 pub(crate) async fn retry_initialize_client(
@@ -279,12 +287,21 @@ pub(crate) async fn retry_initialize_client(
     let _permit = gate
         .acquire()
         .ok_or_else(|| "Native client initialization is already active".to_string())?;
-    initialize_client_once(app, gate.inputs.clone()).await
+    let inputs = recovery::retry_inputs(gate.inputs.as_ref().clone()).await?;
+    let initialized = initialize_client_once(
+        app,
+        Arc::new(inputs),
+        !gate.attached_once.load(Ordering::Acquire),
+    )
+    .await?;
+    gate.attached_once.store(true, Ordering::Release);
+    Ok(initialized)
 }
 
 async fn initialize_client_once(
     app: AppHandle,
     inputs: Arc<NativeClientInstallInputs>,
+    allow_launch: bool,
 ) -> Result<NativeClientInitialization, String> {
     let NativeClientInstallInputs {
         manifest,
@@ -301,7 +318,7 @@ async fn initialize_client_once(
         error.to_string()
     })?;
 
-    let reply = bootstrap::attach_or_launch(&verified).await?;
+    let reply = bootstrap::attach_or_launch(&verified, allow_launch).await?;
     bootstrap::validate_ready(&verified, &reply.ready).map_err(|error| error.to_string())?;
     let token = reply
         .api_token
@@ -342,7 +359,7 @@ async fn initialize_client_once(
             slot.replace(client.clone());
             tauri::async_runtime::spawn(async move {
                 client.clone().run(stream).await;
-                slot.clear_if_current(&client);
+                recovery::disconnected(&slot, &client);
             });
             NativeClientStatus::Attached
         }

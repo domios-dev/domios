@@ -75,6 +75,7 @@ struct ShellSupervisor {
     development_frontend: Option<Url>,
     windows: tokio::sync::watch::Sender<WindowEpoch>,
     capability_origins: parking_lot::Mutex<HashSet<String>>,
+    view_bootstrap: parking_lot::Mutex<Option<ShellBootstrap>>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -232,6 +233,7 @@ pub fn initialize(
         root_render,
         windows: tokio::sync::watch::channel(WindowEpoch::default()).0,
         capability_origins: Default::default(),
+        view_bootstrap: Default::default(),
     });
     Ok(())
 }
@@ -309,6 +311,7 @@ pub fn create_window(
             .as_ref()
             .map(|url| url.origin().ascii_serialization());
     }
+    *supervisor.view_bootstrap.lock() = bootstrap.clone();
     let unavailable = unavailable_url()?;
     let fallback = fallback_url()?;
     let mut window_config = app
@@ -443,6 +446,12 @@ fn show_unavailable(window: &WebviewWindow) {
             keep_reconnecting(window.app_handle().clone());
         }
         Err(error) => log::error!("[frontend-shell] recovery surface failed: {error}"),
+    }
+}
+
+pub(crate) fn server_disconnected(app: codeterm_host_runtime::app_runtime::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        show_unavailable(&window);
     }
 }
 
@@ -750,6 +759,18 @@ pub fn retry(app: &codeterm_host_runtime::app_runtime::AppHandle) {
         else {
             match crate::host_ports::native_client::retry_initialize_client(app.clone()).await {
                 Ok(initialized) => {
+                    #[cfg(debug_assertions)]
+                    if initialized.native
+                        == crate::host_ports::native_client::NativeClientStatus::Attached
+                    {
+                        eprintln!(
+                            "DOMIOS_DEV_ATTACHMENT {}",
+                            serde_json::json!({ "protocol": initialized.ready.protocol,
+                                "client_pid": std::process::id(), "server_pid": initialized.ready.process.pid,
+                                "epoch": initialized.ready.epoch,
+                                "api_address": initialized.ready.api_address.to_string() })
+                        );
+                    }
                     if let Err(error) =
                         recover_for_attachment(app.clone(), &initialized.ready).await
                     {
@@ -812,6 +833,27 @@ pub(crate) async fn recover_for_attachment(
     };
     let unavailable = unavailable_url().map_err(|error| error.to_string())?;
     let current_url = window.url().map_err(|error| error.to_string())?;
+    let can_reuse_window = {
+        let supervisor = app.state::<ShellSupervisor>();
+        let api = app.state::<ServerApiAttachmentSlot>().current();
+        let reusable = supervisor
+            .view_bootstrap
+            .lock()
+            .as_ref()
+            .is_some_and(|bootstrap| {
+                api.is_some_and(|api| {
+                    bootstrap.origin == api.api_origin() && bootstrap.token == api.token()
+                })
+            });
+        reusable
+    };
+    if can_reuse_window {
+        ensure_server_attachment(&app, expected)?;
+        let url = frontend_url(&app, &format!("http://{}", expected.api_address)).await?;
+        ensure_server_attachment(&app, expected)?;
+        navigate_frontend(&app, &window, url)?;
+        return Ok(());
+    }
     if !same_navigation_document(&current_url, &unavailable) {
         start(app);
         return Ok(());
