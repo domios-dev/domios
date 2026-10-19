@@ -169,8 +169,6 @@ Switch one idle agent Tab to another model. Only that Tab changes: it is relaunc
 - `--force` — Explicitly override the background-work restart guard and report the affected work
 - `--list-speeds` — List this tab's currently available service tiers
 - `<name>` — Model id. Run `agent models PROVIDER` to list. Model id. Omit when changing only the service tier
-- `--reasoning-effort` — Reasoning effort declared for the selected model
-- `--runtime-mode` — Structured runtime mode declared by the selected provider
 - `--speed` — Service tier id or `default` to clear the selection
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
