@@ -1,7 +1,7 @@
 use super::*;
 
 fn fixture() -> codeterm_host_runtime::app_runtime::App {
-    let mut context = tauri::generate_context!();
+    let mut context = crate::app_context();
     context.config_mut().build.dev_url = None;
     context.config_mut().app.windows = vec![tauri::utils::config::WindowConfig {
         create: false,

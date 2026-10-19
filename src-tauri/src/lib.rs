@@ -10,10 +10,12 @@ pub fn run() {
     codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
     plugin_bundle::install();
     codeterm_orchestration::register_orchestration();
-    run::run(
-        tauri::generate_context!(),
-        command_registration::register_commands,
-    );
+    run::run(app_context(), command_registration::register_commands);
+}
+
+// macOS embeds Info.plist under one fixed symbol per expansion, so the crate expands it once.
+pub(crate) fn app_context<R: tauri::Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
 }
 
 mod crash;
