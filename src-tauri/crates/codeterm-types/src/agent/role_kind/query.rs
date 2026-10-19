@@ -55,6 +55,12 @@ pub fn taskless_worker(role: Option<AgentRole>, role_profile: Option<&str>) -> b
         && kind_descriptor(role, role_profile).is_some_and(RoleKindDescriptor::is_taskless_worker)
 }
 
+pub fn read_only_by_default(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
+    taskless_worker(role, role_profile)
+        && kind_descriptor(role, role_profile)
+            .is_some_and(RoleKindDescriptor::is_read_only_by_default)
+}
+
 fn capability_or_leaf(role: Option<AgentRole>, role_profile: Option<&str>) -> RoleKindCapability {
     kind_capability(role, role_profile).unwrap_or(RoleKindCapability::LEAF)
 }
