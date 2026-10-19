@@ -183,7 +183,7 @@ export async function stageFullResources({ repo = root, target, sourceSha, cargo
   const client = path.resolve(clientFile);
   const clientSha256 = sha256(await regularBytes(client, 'final native client'));
   const mac = metadata.platform.startsWith('darwin-');
-  if (path.basename(client) !== (metadata.platform.startsWith('windows-') ? 'codeterm.exe' : 'codeterm')) {
+  if (path.basename(client) !== (metadata.platform.startsWith('windows-') ? 'domios.exe' : 'domios')) {
     fail('final native client has an unexpected executable name');
   }
   const teamId = mac ? macSigningTeam(server) : null;
@@ -281,7 +281,7 @@ export async function extractFullPair({ bundle, platform, target, scratch }) {
   }
   const files = await extractedFiles(scratch);
   const inCli = file => /[/\\]cli[/\\]/.test(file);
-  const client = one(files, file => path.basename(file).toLowerCase() === (platform.startsWith('windows-') ? 'codeterm.exe' : 'codeterm') &&
+  const client = one(files, file => path.basename(file).toLowerCase() === (platform.startsWith('windows-') ? 'domios.exe' : 'domios') &&
     !inCli(file) && (!platform.startsWith('darwin-') || file.includes(`${path.sep}MacOS${path.sep}`)), 'packaged native client');
   const cli = one(files, file => inCli(file) && (path.basename(file) === metadata.cli ||
     path.basename(file) === `codeterm-${target}.exe`), 'packaged CLI');

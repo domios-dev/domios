@@ -108,6 +108,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-pty-fork` | unit | rust | manual | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest pty-fork` | `.agents/skills/gates/SKILL.md` |
 | `rust-mem-store` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest mem-store` | `.agents/skills/gates/SKILL.md` |
 | `rust-paths` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest paths` | `.agents/skills/gates/SKILL.md` |
+| `rust-process-identity` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest process-identity` | `.agents/skills/gates/SKILL.md` |
 | `rust-ci-test-classifier` | unit | rust | manual | no | no | 600 | static-scan | `cargo test --manifest-path scripts/ci-test-classifier/Cargo.toml` | `.agents/skills/github-release/SKILL.md` |
 | `rust-qualification` | contract | mixed | manual | no | no | 3600 | single | `gh workflow run qualification.yml -f evaluator_scope=<scope> -f expected_source_sha=<sha>` | `.github/workflows/qualification.yml` |
 | `e2e-api` | e2e-plain | python | manual | yes | no | 900 | pytest-collect `tests/e2e/test_*.py` lacking `pytest\.mark\.llm` | `./build.sh e2e` | `.agents/skills/testing/SKILL.md` |

@@ -61,6 +61,7 @@ log = { version = "0.4", features = ["release_max_level_info"] }
 fern = "0.7"
 shell-words = "1"
 parking_lot = "0.12"
+async-trait = "0.1"
 png = "0.17"
 dirs = "6"
 url = "2"

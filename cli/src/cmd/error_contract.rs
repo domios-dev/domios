@@ -158,6 +158,10 @@ pub fn classify(message: &str, rpc_code: Option<i32>, data: Option<&Value>) -> E
     if rpc_code == Some(-32601) {
         return ErrorCode::Unavailable;
     }
+    // -32022 is the planner's live-attempt race: dispatch in flight or a non-current respawn source.
+    if rpc_code == Some(-32022) {
+        return ErrorCode::Conflict;
+    }
     let lower = message.to_lowercase();
     let mentions = |markers: &[&str]| markers.iter().any(|marker| lower.contains(marker));
     if mentions(&NOT_FOUND_MARKERS) {

@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.46",
+  "version": "1.14.48",
   "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Codex",
@@ -260,7 +260,7 @@
       "backend": "chatgpt-cloud-tasks",
       "availability": {
         "status": "unavailable",
-        "reason": "Live Cloud access has not been verified. Connect the account that owns your Cloud environments."
+        "reason": "Sign in to Codex to discover Cloud environments."
       },
       "environments": [],
       "followUp": false,

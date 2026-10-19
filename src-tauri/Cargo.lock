@@ -1070,6 +1070,7 @@ dependencies = [
 name = "codeterm"
 version = "1.14.9"
 dependencies = [
+ "async-trait",
  "axum",
  "base64 0.22.1",
  "chrono",
@@ -1797,6 +1798,7 @@ dependencies = [
  "chrono",
  "codeterm-util",
  "dirs 5.0.1",
+ "log",
  "reqwest 0.12.28",
  "semver",
  "serde",

@@ -172,3 +172,16 @@ fn json_error_envelope_shape_is_shared_by_every_error_path() {
     error_keys.sort_unstable();
     assert_eq!(error_keys, ["code", "hint", "message", "rpc_code"]);
 }
+
+#[test]
+fn planner_live_attempt_races_classify_as_conflict() {
+    let data = serde_json::json!({"type": "respawn_attempt_not_current", "current_attempt_id": "attempt_b", "tab_id": "tab"});
+    assert_eq!(
+        classify(
+            "the named attempt is no longer current",
+            Some(-32022),
+            Some(&data)
+        ),
+        ErrorCode::Conflict
+    );
+}

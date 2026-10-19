@@ -66,6 +66,7 @@ pub fn run(
             crate::install_client_startup_options(&app_handle, startup_options)?;
             startup::frontend_shell_initialize(&app_handle)?;
             app.manage(startup::desktop_lifecycle::DesktopLifecycle::default());
+            crate::host_ports::update_pair::install(&app_handle);
             startup::build_system_tray(app)?;
             #[cfg(target_os = "macos")]
             {
