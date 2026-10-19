@@ -163,6 +163,17 @@ async function runCli(binary, env, signal, execution) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
+// The supervised server discards its own stderr and the scratch directory is deleted, so its log is the only cause left.
+export async function reportServerLogTail(data, { lines = 40, write = text => process.stderr.write(text) } = {}) {
+  const log = await readFile(path.join(data, 'logs', 'codeterm.log'), 'utf8').catch(() => null);
+  if (log === null) {
+    write('isolated server wrote no log before the failure\n');
+    return;
+  }
+  const tail = log.split(/\r?\n/).filter(Boolean).slice(-lines);
+  write(['isolated server log tail:', ...tail].join('\n') + '\n');
+}
+
 export async function smokePackagedPair({ target, tag, version, sourceSha, stageDirectory, outputDirectory }) {
   const entry = Object.entries(HEADLESS_TARGETS).find(([, value]) => value.target === target);
   if (!entry) fail('unsupported pair-smoke target');
@@ -172,6 +183,7 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
   const archive = readHeadlessArchive(assets.bytes[0]);
   if (archive.size !== stage.files.length) fail('headless archive file count differs from final common stage');
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'domios-pair-smoke-'));
+  const data = path.join(scratch, 'isolated-data');
   let child;
   try {
     for (const file of stage.files) {
@@ -188,7 +200,6 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
     const receipt = { target, sourceSha, serverBuild: manifest.server_build, byte_checks: 'passed', execution,
       signing: platform.startsWith('windows-') ? 'updater-signature only; no Authenticode' : 'platform release signing' };
     if (execution.mode === 'unverified_cross_arch') return { ...receipt, status: 'unverified_cross_arch' };
-    const data = path.join(scratch, 'isolated-data');
     const config = path.join(scratch, 'isolated-config');
     await Promise.all([mkdir(data), mkdir(config)]);
     const port = await choosePort();
@@ -218,6 +229,9 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
     child.stdin.end();
     if (await waitForExit(child, deadline) !== 0) fail('isolated packaged server did not exit cleanly');
     return { ...receipt, status: 'passed', port, health: 'passed', authenticatedCli: 'passed', shutdown: 'clean' };
+  } catch (error) {
+    await reportServerLogTail(data);
+    throw error;
   } finally {
     if (child && child.exitCode === null) {
       child.kill();
