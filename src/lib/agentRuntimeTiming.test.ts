@@ -25,6 +25,12 @@ it.each([NaN, Infinity, -1])("rejects invalid start or duration %s", (value) => 
   expect(runtimeActivityLabel("fixture", "idle", runtime, 100)).toBe("fixture");
 });
 
+it("falls back to the provider-reported duration of the finished turn", () => {
+  expect(runtimeActivityLabel("", "idle", null, 100, 9_000)).toBe("Last turn 9s");
+  expect(runtimeActivityLabel("", "idle", { state: "loaded", epoch: 1, last_turn_duration_ms: 12_000 }, 100, 9_000)).toBe("Last turn 12s");
+  expect(runtimeActivityLabel("", "working", null, 100, 9_000)).toBe("");
+});
+
 it("clamps provider clock skew to zero elapsed", () => {
   expect(runtimeActivityLabel("fixture", "working", { state: "loaded", epoch: 1, active_turn_started_at_ms: 1000 }, 900)).toBe("fixture · Elapsed 0s");
 });

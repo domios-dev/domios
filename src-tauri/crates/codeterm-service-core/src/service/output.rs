@@ -16,6 +16,8 @@ use crate::agent::prompt::PromptDecision;
 use crate::agent::status::TabStatus;
 #[path = "output/agent_idle.rs"]
 mod agent_idle;
+#[path = "output/finished_turn.rs"]
+mod finished_turn;
 #[path = "output/launch_exit.rs"]
 mod launch_exit;
 mod launch_onboarding;
@@ -72,6 +74,8 @@ fn store_agent_state_and_record_turn_resume_edge(
     start_epoch: Option<&str>,
     shutting_down: bool,
 ) -> (bool, bool) {
+    let mut new_state = new_state;
+    finished_turn::carry_summary(tab.agent_state.as_ref(), &mut new_state);
     if tab.structured_control_active || tab.agent_state.as_ref() == Some(&new_state) {
         return (false, false);
     }
@@ -738,6 +742,7 @@ impl ServiceContext {
             TimelineState::Idle => {
                 if let Some(summary) = extract_completion_summary(&lines) {
                     new_state.last_turn_summary = Some(summary.line);
+                    new_state.elapsed_ms = summary.elapsed_ms;
                 }
             }
             TimelineState::Question => {

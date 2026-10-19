@@ -48,7 +48,7 @@ async function main(): Promise<void> {
     />,
   );
   assert(idle.host.querySelectorAll('[data-testid="agent-state"]').length === 1, "idle keeps exactly one status row mounted");
-  assert(idle.host.querySelector('[data-testid="agent-activity-dots"]')?.getAttribute("data-activity-state") === "still", "idle row keeps still dots in the fixed activity slot");
+  assert(!idle.host.querySelector('[data-testid="agent-activity-slot"]'), "an idle row with nothing to say shows no activity dots");
   assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol · high", "idle row includes session-owned actual effort");
 
   let stopCalls = 0;

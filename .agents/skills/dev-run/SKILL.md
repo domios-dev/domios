@@ -28,6 +28,12 @@ Start `domios-front` first; the window shows the branded loader and retries unti
 answers. Restarting either tab never stops the other. Plain `./build.sh dev` still runs
 everything in one tab with the production-mode bundle watcher.
 
+`dev-back` launches the window detached and returns once it is ready. On Windows the launch
+leaves the tab's kill-on-close job (Team `dev` tabs allow it), so a `domios-back` restart keeps
+the window. A rerun with a live window builds beside it: the window locks its executable, so a
+client link that succeeds proves the client unchanged and only the server swaps; a lock failure
+replaces the window. Hosts older than the Team DEV breakaway report that the window stays tied to the tab.
+
 ## Measuring the live window
 
 `scripts/dev-perf/` attaches to the DEV webview over CDP (`CODETERM_DEV_CDP_PORT`, default

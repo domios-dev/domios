@@ -1,4 +1,6 @@
 export const STABLE_LABEL_WINDOW = 5;
+/** How many more recent appearances a returning text needs before it replaces the shown one. */
+export const STABLE_LABEL_MARGIN = 2;
 
 export interface StableLabelState {
   shown: string;
@@ -7,9 +9,9 @@ export interface StableLabelState {
   latestByShape: Record<string, string>;
 }
 
-/** Digits are ticking detail (timers, counts); the rest of the text is what the label says. */
+/** Parenthetical detail and digits are ticking detail; the leading text is what the label says. */
 export function labelShape(label: string): string {
-  return label.replace(/\d+/g, "#");
+  return label.replace(/\s*\(.*$/, "").replace(/\d+/g, "#").trim();
 }
 
 export function initialStableLabel(label: string): StableLabelState {
@@ -17,27 +19,25 @@ export function initialStableLabel(label: string): StableLabelState {
 }
 
 /**
- * A ticking change shows at once. A new kind of text shows at once; text flipping between
- * recent kinds shows the most frequent of the last few, keeping the current one on a tie.
+ * A ticking change shows at once, and so does a kind of text not seen lately. A recent kind that
+ * comes back replaces the shown one only once it clearly dominates the last few changes, so text
+ * flipping between two kinds settles on whichever is showing.
  */
-export function nextStableLabel(state: StableLabelState, incoming: string, window = STABLE_LABEL_WINDOW): StableLabelState {
+export function nextStableLabel(
+  state: StableLabelState,
+  incoming: string,
+  { window = STABLE_LABEL_WINDOW, placeholder = false }: { window?: number; placeholder?: boolean } = {},
+): StableLabelState {
   if (incoming === state.shown) return state;
+  if (placeholder && state.shown) return state;
   const shape = labelShape(incoming);
   const latestByShape = { ...state.latestByShape, [shape]: incoming };
-  if (shape === labelShape(state.shown)) return { ...state, shown: incoming, latestByShape };
+  const currentShape = labelShape(state.shown);
   const seen = state.recent.includes(shape);
   const recent = [...state.recent, shape].slice(-window);
+  if (shape === currentShape) return { shown: incoming, recent, latestByShape };
   if (!seen) return { shown: incoming, recent, latestByShape };
-  const counts = new Map<string, number>();
-  for (const entry of recent) counts.set(entry, (counts.get(entry) ?? 0) + 1);
-  const currentShape = labelShape(state.shown);
-  let winner = currentShape;
-  let best = counts.get(currentShape) ?? 0;
-  for (const [entry, count] of counts) {
-    if (count > best) {
-      winner = entry;
-      best = count;
-    }
-  }
-  return { shown: latestByShape[winner] ?? incoming, recent, latestByShape };
+  const count = (target: string) => recent.filter((entry) => entry === target).length;
+  const dominates = count(shape) >= count(currentShape) + STABLE_LABEL_MARGIN;
+  return { shown: dominates ? incoming : state.shown, recent, latestByShape };
 }

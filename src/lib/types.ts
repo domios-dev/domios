@@ -150,7 +150,7 @@ export interface TabAgentState {
   question?: string | null;
   /** Provider-derived work phase, e.g. thinking/streaming/tool, when known. */
   phase?: string | null;
-  /** Parsed elapsed time for the provider status line, in milliseconds. */
+  /** Parsed elapsed time in milliseconds: the live turn while working, the finished turn while idle. */
   elapsed_ms?: number | null;
   subtype?: "model_choice" | "model_picker" | "permission" | "auth" | "rate_limit" | "update" | "error" | "unknown";
 }

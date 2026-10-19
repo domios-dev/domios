@@ -59,9 +59,9 @@ async function main() {
         store.notify();
       });
       const sidebar = host.querySelector('[data-testid="tab-working-activity"]');
-      const chat = host.querySelector('[data-testid="agent-activity-dots"]');
+      const chatState = host.querySelector('[data-testid="agent-activity-dots"]')?.getAttribute("data-activity-state");
       assert.equal(Boolean(sidebar), active, "sidebar shows dots only for a working turn");
-      assert.equal(Boolean(chat), active, "chat agrees with sidebar about actual work");
+      assert.equal(chatState === "active" || chatState === "reactivated", active, "chat dots move only when the sidebar shows work");
       assert.equal(
         host.querySelector('[data-testid="tab-item"]')?.getAttribute("data-tab-activity"),
         host.querySelector('[data-testid="agent-state"]')?.getAttribute("data-tab-activity"),

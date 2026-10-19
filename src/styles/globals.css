@@ -665,9 +665,6 @@ button,
     border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
-.sidebar-tab-activation:hover {
-  transform: var(--ct-liquid-base-transform) scale(1.0075);
-}
 
 .sidebar-tab-activation:active {
   transform: var(--ct-liquid-base-transform) scale(0.975);
@@ -2027,6 +2024,16 @@ button,
 
 .ct-sidebar-content {
   scrollbar-gutter: stable both-edges;
+  padding-bottom: 4px;
+}
+
+/* The dragged block is opaque and slightly lifted, so rows it passes never show through it. */
+[data-dnd-dragging="true"] {
+  border-radius: var(--ct-radius-md);
+  background: color-mix(in srgb, var(--ct-accent) 7%, var(--ct-bg));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 28%, transparent),
+    0 4px 14px rgb(0 0 0 / 22%);
 }
 
 .sidebar-team-unit {
@@ -2625,8 +2632,9 @@ button,
   font-size: 12.5px;
 }
 
+/* The scroll area meets the divider; its own bottom padding keeps the last row off the line. */
 .sidebar-recently-closed {
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 .sidebar-team-icon {

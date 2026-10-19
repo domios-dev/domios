@@ -66,6 +66,9 @@ impl ServiceContext {
         drop(published);
         for tab_id in idle_tabs {
             log::debug!("[agent-delivery] tab={tab_id} wake=authoritative_idle");
+            // A finished turn proves the agent is live; it recovers a launch whose binding
+            // arrived before a later stage reset left the tab looking like it is still starting.
+            self.reconcile_boot_stage_with_session_binding(&tab_id);
             self.schedule_agent_delivery_flush(&tab_id);
         }
     }

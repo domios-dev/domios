@@ -66,7 +66,8 @@ export function AgentStateIndicator({
   const statusMessage = background && activity.kind === "working"
     ? activity.status
     : runningTool ? activityLabel(runningTool) : activity.label;
-  const status = useStableStatusLabel(runtimeActivityLabel(statusMessage, activity.kind, runtimeState, Date.now()), activity.kind);
+  const stableMessage = useStableStatusLabel(statusMessage, activity.kind, !runningTool && !background && activity.genericWork === true);
+  const status = runtimeActivityLabel(stableMessage, activity.kind, runtimeState, Date.now(), activity.lastTurnMs);
   const detail = runningTool ? activityCommand(runningTool) : undefined;
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
@@ -74,10 +75,12 @@ export function AgentStateIndicator({
   const identity = [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
   const text = [identity, status].filter(Boolean).join(" · ");
   const animated = activity.active && !background;
-  // One fixed-width slot: still dots at rest, moving dots while working, the clock while starting.
+  // One fixed-width slot: still dots beside a resting label, moving dots while working, the clock while starting.
+  // With nothing to say there is no label to keep in place, so the slot goes too.
+  const restingWithoutLabel = !animated && activity.kind !== "starting" && !status;
   const dots = channelLoadingLabel
     ? <ChatChannelLoadingStatus label={channelLoadingLabel} />
-    : !showActivity ? null : (
+    : !showActivity || restingWithoutLabel ? null : (
       <span data-testid="agent-activity-slot" className="inline-flex w-6 shrink-0 items-center justify-center">
         {activity.kind === "starting"
           ? <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : "Agent starting"} compact />

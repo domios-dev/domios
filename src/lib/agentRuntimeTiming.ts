@@ -10,13 +10,15 @@ export function runtimeActivityLabel(
   kind: TabActivity["kind"],
   runtime: AgentRuntimeState | null | undefined,
   now: number,
+  observedLastTurnMs?: number,
 ): string {
-  if (runtime?.state !== "loaded") return label;
-  if (kind === "working" && validTime(runtime.active_turn_started_at_ms) && validTime(now)) {
-    return [label, `Elapsed ${formatDuration(now - runtime.active_turn_started_at_ms)}`].filter(Boolean).join(" · ");
+  const loaded = runtime?.state === "loaded" ? runtime : null;
+  if (kind === "working" && loaded && validTime(loaded.active_turn_started_at_ms) && validTime(now)) {
+    return [label, `Elapsed ${formatDuration(now - loaded.active_turn_started_at_ms)}`].filter(Boolean).join(" · ");
   }
-  if (kind === "idle" && validTime(runtime.last_turn_duration_ms)) {
-    return [label, `Last turn ${formatDuration(runtime.last_turn_duration_ms)}`].filter(Boolean).join(" · ");
+  const lastTurnMs = loaded && validTime(loaded.last_turn_duration_ms) ? loaded.last_turn_duration_ms : observedLastTurnMs;
+  if (kind === "idle" && validTime(lastTurnMs)) {
+    return [label, `Last turn ${formatDuration(lastTurnMs)}`].filter(Boolean).join(" · ");
   }
   return label;
 }
