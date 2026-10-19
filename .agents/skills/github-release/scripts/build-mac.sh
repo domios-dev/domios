@@ -37,7 +37,7 @@ if [ "$ARCH" = "arm64" ]; then
     --cargo-log release-artifacts/build-logs/aarch64-apple-darwin/server.jsonl \
     --tree-log release-artifacts/build-logs/aarch64-apple-darwin/closure.txt \
     --client-file src-tauri/target/release/domios
-  pnpm tauri bundle --no-binary-patching --features "${CODETERM_RELEASE_FEATURES:-embeddings}" --bundles app,dmg
+  node scripts/release-macos-bundle.mjs aarch64-apple-darwin
   APP=src-tauri/target/release/bundle/macos/CodeTerm.app
 else
   rm -rf src-tauri/target/x86_64-apple-darwin/release/bundle
