@@ -12,7 +12,7 @@ export type BrandConnectionEvent = "disconnect" | "grace-expired" | "connect" | 
 export type BrandStateModel =
   | { kind: "hidden" }
   | { kind: "loading"; label: string; detail?: string; animate: boolean }
-  | { kind: "error"; title: string; detail: string }
+  | { kind: "error"; title: string; sentence: string }
   | { kind: "reconnecting" }
   | { kind: "reconnected" };
 
@@ -61,7 +61,7 @@ export function brandStateModel(input: {
   label?: string;
   detail?: string;
   animate?: boolean;
-  error?: { title: string; detail: string };
+  error?: { title: string; sentence: string };
   connection?: BrandConnectionState;
   now?: number;
 }): BrandStateModel {
