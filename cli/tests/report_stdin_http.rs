@@ -65,6 +65,10 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
                     reply(&mut stream, true, json!({"result":{"ok":true}}));
                     continue;
                 }
+                if body["method"] == "plan.binding.resolve" {
+                    reply(&mut stream, true, json!({"result":{"binding":null}}));
+                    continue;
+                }
                 assert_eq!(body["method"], "agent.report");
                 let params = &body["params"];
                 let matches = [
