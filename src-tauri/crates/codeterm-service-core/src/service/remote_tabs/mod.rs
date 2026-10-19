@@ -129,8 +129,7 @@ pub fn scope_ordinary_tab_projection(
     };
     tabs.into_iter()
         .filter(|tab| {
-            tab.get("remote_peer_id").is_none()
-                && tab.get("workspace_id").and_then(serde_json::Value::as_str) == Some(workspace_id)
+            tab.get("workspace_id").and_then(serde_json::Value::as_str) == Some(workspace_id)
         })
         .collect()
 }

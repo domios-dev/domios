@@ -108,7 +108,7 @@ fn remote_projection_stamps_worker_role_for_roleless_source() {
 }
 
 #[test]
-fn workspace_scoping_excludes_remote_tabs_and_keeps_them_with_the_local_controller() {
+fn workspace_scoping_keeps_each_remote_viewer_with_its_local_workspace() {
     let projected = merge_ordinary_tab_projection(
         &[
             serde_json::json!({"id":"local-a","workspace_id":"994f16ae"}),
@@ -120,21 +120,34 @@ fn workspace_scoping_excludes_remote_tabs_and_keeps_them_with_the_local_controll
             authenticated: true,
             reachable: true,
             availability: "available",
-            tabs: vec![serde_json::json!({"id":"worker","workspace_id":"994f16af"})],
-            controllers: std::collections::HashMap::from([("worker".into(), "local-a".into())]),
+            tabs: vec![
+                serde_json::json!({"id":"worker-a","workspace_id":"peer-workspace-a"}),
+                serde_json::json!({"id":"worker-b","workspace_id":"peer-workspace-b"}),
+            ],
+            controllers: std::collections::HashMap::from([
+                ("worker-a".into(), "local-a".into()),
+                ("worker-b".into(), "local-b".into()),
+            ]),
         }],
     );
     let scoped_a = scope_ordinary_tab_projection(projected.clone(), Some("994f16ae"));
     let scoped_b = scope_ordinary_tab_projection(projected.clone(), Some("994f16af"));
-    assert_eq!(scoped_a.len(), 1);
-    assert_eq!(scoped_b.len(), 1);
-    assert!(scoped_a.iter().all(|tab| tab["id"] == "local-a"));
-    assert!(scoped_b.iter().all(|tab| tab["id"] == "local-b"));
-    let remote = projected
+    let ids_a = scoped_a
         .iter()
-        .find(|tab| tab["id"] == "mesh:peer-a/worker")
-        .unwrap();
-    assert_eq!(remote["workspace_id"], "994f16ae");
+        .filter_map(|tab| tab["id"].as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let ids_b = scoped_b
+        .iter()
+        .filter_map(|tab| tab["id"].as_str())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        ids_a,
+        std::collections::HashSet::from(["local-a", "mesh:peer-a/worker-a"])
+    );
+    assert_eq!(
+        ids_b,
+        std::collections::HashSet::from(["local-b", "mesh:peer-a/worker-b"])
+    );
 }
 
 #[test]
