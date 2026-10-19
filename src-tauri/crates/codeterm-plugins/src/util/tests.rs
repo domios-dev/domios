@@ -83,15 +83,17 @@ mod git_never_prompts {
     }
 
     #[test]
-    fn git_failure_is_named_non_interactive_error() {
+    fn git_failure_returns_a_short_actionable_error() {
         let mut env = TestEnvGuard::lock();
         let directory = tempfile::tempdir().expect("tempdir");
         let git = install_fake_git(directory.path(), "printf 'remote denied\\n' >&2; exit 2");
         env.set("CODETERM_TEST_GIT_BIN", git.as_os_str());
 
         let error = run_git(vec!["fetch".into()]).expect_err("fake git fails");
-        assert!(error.contains("git_non_interactive"));
-        assert!(error.contains("git ran non-interactively with credential prompts disabled"));
-        assert!(error.contains("remote denied"));
+        assert_eq!(
+            error,
+            "Plugin updates are unavailable right now. Domios will retry."
+        );
+        assert!(!error.contains("remote denied"));
     }
 }

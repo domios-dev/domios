@@ -169,9 +169,27 @@ impl PlanStore {
             if attempt.id != attempt_id
                 || attempt.session_id.as_deref() != Some(session_id)
                 || attempt.session_binding_nonce.as_deref() != Some(nonce)
+                || attempt.interruption.owner_epoch != task.interruption.owner_epoch
             {
                 return Err(PlanError::Io(
                     "plan skill announcement binding is not current".into(),
+                ));
+            }
+            let attempt_index = task
+                .execution_attempts
+                .iter()
+                .position(|candidate| candidate.id == attempt_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let superseded = task.execution_attempts[..attempt_index]
+                .iter()
+                .any(|prior| {
+                    prior.executor_tab_id == tab_id
+                        || prior.interruption.owner_epoch < attempt.interruption.owner_epoch
+                });
+            if attempt.acknowledged_at.is_none() && superseded {
+                return Err(PlanError::Io(
+                    "plan skill announcement requires acknowledgement for a reassigned attempt"
+                        .into(),
                 ));
             }
             let manifest = super::super::plan_skills::plan_skill_manifest(self, plan_id)?;

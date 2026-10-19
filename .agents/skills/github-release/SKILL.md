@@ -10,6 +10,16 @@ description: >-
 
 # End-to-end Domios release to GitHub
 
+Shared-stage bundles require the pinned Tauri CLI 2.12.2 and `tauri bundle --no-binary-patching`.
+Earlier bundlers change the packaged native client after its component digest is frozen; extraction readback must reject that mismatch.
+Linux `tauri build --no-bundle` overrides resources and externalBin with empty arrays to avoid the raw server file/resource-directory collision.
+The following `tauri bundle` uses the full platform resource map; never carry that compile-only override into packaging.
+
+For one platform concern, dispatch `release-linux.yml`, `release-windows.yml` or `release-macos-build.yml`
+with the exact `source_ref`, version tag and one architecture. The event plus workflow name distinguishes direct dispatch
+from a manually dispatched release caller. Direct dispatch always forbids release asset mutation;
+use `dry_run=true`, `mirror=false`. Dispatch `tests.yml` with `phase=fast` for checks without the Rust suite.
+
 ## Branches and the release flow (since 1.14.4)
 
 | Branch | What lands there | CI |

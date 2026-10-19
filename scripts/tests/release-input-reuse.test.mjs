@@ -7,6 +7,36 @@ const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" 
 const source = readFileSync(new URL("../../build.sh", import.meta.url), "utf8").replaceAll("\r\n", "\n");
 const preparation = source.match(/^prepare_release_bundle_inputs\(\) \{\n[\s\S]*?^\}/m)?.[0];
 
+test('shared-stage bundles preserve the final client bytes used by the component identity', () => {
+  const files = [
+    '../../build.sh', '../../.github/workflows/release-linux.yml',
+    '../../.codeterm/build-machine/scripts/build-linux.sh',
+    '../../.agents/skills/github-release/scripts/build-mac.sh', '../release-macos-x86_64.sh',
+  ];
+  for (const file of files) {
+    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
+    const commands = text.split('\n').filter(line => line.includes('pnpm tauri bundle '));
+    assert.ok(commands.length > 0, file);
+    for (const command of commands) assert.match(command, /tauri bundle --no-binary-patching\b/, file);
+  }
+  const dependencies = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).devDependencies;
+  assert.equal(dependencies['@tauri-apps/cli'], '^2.12.2');
+});
+
+test('Linux native compilation defers resource copying until the full package bundle', () => {
+  for (const file of ['../../.github/workflows/release-linux.yml', '../../.codeterm/build-machine/scripts/build-linux.sh']) {
+    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
+    const nativeBuild = text.match(/pnpm tauri build --no-bundle[\s\S]*?--config '(\{[^\n]+\})'/)?.[1];
+    assert.ok(nativeBuild, file);
+    const config = JSON.parse(nativeBuild);
+    assert.deepEqual(config.bundle.resources, [], file);
+    assert.deepEqual(config.bundle.externalBin, [], file);
+    const bundle = text.match(/pnpm tauri bundle[^\n]*(?:\\\n[^\n]*)*/)?.[0];
+    assert.ok(bundle, file);
+    assert.doesNotMatch(bundle, /"resources"|"externalBin"/, file);
+  }
+});
+
 function commands(env = {}, captureEnvironment = false, mode = "") {
   assert.ok(preparation);
   return execFileSync(bash, ["-c", `

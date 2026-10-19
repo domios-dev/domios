@@ -33,7 +33,7 @@ module.exports = __toCommonJS(plugin_exports);
 // plugins/provider-shared/sessionRecords.ts
 function* sessionRecords(input, accepts) {
   if (typeof input !== "string") {
-    for (const record5 of input) yield { row: record5.row, value: record5.value };
+    for (const record6 of input) yield { row: record6.row, value: record6.value };
     return;
   }
   const lines = String(input || "").split("\n");
@@ -717,6 +717,41 @@ function activityLabel(tool) {
 var row = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
 var rows = (value) => Array.isArray(value) ? value.map(row) : [];
 var text = (value) => typeof value === "string" ? value : null;
+var CODEX_CLOUD_ACCOUNT_REF = "codexAuth";
+var CLOUD_SIGN_IN_REASON = "Sign in to Codex to use Cloud environments.";
+function cloudTaskPath(environmentId, taskId) {
+  const taskPath = environmentId.startsWith("asenvcfg_") ? "/api/codex/tasks" : "/wham/tasks";
+  return taskId === void 0 ? taskPath : `${taskPath}/${encodeURIComponent(taskId)}`;
+}
+function cloudEnvironmentList(value) {
+  if (!Array.isArray(value)) throw new Error("Cloud environment response is invalid");
+  return value.flatMap((entry) => {
+    const environment = row(entry);
+    const id = text(environment.id);
+    const label = text(environment.label) ?? id;
+    return id && label ? [{ id, label, accountRef: CODEX_CLOUD_ACCOUNT_REF }] : [];
+  });
+}
+function cloudEnvironmentConfigList(value) {
+  const response = row(value);
+  const data = row(response.data);
+  const collection = Array.isArray(value) ? value : [
+    response.items,
+    response.environmentConfigs,
+    response.environment_configs,
+    data.items,
+    data.environmentConfigs,
+    data.environment_configs
+  ].find(Array.isArray);
+  if (!Array.isArray(collection)) throw new Error("Codex Cloud settings response is invalid");
+  const environments = rows(collection).flatMap((environment) => {
+    const id = text(environment.id) ?? text(environment.environmentConfigId) ?? text(environment.environment_config_id);
+    const label = text(environment.name) ?? text(environment.displayName) ?? text(environment.display_name) ?? text(environment.label) ?? id;
+    return id && label ? [{ id, label, accountRef: CODEX_CLOUD_ACCOUNT_REF }] : [];
+  });
+  if (collection.length > 0 && environments.length === 0) throw new Error("Codex Cloud settings response is invalid");
+  return environments;
+}
 function cloudTaskRequest(environmentId, branch, prompt) {
   return {
     new_task: { environment_id: environmentId, branch, run_environment_in_qa_mode: false },
@@ -748,7 +783,7 @@ function cloudTaskSnapshot(value, binding) {
     result,
     diff,
     cursor: null,
-    error: failed ? text(error.message) ?? "Remote task failed" : null
+    error: failed ? "Remote task failed" : null
   };
 }
 function cloudTaskBackend(capability, transport) {
@@ -756,14 +791,14 @@ function cloudTaskBackend(capability, transport) {
     capability,
     environments: () => capability.environments,
     create(input) {
-      const response = row(transport.request("POST", "/wham/tasks", input.accountRef, cloudTaskRequest(input.environmentId, input.branch, input.prompt)));
+      const response = row(transport.request("POST", cloudTaskPath(input.environmentId), input.accountRef, cloudTaskRequest(input.environmentId, input.branch, input.prompt)));
       const taskId = text(row(response.task).id) ?? text(response.id);
       if (!taskId) throw new Error("Cloud did not acknowledge a task identity");
       return { taskId };
     },
     read(binding) {
       if (!binding.snapshot) throw new Error("Cloud task identity is missing");
-      return cloudTaskSnapshot(transport.request("GET", `/wham/tasks/${encodeURIComponent(binding.snapshot.taskId)}`, binding.accountRef), binding);
+      return cloudTaskSnapshot(transport.request("GET", cloudTaskPath(binding.environmentId, binding.snapshot.taskId), binding.accountRef), binding);
     }
   };
 }
@@ -850,24 +885,145 @@ function remoteChatBackend(storage, backend, providerId) {
   };
 }
 
+// plugins/provider-codex/src/cloud/transport.ts
+var CODEX_AUTH_CREDENTIAL = "codexAuth";
+var CODEX_ACCOUNT_HEADER = "ChatGPT-Account-Id";
+var CLOUD_BASE_URL = "https://chatgpt.com/backend-api";
+var SETTINGS_BASE_URL = "https://chatgpt.com";
+var SETTINGS_ENVIRONMENTS_PATH = "/api/codex-cloud/v1/environment-configs?scope=user&limit=100&omitDraft=true";
+var REPOSITORY_ENVIRONMENTS_PATH = "/wham/environments/by-repo/github/rollacode/codeterm";
+var ENVIRONMENTS_PATH = "/wham/environments";
+var REQUEST_FAILURE = "Codex Cloud request failed.";
+var CloudTransportError = class extends Error {
+  constructor(status) {
+    super(status === 401 || status === 403 ? CLOUD_SIGN_IN_REASON : REQUEST_FAILURE);
+    this.status = status;
+  }
+};
+function record2(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function publicAccountId(host2) {
+  let credential = null;
+  try {
+    const raw = host2.credentialPublic(CODEX_AUTH_CREDENTIAL);
+    credential = raw ? record2(JSON.parse(raw)) : null;
+  } catch {
+    credential = null;
+  }
+  const accountId = credential?.accountId;
+  if (typeof accountId !== "string" || !accountId) throw new CloudTransportError(401);
+  return accountId;
+}
+function readBody(response) {
+  if (typeof response.body !== "string") throw new CloudTransportError();
+  try {
+    return JSON.parse(response.body);
+  } catch {
+    throw new CloudTransportError();
+  }
+}
+function isCodexTaskPath(method, path) {
+  if (method === "POST") return path === "/api/codex/tasks";
+  return path === "/api/codex/tasks/list" || /^\/api\/codex\/tasks\/list\?[^#]*$/.test(path) || /^\/api\/codex\/tasks\/[A-Za-z0-9._-]+$/.test(path);
+}
+function createCodexCloudTransport(host2) {
+  const request2 = (method, path, accountRef, body) => {
+    const settingsRequest = method === "GET" && path === SETTINGS_ENVIRONMENTS_PATH;
+    const legacyRequest = path.startsWith("/wham/");
+    const codexTaskRequest = isCodexTaskPath(method, path);
+    if (accountRef !== CODEX_CLOUD_ACCOUNT_REF || !settingsRequest && !legacyRequest && !codexTaskRequest) throw new CloudTransportError();
+    const accountId = publicAccountId(host2);
+    let result;
+    try {
+      result = JSON.parse(host2.fetch(JSON.stringify({
+        url: `${settingsRequest || codexTaskRequest ? SETTINGS_BASE_URL : CLOUD_BASE_URL}${path}`,
+        method,
+        timeoutMs: 6e3,
+        headers: {
+          [CODEX_ACCOUNT_HEADER]: accountId,
+          "Content-Type": "application/json",
+          "User-Agent": "codeterm-codex-cloud/1.14.47"
+        },
+        ...body === void 0 ? {} : { body: JSON.stringify(body) },
+        credential: {
+          id: CODEX_AUTH_CREDENTIAL,
+          headers: { Authorization: "Bearer {accessToken}" }
+        }
+      })));
+    } catch {
+      throw new CloudTransportError();
+    }
+    const response = record2(result);
+    if (!response || typeof response.status !== "number") throw new CloudTransportError();
+    const status = response.status;
+    if (status < 200 || status >= 300) throw new CloudTransportError(status);
+    return readBody(response);
+  };
+  const discoverRemoteTask = () => {
+    try {
+      try {
+        const settingsEnvironments = cloudEnvironmentConfigList(request2("GET", SETTINGS_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+        if (settingsEnvironments.length > 0) return { availability: { status: "available" }, environments: settingsEnvironments };
+      } catch (error) {
+        if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
+      }
+      let repoEnvironments = null;
+      try {
+        repoEnvironments = cloudEnvironmentList(request2("GET", REPOSITORY_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+      } catch (error) {
+        if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
+      }
+      let allEnvironments = null;
+      try {
+        allEnvironments = cloudEnvironmentList(request2("GET", ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+      } catch (error) {
+        if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
+        if (repoEnvironments === null) throw error;
+      }
+      const environmentsById = new Map((repoEnvironments ?? []).map((environment) => [environment.id, environment]));
+      for (const environment of allEnvironments ?? []) {
+        if (!environmentsById.has(environment.id)) environmentsById.set(environment.id, environment);
+      }
+      const environments = [...environmentsById.values()];
+      return { availability: { status: "available" }, environments };
+    } catch (error) {
+      const reason = error instanceof CloudTransportError && (error.status === 401 || error.status === 403) ? CLOUD_SIGN_IN_REASON : "Could not load Codex Cloud environments. Try again.";
+      return { availability: { status: "unavailable", reason }, environments: [] };
+    }
+  };
+  return { request: request2, discoverRemoteTask };
+}
+
 // plugins/provider-codex/src/cloud/plugin.ts
 function cloudExports(hostRef) {
   let backend;
+  let capability;
+  let transport;
   const get = () => {
     if (backend) return backend;
     const host2 = hostRef();
     const manifest = JSON.parse(host2.manifestJson() ?? "{}");
     const root = host2.fs.expandHome("~/.codeterm/codex/tasks");
     if (!root) throw new Error("Cloud task storage is unavailable");
-    backend = remoteChatBackend(new RemoteTaskFileStorage(host2.fs, root), cloudTaskBackend(manifest.capabilities.remoteTask, {
-      request() {
-        throw new Error("Live Cloud access has not been verified");
-      }
-    }), manifest.id);
+    capability = manifest.capabilities.remoteTask;
+    transport = createCodexCloudTransport(host2);
+    backend = remoteChatBackend(new RemoteTaskFileStorage(host2.fs, root), cloudTaskBackend(capability, transport), manifest.id);
     return backend;
   };
+  const discoverRemoteTask = () => {
+    get();
+    const discovery = transport.discoverRemoteTask();
+    Object.assign(capability, discovery);
+    return discovery;
+  };
   return {
-    openSession: (ctx) => get().openSession(ctx),
+    discoverRemoteTask,
+    openSession: (ctx) => {
+      const discovery = discoverRemoteTask();
+      if (discovery.availability.status === "unavailable") throw new Error(discovery.availability.reason);
+      return get().openSession(ctx);
+    },
     sendMessage: (session, text7) => get().sendMessage(session, text7),
     poll: (session, cursor) => get().poll(session, cursor),
     closeSession: (session) => get().closeSession(session),
@@ -1461,7 +1617,7 @@ var AGENT_STATES = {
 function text4(value) {
   return typeof value === "string" ? value.trim() : "";
 }
-function record2(value) {
+function record3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function row2(uuid, blocks, ts, timestamp) {
@@ -1491,7 +1647,7 @@ function reasoningItemRow(item, ts, timestamp) {
 function reasoningResponseRow(payload, ts, timestamp) {
   const parts = Array.isArray(payload.summary) ? payload.summary : [];
   const summaries = parts.map((part) => {
-    const entry = record2(part);
+    const entry = record3(part);
     return entry && entry.type === "summary_text" ? entry.text : void 0;
   });
   return thoughtRow(payload.id, summaries, ts, timestamp);
@@ -1506,8 +1662,8 @@ function subAgentRow(item, id, turnId, ts, timestamp) {
 }
 function collabCallRow(item, turnId, ts, timestamp) {
   const receivers = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids : [];
-  const agents = Array.isArray(item.receiver_agents) ? item.receiver_agents.map(record2) : [];
-  const states = record2(item.agents_states);
+  const agents = Array.isArray(item.receiver_agents) ? item.receiver_agents.map(record3) : [];
+  const states = record3(item.agents_states);
   const seen = [];
   const blocks = [];
   for (const receiver of receivers) {
@@ -1515,7 +1671,7 @@ function collabCallRow(item, turnId, ts, timestamp) {
     if (!agentId || seen.indexOf(agentId) !== -1) continue;
     seen.push(agentId);
     const agentPath = text4(agents.find((entry) => entry !== null && text4(entry.thread_id) === agentId)?.agent_path);
-    const state = AGENT_STATES[text4(record2(states?.[agentId])?.status)] ?? "unknown";
+    const state = AGENT_STATES[text4(record3(states?.[agentId])?.status)] ?? "unknown";
     blocks.push(agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId));
   }
   return row2(text4(item.id) ? `collab-${text4(item.id)}` : "", blocks, ts, timestamp);
@@ -1524,7 +1680,7 @@ function agentMessageRow(payload, ts, timestamp) {
   const from = text4(payload.author);
   const to = text4(payload.recipient);
   if (!from || !to || from === to) return null;
-  const turnId = record2(payload.internal_chat_message_metadata_passthrough)?.turn_id;
+  const turnId = record3(payload.internal_chat_message_metadata_passthrough)?.turn_id;
   const block = agentBlock({ message_from: from, message_to: to }, `${from} \u2192 ${to}`, turnId);
   return row2(text4(payload.id) ? `agent-message-${text4(payload.id)}` : "", [block], ts, timestamp);
 }
@@ -1699,11 +1855,11 @@ function summarizeExecScript(raw) {
 function text5(value) {
   return typeof value === "string" ? value : "";
 }
-function record3(value) {
+function record4(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function webFields(source) {
-  const action = record3(source.action);
+  const action = record4(source.action);
   const rich = { kind: "web" };
   const query = text5(source.query) || text5(action?.query);
   if (query) rich.query = query;
@@ -1734,7 +1890,7 @@ function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts
   };
 }
 function webSearchEndResult(payload, ts, timestamp) {
-  const source = record3(payload);
+  const source = record4(payload);
   const id = text5(source?.call_id);
   if (!source || !id) return null;
   const rich = webFields(source);
@@ -1743,7 +1899,7 @@ function webSearchEndResult(payload, ts, timestamp) {
   return resultMessage(`result-${id}`, id, "web_search", rich, summary, summary, false, source.turn_id, ts, timestamp);
 }
 function imageGenerationEndResult(payload, ts, timestamp) {
-  const source = record3(payload);
+  const source = record4(payload);
   const id = text5(source?.call_id);
   if (!source || !id) return null;
   const rich = { kind: "image", origin: "generated" };
@@ -1881,9 +2037,9 @@ function completedActivity(value, ts, timestamp, turnId) {
 function storedHistoryAvailable(sessionId, head) {
   if (!sessionId || !head) return false;
   try {
-    const record5 = object(JSON.parse(head.split("\n", 1)[0]));
-    const payload = object(record5.payload);
-    return record5.type === "session_meta" && payload.id === sessionId && payload.history_base == null;
+    const record6 = object(JSON.parse(head.split("\n", 1)[0]));
+    const payload = object(record6.payload);
+    return record6.type === "session_meta" && payload.id === sessionId && payload.history_base == null;
   } catch {
     return false;
   }
@@ -1949,19 +2105,19 @@ function* textRecords(records) {
   }
 }
 function runtimeStoredRecords(sessionId, records) {
-  return projectStoredRecords(sessionId, records.map((record5) => {
-    if (!record5.oversized) return record5.value;
-    const value = object(record5.value), payload = object(value.payload);
+  return projectStoredRecords(sessionId, records.map((record6) => {
+    if (!record6.oversized) return record6.value;
+    const value = object(record6.value), payload = object(value.payload);
     return { ...value, payload: { ...payload, item: { ...object(payload.item), historyTruncated: true } } };
   }));
 }
 function projectStoredRecords(sessionId, records) {
   const rows2 = /* @__PURE__ */ new Map();
   for (const raw of records) {
-    const record5 = object(raw);
-    const payload = object(record5.payload);
-    if (record5.type === "session_meta" && text2(payload.id) !== sessionId) throw new Error("Stored session identity differs");
-    if (record5.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
+    const record6 = object(raw);
+    const payload = object(record6.payload);
+    if (record6.type === "session_meta" && text2(payload.id) !== sessionId) throw new Error("Stored session identity differs");
+    if (record6.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
     const turn = text2(payload.turn_id);
     if (!turn || !text2(object(payload.item).id)) throw new Error("Stored runtime item identity missing");
     const projected = projectHistoryItem(recordedItem(payload.item), rows2.size, turn, payload.started_at_ms ?? payload.completed_at_ms, sessionId);
@@ -2051,10 +2207,10 @@ function pagedHistoryResponse(op, raw, reply) {
   const offset = state.offset ?? 0;
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > value.data.length) failure("History item offset is invalid");
   for (let index = offset; index < value.data.length; index++) {
-    const record5 = object(value.data[index]), item = record5.item ?? record5;
-    const rows2 = projectHistoryItem(item, 0, state.turn.id, record5.startedAtMs ?? record5.completedAtMs, op.threadId);
+    const record6 = object(value.data[index]), item = record6.item ?? record6;
+    const rows2 = projectHistoryItem(item, 0, state.turn.id, record6.startedAtMs ?? record6.completedAtMs, op.threadId);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, item, questions);
-    const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record5.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(item).status));
+    const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(item).status));
     const opened = active ? rows2.map((item2) => ({ turnId: state.turn.id, item: item2 })) : [];
     const used = serializedBytes({ rows: rows2, opened, questions: nextQuestions });
     if (bytes + used > HISTORY_CHUNK_BYTES && index > offset) return finish(op, items, openItems, questions, { ...state, offset: index });
@@ -3444,12 +3600,12 @@ function collectHistoryItems(op, state, turn, entries) {
   let questions = list(state.questions);
   let bytes = serializedBytes({ items, openItems, questions });
   for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
-    const record5 = object(entries[index]);
-    const rawItem = historyItem(record5.item ?? record5);
+    const record6 = object(entries[index]);
+    const rawItem = historyItem(record6.item ?? record6);
     const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
-    const timestamp = record5.startedAtMs ?? record5.completedAtMs;
+    const timestamp = record6.startedAtMs ?? record6.completedAtMs;
     const rows2 = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp, op.threadId);
-    const active = turn.status === "inProgress" && turn.startedAt != null && record5.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
+    const active = turn.status === "inProgress" && turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
     const opened = active ? rows2.map((item) => ({ turnId: String(turn.id), item })) : [];
     const rowBytes = serializedBytes(rows2) + serializedBytes(opened) + serializedBytes(nextQuestions);
     if (bytes + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
@@ -3532,7 +3688,7 @@ function statusCode2(value) {
   if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
   return null;
 }
-function classifyAccessError(error, record5) {
+function classifyAccessError(error, record6) {
   const detail = object2(error);
   const info = detail?.codexErrorInfo;
   const infoObject = object2(info);
@@ -3547,11 +3703,11 @@ function classifyAccessError(error, record5) {
     typeof info === "string" ? info : null,
     ...Object.keys(infoObject ?? {}),
     ...Object.values(infoObject ?? {}).map((value) => object2(value)?.httpStatusCode),
-    record5.status,
-    record5.statusCode,
-    record5.status_code,
-    record5.apiErrorStatus,
-    record5.apiErrorCode
+    record6.status,
+    record6.statusCode,
+    record6.status_code,
+    record6.apiErrorStatus,
+    record6.apiErrorCode
   ];
   const named = (codes) => fields.some((value) => typeof value === "string" && codes.includes(value));
   const prefixed = (prefix) => fields.some((value) => typeof value === "string" && value.startsWith(prefix));
@@ -3575,15 +3731,15 @@ function readRetry(value) {
   }
   return null;
 }
-function retryAfterSecs(error, record5) {
-  return readRetry(object2(error)) ?? readRetry(record5);
+function retryAfterSecs(error, record6) {
+  return readRetry(object2(error)) ?? readRetry(record6);
 }
-function observationTurnId(record5) {
+function observationTurnId(record6) {
   for (const key of ["uuid", "turn_id", "turnId", "requestId"]) {
-    const value = record5[key];
+    const value = record6[key];
     if (typeof value === "string" && value) return value;
   }
-  const payload = object2(record5.payload);
+  const payload = object2(record6.payload);
   if (!payload) return null;
   for (const key of ["turn_id", "turnId", "uuid", "requestId"]) {
     const value = payload[key];
@@ -3591,32 +3747,32 @@ function observationTurnId(record5) {
   }
   return null;
 }
-function observationRetrying(error, record5) {
-  return record5.willRetry === true || object2(error)?.willRetry === true;
+function observationRetrying(error, record6) {
+  return record6.willRetry === true || object2(error)?.willRetry === true;
 }
-function observationExtras(error, record5) {
+function observationExtras(error, record6) {
   const extras = {};
-  const retry = retryAfterSecs(error, record5);
+  const retry = retryAfterSecs(error, record6);
   if (retry != null) extras.retry_after_secs = retry;
-  const turn = observationTurnId(record5);
+  const turn = observationTurnId(record6);
   if (turn) extras.turn_id = turn;
-  if (observationRetrying(error, record5)) extras.retrying = true;
+  if (observationRetrying(error, record6)) extras.retrying = true;
   return extras;
 }
 
 // plugins/provider-codex/src/signals.ts
 function parseSessionObservations(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record5 = value;
-  if (record5.type !== "event_msg" || !record5.payload || typeof record5.payload !== "object" || Array.isArray(record5.payload)) return null;
-  const payload = record5.payload;
+  const record6 = value;
+  if (record6.type !== "event_msg" || !record6.payload || typeof record6.payload !== "object" || Array.isArray(record6.payload)) return null;
+  const payload = record6.payload;
   if (payload.type === "error") {
     const error = payload.error ?? payload;
     return {
       api_error: classifyAccessError(error, payload),
       permission_mode: null,
       clears_api_error: false,
-      ...observationExtras(error, record5)
+      ...observationExtras(error, record6)
     };
   }
   if (payload.type === "task_complete") return { api_error: null, permission_mode: null, clears_api_error: true };
@@ -3938,9 +4094,9 @@ function cleanPromptText(value) {
 
 // plugins/provider-codex/src/usage.ts
 var CODEX_USAGE_KIND = "codeterm_usage_v1";
-var CODEX_AUTH_CREDENTIAL = "codexAuth";
+var CODEX_AUTH_CREDENTIAL2 = "codexAuth";
 function fetchCodexUsage(host2) {
-  const accountId = stringAt(safeJson(host2.credentialPublic(CODEX_AUTH_CREDENTIAL)), "accountId");
+  const accountId = stringAt(safeJson(host2.credentialPublic(CODEX_AUTH_CREDENTIAL2)), "accountId");
   if (!accountId) return null;
   const response = safeJson(host2.fetch(JSON.stringify({
     url: "https://chatgpt.com/backend-api/wham/usage",
@@ -3951,7 +4107,7 @@ function fetchCodexUsage(host2) {
       "User-Agent": "codeterm-usage/1.7.8"
     },
     credential: {
-      id: CODEX_AUTH_CREDENTIAL,
+      id: CODEX_AUTH_CREDENTIAL2,
       headers: { Authorization: "Bearer {accessToken}" }
     }
   })));
@@ -4172,7 +4328,7 @@ function codexParseWeeklyResets(raw, nowMs) {
 }
 
 // plugins/provider-shared/updateCheck.ts
-function record4(raw) {
+function record5(raw) {
   if (raw !== null && typeof raw === "object") return raw;
   if (typeof raw !== "string") return null;
   try {
@@ -4222,15 +4378,15 @@ function newestSupportedVersion(versions, compatibility) {
   }, null);
 }
 function installedVersion(result) {
-  const installed = record4(result);
+  const installed = record5(result);
   if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
   const version = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
   return version && versionParts(version) ? version : null;
 }
 function availableUpdate(currentVersion, result, compatibility) {
-  const response = record4(result);
+  const response = record5(result);
   if (response?.status !== 200) return null;
-  const metadata = record4(response.body);
+  const metadata = record5(response.body);
   let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
   if (!compatibility && !latestVersion) return null;
   if (compatibility) {
@@ -4240,7 +4396,7 @@ function availableUpdate(currentVersion, result, compatibility) {
   return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
 }
 function startedJob(raw) {
-  const job = record4(raw)?.jobId;
+  const job = record5(raw)?.jobId;
   return typeof job === "string" && job !== "" ? job : null;
 }
 function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {

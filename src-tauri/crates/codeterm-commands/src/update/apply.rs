@@ -105,13 +105,14 @@ pub(crate) async fn check_and_apply(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
+    server_stop: Option<std::sync::Arc<dyn crate::application_host::ServerStop>>,
 ) -> Result<ApplyResult, String> {
     begin_apply(&update_state);
     if opts.install_method == InstallMethod::Deb {
-        return check_and_apply_deb(app, opts, update_state).await;
+        return check_and_apply_deb(app, opts, update_state, server_stop).await;
     }
 
-    check_and_apply_plugin(app, opts, update_state).await
+    check_and_apply_plugin(app, opts, update_state, server_stop).await
 }
 
 /// Filesystem copies and, on Windows, a `reg` subprocess: never on the Tauri
@@ -121,10 +122,11 @@ async fn refresh_bundled_cli_off_runtime(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
 ) -> Result<(), String> {
     use tauri::Manager;
-    let shell = app
-        .state::<codeterm_service_core::service::ServiceState>()
-        .shell
-        .clone();
+    // A split client has no service; the next server start installs its bundled CLI.
+    let Some(service) = app.try_state::<codeterm_service_core::service::ServiceState>() else {
+        return Ok(());
+    };
+    let shell = service.shell.clone();
     tokio::task::spawn_blocking(move || {
         codeterm_service_core::startup::refresh_bundled_cli(shell.as_ref())
     })
@@ -153,6 +155,7 @@ async fn check_and_apply_plugin(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
+    server_stop: Option<std::sync::Arc<dyn crate::application_host::ServerStop>>,
 ) -> Result<ApplyResult, String> {
     let endpoint_str = resolve_manifest_endpoint(&opts).await?;
 
@@ -252,7 +255,9 @@ async fn check_and_apply_plugin(
         update_state: update_state.clone(),
     };
 
-    super::orchestrate::install_after_shutdown(
+    let split_pair = server_stop.is_some();
+    let server_stopped = std::sync::atomic::AtomicBool::new(false);
+    let outcome = super::orchestrate::install_after_shutdown(
         bytes,
         // Defect 1: prove the update can land BEFORE any pane is destroyed.
         move || async move {
@@ -261,17 +266,27 @@ async fn check_and_apply_plugin(
             })
             .await
             .map_err(|e| format!("viability probe task failed: {e}"))??;
+            if split_pair {
+                // The attached server holds pair files until it exits; holders are released after it stops.
+                return Ok(());
+            }
             super::install_holders::check_before_shutdown(app).await
         },
         || async {
-            shutdown::graceful_shutdown(app, initiating_tab_id.as_deref())
-                .await
-                .map_err(|e| {
-                    format!(
-                        "installer launch cancelled because PTY shutdown failed: {}",
-                        e
-                    )
-                })
+            match &server_stop {
+                Some(stop) => {
+                    stop_pair_server(stop.as_ref(), &server_stopped).await?;
+                    Ok(Vec::new())
+                }
+                None => shutdown::graceful_shutdown(app, initiating_tab_id.as_deref())
+                    .await
+                    .map_err(|e| {
+                        format!(
+                            "installer launch cancelled because PTY shutdown failed: {}",
+                            e
+                        )
+                    }),
+            }
         },
         move |verified_bytes| async move {
             log::info!("[updater] starting verified installer after PTY shutdown");
@@ -286,9 +301,47 @@ async fn check_and_apply_plugin(
         },
         &sink,
     )
-    .await?;
+    .await;
+    if let Err(cause) = outcome {
+        if server_stopped.load(std::sync::atomic::Ordering::SeqCst) {
+            log::error!(
+                "[updater] install failed after the server stopped; relaunching the installed pair: {cause}"
+            );
+            codeterm_service_core::startup::restart_stdio_detach_for_restart();
+            app.restart();
+        }
+        return Err(cause);
+    }
 
     restart_after_plugin_install(app)
+}
+
+/// A stop request that reached the server owes a relaunch even when its exit stays unconfirmed.
+#[cfg(any(test, feature = "desktop"))]
+fn server_stop_owes_relaunch(
+    result: &Result<(), crate::application_host::ServerStopError>,
+) -> bool {
+    result.as_ref().map_or_else(|e| e.dispatched, |()| true)
+}
+
+/// Stops the attached server, then releases install holders; `stopped` records that a relaunch is owed.
+#[cfg(feature = "desktop")]
+async fn stop_pair_server(
+    stop: &dyn crate::application_host::ServerStop,
+    stopped: &std::sync::atomic::AtomicBool,
+) -> Result<(), String> {
+    log::info!("[updater] stopping the attached server before installing the pair");
+    let result = stop.stop_server().await;
+    if server_stop_owes_relaunch(&result) {
+        stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    result.map_err(|e| {
+        format!(
+            "installer launch cancelled because the server did not stop: {}",
+            e.reason
+        )
+    })?;
+    super::install_holders::release_before_installer().await
 }
 
 #[cfg(windows)]
@@ -314,6 +367,7 @@ async fn check_and_apply_deb(
     app: &codeterm_host_runtime::app_runtime::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
+    server_stop: Option<std::sync::Arc<dyn crate::application_host::ServerStop>>,
 ) -> Result<ApplyResult, String> {
     let plan = check_stage_deb_update(app, &opts, update_state.clone()).await?;
     let (version, path) = match gate_staged_deb_async(plan, debian_preflight_status).await? {
@@ -331,7 +385,14 @@ async fn check_and_apply_deb(
     };
 
     update_state.lock().set_phase(UpdatePhase::Applying);
-    install_staged_deb_and_restart(app, version, path, opts.initiating_tab_id.as_deref()).await?;
+    install_staged_deb_and_restart(
+        app,
+        version,
+        path,
+        opts.initiating_tab_id.as_deref(),
+        server_stop,
+    )
+    .await?;
     Ok(ApplyResult::Restarting)
 }
 
@@ -427,6 +488,7 @@ pub(crate) async fn install_staged_deb_and_restart(
     version: String,
     path: std::path::PathBuf,
     initiating_tab_id: Option<&str>,
+    server_stop: Option<std::sync::Arc<dyn crate::application_host::ServerStop>>,
 ) -> Result<(), String> {
     let target = version.clone();
     tokio::task::spawn_blocking(move || {
@@ -437,8 +499,15 @@ pub(crate) async fn install_staged_deb_and_restart(
     install_verified_deb_async(path, version).await?;
 
     refresh_bundled_cli_off_runtime(app).await?;
-    if let Err(e) = shutdown::graceful_shutdown(app, initiating_tab_id).await {
-        log::error!("[updater] graceful shutdown failed: {}", e);
+    // dpkg replaced the files under the running pair; the relaunch below starts the new server.
+    let stopped = match &server_stop {
+        Some(stop) => stop.stop_server().await.map_err(|e| e.reason),
+        None => shutdown::graceful_shutdown(app, initiating_tab_id)
+            .await
+            .map(|_| ()),
+    };
+    if let Err(e) = stopped {
+        log::error!("[updater] server shutdown before relaunch failed: {}", e);
     }
 
     log::info!("[updater] Debian package installed; restarting application");
@@ -793,3 +862,5 @@ fn is_debian_package_url(url: &Url) -> bool {
 
 #[cfg(test)]
 mod debian_tests;
+#[cfg(test)]
+mod server_stop_tests;

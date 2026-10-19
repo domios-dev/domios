@@ -7,7 +7,11 @@ pub async fn check_for_update(
     update_state: tauri::State<'_, UpdateStateHandle>,
     app: AppHandle,
     force: Option<bool>,
+    channel: Option<crate::update::channel::Channel>,
 ) -> Result<serde_json::Value, String> {
+    if let Some(channel) = channel {
+        update_state.lock().channel = channel;
+    }
     use tauri::Manager;
     // The desktop updater cadence also discovers frontend releases, as the HTTP route does.
     if let Some(bundles) =
@@ -39,11 +43,8 @@ pub async fn check_for_update(
     };
 
     if info.update_available {
-        let ui = app
-            .state::<codeterm_service_core::service::ServiceState>()
-            .ui
-            .clone();
-        ui.emit(
+        crate::update::emit_update_event(
+            &app,
             "update-available",
             serde_json::to_value(&info).unwrap_or(serde_json::Value::Null),
         );
@@ -63,7 +64,15 @@ pub async fn check_for_update(
 pub async fn install_app_update(
     app: AppHandle,
     update_state: tauri::State<'_, UpdateStateHandle>,
+    channel: Option<crate::update::channel::Channel>,
 ) -> Result<serde_json::Value, String> {
+    use tauri::Manager;
+    if let Some(channel) = channel {
+        update_state.lock().channel = channel;
+    }
+    let server_stop = app
+        .try_state::<crate::application_host::ServerStopState>()
+        .map(|state| state.0.clone());
     let (channel, install_method) = {
         let us = update_state.lock();
         (us.channel, us.install_method.clone())
@@ -74,6 +83,7 @@ pub async fn install_app_update(
         &crate::application_host::DesktopApplicationHost {
             app,
             update_state: handle,
+            server_stop,
         },
         crate::update::apply::ApplyOptions {
             channel,

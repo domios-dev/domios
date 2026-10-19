@@ -1047,6 +1047,8 @@ export interface PluginModule
   statusBubble?(ctx: TabContext): StatusBubble | null;
   renderGlance?(ctx: TabContext): GlanceView;
   viewCall?: ViewCall;
+  /** Refresh account-backed remote execution availability and environments. */
+  discoverRemoteTask?(): import("./remoteTasks").RemoteTaskDiscovery;
   glanceAction?(action: string, ctx: TabContext): unknown;
   // Test-only exports and other plugin-private members are allowed.
   [key: string]: unknown;

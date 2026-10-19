@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {test} from "node:test";
 import vm from "node:vm";
-import {cloudTaskBackend, cloudTaskSnapshot} from "../src/cloud/backend";
+import {CLOUD_SIGN_IN_REASON, CODEX_CLOUD_ACCOUNT_REF, cloudTaskBackend, cloudTaskSnapshot} from "../src/cloud/backend";
 import {remoteChatBackend} from "../src/cloud/chatBackend";
+import {createCodexCloudTransport} from "../src/cloud/transport";
+import type {Host} from "@codeterm/plugin-sdk";
 import type {RemoteTaskBinding, RemoteTaskCapability, RemoteTaskStorage} from "../../../packages/plugin-sdk/src/remoteTasks";
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./cloud-fixtures/${name}.json`, import.meta.url), "utf8"));
@@ -23,7 +25,7 @@ function setup() {
   };
   let details = fixture("task_details_with_diff");
   const calls: {method: string; path: string; account: string; body: unknown}[] = [];
-  const backend = cloudTaskBackend(capability, {request(method, path, account, body) {
+  const backend = cloudTaskBackend(capability, {discoverRemoteTask: () => ({availability: {status: "available"}, environments: capability.environments}), request(method, path, account, body) {
     calls.push({method, path, account, body});
     return method === "POST" ? {task: {id: "task_123"}} : details;
   }});
@@ -56,12 +58,41 @@ test("fake transport proves create shape, status/diff, restart binding, and expl
   assert.equal(persisted.snapshot?.result, "Assistant response");
   assert.match(persisted.snapshot?.diff ?? "", /diff --git/);
   assert.equal(f.calls.filter(call => call.method === "POST").length, 1);
+  assert.ok(f.calls.some(call => call.method === "GET" && call.path === "/wham/tasks/task_123"));
   assert.throws(() => restarted.sendMessage(ctx.tabId, "follow up"));
   assert.throws(() => restarted.viewCall("cancel", {sessionId: ctx.tabId}));
   assert.throws(() => restarted.viewCall("apply", {sessionId: ctx.tabId}));
   const rendered = restarted.poll(ctx.tabId);
   assert.match(rendered.messages[0].content, /Assistant response/);
   assert.equal(restarted.poll(ctx.tabId, rendered.cursor).messages.length, 0);
+});
+
+test("Settings environment IDs use the Codex task API and retain the environment_id field", () => {
+  const environment = {id: "asenvcfg_redacted-one", label: "domios 1", accountRef: CODEX_CLOUD_ACCOUNT_REF};
+  const currentCapability = {...capability, environments: [environment]};
+  const calls: Array<{method: string; path: string; body: unknown}> = [];
+  const backend = cloudTaskBackend(currentCapability, {
+    discoverRemoteTask: () => ({availability: {status: "available"}, environments: [environment]}),
+    request(method, path, _account, body) {
+      calls.push({method, path, body});
+      return method === "POST" ? {task: {id: "task-redacted"}} : {...fixture("task_details_with_diff"), task: {id: "task-redacted"}};
+    },
+  });
+  const created = backend.create({environmentId: environment.id, accountRef: environment.accountRef, branch: "master", prompt: "Read-only verification"});
+  backend.read({
+    revision: 1, providerId: "codex", executionMode: "cloud", backend: currentCapability.backend,
+    environmentId: environment.id, accountRef: environment.accountRef, branch: "master", phase: "bound",
+    snapshot: {taskId: created.taskId, attempt: null, status: "pending", result: "", diff: null, cursor: null, error: null},
+  });
+  assert.deepEqual(calls, [
+    {
+      method: "POST", path: "/api/codex/tasks", body: {
+        new_task: {environment_id: "asenvcfg_redacted-one", branch: "master", run_environment_in_qa_mode: false},
+        input_items: [{type: "message", role: "user", content: [{content_type: "text", text: "Read-only verification"}]}],
+      },
+    },
+    {method: "GET", path: "/api/codex/tasks/task-redacted", body: undefined},
+  ]);
 });
 
 test("source fixtures project nested diffs, errors, and successful no-diff tasks", () => {
@@ -72,23 +103,121 @@ test("source fixtures project nested diffs, errors, and successful no-diff tasks
   const failed = fixture("task_details_with_error");
   const error = cloudTaskSnapshot({...failed, task: {...failed.task, id: "task_123"}}, binding);
   assert.equal(error.status, "error");
-  assert.equal(error.error, "Patch could not be applied");
+  assert.equal(error.error, "Remote task failed");
   assert.match(error.diff ?? "", /diff --git/);
   const noDiff = cloudTaskSnapshot({task: {id: "task_123"}, current_assistant_turn: {turn_status: "completed", output_items: []}}, binding);
   assert.equal(noDiff.status, "ready"); assert.equal(noDiff.diff, null);
   assert.throws(() => cloudTaskSnapshot({task: {id: "foreign"}}, binding));
 });
 
-test("built production plugin refuses live access and never touches authentication", () => {
+test("Codex transport discovers Settings environments through host credentials without persisting account identity", () => {
+  const calls: Array<{url: string; method: string; headers: Record<string, string>; credential: unknown}> = [];
+  const host = {
+    credentialPublic(id: string) {
+      assert.equal(id, "codexAuth");
+      return JSON.stringify({accountId: "redacted-account-fixture"});
+    },
+    fetch(raw: string) {
+      const request = JSON.parse(raw) as {url: string; method: string; headers: Record<string, string>; credential: unknown};
+      calls.push(request);
+      const name = request.url.includes("environment-configs") ? "environment_configs" : request.url.includes("/by-repo/") ? "repo_environments" : "environments";
+      return JSON.stringify({status: 200, body: JSON.stringify(fixture(name))});
+    },
+  } as unknown as Host;
+
+  const discovery = createCodexCloudTransport(host).discoverRemoteTask();
+  assert.deepEqual(discovery, {
+    availability: {status: "available"},
+    environments: [
+      {id: "asenvcfg_redacted-one", label: "domios 1", accountRef: CODEX_CLOUD_ACCOUNT_REF},
+      {id: "asenvcfg_redacted-two", label: "domios 2", accountRef: CODEX_CLOUD_ACCOUNT_REF},
+    ],
+  });
+  assert.deepEqual(calls.map(call => [call.method, `${new URL(call.url).pathname}${new URL(call.url).search}`]), [
+    ["GET", "/api/codex-cloud/v1/environment-configs?scope=user&limit=100&omitDraft=true"],
+  ]);
+  assert.equal(calls[0].headers["ChatGPT-Account-Id"], "redacted-account-fixture");
+  assert.deepEqual(calls[0].credential, {id: "codexAuth", headers: {Authorization: "Bearer {accessToken}"}});
+  assert.equal(discovery.environments.some(environment => environment.accountRef === "redacted-account-fixture"), false);
+  assert.equal(discovery.environments.some(environment => environment.id.startsWith("cecfgver_")), false);
+});
+
+test("Codex transport falls back to the account environment list and redacts expiry and fetch errors", () => {
+  const paths: string[] = [];
+  const host = {
+    credentialPublic: () => JSON.stringify({accountId: "redacted-account-fixture"}),
+    fetch(raw: string) {
+      const request = JSON.parse(raw) as {url: string};
+      paths.push(new URL(request.url).pathname);
+      if (paths.length === 1) return JSON.stringify({status: 404, body: "not found"});
+      return JSON.stringify({status: 200, body: JSON.stringify(fixture("environments"))});
+    },
+  } as unknown as Host;
+  const transport = createCodexCloudTransport(host);
+  assert.deepEqual(transport.discoverRemoteTask().environments.map(environment => environment.label), ["domios 1", "domios 2"]);
+  assert.deepEqual(paths, [
+    "/api/codex-cloud/v1/environment-configs",
+    "/backend-api/wham/environments/by-repo/github/rollacode/codeterm",
+    "/backend-api/wham/environments",
+  ]);
+
+  const expired = createCodexCloudTransport({
+    credentialPublic: () => null,
+    fetch: () => { throw new Error("secret-token-never-report"); },
+  } as unknown as Host).discoverRemoteTask();
+  assert.deepEqual(expired, {availability: {status: "unavailable", reason: CLOUD_SIGN_IN_REASON}, environments: []});
+
+  const expiredToken = createCodexCloudTransport({
+    credentialPublic: () => JSON.stringify({accountId: "redacted-account-fixture"}),
+    fetch: () => JSON.stringify({status: 401, body: "Bearer secret-token-never-report"}),
+  } as unknown as Host).discoverRemoteTask();
+  assert.deepEqual(expiredToken, {availability: {status: "unavailable", reason: CLOUD_SIGN_IN_REASON}, environments: []});
+
+  const failed = createCodexCloudTransport({
+    credentialPublic: () => JSON.stringify({accountId: "redacted-account-fixture"}),
+    fetch: () => { throw new Error("secret-token-never-report"); },
+  } as unknown as Host);
+  assert.throws(() => failed.request("GET", "/wham/tasks/list", CODEX_CLOUD_ACCOUNT_REF), error => {
+    assert.equal((error as Error).message, "Codex Cloud request failed.");
+    assert.equal((error as Error).message.includes("secret-token-never-report"), false);
+    return true;
+  });
+});
+
+test("Codex transport uses the read-only task list route", () => {
+  let requestedPath = "";
+  const host = {
+    credentialPublic: () => JSON.stringify({accountId: "redacted-account-fixture"}),
+    fetch(raw: string) {
+      const url = new URL((JSON.parse(raw) as {url: string}).url);
+      requestedPath = `${url.pathname}${url.search}`;
+      return JSON.stringify({status: 200, body: JSON.stringify(fixture("tasks_list"))});
+    },
+  } as unknown as Host;
+  const tasks = createCodexCloudTransport(host).request("GET", "/wham/tasks/list?limit=10", CODEX_CLOUD_ACCOUNT_REF);
+  assert.equal(requestedPath, "/backend-api/wham/tasks/list?limit=10");
+  assert.deepEqual(tasks, fixture("tasks_list"));
+
+  const currentTasks = createCodexCloudTransport(host).request("GET", "/api/codex/tasks/list?limit=100", CODEX_CLOUD_ACCOUNT_REF);
+  assert.equal(requestedPath, "/api/codex/tasks/list?limit=100");
+  assert.deepEqual(currentTasks, fixture("tasks_list"));
+  const transport = createCodexCloudTransport(host);
+  assert.throws(() => transport.request("POST", "/api/codex/tasks/list", CODEX_CLOUD_ACCOUNT_REF));
+  assert.throws(() => transport.request("GET", "/api/codex/tasks", CODEX_CLOUD_ACCOUNT_REF));
+});
+
+test("built production plugin shows a safe sign-in reason without an account", () => {
   const manifest = JSON.parse(readFileSync(new URL("../plugin.json", import.meta.url), "utf8"));
   const host = {
     manifestJson: () => JSON.stringify(manifest),
     fs: {expandHome: () => "/provider-state"},
+    credentialPublic: () => null,
+    fetch: () => { throw new Error("Unexpected unauthenticated request"); },
   };
   const context = vm.createContext({module: {exports: {}}, host});
   vm.runInContext(readFileSync(new URL("../plugin.js", import.meta.url), "utf8"), context);
   const plugin = context.module.exports.default;
-  assert.throws(() => plugin.openSession({tabId: "tab-fixture", config: {executionMode: "cloud"}}));
+  assert.throws(() => plugin.openSession({tabId: "tab-fixture", config: {executionMode: "cloud"}}), /Sign in to Codex/);
   assert.equal(manifest.id, "codex");
   assert.equal(manifest.capabilities.remoteTask.availability.status, "unavailable");
   assert.equal(manifest.capabilities.agentRuntime.runtime, "stdio-jsonrpc");
