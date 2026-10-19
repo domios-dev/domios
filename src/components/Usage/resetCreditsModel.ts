@@ -99,7 +99,7 @@ export class ResetCreditsModel {
 }
 
 export function resetBalanceLabel(before: number|null, after: number|null): string {
-  return `Reset credits: ${before ?? "unknown"} before · ${after ?? "unconfirmed"} after`;
+  return `Resets: ${before ?? "unknown"} before · ${after ?? "unconfirmed"} after`;
 }
 
 export function availableResetCredits(resets: ResetCredits | null | undefined): ResetCredit[] {
@@ -112,7 +112,7 @@ export function availableResetCredits(resets: ResetCredits | null | undefined): 
 }
 
 export function resetCreditLabel(credit: ResetCredit): string {
-  return credit.title || credit.id;
+  return credit.title || "Session reset";
 }
 
 export function resetCreditsState(resets: ResetCredits | null | undefined, selectedId: string | null = null) {

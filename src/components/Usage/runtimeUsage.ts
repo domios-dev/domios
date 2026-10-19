@@ -3,7 +3,8 @@ import type {RuntimeAccountCredits} from "@codeterm/plugin-sdk";
 
 export function runtimeAccountCreditsLabel(credits:RuntimeAccountCredits|null|undefined): string|null {
   if (!credits) return null;
-  return credits.kind === "unlimited" ? "Account credits: Unlimited" : `Account credits: ${formatAccountCredits(credits.balance)}`;
+  if (credits.kind === "unlimited") return "Unlimited";
+  return /^-?0*(\.0*)?$/.test(credits.balance) ? null : formatAccountCredits(credits.balance);
 }
 
 export function formatAccountCredits(balance: string): string {

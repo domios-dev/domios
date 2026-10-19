@@ -251,7 +251,7 @@ export function UsageSpendDetail({ snapshot, accountCreditsLabel, flipUp, onRefr
 }
 
 function UsageAccountCreditsRow({label}: {label?:string|null}) {
-  return label ? <div className="ct-usage-account-credits">{label}</div> : null;
+  return label ? <div className="ct-usage-account-credits"><span className="k">Credits</span><span className="v">{label}</span></div> : null;
 }
 
 // ---------- Projection → marker conversion ----------

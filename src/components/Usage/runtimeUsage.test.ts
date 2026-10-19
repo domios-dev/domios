@@ -6,8 +6,9 @@ const snapshot={provider:"fixture",captured_at:100,runtime_usage:[reading]} as U
 assert.equal(ownRuntimeUsage(snapshot,"foreign","thread"),null);
 assert.equal(ownRuntimeUsage(snapshot,"own","old"),null);
 assert.equal(ownRuntimeUsage(snapshot,"own","thread"),reading);
-assert.equal(runtimeAccountCreditsLabel({kind:"balance",balance:"123.4500"}),"Account credits: 123.45");
-assert.equal(runtimeAccountCreditsLabel({kind:"unlimited"}),"Account credits: Unlimited");
+assert.equal(runtimeAccountCreditsLabel({kind:"balance",balance:"123.4500"}),"123.45");
+assert.equal(runtimeAccountCreditsLabel({kind:"balance",balance:"0.00"}),null);
+assert.equal(runtimeAccountCreditsLabel({kind:"unlimited"}),"Unlimited");
 assert.equal(runtimeAccountCreditsLabel(undefined),null);
 const resets={availableCount:3,nextExpiry:null,credits:null};
 assert.deepEqual(runtimeLimitsSnapshot(snapshot,{...reading,resets}).resets,resets);
