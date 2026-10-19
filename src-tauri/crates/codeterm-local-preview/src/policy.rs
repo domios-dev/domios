@@ -9,6 +9,8 @@ pub struct PreviewPolicy {
     denied: Vec<String>,
     uploads: Vec<PathBuf>,
     upload_denied: Vec<String>,
+    referenced_uploads: Vec<PathBuf>,
+    referenced_upload_denied: Vec<String>,
 }
 
 impl PreviewPolicy {
@@ -26,6 +28,8 @@ impl PreviewPolicy {
             denied: roots,
             uploads: Vec::new(),
             upload_denied: Vec::new(),
+            referenced_uploads: Vec::new(),
+            referenced_upload_denied: Vec::new(),
         })
     }
 
@@ -37,7 +41,46 @@ impl PreviewPolicy {
         Ok(self)
     }
 
+    /// Allow referenced files directly inside a trusted evidence directory while keeping other
+    /// paths under denied roots private.
+    pub fn with_referenced_uploads(
+        mut self,
+        uploads: &Path,
+        denied: &[PathBuf],
+    ) -> Result<Self, String> {
+        self.referenced_upload_denied = Self::new(HashSet::new(), denied)?.denied;
+        if let Ok(root) = uploads.canonicalize() {
+            self.referenced_uploads.push(root);
+        }
+        Ok(self)
+    }
+
     pub fn authorize(&self, requested: &Path, canonical: Option<&Path>) -> Result<(), String> {
+        if self.references.contains(&path_key(requested)) {
+            for uploads in &self.referenced_uploads {
+                let direct_child = requested
+                    .parent()
+                    .and_then(|parent| parent.canonicalize().ok())
+                    .as_ref()
+                    == Some(uploads)
+                    && canonical.is_none_or(|path| path.parent() == Some(uploads.as_path()));
+                let denied = self.referenced_upload_denied.iter().any(|root| {
+                    std::iter::once(requested).chain(canonical).any(|path| {
+                        let key = denial_key(path);
+                        key == *root
+                            || key
+                                .strip_prefix(root.as_str())
+                                .is_some_and(|rest| rest.starts_with('/'))
+                    })
+                });
+                let secret = std::iter::once(requested)
+                    .chain(canonical)
+                    .any(|path| path_key(path).split('/').any(secret_component));
+                if direct_child && !denied && !secret {
+                    return Ok(());
+                }
+            }
+        }
         // Uploads are user-provided artifacts; require a canonical direct child to exclude symlink escapes.
         for uploads in &self.uploads {
             if requested
