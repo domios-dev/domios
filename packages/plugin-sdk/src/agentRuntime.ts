@@ -1,6 +1,7 @@
 import type { ChatMsg } from "./gen/ChatMsg";
 import type { ChatAttachment } from "./gen/ChatAttachment";
 import type { ParsedSessionRecord, SessionRecordsMeta } from "./jsonlRecords";
+import type { HostOwnedCapabilities } from "./capabilities";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type RpcId = string | number;
@@ -50,6 +51,7 @@ export interface RuntimeContext {
   claimedSends:readonly {sendId:string; threadId:string; input:TurnInput}[];
   tabId:string;
   bindingNonce:string;
+  hostOwned?:HostOwnedCapabilities;
   threadId?:string;
   activeTurnId?:string;
   settings:RuntimeSettings;

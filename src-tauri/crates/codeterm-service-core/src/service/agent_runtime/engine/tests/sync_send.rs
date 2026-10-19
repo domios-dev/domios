@@ -82,6 +82,7 @@ module.exports = {
         provider: PROVIDER.into(),
         adapter: Mutex::new(Some(adapter)),
         context: Mutex::new(RuntimeContext {
+            host_owned: Default::default(),
             epoch,
             tab_id: tab_id.clone(),
             binding_nonce: nonce,

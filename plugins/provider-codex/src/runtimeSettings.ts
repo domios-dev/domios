@@ -1,4 +1,4 @@
-import type { JsonValue, RuntimeSettings } from "@codeterm/plugin-sdk";
+import type { HostOwnedCapabilities, JsonValue, RuntimeSettings } from "@codeterm/plugin-sdk";
 import { object, text } from "./runtimeProtocol";
 
 export function codexServiceTier(settings: RuntimeSettings): Record<string, string | null> {
@@ -22,8 +22,9 @@ export function codexRuntimePolicy(settings: RuntimeSettings): Record<string, un
     ...(selected === "workspace-write" ? {writableRoots:[...(settings.additionalDirectories ?? [])],excludeTmpdirEnvVar:true,excludeSlashTmp:true} : {}),
     ...(policy[2] === "workspaceWrite" && settings.additionalDirectories?.length ? {writableRoots:[...settings.additionalDirectories]} : {})}};
 }
-export function codexThreadConfig(settings: RuntimeSettings): Record<string, JsonValue> {
+export function codexThreadConfig(settings: RuntimeSettings, hostOwned?: HostOwnedCapabilities): Record<string, JsonValue> {
   const workspaceWrite = (codexRuntimePolicy(settings).sandboxPolicy as {type:string}).type === "workspaceWrite";
+  // Codex has no feature switch for update_plan.
   return {check_for_update_on_startup:false,project_doc_max_bytes:65536,
     ...(["read-only","workspace-write"].includes(settings.mode ?? "") ? {
       "sandbox_workspace_write.writable_roots":[...(settings.additionalDirectories ?? [])],
@@ -31,7 +32,8 @@ export function codexThreadConfig(settings: RuntimeSettings): Record<string, Jso
     } : {}),
     ...(workspaceWrite && settings.networkAccess !== undefined ? {"sandbox_workspace_write.network_access":settings.networkAccess} : {}),
     ...(settings.additionalDirectories?.length ? {"sandbox_workspace_write.writable_roots":[...settings.additionalDirectories]} : {}),
-    ...(settings.effort ? {model_reasoning_effort:settings.effort} : {})};
+    ...(settings.effort ? {model_reasoning_effort:settings.effort} : {}),
+    ...(hostOwned?.questions ? {"features.default_mode_request_user_input":false} : {})};
 }
 
 export function codexReportedSettings(raw: unknown): RuntimeSettings {
