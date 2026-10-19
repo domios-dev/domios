@@ -35,27 +35,36 @@ const provider = load();
 const task = "opaque 'quoted' $value `command` 😀\nsecond line\n\n";
 for (const skipPermissions of [false, true]) {
   for (const assigned of [false, true]) {
-    const params = { skipPermissions, args: ["-m", "fixture model"], ...(assigned ? { task, launchMarker: "fixture-launch-nonce", starterPromptText: "opaque starter" } : {}) };
-    const spec = provider.buildLaunchSpec(params)!;
-    assert(spec);
-    assert.deepEqual(plain(spec.envUnset), exclusions);
-    assert.deepEqual(plain(spec.envSet), {});
-    assert.equal(spec.program, "codex");
-    if (assigned) assert(spec.args.includes("developer_instructions=" + task + "\n\n<!-- codeterm-launch-marker: fixture-launch-nonce -->"));
-    assert.equal(spec.args.includes("--dangerously-bypass-hook-trust"), skipPermissions);
-    const resume = { sessionId: "fixture-session", skipPermissions, args: ["-m", "fixture model"] };
-    const resumed = provider.buildLaunchSpec({ resume })!;
-    assert(resumed.args.includes("--no-daemon"));
-    for (const [launch, command] of [[spec, provider.buildLaunchCommand(params)], [resumed, provider.buildResumeCommandWithContext(resume)]] as const) {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-spec-"));
-      try {
-        const script = path.join(root, "parity.sh");
-        fs.writeFileSync(script, 'codex() { printf "%s\\0" "$@"; printf "%s\\0" "${CODEX_THREAD_ID-unset}" "${CODEX_INTERNAL_ORIGINATOR_OVERRIDE-unset}"; }\n' + command);
-        const result = spawnSync(bash, ["--noprofile", "--norc", script.replace(/\\/g, "/")], { encoding: "utf8", env: { ...process.env, CODEX_THREAD_ID: "foreign", CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "foreign" } });
-        assert.ifError(result.error);
-        assert.equal(result.status, 0, result.stderr);
-        assert.deepEqual(result.stdout.split("\0").slice(0, -1), [...launch.args, "unset", "unset"]);
-      } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    for (const questions of [false, true]) {
+      const hostOwned = { questions, todos: false };
+      const params = { skipPermissions, hostOwned, args: ["-m", "fixture model"], ...(assigned ? { task, launchMarker: "fixture-launch-nonce", starterPromptText: "opaque starter" } : {}) };
+      const spec = provider.buildLaunchSpec(params)!;
+      assert(spec);
+      assert.deepEqual(plain(spec.envUnset), exclusions);
+      assert.deepEqual(plain(spec.envSet), {});
+      assert.equal(spec.program, "codex");
+      if (assigned) assert(spec.args.includes("developer_instructions=" + task + "\n\n<!-- codeterm-launch-marker: fixture-launch-nonce -->"));
+      assert.equal(spec.args.includes("--dangerously-bypass-hook-trust"), skipPermissions);
+      const questionFeatureIndex = spec.args.indexOf("--disable");
+      if (questions) assert.deepEqual(spec.args.slice(questionFeatureIndex, questionFeatureIndex + 2), ["--disable", "default_mode_request_user_input"]);
+      else assert.equal(questionFeatureIndex, -1);
+      const resume = { sessionId: "fixture-session", skipPermissions, hostOwned, args: ["-m", "fixture model"] };
+      const resumed = provider.buildLaunchSpec({ resume })!;
+      assert(resumed.args.includes("--no-daemon"));
+      const resumeQuestionFeatureIndex = resumed.args.indexOf("--disable");
+      if (questions) assert.deepEqual(resumed.args.slice(resumeQuestionFeatureIndex, resumeQuestionFeatureIndex + 2), ["--disable", "default_mode_request_user_input"]);
+      else assert.equal(resumeQuestionFeatureIndex, -1);
+      for (const [launch, command] of [[spec, provider.buildLaunchCommand(params)], [resumed, provider.buildResumeCommandWithContext(resume)]] as const) {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-spec-"));
+        try {
+          const script = path.join(root, "parity.sh");
+          fs.writeFileSync(script, 'codex() { printf "%s\\0" "$@"; printf "%s\\0" "${CODEX_THREAD_ID-unset}" "${CODEX_INTERNAL_ORIGINATOR_OVERRIDE-unset}"; }\n' + command);
+          const result = spawnSync(bash, ["--noprofile", "--norc", script.replace(/\\/g, "/")], { encoding: "utf8", env: { ...process.env, CODEX_THREAD_ID: "foreign", CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "foreign" } });
+          assert.ifError(result.error);
+          assert.equal(result.status, 0, result.stderr);
+          assert.deepEqual(result.stdout.split("\0").slice(0, -1), [...launch.args, "unset", "unset"]);
+        } finally { fs.rmSync(root, { recursive: true, force: true }); }
+      }
     }
   }
 }
@@ -77,4 +86,4 @@ assert(provider.buildLaunchSpec({ args: ["x".repeat(128 * 1024 - 1)] }));
 assert.equal(provider.buildLaunchSpec({ args: ["x".repeat(128 * 1024)] }), null);
 assert.equal(provider.buildLaunchSpec({ task: "x".repeat(128 * 1024) }), null);
 assert.equal(provider.buildLaunchSpec({ args: ["embedded\0nul"] }), null);
-console.log("launch-spec: 8 shell argv/env round trips, platform/version refusals, UTF-8 budget boundaries passed");
+console.log("launch-spec: 16 shell argv/env round trips, platform/version refusals, UTF-8 budget boundaries passed");

@@ -37,6 +37,17 @@ pub(super) fn launch_spec(params: &AgentLaunchParams) -> Option<codeterm_types::
     launch_spec_with(params, super::context::launch_args, write_launch_prompt)
 }
 
+fn disallowed_tools(host_owned: crate::provider::HostOwnedCapabilities) -> Option<String> {
+    let mut tools = Vec::new();
+    if host_owned.questions {
+        tools.push("AskUserQuestion");
+    }
+    if host_owned.todos {
+        tools.push("TodoWrite");
+    }
+    (!tools.is_empty()).then(|| tools.join(","))
+}
+
 pub(super) fn provider_launch_spec(
     params: &crate::provider::LaunchSpecParams<'_>,
 ) -> Option<codeterm_types::agent::LaunchSpec> {
@@ -49,6 +60,7 @@ pub(super) fn provider_launch_spec(
                 args: Some(args),
                 task: params.system_prompt.clone(),
                 skip_permissions: params.skip_permissions,
+                host_owned: params.host_owned,
                 starter_prompt: crate::provider::StarterPrompt::NoStarter,
                 ..Default::default()
             })
@@ -72,6 +84,9 @@ fn launch_spec_with(
         args.extend(["--session-id".into(), sid.clone()]);
     }
     args.extend(launch_args(params.args.as_deref().unwrap_or_default())?);
+    if let Some(tools) = disallowed_tools(params.host_owned) {
+        args.extend(["--disallowedTools".into(), tools]);
+    }
     let path = write_prompt(params.task.as_deref().unwrap_or_default())?;
     args.extend(["--append-system-prompt-file".into(), path]);
     if params.task.as_ref().is_some_and(|task| !task.is_empty()) {
@@ -144,6 +159,10 @@ pub(super) fn build_resume_command_with_context(
     let base = resume_base(&params.session_id, params.skip_permissions);
     let mut command =
         crate::provider::append_launch_args(base, &super::context::launch_args(&params.args)?);
+    if let Some(tools) = disallowed_tools(params.host_owned) {
+        command =
+            crate::provider::append_launch_args(command, &["--disallowedTools".into(), tools]);
+    }
     let path = write_launch_prompt(params.system_prompt.as_deref().unwrap_or_default())?;
     command = format!(
         "{command} --append-system-prompt-file {}",
@@ -155,7 +174,7 @@ pub(super) fn build_resume_command_with_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::AgentLaunchParams;
+    use crate::provider::{AgentLaunchParams, HostOwnedCapabilities};
 
     #[test]
     fn launch_spec_keeps_raw_arguments_and_materialization_failure_is_not_a_launch() {
@@ -192,6 +211,38 @@ mod tests {
     }
 
     #[test]
+    fn host_owned_capabilities_disable_native_question_and_todo_tools() {
+        let questions_only = AgentLaunchParams {
+            host_owned: HostOwnedCapabilities {
+                questions: true,
+                todos: false,
+            },
+            ..Default::default()
+        };
+        let fresh = launch_spec_with(
+            &questions_only,
+            |_| Some(Vec::new()),
+            |_| Some("prompt".into()),
+        )
+        .unwrap();
+        assert!(fresh
+            .args
+            .windows(2)
+            .any(|args| args == ["--disallowedTools", "AskUserQuestion"]));
+
+        let both = HostOwnedCapabilities {
+            questions: true,
+            todos: true,
+        };
+        let resumed = crate::provider::append_launch_args(
+            resume_base("own-session", false),
+            &["--disallowedTools".into(), disallowed_tools(both).unwrap()],
+        );
+        assert!(resumed.contains("--disallowedTools AskUserQuestion,TodoWrite"));
+        assert!(resumed.contains("--resume 'own-session'"));
+    }
+
+    #[test]
     fn test_build_launch_no_task() {
         let params = AgentLaunchParams {
             context_files: None,
@@ -200,6 +251,7 @@ mod tests {
             task: None,
             args: None,
             skip_permissions: true,
+            host_owned: HostOwnedCapabilities::default(),
             session_id: None,
             structured_prompt_server: None,
             launch_marker: None,
@@ -228,6 +280,7 @@ mod tests {
             task: Some("line one\n<location>/repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод".to_string()),
             args: None,
             skip_permissions: true,
+            host_owned: HostOwnedCapabilities::default(),
             session_id: None,
             structured_prompt_server: None,
             launch_marker: None,
@@ -312,6 +365,7 @@ mod tests {
             task: None,
             args: None,
             skip_permissions: true,
+            host_owned: HostOwnedCapabilities::default(),
             session_id: None,
             structured_prompt_server: None,
             launch_marker: None,
@@ -333,6 +387,7 @@ mod tests {
             task: Some("hello".to_string()),
             args: Some(vec!["--model".into(), model_id.into()]),
             skip_permissions: true,
+            host_owned: HostOwnedCapabilities::default(),
             session_id: None,
             structured_prompt_server: None,
             launch_marker: None,
@@ -362,6 +417,7 @@ mod tests {
             task: None,
             args: None,
             skip_permissions: true,
+            host_owned: HostOwnedCapabilities::default(),
             session_id: Some("my-pre-generated-uuid".to_string()),
             structured_prompt_server: None,
             launch_marker: None,
@@ -391,6 +447,7 @@ mod tests {
             task: Some("hello".to_string()),
             args: None,
             skip_permissions: true,
+            host_owned: HostOwnedCapabilities::default(),
             session_id: Some("sid-xyz".to_string()),
             structured_prompt_server: None,
             launch_marker: None,

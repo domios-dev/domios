@@ -37,6 +37,7 @@ fn resume_quotes_only_args_a_shell_would_reinterpret() {
         tool_less_instructions_path: None,
         session_id: "abc-def-123-456".into(),
         skip_permissions: false,
+        host_owned: Default::default(),
         agent_name: None,
         system_prompt: None,
         instance_id: None,

@@ -1636,11 +1636,17 @@ function starterPrompt(params) {
   if (params.starterPrompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return ASSIGNED_TASK_START_PROMPT;
 }
-function withPadPermissionConfig(command, instructions, cleanup, launchConfig = {}, resumeSession) {
+function hostOwnedPermissions(hostOwned) {
+  return {
+    ...hostOwned?.questions ? { question: "deny" } : {},
+    ...hostOwned?.todos ? { todoread: "deny", todowrite: "deny" } : {}
+  };
+}
+function withPadPermissionConfig(command, instructions, cleanup, launchConfig = {}, resumeSession, hostOwned) {
   const platform = host.platform();
   const config = {
     ...launchConfig,
-    permission: { external_directory: { "*": "ask" } },
+    permission: { ...hostOwnedPermissions(hostOwned), external_directory: { "*": "ask" } },
     ...instructions ? { instructions } : {}
   };
   if (platform === "windows") {
@@ -1784,7 +1790,7 @@ var plugin = {
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0, void 0, launch.config, p.sessionId);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0, void 0, launch.config, p.sessionId, p.hostOwned);
   },
   buildResumeCommand(sessionId, skipPermissions) {
     return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "), void 0, void 0, {}, sessionId);
@@ -1808,12 +1814,12 @@ var plugin = {
       }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId);
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned);
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId);
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned);
     const project = launch.directory ? host.shell.quoteFor(launch.directory, platform) : null;
     const prologue = project ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&` : "";
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], void 0, variant.config, p.sessionId);
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], void 0, variant.config, p.sessionId, p.hostOwned);
   },
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
