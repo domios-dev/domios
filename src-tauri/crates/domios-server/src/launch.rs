@@ -278,6 +278,20 @@ fn launch_child(
     }
 }
 
+/// The server reports the resolved config file, so the expectation goes through the same resolver.
+fn isolated_identity(
+    data_dir: &Path,
+    config_dir: &Path,
+) -> io::Result<codeterm_types::server_bootstrap::ServerIdentity> {
+    let data_dir = data_dir.canonicalize()?;
+    let config = config_dir.canonicalize()?.join("config.toml");
+    let resolved = codeterm_service_core::ResolvedInstancePaths::resolve(&data_dir, &config)?;
+    Ok(codeterm_types::server_bootstrap::ServerIdentity {
+        data: resolved.data().into(),
+        config: resolved.config().into(),
+    })
+}
+
 pub fn run_isolated_verification(executable: &Path, options: &LaunchOptions) -> io::Result<()> {
     let InstanceSelector::IsolatedVerification {
         data_dir,
@@ -289,12 +303,9 @@ pub fn run_isolated_verification(executable: &Path, options: &LaunchOptions) -> 
             "Isolated verification requires its explicit launch mode",
         ));
     };
-    let expected_data = data_dir.canonicalize()?;
-    let expected_config = config_dir.canonicalize()?;
+    let expected = isolated_identity(data_dir, config_dir)?;
     let (mut child, reply) = launch_child(executable, options)?;
-    let ready_matches = reply.ready.identity.data == expected_data
-        && reply.ready.identity.config == expected_config
-        && reply.ready.api_address == *bind;
+    let ready_matches = reply.ready.identity == expected && reply.ready.api_address == *bind;
     if !ready_matches {
         stop_child_after_failure(&mut child, &reply.ready, executable);
         return Err(io::Error::other(
