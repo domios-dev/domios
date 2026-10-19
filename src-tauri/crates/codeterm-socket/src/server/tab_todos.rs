@@ -115,6 +115,16 @@ pub(super) fn dispatch(
             .map_err(service_error)?;
             serde_json::to_value(checklist)
         }
+        "tab.todo.parent_list" => {
+            let parent = actor
+                .as_deref()
+                .ok_or_else(|| invalid("caller_tab_id is required"))?;
+            let checklist = codeterm_service_core::async_runtime::block_on(
+                svc.tab_todo_parent_list(&target, parent),
+            )
+            .map_err(service_error)?;
+            serde_json::to_value(checklist)
+        }
         "tab.todo.summary" => {
             let parent = actor
                 .as_deref()

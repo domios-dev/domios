@@ -307,6 +307,11 @@ fn main_impl() {
             return;
         }
 
+        Commands::Todo { action } => {
+            cmd::todo::handle(&mut client, cli.json, action);
+            return;
+        }
+
         Commands::Web { action } => {
             cmd::web::handle_web(cli.json, action);
             return;

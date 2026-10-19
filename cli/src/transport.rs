@@ -121,6 +121,9 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         ),
         Commands::Workspace { .. } => socket_rest(),
         Commands::Team { action } => team_transport(action),
+        Commands::Todo { .. } => {
+            socket_unsupported("agent todo checklists are local to the owning tab")
+        }
         Commands::Orchestrator { .. } => {
             socket_unsupported("orchestrator handoff is local-only — run it on the target machine")
         }

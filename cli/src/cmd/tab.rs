@@ -827,6 +827,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             }
         }
         TabAction::Capture { action } => handle_tab_capture(client, json, action),
+        TabAction::Todo { action } => crate::cmd::tab_todo::handle_tab(client, json, action),
     }
 }
 
@@ -960,6 +961,19 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
             .chain(tab)
             .find(|value| invalid(value))
             .map(String::as_str),
+        TabAction::Todo { action } => match action {
+            crate::args::tab_todo::TabTodoAction::Init { tab, .. }
+            | crate::args::tab_todo::TabTodoAction::Append { tab, .. }
+            | crate::args::tab_todo::TabTodoAction::Amend { tab, .. } => {
+                invalid(tab).then_some(tab.as_str())
+            }
+            crate::args::tab_todo::TabTodoAction::List { tab }
+            | crate::args::tab_todo::TabTodoAction::Complete { tab, .. }
+            | crate::args::tab_todo::TabTodoAction::Reset { tab, .. }
+            | crate::args::tab_todo::TabTodoAction::Clear { tab, .. } => {
+                tab.as_deref().filter(|value| invalid(value))
+            }
+        },
         TabAction::Focus { id, tab } | TabAction::Close { id, tab, .. } => id
             .as_deref()
             .into_iter()
@@ -991,6 +1005,14 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
     invalid_selector
         .map(|selector| Err(format!("{INVALID_REMOTE_TAB_ID}: {selector}")))
         .unwrap_or(Ok(()))
+}
+
+pub(crate) fn todo_list_rpc_method(target: &str, actor: Option<&str>) -> &'static str {
+    if actor.is_some_and(|caller| caller != target) {
+        "tab.todo.parent_list"
+    } else {
+        "tab.todo.list"
+    }
 }
 
 fn ordinary_tab_list_path(params: &serde_json::Value) -> String {
