@@ -154,7 +154,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Clear incomplete release uploads for retry
-        if: ${{ github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
@@ -244,7 +244,7 @@ jobs:
           done
 
       - name: Publish the Linux bundles
-        if: ${{ github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -271,7 +271,7 @@ jobs:
       # read for its signature string but NOT uploaded (the updater reads the
       # signature from latest.json, never the .sig asset).
       - name: Publish AppImage updater fragment
-        if: ${{ github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -311,7 +311,7 @@ jobs:
       # separate manifest because linux-x86_64 can only map to one artifact per
       # Tauri manifest.
       - name: Publish Debian updater fragment
-        if: ${{ github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -336,7 +336,7 @@ jobs:
           gh release upload "$TAG" "$OUT" --clobber --repo "$SOURCE_REPO"
 
       - name: Mirror to public release repo
-        if: ${{ inputs.mirror && github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ inputs.mirror && !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -358,13 +358,13 @@ jobs:
           gh release upload "$TAG" "${ASSETS[@]}" --clobber --repo "$MIRROR_REPO"
 
       - name: Publish and read back headless source assets
-        if: ${{ github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/release-headless-assets.mjs publish "${{ inputs.tag }}" linux-x86_64 release-artifacts "${{ inputs.source_ref }}" "${{ github.repository }}"
 
       - name: Publish and read back headless mirror assets
-        if: ${{ inputs.mirror && github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ inputs.mirror && !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         run: node scripts/release-headless-assets.mjs publish "${{ inputs.tag }}" linux-x86_64 release-artifacts "${{ inputs.source_ref }}" rollacode/codeterm-releases

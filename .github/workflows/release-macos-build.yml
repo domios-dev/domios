@@ -120,7 +120,7 @@ jobs:
           run_install: false
 
       - name: Clear incomplete release uploads for retry
-        if: ${{ github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release macOS') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
@@ -187,7 +187,7 @@ jobs:
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART"
 
       - name: Verify and publish platform assets and updater fragment
-        if: ${{ github.event_name != 'workflow_dispatch' && !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release macOS') && !inputs.dry_run }}
         env:
           SOURCE_SHA: ${{ inputs.source_ref }}
           PUBLISH_PUBLIC_MIRROR: ${{ inputs.mirror }}
