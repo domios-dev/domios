@@ -264,6 +264,31 @@ fn in_progress_losses_name_task_lane_orchestrator_and_recovery() {
 }
 
 #[test]
+fn worker_lost_notice_names_live_replacement_instead_of_advising_respawn() {
+    let (mut plan, task_id) = plan_with_task(TaskStatus::InProgress, "orch-tab", "worker-tab");
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    task.execution_attempts.push(TaskExecutionAttempt {
+        id: "attempt_replacement_opaque".into(),
+        executor_tab_id: "tab_replacement_opaque".into(),
+        ..Default::default()
+    });
+
+    let loss = in_progress_losses(&[plan], "worker-tab", WorkerLossCause::TabGone).remove(0);
+
+    assert!(loss.recovery.contains("attempt_replacement_opaque"));
+    assert!(loss.recovery.contains("tab_replacement_opaque"));
+    assert!(!loss.recovery.contains("codeterm plan task respawn"));
+    let notice = loss.notice_text();
+    assert!(notice.contains("attempt_replacement_opaque"));
+    assert!(notice.contains("tab_replacement_opaque"));
+    assert!(!notice.contains("codeterm plan task respawn"));
+}
+
+#[test]
 fn loss_message_targets_the_orchestrator_once_per_attempt() {
     let (plan, task_id) = plan_with_task(TaskStatus::InProgress, "orch-tab", "worker-tab");
     let loss = in_progress_losses(&[plan], "worker-tab", WorkerLossCause::TabGone).remove(0);
