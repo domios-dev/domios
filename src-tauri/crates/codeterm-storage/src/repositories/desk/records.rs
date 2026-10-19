@@ -25,7 +25,7 @@ const LEAF_FIELDS: &[&str] = &[
     "title_level",
     "agent_type",
     "agent_type_locked",
-    "claude_session_id",
+    "agent_session_id",
     "agent_session_id",
     "agent_identity",
     "role",
@@ -124,7 +124,6 @@ fn valid_leaf_value(field: &str, value: &Value) -> bool {
         | "description"
         | "title_level"
         | "agent_type"
-        | "claude_session_id"
         | "agent_session_id"
         | "role"
         | "role_profile"

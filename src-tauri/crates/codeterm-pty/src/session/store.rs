@@ -166,8 +166,8 @@ pub enum SplitNodeSnapshot {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         agent_type_locked: bool,
         /// Agent session ID for --resume, persisted under `LEAF_SESSION_ID_KEY`.
-        #[serde(skip_serializing_if = "Option::is_none", alias = "agent_session_id")]
-        claude_session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agent_session_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent_identity: Option<AgentIdentitySnapshot>,
         /// Orchestration role.
@@ -266,7 +266,7 @@ pub enum SplitNodeSnapshot {
 }
 
 /// Legacy serialized key of a leaf's agent session id; persisted snapshots keep it.
-pub const LEAF_SESSION_ID_KEY: &str = "claude_session_id";
+pub const LEAF_SESSION_ID_KEY: &str = "agent_session_id";
 
 impl SplitNodeSnapshot {
     /// Provider id and agent session a leaf resumes, when both are recorded.
@@ -274,7 +274,7 @@ impl SplitNodeSnapshot {
         match self {
             Self::Leaf {
                 agent_type: Some(provider),
-                claude_session_id: Some(session),
+                agent_session_id: Some(session),
                 ..
             } => Some((provider.as_str(), session.as_str())),
             _ => None,
