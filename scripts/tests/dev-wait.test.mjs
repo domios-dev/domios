@@ -113,7 +113,7 @@ node() {
   [ "$*" = 'scripts/dev-prep.mjs --check-attachment --log owned.log --api-port 7786 --listener-pid 20' ] || return 91
   return ${admitted ? 0 : 42}
 }
-dev_notify_ready_once() { printf 'reported:%s:%s' "$5" "$6"; }
+dev_notify_ready_after_proof() { printf 'reported:%s:%s' "$5" "$6"; }
 dev_notify_health_proof parent
 `], { encoding: 'utf8' });
     assert.equal(result.status, admitted ? 0 : 1, result.stderr);
