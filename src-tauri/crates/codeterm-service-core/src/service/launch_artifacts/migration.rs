@@ -48,7 +48,7 @@ pub(super) fn should_migrate(state: Result<Option<&Migration>, &str>) -> bool {
 }
 
 pub(super) fn should_notify(state: &Migration) -> bool {
-    !state.notified
+    !state.notified && state.removed > 0
 }
 
 pub(super) fn continue_sweep(candidates: usize, removed: usize) -> bool {
@@ -77,6 +77,18 @@ mod tests {
         assert!(should_notify(&state));
         state.notified = true;
         assert!(!should_notify(&state));
+    }
+
+    #[test]
+    fn a_cleanup_that_removed_nothing_raises_no_notice() {
+        for retained in [0, 3] {
+            let state = Migration {
+                removed: 0,
+                retained,
+                notified: false,
+            };
+            assert!(!should_notify(&state));
+        }
     }
 
     #[test]
