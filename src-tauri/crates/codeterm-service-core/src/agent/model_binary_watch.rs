@@ -159,12 +159,12 @@ impl ProviderBinaryWatchers {
             watchers.remove(&key);
             return WatchInstall::Unavailable;
         }
-        let watched_targets = targets.clone();
+        let watched_targets = with_resolved_aliases(&targets);
         let watch_key = key.clone();
         let callback = Arc::new(Mutex::new(on_change));
         let event_callback = callback.clone();
         let role = format!("catalogue-watch:{key}");
-        let mut stamps = input_stamps(&targets);
+        let mut stamps = input_stamps(&watched_targets);
         let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
             let _role = codeterm_util::named_thread::Scope::enter(&role);
             let Ok(event) = event else { return };
@@ -215,6 +215,23 @@ impl ProviderBinaryWatchers {
 #[cfg(test)]
 #[path = "model_binary_watch/tests.rs"]
 mod tests;
+
+/// FSEvents reports real paths (/private/var for /var on macOS), so each target is also matched
+/// through its resolved parent directory.
+fn with_resolved_aliases(targets: &[PathBuf]) -> Vec<PathBuf> {
+    let mut all = targets.to_vec();
+    for target in targets {
+        let resolved = target
+            .parent()
+            .and_then(|parent| std::fs::canonicalize(parent).ok())
+            .zip(target.file_name())
+            .map(|(parent, name)| parent.join(name));
+        if let Some(resolved) = resolved.filter(|resolved| !all.contains(resolved)) {
+            all.push(resolved);
+        }
+    }
+    all
+}
 
 fn touches_any(event: &Event, targets: &[PathBuf]) -> bool {
     event.paths.iter().any(|path| {
