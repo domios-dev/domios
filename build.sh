@@ -2875,7 +2875,9 @@ EOF
     node scripts/check-provider-boundary.mjs
     bash scripts/check-tauri-reach.sh
     bash scripts/check-empty-array-expansion.sh
-    node scripts/check-plugin-bundles.mjs
+    # esbuild cannot relativize a linked workspace package across the gateway's subst drive,
+    # so the bundle diff runs from the real worktree where the committed bundles were built.
+    (cd "${CT_REAL_WORKTREE:-.}" && node scripts/check-plugin-bundles.mjs)
     node scripts/sync-plugin-versions.mjs --check
     cargo check --manifest-path src-tauri/Cargo.toml
     cargo check --manifest-path cli/Cargo.toml

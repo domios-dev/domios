@@ -108,7 +108,15 @@ function pickers(scope: Element): HTMLButtonElement[] {
 }
 
 function pickerOptions(scope: Element): HTMLButtonElement[] {
-  return Array.from(scope.querySelectorAll('button[role="checkbox"]')) as HTMLButtonElement[];
+  // The open picker draws its options in a portaled popover, reachable through
+  // the aria-controls of the open trigger inside the row.
+  const opened = Array.from(scope.querySelectorAll('[aria-expanded="true"][aria-controls]'))
+    .map((trigger) => document.getElementById(trigger.getAttribute("aria-controls") ?? ""))
+    .filter((root): root is HTMLElement => Boolean(root));
+  const roots: Element[] = [scope, ...opened];
+  return roots.flatMap(
+    (root) => Array.from(root.querySelectorAll('button[role="checkbox"]')) as HTMLButtonElement[],
+  );
 }
 
 async function mount(element: ReactElement) {
