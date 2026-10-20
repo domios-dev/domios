@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
+import { spoolOutputs } from '../ci-artifact-spool.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
@@ -115,4 +116,18 @@ test('every job that stores CI artifacts uploads its spool and every reader has 
   const upload = action.runs.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'));
   assert.match(upload.uses, /@[0-9a-f]{40}$/);
   assert.equal(upload.with['if-no-files-found'], 'error');
+  const reader = action.runs.steps.find(step => step.id === 'spool');
+  assert.equal(reader.shell, "${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}");
+  assert.equal(reader.run, 'node scripts/ci-artifact-spool.mjs');
+});
+
+test('the spool reader names the spooled artifact and stays silent without one', () => {
+  const temp = mkdtempSync(path.join(os.tmpdir(), 'ci-artifact-spool-'));
+  try {
+    assert.equal(spoolOutputs(temp), '');
+    const spool = path.join(temp, 'ci-artifact-spool');
+    mkdirSync(spool);
+    writeFileSync(path.join(spool, '.name'), 'ci-artifact-spool-opaque\n');
+    assert.equal(spoolOutputs(temp), `name=ci-artifact-spool-opaque\npath=${spool}\n`);
+  } finally { rmSync(temp, { recursive: true, force: true }); }
 });

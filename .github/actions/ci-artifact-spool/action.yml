@@ -4,13 +4,9 @@ runs:
   using: composite
   steps:
     - id: spool
-      shell: bash
-      run: |
-        spool="$RUNNER_TEMP/ci-artifact-spool"
-        if [ -f "$spool/.name" ]; then
-          echo "name=$(cat "$spool/.name")" >> "$GITHUB_OUTPUT"
-          echo "path=$spool" >> "$GITHUB_OUTPUT"
-        fi
+      # Windows runners have no bash on PATH; node reads the spool on every runner.
+      shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
+      run: node scripts/ci-artifact-spool.mjs
     - if: steps.spool.outputs.name != ''
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
