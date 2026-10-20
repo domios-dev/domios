@@ -132,7 +132,7 @@ class SingleRunGraphTest(unittest.TestCase):
         ):
             self.assertIn(f"  {job}:\n    name:", caller)
             block = caller[caller.index(f"  {job}:") :].split("\n\n", 1)[0]
-            self.assertRegex(block, r"\n    needs: (prepare|\[prepare, quick-checks\])\n")
+            self.assertRegex(block, r"\n    needs: \[prepare, (quick-checks, )?frontend-dist\]\n")
             self.assertIn(f"uses: ./.github/workflows/{workflow}", caller)
 
         final = caller[caller.index("  release-manifest:") : caller.index("  frontend:")]
