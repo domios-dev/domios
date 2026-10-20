@@ -44,6 +44,13 @@ describe("app shell tab structure", () => {
     expect(appShellStateEqual(first, streamed)).toBe(true);
   });
 
+  it("stays equal when a streamed snapshot rebuilds unchanged nested fields", () => {
+    const nested = () => ({ provider_signals: { api_error: null }, turn_resume: { pending: false } }) as unknown as Partial<Tab>;
+    const base = withTab("b", nested());
+    const rebuilt = { ...base, tabs: { ...base.tabs, b: { ...base.tabs.b, ...nested(), agent_state: { state: "working" as const, status_line: "4s" } } } };
+    expect(shellTabsEqual(base.tabs, rebuilt.tabs)).toBe(true);
+  });
+
   it("changes when a tab's structure changes or a tab leaves", () => {
     expect(appShellStateEqual(first, withTab("b", { title: "Renamed" }))).toBe(false);
     const { b: _removed, ...rest } = first.tabs;

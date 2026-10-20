@@ -37,6 +37,7 @@ import {
 } from "./tabAttention";
 import { tabRowText } from "./tabRowModel";
 import { sameRowTab } from "./tabRowEquality";
+import { useLiveRowTab } from "./useLiveRowTab";
 import { ChecklistToggleButton, type ChecklistToggle } from "./AgentChecklist";
 
 interface TabItemProps {
@@ -219,7 +220,7 @@ function TabItemInner({
   status,
   attention,
   onRename: _onRename,
-  tab,
+  tab: rowTab,
   orchestrators,
   isAppearing,
   isClosing,
@@ -238,6 +239,7 @@ function TabItemInner({
   attachmentToggle = null,
   checklistToggle = null,
 }: TabItemProps) {
+  const tab = useLiveRowTab(rowTab);
   const attachment = variant === "attachment";
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
   // tabs — drives the icon, tooltip, and (for shells) the model badge.

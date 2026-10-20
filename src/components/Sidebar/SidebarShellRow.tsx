@@ -34,7 +34,34 @@ export function SidebarSortableBlock({ tab, group, groupKey, pinnedIds, toWorksp
   );
 }
 
-export function SidebarOwnerTabRow({ tabs, planIndex, attachments, closingTabIds, appearingTabIds, compact, context, renderOwner, ownerSortable = true, ...row }: SidebarOwnerTabRowProps) {
+type OwnerRowsProps = Omit<SidebarOwnerTabRowProps, "context">;
+
+function rowAt(props: OwnerRowsProps, tab: Tab, index: number): SidebarTabItemRowProps {
+  return {
+    ...props,
+    tab,
+    index,
+    ownerTitle: surfaceOwnerTitle(tab, props.tabs),
+    activity: resolveTabTabActivity(props.planIndex, tab.id, props.tabs),
+    isClosing: props.closingTabIds.has(tab.id),
+    isAppearing: props.appearingTabIds.has(tab.id),
+  };
+}
+
+/** Same placement and the same rendered row for the owner and each of its attachments. */
+function sameOwnerRows(prev: OwnerRowsProps, next: OwnerRowsProps): boolean {
+  if (prev.compact !== next.compact || prev.renderOwner !== next.renderOwner || prev.ownerSortable !== next.ownerSortable
+    || prev.sortable !== next.sortable || prev.group !== next.group || prev.groupKey !== next.groupKey
+    || prev.toWorkspaceOrder !== next.toWorkspaceOrder || !sameIds(prev.pinnedIds, next.pinnedIds)
+    || prev.attachments.length !== next.attachments.length) return false;
+  const prevTabs = [prev.tab, ...prev.attachments];
+  const nextTabs = [next.tab, ...next.attachments];
+  return prevTabs.every((tab, index) => tab.id === nextTabs[index].id
+    && sameTabItemRow(rowAt(prev, tab, index === 0 ? prev.index : index - 1), rowAt(next, nextTabs[index], index === 0 ? next.index : index - 1)));
+}
+
+/** An owner row with its attached surfaces; renders only when one of those rows changes. */
+export const SidebarOwnerTabRow = memo(function SidebarOwnerTabRow({ tabs, planIndex, attachments, closingTabIds, appearingTabIds, compact, context, renderOwner, ownerSortable = true, ...row }: SidebarOwnerTabRowProps) {
   const renderRow = (tab: Tab, index: number, extra: Partial<SidebarSingleTabRowProps> = {}) => (
     <SidebarSingleTabRow {...row} tab={tab} index={index}
       ownerTitle={surfaceOwnerTitle(tab, tabs)}
@@ -52,9 +79,9 @@ export function SidebarOwnerTabRow({ tabs, planIndex, attachments, closingTabIds
       insetPx: attachmentInset(ownerRowInset(context, row.touchMode)), ownerBadgeTab: compact ? row.tab : null,
       startedBy: null, checklistToggle: null,
     })} />;
-}
+}, (prev, next) => prev.context === next.context && sameOwnerRows(prev, next));
 
-type SidebarShellRowProps = Omit<SidebarOwnerTabRowProps, "context"> & {
+type SidebarShellRowProps = OwnerRowsProps & {
   showStartedBy?: boolean;
   /** Row detail that stays inside the member block, below its row. */
   detail?: ReactNode;
@@ -65,29 +92,11 @@ function creatorLabel({ tab, tabs }: SidebarShellRowProps): [string | null, stri
   return [tab.spawned_by_tab_id ?? null, creator?.title ?? null, Boolean(creator)];
 }
 
-function rowAt(props: SidebarShellRowProps, tab: Tab, index: number): SidebarTabItemRowProps {
-  return {
-    ...props,
-    tab,
-    index,
-    ownerTitle: surfaceOwnerTitle(tab, props.tabs),
-    activity: resolveTabTabActivity(props.planIndex, tab.id, props.tabs),
-    isClosing: props.closingTabIds.has(tab.id),
-    isAppearing: props.appearingTabIds.has(tab.id),
-  };
-}
-
-/** Same member block: placement, creator, and every row of the owner and its attachments. */
+/** Same member block: its detail, its creator, and the same owner rows. */
 function sameShellRow(prev: SidebarShellRowProps, next: SidebarShellRowProps): boolean {
-  if (prev.showStartedBy !== next.showStartedBy || prev.detail !== next.detail || prev.compact !== next.compact
-    || prev.renderOwner !== next.renderOwner || prev.ownerSortable !== next.ownerSortable || prev.sortable !== next.sortable
-    || prev.group !== next.group || prev.groupKey !== next.groupKey || prev.toWorkspaceOrder !== next.toWorkspaceOrder
-    || !sameIds(prev.pinnedIds, next.pinnedIds) || prev.attachments.length !== next.attachments.length) return false;
+  if (prev.showStartedBy !== next.showStartedBy || prev.detail !== next.detail) return false;
   if (creatorLabel(prev).some((value, index) => value !== creatorLabel(next)[index])) return false;
-  const prevTabs = [prev.tab, ...prev.attachments];
-  const nextTabs = [next.tab, ...next.attachments];
-  return prevTabs.every((tab, index) => tab.id === nextTabs[index].id
-    && sameTabItemRow(rowAt(prev, tab, index === 0 ? prev.index : index - 1), rowAt(next, nextTabs[index], index === 0 ? next.index : index - 1)));
+  return sameOwnerRows(prev, next);
 }
 
 /** A team member block that renders only when one of its own rows changes. */
