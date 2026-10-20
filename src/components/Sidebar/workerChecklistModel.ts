@@ -1,12 +1,13 @@
 export const TAB_TODO_CHANGED_EVENT = "tab-todo-changed";
 export const MAX_WORKER_CHECKLIST_ITEMS = 16;
 
-export type WorkerChecklistState = "open" | "in_progress" | "done";
+export type WorkerChecklistState = "open" | "in_progress" | "done" | "blocked" | "skipped";
 
 export interface WorkerChecklistItem {
   id: string;
   title: string;
   state: WorkerChecklistState;
+  reason?: string;
 }
 
 export interface WorkerChecklist {
@@ -26,6 +27,8 @@ const STATE_LABELS: Record<WorkerChecklistState, string> = {
   open: "Open",
   in_progress: "In progress",
   done: "Done",
+  blocked: "Blocked",
+  skipped: "Skipped",
 };
 
 export function checklistStateLabel(state: WorkerChecklistState): string {
@@ -33,7 +36,7 @@ export function checklistStateLabel(state: WorkerChecklistState): string {
 }
 
 function isState(value: unknown): value is WorkerChecklistState {
-  return value === "open" || value === "in_progress" || value === "done";
+  return typeof value === "string" && value in STATE_LABELS;
 }
 
 /** Narrows the service checklist to the bounded, ordered fields the row detail shows. */
@@ -49,7 +52,12 @@ export function boundedChecklist(raw: unknown): WorkerChecklist | null {
     .filter((item) => typeof item.id === "string" && typeof item.title === "string" && isState(item.state))
     .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0))
     .slice(0, MAX_WORKER_CHECKLIST_ITEMS)
-    .map((item) => ({ id: item.id as string, title: item.title as string, state: item.state as WorkerChecklistState }));
+    .map((item) => ({
+      id: item.id as string,
+      title: item.title as string,
+      state: item.state as WorkerChecklistState,
+      ...(typeof item.reason === "string" && item.reason.trim() ? { reason: item.reason.trim() } : {}),
+    }));
   return { tabId: record.tab_id, generation: record.generation, revision: record.revision, items };
 }
 

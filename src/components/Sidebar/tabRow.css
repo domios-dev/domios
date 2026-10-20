@@ -139,6 +139,15 @@
   color: var(--ct-green);
 }
 
+.sidebar-worker-checklist__item[data-state="blocked"] .sidebar-worker-checklist__glyph {
+  color: var(--ct-red);
+}
+
+.sidebar-worker-checklist__item[data-state="skipped"] .sidebar-worker-checklist__glyph,
+.sidebar-worker-checklist__item[data-state="skipped"] .sidebar-worker-checklist__title {
+  color: var(--ct-muted-fg);
+}
+
 .sidebar-worker-checklist__title {
   min-width: 0;
   flex: 1;
