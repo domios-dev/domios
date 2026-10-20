@@ -180,7 +180,7 @@ pub(crate) fn compose_observed(
         codeterm_service_core::async_runtime::spawn(async move {
             loop {
                 match sub.recv().await {
-                    Ok(ev) => pm.dispatch_event_type(ev.event.type_name()),
+                    Ok(ev) => pm.dispatch_event_type(&ev.frame.event_type),
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }

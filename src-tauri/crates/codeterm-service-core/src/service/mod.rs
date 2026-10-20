@@ -467,6 +467,8 @@ pub struct MuxEmitStats {
     pub requests: AtomicU64,
     pub fires: AtomicU64,
     pub suppressed: AtomicU64,
+    /// Snapshots whose content matched the published one, so nothing was sent.
+    pub unchanged: AtomicU64,
     pub pending_since_ms: AtomicU64,
     /// Debug-only deterministic freeze (fault injection): when set, every
     /// `emit_state_changed` early-returns, reproducing the latched-emit symptom
@@ -691,8 +693,8 @@ impl ServiceContext {
         );
     }
 
+    /// The bus hears `mux-state-changed` only after a changed snapshot is published.
     pub fn emit_state_changed(&self, cause: MuxEmitCause) {
-        publish_mux_state_changed(&self.events);
         self.emit_state_changed_after_bus_publish(cause);
     }
 

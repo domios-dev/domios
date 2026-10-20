@@ -1,4 +1,8 @@
 // Minimal CDP client for the live DEV webview (never prod): one page, request/response and events.
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 const DEFAULT_PORT = Number(process.env.CODETERM_DEV_CDP_PORT || 9223);
 
 /** `urlMatch` picks one page of a multi-page browser, such as a Domios Browser tab serving a lane frontend. */
@@ -60,4 +64,12 @@ export async function reloadWithScript(page, source, readyExpression) {
   throw new Error("DEV page did not become ready after reload");
 }
 
-export const APP_READY = "document.querySelectorAll('[data-testid=workspace-detail]').length > 0";
+/** The DEV API token from the DEV config; never print it. */
+export function devApiToken() {
+  const config = readFileSync(join(homedir(), ".codeterm-dev", "config.toml"), "utf8");
+  const token = config.slice(config.indexOf("[api]")).match(/^token = "([^"]+)"/m)?.[1];
+  if (!token) throw new Error("DEV config has no [api] token");
+  return token;
+}
+
+export const APP_READY ="document.querySelectorAll('[data-testid=workspace-detail]').length > 0";
