@@ -12,7 +12,7 @@ test("web sender body matches shared Rust schema fixture and native sanitizer", 
   const script = readFileSync("src-tauri/src/startup/frontend_shell_bootstrap.js", "utf8")
     .replace("__CODETERM_SHELL_BOOTSTRAP__", JSON.stringify({ origin: "https://example.test", token: "opaque" }))
     .replace("__CODETERM_SHELL_DEBUG__", "true");
-  const window = { top: undefined as unknown, location: { origin: "https://example.test" }, addEventListener() {}, __CODETERM_SHELL_DIAGNOSTIC__: undefined as unknown };
+  const window = { top: undefined as unknown, location: { origin: "https://example.test", href: "https://example.test/index.html?generation=1" }, addEventListener() {}, __CODETERM_SHELL_DIAGNOSTIC__: undefined as unknown };
   window.top = window;
   const bodies: unknown[] = [];
   runInNewContext(script, { window, document: { documentElement: { dataset: { codetermMounted: "true" } } }, fetch: (_url: string, init: { body: string }) => { bodies.push(JSON.parse(init.body)); return Promise.resolve(); } });
