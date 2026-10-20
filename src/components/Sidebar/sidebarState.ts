@@ -1,3 +1,4 @@
+import type { Tab } from "../../lib/types";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 
 const sidebarFields = [
@@ -25,6 +26,14 @@ function equalValue(a: unknown, b: unknown, ...ignoredKeys: string[]): boolean {
   return true;
 }
 
+// A working tab's streamed line, phase and timer reach only its own row, which reads them live.
+const ROW_LIVE_FIELDS = ["status_line", "phase", "elapsed_ms", "last_turn_summary"];
+
+function sameSidebarAgentState(a: Tab["agent_state"], b: Tab["agent_state"]): boolean {
+  if (a?.state === "working" && b?.state === "working") return equalValue(a, b, ...ROW_LIVE_FIELDS);
+  return equalValue(a, b, "elapsed_ms");
+}
+
 export function sidebarStateEqual(a: SidebarState, b: SidebarState): boolean {
   for (const field of sidebarFields) {
     if (field !== "tabs") {
@@ -38,7 +47,7 @@ export function sidebarStateEqual(a: SidebarState, b: SidebarState): boolean {
       if (left === right) continue;
       if (!left || !right) return false;
       if (!equalValue(left, right, "agent_state", "last_active_at_ms")) return false;
-      if (!equalValue(left.agent_state, right.agent_state, "elapsed_ms")) return false;
+      if (!sameSidebarAgentState(left.agent_state, right.agent_state)) return false;
     }
   }
   return true;

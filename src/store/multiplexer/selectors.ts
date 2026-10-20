@@ -1,4 +1,5 @@
 import type { Notification, Tab, Team } from "../../lib/types";
+import { sameJson } from "../../lib/sameJson";
 import type { ExtendedState } from "./tree";
 
 const TITLE_SPINNER_PREFIX = /^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u;
@@ -23,12 +24,23 @@ const APP_SHELL_FIELDS = [
 /** Live agent telemetry; each mounted tab and sidebar row selects it for itself. */
 const TAB_TELEMETRY_FIELDS: ReadonlySet<keyof Tab> = new Set(["last_active_at_ms", "agent_state"]);
 
+// A streamed snapshot rebuilds the whole tab, so unchanged nested fields arrive as new objects.
+function sameShellTab(a: Tab | undefined, b: Tab | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)] as (keyof Tab)[]);
+  for (const key of keys) {
+    if (!TAB_TELEMETRY_FIELDS.has(key) && !sameJson(a[key], b[key])) return false;
+  }
+  return true;
+}
+
 /** The tab structure the app shell reads: ids and every field except live telemetry. */
 export function shellTabsEqual(a: Record<string, Tab>, b: Record<string, Tab>): boolean {
   if (a === b) return true;
   const ids = Object.keys(a);
   if (ids.length !== Object.keys(b).length) return false;
-  return ids.every((id) => id in b && tabFieldsEqual(a[id], b[id], TAB_TELEMETRY_FIELDS));
+  return ids.every((id) => id in b && sameShellTab(a[id], b[id]));
 }
 
 /** The app shell reads the generation only as route readiness, so a snapshot that changed nothing else keeps it still. */
@@ -55,14 +67,14 @@ export function teamsEqual(a: Team[], b: Team[]): boolean {
   });
 }
 
-export function tabFieldsEqual(a: Tab | undefined, b: Tab | undefined, ignored?: ReadonlySet<keyof Tab>): boolean {
+export function tabFieldsEqual(a: Tab | undefined, b: Tab | undefined): boolean {
   if (a === b) return true;
   if (!a || !b) return !a && !b;
   const keys = new Set([...Object.keys(a), ...Object.keys(b)] as (keyof Tab)[]);
   for (const key of keys) {
     const av = a[key];
     const bv = b[key];
-    if (av === bv || ignored?.has(key)) continue;
+    if (av === bv) continue;
     if (key === "managed" || key === "agent_state") {
       if (!shallowRecordEqual(av as Record<string, unknown> | null | undefined, bv as Record<string, unknown> | null | undefined)) {
         return false;
