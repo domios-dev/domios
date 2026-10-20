@@ -447,6 +447,25 @@ fn same_navigation_document(url: &Url, expected: &Url) -> bool {
     url == *expected
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UnrenderedRoot {
+    KeepDocument,
+    PackagedFallback,
+    Unavailable,
+}
+
+/// Only a shell-prepared URL carries the generation an acknowledgement must match, so a
+/// document the page loaded itself (reload, update swap) can never be acknowledged.
+fn unrendered_root_action(url: &Url, fallback: &Url, prepared: bool) -> UnrenderedRoot {
+    if !prepared {
+        UnrenderedRoot::KeepDocument
+    } else if same_navigation_document(url, fallback) {
+        UnrenderedRoot::Unavailable
+    } else {
+        UnrenderedRoot::PackagedFallback
+    }
+}
+
 fn navigation_identity(url: &Url) -> String {
     if url.scheme() == "data" {
         return "native recovery document".into();
@@ -616,16 +635,16 @@ fn observe_navigation(
         return;
     }
     let origin = url.origin().ascii_serialization();
-    let generation = root_generation_from_url(&url)
-        .filter(|generation| {
-            generation.view == view_generation && root_render.is_armed(*generation, &origin)
+    let prepared = root_generation_from_url(&url).filter(|generation| {
+        generation.view == view_generation && root_render.is_armed(*generation, &origin)
+    });
+    let unrendered = unrendered_root_action(&url, fallback, prepared.is_some());
+    let generation = prepared.or_else(|| {
+        next_generation(&supervisor.navigation).map(|navigation| ClientViewGeneration {
+            view: view_generation,
+            navigation,
         })
-        .or_else(|| {
-            next_generation(&supervisor.navigation).map(|navigation| ClientViewGeneration {
-                view: view_generation,
-                navigation,
-            })
-        });
+    });
     let Some(generation) = generation else {
         root_render.retire();
         log::error!("[frontend-shell] navigation generation space is exhausted");
@@ -658,9 +677,8 @@ fn observe_navigation(
         }
     }
     let current_navigation = generation.navigation;
-    let bundled_fallback = *fallback == url;
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    log::debug!("[frontend-shell] root observer armed: view={view_generation}, navigation={current_navigation}, server_epoch={server_epoch}, fallback={bundled_fallback}");
+    log::debug!("[frontend-shell] root observer armed: view={view_generation}, navigation={current_navigation}, server_epoch={server_epoch}, unrendered={unrendered:?}");
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         match root_render.wait_until(generation, deadline).await {
@@ -685,10 +703,17 @@ fn observe_navigation(
             log::debug!("[frontend-shell] stale boot failure ignored: navigation={current_navigation}, server_epoch={server_epoch}");
             return;
         }
-        if bundled_fallback {
-            log::warn!("[frontend-shell] packaged root render was not acknowledged");
-            show_unavailable(&window);
-            return;
+        match unrendered {
+            UnrenderedRoot::KeepDocument => {
+                log::debug!("[frontend-shell] page-initiated document kept: navigation={current_navigation}");
+                return;
+            }
+            UnrenderedRoot::Unavailable => {
+                log::warn!("[frontend-shell] packaged root render was not acknowledged");
+                show_unavailable(&window);
+                return;
+            }
+            UnrenderedRoot::PackagedFallback => {}
         }
         log::warn!(
             "[frontend-shell] root render was not acknowledged; selecting packaged fallback"
