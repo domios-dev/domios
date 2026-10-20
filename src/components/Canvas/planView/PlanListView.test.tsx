@@ -313,7 +313,7 @@ test("list: archive action removes plan from active switcher and switches select
     '[data-testid="plan-switcher-kebab"][data-plan-id="plan-b"]',
   ) as HTMLElement;
   await act(async () => { kebab.click(); });
-  const archiveItem = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+  const archiveItem = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
     (el) => el.textContent?.includes("Archive"),
   ) as HTMLElement;
   await act(async () => { archiveItem.click(); });
@@ -354,13 +354,13 @@ test("list: unarchive brings plan back to active switcher", async () => {
   assert(toggle, "archived toggle present");
   await act(async () => { toggle.click(); });
 
-  const kebab = host.querySelector(
+  const kebab = document.querySelector(
     '[data-testid="plan-switcher-kebab"][data-plan-id="plan-arch"]',
   ) as HTMLElement;
   assert(kebab, "kebab on archived plan");
   await act(async () => { kebab.click(); });
 
-  const unarchive = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+  const unarchive = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
     (el) => el.textContent?.trim() === "Unarchive",
   ) as HTMLElement;
   await act(async () => { unarchive.click(); });

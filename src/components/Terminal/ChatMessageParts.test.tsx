@@ -51,10 +51,10 @@ async function render(data = messages) {
   await scope(false);
 }
 const parts = () => Array.from(host.querySelectorAll<HTMLElement>("[data-message-part-id]"));
-const menuItem = (label: string) => host.querySelector<HTMLButtonElement>(`[role="menuitem"][aria-label="${label}"]`)!;
+const menuItem = (label: string) => document.querySelector<HTMLButtonElement>(`[role="menuitem"][aria-label="${label}"]`)!;
 const toolbar = () => host.querySelector('[role="toolbar"]');
 async function scope(whole: boolean) {
-  const control = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')).find((button) => button.textContent === (whole ? "Whole message" : "This part"));
+  const control = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')).find((button) => button.textContent === (whole ? "Whole message" : "This part"));
   if (control) await act(async () => control.click());
 }
 async function target(index: number) {
@@ -95,7 +95,7 @@ it("Whole message switches the source and is remembered across other rows", asyn
   const other = parts()[3].closest<HTMLElement>('[role="article"]')!;
   await act(async () => other.focus());
   await act(async () => other.querySelector<HTMLButtonElement>('[aria-label="Message actions"]')!.focus());
-  const whole = Array.from(other.querySelectorAll('[role="menuitemradio"]')).find((button) => button.textContent === "Whole message");
+  const whole = Array.from(document.querySelectorAll('[role="menuitemradio"]')).find((button) => button.textContent === "Whole message");
   expect(whole?.getAttribute("aria-checked")).toBe("true");
   await scope(false);
 });

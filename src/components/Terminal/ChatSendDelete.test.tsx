@@ -24,7 +24,7 @@ it("context Delete invokes its handler once", async () => {
   const view = await render(false, deleted);
   try {
     await act(async () => view.row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
-    const action = view.host.querySelector<HTMLButtonElement>('[role="menuitem"][aria-label="Delete"]');
+    const action = document.querySelector<HTMLButtonElement>('[role="menuitem"][aria-label="Delete"]');
     expect(action).not.toBeNull();
     await act(async () => action!.click());
     expect(deleted).toHaveBeenCalledTimes(1);
