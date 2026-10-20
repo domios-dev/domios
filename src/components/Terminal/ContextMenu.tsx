@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 export interface ContextMenuAction {
@@ -16,17 +15,6 @@ interface ContextMenuProps {
 }
 
 export function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
-  useEffect(() => {
-    // Capture phase: the terminal swallows Escape before it would bubble to the popover.
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      onClose();
-    };
-    document.addEventListener("keydown", handleEscape, true);
-    return () => document.removeEventListener("keydown", handleEscape, true);
-  }, [onClose]);
-
   return (
     <AnchoredPopover open anchor={{ x, y }} gap={0} onClose={onClose}>
     <div

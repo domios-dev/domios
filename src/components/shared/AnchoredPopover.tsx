@@ -21,6 +21,14 @@ export interface AnchoredPopoverProps {
   floatingRef?: RefObject<HTMLDivElement | null>;
 }
 
+function isEscape(event: { code: string; key: string }): boolean {
+  return event.code === "Escape" || event.key === "Escape";
+}
+
+function inAnyPopover(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest("[data-anchored-popover]") !== null;
+}
+
 /** The one way to float content next to an anchor: portaled, flipped and clamped inside the visual viewport. */
 export function AnchoredPopover({
   open,
@@ -38,32 +46,30 @@ export function AnchoredPopover({
 }: AnchoredPopoverProps) {
   const ownRef = useRef<HTMLDivElement>(null);
   const contentRef = floatingRef ?? ownRef;
-  const pressedInside = useRef(false);
   const position = useAnchoredPopoverPosition(open, anchor, contentRef, placement, { gap });
   const anchorElement = "current" in anchor ? anchor : null;
 
+  // Capture phase: triggers often sit in containers that stop pointer and key propagation.
+  // Presses and keys inside any popover belong to it, so a nested popover never closes its parent.
   useEffect(() => {
     if (!open || !onClose) return;
     const outside = (event: PointerEvent) => {
-      if (pressedInside.current || (event.target instanceof Node && anchorElement?.current?.contains(event.target))) return;
+      if (inAnyPopover(event.target) || (event.target instanceof Node && anchorElement?.current?.contains(event.target))) return;
       onClose();
     };
     const escape = (event: KeyboardEvent) => {
-      if ((event.code !== "Escape" && event.key !== "Escape") || event.defaultPrevented) return;
+      if (!isEscape(event) || event.defaultPrevented || inAnyPopover(event.target)) return;
       event.preventDefault();
       const active = document.activeElement;
-      const focusInside = !active || active === document.body || Boolean(contentRef.current?.contains(active));
+      const returnFocus = !active || active === document.body || Boolean(contentRef.current?.contains(active));
       onClose();
-      if (focusInside) anchorElement?.current?.focus({ preventScroll: true });
+      if (returnFocus) anchorElement?.current?.focus({ preventScroll: true });
     };
-    const reset = () => { pressedInside.current = false; };
-    document.addEventListener("pointerdown", reset, true);
-    document.addEventListener("pointerdown", outside);
-    document.addEventListener("keydown", escape);
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("keydown", escape, true);
     return () => {
-      document.removeEventListener("pointerdown", reset, true);
-      document.removeEventListener("pointerdown", outside);
-      document.removeEventListener("keydown", escape);
+      document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("keydown", escape, true);
     };
   }, [open, onClose, anchorElement, contentRef]);
 
@@ -75,7 +81,12 @@ export function AnchoredPopover({
       ref={contentRef}
       data-anchored-popover=""
       data-side={position?.side}
-      onPointerDownCapture={() => { pressedInside.current = true; }}
+      onKeyDown={(event) => {
+        if (!onClose || !isEscape(event) || event.defaultPrevented) return;
+        event.preventDefault();
+        onClose();
+        anchorElement?.current?.focus({ preventScroll: true });
+      }}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       className={`ct-anchored-popover ${className}`.trim()}
