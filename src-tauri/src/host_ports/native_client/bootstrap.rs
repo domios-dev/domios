@@ -136,6 +136,7 @@ fn helper_diagnostic(stage: ClientStartupStage, error: &HelperFailure) {
 }
 
 pub(super) const BOOTSTRAP_DEADLINE: Duration = Duration::from_secs(30);
+const HELPER_STDERR_BYTES: u64 = 16 * 1024;
 
 #[cfg(test)]
 pub(in crate::host_ports) async fn read_single_bounded_line<R>(
@@ -208,6 +209,7 @@ pub(in crate::host_ports) enum HelperFailure {
     Exit {
         code: Option<i32>,
         request_forwarded: bool,
+        detail: Option<String>,
     },
     Io {
         message: String,
@@ -237,8 +239,61 @@ impl HelperFailure {
                     codeterm_types::server_bootstrap::BOOTSTRAP_ATTACH_UNAVAILABLE_EXIT_CODE
                 ),
                 request_forwarded: true,
+                ..
             }
         )
+    }
+}
+
+/// Why the client could not attach to a server, kept typed so the window can tell a stated refusal apart.
+#[derive(Debug)]
+pub(crate) struct ClientStartupFailure {
+    message: String,
+    stated_refusal: bool,
+}
+
+impl ClientStartupFailure {
+    /// A server that refused its launch with a stated reason repeats it on every unchanged retry.
+    pub(in crate::host_ports) fn launch(error: &HelperFailure) -> Self {
+        Self {
+            message: error.to_string(),
+            stated_refusal: matches!(
+                error,
+                HelperFailure::Exit {
+                    detail: Some(_),
+                    ..
+                }
+            ),
+        }
+    }
+
+    pub(crate) fn message(&self) -> &str {
+        &self.message
+    }
+
+    pub(crate) fn stated_refusal(&self) -> bool {
+        self.stated_refusal
+    }
+}
+
+impl From<String> for ClientStartupFailure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            stated_refusal: false,
+        }
+    }
+}
+
+impl From<&str> for ClientStartupFailure {
+    fn from(message: &str) -> Self {
+        message.to_string().into()
+    }
+}
+
+impl std::fmt::Display for ClientStartupFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
     }
 }
 
@@ -255,8 +310,12 @@ impl std::fmt::Display for HelperFailure {
             Self::Deadline {
                 request_forwarded: true,
             } => formatter.write_str("Server helper deadline elapsed after dispatch"),
-            Self::Exit { code, .. } => {
-                write!(formatter, "Server helper exited with status {code:?}")
+            Self::Exit { code, detail, .. } => {
+                write!(formatter, "Server helper exited with status {code:?}")?;
+                match detail {
+                    Some(detail) => write!(formatter, ": {detail}"),
+                    None => Ok(()),
+                }
             }
             Self::Io { message, .. } => formatter.write_str(message),
         }
@@ -463,7 +522,7 @@ pub(super) enum ArtifactVerificationFailure {
 pub(super) async fn attach_or_launch(
     install: &VerifiedClientInstall,
     allow_launch: bool,
-) -> Result<AttachReply, String> {
+) -> Result<AttachReply, ClientStartupFailure> {
     let deadline = TokioInstant::now() + BOOTSTRAP_DEADLINE;
     let inspect = attach_request(install);
     startup_started(ClientStartupStage::Attach);
@@ -485,7 +544,7 @@ pub(super) async fn attach_or_launch(
             })?,
             true,
         )
-        .map_err(|error| error.to_string()),
+        .map_err(|error| error.to_string().into()),
         Err(error) if allow_launch && error.allows_initial_server_launch() => {
             helper_diagnostic(ClientStartupStage::Attach, &error);
             startup_started(ClientStartupStage::Launch);
@@ -507,16 +566,16 @@ pub(super) async fn attach_or_launch(
                     })?,
                     false,
                 )
-                .map_err(|error| error.to_string()),
+                .map_err(|error| error.to_string().into()),
                 Err(error) => {
                     helper_diagnostic(ClientStartupStage::Launch, &error);
-                    Err(error.to_string())
+                    Err(ClientStartupFailure::launch(&error))
                 }
             }
         }
         Err(error) => {
             helper_diagnostic(ClientStartupStage::Attach, &error);
-            Err(error.to_string())
+            Err(error.to_string().into())
         }
     }
 }
@@ -612,7 +671,7 @@ where
         .arg(command_name)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .kill_on_drop(true);
     #[cfg(windows)]
     {
@@ -640,6 +699,16 @@ where
             request_forwarded: false,
         });
     };
+    let stderr = child.stderr.take().map(|stderr| {
+        tokio::spawn(async move {
+            let mut bytes = Vec::new();
+            let _ = stderr
+                .take(HELPER_STDERR_BYTES)
+                .read_to_end(&mut bytes)
+                .await;
+            codeterm_types::server_bootstrap::last_diagnostic_line(&bytes)
+        })
+    });
     let request_forwarded = Arc::new(AtomicBool::new(false));
     let forwarded = request_forwarded.clone();
     let result = timeout_at(deadline, async {
@@ -689,9 +758,14 @@ where
             }
         })?;
         if !status.success() {
+            let detail = match stderr {
+                Some(task) => task.await.ok().flatten(),
+                None => None,
+            };
             return Err(HelperFailure::Exit {
                 code: status.code(),
                 request_forwarded: forwarded.load(Ordering::Acquire),
+                detail,
             });
         }
         line.map_err(|error| {

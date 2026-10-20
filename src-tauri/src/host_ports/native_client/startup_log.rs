@@ -9,7 +9,7 @@ use std::{
 };
 
 const MAX_LINES: usize = 200;
-const MAX_ERROR_CHARS: usize = 300;
+const MAX_ERROR_CHARS: usize = 600;
 
 struct Trail {
     file: Option<File>,

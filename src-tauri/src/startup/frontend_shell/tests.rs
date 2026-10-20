@@ -169,6 +169,36 @@ fn reconnect_surface_data_url_keeps_spaces_and_styles() {
 }
 
 #[test]
+fn start_failure_page_carries_its_reason_without_changing_the_permitted_document() {
+    let origin = "http://127.0.0.1:7686";
+    let unavailable = unavailable_url().unwrap();
+    let fallback = fallback_url().unwrap();
+    let reason = "opaque-cause 17% <b>&\"#";
+    let failed = start_failure_url(Some(reason)).unwrap();
+    assert!(navigation_allowed(
+        &failed,
+        Some(origin),
+        &unavailable,
+        &fallback
+    ));
+    assert!(same_navigation_document(
+        &failed,
+        &start_failure_url(Some("another-cause")).unwrap()
+    ));
+    let fragment = failed.fragment().unwrap();
+    assert!(fragment
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || b"%*-._".contains(&byte)));
+    let query = format!("r={fragment}");
+    let decoded = url::form_urlencoded::parse(query.as_bytes())
+        .next()
+        .unwrap()
+        .1;
+    assert_eq!(decoded, reason);
+    assert_eq!(start_failure_url(None).unwrap().fragment(), None);
+}
+
+#[test]
 fn external_link_decision_table() {
     let origin = Some("http://127.0.0.1:7686");
     for (target, expected) in [
