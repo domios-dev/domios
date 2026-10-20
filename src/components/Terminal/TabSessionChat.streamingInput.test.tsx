@@ -158,21 +158,21 @@ it("same-tab streaming assistant growth preserves immediate composer edits witho
         capabilities: { status: "ready", data: commandData } } } } };
       store.notify();
     });
-    expect(host.querySelector('[role="option"][data-slash-command="/fixture"]')).not.toBeNull();
+    expect(document.querySelector('[role="option"][data-slash-command="/fixture"]')).not.toBeNull();
     await act(async () => {
       state = { ...state, tabs: { [tabId]: { ...state.tabs[tabId], provider_signals: { auth: null, api_error: null, permission_mode: null, capabilities: { status: "ready",
         data: { ...commandData, commands: [{ name: "final", description: "changed", argument_hint: null }] } } } } } };
       store.notify();
     });
-    expect(host.querySelector('[role="option"][data-slash-command="/fixture"]')).toBeNull();
-    expect(host.querySelector('[role="option"][data-slash-command="/final"]')).not.toBeNull();
+    expect(document.querySelector('[role="option"][data-slash-command="/fixture"]')).toBeNull();
+    expect(document.querySelector('[role="option"][data-slash-command="/final"]')).not.toBeNull();
     expect(editor.value).toBe("/fi");
     await edit(editor, composed);
     await emit("agent-runtime-state", { tab_id: tabId, session_binding_nonce: "binding", state: { state: "degraded", epoch: 1, reason: "Fixture failure" } });
     const runtimeBadge = host.querySelector<HTMLButtonElement>('button[aria-label="Agent runtime unavailable"]')!;
     expect(runtimeBadge).not.toBeNull();
     await act(async () => runtimeBadge.click());
-    const retry = [...host.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Retry")!;
+    const retry = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Retry")!;
     expect(retry).toBeDefined();
     await act(async () => retry.click());
     expect(calls.filter(call => call.command === "agent_runtime_retry")).toEqual([{ command: "agent_runtime_retry", args: { tabId } }]);

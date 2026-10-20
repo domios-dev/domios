@@ -400,7 +400,7 @@ test("team_card_activation_covers_title_tally_and_lower_area", async () => {
     !contextActions.some((button) => button.textContent?.includes("Rename")),
     "a Team bound to an active plan hides the unrelated Team rename action",
   );
-  const menuRectStyle = contextMenu.style;
+  const menuRectStyle = (contextMenu.closest("[data-anchored-popover]") as HTMLElement).style;
   assert(Number.parseFloat(menuRectStyle.left) >= 4 && Number.parseFloat(menuRectStyle.top) >= 4, "context menu stays inside viewport margins");
   await act(async () => openPlan.click());
   assert(canvasFocusStore.getWorkspaceTarget()?.planId === currentPlan.id, "context-menu Open Plan targets the bound Team plan");
