@@ -89,6 +89,7 @@ impl ServiceContext {
                 )
                 .await?;
             if let Some(carried) = carried {
+                self.sync_checklist_presence(source, false);
                 self.ui.emit(
                     super::TAB_TODO_CHANGED_EVENT,
                     serde_json::json!({

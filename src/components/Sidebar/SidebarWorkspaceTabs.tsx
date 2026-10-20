@@ -28,7 +28,8 @@ import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { SidebarCronRow } from "./SidebarResourceRow";
 import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./SidebarShellRow";
 import { surfaceAttachmentsByOwner, type OwnerRowContext } from "./surfaceAttachmentModel";
-import { WorkerChecklistDisclosure, type ChecklistToggle } from "./WorkerChecklist";
+import { AgentChecklistDisclosure, type ChecklistToggle } from "./AgentChecklist";
+import { showsChecklist } from "./agentChecklistModel";
 
 import {
   addableTeamRoles,
@@ -237,10 +238,10 @@ export function SidebarWorkspaceTabs({
     />;
   };
 
-  const renderMemberRow = (
+  const renderMemberShellRow = (
     member: TeamTabMember,
     section: TeamSection,
-    shell = false,
+    shell: boolean,
     checklist?: { toggle: ChecklistToggle; detail: ReactNode },
   ): ReactNode => (
     <SidebarShellRow key={member.tab.id}
@@ -254,13 +255,13 @@ export function SidebarWorkspaceTabs({
     />
   );
 
-  const renderTerminalRow = (member: TeamTabMember, section: TeamSection): ReactNode => renderMemberRow(member, section, true);
+  const renderMemberRow = (member: TeamTabMember, section: TeamSection, shell = false): ReactNode => showsChecklist(member.tab)
+    ? <AgentChecklistDisclosure key={member.tab.id} tabId={member.tab.id} title={member.tab.title}>
+      {(toggle, detail) => renderMemberShellRow(member, section, shell, { toggle, detail })}
+    </AgentChecklistDisclosure>
+    : renderMemberShellRow(member, section, shell);
 
-  const renderWorkerRow = (member: TeamTabMember, section: TeamSection): ReactNode => member.tab.remote_peer_id
-    ? renderMemberRow(member, section)
-    : <WorkerChecklistDisclosure key={member.tab.id} tabId={member.tab.id}>
-      {(toggle, detail) => renderMemberRow(member, section, false, { toggle, detail })}
-    </WorkerChecklistDisclosure>;
+  const renderTerminalRow = (member: TeamTabMember, section: TeamSection): ReactNode => renderMemberRow(member, section, true);
 
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
@@ -294,26 +295,32 @@ export function SidebarWorkspaceTabs({
     const children = looseTabs.filter((candidate) => candidate.parent_tab_id === tab.id);
     const childItems = children.map((child) => `${TAB_PREFIX}${child.id}`);
     const toWorkspaceOrder = group === "tab" ? reorderUnits : reorderSiblings;
+    const renderOwner = (checklistToggle?: ChecklistToggle) => renderOwnerWithAttachments(tab, attachmentsByOwner.get(tab.id) ?? [], "loose", (toggle) => (
+      <SidebarSingleTabRow
+        sortable={false}
+        tab={tab}
+        ownerTitle={surfaceOwnerTitle(tab, tabs)}
+        index={index}
+        activity={resolveTabTabActivity(planIndex, tab.id, tabs)}
+        isClosing={closingTabIds.has(tab.id)}
+        isAppearing={appearingTabIds.has(tab.id)}
+        group={group}
+        groupKey={groupKey}
+        pinnedIds={pinnedIds}
+        toWorkspaceOrder={toWorkspaceOrder}
+        attachmentToggle={toggle}
+        checklistToggle={checklistToggle}
+        {...sharedRow}
+      />
+    ));
     return (
       <SidebarSortableBlock key={tab.id} tab={tab} group={group} groupKey={groupKey} pinnedIds={pinnedIds}
         toWorkspaceOrder={toWorkspaceOrder} className="sidebar-tab-tree-row">
-        {renderOwnerWithAttachments(tab, attachmentsByOwner.get(tab.id) ?? [], "loose", (toggle) => (
-          <SidebarSingleTabRow
-            sortable={false}
-            tab={tab}
-            ownerTitle={surfaceOwnerTitle(tab, tabs)}
-            index={index}
-            activity={resolveTabTabActivity(planIndex, tab.id, tabs)}
-            isClosing={closingTabIds.has(tab.id)}
-            isAppearing={appearingTabIds.has(tab.id)}
-            group={group}
-            groupKey={groupKey}
-            pinnedIds={pinnedIds}
-            toWorkspaceOrder={toWorkspaceOrder}
-            attachmentToggle={toggle}
-            {...sharedRow}
-          />
-        ))}
+        {showsChecklist(tab)
+          ? <AgentChecklistDisclosure tabId={tab.id} title={tab.title}>
+            {(toggle, detail) => <>{renderOwner(toggle)}{detail}</>}
+          </AgentChecklistDisclosure>
+          : renderOwner()}
         {children.length > 0 && (
           <SortableContext items={childItems} strategy={verticalListSortingStrategy}>
             {children.map((child, childIndex) =>
@@ -378,7 +385,7 @@ export function SidebarWorkspaceTabs({
         workers={
           <>
             <SortableContext items={workerItems} strategy={verticalListSortingStrategy}>
-              {workers.map((member) => renderWorkerRow(member, { teamId, index: 1 }))}
+              {workers.map((member) => renderMemberRow(member, { teamId, index: 1 }))}
             </SortableContext>
           </>
         }

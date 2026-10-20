@@ -92,6 +92,33 @@ plan/task/attempt identifiers. Accept the report on the origin before running
 `plan task merge-remote-lane <plan> <task> <attempt>` to fetch the signed peer
 bundle at the accepted report SHA and merge into the clean dispatch-time branch.
 
+## Agent checklists
+
+Every agent tab, Orchestrator, Planner, Worker or roleless, keeps its own
+checklist in Domios; no parent and no provider todo tool is needed. Write the
+whole list as a JSON array to your pad and declare it:
+
+```bash
+codeterm todo write --from-pad todos.json
+```
+
+Each entry is `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "link?", "reason?" }`.
+The first write creates the checklist. Later writes reconcile it: an entry
+whose `content` matches a title keeps that item, its attempts and history; a new
+`content` appends an item; an omitted item you added is removed. Items a
+dispatch seeded from acceptance criteria, or a QA Worker appended, are locked:
+omitting one leaves it unchanged and the reply counts it. At most one item is
+`in_progress`, counting omitted locked items, and a refusal names the
+offending items. `blocked` and `skipped` need a `reason`. A checklist holds at
+most 12 items; a larger list is refused, and the remedy is a task split. A
+new item's `link` is an http(s) URL or a task reference; an existing item's
+`link` must match its current label, URL or task id.
+
+The sidebar shows a checklist disclosure on every agent row whose tab holds a
+checklist, including rows of paired peers that report one.
+`codeterm todo list` reads your own list; an Orchestrator reads a child's with
+`codeterm tab todo list --tab <child-id>`.
+
 ## Plan recipes
 
 - Too big once started: `plan task split <plan> <task> --child "<name>"` (repeat); dispatch each child into its own lane. The parent closes when every child is done or cancelled.
@@ -113,4 +140,4 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

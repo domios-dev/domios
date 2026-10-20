@@ -37,7 +37,7 @@ import {
 } from "./tabAttention";
 import { tabRowText } from "./tabRowModel";
 import { sameRowTab } from "./tabRowEquality";
-import { ChecklistToggleButton, type ChecklistToggle } from "./WorkerChecklist";
+import { ChecklistToggleButton, type ChecklistToggle } from "./AgentChecklist";
 
 interface TabItemProps {
   tab: Tab;
@@ -76,7 +76,7 @@ interface TabItemProps {
   ownerBadgeTab?: Tab | null;
   /** Owner row folding its surface attachments. */
   attachmentToggle?: AttachmentToggle | null;
-  /** Worker row disclosure for its read-only checklist detail. */
+  /** Agent row disclosure for its read-only checklist detail. */
   checklistToggle?: ChecklistToggle | null;
   startedBy?: TabStartedBy | null;
 }
