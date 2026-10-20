@@ -46,6 +46,24 @@ fn live_discovery_warning_needed(discovery_required: bool, refreshed: bool) -> b
     discovery_required && !refreshed
 }
 
+/// stdout keeps the model array, so a `--json` caller reads the reason from stderr.
+fn live_discovery_warning(provider: &str, reason: Option<&str>, json: bool) -> String {
+    if json {
+        return serde_json::json!({
+            "warning": "live_model_discovery_not_refreshed",
+            "provider": provider,
+            "reason": reason,
+        })
+        .to_string();
+    }
+    let reason = reason
+        .map(|reason| format!(" ({reason})"))
+        .unwrap_or_default();
+    format!(
+        "WARNING: live model discovery did not refresh the {provider} catalogue{reason}; showing its last available snapshot."
+    )
+}
+
 fn absolute_spawn_base(
     spawn_cwd: Option<&str>,
     caller_cwd: &std::path::Path,
@@ -396,9 +414,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         .and_then(serde_json::Value::as_u64)
                         .unwrap_or(observed_version);
                     if live_discovery_warning_needed(discovery_required, refreshed) {
-                        eprintln!(
-                            "WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot."
-                        );
+                        let reason = refresh.get("reason").and_then(serde_json::Value::as_str);
+                        eprintln!("{}", live_discovery_warning(&provider, reason, json));
                     }
                     if discovery_required || refreshed || current_version != observed_version {
                         let response = match local_http

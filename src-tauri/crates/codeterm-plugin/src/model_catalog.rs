@@ -42,8 +42,10 @@ use crate::provider::{AgentProvider, ModelAvailability, ModelInfo, ReasoningEffo
 mod grouping;
 mod inputs;
 mod live_policy;
+mod live_refresh;
 pub use inputs::{discovery_stamp, invalidate_inputs};
 pub use live_policy::register_catalogue_capability;
+pub use live_refresh::{last_refresh_failure, refresh_live, RefreshFailure};
 
 pub(super) const CACHE_SCHEMA_VERSION: u32 = 1;
 
@@ -173,8 +175,13 @@ pub fn binary_fingerprint_path(path: &std::path::Path) -> Option<String> {
     Some(format!("{:x}", digest.finalize()))
 }
 
+// Resolve actively: a cache-only read answers None right after a discovery's
+// forget and Some once the probe resolves the CLI, so its stamp never matched.
 fn fingerprint_bin(bin: &str) -> Option<BinaryFingerprint> {
-    fingerprint_path(&crate::js_runtime::resolved_bin_path(bin)?)
+    match crate::js_runtime::probe_bin(bin).resolution {
+        crate::js_runtime::BinResolution::Found(path) => fingerprint_path(&path),
+        _ => None,
+    }
 }
 
 /// Fingerprint the provider's declared credential files. A file that does not
@@ -731,40 +738,6 @@ pub fn has_unknown_verdict(provider_id: &str) -> bool {
         .read()
         .get(provider_id)
         .is_some_and(|snapshot| snapshot.models.iter().any(ModelInfo::is_unknown))
-}
-
-/// Refresh live models off the async runtime. On timeout / opt-out / failure — or an
-/// empty post-sanitize result — the previous snapshot stays active (the list never goes empty).
-pub async fn refresh_live(
-    provider: Arc<dyn AgentProvider>,
-    timeout_duration: Duration,
-) -> Option<Vec<ModelInfo>> {
-    let provider_id = provider.id().to_string();
-    let default = provider.default_model();
-    // blocking pool. Use an independent executor, not `Handle::block_on` (deadlocks nested in spawn_blocking).
-    let task = tokio::task::spawn_blocking(move || {
-        // A refresh must observe current filesystem and PATH state before live discovery.
-        crate::js_runtime::forget_resolved_bins();
-        let inputs = discovery_stamp(provider.as_ref());
-        endpoints::refresh(provider.as_ref(), &inputs);
-        let models = futures_executor::block_on(provider.discover_models())?;
-        let was_empty = models.is_empty();
-        let models = sanitize_live(models);
-        if !was_empty && models.is_empty() {
-            return None;
-        }
-        let default = resolve_live_default(&models, default);
-        let binary = provider.cli_binary().and_then(fingerprint_bin);
-        let credentials = credential_fingerprints(provider.as_ref());
-        inputs::publish_current(provider.as_ref(), &inputs, || {
-            put_live_with_credentials(&provider_id, models.clone(), default, binary, credentials);
-            models
-        })
-    });
-    match tokio::time::timeout(timeout_duration, task).await {
-        Ok(Ok(result)) => result,
-        Ok(Err(_)) | Err(_) => None,
-    }
 }
 
 /// Provider-agnostic cleanup of a discovery list: drop empty ids and non-chat
