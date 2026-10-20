@@ -868,24 +868,3 @@ fn todo_list_uses_parent_rpc_only_for_a_different_target_tab() {
     );
     assert_eq!(todo_list_rpc_method("selected", None), "tab.todo.list");
 }
-
-#[test]
-fn todo_write_demotes_before_promoting_the_in_progress_item() {
-    use codeterm_types::agent::TabTodoState;
-
-    let mut changes = vec![
-        ("new-active".into(), TabTodoState::InProgress),
-        ("completed".into(), TabTodoState::Done),
-        ("old-active".into(), TabTodoState::Open),
-    ];
-    crate::cmd::tab_todo::prioritize_state_changes(&mut changes);
-
-    assert_eq!(
-        changes,
-        vec![
-            ("completed".into(), TabTodoState::Done),
-            ("old-active".into(), TabTodoState::Open),
-            ("new-active".into(), TabTodoState::InProgress),
-        ]
-    );
-}

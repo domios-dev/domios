@@ -5,11 +5,18 @@ use crate::service::ServiceContext;
 use crate::startup::StorageAuthority;
 use codeterm_agent_model::tab_todo::TabTodoStore;
 use codeterm_types::agent::{
-    TabTodoChecklist, TabTodoDraft, TabTodoLink, TabTodoLinkDraft, TabTodoNewItem,
-    TabTodoRecitation, TabTodoRecitedItem, TabTodoState, TabTodoSummary, MAX_TAB_TODO_ITEMS,
-    MAX_TAB_TODO_SUMMARY_BYTES, MAX_TAB_TODO_SUMMARY_TITLES,
+    tab_todo_bound_refusal, validate_tab_todo_reason, TabTodoChecklist, TabTodoDraft, TabTodoLink,
+    TabTodoLinkDraft, TabTodoNewItem, TabTodoRecitation, TabTodoRecitedItem, TabTodoState,
+    TabTodoSummary, MAX_TAB_TODO_ITEMS,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
+
+mod lifecycle;
+mod recitation;
+
+use recitation::{recitation_text, summary};
+
+pub const TAB_TODO_CHANGED_EVENT: &str = "tab-todo-changed";
 
 /// Permanently remove todo rows for tabs evicted from closed history.
 ///
@@ -50,6 +57,19 @@ impl ServiceContext {
             .and_then(StorageAuthority::storage)
             .ok_or_else(|| "shared Storage is unavailable".to_string())?;
         Ok(TabTodoStore::new(storage.tab_todos()))
+    }
+
+    /// Every committed checklist mutation announces its new revision to the UI.
+    fn todo_changed(&self, checklist: TabTodoChecklist) -> TabTodoChecklist {
+        self.ui.emit(
+            TAB_TODO_CHANGED_EVENT,
+            serde_json::json!({
+                "tab_id": checklist.tab_id,
+                "generation": checklist.generation,
+                "revision": checklist.revision,
+            }),
+        );
+        checklist
     }
 
     pub(crate) fn forget_evicted_tab_todos(&self, tab_ids: Vec<String>) {
@@ -133,10 +153,11 @@ impl ServiceContext {
     ) -> Result<TabTodoChecklist, String> {
         let target = self.todo_tab(target_tab_id)?;
         self.require_parent_orchestrator(&target, orchestrator_tab_id)?;
-        if criteria.is_empty() || criteria.len() > MAX_TAB_TODO_ITEMS {
-            return Err(format!(
-                "acceptance criteria must contain 1..={MAX_TAB_TODO_ITEMS} items"
-            ));
+        if criteria.is_empty() {
+            return Err("acceptance criteria must contain at least one item".into());
+        }
+        if criteria.len() > MAX_TAB_TODO_ITEMS {
+            return Err(tab_todo_bound_refusal());
         }
         let mut items = Vec::with_capacity(criteria.len());
         let mut truncated_ids = Vec::new();
@@ -168,6 +189,7 @@ impl ServiceContext {
                 truncated_ids,
             )
             .await
+            .map(|checklist| self.todo_changed(checklist))
     }
 
     pub async fn tab_todo_append_qa(
@@ -189,8 +211,11 @@ impl ServiceContext {
                 items,
             )
             .await
+            .map(|checklist| self.todo_changed(checklist))
     }
 
+    /// Owner state change. Moving a finished item back to in progress is a
+    /// restart of the same item; blocked and skipped require a reason.
     pub async fn tab_todo_set_state(
         &self,
         target_tab_id: &str,
@@ -199,9 +224,24 @@ impl ServiceContext {
         item_id: String,
         expected_revision: u64,
         state: TabTodoState,
+        reason: Option<String>,
     ) -> Result<TabTodoChecklist, String> {
         let target = self.todo_tab(target_tab_id)?;
         self.require_owner_or_user(&target, actor_tab_id)?;
+        match reason.as_deref() {
+            Some(reason) => validate_tab_todo_reason(reason)?,
+            None if state.requires_reason() => {
+                return Err(format!(
+                    "a {} todo item requires a reason",
+                    if state == TabTodoState::Blocked {
+                        "blocked"
+                    } else {
+                        "skipped"
+                    }
+                ))
+            }
+            None => {}
+        }
         self.todo_store()?
             .set_state(
                 target.id,
@@ -209,10 +249,12 @@ impl ServiceContext {
                 item_id,
                 expected_revision,
                 state,
+                reason,
                 actor_tab_id.map(str::to_owned),
                 now_secs(),
             )
             .await
+            .map(|checklist| self.todo_changed(checklist))
     }
 
     pub async fn tab_todo_amend(
@@ -240,10 +282,12 @@ impl ServiceContext {
                 now_secs(),
             )
             .await?;
+        let checklist = self.todo_changed(checklist);
         self.record_task_links(actor_tab_id, std::slice::from_ref(&item))?;
         Ok(checklist)
     }
 
+    /// Locked items are refused by the store; users skip them instead.
     pub async fn tab_todo_clear_one(
         &self,
         target_tab_id: &str,
@@ -264,6 +308,7 @@ impl ServiceContext {
                 now_secs(),
             )
             .await
+            .map(|checklist| self.todo_changed(checklist))
     }
 
     pub async fn tab_todo_clear_all(
@@ -277,10 +322,12 @@ impl ServiceContext {
         self.todo_store()?
             .clear_all(target.id, generation, None, now_secs())
             .await
+            .map(|checklist| self.todo_changed(checklist))
     }
 
     /// User reset/rewrite creates a new generation; prior item rows are removed
-    /// by the repository while its audit entries are retained.
+    /// by the repository while its audit entries are retained. A generation that
+    /// still holds locked items is refused.
     pub async fn tab_todo_reset(
         &self,
         target_tab_id: &str,
@@ -304,6 +351,7 @@ impl ServiceContext {
                 items.clone(),
             )
             .await?;
+        let checklist = self.todo_changed(checklist);
         self.record_task_links(&event_tab_id, &items)?;
         Ok(checklist)
     }
@@ -343,8 +391,8 @@ impl ServiceContext {
         self.todo_store()?.get(target.id).await
     }
 
-    /// Bounded event recitation for the owning agent. Open/in-progress items are
-    /// ordered before completed items; at most the 16 persisted items are emitted.
+    /// Bounded event recitation for the owning agent: blocked items first, then
+    /// the current step, pending, skipped and completed items.
     pub async fn tab_todo_recite(
         &self,
         target_tab_id: &str,
@@ -358,29 +406,15 @@ impl ServiceContext {
         let Some(checklist) = self.todo_store()?.get(target.id.clone()).await? else {
             return Ok(None);
         };
-        let mut items: Vec<_> = checklist.items.iter().collect();
-        items.sort_by_key(|item| {
-            (
-                match item.state {
-                    TabTodoState::Open => 0,
-                    TabTodoState::InProgress => 1,
-                    TabTodoState::Done => 2,
-                },
-                item.position,
-            )
-        });
         Ok(Some(TabTodoRecitation {
-            tab_id: checklist.tab_id,
+            tab_id: checklist.tab_id.clone(),
             generation: checklist.generation,
             revision: checklist.revision,
-            items: items
+            items: checklist
+                .recite_order()
                 .into_iter()
                 .take(MAX_TAB_TODO_ITEMS)
-                .map(|item| TabTodoRecitedItem {
-                    id: item.id.clone(),
-                    title: item.title.clone(),
-                    state: item.state,
-                })
+                .map(TabTodoRecitedItem::from)
                 .collect(),
         }))
     }
@@ -399,11 +433,7 @@ impl ServiceContext {
         else {
             return Ok(false);
         };
-        if recitation
-            .items
-            .iter()
-            .all(|item| item.state == TabTodoState::Done)
-        {
+        if recitation.items.iter().all(|item| item.state.is_terminal()) {
             return Ok(false);
         }
         let live_target = match self.todo_tab(&recitation.tab_id) {
@@ -421,10 +451,7 @@ impl ServiceContext {
         };
         if current.generation != recitation.generation
             || current.revision != recitation.revision
-            || current
-                .items
-                .iter()
-                .all(|item| item.state == TabTodoState::Done)
+            || current.items.iter().all(|item| item.state.is_terminal())
         {
             return Ok(false);
         }
@@ -436,10 +463,11 @@ impl ServiceContext {
         &self,
         drafts: Vec<TabTodoDraft>,
     ) -> Result<(Vec<TabTodoNewItem>, Vec<String>), String> {
-        if drafts.is_empty() || drafts.len() > MAX_TAB_TODO_ITEMS {
-            return Err(format!(
-                "todo items must contain 1..={MAX_TAB_TODO_ITEMS} items"
-            ));
+        if drafts.is_empty() {
+            return Err("todo items must contain at least one item".into());
+        }
+        if drafts.len() > MAX_TAB_TODO_ITEMS {
+            return Err(tab_todo_bound_refusal());
         }
         let mut items = Vec::with_capacity(drafts.len());
         for draft in drafts {
@@ -549,59 +577,6 @@ fn validate_external_url(value: &str) -> Result<(), String> {
         return Err("todo URL must be an absolute HTTP or HTTPS URL".into());
     }
     Ok(())
-}
-
-fn summary(checklist: &TabTodoChecklist) -> TabTodoSummary {
-    let unfinished: Vec<_> = checklist
-        .items
-        .iter()
-        .filter(|item| item.state != TabTodoState::Done)
-        .collect();
-    let mut titles = Vec::new();
-    let mut used = 0usize;
-    for item in unfinished.iter().take(MAX_TAB_TODO_SUMMARY_TITLES) {
-        let cost = item.title.len() + usize::from(!titles.is_empty());
-        if used + cost > MAX_TAB_TODO_SUMMARY_BYTES {
-            break;
-        }
-        used += cost;
-        titles.push(item.title.clone());
-    }
-    TabTodoSummary {
-        tab_id: checklist.tab_id.clone(),
-        generation: checklist.generation,
-        unfinished_count: unfinished.len().min(MAX_TAB_TODO_ITEMS) as u8,
-        titles,
-    }
-}
-
-fn recitation_text(recitation: &TabTodoRecitation) -> String {
-    let unfinished: Vec<_> = recitation
-        .items
-        .iter()
-        .filter(|item| item.state != TabTodoState::Done)
-        .collect();
-    let mut text = format!("Checklist: {} unfinished item(s)", unfinished.len());
-    for item in unfinished.into_iter().take(MAX_TAB_TODO_SUMMARY_TITLES) {
-        let suffix = format!("\n- {}", item.title);
-        let remaining = MAX_TAB_TODO_SUMMARY_BYTES.saturating_sub(text.len());
-        if remaining == 0 {
-            break;
-        }
-        text.push_str(&bounded_utf8_prefix(&suffix, remaining));
-    }
-    text
-}
-
-fn bounded_utf8_prefix(value: &str, max_bytes: usize) -> &str {
-    if value.len() <= max_bytes {
-        return value;
-    }
-    let mut end = max_bytes;
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    &value[..end]
 }
 
 fn now_secs() -> u64 {

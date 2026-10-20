@@ -38,6 +38,17 @@ pub enum TabTodoAction {
         #[arg(long = "tab", value_name = "ID")]
         tab: Option<String>,
     },
+    /// Reopen one child checklist item with the review reason (Orchestrator or QA).
+    Reopen {
+        /// Stable checklist item id.
+        item_id: String,
+        /// Child tab id.
+        #[arg(long = "tab", value_name = "ID", required = true)]
+        tab: String,
+        /// Why the step failed review; the Worker sees it on the item.
+        #[arg(long, allow_hyphen_values = true)]
+        reason: String,
+    },
     /// Append ordered checks to a child checklist (QA Worker only).
     Append {
         /// Child tab id.

@@ -9,6 +9,7 @@ use codeterm_service_core::service::plan::PlanError;
 use codeterm_service_core::service::{ServiceContext, ServiceState};
 
 mod qa_authority;
+mod todo_reopen;
 
 use super::JsonRpcError;
 
@@ -394,6 +395,7 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             }
+            todo_reopen::reopen_named_item(svc, p, &plan_id, &task_id, &from, note(p))?;
             let (mut result, recorded) = store
                 .bounce_review_with_recorded_status(
                     &plan_id,

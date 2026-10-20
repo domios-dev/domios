@@ -1,12 +1,14 @@
 //! Incremental, generation-scoped checklist records in the shared Storage database.
 
+mod lifecycle;
 mod mutations;
 mod queries;
 mod records;
 
 pub use records::{
-    TabTodoAmendmentRecord, TabTodoChecklistRecord, TabTodoItemRecord, TabTodoNewItemRecord,
-    MAX_TAB_TODO_AUDIT_EVENTS, MAX_TAB_TODO_ITEMS,
+    TabTodoAmendmentRecord, TabTodoChecklistRecord, TabTodoCountersRecord, TabTodoItemEventRecord,
+    TabTodoItemRecord, TabTodoNewItemRecord, MAX_TAB_TODO_AUDIT_EVENTS, MAX_TAB_TODO_ITEMS,
+    MAX_TAB_TODO_ITEM_EVENTS,
 };
 
 use crate::owner::Storage;
@@ -90,18 +92,63 @@ impl TabTodoRepository {
         item_id: String,
         expected_revision: u64,
         state: String,
+        reason: Option<String>,
         actor: Option<String>,
         at: u64,
     ) -> Completion<Committed<TabTodoChecklistRecord>> {
-        let cost = tab_id.len() + item_id.len() + state.len() + 128;
+        let cost = tab_id.len()
+            + item_id.len()
+            + state.len()
+            + reason.as_ref().map_or(0, String::len)
+            + 128;
         self.storage.submit_mutation(cost, move |cx| {
-            mutations::set_state(
+            lifecycle::set_state(
                 cx,
                 tab_id,
                 generation,
                 item_id,
                 expected_revision,
                 state,
+                reason,
+                actor,
+                at,
+            )
+        })
+    }
+
+    pub fn reopen(
+        &self,
+        tab_id: String,
+        generation: u64,
+        item_id: String,
+        reason: String,
+        actor: Option<String>,
+        at: u64,
+    ) -> Completion<Committed<TabTodoChecklistRecord>> {
+        let cost = tab_id.len() + item_id.len() + reason.len() + 128;
+        self.storage.submit_mutation(cost, move |cx| {
+            lifecycle::reopen(cx, tab_id, generation, item_id, reason, actor, at)
+        })
+    }
+
+    /// Moves a predecessor tab's checklist, attempts and history to its replacement.
+    pub fn transfer(
+        &self,
+        source_tab_id: String,
+        target_tab_id: String,
+        workspace_id: String,
+        team_id: Option<String>,
+        actor: Option<String>,
+        at: u64,
+    ) -> Completion<Committed<Option<TabTodoChecklistRecord>>> {
+        let cost = source_tab_id.len() + target_tab_id.len() + workspace_id.len() + 128;
+        self.storage.submit_mutation(cost, move |cx| {
+            lifecycle::transfer(
+                cx,
+                source_tab_id,
+                target_tab_id,
+                workspace_id,
+                team_id,
                 actor,
                 at,
             )
