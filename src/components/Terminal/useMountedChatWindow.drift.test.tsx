@@ -34,9 +34,30 @@ function contentTop(element: Element): number {
   return top + Number(element instanceof HTMLElement ? element.style.transform.match(/translateY\((-?[\d.]+)px\)/)?.[1] ?? 0 : 0);
 }
 
-function Harness() {
+let observers: FakeResizeObserver[] = [];
+let observeCalls = new Map<Element, number>();
+class FakeResizeObserver {
+  private readonly targets = new Set<Element>();
+  constructor(private readonly callback: ResizeObserverCallback) { observers.push(this); }
+  observe(target: Element) { this.targets.add(target); observeCalls.set(target, (observeCalls.get(target) ?? 0) + 1); }
+  unobserve(target: Element) { this.targets.delete(target); }
+  disconnect() { this.targets.clear(); }
+  deliver(changed: readonly Element[]) {
+    const entries = changed.filter((target) => this.targets.has(target))
+      .map((target) => ({ target, borderBoxSize: [{ blockSize: extent(target), inlineSize: 0 }] }));
+    if (entries.length) this.callback(entries as unknown as ResizeObserverEntry[], this as unknown as ResizeObserver);
+  }
+}
+const scrollTo = (top: number) => act(async () => {
+  scrollTop = top;
+  scroller!.dispatchEvent(new Event("scroll"));
+});
+// The browser reports a resized row after layout and before paint.
+const resize = (...changed: Element[]) => act(() => { for (const observer of observers) observer.deliver(changed); });
+
+function Harness({ list = rows }: { list?: typeof rows }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  api = useMountedChatWindow({ rows, scrollRef, active: true, followTailRef, sessionKey: "drift", userScrollingRef: userScrolling });
+  api = useMountedChatWindow({ rows: list, scrollRef, active: true, followTailRef, sessionKey: "drift", userScrollingRef: userScrolling });
   return <div ref={(element) => {
     scrollRef.current = element;
     scroller = element;
@@ -63,6 +84,10 @@ beforeEach(() => {
   writes = 0;
   userScrolling.current = true;
   for (const { msg } of rows) heights.set(msg.id, 100);
+  observers = [];
+  observeCalls = new Map();
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { callback(0); return 1; });
+  vi.stubGlobal("ResizeObserver", FakeResizeObserver);
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     const top = this === scroller ? 0 : contentTop(this) - scrollTop;
     const height = this === scroller ? VIEWPORT : extent(this);
@@ -77,6 +102,7 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("useMountedChatWindow spacer drift", () => {
@@ -85,8 +111,7 @@ describe("useMountedChatWindow spacer drift", () => {
     await act(async () => root.render(<Harness />));
     const [, second] = mountedRows();
     followTailRef.current = false;
-    scrollTop = contentTop(second) + 10;
-    await act(async () => root.render(<Harness />));
+    await scrollTo(contentTop(second) + 10);
     const measured = mountedRows();
     const anchor = measured.find(row => row.getBoundingClientRect().top <= 0 && row.getBoundingClientRect().bottom > 0)!;
     const changed = measured[0];
@@ -97,6 +122,7 @@ describe("useMountedChatWindow spacer drift", () => {
     userScrolling.current = true;
     heights.set(changed.dataset.chatWindowRow!, 100 + base + 500);
     await act(async () => root.render(<Harness />));
+    resize(changed);
     expect(writes).toBe(0);
     expect(Number.parseFloat(spacer().style.height)).toBe(0);
     const retained = host.querySelector<HTMLElement>(`[data-chat-window-row="${anchorId}"]`)!;
@@ -111,33 +137,52 @@ describe("useMountedChatWindow spacer drift", () => {
   it("holds the viewport through a mid-gesture shift above it and releases it as a scroll delta", async () => {
     userScrolling.current = false;
     await act(async () => root.render(<Harness />));
-    const [first, second] = mountedRows();
+    const [, second] = mountedRows();
     followTailRef.current = false;
-    scrollTop = contentTop(second) + 10;
-    await act(async () => root.render(<Harness />));
-    const base = api.range.top;
-    expect(Number.parseFloat(spacer().style.height)).toBe(base);
+    await scrollTo(contentTop(second) + 10);
+    expect(Number.parseFloat(spacer().style.height)).toBe(api.range.top);
+    const [first] = mountedRows();
+    expect(first.getBoundingClientRect().bottom).toBeLessThanOrEqual(0);
+    const anchor = mountedRows().find(row => row.getBoundingClientRect().top <= 0 && row.getBoundingClientRect().bottom > 0)!;
+    const before = anchor.getBoundingClientRect().top;
 
     userScrolling.current = true;
     heights.set(first.dataset.chatWindowRow!, 40);
     await act(async () => root.render(<Harness />));
-    expect(Number.parseFloat(spacer().style.height)).toBe(base + 60);
+    resize(first);
+    expect(anchor.getBoundingClientRect().top).toBe(before);
+    expect(writes).toBe(0);
 
-    expect(api.foldDrift()).toBe(-60);
-    expect(Number.parseFloat(spacer().style.height)).toBe(base);
+    userScrolling.current = false;
+    const correction = api.foldDrift();
+    expect(correction).toBeLessThan(0);
+    scroller!.scrollTop += correction;
+    expect(anchor.getBoundingClientRect().top).toBe(before);
+    expect(Number.parseFloat(spacer().style.height)).toBe(api.range.top);
+    expect(api.foldDrift()).toBe(0);
   });
 
+  it("keeps one observer across transcript updates and observes each mounted row once", async () => {
+    userScrolling.current = false;
+    await act(async () => root.render(<Harness />));
+    await act(async () => root.render(<Harness list={[...rows]} />));
+    await act(async () => root.render(<Harness list={[...rows]} />));
+    expect(observers).toHaveLength(1);
+    const counts = mountedRows().map((row) => observeCalls.get(row));
+    expect(counts.length).toBeGreaterThan(0);
+    expect(counts.every((count) => count === 1)).toBe(true);
+  });
   it("leaves the shift to the idle writer outside a user scroll", async () => {
     userScrolling.current = false;
     await act(async () => root.render(<Harness />));
-    const [first, second] = mountedRows();
+    const [, second] = mountedRows();
     followTailRef.current = false;
-    scrollTop = contentTop(second) + 10;
-    await act(async () => root.render(<Harness />));
-    const base = api.range.top;
+    await scrollTo(contentTop(second) + 10);
+    const [first] = mountedRows();
     heights.set(first.dataset.chatWindowRow!, 40);
     await act(async () => root.render(<Harness />));
-    expect(Number.parseFloat(spacer().style.height)).toBe(base);
+    resize(first);
+    expect(Number.parseFloat(spacer().style.height)).toBe(api.range.top);
     expect(api.foldDrift()).toBe(0);
   });
 });
