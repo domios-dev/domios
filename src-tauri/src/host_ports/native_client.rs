@@ -11,6 +11,10 @@ pub(crate) use bootstrap::{
     startup_io_error, startup_reached, startup_refused, startup_started, ClientStartupStage,
 };
 
+pub(crate) fn record_client_only_quit() {
+    startup_log::record("quit", "client_only_server_not_stopped", None, None);
+}
+
 use codeterm_process_identity::PinnedProcess;
 use codeterm_types::{
     native_host::{
