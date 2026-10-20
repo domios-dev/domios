@@ -104,6 +104,13 @@ export function currentModelId(
   return model?.id ?? candidate;
 }
 
+// The model a live session runs stays selectable even when the catalogue has not caught up.
+function withSessionModel(models: ModelInfo[], sessionModel: string | undefined): ModelInfo[] {
+  const id = sessionModel?.trim();
+  if (!id || models.some((model) => matchesModel(model, id))) return models;
+  return [...models, { id, display_name: id, primary: true }];
+}
+
 function isUnavailable(model: ModelInfo): boolean {
   return model.availability === "unavailable" || (model.availability == null && model.available === false);
 }
@@ -124,9 +131,10 @@ export function pickerModelGroups(
   currentModel: string | undefined,
   query = "",
   showAll = false,
+  sessionModel: string | undefined = currentModel,
 ): PickerModelGroup[] {
   const curated = pickerHasPrimaryModels(descriptor) && !showAll && !query.trim();
-  const models = descriptor.available_models.filter((model) =>
+  const models = withSessionModel(descriptor.available_models, sessionModel).filter((model) =>
     (!curated || model.primary === true) && matchesQuery(model, query));
   const toRow = (model: ModelInfo): PickerModelRow => ({
     id: model.id,
