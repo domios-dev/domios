@@ -28,6 +28,11 @@ on:
         required: false
         default: false
         type: boolean
+      promote_run_id:
+        description: 'Publish the retained bytes of this green release.yml dry run of the same release/X.Y.Z head instead of building'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   actions: read
@@ -53,6 +58,7 @@ jobs:
       mirror: ${{ steps.release.outputs.mirror }}
       dry_run: ${{ steps.release.outputs.dry_run }}
       run_tests: ${{ steps.release.outputs.run_tests }}
+      promote_run_id: ${{ steps.release.outputs.promote_run_id }}
       published: ${{ steps.release.outputs.published }}
       branch: ${{ steps.release.outputs.branch }}
       kind: ${{ steps.release.outputs.kind }}
@@ -76,6 +82,7 @@ jobs:
           MIRROR_INPUT: ${{ inputs.mirror }}
           DRY_RUN: ${{ (inputs.dry_run || (github.event_name == 'push' && vars.RELEASE_PUBLISH_ENABLED != 'true')) && 'true' || 'false' }}
           RUN_TESTS: ${{ (github.event_name == 'push' || !inputs.dry_run || inputs.dry_run_tests) && 'true' || 'false' }}
+          PROMOTE_RUN_ID: ${{ inputs.promote_run_id }}
           EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           SOURCE_REPO: ${{ github.repository }}
@@ -84,11 +91,17 @@ jobs:
           set -euo pipefail
           # Builders check out this exact SHA, so a newer push can never leak into this run.
           sha=$(git rev-parse HEAD)
+          # A promotion publishes a qualified dry run's retained bytes; its own run builds and tests nothing.
+          if [ -n "${PROMOTE_RUN_ID:-}" ]; then
+            [ "$DRY_RUN" != true ] || { echo "::error::promote_run_id publishes; it cannot be a dry run"; exit 1; }
+            RUN_TESTS=false
+          fi
           {
             echo "source_sha=$sha"
             echo "source_ref=$sha"
             echo "published=false"
             echo "run_tests=$RUN_TESTS"
+            echo "promote_run_id=${PROMOTE_RUN_ID:-}"
           } >> "$GITHUB_OUTPUT"
           if [ "$DRY_RUN" = true ]; then
             version=$(node -p "require('./package.json').version")
@@ -133,6 +146,12 @@ jobs:
           if [ "$committed" != "$version" ]; then
             echo "::error::release/$version is a $kind release but carries version $committed; set $version on the branch"
             exit 1
+          fi
+          if [ -n "${PROMOTE_RUN_ID:-}" ]; then
+            [ "$kind" = app ] || { echo "::error::only an app release can be promoted from a dry run"; exit 1; }
+            [ "$(git ls-remote origin "refs/heads/release/$version" | cut -f1)" = "$sha" ] \
+              || { echo "::error::promotion needs release/$version to point at $sha"; exit 1; }
+            node scripts/release-promote.mjs check "$PROMOTE_RUN_ID" "$sha" "release/$version"
           fi
           if [ "$(gh release view "$tag" --repo "$published_repo" --json isDraft --jq .isDraft 2>/dev/null)" = false ]; then
             if [ "$kind" = app ]; then
@@ -224,7 +243,7 @@ jobs:
     needs: prepare
     if: >-
       !cancelled() && needs.prepare.result == 'success'
-      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-macos-build.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -239,7 +258,7 @@ jobs:
     needs: prepare
     if: >-
       !cancelled() && needs.prepare.result == 'success'
-      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-macos-build.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -254,7 +273,7 @@ jobs:
     needs: prepare
     if: >-
       !cancelled() && needs.prepare.result == 'success'
-      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-linux-arm64.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -270,7 +289,7 @@ jobs:
     if: >-
       !cancelled() && needs.prepare.result == 'success'
       && (needs.quick-checks.result == 'success' || needs.prepare.outputs.run_tests != 'true')
-      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-linux.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -284,7 +303,7 @@ jobs:
     needs: prepare
     if: >-
       !cancelled() && needs.prepare.result == 'success'
-      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-windows.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -299,7 +318,7 @@ jobs:
     needs: prepare
     if: >-
       !cancelled() && needs.prepare.result == 'success'
-      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-windows.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -320,12 +339,48 @@ jobs:
       artifact_run_id: ${{ format('{0}', github.run_id) }}
     secrets: inherit
 
+  # The retained bytes of the qualified dry run become the platform assets; nothing is rebuilt or re-signed.
+  promote-evidence:
+    name: promote qualified dry-run evidence
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.promote_run_id != '' && vars.RELEASE_PUBLISH_ENABLED == 'true'
+      && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
+    runs-on: [self-hosted, linux-build]
+    timeout-minutes: 120
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: Re-verify retained evidence and publish it to the drafts
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+          PUBLISH_MIRROR: ${{ needs.prepare.outputs.mirror }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          PROMOTE_RUN_ID: ${{ needs.prepare.outputs.promote_run_id }}
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d "$RUNNER_TEMP/promote.XXXXXX")
+          trap 'rm -rf "$work"' EXIT
+          node scripts/release-promote.mjs publish "$TAG" "$SOURCE_SHA" "$PROMOTE_RUN_ID" "$work"
+          echo "Promoted the retained bytes of run $PROMOTE_RUN_ID for $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+
   release-manifest:
     name: release manifest, mirror, and verification
-    needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests]
+    needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests, promote-evidence]
     if: >-
-      !cancelled() && needs.macos-arm64.result == 'success' && needs.macos-x64.result == 'success' && needs.linux-arm64.result == 'success' && needs.linux-x86_64.result == 'success' && needs.windows-x64.result == 'success' && needs.windows-arm64.result == 'success' && needs.tests.result == 'success'
-      && needs.quick-checks.result == 'success'
+      !cancelled() && (needs.promote-evidence.result == 'success'
+      || (needs.macos-arm64.result == 'success' && needs.macos-x64.result == 'success' && needs.linux-arm64.result == 'success' && needs.linux-x86_64.result == 'success' && needs.windows-x64.result == 'success' && needs.windows-arm64.result == 'success' && needs.tests.result == 'success'
+      && needs.quick-checks.result == 'success'))
       && vars.RELEASE_PUBLISH_ENABLED == 'true' && needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-manifest-validate.yml
     with:
@@ -412,7 +467,7 @@ jobs:
       actions: write
       pull-requests: write
     needs: [prepare, quick-checks, tests, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64]
-    if: always()
+    if: always() && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/rust-warnings-summary.yml
     secrets: inherit
     with:

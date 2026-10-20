@@ -203,6 +203,17 @@ export async function aggregate({ tag, sourceSha, inputDirectory, outputDirector
   } finally { await rm(scratch, { recursive: true, force: true }); }
 }
 
+export async function fetchAndAggregate({ tag, sourceSha, runId, inputDirectory, outputDirectory, fetch = store }) {
+  if (!/^[1-9]\d*$/.test(String(runId))) throw new Error('invalid CI evidence run ID');
+  const sources = path.join(await mkdtemp(path.join(os.tmpdir(), 'dry-run-sources-')), 'sources.tsv');
+  await writeFile(sources, '');
+  process.env.CI_ARTIFACT_SOURCES = sources;
+  for (const platform of PLATFORMS) {
+    fetch('get-prefix', `${runId}/release-dry-run/${platform}/`, path.join(inputDirectory, platform), { bytes: PLATFORM_EVIDENCE_BYTES });
+  }
+  return aggregate({ tag, sourceSha, inputDirectory, outputDirectory, locations: parseSources(await readFile(sources, 'utf8'), runId) });
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [verb, tag, sourceSha, runId, ...args] = process.argv.slice(2);
   try {
@@ -218,13 +229,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       }
     } else if (verb === 'aggregate') {
       const [inputDirectory, outputDirectory] = args;
-      const sources = path.join(await mkdtemp(path.join(os.tmpdir(), 'dry-run-sources-')), 'sources.tsv');
-      await writeFile(sources, '');
-      process.env.CI_ARTIFACT_SOURCES = sources;
-      for (const platform of PLATFORMS) {
-        store('get-prefix', `${runId}/release-dry-run/${platform}/`, path.join(inputDirectory, platform), { bytes: PLATFORM_EVIDENCE_BYTES });
-      }
-      await aggregate({ tag, sourceSha, inputDirectory, outputDirectory, locations: parseSources(await readFile(sources, 'utf8'), runId) });
+      await fetchAndAggregate({ tag, sourceSha, runId, inputDirectory, outputDirectory });
     } else throw new Error('unknown dry-run manifest operation');
   } catch (error) { console.error('local dry-run manifest refused: ' + error.message); process.exitCode = 1; }
 }

@@ -112,6 +112,16 @@ evidence; no public release, tag, channel asset or issue-closure boundary is cre
 dispatch inputs pin the producing run ID, tag and source SHA for a follow-up within retention.
 An older run that did not retain those inputs cannot be retroactively called validated.
 
+With publication GO, a wholly green dry run of the exact `release/X.Y.Z` head can be promoted
+instead of rebuilt: dispatch release.yml on that branch with `-f tag=release/X.Y.Z -f
+promote_run_id=<dry-run run id>` (dry_run false). Prepare refuses unless the run is a completed,
+successful release.yml run of that SHA on that branch whose platform, test and manifest jobs all
+succeeded. `promote-evidence` re-runs the aggregate validator on the retained bytes, uploads them
+to the drafts exactly as the platform jobs would (fragments only to the source draft), reads every
+asset back against its receipt, and hands off to the unchanged manifest, verification and merge
+jobs. No platform or test job runs; missing, changed or foreign evidence refuses with the platform
+named. `RELEASE_PUBLISH_ENABLED` still gates it.
+
 The store endpoint is defined once in `scripts/ci-store.sh`. When a CI job finds it unreachable,
 `ci-artifact.sh put` spools the file with a warning and the job's `ci-artifact-spool` action uploads
 it as a run artifact; `get`/`get-prefix` read `<run-id>/...` keys back from that run's artifacts.
