@@ -2,7 +2,6 @@ import { useCallback, useMemo } from "react";
 import type { ProviderDescriptor, Tab, TabStatus, Team, Workspace } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Plan } from "../Canvas/types";
-import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { TeamMemberRole } from "../../lib/teamActions";
 import { WorkspaceItem } from "./WorkspaceItem";
@@ -18,7 +17,6 @@ export interface SidebarWorkspaceDetailData {
   teams: Team[];
   planIndex: PlanIndexEntry[];
   plans: Plan[];
-  activeWork: ActiveWorkSnapshot | null;
   providers: ProviderDescriptor[];
   providersLoading: boolean;
   closingTabIds: Set<string>;
@@ -90,6 +88,8 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
   const { activate, activateTab, closeTab, renameTab, newSession, openRemoteTab, openSentinelJob, closeTeam } =
     useWorkspaceTabActions(workspaceId, cwd, actions);
   const { openMap, openAutomation } = actions;
+  const openWorkspaceMap = useCallback(() => openMap?.(workspaceId), [openMap, workspaceId]);
+  const openWorkspaceAutomation = useCallback(() => openAutomation?.(workspaceId), [openAutomation, workspaceId]);
 
   return (
     <div data-testid="workspace-detail" data-workspace-id={workspaceId} role="region" aria-label={`${workspace.name} workspace contents`}>
@@ -103,8 +103,8 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
         onRename={(name) => actions.renameWorkspace(workspaceId, name)}
         onNewTerminal={(shell) => actions.newTerminal(workspaceId, shell)}
         onNewSession={newSession}
-        onOpenMap={() => openMap?.(workspaceId)}
-        onOpenAutomation={() => openAutomation?.(workspaceId)}
+        onOpenMap={openWorkspaceMap}
+        onOpenAutomation={openWorkspaceAutomation}
         newSessionDisabled={data.newSessionDisabled}
         onNewAgent={(agentId) => actions.newAgent(agentId, workspaceId, cwd)}
         canClose={true}
@@ -125,7 +125,6 @@ export function SidebarWorkspaceDetail({ workspace, status, data, actions }: {
         teams={data.teams}
         planIndex={data.planIndex}
         plans={data.plans}
-        activeWork={data.activeWork}
         providers={data.providers}
         providersLoading={data.providersLoading}
         closingTabIds={data.closingTabIds}

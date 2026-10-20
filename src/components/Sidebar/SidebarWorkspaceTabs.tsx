@@ -11,7 +11,6 @@ import type {
 import { selectTeamStaffingManager, type TeamMemberRole } from "../../lib/teamActions";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Plan } from "../Canvas/types";
-import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
 import { SortableContext, SortableRow, verticalListSortingStrategy, TAB_PREFIX, TEAM_PREFIX } from "./sortable";
@@ -96,7 +95,6 @@ export interface SidebarWorkspaceTabsProps {
   teams: Team[];
   planIndex: PlanIndexEntry[];
   plans: Plan[];
-  activeWork: ActiveWorkSnapshot | null;
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   closingTabIds: Set<string>;
@@ -139,7 +137,6 @@ export function SidebarWorkspaceTabs({
   teams,
   planIndex,
   plans,
-  activeWork,
   providers,
   providersLoading,
   closingTabIds,
@@ -232,7 +229,7 @@ export function SidebarWorkspaceTabs({
   ): ReactNode => {
     return <SidebarOwnerTabRow
       tab={owner} index={0} attachments={attachments} context={context}
-      tabs={tabs} planIndex={planIndex} activeWork={activeWork}
+      tabs={tabs} planIndex={planIndex}
       closingTabIds={closingTabIds} appearingTabIds={appearingTabIds}
       compact={compact} group="team" groupKey={owner.id} pinnedIds={[]}
       toWorkspaceOrder={reorderSiblings} renderOwner={renderOwner} {...sharedRow}
@@ -243,7 +240,7 @@ export function SidebarWorkspaceTabs({
     <SidebarShellRow key={member.tab.id}
       tab={member.tab} index={member.index} showStartedBy={shell}
       attachments={attachmentsByOwner.get(member.tab.id) ?? []}
-      tabs={tabs} planIndex={planIndex} activeWork={activeWork}
+      tabs={tabs} planIndex={planIndex}
       closingTabIds={closingTabIds} appearingTabIds={appearingTabIds}
       compact={compact} group="team" groupKey={`${section.teamId}:${section.index}`}
       pinnedIds={[]} toWorkspaceOrder={reorderSiblings} {...sharedRow}
@@ -294,7 +291,6 @@ export function SidebarWorkspaceTabs({
             ownerTitle={surfaceOwnerTitle(tab, tabs)}
             index={index}
             activity={resolveTabTabActivity(planIndex, tab.id, tabs)}
-            activeWork={activeWork}
             isClosing={closingTabIds.has(tab.id)}
             isAppearing={appearingTabIds.has(tab.id)}
             group={group}

@@ -35,7 +35,6 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
     tabStatuses: data.tabStatuses,
     tabAttentionByTab: data.attention,
     planIndex: data.planIndex,
-    activeWork: data.activeWork,
     closingTabIds: data.closingTabIds,
     appearingTabIds: data.appearingTabIds,
     orchestrators: data.orchestrators,
@@ -62,7 +61,6 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         teams={data.teams}
         planIndex={data.planIndex}
         plans={data.plans}
-        activeWork={data.activeWork}
         providers={data.providers}
         providersLoading={data.providersLoading}
         closingTabIds={data.closingTabIds}

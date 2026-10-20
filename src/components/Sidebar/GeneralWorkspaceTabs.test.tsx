@@ -70,7 +70,7 @@ async function run() {
         workspace={workspace} providerId="configured-provider" generalCwd={workspace.cwd}
         activeTabId={workspace.active_tab_id} sortedTabs={workspace.tabs.map((id) => state.tabs[id])}
         tabs={state.tabs} tabStatuses={state.tabStatuses} teams={[]} planIndex={[]} plans={[]}
-        activeWork={null} providers={[]} closingTabIds={new Set()} appearingTabIds={new Set()}
+        providers={[]} closingTabIds={new Set()} appearingTabIds={new Set()}
         isActiveVisual={true} workspaceCanvasActive={false} touchMode={true} compact={false}
         sidebarActionText="" orchestrators={[]} onBeforeOpenPlan={() => {}}
         onActivateTab={() => {}} onCloseTab={() => {}} onRenameTab={() => {}}

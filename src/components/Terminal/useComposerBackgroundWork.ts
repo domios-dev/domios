@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { sameJson } from "../../lib/sameJson";
 import { invoke } from "../../lib/bridge";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { useMuxSelector } from "../../store/multiplexer";
@@ -60,7 +61,7 @@ function validSnapshot(snapshot: BackgroundProcessSnapshot, identity: Background
 
 export function useComposerBackgroundWork(tabId: string, supported: boolean, subagentsVisible: boolean, messages: readonly NormalizedChatMessage[]) {
   const { identity, rootThreadId: parentThreadId, refreshKey } = useBackgroundProcessState(tabId);
-  const revision = workRevision(messages);
+  const revision = useMemo(() => workRevision(messages), [messages]);
   const [loaded, setLoaded] = useState<LoadedProcesses>({ identity: null, processes: [] });
 
   const acceptSnapshot = useCallback((snapshot: BackgroundProcessSnapshot, expected: BackgroundProcessAuthority) => {
@@ -101,6 +102,10 @@ export function useComposerBackgroundWork(tabId: string, supported: boolean, sub
   }, [acceptSnapshot, identity, tabId]);
 
   const terminals = sameAuthority(loaded.identity, identity) ? loaded.processes : [];
-  const items = composerBackgroundWorkItems(messages, terminals, Date.now(), { subagentsVisible, rootThreadId: parentThreadId, authority: identity ?? undefined });
-  return { items, stop };
+  const computed = composerBackgroundWorkItems(messages, terminals, Date.now(), { subagentsVisible, rootThreadId: parentThreadId, authority: identity ?? undefined });
+  // The composer header consumes this through context; unchanged work must keep its identity across transcript renders.
+  const itemsRef = useRef(computed);
+  if (!sameJson(itemsRef.current, computed)) itemsRef.current = computed;
+  const items = itemsRef.current;
+  return useMemo(() => ({ items, stop }), [items, stop]);
 }

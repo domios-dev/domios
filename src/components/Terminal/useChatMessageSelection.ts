@@ -97,7 +97,7 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
   const [state, dispatch] = useReducer(reduceMessageSelection, EMPTY_SELECTION);
   const renderingStreamId = useDeferredValue(streamingMessageId);
   const index = useMemo(() => indexMessageParts(rows.map((row) => rowClip(row, chatClipNames(agent))), renderingStreamId), [rows, agent, renderingStreamId]);
-  const { byMessage: partsByMessage, order } = index;
+  const { order } = index;
   const live = useRef({ index, state });
   live.current = { index, state };
   const focusCursor = useRef(false);
@@ -229,26 +229,31 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
   }, [active, selectedClips]);
 
   const { selected, partial, count } = useMemo(() => partSelectionSummary(index, state.selected), [index, state.selected]);
+  const liveSelected = useRef(selected);
+  liveSelected.current = selected;
+  // Lookups read the latest index and selection, so streamed transcript changes keep the handlers stable; a selection change renews them.
   const rowHandlers = useMemo<MessageRowHandlers>(() => ({
     clipFor,
-    partsFor: (id) => partsByMessage.get(id) ?? [],
-    selectedFor: (id) => selected.has(id),
+    partsFor: (id) => live.current.index.byMessage.get(id) ?? [],
+    selectedFor: (id) => liveSelected.current.has(id),
     cursorFor: (id) => state.cursor === id,
     joinNextFor: (id) => {
-      const at = order.indexOf(id);
-      return at >= 0 && selected.has(id) && selected.has(order[at + 1]);
+      const current = live.current.index.order;
+      const at = current.indexOf(id);
+      return at >= 0 && liveSelected.current.has(id) && liveSelected.current.has(current[at + 1]);
     },
     select,
     toggle: (id) => dispatch({ type: "toggle", id }),
     range: (from, to, start) => {
-      if (start) dispatch({ type: "dragStart", id: from, order, extend: false });
-      dispatch({ type: "dragTo", id: to, order });
+      const current = live.current.index.order;
+      if (start) dispatch({ type: "dragStart", id: from, order: current, extend: false });
+      dispatch({ type: "dragTo", id: to, order: current });
     },
     endRange: () => dispatch({ type: "dragEnd" }),
     rowMouseDown,
     quote: (clip) => quoteMessages(tabId, [clip]),
     ask: (clip) => askAboutMessages(tabId, [clip]),
-  }), [clipFor, rowMouseDown, select, tabId, partsByMessage, selected, state.cursor, order]);
+  }), [clipFor, rowMouseDown, select, tabId, state.selected, state.cursor]);
   return {
     rowHandlers,
     selected,

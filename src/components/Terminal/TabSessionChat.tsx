@@ -1,4 +1,3 @@
-import { DroppedUploadNotice } from "./DroppedUploadNotice";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 import { ChildTranscriptScope } from "./ChildTranscriptScope";
@@ -9,12 +8,11 @@ import { useComposerPresentation } from "./useComposerPresentation";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeResponseDeadlinePending, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
-import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
 import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
-import { ChatWindowRow } from "./ChatWindowRow";
+import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
 import { chatWindowRows } from "./chatWindowRowsModel";
 import { chatLiveOperationLabel, projectChatTranscriptActivity } from "./chatTranscriptActivity";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
@@ -24,14 +22,10 @@ import { chatChangesStore } from "./chatChangesStore";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
-  ChatDaySeparator,
   chatDaySeparators,
   chatLocalDay,
   messageRowTime,
   isSessionIntentOnlyMessage,
-  MessageBubble,
-  MessageTimeFrame,
-  OutboundReportCard,
 } from "@codeterm/chat-ui";
 import { ChatBlockHostProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
@@ -57,7 +51,7 @@ import { statusLineModelName } from "./statusLinePickerModel";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
-import type { ApiConfig, PendingPrompt } from "../../lib/types";
+import type { ApiConfig, Notification, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { ManagedTabBar } from "./ManagedTabBar";
 import { managedTabPresentation } from "../../lib/managedTab";
@@ -84,7 +78,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatLayoutInsets } from "./useChatLayoutInsets";
-import { ChatHighlightBudgetProvider, ChatHighlightRow } from "@codeterm/chat-ui";
+import { ChatHighlightBudgetProvider } from "@codeterm/chat-ui";
 import { useMountedChatWindow } from "./useMountedChatWindow";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
@@ -93,7 +87,6 @@ import { useAgentReportProjection } from "./agentReportProjection";
 import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
 import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
-import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
@@ -102,8 +95,7 @@ import { useTabChatBlockHost } from "./pinnedBlocks";
 import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
-import { ChatDeliveryState } from "./ChatDeliveryState";
-import { canDeleteChatSend, deliveryPresentation, sendForRow } from "./chatDeliveryModel";
+import { deliveryPresentation, sendForRow } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, useChatSendSnapshot } from "./chatSendStore";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
@@ -130,6 +122,9 @@ interface Props {
 const DISABLED_PLAN_API: ApiConfig = { enabled: false, host: "127.0.0.1", port: 0, token: null, cors: false };
 
 const CHAT_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const NO_RAIL_INDICES: readonly number[] = [];
+const NO_REPORTS: readonly OutboundReportEntry[] = [];
+const NO_ASKS: readonly Notification[] = [];
 
 function isMicrophonePermissionError(message: string): boolean {
   const normalized = message.toLowerCase();
@@ -312,7 +307,7 @@ function TabSessionChatBody({
     followTailRef: chatFollowTailRef,
     history: runtime.state?.history,
   });
-  const retryChatDelivery = async (id: string) => {
+  const retryChatDelivery = useLatestCallback(async (id: string) => {
     const send = beginChatSendRetry(tabId, id);
     if (!send) return;
     let content = send.content;
@@ -324,7 +319,7 @@ function TabSessionChatBody({
       void invoke<import("./chatSendStatus").ChatSendStatus[]>("chat_send_status", { tabId })
         .then((statuses) => statuses.forEach(observeChatSendStatus)).catch(() => {});
     }
-  };
+  }, [tabId, expandDeliveryTasks, observeChatSendStatus]);
   useEffect(() => {
     chatChangesStore.bind(tabId, JSON.stringify([agentSessionId, tab?.session_binding_nonce]));
   }, [tabId, agentSessionId, tab?.session_binding_nonce]);
@@ -627,40 +622,11 @@ function TabSessionChatBody({
 
   const renderOutboundReport = (index: number) => {
     const entry = outboundReports[index];
-    if (!entry) return null;
-    return (
-      <div
-        key={entry.descriptor.reportId}
-        data-testid="chat-outbound-report-row"
-        data-report-id={entry.descriptor.reportId}
-        role="article"
-        aria-label={`Report to ${entry.descriptor.recipient}`}
-      >
-        <MessageTimeFrame timestamp={entry.at == null ? undefined : String(entry.at)} side="left">
-          <OutboundReportCard
-            report={entry.descriptor}
-            onFocusTab={() => resolveFocusTab(entry.targetTabId)}
-            fontScale={uiFontScale}
-            onOpenPlan={onOpenPlan}
-            resolvePlanRef={resolvePlanRef}
-          />
-        </MessageTimeFrame>
-      </div>
-    );
+    return entry ? <OutboundReportRow key={entry.descriptor.reportId} entry={entry} context={rowContext} /> : null;
   };
   const renderAsk = (index: number) => {
     const ask = asks[index];
-    if (!ask) return null;
-    return (
-      <MessageTimeFrame key={ask.id} timestamp={String(ask.timestamp)} side="left">
-        <ChatAskCard
-          notification={ask}
-          onAnswer={answerNotification}
-          resolveTabName={resolveTabName}
-          fontScale={uiFontScale}
-        />
-      </MessageTimeFrame>
-    );
+    return ask ? <AskRow key={ask.id} ask={ask} context={rowContext} /> : null;
   };
 
   const localToday = chatLocalDay(Date.now(), CHAT_TIME_ZONE);
@@ -833,6 +799,40 @@ function TabSessionChatBody({
     );
   }, [chatBacking, effectiveChatBackend]);
 
+  const deleteSend = useLatestCallback((sendId: string) => {
+    void deleteTrackedChatMessage(tabId, sendId).catch((error: unknown) => showComposerError(error instanceof Error ? error.message : String(error)));
+  }, [tabId, showComposerError]);
+  const forkFrom = useLatestCallback((turnId: string) => { void runThreadHistory("fork", turnId); }, [runThreadHistory]);
+  const revertTo = useLatestCallback((turnId: string) => setPendingThreadRevertTurn(turnId), []);
+  const canRevertTurns = descriptor?.agent_runtime?.threadHistory?.actions.includes("revert") === true;
+  const rowContext = useMemo<ChatTranscriptRowContext>(() => ({
+    tabId,
+    promptAnswers,
+    uiFontScale,
+    answeredInteractiveIds,
+    handlers: messageSelection.rowHandlers,
+    onContentLayout: handleContentLayout,
+    resolveTabName,
+    resolvePeerName,
+    onOpenPlan,
+    resolvePlanRef,
+    onAnswerInteractive: handleAnswerInteractive,
+    onRerunShellCommand: handleRerunShellCommand,
+    onStopReminder: handleStopReminder,
+    onOpenJobs: openJobs,
+    onJumpToShellCommand: onOpenTerminalFallback ? handleJumpToShellCommand : undefined,
+    onFocusTab: resolveFocusTab,
+    onJumpToMessage: jumpToQuoted,
+    onAnswerAsk: answerNotification,
+    deleteSend,
+    retrySend: retryChatDelivery,
+    forkFrom,
+    revertTo,
+  }), [tabId, promptAnswers, uiFontScale, answeredInteractiveIds, messageSelection.rowHandlers, handleContentLayout, resolveTabName,
+    resolvePeerName, onOpenPlan, resolvePlanRef, handleAnswerInteractive, handleRerunShellCommand, handleStopReminder, openJobs,
+    onOpenTerminalFallback, handleJumpToShellCommand, resolveFocusTab, jumpToQuoted, answerNotification, deleteSend, retryChatDelivery,
+    forkFrom, revertTo]);
+
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
@@ -940,73 +940,36 @@ function TabSessionChatBody({
         {isActive && railsVisible && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
         <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.topSpacer }} />
         <div ref={mountedWindow.rowsRef}>
-        {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map(({ msg, item, origin }, mountedIndex) => {
+        {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map((entry, mountedIndex) => {
+          const { msg } = entry;
           const messageIndex = mountedWindow.range.start + mountedIndex;
-          const originProps = originPropsById.get(msg.id);
-          const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
+          const following = reportPlacement.afterIndex.get(messageIndex) ?? NO_RAIL_INDICES;
+          const followingAsks = askPlacement.afterIndex.get(messageIndex) ?? NO_RAIL_INDICES;
           const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
           const deliverySend = sendForRow(deliverySends, msg);
-          const deliveryView = deliverySend ? deliveryPresentation(deliverySend, agentActivity.kind) : undefined;
           return (
-            <ChatWindowRow
+            <ChatTranscriptRow
               key={msg.id}
-              message={msg}
+              entry={entry}
+              daySeparator={daySeparators.get(messageIndex)}
+              originProps={originPropsById.get(msg.id)}
+              reports={following.length ? following.map((index) => outboundReports[index]).filter(Boolean) : NO_REPORTS}
+              asks={followingAsks.length ? followingAsks.map((index) => asks[index]).filter(Boolean) : NO_ASKS}
               liveActivityLabel={msg.id === chatTranscriptActivity.liveToolId ? chatLiveOperationLabel(msg) : undefined}
-            >
-            <ChatDaySeparator label={daySeparators.get(messageIndex)} />
-            <ChatHighlightRow id={msg.id}>
-            <ChatMessageRow
-              msg={msg}
-              timestamp={messageRowTime(msg, item, origin)?.timestamp}
-              deliveryState={deliveryView}
+              deliverySend={deliverySend}
+              deliveryView={deliverySend ? deliveryPresentation(deliverySend, agentActivity.kind) : undefined}
               sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
               ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
-              onDelete={deliverySend && canDeleteChatSend(deliverySend)
-                ? () => { void deleteTrackedChatMessage(tabId, deliverySend.id).catch((error: unknown) => showComposerError(error instanceof Error ? error.message : String(error))); } : undefined}
-              onForkFromHere={msg.toolFlowId && forkableMessages.has(msg.id)
-                ? () => { void runThreadHistory("fork", msg.toolFlowId!); } : undefined}
-              onRevertToHere={msg.toolFlowId && descriptor?.agent_runtime?.threadHistory?.actions.includes("revert")
-                ? () => setPendingThreadRevertTurn(msg.toolFlowId!) : undefined}
               selected={messageSelection.selected.has(msg.id)}
               joinNext={nextId !== undefined && following.length === 0 && messageSelection.selected.has(nextId)}
               selecting={messageSelection.active}
               cursor={messageSelection.cursor ? messageSelection.cursor === msg.id : messageIndex === renderedEnrichedMessages.length - 1}
-              handlers={messageSelection.rowHandlers}
-            >
-              <MessageBubble
-                message={promptAnswers ? msg : { ...msg, interactive: [] }}
-                onContentLayout={handleContentLayout}
-                streaming={msg.id === streamingId}
-                userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
-                  ? <VoiceTranscriptionProgress /> : undefined}
-                userFooter={deliverySend ? <>
-                  {deliveryView && deliveryView !== "delivered" && <ChatDeliveryState state={deliveryView} onRetry={deliverySend.status?.system_send ? undefined : () => void retryChatDelivery(deliverySend.id)} />}
-                  <DroppedUploadNotice tabId={tabId} id={deliverySend.id} names={deliverySend.droppedUploads} />
-                </> : undefined}
-                item={item.kind === "tool" ? item : undefined}
-                isLatestFailedToolCall={msg.id === latestFailedToolCallId}
-                origin={originProps?.origin ?? origin}
-                resolveTabName={resolveTabName}
-                resolvePeerName={resolvePeerName}
-                onOpenPlan={onOpenPlan}
-                resolvePlanRef={resolvePlanRef}
-                fontScale={uiFontScale}
-                onAnswerInteractive={promptAnswers ? handleAnswerInteractive : undefined}
-                answeredInteractiveIds={answeredInteractiveIds}
-                onRerunShellCommand={handleRerunShellCommand}
-                onStopReminder={handleStopReminder}
-                onOpenJobs={openJobs}
-                onJumpToShellCommand={onOpenTerminalFallback ? handleJumpToShellCommand : undefined}
-                originAvatar={originProps?.originAvatar}
-                onOriginClick={originProps?.onOriginClick}
-                onFocusTab={resolveFocusTab}
-                onJumpToMessage={jumpToQuoted}
-              />
-            </ChatMessageRow>
-            </ChatHighlightRow>
-              {following.map(renderOutboundReport)}
-              {(askPlacement.afterIndex.get(messageIndex) ?? []).map(renderAsk)}
-            </ChatWindowRow>
+              streaming={msg.id === streamingId}
+              latestFailedToolCall={msg.id === latestFailedToolCallId}
+              forkable={forkableMessages.has(msg.id)}
+              revertible={canRevertTurns}
+              context={rowContext}
+            />
           );
         })}
         </div>

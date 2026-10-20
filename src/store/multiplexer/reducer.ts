@@ -18,6 +18,7 @@ import {
   type ExtendedState,
 } from "./tree";
 import type { RemoteTransportAvailability, RemoteTransportChannel } from "../../lib/remoteTabTransportState";
+import { shareSnapshotState } from "./structuralShare";
 
 export type Action =
   | { type: "UPDATE_SHELL_STATE"; tabId: string; ptyId: string; state: ShellCommandState }
@@ -129,7 +130,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
     case "UPDATE_REMOTE_CHANNEL": {
       const tab = state.tabs[action.tabId];
-      if (!tab?.remote_peer_id) return state;
+      if (!tab?.remote_peer_id || tab.remote_channels?.[action.channel] === action.availability) return state;
       return {
         ...state,
         tabs: {
@@ -146,7 +147,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         Object.entries(state.tabs).filter(([, tab]) => !tab.remote_peer_id),
       );
       const merged = attachRemoteTabs(state.workspaces, localTabs, action.tabs);
-      return { ...state, workspaces: merged.workspaces, tabs: merged.tabs };
+      return shareSnapshotState(state, { ...state, workspaces: merged.workspaces, tabs: merged.tabs });
     }
     case "RESET_PEER_CONTEXT":
       return {
@@ -213,7 +214,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         const title = keepFrontendTitle ? existing.title : backendTab.title;
         // Backend has caught up once its title matches what we're keeping;
         // otherwise the local rename is still in flight.
-        const title_pending_local = keepFrontendTitle && backendTab.title !== existing.title;
+        const title_pending_local = Boolean(keepFrontendTitle && backendTab.title !== existing.title);
         mergedTabs[id] = {
           ...backendTab,
           title_level: highestLevel as TitleLevel,
@@ -250,7 +251,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         active_workspace_id: action.state.active_workspace_id,
         activeTabIds,
       }, attached.workspaces, action.pageOwnedSelection === true);
-      return {
+      // Snapshots arrive many times a second while agents stream; unchanged parts keep their identity so subscribers skip them.
+      return shareSnapshotState(state, {
         ...state,
         workspaces: attached.workspaces,
         tabs: attached.tabs,
@@ -269,7 +271,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           typeof incomingGen === "number" ? incomingGen : state.generation,
         pendingCloses: stillPending,
         storageUnavailable: false,
-      };
+      });
     }
 
     case "ADD_WORKSPACE": {

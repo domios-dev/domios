@@ -1,16 +1,36 @@
 // Page-side React commit hook, installed before React loads (DevTools-style global hook).
 // It counts components that really rendered in each commit and, for every render that its
 // parent did not cause, records why: a changed context value or the index of a changed hook.
+// A memoized component its parent re-rendered records which props changed identity.
 export const RENDER_HOOK_SOURCE = String.raw`(() => {
-  const stats = { commits: 0, byName: {}, byTrigger: {}, since: performance.now() };
+  const stats = { commits: 0, byName: {}, byTrigger: {}, longTasks: [], since: performance.now() };
   window.__devPerfRenders = stats;
-  const MEMO = 14, FORWARD_REF = 11, HOST_ROOT = 3, PERFORMED_WORK = 1;
+  try {
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) stats.longTasks.push(entry.duration);
+    }).observe({ type: "longtask" });
+  } catch {
+    // WebKit has no long task timing; renders are still counted.
+  }
+  const MEMO = 14, SIMPLE_MEMO = 15, FORWARD_REF = 11, HOST_ROOT = 3, PERFORMED_WORK = 1;
+  // A memoized component that re-rendered under its parent names the props whose identity changed.
+  const memoPropsChanged = (fiber) => {
+    const boundary = fiber.tag === SIMPLE_MEMO ? fiber : fiber.return && fiber.return.tag === MEMO ? fiber.return : null;
+    if (!boundary || !boundary.alternate) return null;
+    const before = boundary.alternate.memoizedProps || {}, after = boundary.memoizedProps || {};
+    const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((key) => key !== "children" && before[key] !== after[key]);
+    return keys.length ? keys.slice(0, 6) : null;
+  };
   const nameOf = (fiber) => {
     if (fiber.tag === MEMO || fiber.tag === FORWARD_REF) return null;
     const type = fiber.type;
     if (!type || typeof type === "string") return null;
     return type.displayName || type.name || null;
   };
+  // Unnamed contexts are told apart by the keys of their value.
+  const contextShape = (value) => value && typeof value === "object"
+    ? "{" + Object.keys(value).slice(0, 4).join(",") + "}"
+    : typeof value;
   const reasonsOf = (fiber) => {
     const previous = fiber.alternate;
     if (!previous) return ["mount"];
@@ -18,12 +38,12 @@ export const RENDER_HOOK_SOURCE = String.raw`(() => {
     let current = fiber.dependencies && fiber.dependencies.firstContext;
     let before = previous.dependencies && previous.dependencies.firstContext;
     while (current) {
-      if (!before || current.memoizedValue !== before.memoizedValue) reasons.push("context:" + (current.context.displayName || "anonymous"));
+      if (!before || current.memoizedValue !== before.memoizedValue) reasons.push("context:" + (current.context.displayName || contextShape(current.memoizedValue)));
       current = current.next;
       before = before && before.next;
     }
     let hook = fiber.memoizedState, previousHook = previous.memoizedState, index = 0;
-    while (hook && typeof hook === "object" && "next" in hook && index < 64) {
+    while (hook && typeof hook === "object" && "next" in hook && index < 400) {
       if (hook.queue && previousHook && hook.memoizedState !== previousHook.memoizedState) reasons.push("hook#" + index);
       hook = hook.next;
       previousHook = previousHook && previousHook.next;
@@ -43,6 +63,12 @@ export const RENDER_HOOK_SOURCE = String.raw`(() => {
         if (!parentRendered) {
           const key = name + " < " + parentName + " [" + reasonsOf(fiber).join(",") + "]";
           stats.byTrigger[key] = (stats.byTrigger[key] || 0) + 1;
+        } else {
+          const props = memoPropsChanged(fiber);
+          if (props) {
+            const key = name + " < " + parentName + " [props:" + props.join(",") + "]";
+            stats.byTrigger[key] = (stats.byTrigger[key] || 0) + 1;
+          }
         }
       }
       if (fiber.sibling) stack.push([fiber.sibling, parentRendered, parentName]);
@@ -64,11 +90,14 @@ export const RENDER_HOOK_SOURCE = String.raw`(() => {
   };
 })();`;
 
-export const RESET_RENDERS = `(() => { const s = window.__devPerfRenders; if (!s) return false; s.commits = 0; s.byName = {}; s.byTrigger = {}; s.since = performance.now(); return true; })()`;
+export const RESET_RENDERS = `(() => { const s = window.__devPerfRenders; if (!s) return false; s.commits = 0; s.byName = {}; s.byTrigger = {}; s.longTasks = []; s.since = performance.now(); return true; })()`;
 
 export const READ_RENDERS = `(() => {
   const s = window.__devPerfRenders;
   if (!s) return null;
   const top = (map, n) => Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, n).map(([name, count]) => count + " " + name);
-  return { commits: s.commits, seconds: +((performance.now() - s.since) / 1000).toFixed(1), triggers: top(s.byTrigger, 15), rendered: top(s.byName, 15) };
+  const total = Object.values(s.byName).reduce((sum, count) => sum + count, 0);
+  const longest = s.longTasks.length ? Math.round(Math.max(...s.longTasks)) : 0;
+  return { commits: s.commits, renders: total, longTasks: s.longTasks.length, longestTask: longest, byName: s.byName,
+    seconds: +((performance.now() - s.since) / 1000).toFixed(1), triggers: top(s.byTrigger, 25), rendered: top(s.byName, 15) };
 })()`;
