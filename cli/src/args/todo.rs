@@ -6,7 +6,7 @@ pub enum TodoAction {
     List,
     /// Reconcile checklist statuses while retaining locked item ids.
     Write {
-        /// JSON array of {content,status,activeForm,link?} from this tab's pad.
+        /// JSON array of {content,status,activeForm,link?,reason?} from this tab's pad.
         #[arg(long, value_name = "PATH")]
         from_pad: String,
     },

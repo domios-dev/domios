@@ -68,6 +68,7 @@ fn todo_rows_commit_incrementally_and_refuse_stale_item_revisions() {
         "item-a".into(),
         1,
         "done".into(),
+        None,
         Some("tab-a".into()),
         200,
     ));
@@ -78,6 +79,7 @@ fn todo_rows_commit_incrementally_and_refuse_stale_item_revisions() {
         "item-a".into(),
         1,
         "open".into(),
+        None,
         Some("tab-a".into()),
         201,
     ));
@@ -95,20 +97,24 @@ fn clearing_an_item_keeps_tombstone_fence_and_qa_append_order() {
     let root = TempRoot::new();
     let storage = Storage::open(root.path(), StorageConfig::default()).expect("open storage");
     let repository = storage.tab_todos();
-    wait(repository.create(
+    let started = wait(repository.reset(
         "tab-c".into(),
+        0,
         "workspace-c".into(),
         Some("team-c".into()),
         100,
+        None,
         vec![item("first", "First"), item("second", "Second")],
-        vec![],
     ));
+    assert_eq!(started.value.generation, 1);
+    assert!(started.value.items.iter().all(|item| !item.locked));
     wait(repository.set_state(
         "tab-c".into(),
         1,
         "second".into(),
         1,
         "done".into(),
+        None,
         None,
         150,
     ));
@@ -122,6 +128,7 @@ fn clearing_an_item_keeps_tombstone_fence_and_qa_append_order() {
             "first".into(),
             1,
             "done".into(),
+            None,
             None,
             201
         )),
@@ -154,13 +161,14 @@ fn todo_reset_fences_old_generation_and_removes_old_items() {
     let root = TempRoot::new();
     let storage = Storage::open(root.path(), StorageConfig::default()).expect("open storage");
     let repository = storage.tab_todos();
-    wait(repository.create(
+    wait(repository.reset(
         "tab-b".into(),
+        0,
         "workspace-b".into(),
         None,
         100,
+        None,
         vec![item("old", "Old")],
-        vec![],
     ));
     let reset = wait(repository.reset(
         "tab-b".into(),
@@ -174,7 +182,16 @@ fn todo_reset_fences_old_generation_and_removes_old_items() {
     assert_eq!(reset.value.generation, 2);
     assert_eq!(reset.value.items[0].id, "new");
     assert!(matches!(
-        outcome(repository.set_state("tab-b".into(), 1, "old".into(), 1, "done".into(), None, 300)),
+        outcome(repository.set_state(
+            "tab-b".into(),
+            1,
+            "old".into(),
+            1,
+            "done".into(),
+            None,
+            None,
+            300
+        )),
         Err(StorageError::StaleRevision { .. })
     ));
     wait(repository.forget_tab("tab-b".into()));
@@ -190,13 +207,14 @@ fn workspace_and_team_cleanup_preserve_a_tab_generation_moved_elsewhere() {
     let root = TempRoot::new();
     let storage = Storage::open(root.path(), StorageConfig::default()).expect("open storage");
     let repository = storage.tab_todos();
-    wait(repository.create(
+    wait(repository.reset(
         "tab-d".into(),
+        0,
         "workspace-old".into(),
         Some("team-old".into()),
         100,
+        None,
         vec![item("old", "Old")],
-        vec![],
     ));
     wait(repository.reset(
         "tab-d".into(),
@@ -228,3 +246,5 @@ fn workspace_and_team_cleanup_preserve_a_tab_generation_moved_elsewhere() {
         .wait(Duration::from_secs(5))
         .expect("shutdown storage");
 }
+
+mod lifecycle;

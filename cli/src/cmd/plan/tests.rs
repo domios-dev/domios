@@ -678,6 +678,7 @@ mod review_ref_forwarding {
                     note_from_pad: None,
                     changed_executable_surfaces: false,
                     distinct_oracle: false,
+                    todo_item: None,
                 },
             )
             .unwrap();

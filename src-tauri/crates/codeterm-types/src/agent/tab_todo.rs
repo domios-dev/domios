@@ -1,6 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-pub const MAX_TAB_TODO_ITEMS: usize = 16;
+mod progress;
+
+pub use progress::{
+    tab_todo_bound_refusal, validate_tab_todo_reason, TabTodoAttemptSpan, TabTodoCounters,
+    TabTodoEventKind, TabTodoItemEvent, MAX_TAB_TODO_ITEM_EVENTS, MAX_TAB_TODO_REASON_BYTES,
+};
+
+pub const MAX_TAB_TODO_ITEMS: usize = 12;
 pub const MAX_TAB_TODO_TITLE_CHARS: usize = 120;
 pub const MAX_TAB_TODO_DESCRIPTION_BYTES: usize = 512;
 pub const MAX_TAB_TODO_URL_BYTES: usize = 2048;
@@ -133,6 +140,30 @@ pub enum TabTodoState {
     Open,
     InProgress,
     Done,
+    Blocked,
+    Skipped,
+}
+
+impl TabTodoState {
+    /// Done and skipped items close the checklist; blocked items keep it open.
+    pub fn is_terminal(self) -> bool {
+        matches!(self, Self::Done | Self::Skipped)
+    }
+
+    pub fn requires_reason(self) -> bool {
+        matches!(self, Self::Blocked | Self::Skipped)
+    }
+
+    /// Recitation order: blocked work first, then the current step, then pending.
+    pub fn recite_rank(self) -> u8 {
+        match self {
+            Self::Blocked => 0,
+            Self::InProgress => 1,
+            Self::Open => 2,
+            Self::Skipped => 3,
+            Self::Done => 4,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -156,6 +187,18 @@ pub struct TabTodoItem {
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<TabTodoLink>,
+    /// Locked items come from dispatch criteria or QA checks and are never deleted.
+    #[serde(default)]
+    pub locked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub attempt: u32,
+    #[serde(default)]
+    pub counters: TabTodoCounters,
+    /// Newest `MAX_TAB_TODO_ITEM_EVENTS` events, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub history: Vec<TabTodoItemEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,11 +211,33 @@ pub struct TabTodoChecklist {
     pub items: Vec<TabTodoItem>,
 }
 
+impl TabTodoChecklist {
+    pub fn recite_order(&self) -> Vec<&TabTodoItem> {
+        let mut items: Vec<_> = self.items.iter().collect();
+        items.sort_by_key(|item| (item.state.recite_rank(), item.position));
+        items
+    }
+
+    /// Unfinished items in recitation order; bounded by the checklist item cap.
+    pub fn remaining(&self) -> Vec<TabTodoRecitedItem> {
+        self.recite_order()
+            .into_iter()
+            .filter(|item| !item.state.is_terminal())
+            .take(MAX_TAB_TODO_ITEMS)
+            .map(TabTodoRecitedItem::from)
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TabTodoSummary {
     pub tab_id: String,
     pub generation: u64,
     pub unfinished_count: u8,
+    #[serde(default)]
+    pub blocked_count: u8,
+    #[serde(default)]
+    pub skipped_count: u8,
     pub titles: Vec<String>,
 }
 
@@ -181,6 +246,22 @@ pub struct TabTodoRecitedItem {
     pub id: String,
     pub title: String,
     pub state: TabTodoState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub attempt: u32,
+}
+
+impl From<&TabTodoItem> for TabTodoRecitedItem {
+    fn from(item: &TabTodoItem) -> Self {
+        Self {
+            id: item.id.clone(),
+            title: item.title.clone(),
+            state: item.state,
+            reason: item.reason.clone(),
+            attempt: item.attempt,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,34 +273,4 @@ pub struct TabTodoRecitation {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn draft_bounds_count_unicode_characters_and_description_bytes() {
-        let mut draft = TabTodoDraft {
-            title: "🦀".repeat(MAX_TAB_TODO_TITLE_CHARS),
-            description: Some("я".repeat(MAX_TAB_TODO_DESCRIPTION_BYTES / 2)),
-            link: None,
-        };
-        assert!(draft.validate().is_ok());
-        draft.title.push('x');
-        assert!(draft.validate().is_err());
-        draft.title.pop();
-        draft.description = Some("я".repeat(MAX_TAB_TODO_DESCRIPTION_BYTES / 2 + 1));
-        assert!(draft.validate().is_err());
-    }
-
-    #[test]
-    fn external_link_requires_bounded_label_and_url() {
-        let draft = TabTodoDraft {
-            title: "Review source".into(),
-            description: None,
-            link: Some(TabTodoLinkDraft::Url {
-                url: "https://example.test/issue/1".into(),
-                label: "Issue".into(),
-            }),
-        };
-        assert!(draft.validate().is_ok());
-    }
-}
+mod tests;

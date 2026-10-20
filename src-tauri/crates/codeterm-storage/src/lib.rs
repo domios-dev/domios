@@ -52,8 +52,9 @@ pub use repositories::sentinel::{
     MAX_SENTINEL_RECORDS, OTHER_BUCKET,
 };
 pub use repositories::tab_todo::{
-    TabTodoAmendmentRecord, TabTodoChecklistRecord, TabTodoItemRecord, TabTodoNewItemRecord,
-    TabTodoRepository, MAX_TAB_TODO_AUDIT_EVENTS, MAX_TAB_TODO_ITEMS,
+    TabTodoAmendmentRecord, TabTodoChecklistRecord, TabTodoCountersRecord, TabTodoItemEventRecord,
+    TabTodoItemRecord, TabTodoNewItemRecord, TabTodoRepository, MAX_TAB_TODO_AUDIT_EVENTS,
+    MAX_TAB_TODO_ITEMS, MAX_TAB_TODO_ITEM_EVENTS,
 };
 pub use repositories::workspaces::{
     AssetRole, StoredWorkspace, WorkspaceAsset, WorkspaceId, WorkspaceInventory, WorkspaceRecord,

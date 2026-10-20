@@ -585,13 +585,23 @@ impl ServiceContext {
     ) -> Emission {
         let tab_id = scope.tab_id.as_str();
         match scope.kind {
-            ReminderKind::Worker => Emission {
-                text: self.plan_store.prepend_worker_charter_for_tab(
+            ReminderKind::Worker => {
+                let mut text = self.plan_store.prepend_worker_charter_for_tab(
                     tab_id,
                     &crate::service::plan::reminders::worker_nudge_text(),
-                ),
-                transport: Transport::Automated,
-            },
+                );
+                // The live tick runs on a blocking worker; a popup preview may not.
+                if !preview {
+                    if let Some(step) = self.tab_todo_step_line_blocking(tab_id) {
+                        text.push_str("\n\n");
+                        text.push_str(&step);
+                    }
+                }
+                Emission {
+                    text,
+                    transport: Transport::Automated,
+                }
+            }
             ReminderKind::Owner => {
                 let mut text = String::new();
                 let mode_transition = snapshot.hard.contains(&HardWake::ModeChange);
