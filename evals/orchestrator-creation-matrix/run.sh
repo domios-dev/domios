@@ -326,7 +326,7 @@ launch_prompt_present() {
     LAUNCH_DIAGNOSTIC_ERROR="could not resolve the dev data directory"
     return 1
   }
-  log_file="$data_dir/logs/codeterm.log"
+  log_file="$data_dir/logs/domios.log"
   if [ ! -f "$log_file" ]; then
     LAUNCH_DIAGNOSTIC_ERROR="launch diagnostics log is missing: $log_file"
     return 1

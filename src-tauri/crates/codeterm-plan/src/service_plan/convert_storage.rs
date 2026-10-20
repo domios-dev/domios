@@ -117,7 +117,7 @@ pub fn run(args: Args) -> Result<(), ConvertError> {
     if plans.is_empty() {
         eprintln!(
             "[convert] no legacy plan.json directories under {}",
-            project_root.join(".codeterm/plans").display()
+            project_root.join(".domios/plans").display()
         );
         return Ok(());
     }
@@ -161,7 +161,7 @@ pub fn discover_legacy_plan_dirs(
     only_id: Option<&str>,
 ) -> io::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
-    let plans_root = project_root.join(".codeterm").join("plans");
+    let plans_root = project_root.join(".domios").join("plans");
     for bucket in ["active", "archive"] {
         let bucket_dir = plans_root.join(bucket);
         let Ok(entries) = std::fs::read_dir(&bucket_dir) else {
@@ -529,7 +529,7 @@ mod tests {
             .unwrap();
         // The store now persists yaml; this fixture must be pure LEGACY (plan.json + md sidecars) for the converter to convert.
         let final_plan = store.get(&plan.id).unwrap();
-        let plan_dir = dir.join(format!(".codeterm/plans/active/{}", final_plan.id));
+        let plan_dir = dir.join(format!(".domios/plans/active/{}", final_plan.id));
         let _ = std::fs::remove_file(plan_dir.join("plan.yaml"));
         let _ = std::fs::remove_file(plan_dir.join("goal.yaml"));
         for f in glob_yaml(&plan_dir.join("tasks")) {
@@ -553,9 +553,7 @@ mod tests {
     fn round_trip_passes_deep_compare_on_fixture() {
         let dir = tempfile::tempdir().unwrap();
         let plan = legacy_fixture_plan(dir.path());
-        let plan_dir = dir
-            .path()
-            .join(format!(".codeterm/plans/active/{}", plan.id));
+        let plan_dir = dir.path().join(format!(".domios/plans/active/{}", plan.id));
         convert_plan_dir(&plan_dir, dir.path(), true).unwrap();
         assert!(plan_dir.join("plan.yaml").is_file());
         assert!(plan_dir.join("goal.yaml").is_file());
@@ -567,9 +565,7 @@ mod tests {
     fn deep_compare_fails_when_v2_yaml_is_mangled() {
         let dir = tempfile::tempdir().unwrap();
         let plan = legacy_fixture_plan(dir.path());
-        let plan_dir = dir
-            .path()
-            .join(format!(".codeterm/plans/active/{}", plan.id));
+        let plan_dir = dir.path().join(format!(".domios/plans/active/{}", plan.id));
         let legacy = load_legacy_plan(&plan_dir.join("plan.json"), dir.path()).unwrap();
         store_v2::write_plan(&plan_dir, &legacy).unwrap();
         let task_yaml = plan_dir.join("tasks/ship-it.yaml");
@@ -584,9 +580,7 @@ mod tests {
     fn cleanup_removes_legacy_but_keeps_stride_logs() {
         let dir = tempfile::tempdir().unwrap();
         let plan = legacy_fixture_plan(dir.path());
-        let plan_dir = dir
-            .path()
-            .join(format!(".codeterm/plans/active/{}", plan.id));
+        let plan_dir = dir.path().join(format!(".domios/plans/active/{}", plan.id));
         let stride_path = plan_dir.join("tasks/ship-it/strides.jsonl");
         std::fs::create_dir_all(stride_path.parent().unwrap()).unwrap();
         std::fs::write(
@@ -605,9 +599,7 @@ mod tests {
     fn active_plan_can_be_restored_from_its_pre_migration_snapshot() {
         let dir = tempfile::tempdir().unwrap();
         let plan = legacy_fixture_plan(dir.path());
-        let plan_dir = dir
-            .path()
-            .join(format!(".codeterm/plans/active/{}", plan.id));
+        let plan_dir = dir.path().join(format!(".domios/plans/active/{}", plan.id));
 
         convert_plan_dir(&plan_dir, dir.path(), false).unwrap();
         let backup = migration_backup::backup_dir(dir.path(), &plan.id);

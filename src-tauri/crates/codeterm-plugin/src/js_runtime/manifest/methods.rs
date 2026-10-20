@@ -113,13 +113,13 @@ impl PluginManifest {
         true // platform-targeted plugins are out of scope for v1
     }
 
-    /// Expand a `~/...` path to the user's home directory. `~/.codeterm` names the
+    /// Expand a `~/...` path to the user's home directory. `~/.domios` names the
     /// running instance's data dir, so a dev or named instance never reaches prod's.
     pub fn expand_home(path: &str) -> Option<PathBuf> {
-        if path == "~/.codeterm" {
+        if path == "~/.domios" {
             return Some(codeterm_paths::data_dir());
         }
-        if let Some(rest) = path.strip_prefix("~/.codeterm/") {
+        if let Some(rest) = path.strip_prefix("~/.domios/") {
             return Some(codeterm_paths::data_dir().join(rest));
         }
         if let Some(rest) = path.strip_prefix("~/") {

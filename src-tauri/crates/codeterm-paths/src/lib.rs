@@ -1,7 +1,7 @@
 //! Central data directory resolution.
 //!
-//! Dev builds (`cfg(debug_assertions)`) use `~/.codeterm-dev/`,
-//! release builds use `~/.codeterm/`.
+//! Dev builds (`cfg(debug_assertions)`) use `~/.domios-dev/`,
+//! release builds use `~/.domios/`.
 //! This keeps dev and prod fully isolated (config, sessions, crons, themes, sockets).
 
 use std::path::PathBuf;
@@ -47,28 +47,25 @@ pub fn is_dev_instance() -> bool {
     cfg!(debug_assertions)
 }
 
-/// Directory name for CodeTerm data (`~/.codeterm` or `~/.codeterm-dev[-<slug>]`).
-pub fn dir_name() -> String {
-    #[cfg(debug_assertions)]
-    {
-        format!(".codeterm-dev{}", instance_suffix())
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        ".codeterm".to_string()
+fn identity_names_for(dev: bool, suffix: &str) -> (String, String) {
+    if dev {
+        (
+            format!(".domios-dev{suffix}"),
+            format!("domios-dev{suffix}"),
+        )
+    } else {
+        (".domios".to_string(), "domios".to_string())
     }
 }
 
-/// Socket/pipe prefix for IPC (`codeterm` or `codeterm-dev[-<slug>]`).
+/// Directory name for Domios data (`~/.domios` or `~/.domios-dev[-<slug>]`).
+pub fn dir_name() -> String {
+    identity_names_for(is_dev_instance(), &instance_suffix()).0
+}
+
+/// Socket/pipe prefix for IPC (`domios` or `domios-dev[-<slug>]`).
 pub fn socket_prefix() -> String {
-    #[cfg(debug_assertions)]
-    {
-        format!("codeterm-dev{}", instance_suffix())
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        "codeterm".to_string()
-    }
+    identity_names_for(is_dev_instance(), &instance_suffix()).1
 }
 
 /// Bare namespaced socket name for the current process (`GenericNamespaced` adds `/tmp/` on Unix).
@@ -99,18 +96,22 @@ pub fn socket_display_path() -> String {
     }
 }
 
-/// Get the CodeTerm data directory, honoring an absolute explicit override.
-/// Creates the selected directory if it doesn't exist.
-pub fn data_dir() -> PathBuf {
+/// Resolve the Domios data directory without creating it.
+pub fn data_dir_path() -> PathBuf {
     if let Some(path) = std::env::var_os("CODETERM_DATA_DIR").map(PathBuf::from) {
         if path.is_absolute() {
-            let _ = std::fs::create_dir_all(&path);
             return path;
         }
     }
-    let dir = dirs::home_dir()
+    dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(dir_name());
+        .join(dir_name())
+}
+
+/// Get the Domios data directory, honoring an absolute explicit override.
+/// Creates the selected directory if it doesn't exist.
+pub fn data_dir() -> PathBuf {
+    let dir = data_dir_path();
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -221,94 +222,4 @@ pub fn strip_verbatim_prefix(p: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn strip_verbatim_prefix_forms() {
-        assert_eq!(
-            strip_verbatim_prefix(r"\\?\C:\Users\User\.codeterm-dev\general"),
-            r"C:\Users\User\.codeterm-dev\general"
-        );
-        assert_eq!(
-            strip_verbatim_prefix(r"\\?\UNC\server\share\proj"),
-            r"\\server\share\proj"
-        );
-        assert_eq!(
-            strip_verbatim_prefix("//?/UNC/server/share/proj"),
-            r"\\server\share\proj"
-        );
-        assert_eq!(
-            strip_verbatim_prefix("//?/C:/Users/User/project"),
-            r"C:\Users\User\project"
-        );
-        assert_eq!(strip_verbatim_prefix("/home/user/p"), "/home/user/p");
-        assert_eq!(strip_verbatim_prefix(r"C:\plain\path"), r"C:\plain\path");
-    }
-
-    #[test]
-    fn strip_verbatim_prefix_preserves_volume_and_globalroot_paths() {
-        let volume = r"\\?\Volume{12345678-1234-1234-1234-123456789abc}\folder";
-        let globalroot = r"\\?\GLOBALROOT\Device\HarddiskVolume1\folder";
-        assert_eq!(strip_verbatim_prefix(volume), volume);
-        assert_eq!(strip_verbatim_prefix(globalroot), globalroot);
-        assert_eq!(strip_verbatim_prefix(r"\\?\C:relative"), r"\\?\C:relative");
-    }
-
-    #[test]
-    fn strip_verbatim_prefix_preserves_extended_length_drive_paths() {
-        let tail = "segment".repeat(48);
-        let verbatim = format!(r"\\?\C:\{tail}");
-        let stripped = strip_verbatim_prefix(&verbatim);
-        assert_eq!(stripped, format!(r"C:\{tail}"));
-        assert!(verbatim.len() > 260);
-    }
-
-    #[test]
-    fn strip_verbatim_prefix_normalizes_long_slash_form_paths() {
-        let tail = "segment".repeat(48);
-        let drive = format!("//?/C:/{tail}");
-        let unc = format!("//?/UNC/server/share/{tail}");
-
-        assert_eq!(strip_verbatim_prefix(&drive), format!(r"C:\{tail}"));
-        assert_eq!(
-            strip_verbatim_prefix(&unc),
-            format!(r"\\server\share\{tail}")
-        );
-        assert!(drive.len() > 260);
-        assert!(unc.len() > 260);
-    }
-
-    #[test]
-    fn canonical_cwd_preserves_case_and_strips_verbatim() {
-        let tmp = std::env::temp_dir().to_string_lossy().to_string();
-        let out = canonical_cwd(&tmp);
-        assert!(!out.starts_with(r"\\?\"), "verbatim prefix leaked: {out}");
-
-        assert_eq!(
-            canonical_cwd(r"\\?\C:\Definitely\Missing\Path\"),
-            r"C:\Definitely\Missing\Path"
-        );
-    }
-
-    #[test]
-    fn normalize_cwd_ignores_verbatim_drive_and_unc_prefixes() {
-        assert_eq!(
-            normalize_cwd(r"\\?\C:\lanes\worker"),
-            normalize_cwd(r"C:\lanes\worker")
-        );
-        assert_eq!(
-            normalize_cwd(r"\\?\UNC\server\share\lanes"),
-            normalize_cwd(r"\\server\share\lanes")
-        );
-    }
-
-    #[test]
-    fn paths_equal_ignores_verbatim_drive_and_unc_prefixes() {
-        assert!(paths_equal(r"\\?\C:\lanes\worker\", r"C:/lanes/worker"));
-        assert!(paths_equal(
-            r"\\?\unc\server\share\lane",
-            r"\\server\share\lane"
-        ));
-    }
-}
+mod tests;

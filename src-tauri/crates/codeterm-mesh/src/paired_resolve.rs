@@ -1,7 +1,7 @@
 //! Deterministic name resolution over `paired_peers`.
 //!
 //! A peer that re-mints its `instance_id` (fresh identity after a reinstall,
-//! a wiped `~/.codeterm/mesh/identity.json`, etc.) re-pairs under the SAME
+//! a wiped `~/.domios/mesh/identity.json`, etc.) re-pairs under the SAME
 //! `instance_name` while the OLD record — now permanently offline — can be
 //! left behind under its old id. `MeshManager::complete_explicit_pairing`
 //! supersedes that old record when it can (same name, same host), but a

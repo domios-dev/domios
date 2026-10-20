@@ -89,7 +89,7 @@ test("serial defaults use the isolated Playwright instance", () => {
     const instance = devInstanceForSlot(0);
     assert.equal(instance.name, "playwright");
     assert.equal(instance.apiPort, 7786);
-    assert.equal(instance.dataDirName, ".codeterm-dev-playwright");
+    assert.equal(instance.dataDirName, ".domios-dev-playwright");
     assert.deepEqual(devStartArgs(), ["build.sh", "dev", "--wait"]);
     assert.equal(playwrightCargoTargetDir(instance, {}), undefined);
   });
@@ -112,7 +112,7 @@ test("explicit DEV target remains pinned to the default DEV listeners", () => {
     assert.equal(isAdoptTarget(), true);
     assert.equal(instance.apiPort, 7686);
     assert.equal(instance.cdpPort, 9223);
-    assert.equal(instance.dataDirName, ".codeterm-dev");
+    assert.equal(instance.dataDirName, ".domios-dev");
   });
 });
 
@@ -124,8 +124,8 @@ test("named target consumes the bench lib's resolved connection and token", () =
       CODETERM_API_PORT: "7790",
       CODETERM_VITE_PORT: String(1420 + slugOffsetForTest("pwserial")),
       CODETERM_API_TOKEN: "qa-token",
-      CODETERM_DEV_DATA_DIR: "/qa/.codeterm-dev-pwserial",
-      CODETERM_SOCKET_PATH: "codeterm-dev-pwserial.sock",
+      CODETERM_DEV_DATA_DIR: "/qa/.domios-dev-pwserial",
+      CODETERM_SOCKET_PATH: "domios-dev-pwserial.sock",
     },
     () => {
       const instance = devInstanceForSlot(0);
@@ -133,9 +133,9 @@ test("named target consumes the bench lib's resolved connection and token", () =
       assert.equal(instance.name, "pwserial");
       assert.equal(instance.apiPort, 7790);
       assert.equal(instance.vitePort, 1420 + slugOffsetForTest("pwserial"));
-      assert.equal(instance.dataDirName, ".codeterm-dev-pwserial");
+      assert.equal(instance.dataDirName, ".domios-dev-pwserial");
       assert.equal(instance.cdpPort, 9223 + slugOffsetForTest("pwserial"));
-      assert.equal(devDataDirName(instance), ".codeterm-dev-pwserial");
+      assert.equal(devDataDirName(instance), ".domios-dev-pwserial");
       assert.equal(readDevToken(instance), "qa-token");
       assert.equal(isDisposableQaInstance(instance), true);
     },
@@ -153,8 +153,8 @@ test("named target refuses incomplete identity and the default DEV port", () => 
       CODETERM_API_PORT: "7686",
       CODETERM_VITE_PORT: String(1420 + slugOffsetForTest("coreqa")),
       CODETERM_API_TOKEN: "qa-token",
-      CODETERM_DEV_DATA_DIR: "/qa/.codeterm-dev-coreqa",
-      CODETERM_SOCKET_PATH: "codeterm-dev-coreqa.sock",
+      CODETERM_DEV_DATA_DIR: "/qa/.domios-dev-coreqa",
+      CODETERM_SOCKET_PATH: "domios-dev-coreqa.sock",
     },
     () => assert.throws(() => devInstanceForSlot(0), /unsafe Playwright instance port 7686/),
   );
@@ -165,8 +165,8 @@ test("named target refuses incomplete identity and the default DEV port", () => 
       CODETERM_API_PORT: "7790",
       CODETERM_VITE_PORT: "1420",
       CODETERM_API_TOKEN: "qa-token",
-      CODETERM_DEV_DATA_DIR: "/qa/.codeterm-dev-pwserial",
-      CODETERM_SOCKET_PATH: "codeterm-dev-pwserial.sock",
+      CODETERM_DEV_DATA_DIR: "/qa/.domios-dev-pwserial",
+      CODETERM_SOCKET_PATH: "domios-dev-pwserial.sock",
       CODETERM_CDP_PORT: String(9223 + slugOffsetForTest("pwserial")),
     },
     () => assert.throws(() => devInstanceForSlot(0), /resolved Vite port 1420 does not match instance pwserial/),

@@ -765,7 +765,7 @@ fn planner_unpaired_is_an_error_when_orchestrator_bound_without_planner() {
 #[test]
 fn doctor_and_approve_share_severity() {
     let dir = tempfile::tempdir().unwrap();
-    let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
+    let plan_dir = dir.path().join(".domios/plans/active/pl_1");
     let plan = planner_pairing_base_plan(None);
     write_v2_plan(&plan_dir, &plan);
 
@@ -905,7 +905,7 @@ fn quality_exempts_planning_kind_from_vague_test_plan() {
 #[test]
 fn quality_seeded_plan_flags_exactly_one_vague_test_plan() {
     let dir = tempfile::tempdir().unwrap();
-    let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
+    let plan_dir = dir.path().join(".domios/plans/active/pl_1");
     let plan = json!({
         "id": "pl_1",
         "title": "Plan",
@@ -1043,7 +1043,7 @@ fn add_time_missing_body_hint_matches_doctor_verdict() {
 #[test]
 fn executor_role_required_approval_refuses_a_plan_holding_a_roleless_task() {
     let dir = tempfile::tempdir().unwrap();
-    let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
+    let plan_dir = dir.path().join(".domios/plans/active/pl_1");
     write_v2_plan(&plan_dir, &roleless_task_plan());
 
     let report = super::authoritative_report(&roleless_task_plan(), "pl_1", dir.path(), "quality");
@@ -1063,7 +1063,7 @@ fn executor_role_required_approval_refuses_a_plan_holding_a_roleless_task() {
 #[test]
 fn executor_role_required_preexisting_roleless_tasks_are_reported_not_filled() {
     let dir = tempfile::tempdir().unwrap();
-    let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
+    let plan_dir = dir.path().join(".domios/plans/active/pl_1");
     write_v2_plan(&plan_dir, &roleless_task_plan());
     let (report, calls) = super::authoritative_report_with_calls(
         &roleless_task_plan(),

@@ -10,7 +10,7 @@ import { repoRoot } from "./dev-instance";
 const execute = promisify(execFile);
 
 export async function deliveryLog(tabId: string) {
-  const logPath = process.env.PW_SWITCH_DEV_LOG ?? path.join(homedir(), ".codeterm-dev", "logs", "codeterm.log");
+  const logPath = process.env.PW_SWITCH_DEV_LOG ?? path.join(homedir(), ".domios-dev", "logs", "domios.log");
   const result = await execute("rg", ["--fixed-strings", tabId, logPath], { timeout: 15_000, maxBuffer: 8 * 1024 * 1024 });
   return { logPath, tabId, lines: result.stdout.split(/\r?\n/).filter(line => /chat-send|delivery-timeline|\[hook\/timing\]|\[agent-model\/(timing|frame|completion)\]/.test(line)) };
 }

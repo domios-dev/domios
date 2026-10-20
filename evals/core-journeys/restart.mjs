@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { launchRestart } from "../restart-endurance/restart.mjs";
 import { root, target } from "./lib/env.mjs";
 import { listenerIdentity } from "./lib/listener.mjs";
+import { readBuildIdentity } from "./lib/build-identity.mjs";
 
 export function parseRestartArgs(argv) {
   const options = { out: null, stopIn: root, startIn: root, start: "dev-prebuilt", label: "restart" };
@@ -22,9 +23,27 @@ export function parseRestartArgs(argv) {
   return options;
 }
 
-function build(cwd, args) {
+function productEnvironmentKeys(identity) {
+  const prefix = identity.cli.instance.replace(/_INSTANCE$/, "");
+  return ["INSTANCE", "API_PORT", "API_URL", "API_TOKEN", "DATA_DIR", "SOCKET_PATH", "VITE_PORT", "CDP_PORT", "DEV_INSTANCE",
+    "DEV_API_PORT", "DEV_VITE_PORT", "DEV_CDP_PORT", "DEV_DATA_DIR", "DEV_IDENTIFIER", "CLI_PATH", "TAB_ID", "PARENT_TAB_ID",
+    "SESSION_ID", "SESSION_BINDING_NONCE", "TEAM_ID", "PLAN_ID", "TASK_ID", "ATTEMPT_ID", "STARTUP_ATTEMPT_ID"]
+    .map((suffix) => `${prefix}_${suffix}`);
+}
+
+function build(cwd, args, otherCheckout) {
+  const identity = readBuildIdentity(cwd);
+  const otherIdentity = readBuildIdentity(otherCheckout);
+  const instance = process.env.CORE_JOURNEY_REQUESTED_INSTANCE ?? "";
+  const port = process.env.CORE_JOURNEY_REQUESTED_API_PORT ?? "";
+  const env = { ...process.env };
+  for (const key of new Set([...productEnvironmentKeys(identity), ...productEnvironmentKeys(otherIdentity)])) delete env[key];
+  env[identity.request.instance] = instance;
+  env[identity.request.port] = port;
+  env[identity.development.instance] = instance;
+  env[identity.development.port] = port;
   return new Promise((accept, reject) => {
-    const child = spawn("bash", [join(cwd, "build.sh"), ...args], { cwd, stdio: "inherit", signal: AbortSignal.timeout(1_800_000) });
+    const child = spawn("bash", [join(cwd, "build.sh"), ...args], { cwd, env, stdio: "inherit", signal: AbortSignal.timeout(1_800_000) });
     child.on("error", reject);
     child.on("close", (code) => (code === 0 ? accept() : reject(new Error(`build.sh ${args.join(" ")} in ${cwd} exit ${code}`))));
   });
@@ -40,8 +59,8 @@ async function main() {
   };
   const evidence = await launchRestart({
     record, snapshot: () => listenerIdentity(dev.port),
-    stop: () => build(options.stopIn, ["kill"]),
-    start: () => build(options.startIn, [options.start, "--wait", "--wait-build"]),
+    stop: () => build(options.stopIn, ["kill"], options.startIn),
+    start: () => build(options.startIn, [options.start, "--wait", "--wait-build"], options.stopIn),
   });
   console.log(`RESTART ${evidence.pass ? "PASS" : "FAIL"} ${JSON.stringify({ before: evidence.before, after: evidence.after, reason: evidence.reason })}`);
   return evidence.pass ? 0 : 1;

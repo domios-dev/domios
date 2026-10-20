@@ -23,7 +23,7 @@ see [`.agents/skills/testing/SKILL.md`](../../.agents/skills/testing/SKILL.md).
 - The old Tauri WebDriver/WDIO harness was removed. Desktop UI automation
   uses this Playwright/CDP path only.
 - Backend coverage uses plain `fetch` against `/api/*` with the token from
-  `~/.codeterm-dev-playwright/config.toml`.
+  `~/.domios-dev-playwright/config.toml`.
 
 ## Run
 
@@ -80,7 +80,7 @@ Adopt targets are never started, restarted, or reset by Playwright, and
 `pwserial`, and `pwN` profiles.
 
 Parallel execution is opt-in. `CT_E2E_WORKERS=N` starts `pw1..pwN` with
-separate API, Vite, CDP, identifier, token, and `.codeterm-dev-pwN` state.
+separate API, Vite, CDP, identifier, token, and `.domios-dev-pwN` state.
 Playwright's stable `parallelIndex` pins each worker process to one instance.
 Startup is serialized through the build gateway, which is released after each
 named instance passes readiness; Windows instances use separate Cargo targets.
@@ -249,7 +249,7 @@ POST has a 90-second client cap, leaving bounded headroom above the backend's
 For a failing ROG rerun, preserve the line-reporter output and collect:
 
 ```powershell
-Get-Content "$HOME\.codeterm-dev-playwright\logs\codeterm.log" |
+Get-Content "$HOME\.domios-dev-playwright\logs\domios.log" |
   Select-String 'orchestration-pair|agent-launch|readiness|claude' |
   Select-Object -Last 300
 Get-ChildItem tests\playwright\artifacts\test-results -Recurse
@@ -348,7 +348,7 @@ suites' CDP attach to the Tauri WebView. Key facts:
 - The SPA is the same React bundle; `src/lib/bridge.ts` maps `invoke()`
   to REST and `listen()` to the `/api/events/stream` SSE in browser mode.
 - Auth is per host: the token gate (`WebGate`) stores one token per
-  peer in localStorage; the dev token comes from `~/.codeterm-dev/`.
+  peer in localStorage; the dev token comes from `~/.domios-dev/`.
 - Peer switching is exercised against the `MeshStub` running in
   `webToken` mode — it answers the SPA's direct API calls with canned
   workspaces, so a switch is provable end-to-end (stub request log +
@@ -395,7 +395,7 @@ server-spawned tabs do). Each throws a clear
 ## Hard rules
 
 - **Prod guard**: `reset.ts` refuses to touch any path not under
-  `.codeterm-dev` — the harness must never contaminate `~/.codeterm/`.
+  `.domios-dev` — the harness must never contaminate `~/.domios/`.
 - Restart-persistence tests call `POST /api/session/save` before killing
   the daemon: `build.sh kill` is a force-kill (taskkill //F), so the
   close-to-tray save never runs and the 30s auto-save timer makes young

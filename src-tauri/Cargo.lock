@@ -1068,7 +1068,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm"
-version = "1.14.9"
+version = "1.15.0"
 dependencies = [
  "async-trait",
  "codeterm-build-info",
@@ -1642,6 +1642,7 @@ dependencies = [
  "aes-gcm",
  "base64 0.22.1",
  "chrono",
+ "codeterm-build-info",
  "codeterm-paths",
  "codeterm-types",
  "codeterm-util",
@@ -1654,6 +1655,7 @@ dependencies = [
  "parking_lot",
  "rand 0.8.5",
  "reqwest 0.12.28",
+ "semver",
  "serde",
  "serde_json",
  "sha2",
@@ -3104,6 +3106,7 @@ dependencies = [
  "libc",
  "log",
  "parking_lot",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",

@@ -30,7 +30,7 @@ impl RpcClient for FakeRpc {
                 }
             }),
             "plan.files" => json!({
-                "index_path": "C:/Users/User/.codeterm/plans/active/plan_rpc/INDEX.md",
+                "index_path": "C:/Users/User/.domios/plans/active/plan_rpc/INDEX.md",
                 "entries": []
             }),
             other => panic!("unexpected RPC method {other}"),
@@ -48,14 +48,14 @@ fn plan_skill_list_prints_skill_path() {
             {
                 "slug": "verify-before-claim",
                 "verdict": "keep",
-                "skill_dir": "/repo/.codeterm/plans/active/pl_zzmxgb/skills/verify-before-claim",
+                "skill_dir": "/repo/.domios/plans/active/pl_zzmxgb/skills/verify-before-claim",
             }
         ]
     });
 
     let rendered = render_skill_list(&response).unwrap();
 
-    assert!(rendered.contains("/repo/.codeterm/plans/active/pl_zzmxgb/skills/verify-before-claim"));
+    assert!(rendered.contains("/repo/.domios/plans/active/pl_zzmxgb/skills/verify-before-claim"));
     assert!(rendered.contains("verify-before-claim"));
 }
 

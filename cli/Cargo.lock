@@ -315,7 +315,7 @@ version = "0.0.0"
 
 [[package]]
 name = "codeterm-cli"
-version = "1.14.9"
+version = "1.15.0"
 dependencies = [
  "base64",
  "chrono",
@@ -384,6 +384,7 @@ dependencies = [
  "aes-gcm",
  "base64",
  "chrono",
+ "codeterm-build-info",
  "codeterm-paths",
  "codeterm-types",
  "codeterm-util",
@@ -396,6 +397,7 @@ dependencies = [
  "parking_lot",
  "rand 0.8.8",
  "reqwest",
+ "semver",
  "serde",
  "serde_json",
  "sha2",

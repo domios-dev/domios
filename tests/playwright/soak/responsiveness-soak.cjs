@@ -14,7 +14,7 @@ const PORT = process.env.SOAK_PORT || "7702";
 const BASE = `http://127.0.0.1:${PORT}`;
 const OUT = process.env.SOAK_OUT || "/tmp/soak-artifacts";
 const DURATION_MS = Number(process.env.SOAK_DURATION_MS || 300000);
-const DATADIR = process.env.SOAK_DATADIR || path.join(os.homedir(), ".codeterm-dev-soak");
+const DATADIR = process.env.SOAK_DATADIR || path.join(os.homedir(), ".domios-dev-soak");
 
 function readToken() {
   const cfg = fs.readFileSync(path.join(DATADIR, "config.toml"), "utf8");

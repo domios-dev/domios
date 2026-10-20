@@ -127,8 +127,7 @@ fn is_sidecar_status_line(line: &str) -> bool {
         .map(|s| s.trim().trim_matches('"'))
         .filter(|s| !s.is_empty())
         .peekable();
-    paths.peek().is_some()
-        && paths.all(|p| p == ".codeterm/plans" || p.starts_with(".codeterm/plans/"))
+    paths.peek().is_some() && paths.all(|p| p == ".domios/plans" || p.starts_with(".domios/plans/"))
 }
 
 fn content_seq(content: &Value) -> u64 {

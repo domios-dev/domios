@@ -99,6 +99,33 @@ fn frontend_shell_contract_binds_root_acknowledgement_to_document_generation() {
 }
 
 #[test]
+fn frontend_shell_contract_keeps_page_initiated_documents_and_never_loops_the_fallback() {
+    let daemon = Url::parse("http://127.0.0.1:7686/bundled/index.html").unwrap();
+    let fallback = fallback_url().unwrap();
+    let generation = ClientViewGeneration {
+        view: 1,
+        navigation: 17,
+    };
+
+    assert_eq!(
+        unrendered_root_action(&daemon, &fallback, false),
+        UnrenderedRoot::KeepDocument
+    );
+    assert_eq!(
+        unrendered_root_action(&with_root_generation(&daemon, generation), &fallback, true),
+        UnrenderedRoot::PackagedFallback
+    );
+    assert_eq!(
+        unrendered_root_action(
+            &with_root_generation(&fallback, generation),
+            &fallback,
+            true
+        ),
+        UnrenderedRoot::Unavailable
+    );
+}
+
+#[test]
 fn frontend_shell_contract_navigation_diagnostics_omit_query_secrets_and_recovery_html() {
     let secret = "opaque-fixture";
     let url = Url::parse(&format!(

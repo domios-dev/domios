@@ -72,10 +72,10 @@ mod tests {
 
     #[test]
     fn pad_path_leaves_an_already_plain_path_untouched() {
-        let plain = PathBuf::from("/home/user/.codeterm/pads/tab_1");
+        let plain = PathBuf::from("/home/user/.domios/pads/tab_1");
         assert_eq!(
             pad_path_value(&plain, true),
-            serde_json::json!({ "path": "/home/user/.codeterm/pads/tab_1" })
+            serde_json::json!({ "path": "/home/user/.domios/pads/tab_1" })
         );
     }
 }

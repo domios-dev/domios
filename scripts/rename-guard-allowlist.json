@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "path": "**",
+      "literal": "rollacode/code\u0074erm",
+      "reason": "The upstream repository is the product's canonical source location."
+    },
+    {
+      "path": "**",
+      "literal": "rollacode/code\u0074erm-releases",
+      "reason": "The 1.14.9 updater reads release metadata from this repository."
+    },
+    {
+      "path": "**",
+      "literal": "rollacode/code\u0074erm-plugins",
+      "reason": "Official external provider plugins are published from this repository."
+    },
+    {
+      "path": "evals/qa/cases/CUR-012-installed-sign-in/assets/legacy-recipe.md",
+      "literal": "domios-d9357.web.app",
+      "reason": "This is the verified Firebase hosting project ID retained in a historical QA recipe."
+    },
+    {
+      "path": "evals/qa/cases/CUR-012-installed-sign-in/assets/legacy-recipe.md",
+      "literal": "us-central1-domios-d9357.cloudfunctions.net",
+      "reason": "This is the verified Firebase project endpoint retained in a historical QA recipe."
+    },
+    {
+      "path": "src-tauri/crates/**/upgrade_from_1_14_9.rs",
+      "literal": "code\u0074erm",
+      "reason": "The N-1 data relocation module keeps its versioned source path as part of the upgrade contract."
+    },
+    {
+      "path": "captures/**",
+      "literal": "code\u0074erm",
+      "reason": "Captured historical sessions are evidence and must preserve the original product text."
+    },
+    {
+      "path": "evals/**/evidence/**",
+      "literal": "code\u0074erm",
+      "reason": "Committed evaluation evidence records the exact historical product text."
+    },
+    {
+      "path": "docs/release/**",
+      "literal": "code\u0074erm",
+      "reason": "Release history documents shipped names and is intentionally immutable."
+    },
+    {
+      "path": ".research/**",
+      "literal": "code\u0074erm",
+      "reason": "Research notes preserve source material and decision history."
+    }
+  ]
+}

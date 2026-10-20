@@ -31,7 +31,7 @@ async function main() {
   };
   const entry: PlanIndexEntry = {
     plan_id: "pl_xcxs29",
-    file_path: "C:\\Users\\User\\.codeterm\\plans.db",
+    file_path: "C:\\Users\\User\\.domios\\plans.db",
     canonical_project_path: "\\\\?\\D:\\Developer\\codeterm",
     owner: { tab_id: "tab-owner", session_id: null, title: "Owner" },
     title: "Canonical ownership",

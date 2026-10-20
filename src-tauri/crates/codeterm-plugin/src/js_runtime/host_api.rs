@@ -7,7 +7,7 @@
 //! errors are signalled by `null`; a breached size bound throws a RangeError.
 //!
 //! Safety: bundled/in-workspace plugins get the full surface; a drop-in under
-//! `~/.codeterm/plugins/` is confined by `PluginSandbox` (FS/sqlite scoped to
+//! `~/.domios/plugins/` is confined by `PluginSandbox` (FS/sqlite scoped to
 //! its own dir + declared session root, secret-looking env vars blocked).
 
 /// Version of the plugin/host contract; a drop-in must declare a matching `hostApi`

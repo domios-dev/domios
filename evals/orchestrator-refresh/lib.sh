@@ -4,7 +4,7 @@
 set -u
 source "$(git rev-parse --show-toplevel)/evals/_lib/lib.sh"
 
-DEV_LOG="${DEV_LOG:-$HOME/.codeterm-dev/logs/codeterm.log}"
+DEV_LOG="${DEV_LOG:-$HOME/.domios-dev/logs/domios.log}"
 
 # Byte offset of the dev log right now — used to scope grep to THIS run so a
 # prior drill's markers never contaminate the ordering assertion.

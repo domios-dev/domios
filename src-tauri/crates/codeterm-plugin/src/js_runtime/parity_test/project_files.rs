@@ -11,7 +11,7 @@ fn parity_private_state_root_can_be_created_without_project_write_grants() {
     let manifest =
         super::super::PluginManifest::from_json_str(include_str!("fixtures/rotterdom/plugin.json"))
             .unwrap();
-    for instance in [".codeterm-dev", ".codeterm-dev-isolated"] {
+    for instance in [".domios-dev", ".domios-dev-isolated"] {
         let data = home.path().join(instance).join("rotterdom");
         let (reads, writes) = super::super::loader::confined_roots(&manifest, &bundle, &data);
         let sandbox = Arc::new(PluginSandbox::restricted(reads, writes).with_project_roots(
@@ -50,7 +50,7 @@ fn parity_private_state_root_can_be_created_without_project_write_grants() {
         for forbidden in [
             home.path().join(".codeterm/rotterdom"),
             home.path().join(instance).join("other-plugin"),
-            home.path().join(".codeterm-dev-other/rotterdom"),
+            home.path().join(".domios-dev-other/rotterdom"),
             data.join("../outside"),
             bundle.join("grants.yaml"),
         ] {

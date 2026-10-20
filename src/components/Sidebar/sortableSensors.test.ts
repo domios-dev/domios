@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { KeyboardSensor, MouseSensor, TouchSensor } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { sortableSensorConfiguration } from "./sortableSensors";
+import { POINTER_DRAG_ACTIVATION_DISTANCE, sortableSensorConfiguration } from "./sortableSensors";
 
 test("touch drag requires a held press within movement tolerance", () => {
   const configuration = sortableSensorConfiguration("touch");
@@ -10,10 +10,10 @@ test("touch drag requires a held press within movement tolerance", () => {
   assert.deepEqual(configuration.options.activationConstraint, { delay: 400, tolerance: 8 });
 });
 
-test("mouse and trackpad drag keep the four-pixel activation distance", () => {
+test("mouse and trackpad drag use the pointer activation distance", () => {
   const configuration = sortableSensorConfiguration("mouse");
   assert.equal(configuration.sensor, MouseSensor);
-  assert.deepEqual(configuration.options.activationConstraint, { distance: 4 });
+  assert.deepEqual(configuration.options.activationConstraint, { distance: POINTER_DRAG_ACTIVATION_DISTANCE });
 });
 
 test("keyboard reordering remains available for either pointer type", () => {

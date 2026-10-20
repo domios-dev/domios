@@ -40,7 +40,7 @@ pub(super) fn export(
     .unwrap_or_else(|error| print::fail(1, &format!("Resolve export destination: {error}")));
     if resolved.components().any(|part| {
         let part = part.as_os_str().to_string_lossy();
-        part == ".codeterm" || part.starts_with(".codeterm-dev")
+        part == ".domios" || part.starts_with(".domios-dev")
     }) {
         print::fail(
             1,
