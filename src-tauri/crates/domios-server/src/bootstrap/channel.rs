@@ -77,7 +77,9 @@ pub fn bind(identity: &super::protocol::ServerIdentity) -> io::Result<Listener> 
     let address = address(identity)?;
     let name = address.to_ns_name::<GenericNamespaced>()?;
     let options = ListenerOptions::new().name(name);
-    #[cfg(unix)]
+    // fchmod on a socket is EINVAL on macOS, which interprocess reports as Unsupported before bind;
+    // the per-user $TMPDIR already scopes the name there, so only Linux pins the mode.
+    #[cfg(target_os = "linux")]
     let options = {
         use interprocess::os::unix::local_socket::ListenerOptionsExt;
         options.mode(0o600)

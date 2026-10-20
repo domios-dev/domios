@@ -6,6 +6,10 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { candidateFilter, parseTimings } from './check-slow-unit-tests.mjs';
 
+function filtersetRejected(result) {
+  return result.status !== 0 && /failed to parse filterset/.test((result.stdout ?? '') + (result.stderr ?? ''));
+}
+
 export function confirmCandidates(entries, options, run = spawnSync) {
   candidateFilter(entries);
   const identities = entries.map(entry => JSON.stringify([entry.binary, entry.test]));
@@ -13,14 +17,17 @@ export function confirmCandidates(entries, options, run = spawnSync) {
   writeFileSync(options.output, '');
   let exitCode = 0;
   for (const entry of entries) {
-    const filter = candidateFilter([entry]);
     const reuse = options.archive ? ['--archive-file', options.archive, '--workspace-remap', resolve('src-tauri')] : ['--binaries-metadata', options.binaries, '--cargo-metadata', options.cargo];
-    const result = run('bash', ['scripts/test-capped.sh', ...reuse,
+    const measure = filter => run('bash', ['scripts/test-capped.sh', ...reuse,
       '--filter-expr', filter, '--test-threads', '1', '--status-level', 'pass',
       '--no-fail-fast', '--no-tests=fail'], {
       encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
       env: {...process.env, CARGO_TEST_CMD: 'cargo nextest run', CARGO_TEST_BUILD_CMD: '', TEST_RAW_OUTPUT: '1'},
     });
+    let result = measure(candidateFilter([entry]));
+    // A crate outside the reused metadata's package graph cannot be named by binary_id; the
+    // exact test name still selects it, and the identity check below keeps the measurement honest.
+    if (!result.error && filtersetRejected(result)) result = measure(`test(=${entry.test})`);
     const output = (result.stdout ?? '') + (result.stderr ?? '');
     appendFileSync(options.output, output);
     if (result.error) throw result.error;

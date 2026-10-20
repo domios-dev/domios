@@ -200,7 +200,8 @@ fn create_listener(ready: &ServerReady) -> io::Result<Listener> {
         .ok_or_else(|| io::Error::other("Invalid native host bootstrap address"))?;
     let name = address.to_ns_name::<GenericNamespaced>()?;
     let options = ListenerOptions::new().name(name);
-    #[cfg(unix)]
+    // fchmod on a socket is EINVAL on macOS (interprocess: Unsupported); only Linux pins the mode.
+    #[cfg(target_os = "linux")]
     let options = {
         use interprocess::os::unix::local_socket::ListenerOptionsExt;
         options.mode(0o600)

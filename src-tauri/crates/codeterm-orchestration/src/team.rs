@@ -1083,7 +1083,7 @@ pub use staffing::{
 mod general_agent_guard_tests;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(test)]
 mod transfer_tests;

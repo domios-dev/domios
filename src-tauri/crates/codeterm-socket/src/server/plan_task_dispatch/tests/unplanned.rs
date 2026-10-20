@@ -16,6 +16,37 @@ struct UnplannedFixture {
     delivered_brief: std::sync::Arc<parking_lot::Mutex<Option<String>>>,
 }
 
+// Team close tears down crons and sentinels through the ports production always registers.
+fn install_team_close_ports(
+    fixture: &ServiceFixture,
+    storage: &codeterm_service_core::storage::Storage,
+) {
+    use codeterm_service_core::cron::clock::MockClock;
+    use codeterm_service_core::cron::scheduler::{CronState, CronWake};
+    use codeterm_service_core::cron::store::{CronStorageOptions, CronStore};
+
+    let cron: CronState = std::sync::Arc::new(parking_lot::Mutex::new(
+        CronStore::open_storage(
+            storage,
+            fixture.temp.path().join("crons"),
+            MockClock::starting_at(100),
+            CronStorageOptions::default(),
+            codeterm_service_core::config::schema::AppConfig::default()
+                .general_agent
+                .agent_provider,
+        )
+        .unwrap(),
+    ));
+    let wake: CronWake = std::sync::Arc::new(std::sync::Condvar::new());
+    assert!(fixture.service.set_ext(cron).is_ok());
+    assert!(fixture.service.set_ext(wake).is_ok());
+    let handle = codeterm_sentinel_host::scheduler::fixture_handle_with_ui(
+        codeterm_sentinel_host::store::Store::with_storage(storage, MockClock::starting_at(100)),
+        fixture.service.ui.clone(),
+    );
+    codeterm_sentinel_host::manage_fixture_ports(&fixture.service, &handle);
+}
+
 fn fixture() -> UnplannedFixture {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
@@ -32,6 +63,8 @@ fn fixture() -> UnplannedFixture {
         owner.reported_session_binding_nonce = Some("unplanned-owner-nonce".into());
     }
     let fixture = ServiceFixture::new(mux);
+    let storage = fixture.install_seeded_storage_desk();
+    install_team_close_ports(&fixture, &storage);
     let project = tempfile::tempdir().unwrap();
     super::git(project.path(), &["init", "-q"]);
     super::git(

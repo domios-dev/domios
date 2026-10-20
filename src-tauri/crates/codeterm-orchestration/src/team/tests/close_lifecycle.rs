@@ -589,6 +589,7 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     let root =
         std::path::PathBuf::from(codeterm_paths::canonical_cwd(&dir.path().to_string_lossy()));
     let project = root.join("repo");
+    fs::create_dir_all(&project).unwrap();
     let clean_lane = root.join("clean-lane");
     let work_lane = root.join("work-lane");
     let dirty_lane = root.join("dirty-lane");

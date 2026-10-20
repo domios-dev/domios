@@ -19,7 +19,8 @@ test('parses nextest timings and keeps the slowest retry', () => {
 
 test('rejects incomplete and empty reports', () => {
   assert.throws(() => parseTimings('PASS [ 1.200s] codeterm a'), /summary/);
-  assert.throws(() => parseTimings('Summary [ 0.000s] 0 tests run'), /no per-test/);
+  assert.deepEqual(parseTimings('Summary [ 0.000s] 0 tests run'), []);
+  assert.throws(() => parseTimings('Summary [ 1.000s] 2 tests run'), /no per-test/);
   assert.throws(() => parseTimings('PASS [ 0.200s] codeterm a\nSummary [ 1.000s] 2 tests run'), /incomplete/);
 });
 
@@ -142,6 +143,18 @@ describe('build nextest ratchet', () => {
   test('serial confirmation refuses duplicates before any execution', () => {
     assert.throws(() => confirmCandidates([entry('a', 2), entry('a', 2)], {output: join(root, 'duplicate.log')},
       () => { throw new Error('must not execute'); }), /duplicate serial candidate/);
+  });
+
+  test('serial confirmation falls back to the exact test name when binary_id cannot be resolved', () => {
+    const filters = [];
+    assert.equal(confirmCandidates([{binary: 'codeterm-mem-store', test: 'tests::graph::opaque'}], {
+      binaries: 'b.json', cargo: 'c.json', output: join(root, 'fallback-alone.log'), print: () => {},
+    }, (_command, args) => {
+      filters.push(args[args.indexOf('--filter-expr') + 1]);
+      if (filters.length === 1) return { status: 1, stdout: '', stderr: "  error: operator didn't match any binary IDs\nerror: failed to parse filterset\n" };
+      return { status: 0, stdout: 'PASS [ 0.2s] codeterm-mem-store tests::graph::opaque\nSummary [ 0.2s] 1 tests run\n', stderr: '' };
+    }), 0);
+    assert.deepEqual(filters, ['(binary_id(=codeterm-mem-store) & test(=tests::graph::opaque))', 'test(=tests::graph::opaque)']);
   });
 
   test('serial confirmation reuses the selected archive without compiling or switching binaries', () => {
