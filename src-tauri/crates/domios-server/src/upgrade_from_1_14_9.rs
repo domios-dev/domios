@@ -15,6 +15,21 @@ const OLD_PROVIDER_SERVICE_PREFIX: &str = "codeterm.secrets.";
 const NEW_PROVIDER_SERVICE_PREFIX: &str = "domios.secrets.";
 const PROJECT_OLD_DIR: &str = ".codeterm";
 const PROJECT_NEW_DIR: &str = ".domios";
+const CLIENT_STARTUP_LOG: &str = "logs/client-startup.log";
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum DestinationEntryKind {
+    Directory,
+    File,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DestinationContent {
+    Empty,
+    ClientStartupTrail,
+    Other,
+}
 
 pub(super) fn run(
     identity: ResolvedInstancePaths,
@@ -45,13 +60,29 @@ fn migrate(
         .transpose()?
         .unwrap_or(false);
 
-    if old_exists && new_exists {
-        return Err(io::Error::other(format!(
-            "Cannot relocate data: both {} and {} exist; resolve them separately before starting Domios",
-            old_data.as_deref().unwrap().display(),
-            new_data.display()
-        )));
-    }
+    let destination_content = if old_exists && new_exists {
+        let inventory = destination_inventory(new_data).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!(
+                    "Cannot relocate data: both {} and {} exist; cannot inspect destination contents: {error}",
+                    old_data.as_deref().unwrap().display(),
+                    new_data.display()
+                ),
+            )
+        })?;
+        let content = classify_destination(&inventory);
+        if content == DestinationContent::Other {
+            return Err(io::Error::other(format!(
+                "Cannot relocate data: both {} and {} exist; resolve them separately before starting Domios",
+                old_data.as_deref().unwrap().display(),
+                new_data.display()
+            )));
+        }
+        Some(content)
+    } else {
+        None
+    };
 
     let mut notices = Vec::new();
     let mut project_roots = Vec::new();
@@ -76,16 +107,35 @@ fn migrate(
                 new_data.display()
             )));
         }
-        std::fs::rename(old_data, new_data).map_err(|error| {
-            io::Error::new(
+        let staged_client_trail = match destination_content {
+            Some(DestinationContent::ClientStartupTrail) => {
+                Some(stage_client_startup_trail(new_data, old_data)?)
+            }
+            Some(DestinationContent::Empty) => {
+                remove_empty_destination(new_data, old_data)?;
+                None
+            }
+            Some(DestinationContent::Other) | None => None,
+        };
+        if let Err(error) = std::fs::rename(old_data, new_data) {
+            let rollback = staged_client_trail
+                .as_deref()
+                .map(|staged| restore_client_startup_trail(staged, new_data));
+            let reason = match rollback {
+                Some(Err(rollback_error)) => {
+                    format!("{error}; could not restore the client startup trail: {rollback_error}")
+                }
+                _ => error.to_string(),
+            };
+            return Err(io::Error::new(
                 error.kind(),
                 format!(
-                    "Cannot atomically rename {} to {}: {error}",
+                    "Cannot atomically rename {} to {}: {reason}",
                     old_data.display(),
                     new_data.display()
                 ),
-            )
-        })?;
+            ));
+        }
         drop(old_owner);
     } else if new_exists {
         match workspace_roots(new_data) {
@@ -136,6 +186,156 @@ fn directory_exists(path: &Path) -> io::Result<bool> {
             "Runtime identity path is not a directory: {}",
             path.display()
         ))),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+fn destination_inventory(root: &Path) -> io::Result<BTreeSet<(PathBuf, DestinationEntryKind)>> {
+    let mut inventory = BTreeSet::new();
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let path = entry.path();
+        let relative = PathBuf::from(&name);
+        let metadata = std::fs::symlink_metadata(&path)?;
+        let kind = entry_kind(&metadata);
+        inventory.insert((relative.clone(), kind));
+        if relative == Path::new("logs") && kind == DestinationEntryKind::Directory {
+            for log_entry in std::fs::read_dir(path)? {
+                let log_entry = log_entry?;
+                let log_name = log_entry.file_name();
+                let log_path = log_entry.path();
+                let log_metadata = std::fs::symlink_metadata(&log_path)?;
+                inventory.insert((relative.join(log_name), entry_kind(&log_metadata)));
+            }
+        }
+    }
+    Ok(inventory)
+}
+
+fn entry_kind(metadata: &std::fs::Metadata) -> DestinationEntryKind {
+    if metadata.file_type().is_dir() {
+        DestinationEntryKind::Directory
+    } else if metadata.file_type().is_file() {
+        DestinationEntryKind::File
+    } else {
+        DestinationEntryKind::Other
+    }
+}
+
+fn classify_destination(
+    inventory: &BTreeSet<(PathBuf, DestinationEntryKind)>,
+) -> DestinationContent {
+    if inventory.len() == 2
+        && inventory.contains(&(PathBuf::from("logs"), DestinationEntryKind::Directory))
+        && inventory.contains(&(
+            PathBuf::from(CLIENT_STARTUP_LOG),
+            DestinationEntryKind::File,
+        ))
+    {
+        DestinationContent::ClientStartupTrail
+    } else if inventory.is_empty()
+        || (inventory.len() == 1
+            && inventory.contains(&(PathBuf::from("logs"), DestinationEntryKind::Directory)))
+    {
+        DestinationContent::Empty
+    } else {
+        DestinationContent::Other
+    }
+}
+
+fn stage_client_startup_trail(new_data: &Path, old_data: &Path) -> io::Result<PathBuf> {
+    let source = new_data.join(CLIENT_STARTUP_LOG);
+    let old_logs = old_data.join("logs");
+    std::fs::create_dir_all(&old_logs)?;
+    let primary = old_logs.join("client-startup.log");
+    let destination = if path_exists(&primary)? {
+        unique_client_trail_path(&old_logs)?
+    } else {
+        primary
+    };
+    std::fs::rename(&source, &destination).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "Cannot move client startup trail from {} into {}: {error}",
+                source.display(),
+                destination.display()
+            ),
+        )
+    })?;
+    let cleanup =
+        std::fs::remove_dir(new_data.join("logs")).and_then(|()| std::fs::remove_dir(new_data));
+    if let Err(error) = cleanup {
+        let rollback = restore_client_startup_trail(&destination, new_data);
+        let reason = match rollback {
+            Ok(()) => error.to_string(),
+            Err(rollback_error) => {
+                format!("{error}; could not restore the client startup trail: {rollback_error}")
+            }
+        };
+        return Err(io::Error::new(error.kind(), reason));
+    }
+    Ok(destination)
+}
+
+fn remove_empty_destination(new_data: &Path, old_data: &Path) -> io::Result<()> {
+    let logs = new_data.join("logs");
+    match std::fs::remove_dir(&logs) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(io::Error::new(
+                error.kind(),
+                format!(
+                    "Cannot remove empty destination {} before relocating {}: {error}",
+                    new_data.display(),
+                    old_data.display()
+                ),
+            ));
+        }
+    }
+    std::fs::remove_dir(new_data).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "Cannot remove empty destination {} before relocating {}: {error}",
+                new_data.display(),
+                old_data.display()
+            ),
+        )
+    })
+}
+
+fn restore_client_startup_trail(staged: &Path, new_data: &Path) -> io::Result<()> {
+    let destination = new_data.join(CLIENT_STARTUP_LOG);
+    let parent = destination
+        .parent()
+        .ok_or_else(|| io::Error::other("Client startup trail has no parent directory"))?;
+    std::fs::create_dir_all(parent)?;
+    std::fs::rename(staged, destination)
+}
+
+fn unique_client_trail_path(directory: &Path) -> io::Result<PathBuf> {
+    for _ in 0..8 {
+        let candidate = directory.join(format!(
+            "client-startup.log.relocated-{}",
+            uuid::Uuid::new_v4()
+        ));
+        if !path_exists(&candidate)? {
+            return Ok(candidate);
+        }
+    }
+    Err(io::Error::other(format!(
+        "Cannot reserve a path for the client startup trail in {}",
+        directory.display()
+    )))
+}
+
+fn path_exists(path: &Path) -> io::Result<bool> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(error),
     }
