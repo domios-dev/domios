@@ -106,8 +106,11 @@ test('a promotion run publishes without building, testing or a second warning re
   const evaluate = condition => new Function('needs', 'vars', `return (${condition.replace(/^\$\{\{\s*|\s*\}\}$/g, '')
     .replace(/!cancelled\(\)|always\(\)/g, 'true').replace(/needs\.([\w-]+)/g, "needs['$1']")});`);
   const prepare = { result: 'success', outputs: { promote_run_id: '41', published: 'false', kind: 'app', dry_run: 'false', run_tests: 'false' } };
+  assert.equal(evaluate(release.jobs['frontend-dist'].if)({ prepare }, {}), false);
   for (const id of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64', 'rust-warnings']) {
-    assert.equal(evaluate(release.jobs[id].if)({ prepare, 'quick-checks': { result: 'skipped' } }, {}), false, id);
+    // Even a successful bundle job could not start a build in a promotion run.
+    const needs = { prepare, 'quick-checks': { result: 'skipped' }, 'frontend-dist': { result: 'success' } };
+    assert.equal(evaluate(release.jobs[id].if)(needs, {}), false, id);
   }
   assert.equal(evaluate(release.jobs['quick-checks'].if)({ prepare }, {}), false);
   const vars = { RELEASE_PUBLISH_ENABLED: 'true' };

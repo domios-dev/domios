@@ -143,7 +143,12 @@ and workflow conditions; never call cancelled jobs passes or assume who cancelle
 
 ## One build, two distributions
 
-Per target, build frontend, CLI and release server once, then native client once. Both distributions
+A release run builds the platform-independent frontend once in its `frontend-dist` job; each
+platform job fetches that archive, checks its SHA-256 and installs it as `dist` through
+`CODETERM_FRONTEND_ARCHIVE`/`CODETERM_FRONTEND_SHA256` instead of building it. Direct platform
+dispatches, without that digest, still build their own frontend.
+
+Per target, build CLI and release server once, then native client once. Both distributions
 consume the same final server/CLI/resources; packaging must not compile them again.
 
 1. `release-inputs --for-bundle` builds inputs and stages the actual frontend at

@@ -2413,7 +2413,12 @@ prepare_release_bundle_inputs() {
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     cargo_target_args=(--target "$CARGO_BUILD_TARGET")
   fi
-  pnpm build
+  # A release run builds the frontend once; its jobs install those bytes with a verified digest.
+  if [ -n "${CODETERM_FRONTEND_ARCHIVE:-}" ]; then
+    node scripts/release-frontend-dist.mjs install "$CODETERM_FRONTEND_ARCHIVE" "${CODETERM_FRONTEND_SHA256:-}" dist
+  else
+    pnpm build
+  fi
   if [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" = 1 ]; then
     node scripts/release-stage.mjs stage-build-resources --target "${CARGO_BUILD_TARGET:-$(ct_host_triple)}"
   fi

@@ -201,6 +201,47 @@ jobs:
             node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG"
           fi
 
+  # The platform-independent frontend is built once; every platform job installs these bytes by digest.
+  frontend-dist:
+    name: frontend bundle
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
+    runs-on: [self-hosted, linux-build]
+    timeout-minutes: 20
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+    outputs:
+      sha256: ${{ steps.bundle.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build, store and digest the frontend bundle
+        id: bundle
+        run: |
+          set -euo pipefail
+          pnpm build
+          digest=$(node scripts/release-frontend-dist.mjs publish dist "$RUNNER_TEMP/frontend-dist.tar" "$GITHUB_RUN_ID" | tail -n 1)
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          echo "sha256=$digest" >> "$GITHUB_OUTPUT"
+          echo "Frontend bundle sha256 $digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
+
   # Builds on machines no fast check uses start at once; the first failed fast check cancels the run.
   quick-checks:
     name: Fast checks
@@ -240,9 +281,9 @@ jobs:
 
   macos-arm64:
     name: macOS arm64
-    needs: prepare
+    needs: [prepare, frontend-dist]
     if: >-
-      !cancelled() && needs.prepare.result == 'success'
+      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-macos-build.yml
     with:
@@ -250,14 +291,15 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
       dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
+      frontend_sha256: ${{ needs.frontend-dist.outputs.sha256 }}
       arch: arm64
     secrets: inherit
 
   macos-x64:
     name: macOS x64
-    needs: prepare
+    needs: [prepare, frontend-dist]
     if: >-
-      !cancelled() && needs.prepare.result == 'success'
+      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-macos-build.yml
     with:
@@ -265,14 +307,15 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
       dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
+      frontend_sha256: ${{ needs.frontend-dist.outputs.sha256 }}
       arch: x86_64
     secrets: inherit
 
   linux-arm64:
     name: Linux arm64
-    needs: prepare
+    needs: [prepare, frontend-dist]
     if: >-
-      !cancelled() && needs.prepare.result == 'success'
+      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-linux-arm64.yml
     with:
@@ -280,14 +323,15 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
       dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
+      frontend_sha256: ${{ needs.frontend-dist.outputs.sha256 }}
     secrets: inherit
 
   # Linux x64 builds on the linux-ci machines the fast checks use, so it waits for them.
   linux-x86_64:
     name: Linux x64
-    needs: [prepare, quick-checks]
+    needs: [prepare, quick-checks, frontend-dist]
     if: >-
-      !cancelled() && needs.prepare.result == 'success'
+      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
       && (needs.quick-checks.result == 'success' || needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-linux.yml
@@ -296,13 +340,14 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
       dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
+      frontend_sha256: ${{ needs.frontend-dist.outputs.sha256 }}
     secrets: inherit
 
   windows-x64:
     name: Windows x64
-    needs: prepare
+    needs: [prepare, frontend-dist]
     if: >-
-      !cancelled() && needs.prepare.result == 'success'
+      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-windows.yml
     with:
@@ -310,14 +355,15 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
       dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
+      frontend_sha256: ${{ needs.frontend-dist.outputs.sha256 }}
       arch: x64
     secrets: inherit
 
   windows-arm64:
     name: Windows arm64
-    needs: prepare
+    needs: [prepare, frontend-dist]
     if: >-
-      !cancelled() && needs.prepare.result == 'success'
+      !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-windows.yml
     with:
@@ -325,6 +371,7 @@ jobs:
       source_ref: ${{ needs.prepare.outputs.source_ref }}
       mirror: ${{ needs.prepare.outputs.mirror == 'true' }}
       dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}
+      frontend_sha256: ${{ needs.frontend-dist.outputs.sha256 }}
       arch: arm64
     secrets: inherit
 

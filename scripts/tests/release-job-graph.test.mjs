@@ -57,7 +57,7 @@ test('macOS and Linux arm64 have separate jobs, routing variables and manifest d
     const reusable = workflow(name);
     assert.deepEqual(Object.keys(reusable.on), name === 'release-macos-build'
       ? ['workflow_dispatch', 'workflow_call'] : ['workflow_call']);
-    assert.deepEqual(Object.keys(reusable.on.workflow_call.inputs), ['tag', 'source_ref', 'mirror', 'dry_run', ...(arch ? ['arch'] : [])]);
+    assert.deepEqual(Object.keys(reusable.on.workflow_call.inputs), ['tag', 'source_ref', 'mirror', 'dry_run', ...(arch ? ['arch'] : []), 'frontend_sha256']);
     assert.deepEqual(Object.keys(reusable.jobs), ['build']);
     assert.equal(reusable.jobs.build.if, undefined);
   }
@@ -204,9 +204,11 @@ test('Mac jobs provision secret material before building and always clean up', (
 
 test('builds on machines no fast check uses overlap the fast checks; the rest wait for them', () => {
   for (const build of ['macos-arm64', 'macos-x64', 'linux-arm64', 'windows-x64', 'windows-arm64']) {
-    assert.equal(release.jobs[build].needs, 'prepare');
+    assert.deepEqual(release.jobs[build].needs, ['prepare', 'frontend-dist']);
   }
-  for (const id of ['linux-x86_64', 'tests']) assert.deepEqual(release.jobs[id].needs, ['prepare', 'quick-checks']);
+  assert.deepEqual(release.jobs['linux-x86_64'].needs, ['prepare', 'quick-checks', 'frontend-dist']);
+  assert.deepEqual(release.jobs.tests.needs, ['prepare', 'quick-checks']);
+  assert.equal(release.jobs['frontend-dist'].needs, 'prepare');
   assert.equal(release.jobs.tests.with.phase, 'long');
   assert.ok(release.jobs['release-manifest'].needs.includes('quick-checks'));
 });
