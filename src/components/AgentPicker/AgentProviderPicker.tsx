@@ -7,7 +7,9 @@ import { ProviderCard } from "./ProviderCard";
 import { preselectProviderId, providerAvailability } from "./preselectProvider";
 import { useProviderAvailability } from "./useProviderAvailability";
 import { listen } from "../../lib/bridge";
+import { PROVIDER_AVAILABILITY_CHANGED, type ProviderAvailabilityChange } from "../../lib/providerAvailability";
 import { Button } from "../shared/Button";
+import { shouldReturnToPicker, type PickerNavigation, type TabRef } from "./pickerNavigation";
 
 interface AgentProviderPickerProps {
   headline: string;
@@ -16,6 +18,9 @@ interface AgentProviderPickerProps {
   confirmLabel?: string;
   busy?: boolean;
   onConfirm: (providerId: string) => void;
+  navigation?: PickerNavigation;
+  /** The tab hosting this picker, where a successful install returns the user. */
+  home?: TabRef;
 }
 
 export function AgentProviderPicker({
@@ -25,6 +30,8 @@ export function AgentProviderPicker({
   confirmLabel = "Confirm",
   busy,
   onConfirm,
+  navigation,
+  home,
 }: AgentProviderPickerProps) {
   const headlineId = useId();
   const { observed, state, refresh, silentRefresh } = useProviderAvailability(providers);
@@ -45,12 +52,23 @@ export function AgentProviderPicker({
 
   const silentRef = useRef(silentRefresh);
   silentRef.current = silentRefresh;
+  const installerTab = useRef<string | null>(null);
+  const route = useRef({ navigation, home });
+  route.current = { navigation, home };
   useEffect(() => {
     let active = true;
     let unlisten: (() => void) | undefined;
     const refresh = () => { if (active) void silentRef.current(); };
+    const returnHome = ({ payload }: { payload: ProviderAvailabilityChange }) => {
+      const { navigation: nav, home: target } = route.current;
+      if (!active || !nav || !target || !shouldReturnToPicker(payload, installerTab.current, nav.activeTabId())) return;
+      installerTab.current = null;
+      void nav.show(target);
+    };
     window.addEventListener("focus", refresh);
-    void listen("provider-cli-completed", refresh).then((stop) => { if (active) unlisten = stop; else stop(); }).catch(() => {});
+    void listen<ProviderAvailabilityChange>(PROVIDER_AVAILABILITY_CHANGED, returnHome)
+      .then((stop) => { if (active) unlisten = stop; else stop(); })
+      .catch(() => {});
     return () => { active = false; unlisten?.(); window.removeEventListener("focus", refresh); };
   }, []);
 
@@ -58,7 +76,10 @@ export function AgentProviderPicker({
     setInstallBusy(true);
     setInstallError(null);
     try {
-      await launchProviderInstaller(providerId);
+      const launch = await launchProviderInstaller(providerId);
+      installerTab.current = launch.tab_id;
+      const workspaceId = launch.workspace_id ?? home?.workspaceId;
+      if (navigation && workspaceId) await navigation.show({ workspaceId, tabId: launch.tab_id });
     } catch (error) {
       setInstallError(error instanceof Error ? error.message : String(error));
     } finally {

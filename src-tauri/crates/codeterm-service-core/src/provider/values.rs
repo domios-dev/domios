@@ -2,11 +2,16 @@ pub fn list_agent_provider_values(
     registry: &crate::provider::ProviderRegistry,
 ) -> Vec<serde_json::Value> {
     let revision = registry.catalogue_revision();
-    if let Some(values) = registry
+    let cached = registry
         .catalogue_values_cache
         .lock()
-        .get("providers", &revision)
-    {
+        .get("providers", &revision);
+    if let Some(values) = cached.filter(|values| {
+        super::catalogue_cache::misses_still_hold(
+            super::catalogue_cache::unresolved_listing(values),
+            super::catalogue_cache::binary_found,
+        )
+    }) {
         return values;
     }
     let values = registry
