@@ -61,10 +61,27 @@ async function files(directory) {
 function invoke(script, args) {
   execFileSync(process.execPath, [path.join(root, 'scripts', script), ...args], { cwd: root, stdio: 'inherit' });
 }
-function store(verb, key, destination) {
+const STORE_BASE_MS = 20 * 60_000;
+const STORE_FLOOR_BYTES_PER_SECOND = 128 * 1024;
+const PLATFORM_EVIDENCE_BYTES = 256 * 1024 * 1024;
+export function storeTimeoutMs(bytes = 0) {
+  return STORE_BASE_MS + Math.ceil(bytes / STORE_FLOOR_BYTES_PER_SECOND) * 1000;
+}
+function runStore(verb, key, destination, timeout) {
   const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
   execFileSync(bash, ['scripts/ci-artifact.sh', verb, key, destination.replaceAll('\\', '/')],
-    { cwd: root, stdio: 'inherit', timeout: 300000 });
+    { cwd: root, stdio: 'inherit', timeout });
+}
+// Only a transfer deadline is retried, once; a store error the transport reports fails at once.
+export function store(verb, key, destination, { bytes = 0, run = runStore, now = Date.now, log = console.warn } = {}) {
+  const timeout = storeTimeoutMs(bytes);
+  for (let attempt = 1; ; attempt++) {
+    const started = now();
+    try { return run(verb, key, destination, timeout); } catch (error) {
+      if (error?.code !== 'ETIMEDOUT' || attempt > 1) throw error;
+      log(`::warning::ci-artifact ${verb} ${key} (${bytes} bytes) timed out after ${Math.round((now() - started) / 1000)}s; retrying once`);
+    }
+  }
 }
 function verify(manifest, directory, version, platforms, pubkey) {
   invoke('verify-updater-manifest.mjs', ['--manifest', manifest, '--local', directory,
@@ -178,10 +195,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       await capture({ tag, sourceSha, platform, artifactDirectory, headlessDirectory, outputDirectory });
       const stored = (await readdir(outputDirectory)).sort((left, right) =>
         Number(left === 'dry-run-evidence.json') - Number(right === 'dry-run-evidence.json'));
-      for (const file of stored) store('put', `${runId}/release-dry-run/${platform}/${file}`, path.join(outputDirectory, file));
+      for (const file of stored) {
+        const local = path.join(outputDirectory, file);
+        store('put', `${runId}/release-dry-run/${platform}/${file}`, local, { bytes: (await lstat(local)).size });
+      }
     } else if (verb === 'aggregate') {
       const [inputDirectory, outputDirectory] = args;
-      for (const platform of PLATFORMS) store('get-prefix', `${runId}/release-dry-run/${platform}/`, path.join(inputDirectory, platform));
+      for (const platform of PLATFORMS) {
+        store('get-prefix', `${runId}/release-dry-run/${platform}/`, path.join(inputDirectory, platform), { bytes: PLATFORM_EVIDENCE_BYTES });
+      }
       await aggregate({ tag, sourceSha, inputDirectory, outputDirectory });
     } else throw new Error('unknown dry-run manifest operation');
   } catch (error) { console.error('local dry-run manifest refused: ' + error.message); process.exitCode = 1; }

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { aggregate, capture, PLATFORMS } from '../release-dry-run-manifest.mjs';
+import { aggregate, capture, PLATFORMS, store, storeTimeoutMs } from '../release-dry-run-manifest.mjs';
 import { HEADLESS_TARGETS, headlessAssetNames } from '../headless-release-package.mjs';
 
 const tag = 'v9.9.9';
@@ -154,4 +154,33 @@ test('aggregate refuses a changed DMG or headless byte and a DMG missing from th
       files: darwinReceipt.files.filter(file => file.name !== dmgName('darwin-aarch64')) }));
     await assert.rejects(aggregate(args), /incomplete platform evidence: darwin-aarch64/);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('store sizes its transfer deadline and retries a timed-out transfer once with the elapsed time', () => {
+  const hundredMiB = 100 * 1024 * 1024;
+  assert.ok(storeTimeoutMs(hundredMiB) > 12 * 60_000);
+  assert.ok(storeTimeoutMs(hundredMiB) > storeTimeoutMs(0));
+  assert.equal(storeTimeoutMs(0), 20 * 60_000);
+  const timedOut = () => Object.assign(new Error('spawnSync bash ETIMEDOUT'), { code: 'ETIMEDOUT' });
+  let clock = 0;
+  const now = () => clock;
+  const calls = [];
+  const logs = [];
+  const slowOnce = (...args) => {
+    calls.push(args);
+    clock += 1_500_000;
+    if (calls.length === 1) throw timedOut();
+    return 'stored';
+  };
+  assert.equal(store('put', 'k', 'f', { bytes: hundredMiB, run: slowOnce, now, log: line => logs.push(line) }), 'stored');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0][3], storeTimeoutMs(hundredMiB));
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /put k \(104857600 bytes\) timed out after 1500s; retrying once/);
+  const always = () => { throw timedOut(); };
+  assert.throws(() => store('put', 'k', 'f', { run: always, now, log: () => {} }), /ETIMEDOUT/);
+  let refused = 0;
+  const storeError = () => { refused++; throw Object.assign(new Error('curl: (22) 403'), { status: 22 }); };
+  assert.throws(() => store('put', 'k', 'f', { run: storeError, now, log: () => {} }), /403/);
+  assert.equal(refused, 1);
 });
