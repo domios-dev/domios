@@ -1,0 +1,20 @@
+name: Upload spooled CI artifacts
+description: Uploads what scripts/ci-artifact.sh spooled while the private store was unreachable.
+runs:
+  using: composite
+  steps:
+    - id: spool
+      shell: bash
+      run: |
+        spool="$RUNNER_TEMP/ci-artifact-spool"
+        if [ -f "$spool/.name" ]; then
+          echo "name=$(cat "$spool/.name")" >> "$GITHUB_OUTPUT"
+          echo "path=$spool" >> "$GITHUB_OUTPUT"
+        fi
+    - if: steps.spool.outputs.name != ''
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: ${{ steps.spool.outputs.name }}
+        path: ${{ steps.spool.outputs.path }}
+        if-no-files-found: error
+        retention-days: 7

@@ -212,11 +212,17 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: release-macOS
           target: ${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
 
       # Without a compile step no sccache server ever started, so there is nothing to report.
       - name: Shared compile cache statistics
         if: ${{ always() && steps.compile.outcome != 'skipped' }}
         run: bash build.sh cache-stats
+      - name: Stop this job's local compile cache
+        if: always()
+        run: bash build.sh cache-release
       - name: Remove this job's Rust targets and archives
         if: always()
         continue-on-error: true

@@ -128,7 +128,23 @@ export async function capture({ tag, platform, sourceSha, artifactDirectory, hea
   return receipt;
 }
 
-export async function aggregate({ tag, sourceSha, inputDirectory, outputDirectory, pubkey }) {
+export function parseSources(text, runId) {
+  const prefix = `${runId}/release-dry-run/`;
+  const locations = new Map();
+  for (const line of text.split('\n').filter(Boolean)) {
+    const [key, location] = line.split('\t');
+    if (key.startsWith(prefix) && location) locations.set(key.slice(prefix.length), location);
+  }
+  return locations;
+}
+
+export function retention(locations, platform, files) {
+  const rows = files.map(file => ({ ...file, location: locations.get(`${platform}/${file.name}`) ?? null }));
+  const viaArtifact = rows.some(row => row.location?.startsWith('run-artifact:'));
+  return { retained_via: viaArtifact ? 'ci-artifact' : 'private-store', files: rows };
+}
+
+export async function aggregate({ tag, sourceSha, inputDirectory, outputDirectory, pubkey, locations = new Map() }) {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'domios-local-manifest-'));
   try {
     const main = path.join(scratch, 'main');
@@ -169,7 +185,7 @@ export async function aggregate({ tag, sourceSha, inputDirectory, outputDirector
       const actualNames = (await readdir(directory)).sort();
       if (JSON.stringify(actualNames) !== JSON.stringify(['dry-run-evidence.json', ...seen].sort())) throw new Error('unlisted dry-run evidence files');
       await verifyHeadlessAssets({ tag, platform, directory, sourceSha });
-      evidence.push(receipt);
+      evidence.push({ ...receipt, ...retention(locations, platform, [...receipt.files, { name: 'dry-run-evidence.json' }]) });
     }
     const latest = path.join(scratch, 'latest.json');
     const latestDeb = path.join(scratch, 'latest-deb.json');
@@ -180,7 +196,8 @@ export async function aggregate({ tag, sourceSha, inputDirectory, outputDirector
     await mkdir(outputDirectory, { recursive: true });
     await copyFile(latest, path.join(outputDirectory, 'latest.json'));
     await copyFile(latestDeb, path.join(outputDirectory, 'latest-deb.json'));
-    const result = { schema: 1, mode: 'local_dry_run', tag, source_sha: sourceSha, platforms: PLATFORMS, evidence };
+    const retainedVia = evidence.some(entry => entry.retained_via === 'ci-artifact') ? 'ci-artifact' : 'private-store';
+    const result = { schema: 1, mode: 'local_dry_run', tag, source_sha: sourceSha, platforms: PLATFORMS, retained_via: retainedVia, evidence };
     await writeFile(path.join(outputDirectory, 'manifest-local-verification.json'), JSON.stringify(result, null, 2) + '\n');
     return result;
   } finally { await rm(scratch, { recursive: true, force: true }); }
@@ -201,10 +218,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       }
     } else if (verb === 'aggregate') {
       const [inputDirectory, outputDirectory] = args;
+      const sources = path.join(await mkdtemp(path.join(os.tmpdir(), 'dry-run-sources-')), 'sources.tsv');
+      await writeFile(sources, '');
+      process.env.CI_ARTIFACT_SOURCES = sources;
       for (const platform of PLATFORMS) {
         store('get-prefix', `${runId}/release-dry-run/${platform}/`, path.join(inputDirectory, platform), { bytes: PLATFORM_EVIDENCE_BYTES });
       }
-      await aggregate({ tag, sourceSha, inputDirectory, outputDirectory });
+      await aggregate({ tag, sourceSha, inputDirectory, outputDirectory, locations: parseSources(await readFile(sources, 'utf8'), runId) });
     } else throw new Error('unknown dry-run manifest operation');
   } catch (error) { console.error('local dry-run manifest refused: ' + error.message); process.exitCode = 1; }
 }

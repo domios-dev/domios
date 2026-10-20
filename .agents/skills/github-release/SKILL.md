@@ -112,6 +112,13 @@ evidence; no public release, tag, channel asset or issue-closure boundary is cre
 dispatch inputs pin the producing run ID, tag and source SHA for a follow-up within retention.
 An older run that did not retain those inputs cannot be retroactively called validated.
 
+The store endpoint is defined once in `scripts/ci-store.sh`. When a CI job finds it unreachable,
+`ci-artifact.sh put` spools the file with a warning and the job's `ci-artifact-spool` action uploads
+it as a run artifact; `get`/`get-prefix` read `<run-id>/...` keys back from that run's artifacts.
+`manifest-local-verification.json` records `retained_via` and a per-file `location`. Rust jobs then
+compile with a job-local sccache that `build.sh cache-release` stops at job end. A reachable store
+that refuses a request, and any digest or signature mismatch, still fail.
+
 For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml` or
 `release-macos-build.yml` with explicit `source_ref`, tag, selected architecture, `dry_run=true`
 and `mirror=false`, using that workflow's declared inputs. `tests.yml` accepts `phase=fast`.

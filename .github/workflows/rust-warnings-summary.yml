@@ -41,6 +41,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci-artifact.sh get-prefix "$GITHUB_RUN_ID/rust-warnings/" ci-rust-warnings
       - name: Merge warnings and enforce ratchet
         env:
@@ -59,6 +60,9 @@ jobs:
             [ -f "$file" ] || continue
             bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/$WARNING_REPORT_NAME/${file##*/}" "$file"
           done
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
       - name: Comment on associated release PR
         if: ${{ always() && inputs.comment }}
         continue-on-error: true
