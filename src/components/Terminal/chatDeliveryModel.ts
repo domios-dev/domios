@@ -35,6 +35,14 @@ export function deliveryState(send: DeliverySend): DeliveryState {
   return send.status?.state === "held" ? "queued" : "sending";
 }
 
+/** Echoes are recorded from the rendered projection, so a hidden chat stays live until its sends settle. */
+export function awaitsTranscriptEcho(sends: readonly DeliverySend[]): boolean {
+  return sends.some((send) => {
+    const state = deliveryState(send);
+    return !send.dismissed && state !== "delivered" && state !== "failed";
+  });
+}
+
 export function deliveryPresentation(send: DeliverySend, activity: TabActivity["kind"]): DeliveryState {
   const state = deliveryState(send);
   if (send.status?.state !== "written" && send.status?.state !== "submit_unconfirmed") return state;
