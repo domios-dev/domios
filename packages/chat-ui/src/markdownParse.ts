@@ -13,7 +13,7 @@ export function createMarkdownParser<T>(parse: (source: string) => T, maxChars =
       return hit;
     }
     const tree = parse(source);
-    if (source.length > Math.min(50_000, maxChars)) return tree;
+    if (source.length > maxChars) return tree;
     cache.set(source, tree);
     chars += source.length;
     while (chars > maxChars || cache.size > maxEntries) {

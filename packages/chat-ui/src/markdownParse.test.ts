@@ -124,3 +124,12 @@ test("a long streamed list re-parses only its last item and keeps list semantics
   }
   assert.ok(Math.max(...parsed.slice(parsed.length / 2)) < 120, `largest late re-parse ${Math.max(...parsed.slice(parsed.length / 2))} chars`);
 });
+
+test("long finished messages stay cached instead of re-parsing on every render", () => {
+  let parses = 0;
+  const parse = createMarkdownParser((source) => { parses++; return { source }; });
+  const long = "A long paragraph of agent output.\n\n".repeat(3000);
+  assert.ok(long.length > 100_000);
+  assert.equal(parse(long), parse(long));
+  assert.equal(parses, 1);
+});
