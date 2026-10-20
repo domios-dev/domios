@@ -15,7 +15,7 @@ test('dry-run consolidated manifests depend on all six builds and use only priva
     assert.ok(caller.needs.includes(job));
   }
   const local = workflow('release-manifest-dry-run');
-  assert.deepEqual(local.permissions, { contents: 'read' });
+  assert.deepEqual(local.permissions, { contents: 'read', actions: 'read' });
   const text = readFileSync(new URL('../../.github/workflows/release-manifest-dry-run.yml', import.meta.url), 'utf8');
   assert.doesNotMatch(text, /gh release|git (?:push|tag)|PACKAGE_REPOS_TOKEN|GH_RELEASE_TOKEN/);
   assert.match(text, /release-dry-run-manifest\.mjs aggregate/);
@@ -57,7 +57,7 @@ test('macOS and Linux arm64 have separate jobs, routing variables and manifest d
     const reusable = workflow(name);
     assert.deepEqual(Object.keys(reusable.on), name === 'release-macos-build'
       ? ['workflow_dispatch', 'workflow_call'] : ['workflow_call']);
-    assert.deepEqual(Object.keys(reusable.on.workflow_call.inputs), ['tag', 'source_ref', 'mirror', 'dry_run', ...(arch ? ['arch'] : [])]);
+    assert.deepEqual(Object.keys(reusable.on.workflow_call.inputs), ['tag', 'source_ref', 'mirror', 'dry_run', ...(arch ? ['arch'] : []), 'frontend_sha256']);
     assert.deepEqual(Object.keys(reusable.jobs), ['build']);
     assert.equal(reusable.jobs.build.if, undefined);
   }
@@ -117,6 +117,31 @@ test('every platform checks its own built bundle before any upload, with indepen
     }
   }
   assert.equal(workflow('release-windows').jobs.build.strategy['fail-fast'], false);
+});
+const expression = text => new Function('github', 'inputs', 'vars', 'format',
+  `return (${text.replace(/^\$\{\{\s*|\s*\}\}$/g, '')});`);
+const format = (template, ...values) => template.replace(/\{(\d+)\}/g, (_, i) => values[i]);
+test('a release-branch push stays a dry run of its own branch until publication is enabled', () => {
+  const env = release.jobs.prepare.steps.find(step => step.id === 'release').env;
+  const dryRun = expression(env.DRY_RUN);
+  const runTests = expression(env.RUN_TESTS);
+  const group = expression(release.concurrency.group);
+  const push = { event_name: 'push', ref_name: 'release/1.15.0' };
+  const dispatch = { event_name: 'workflow_dispatch', ref_name: 'release/1.15.0' };
+  const off = {};
+  const on = { RELEASE_PUBLISH_ENABLED: 'true' };
+  assert.equal(dryRun(push, {}, off, format), 'true');
+  assert.equal(runTests(push, {}, off, format), 'true');
+  assert.equal(group(push, {}, off, format), 'release-dry-run-release/1.15.0');
+  assert.equal(dryRun(push, {}, on, format), 'false');
+  assert.equal(group(push, {}, on, format), 'release-publication');
+  const dry = { dry_run: true, tag: 'v1.15.0', dry_run_tests: false };
+  assert.equal(dryRun(dispatch, dry, on, format), 'true');
+  assert.equal(runTests(dispatch, dry, on, format), 'false');
+  assert.equal(runTests(dispatch, { ...dry, dry_run_tests: true }, on, format), 'true');
+  assert.equal(group(dispatch, dry, on, format), 'release-dry-run-v1.15.0');
+  assert.equal(runTests(dispatch, { dry_run: false, tag: 'v1.15.0' }, on, format), 'true');
+  for (const [id, job] of Object.entries(release.jobs)) assert.doesNotMatch(job.if || '', /inputs\.dry_run_tests/, id);
 });
 test('production publications serialize and verify draft bytes before becoming public', () => {
   assert.equal(release.concurrency['cancel-in-progress'], "${{ inputs.dry_run == true || vars.RELEASE_PUBLISH_ENABLED != 'true' }}");
@@ -179,9 +204,11 @@ test('Mac jobs provision secret material before building and always clean up', (
 
 test('builds on machines no fast check uses overlap the fast checks; the rest wait for them', () => {
   for (const build of ['macos-arm64', 'macos-x64', 'linux-arm64', 'windows-x64', 'windows-arm64']) {
-    assert.equal(release.jobs[build].needs, 'prepare');
+    assert.deepEqual(release.jobs[build].needs, ['prepare', 'frontend-dist']);
   }
-  for (const id of ['linux-x86_64', 'tests']) assert.deepEqual(release.jobs[id].needs, ['prepare', 'quick-checks']);
+  assert.deepEqual(release.jobs['linux-x86_64'].needs, ['prepare', 'quick-checks', 'frontend-dist']);
+  assert.deepEqual(release.jobs.tests.needs, ['prepare', 'quick-checks']);
+  assert.equal(release.jobs['frontend-dist'].needs, 'prepare');
   assert.equal(release.jobs.tests.with.phase, 'long');
   assert.ok(release.jobs['release-manifest'].needs.includes('quick-checks'));
 });
@@ -195,10 +222,13 @@ test('native release processes share a job wrapper and verify before compiling',
     const verify = commands.findIndex(command => /build\.(?:sh|ps1) cache-verify/.test(command));
     const compile = commands.findIndex(command => /mac-bundle|build\.(?:sh|ps1) release-(?:inputs|bundle)/.test(command));
     assert.ok(verify >= 0 && compile > verify, name);
-    const stats = job.steps.at(-2);
+    const stats = job.steps.at(-3);
     assert.equal(stats.if, "${{ always() && steps.compile.outcome != 'skipped' }}");
     assert.equal(job.steps[compile].id, 'compile', name);
     assert.match(stats.run, /build\.(?:sh|ps1) cache-stats/);
+    const release = job.steps.at(-2);
+    assert.equal(release.if, 'always()', name);
+    assert.match(release.run, /build\.(?:sh|ps1) cache-release/);
     if (name === 'release-windows') {
       assert.equal(stats.shell, 'pwsh');
       assert.ok(job.steps.every(step => step.shell !== 'bash'));

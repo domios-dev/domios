@@ -833,3 +833,42 @@ test('nextest verbs use the shared notification wrapper for validation failures'
     } finally { rmSync(h.dir, { recursive: true, force: true }); }
   }
 });
+
+test("early_failure_receipt_names_the_guard_failure_not_gateway_bookkeeping", () => {
+  const h = makeHarness();
+  try {
+    const log = path.join(h.dir, "preflight.log");
+    const captured = [
+      "==> provider boundary",
+      "\u001b[31mProvider boundary FAIL: added occurrence src/agent/x.rs:\"codex\" (1 > 0)\u001b[0m",
+      "[build-gateway] sccache server at job end: pid=4242 started=2026-10-20T05:00:00Z",
+      "",
+    ].join("\n");
+    const firstFailure = (contents) => {
+      writeFileSync(log, contents);
+      const result = runBash(["-c", `source ${shellQuote(helperPath)}\nreport_first_failure ${shellQuote(log)}`], h.env);
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    assert.equal(firstFailure(captured), 'Provider boundary FAIL: added occurrence src/agent/x.rs:"codex" (1 > 0)');
+    assert.equal(firstFailure("thread 'main' panicked at src/lib.rs:3:5:\n[build-gateway] done\n"), "thread 'main' panicked at src/lib.rs:3:5:");
+    assert.equal(firstFailure("test result: FAILED. 3 passed; 1 failed\n"), "test result: FAILED. 3 passed; 1 failed");
+    assert.equal(firstFailure("  ✗ FAILED: src/a.test.ts\n"), "✗ FAILED: src/a.test.ts");
+    assert.equal(firstFailure("plain cause\n[build-gateway] sccache server at job end: x\n"), "plain cause");
+
+    const marker = path.join(h.dir, "early-sent");
+    const script = [
+      "source " + shellQuote(helperPath),
+      "dev_notify_capture_parent",
+      `report_run_stream ${shellQuote(marker)} agent-tab release-preflight guards ${shellQuote(path.join(h.dir, "stream.log"))} ` +
+        "bash -c " + shellQuote("echo 'Provider boundary FAIL: added occurrence'; echo '[build-gateway] sccache server at job end: x'; exit 1"),
+    ].join("\n");
+    const result = runBash(["-c", script], h.env);
+    assert.equal(result.status, 1, result.stderr);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1, JSON.stringify(sent));
+    assert.match(sent[0].body, /First failure: Provider boundary FAIL: added occurrence\n/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});

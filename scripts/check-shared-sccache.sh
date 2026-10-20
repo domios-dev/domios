@@ -25,7 +25,7 @@ sccache() {
         [ "$AWS_ACCESS_KEY_ID" = fixture-access ]
         [ "$AWS_SECRET_ACCESS_KEY" = fixture-secret ]
         [ -z "${AWS_SESSION_TOKEN:-}" ]
-        [ "$SCCACHE_ENDPOINT" = http://100.64.10.5:9000 ]
+        [ "$SCCACHE_ENDPOINT" = "$CT_CI_STORE_ENDPOINT" ]
         [ "$SCCACHE_BUCKET:$SCCACHE_REGION:$SCCACHE_S3_USE_SSL" = sccache:us-east-1:false ]
         printf 's3, name: sccache, prefix: /%s' "${SCCACHE_S3_KEY_PREFIX:-}" > "$WORK/location"
       else
@@ -103,7 +103,7 @@ printf 'PASS CI target paths and developer target isolation\n'
   ct_sccache_status
   [ ! -e "$WORK/events" ]
 ) > "$WORK/status.log"
-grep -Eq '^sccache: shared S3 cache at http://100.64.10.5:9000/sccache$' "$WORK/status.log"
+grep -Fqx "sccache: shared S3 cache at $CT_CI_STORE_ENDPOINT/sccache" "$WORK/status.log"
 grep -Eq '^running server: Cache location Local disk:' "$WORK/status.log"
 grep -Eq '^shared endpoint health: 200$' "$WORK/status.log"
 ! grep -Eq 'fixture-access|fixture-secret' "$WORK/status.log"
@@ -280,3 +280,47 @@ printf 'PASS stats refuses offline synthetic counters and names the endpoint\n'
   [ -e "$WORK/idle-scans" ]
 ) > "$WORK/owned-busy.log" 2>&1
 printf 'PASS exact gateway owner skips global idle scans; foreign marker refuses\n'
+
+(
+  export GITHUB_ENV="$WORK/github-env" RUNNER_TEMP="$WORK/runner-temp" GITHUB_RUN_ID=7 GITHUB_JOB=fixture
+  : > "$GITHUB_ENV"
+  rm -f "$WORK/location" "$WORK/events"
+  unset CODETERM_SCCACHE_STORAGE CODETERM_SCCACHE_JOB_LOCAL SCCACHE_DIR SCCACHE_SERVER_PORT
+  ct_ci_store_reachable() { return 1; }
+  ct_sccache_server_live() { [ -e "$WORK/location" ]; }
+  ct_sccache_verify
+  grep -qx CODETERM_SCCACHE_JOB_LOCAL=1 "$GITHUB_ENV"
+  grep -qx CODETERM_SCCACHE_STORAGE=local "$GITHUB_ENV"
+  grep -q '^SCCACHE_DIR=.*/runner-temp/sccache-job-7-fixture-' "$GITHUB_ENV"
+  grep -Eq '^SCCACHE_SERVER_PORT=[0-9]+$' "$GITHUB_ENV"
+  [ -d "$SCCACHE_DIR" ]
+  ct_sccache_verify
+  [ "$(grep -c '^start$' "$WORK/events")" = 1 ]
+  dir="$SCCACHE_DIR"
+  ct_sccache_release_job_local
+  [ ! -e "$WORK/location" ] && [ ! -d "$dir" ]
+  grep -qx stop "$WORK/events"
+) > "$WORK/job-local.log" 2>&1
+grep -q '^::warning::private store .* is unreachable; this job compiles with a job-local sccache' "$WORK/job-local.log"
+printf 'PASS an unreachable store degrades a CI job to a job-local cache that its end step removes\n'
+
+(
+  export GITHUB_ENV="$WORK/github-env-up"
+  : > "$GITHUB_ENV"
+  unset CODETERM_SCCACHE_STORAGE CODETERM_SCCACHE_JOB_LOCAL
+  ct_ci_store_reachable() { return 0; }
+  curl() { printf 200; }
+  FIXTURE_SERVER_LIVE=0
+  if ct_sccache_verify; then exit 1; fi
+  [ ! -s "$GITHUB_ENV" ]
+  ct_sccache_release_job_local
+) > "$WORK/store-up.log" 2>&1
+printf 'PASS a reachable store with a broken cache still refuses and release is a no-op\n'
+
+(
+  CODETERM_CI_STORE_ENDPOINT=http://replica.invalid:9000
+  source "$ROOT/scripts/ci-store.sh"
+  [ "$CT_CI_STORE_ENDPOINT" = http://replica.invalid:9000 ]
+  [ "$(grep -rlE '100\.88\.47\.88' "$ROOT/scripts" "$ROOT/build.sh" "$ROOT/.github" "$ROOT/.codeterm/build-machine/scripts" | sed "s#^$ROOT/##")" = scripts/ci-store.sh ]
+)
+printf 'PASS the store endpoint is defined once and overridable\n'

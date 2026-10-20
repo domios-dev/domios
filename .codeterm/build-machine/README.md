@@ -209,7 +209,7 @@ do not change developer toolchain defaults.
 
 Run `codeterm mem secret sync` locally on each authorized builder. Build setup
 reads `domios-sccache-s3-access-key` and `domios-sccache-s3-secret-key` into process
-environment only, exports endpoint `http://100.64.10.5:9000`, bucket `sccache`,
+environment only, exports the endpoint defined once in `scripts/ci-store.sh`, bucket `sccache`,
 region `us-east-1`, SSL `false`, and reuses a running server whose storage
 matches. Missing keys never downgrade an existing S3 server; its own
 credentials keep serving builds. Local-to-S3 switches require resolved keys

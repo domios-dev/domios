@@ -426,7 +426,8 @@ On eight, air, ubunta, ROG, BLACKSTAR and green, first run
 `domios-sccache-s3-access-key` and `domios-sccache-s3-secret-key`.
 Build setup resolves both directly into process environment variables
 `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; never write them to a file,
-argv, logs or memory. It exports `SCCACHE_ENDPOINT=http://100.64.10.5:9000`,
+argv, logs or memory. It exports `SCCACHE_ENDPOINT` from the single store endpoint in
+`scripts/ci-store.sh` (override: `CODETERM_CI_STORE_ENDPOINT`),
 `SCCACHE_BUCKET=sccache`, `SCCACHE_REGION=us-east-1` and
 `SCCACHE_S3_USE_SSL=false`. Setup reads the running server's actual location
 first. Matching S3 bucket or local disk storage is reused, even while
