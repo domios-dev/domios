@@ -246,6 +246,28 @@ key is `tauri.conf.json` `plugins.updater.pubkey`) and `codeterm-apple-notary-en
 certificate is backed up only as the `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` repo secrets.
 Windows updater signatures are not Authenticode: no Authenticode signing is currently configured.
 
+### Runner map
+
+Workflows select runners by label, never by name. Each runner carries `host-<machine>`, which no
+job routes on; `./build.sh runner-pause` keeps it and never lends it.
+
+| Runner (planned name) | Machine, OS/arch | Routing labels | Release / test jobs |
+|---|---|---|---|
+| `codeterm-builder-2` (`eight-macos-arm64`) | eight, macOS arm64 | `codeterm-builder`, `heavy`, `light`, `host-eight` | macOS arm64 build and Linux arm64 Docker build (default of `RELEASE_MACOS_ARM64_LABEL`, `RELEASE_LINUX_ARM64_LABEL`); quick checks |
+| `build-mac-x64` | build-mac, macOS x64 (Intel) | `macos-x64-build`, `host-dev` | macOS x64 build, native (`RELEASE_MACOS_X64_LABEL=macos-x64-build`); also the private store host |
+| `air-macos` (`air-macos-arm64`) | air, macOS arm64 | `macos-ci`, `light`, `rust-shard`, `host-air` | tests only; no release builds |
+| `ROG-windows-build` (`rog-windows-x64`) | ROG, Windows x64 | `windows-build`, `windows-x64-build` (lent by BLACKSTAR), `windows-ci`, `rust-shard`, `medium`, `host-rog` | Windows x64 and arm64 NSIS builds; Windows tests |
+| `green-windows-ci` (`green-windows-x64`) | green, Windows x64 | `windows-light`, `host-green` | Windows frontend quick check |
+| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `linux-ci`, `rust-shard`, `rust-tests`, `host-ubunta` | release prepare, Linux x64 build, dry-run manifest, full Rust tests |
+| `ubunta-light-1/2` (`ubunta-linux-x64-light-1/2`) | ubunta, Linux x64 | `light`, `host-ubunta` | quick checks |
+| `BLACKSTAR-windows-x64` (`blackstar-windows-x64`) | BLACKSTAR, Windows x64 | paused (saved: `windows-x64-build`, `heavy`, `windows-ci`, `rust-shard`), `host-blackstar` | Windows x64 build and tests when resumed |
+| `BLACKSTAR-wsl-ci`, `-wsl-light-1/2` (`blackstar-wsl-x64[-light-N]`) | BLACKSTAR, WSL2 Linux x64 | paused (saved: `linux-ci`/`light`/`heavy`), `host-blackstar` | Linux tests when resumed |
+
+Planned names follow `<machine>-<os>-<arch>[-role]`; renames re-register one machine at a time between
+runs, passing the current labels plus `host-<machine>`. Before dispatching on a new or changed macOS
+builder, run `gh workflow run release-credentials.yml -f macos_label=<label> -f notary_probe=true`:
+it checks only that runner and notarizes a trivial app there in minutes.
+
 Use the existing sccache policy and named cache-verify/cache-stats operations. Configured zero
 counters do not prove a live cache or reuse. Container evidence comes from its own cache server,
 not host statistics. Recovery/image baking follows the build-machine skill and assigned authority;
