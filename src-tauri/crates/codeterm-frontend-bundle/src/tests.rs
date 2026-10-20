@@ -473,3 +473,78 @@ fn staged_frontend_availability_publishes_transitions_and_retires_failed_offers(
     );
     assert_eq!(changes.load(std::sync::atomic::Ordering::SeqCst), 3);
 }
+
+fn open_app(root: &std::path::Path, app_version: &str) -> super::FrontendBundles {
+    super::FrontendBundles::open(
+        root,
+        2,
+        app_version,
+        Some(PUBLIC_KEY.into()),
+        "https://example.test/frontend-manifest.json".into(),
+        false,
+        std::sync::Arc::new(|_, _| {}),
+    )
+    .unwrap()
+}
+
+#[test]
+fn app_upgrade_past_an_installed_frontend_release_renders_the_new_app_frontend() {
+    let root = tempfile::tempdir().unwrap();
+    Store::open(root.path())
+        .unwrap()
+        .install(&verified(), SIGNATURE, ARCHIVE)
+        .unwrap();
+    let old_app = open_app(root.path(), "0.9.0");
+    old_app.stage_verified(&verified()).unwrap();
+    let activation = old_app
+        .activate("frontend-v1.0.0", vec!["client-a".into()], u64::MAX)
+        .unwrap();
+    old_app
+        .healthy(
+            "frontend-v1.0.0",
+            activation["generation"].as_u64().unwrap(),
+            "client-a",
+            activation["claims"]["client-a"].as_str().unwrap(),
+        )
+        .unwrap();
+    assert_eq!(old_app.status()["rendered"]["version"], "1.0.0");
+    assert_eq!(
+        old_app.active_index().as_deref(),
+        Some("/frontend/frontend-v1.0.0/index.html")
+    );
+    drop(old_app);
+
+    let upgraded = open_app(root.path(), "1.0.1");
+    let status = upgraded.status();
+    assert!(status["active"].is_null());
+    assert_eq!(status["rendered"]["version"], "1.0.1");
+    assert!(status["rendered"]["releaseId"].is_null());
+    assert_eq!(upgraded.active_index(), None);
+    let item = upgraded.local_availability();
+    assert_eq!(item.installed.as_deref(), Some("1.0.1"));
+    assert_eq!(item.latest.as_deref(), Some("1.0.1"));
+    assert_eq!(item.state, codeterm_plugins::AvailabilityState::UpToDate);
+}
+
+#[test]
+fn app_upgrade_past_a_staged_frontend_release_withdraws_the_offer() {
+    let root = tempfile::tempdir().unwrap();
+    Store::open(root.path())
+        .unwrap()
+        .install(&verified(), SIGNATURE, ARCHIVE)
+        .unwrap();
+    let old_app = open_app(root.path(), "0.9.0");
+    old_app.stage_verified(&verified()).unwrap();
+    assert_eq!(
+        old_app.local_availability().state,
+        codeterm_plugins::AvailabilityState::ReadyToApply
+    );
+    drop(old_app);
+
+    let upgraded = open_app(root.path(), "1.0.0");
+    assert!(upgraded.status()["pending"].is_null());
+    let item = upgraded.local_availability();
+    assert_eq!(item.state, codeterm_plugins::AvailabilityState::UpToDate);
+    assert_eq!(item.installed.as_deref(), Some("1.0.0"));
+    assert_eq!(item.latest.as_deref(), Some("1.0.0"));
+}
