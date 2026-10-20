@@ -164,7 +164,7 @@ test("sidebar_drag_restored protected rows remain disabled", () => {
 });
 
 test("sidebar_drag_restored sub-threshold pointer movement remains a click", () => {
-  assert(3 < POINTER_DRAG_ACTIVATION_DISTANCE, "three-pixel movement must not activate drag");
+  assert(9 < POINTER_DRAG_ACTIVATION_DISTANCE, "a nine-pixel trackpad drift must not activate drag");
 });
 
 test("sidebar_drag_restored keyboard drop reaches the same reorder handler", () => {
