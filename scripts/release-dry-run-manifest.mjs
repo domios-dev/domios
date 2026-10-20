@@ -1,24 +1,53 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { createReadStream } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HEADLESS_TARGETS, headlessAssetNames } from './headless-release-package.mjs';
+import { verifyHeadlessAssets } from './release-headless-assets.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const PLATFORMS = Object.keys(HEADLESS_TARGETS).sort();
-const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 function identity(tag, platform, sourceSha) {
   if (!/^v\d+\.\d+\.\d+$/.test(tag) || !PLATFORMS.includes(platform) || !/^[a-f0-9]{40}$/.test(sourceSha)) {
     throw new Error('invalid dry-run evidence identity');
   }
 }
-async function regular(file) {
+async function regularSize(file) {
   const info = await lstat(file);
   if (!info.isFile() || info.isSymbolicLink() || !info.size) throw new Error('missing regular evidence file: ' + file);
+  return info.size;
+}
+async function regular(file) {
+  await regularSize(file);
   return readFile(file);
+}
+async function fingerprint(file) {
+  const size = await regularSize(file);
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return { size, sha256: hash.digest('hex') };
+}
+function evidenceNames(tag, platform) {
+  const version = tag.slice(1);
+  const arm = platform.endsWith('aarch64');
+  const updater = platform.startsWith('darwin-')
+    ? [{ source: `CodeTerm_${version}_${arm ? 'aarch64' : 'x64'}.app.tar.gz`, name: `CodeTerm_${arm ? 'aarch64' : 'x64'}.app.tar.gz` }]
+    : platform.startsWith('windows-') ? [`CodeTerm_${version}_${arm ? 'arm64' : 'x64'}-setup.exe`]
+      : [`CodeTerm_${version}_${arm ? 'aarch64' : 'amd64'}.AppImage`, `CodeTerm_${version}_${arm ? 'arm64' : 'amd64'}.deb`];
+  const payloads = updater.map(entry => typeof entry === 'string' ? { source: entry, name: entry } : entry);
+  const fragments = payloads.map((_, index) => `updater-${platform}${index ? '-deb' : ''}.json`);
+  const headless = headlessAssetNames(tag, platform);
+  const installers = platform.startsWith('darwin-') ? [`CodeTerm_${version}_${arm ? 'aarch64' : 'x64'}.dmg`] : [];
+  return { payloads, fragments, installers, headless: [headless.archive, headless.checksum, headless.manifest] };
+}
+function single(all, name, platform) {
+  const matches = all.filter(file => path.basename(file) === name);
+  if (matches.length !== 1) throw new Error(`expected one ${platform} artifact ${name}; found ${matches.length}`);
+  return matches[0];
 }
 async function files(directory) {
   const result = [];
@@ -45,32 +74,23 @@ function verify(manifest, directory, version, platforms, pubkey) {
 
 export async function capture({ tag, platform, sourceSha, artifactDirectory, headlessDirectory, outputDirectory, pubkey }) {
   identity(tag, platform, sourceSha);
-  const metadataName = headlessAssetNames(tag, platform).manifest;
-  const metadata = JSON.parse((await regular(path.join(headlessDirectory, metadataName))).toString('utf8'));
-  if (metadata.schema_version !== 1 || metadata.variant !== 'headless' || metadata.version !== tag.slice(1) ||
-      metadata.target !== HEADLESS_TARGETS[platform].target || metadata.source_sha !== sourceSha || metadata.tag !== tag || metadata.platform !== platform) {
-    throw new Error('headless provenance differs from dry-run evidence identity');
-  }
+  await verifyHeadlessAssets({ tag, platform, directory: headlessDirectory, sourceSha });
   const version = tag.slice(1);
   const all = await files(artifactDirectory);
-  const wanted = platform.startsWith('darwin-')
-    ? [`CodeTerm_${version}_${platform.endsWith('aarch64') ? 'aarch64' : 'x64'}.app.tar.gz`]
-    : platform.startsWith('windows-') ? [`CodeTerm_${version}_${platform.endsWith('aarch64') ? 'arm64' : 'x64'}-setup.exe`]
-      : [`CodeTerm_${version}_${platform.endsWith('aarch64') ? 'aarch64' : 'amd64'}.AppImage`,
-        `CodeTerm_${version}_${platform.endsWith('aarch64') ? 'arm64' : 'amd64'}.deb`];
+  const expected = evidenceNames(tag, platform);
+  const sources = [
+    ...expected.installers.map(name => ({ name, source: single(all, name, platform) })),
+    ...expected.headless.map(name => ({ name, source: path.join(headlessDirectory, name) })),
+  ];
   await mkdir(outputDirectory, { recursive: true });
   if ((await readdir(outputDirectory)).length) throw new Error('dry-run capture output must be empty');
   const names = [];
-  for (const [index, pattern] of wanted.entries()) {
-    const matches = all.filter(file => path.basename(file) === pattern);
-    if (matches.length !== 1) throw new Error(`expected one ${platform} updater artifact; found ${matches.length}`);
-    const source = matches[0];
-    const name = platform.startsWith('darwin-')
-      ? `CodeTerm_${platform.endsWith('aarch64') ? 'aarch64' : 'x64'}.app.tar.gz` : path.basename(source);
-    await regular(source);
+  for (const [index, { source: pattern, name }] of expected.payloads.entries()) {
+    const source = single(all, pattern, platform);
+    await regularSize(source);
     const signature = (await regular(source + '.sig')).toString('utf8').trim();
     await copyFile(source, path.join(outputDirectory, name));
-    const fragment = `updater-${platform}${index ? '-deb' : ''}.json`;
+    const fragment = expected.fragments[index];
     await writeFile(path.join(outputDirectory, fragment), JSON.stringify({ version, notes: `Domios ${version}`,
       pub_date: new Date().toISOString(), platforms: { [platform]: {
         url: `https://github.com/rollacode/codeterm-releases/releases/download/${tag}/${name}`, signature,
@@ -78,11 +98,14 @@ export async function capture({ tag, platform, sourceSha, artifactDirectory, hea
     verify(path.join(outputDirectory, fragment), outputDirectory, version, [platform], pubkey);
     names.push(name, fragment);
   }
-  const inventory = [];
-  for (const name of names.sort()) {
-    const bytes = await regular(path.join(outputDirectory, name));
-    inventory.push({ name, size: bytes.length, sha256: sha256(bytes) });
+  for (const { name, source } of sources) {
+    await regularSize(source);
+    await copyFile(source, path.join(outputDirectory, name));
+    names.push(name);
   }
+  await verifyHeadlessAssets({ tag, platform, directory: outputDirectory, sourceSha });
+  const inventory = [];
+  for (const name of names.sort()) inventory.push({ name, ...await fingerprint(path.join(outputDirectory, name)) });
   const receipt = { schema: 1, tag, platform, source_sha: sourceSha, files: inventory };
   await writeFile(path.join(outputDirectory, 'dry-run-evidence.json'), JSON.stringify(receipt, null, 2) + '\n');
   return receipt;
@@ -96,36 +119,39 @@ export async function aggregate({ tag, sourceSha, inputDirectory, outputDirector
     const payloads = path.join(scratch, 'payloads');
     await Promise.all([mkdir(main), mkdir(deb), mkdir(payloads)]);
     const evidence = [];
+    const artifactNames = new Set();
     for (const platform of PLATFORMS) {
       identity(tag, platform, sourceSha);
       const directory = path.join(inputDirectory, platform);
       const receipt = JSON.parse((await regular(path.join(directory, 'dry-run-evidence.json'))).toString('utf8'));
       if (receipt.schema !== 1 || receipt.tag !== tag || receipt.platform !== platform || receipt.source_sha !== sourceSha ||
           !Array.isArray(receipt.files)) throw new Error('foreign dry-run platform receipt: ' + platform);
+      const expected = evidenceNames(tag, platform);
+      const payloadNames = new Set(expected.payloads.map(entry => entry.name));
       const seen = new Set();
-      let mainCount = 0;
-      let debCount = 0;
       for (const file of receipt.files) {
         if (!/^[A-Za-z0-9_.-]+$/.test(file.name) || file.name.includes('..') || seen.has(file.name)) throw new Error('unsafe/duplicate evidence path');
         seen.add(file.name);
-        const bytes = await regular(path.join(directory, file.name));
-        if (file.size !== bytes.length || file.sha256 !== sha256(bytes)) throw new Error('dry-run evidence digest mismatch: ' + file.name);
-        if (file.name === `updater-${platform}.json` || file.name === `updater-${platform}-deb.json`) {
+        const actual = await fingerprint(path.join(directory, file.name));
+        if (file.size !== actual.size || file.sha256 !== actual.sha256) throw new Error('dry-run evidence digest mismatch: ' + file.name);
+        if (expected.fragments.includes(file.name)) {
+          const bytes = await regular(path.join(directory, file.name));
           const fragment = JSON.parse(bytes.toString('utf8'));
           if (fragment.version !== tag.slice(1) || JSON.stringify(Object.keys(fragment.platforms ?? {})) !== JSON.stringify([platform])) {
             throw new Error('foreign updater fragment: ' + file.name);
           }
-          const isDeb = file.name.endsWith('-deb.json');
-          isDeb ? debCount++ : mainCount++;
-          await writeFile(path.join(isDeb ? deb : main, file.name), bytes);
+          await writeFile(path.join(file.name.endsWith('-deb.json') ? deb : main, file.name), bytes);
         } else {
-          if (await lstat(path.join(payloads, file.name)).then(() => true, () => false)) throw new Error('duplicate cross-platform artifact basename');
-          await copyFile(path.join(directory, file.name), path.join(payloads, file.name));
+          if (artifactNames.has(file.name)) throw new Error('duplicate cross-platform artifact basename');
+          artifactNames.add(file.name);
+          if (payloadNames.has(file.name)) await copyFile(path.join(directory, file.name), path.join(payloads, file.name));
         }
       }
-      if (mainCount !== 1 || debCount !== (platform.startsWith('linux-') ? 1 : 0)) throw new Error('incomplete platform fragments: ' + platform);
+      const required = [...payloadNames, ...expected.fragments, ...expected.installers, ...expected.headless].sort();
+      if (JSON.stringify([...seen].sort()) !== JSON.stringify(required)) throw new Error('incomplete platform evidence: ' + platform);
       const actualNames = (await readdir(directory)).sort();
       if (JSON.stringify(actualNames) !== JSON.stringify(['dry-run-evidence.json', ...seen].sort())) throw new Error('unlisted dry-run evidence files');
+      await verifyHeadlessAssets({ tag, platform, directory, sourceSha });
       evidence.push(receipt);
     }
     const latest = path.join(scratch, 'latest.json');
@@ -150,7 +176,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (verb === 'capture') {
       const [platform, artifactDirectory, headlessDirectory, outputDirectory] = args;
       await capture({ tag, sourceSha, platform, artifactDirectory, headlessDirectory, outputDirectory });
-      for (const file of await readdir(outputDirectory)) store('put', `${runId}/release-dry-run/${platform}/${file}`, path.join(outputDirectory, file));
+      const stored = (await readdir(outputDirectory)).sort((left, right) =>
+        Number(left === 'dry-run-evidence.json') - Number(right === 'dry-run-evidence.json'));
+      for (const file of stored) store('put', `${runId}/release-dry-run/${platform}/${file}`, path.join(outputDirectory, file));
     } else if (verb === 'aggregate') {
       const [inputDirectory, outputDirectory] = args;
       for (const platform of PLATFORMS) store('get-prefix', `${runId}/release-dry-run/${platform}/`, path.join(inputDirectory, platform));
