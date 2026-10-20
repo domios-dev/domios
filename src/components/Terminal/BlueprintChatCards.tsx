@@ -1,6 +1,6 @@
 import { useMemo, type CSSProperties } from "react";
 import { Workflow } from "lucide-react";
-import { hostAutomationAdapter } from "../Automation/hostAdapter";
+import { BLUEPRINT_CHAT_CONNECTION, hostAutomationAdapter } from "../Automation/hostAdapter";
 import { pipelineModel } from "../Automation/pipelineModel";
 import { requestOpenJob } from "../Jobs/openJobEvent";
 import { useWorkspaceGraphs } from "../Jobs/useWorkspaceGraphs";
@@ -9,7 +9,7 @@ const NO_SOURCES: readonly string[] = [];
 
 export function BlueprintChatCards({ tabId, workspaceId }: { tabId: string; workspaceId: string | null }) {
   const sources = useMemo(() => workspaceId ? [workspaceId] : NO_SOURCES, [workspaceId]);
-  const graphs = useWorkspaceGraphs(hostAutomationAdapter, "sidebar", sources);
+  const graphs = useWorkspaceGraphs(hostAutomationAdapter, BLUEPRINT_CHAT_CONNECTION, sources);
   const blueprints = useMemo(() => graphs.flatMap((graph) => (graph.graph?.blueprints ?? [])
     .filter((blueprint) => blueprint.owner?.tab_id === tabId)
     .map((blueprint) => ({ blueprint, workspaceId: graph.attachment.workspace_id, pipeline: pipelineModel(blueprint) }))), [graphs, tabId]);

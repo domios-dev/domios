@@ -11,7 +11,7 @@ assert.equal(streamingMessageId([{ msg }, { msg: { ...msg, id: "tool", type: "to
 const clips = [{ id: msg.id, role: "assistant" as const, source: msg.content, author: "Agent" }];
 const live = indexMessageParts(clips, msg.id);
 assert.deepEqual(live.order, [msg.id]);
-assert.equal(live.byId.get(msg.id)?.source, msg.content);
+assert.equal(live.clipFor(msg.id)?.source, msg.content);
 const settled = indexMessageParts(clips);
 assert.ok(settled.order.length > 1);
 const parts = messageParts(msg.id, msg.content);
