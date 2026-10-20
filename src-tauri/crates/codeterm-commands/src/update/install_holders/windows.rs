@@ -1,5 +1,6 @@
 use super::model::{
-    classify_holder, foreign_notice, same_process_identity, Holder, HolderDisposition,
+    classify_holder, foreign_notice, install_binaries, same_process_identity, Holder,
+    HolderDisposition, INSTALL_BINARY_DIRS,
 };
 use std::collections::HashMap;
 use std::os::windows::ffi::OsStrExt;
@@ -141,8 +142,7 @@ fn inspect_directory(
     release: bool,
     svc: Option<&codeterm_service_core::service::ServiceState>,
 ) -> Result<(), String> {
-    let mut files = Vec::new();
-    collect_files(root, &mut files)?;
+    let files = collect_install_binaries(root)?;
     let mut clis = files
         .iter()
         .filter(|path| {
@@ -340,19 +340,31 @@ fn terminate(holder: &PinnedHolder) -> Result<(), String> {
     Ok(())
 }
 
-fn collect_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
-    for entry in std::fs::read_dir(dir)
-        .map_err(|error| format!("reading install directory {}: {error}", dir.display()))?
-    {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let kind = entry.file_type().map_err(|error| error.to_string())?;
-        if kind.is_dir() {
-            collect_files(&entry.path(), files)?;
-        } else if kind.is_file() {
-            files.push(entry.path());
+fn collect_install_binaries(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut listing = Vec::new();
+    for dir in INSTALL_BINARY_DIRS.map(|dir| root.join(dir)) {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(format!(
+                    "reading install directory {}: {error}",
+                    dir.display()
+                ))
+            }
+        };
+        for entry in entries {
+            let entry = entry.map_err(|error| error.to_string())?;
+            if entry
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_file()
+            {
+                listing.push(entry.path());
+            }
         }
     }
-    Ok(())
+    Ok(install_binaries(root, listing))
 }
 
 fn process_parents() -> Result<HashMap<u32, u32>, String> {

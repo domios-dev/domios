@@ -98,3 +98,47 @@ fn pinned_job_membership_proves_ownership_even_with_unknown_image() {
         HolderDisposition::OwnedTab
     );
 }
+
+#[test]
+fn restart_manager_set_is_only_install_binaries_beside_thousands_of_foreign_files() {
+    let root = PathBuf::from("install");
+    let expected = [
+        "domios.exe",
+        "codeterm-embed.exe",
+        "WebView2Loader.DLL",
+        "cli/codeterm.exe",
+        "cli/codeterm-x86_64-pc-windows-msvc.exe",
+        "domios-server/domios-server.exe",
+        "conpty/x64/OpenConsole.exe",
+        "conpty/x64/conpty.dll",
+        "conpty/arm64/OpenConsole.exe",
+        "conpty/arm64/conpty.dll",
+    ]
+    .map(|path| root.join(path));
+    let mut listing = expected.to_vec();
+    for index in 0..5000 {
+        listing.push(root.join(format!("dist/assets/chunk-{index}.js")));
+        listing.push(root.join(format!("skills/skill-{index}/SKILL.md")));
+        listing.push(root.join(format!("build-gateway/jobs/job-{index}.log")));
+        listing.push(root.join(format!(
+            "build-gateway/targets/release/job-{index}/release/domios.exe"
+        )));
+        listing.push(root.join(format!(
+            "build-gateway/targets/release/job-{index}/release/deps/codeterm.dll"
+        )));
+    }
+    for path in [
+        "server-component.json",
+        "LICENSE",
+        "cli/codeterm.exe.old",
+        "cli/.gitkeep",
+        "skills/tool/bin/helper.exe",
+        "domios-server/plugins/foreign.dll",
+        "conpty/OpenConsole.exe",
+        "other/install/domios.exe",
+    ] {
+        listing.push(root.join(path));
+    }
+    listing.push(PathBuf::from("elsewhere/domios.exe"));
+    assert_eq!(install_binaries(&root, listing), expected.to_vec());
+}
