@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { aggregate, capture, PLATFORMS } from '../release-dry-run-manifest.mjs';
+import { aggregate, capture, parseSources, PLATFORMS, retention, store, storeTimeoutMs } from '../release-dry-run-manifest.mjs';
 import { HEADLESS_TARGETS, headlessAssetNames } from '../headless-release-package.mjs';
 
 const tag = 'v9.9.9';
@@ -154,4 +154,50 @@ test('aggregate refuses a changed DMG or headless byte and a DMG missing from th
       files: darwinReceipt.files.filter(file => file.name !== dmgName('darwin-aarch64')) }));
     await assert.rejects(aggregate(args), /incomplete platform evidence: darwin-aarch64/);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('store sizes its transfer deadline and retries a timed-out transfer once with the elapsed time', () => {
+  const hundredMiB = 100 * 1024 * 1024;
+  assert.ok(storeTimeoutMs(hundredMiB) > 12 * 60_000);
+  assert.ok(storeTimeoutMs(hundredMiB) > storeTimeoutMs(0));
+  assert.equal(storeTimeoutMs(0), 20 * 60_000);
+  const timedOut = () => Object.assign(new Error('spawnSync bash ETIMEDOUT'), { code: 'ETIMEDOUT' });
+  let clock = 0;
+  const now = () => clock;
+  const calls = [];
+  const logs = [];
+  const slowOnce = (...args) => {
+    calls.push(args);
+    clock += 1_500_000;
+    if (calls.length === 1) throw timedOut();
+    return 'stored';
+  };
+  assert.equal(store('put', 'k', 'f', { bytes: hundredMiB, run: slowOnce, now, log: line => logs.push(line) }), 'stored');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0][3], storeTimeoutMs(hundredMiB));
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /put k \(104857600 bytes\) timed out after 1500s; retrying once/);
+  const always = () => { throw timedOut(); };
+  assert.throws(() => store('put', 'k', 'f', { run: always, now, log: () => {} }), /ETIMEDOUT/);
+  let refused = 0;
+  const storeError = () => { refused++; throw Object.assign(new Error('curl: (22) 403'), { status: 22 }); };
+  assert.throws(() => store('put', 'k', 'f', { run: storeError, now, log: () => {} }), /403/);
+  assert.equal(refused, 1);
+});
+
+test('the local manifest names where every evidence file was retained', () => {
+  const locations = parseSources([
+    '41/release-dry-run/linux-x86_64/a.deb\tprivate-store:ci-artifacts/41/release-dry-run/linux-x86_64/a.deb',
+    '41/release-dry-run/windows-x86_64/b.exe\trun-artifact:ci-artifact-spool-build-1/41/release-dry-run/windows-x86_64/b.exe',
+    '41/rust-receipt/ignored.json\tprivate-store:ci-artifacts/41/rust-receipt/ignored.json',
+    '42/release-dry-run/linux-x86_64/a.deb\tprivate-store:foreign',
+  ].join('\n') + '\n', '41');
+  assert.deepEqual([...locations.keys()], ['linux-x86_64/a.deb', 'windows-x86_64/b.exe']);
+  const store = retention(locations, 'linux-x86_64', [{ name: 'a.deb', size: 1 }]);
+  assert.equal(store.retained_via, 'private-store');
+  assert.equal(store.files[0].location, 'private-store:ci-artifacts/41/release-dry-run/linux-x86_64/a.deb');
+  const artifact = retention(locations, 'windows-x86_64', [{ name: 'b.exe' }, { name: 'missing.json' }]);
+  assert.equal(artifact.retained_via, 'ci-artifact');
+  assert.equal(artifact.files[0].location, 'run-artifact:ci-artifact-spool-build-1/41/release-dry-run/windows-x86_64/b.exe');
+  assert.equal(artifact.files[1].location, null);
 });

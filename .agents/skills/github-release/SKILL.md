@@ -98,6 +98,10 @@ gh workflow run release.yml --repo rollacode/codeterm --ref <reviewed-ref> \
   -f tag=<version-tag> -f dry_run=true -f mirror=false -f dry_run_tests=true
 ```
 
+Until repository variable `RELEASE_PUBLISH_ENABLED` is `true`, a `release/X.Y.Z` push runs as a
+full dry run of that branch (tests included, no drafts or uploads) in its own concurrency group, so
+it never cancels another version's run; its branch must carry version X.Y.Z.
+
 Verify the remote ref resolves to the reviewed SHA before dispatch. Capture the returned/new run
 ID and its workflow/source identity. Do not identify a run merely as the latest result in a list.
 `dry_run_tests=false` is an explicitly limited packaging diagnostic: skipped tests remain unverified.
@@ -111,6 +115,23 @@ entries and invokes the existing validator with `--local`. It refuses missing, c
 evidence; no public release, tag, channel asset or issue-closure boundary is created. Its direct
 dispatch inputs pin the producing run ID, tag and source SHA for a follow-up within retention.
 An older run that did not retain those inputs cannot be retroactively called validated.
+
+With publication GO, a wholly green dry run of the exact `release/X.Y.Z` head can be promoted
+instead of rebuilt: dispatch release.yml on that branch with `-f tag=release/X.Y.Z -f
+promote_run_id=<dry-run run id>` (dry_run false). Prepare refuses unless the run is a completed,
+successful release.yml run of that SHA on that branch whose platform, test and manifest jobs all
+succeeded. `promote-evidence` re-runs the aggregate validator on the retained bytes, uploads them
+to the drafts exactly as the platform jobs would (fragments only to the source draft), reads every
+asset back against its receipt, and hands off to the unchanged manifest, verification and merge
+jobs. No platform or test job runs; missing, changed or foreign evidence refuses with the platform
+named. `RELEASE_PUBLISH_ENABLED` still gates it.
+
+The store endpoint is defined once in `scripts/ci-store.sh`. When a CI job finds it unreachable,
+`ci-artifact.sh put` spools the file with a warning and the job's `ci-artifact-spool` action uploads
+it as a run artifact; `get`/`get-prefix` read `<run-id>/...` keys back from that run's artifacts.
+`manifest-local-verification.json` records `retained_via` and a per-file `location`. Rust jobs then
+compile with a job-local sccache that `build.sh cache-release` stops at job end. A reachable store
+that refuses a request, and any digest or signature mismatch, still fail.
 
 For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml` or
 `release-macos-build.yml` with explicit `source_ref`, tag, selected architecture, `dry_run=true`
@@ -126,7 +147,12 @@ and workflow conditions; never call cancelled jobs passes or assume who cancelle
 
 ## One build, two distributions
 
-Per target, build frontend, CLI and release server once, then native client once. Both distributions
+A release run builds the platform-independent frontend once in its `frontend-dist` job; each
+platform job fetches that archive, checks its SHA-256 and installs it as `dist` through
+`CODETERM_FRONTEND_ARCHIVE`/`CODETERM_FRONTEND_SHA256` instead of building it. Direct platform
+dispatches, without that digest, still build their own frontend.
+
+Per target, build CLI and release server once, then native client once. Both distributions
 consume the same final server/CLI/resources; packaging must not compile them again.
 
 1. `release-inputs --for-bundle` builds inputs and stages the actual frontend at

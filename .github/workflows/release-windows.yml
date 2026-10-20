@@ -58,9 +58,15 @@ name: Release Windows platforms
         description: x64 or arm64; each architecture is its own caller job and graph node
         required: true
         type: string
+      frontend_sha256:
+        description: Digest of the run's single frontend bundle; empty builds the frontend here
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
+  actions: read
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -317,6 +323,15 @@ jobs:
           & .\build.ps1 cache-verify
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Fetch the run's frontend bundle
+        if: ${{ inputs.frontend_sha256 != '' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/release-frontend-dist.mjs fetch "$env:GITHUB_RUN_ID" "${{ inputs.frontend_sha256 }}" "$env:RUNNER_TEMP/frontend-dist.tar"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       # A dropped upload leaves a starter asset that holds the name and makes every
       # later upload of it fail opaquely, including tauri-action's own.
       - name: Build and sign release assets
@@ -475,6 +490,9 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: release-Windows
           target: ${{ matrix.target }}
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
 
       # Without a compile step no sccache server ever started, so there is nothing to report.
       - name: Shared compile cache statistics
@@ -482,6 +500,12 @@ jobs:
         shell: pwsh
         run: |
           & .\build.ps1 cache-stats
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stop this job's local compile cache
+        if: always()
+        shell: pwsh
+        run: |
+          & .\build.ps1 cache-release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Remove this job's Rust targets and archives
         if: always()

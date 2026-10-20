@@ -16,9 +16,15 @@ on:
         required: false
         default: false
         type: boolean
+      frontend_sha256:
+        description: Digest of the run's single frontend bundle; empty builds the frontend here
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -97,11 +103,22 @@ jobs:
       - name: Verify native Docker builder
         run: bash scripts/check-linux-arm64-builder.sh
 
+      - name: Fetch the run's frontend bundle
+        if: ${{ inputs.frontend_sha256 != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-frontend-dist.mjs fetch "$GITHUB_RUN_ID" "${{ inputs.frontend_sha256 }}" "$RUNNER_TEMP/frontend-dist.tar"
+
       - name: Build and smoke Linux arm64 in native container
         run: |
           rm -rf "$ART"
           mkdir -p "$ART"
           git bundle create "$ART/source.bundle" HEAD
+          container_archive=
+          if [ -n "${CODETERM_FRONTEND_ARCHIVE:-}" ]; then
+            cp "$CODETERM_FRONTEND_ARCHIVE" "$ART/frontend-dist.tar"
+            container_archive=/work/frontend-dist.tar
+          fi
           source scripts/cache-policy.sh
           ct_sccache_storage
           test "$CT_SCCACHE_STORAGE" = shared
@@ -114,6 +131,7 @@ jobs:
             -e CODETERM_SCCACHE_VERIFY_ONLY=1 -e CARGO_INCREMENTAL=0 -e CARGO_BUILD_JOBS="$(getconf _NPROCESSORS_ONLN)" \
             -e CARGO_TARGET_DIR=/src/src-tauri/target \
             -e RELEASE_TAG="${{ inputs.tag }}" \
+            -e CODETERM_FRONTEND_ARCHIVE="$container_archive" -e CODETERM_FRONTEND_SHA256 \
             codeterm-build-linux-arm64 bash /build-linux.sh source deb,appimage
 
       - name: Frozen signer dependencies
@@ -166,6 +184,9 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: release-Linux
           target: aarch64-unknown-linux-gnu
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
       - name: Remove this job's Rust targets and archives
         if: always()
         continue-on-error: true
