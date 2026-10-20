@@ -297,12 +297,17 @@ fn upgrade_from_1_14_9_moves_preexisting_client_trail_before_first_server_start(
         .open(&startup_log)
         .unwrap();
     writeln!(client_trail, "client trail before first server start").unwrap();
+    drop(client_trail);
 
     let (owner, notices) = run(fixture.identity, &fixture.registry).unwrap();
 
+    let relocated_log = fixture.new.join(CLIENT_STARTUP_LOG);
+    let mut client_trail = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&relocated_log)
+        .unwrap();
     writeln!(client_trail, "client trail after relocation").unwrap();
     drop(client_trail);
-    let relocated_log = fixture.new.join(CLIENT_STARTUP_LOG);
     assert_eq!(
         std::fs::read(relocated_log).unwrap(),
         b"client trail before first server start\nclient trail after relocation\n"
@@ -312,6 +317,24 @@ fn upgrade_from_1_14_9_moves_preexisting_client_trail_before_first_server_start(
     assert!(notices.is_empty());
     drop(owner);
     let _ = std::fs::remove_dir_all(&fixture.registry);
+}
+
+#[test]
+fn upgrade_from_1_14_9_fresh_install_skips_project_directory_relocation() {
+    let home = tempfile::tempdir().unwrap();
+    let new_data = home.path().join(".domios");
+    std::fs::create_dir(&new_data).unwrap();
+    let identity =
+        ResolvedInstancePaths::resolve(&new_data, &new_data.join("config.toml")).unwrap();
+    let registry = home_registry_path();
+
+    let (owner, notices) = run(identity, &registry).unwrap();
+
+    assert!(notices.is_empty());
+    assert!(new_data.is_dir());
+    assert!(!home.path().join(".codeterm").exists());
+    drop(owner);
+    let _ = std::fs::remove_file(registry);
 }
 
 #[test]
