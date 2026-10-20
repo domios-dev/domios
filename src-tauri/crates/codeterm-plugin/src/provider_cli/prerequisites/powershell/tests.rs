@@ -155,6 +155,24 @@ fn blocking_policy_becomes_missing_prerequisite_and_recheck_clears_it() {
     assert!(prerequisite(SCRIPT, &snapshot).is_some());
 }
 
+#[test]
+fn powershell_core_runs_the_installer_when_no_policy_is_set() {
+    let core = |policies: [Option<&str>; 4]| ExecutionPolicyValues {
+        host: PowerShellHost::Core,
+        ..values(policies)
+    };
+    assert_eq!(
+        effective_policy(&core([None; 4])),
+        (ExecutionPolicy::RemoteSigned, false)
+    );
+    assert_eq!(prerequisite(SCRIPT, &core([None; 4])), None);
+    assert!(prerequisite(SCRIPT, &values([None; 4])).is_some());
+    assert!(prerequisite(SCRIPT, &core([None, None, Some("Restricted"), None])).is_some());
+    let mut disabled_by_group_policy = core([None; 4]);
+    disabled_by_group_policy.enable_scripts[0] = Some(0);
+    assert!(prerequisite(SCRIPT, &disabled_by_group_policy).is_some());
+}
+
 #[cfg(not(windows))]
 #[test]
 fn observing_script_command_on_non_windows_adds_no_prerequisite() {
