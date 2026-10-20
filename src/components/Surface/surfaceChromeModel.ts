@@ -1,4 +1,4 @@
-import { clampFloatingPosition } from "../shared/floatingPosition";
+import { anchoredPopoverPosition, pointAnchor } from "../shared/floatingPosition";
 import type { PageRect } from "./streamModel";
 
 export const NEEDS_HUMAN_KINDS = ["captcha", "consent", "login", "dialog", "file_chooser"] as const;
@@ -427,14 +427,12 @@ const ASK_POPOVER_GAP = 12;
 const ASK_POPOVER_MARGIN = 8;
 
 export function askPopoverPosition(anchor: PopoverAnchor): { left: number; top: number } {
-  const { left, top } = clampFloatingPosition(
-    anchor.x + ASK_POPOVER_GAP,
-    anchor.y + ASK_POPOVER_GAP,
-    ASK_POPOVER_SIZE.width,
-    ASK_POPOVER_SIZE.height,
-    anchor.width,
-    anchor.height,
-    ASK_POPOVER_MARGIN,
+  const { left, top } = anchoredPopoverPosition(
+    pointAnchor(anchor.x + ASK_POPOVER_GAP, anchor.y),
+    ASK_POPOVER_SIZE,
+    { width: anchor.width, height: anchor.height },
+    "bottom-start",
+    { margin: ASK_POPOVER_MARGIN, gap: ASK_POPOVER_GAP },
   );
   return { left, top };
 }

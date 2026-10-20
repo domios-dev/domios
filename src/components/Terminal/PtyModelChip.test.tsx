@@ -29,12 +29,12 @@ test("reasoning control switches the bound tab once and reports the chosen path"
       <PtyModelChip tabId="fixture" provider={provider} onError={(error) => { throw new Error(error); }} />
     </MuxStateStoreContext.Provider>));
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Model and traits"]')!.click());
-    const effort = Array.from(host.querySelectorAll<HTMLLabelElement>("label")).find((label) => label.textContent === "High")!.querySelector<HTMLInputElement>("input")!;
+    const effort = Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find((label) => label.textContent === "High")!.querySelector<HTMLInputElement>("input")!;
     await act(async () => effort.click());
     assert.deepEqual(calls, [["fixture", "vendor/model", "high"]]);
     assert.equal(host.querySelector('[role="status"]')?.textContent, "Live");
-    await act(async () => host.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
-    assert.equal(host.querySelector('[role="dialog"]'), null);
+    await act(async () => document.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
+    assert.equal(document.querySelector('[role="dialog"]'), null);
     assert.equal(document.activeElement, host.querySelector('button[aria-label="Model and traits"]'));
 
   } finally {
@@ -56,7 +56,7 @@ test("runtime mode request uses the current model and next-turn controls once", 
   try {
     await act(async () => root.render(<MuxStateStoreContext.Provider value={store}><PtyModelChip tabId="fixture" provider={provider} onError={(error) => { throw new Error(error); }} /></MuxStateStoreContext.Provider>));
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Model and traits"]')!.click());
-    const control = host.querySelector<HTMLSelectElement>('select[aria-label="Runtime mode"]')!;
+    const control = document.querySelector<HTMLSelectElement>('select[aria-label="Runtime mode"]')!;
     assert(control);
     await act(async () => { control.value = "auto"; control.dispatchEvent(new Event("change", { bubbles: true })); });
     assert.deepEqual(calls, [["fixture", "vendor/model", undefined, "auto"]]);

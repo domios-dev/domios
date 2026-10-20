@@ -39,7 +39,7 @@ async function main() {
       pluginId="telegram-client"
       displayName="Telegram Client"
       configHelp="Choose a server."
-      anchor={{ right: 0 }}
+      anchor={{ current: document.body }}
       onClose={() => { closed = true; }}
       onOpenSettings={() => {}}
     />));

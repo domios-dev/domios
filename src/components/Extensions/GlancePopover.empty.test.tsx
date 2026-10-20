@@ -44,7 +44,7 @@ async function main() {
         pluginId="provider-less"
         displayName="Fixture plugin"
         configHelp={configHelp}
-        anchor={{ right: 0 }}
+        anchor={{ current: document.body }}
         onClose={() => { closes++; }}
         onOpenSettings={(id) => { settingsPlugin = id; }}
       />));

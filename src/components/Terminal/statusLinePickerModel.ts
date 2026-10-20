@@ -173,13 +173,3 @@ export function planSelection(
   return { action: gate.confirmRestart ? "confirm" : "apply", selection: next };
 }
 
-/** Opens upward from the trigger, kept inside the viewport horizontally. */
-export function pickerAnchor(
-  trigger: { left: number; top: number },
-  viewport: { width: number; height: number },
-  width: number,
-  margin = 8,
-): { left: number; bottom: number } {
-  const left = Math.max(margin, Math.min(trigger.left, viewport.width - width - margin));
-  return { left, bottom: Math.max(margin, viewport.height - trigger.top + 6) };
-}

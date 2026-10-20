@@ -244,42 +244,13 @@
   to { opacity: 1; }
 }
 
+/* Transparent padding bridges the dot and the menu so a hover-opened menu survives the pointer crossing. */
 .ct-msg-menu-wrap {
-  position: absolute;
-  top: -5px;
-  z-index: 1;
-}
-
-.ct-msg-menu-wrap[data-placement="above"] {
-  bottom: -5px;
-  top: auto;
-}
-
-.ct-msg-menu-wrap[data-side="start"] {
-  left: 100%;
-  padding-left: 6px;
-}
-
-.ct-msg-menu-wrap[data-side="end"] {
-  padding-right: 6px;
-  right: 100%;
+  padding-block: 4px;
 }
 
 .ct-menu.ct-msg-menu {
   min-width: 13rem;
-}
-
-.ct-msg-menu-wrap[data-side="end"] .ct-msg-menu {
-  --ct-menu-origin: top right;
-}
-
-.ct-msg-menu-wrap[data-placement="above"] .ct-msg-menu {
-  --ct-menu-origin: bottom left;
-  --ct-menu-shift: 6px;
-}
-
-.ct-msg-menu-wrap[data-placement="above"][data-side="end"] .ct-msg-menu {
-  --ct-menu-origin: bottom right;
 }
 
 .ct-msg-menu .ct-menu-row[data-done] .ct-menu-row__icon {
@@ -546,7 +517,7 @@
 .ct-msg-sheet-wrap {
   position: fixed;
   z-index: 1000;
-  bottom: max(12px, env(safe-area-inset-bottom));
+  bottom: calc(var(--ct-visual-bottom, 0px) + max(12px, var(--ct-keyboard-safe-bottom, env(safe-area-inset-bottom))));
   left: max(12px, env(safe-area-inset-left));
   right: max(12px, env(safe-area-inset-right));
   width: auto;
@@ -559,7 +530,7 @@
   --ct-menu-shift: 6px;
   width: 100%;
   box-sizing: border-box;
-  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(var(--ct-visual-height, 100dvh) - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   overflow-y: auto;
   overscroll-behavior: contain;
   border-radius: 16px;

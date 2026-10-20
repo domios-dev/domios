@@ -1,5 +1,4 @@
-import { createPortal } from "react-dom";
-import { clampPortalCenter } from "./portalPosition";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 import type { Bucket } from "./cycle";
 
 export interface BarHover {
@@ -94,16 +93,15 @@ export function BarTooltip({ hover, showProjection }: Props) {
     );
   }
 
-  const clampedX = clampPortalCenter(x, 260, window.innerWidth);
-
-  return createPortal(
-    <div className="ct-usage-tip" style={{ left: clampedX, top: y }} role="tooltip">
+  return (
+    <AnchoredPopover open anchor={{ x, y }} placement="top-center" gap={10} style={{ pointerEvents: "none" }}>
+    <div className="ct-usage-tip" role="tooltip">
       <div className="ct-usage-tip-title">{title}</div>
       <div className="ct-usage-tip-body">
         <div style={{ marginBottom: 4, opacity: 0.7, fontSize: 10 }}>{date}</div>
         {body}
       </div>
-    </div>,
-    document.body,
+    </div>
+    </AnchoredPopover>
   );
 }

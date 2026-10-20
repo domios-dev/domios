@@ -2823,8 +2823,6 @@ button,
 [data-touch-mode="true"] .sidebar-team-count { opacity: 0; }
 
 .sidebar-team-menu {
-  --ct-menu-origin: top right;
-  position: fixed;
   display: flex;
   min-width: 174px;
   flex-direction: column;
@@ -4075,18 +4073,10 @@ button,
 
 /* ── Kebab dropdown menu ─────────────────────────────────────────────────── */
 .plan-switcher-menu {
-  --ct-menu-origin: top right;
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 200;
   min-width: 13rem;
 }
 
 /* ── Overflow mode: combo trigger + popover listbox ─────────────────────── */
-.plan-switcher-combo {
-  position: relative;
-}
 .plan-switcher-combo-trigger {
   max-width: 22rem;
   padding: 0.25rem 0.5rem;
@@ -4111,10 +4101,6 @@ button,
   opacity: 0.7;
 }
 .plan-switcher-popover {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 200;
   min-width: 18rem;
   max-height: 20rem;
   overflow-y: auto;
@@ -5208,10 +5194,6 @@ button.plan-peer-chip:focus-visible {
   cursor: pointer;
 }
 .working-on-overflow-popover {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 0.2rem);
-  right: 0;
   display: flex;
   flex-direction: column;
   gap: 0.22rem;

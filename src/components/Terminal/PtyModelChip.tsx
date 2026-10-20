@@ -1,4 +1,4 @@
-import { useCallback, useState, type CSSProperties } from "react";
+import { useCallback, useState } from "react";
 import { useComposerPopover } from "./useComposerPopover";
 import type { ProviderDescriptor } from "../../lib/types";
 import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
@@ -6,6 +6,7 @@ import { composerPickerState } from "./composerModels";
 import { modelSwitchLabel } from "../../lib/modelSwitch";
 import { useMuxSelector } from "../../store/multiplexer";
 import { getTabModelApi, type ModelSwitchResult } from "../Sidebar/tabModelApi";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 export function PtyModelChip({ tabId, provider, onError }: {
   tabId: string;
@@ -36,8 +37,9 @@ export function PtyModelChip({ tabId, provider, onError }: {
       className="rounded-full border px-3 py-1" onClick={toggle}>
       {models.find((entry) => entry.id === model)?.display_name ?? model ?? "Model unknown"}{effort ? ` · ${effort}` : ""}
     </button>
-    {open && <div ref={popoverRef} role="dialog" aria-label="Model and traits" className="ct-menu absolute bottom-full z-40 mb-2"
-      style={{ minWidth: 256, padding: 12, ...({ "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties) }}
+    <AnchoredPopover open={open} anchor={triggerRef} placement="top-start" onClose={close}>
+    <div ref={popoverRef} role="dialog" aria-label="Model and traits" className="ct-menu"
+      style={{ minWidth: 256, padding: 12 }}
       onKeyDown={(event) => { if (event.code === "Escape") { event.preventDefault(); close(); } }}>
       <fieldset role="radiogroup" aria-label="Model" disabled={busy || !picker.modelEnabled}><legend>Model</legend>
         {models.map((entry) => <label key={entry.id} className="flex gap-2 py-1">
@@ -74,7 +76,8 @@ export function PtyModelChip({ tabId, provider, onError }: {
         {picker.runtimeMode === "launch_flag" ? `Permissions bypass: ${tab.auto_approve === undefined ? "unknown" : tab.auto_approve ? "on" : "off"} (launch flag)` : "Runtime mode unavailable"}
       </button>}
       <button type="button" onClick={close}>Close</button>
-    </div>}
+    </div>
+    </AnchoredPopover>
     {result && <span role="status">{modelSwitchLabel(result.mode_used)}{result.model_confirmation === "pending" ? " · awaiting confirmation" : ""}</span>}
   </div>;
 }

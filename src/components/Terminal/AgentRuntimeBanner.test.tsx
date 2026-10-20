@@ -16,21 +16,21 @@ it("opens the accessible runtime badge and wires Retry once, with outside and Es
     expect(badge).not.toBeNull();
     expect(badge.getAttribute("aria-label")).toBeTruthy();
     await act(async () => badge.click());
-    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
-    const control = host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!;
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    const control = document.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!;
     expect(control).not.toBeNull();
     await act(async () => control.click());
     expect(retry).toHaveBeenCalledTimes(1);
     await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(badge);
     await act(async () => badge.click());
     await act(async () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
     await act(async () => badge.click());
     await act(async () => root.render(<AgentRuntimeBanner state={{ state: "loaded", epoch: 2 }} onRetry={retry} />));
     expect(badge.disabled).toBe(true);
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
     await act(async () => root.render(<AgentRuntimeBanner state={{ state: "degraded", epoch: 3, reason: "another-fault" }} onRetry={retry} />));
     expect(host.querySelector('button[aria-haspopup="dialog"]')).toBe(badge);
     expect(badge.disabled).toBe(false);
@@ -49,7 +49,7 @@ it("offers history Retry while the conversation runtime is loaded", async () => 
     const badge=host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!;
     expect(badge.getAttribute("aria-label")).toBeTruthy();
     await act(async()=>badge.click());
-    const control=host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!;
+    const control=document.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!;
     expect(control.disabled).toBe(false);
     await act(async()=>control.click());expect(retry).toHaveBeenCalledTimes(1);
   } finally { await act(async()=>root.unmount());host.remove(); }

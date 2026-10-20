@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 export interface DestinationOption {
   id: string;
@@ -40,16 +41,6 @@ export function DestinationPicker({
     <div
       className="relative flex items-center justify-between gap-2"
       data-testid="settings-destination-picker"
-      onKeyDown={(event) => {
-        if (event.key !== "Escape" || !open) return;
-        event.stopPropagation();
-        setOpen(false);
-        triggerRef.current?.focus();
-      }}
-      onBlur={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-        setOpen(false);
-      }}
     >
       <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
       <button
@@ -65,13 +56,13 @@ export function DestinationPicker({
         <span className="min-w-0 flex-1 truncate text-left">{summary}</span>
         <ChevronDown aria-hidden size={12} className="shrink-0 text-[var(--ct-muted-fg)]" />
       </button>
-      {open && (
+      <AnchoredPopover open={open} anchor={triggerRef} placement="bottom-end" onClose={() => setOpen(false)}>
         <div
           id={listId}
           role="group"
           aria-label={name}
           data-testid="settings-destination-picker-options"
-          className="absolute right-0 top-full z-10 mt-1 flex min-w-[180px] flex-col gap-0.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-1 shadow-lg"
+          className="flex min-w-[180px] flex-col gap-0.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-1 shadow-lg"
         >
           {options.map((option) => (
             <button
@@ -91,7 +82,7 @@ export function DestinationPicker({
             </button>
           ))}
         </div>
-      )}
+      </AnchoredPopover>
     </div>
   );
 }

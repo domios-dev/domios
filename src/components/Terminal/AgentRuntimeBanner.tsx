@@ -1,10 +1,11 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useId, type CSSProperties } from "react";
+import { useId } from "react";
 import { CircleAlert } from "lucide-react";
 import { RuntimeLoginActions } from "./RuntimeLoginActions";
 import { runtimeStatusPresentation, type AgentRuntimeState } from "../../lib/agentRuntimeState";
 import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg, startupOwned = false }: { tabId?: string; state: AgentRuntimeState | null; onRetry: () => void; iconSvg?: string | null; startupOwned?: boolean }) {
   if (tabId && state?.auth === "signedOut" && state.loginMethods?.length) {
@@ -17,7 +18,7 @@ export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg, startupOwne
 }
 
 function RuntimeStatusBadge({ view, onRetry }: { view: ReturnType<typeof runtimeStatusPresentation>; onRetry: () => void }) {
-  const { open, triggerRef, popoverRef, toggle } = useRuntimeStatusPopover();
+  const { open, triggerRef, popoverRef, toggle, close } = useRuntimeStatusPopover();
   const id = useId();
   const active = Boolean(view);
   const transient = view?.severity === "transient";
@@ -28,14 +29,15 @@ function RuntimeStatusBadge({ view, onRetry }: { view: ReturnType<typeof runtime
         onClick={toggle} className={`flex h-6 w-6 items-center justify-center rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] transition-colors hover:bg-[var(--ct-border)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-border-focus)] ${transient ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-accent)]"}`}>
         {transient ? <TabLoadingIndicator label={label} compact deferred={false} role="img" /> : <CircleAlert size={14} aria-hidden="true" />}
       </button>
-      {active && open && <div id={id} ref={popoverRef} role="dialog" aria-label={label} tabIndex={-1}
-        className="ct-menu absolute bottom-full left-0 mb-2 w-64 max-w-[calc(100vw-2rem)] p-3 text-xs text-[var(--ct-fg)]"
-        style={{ "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties}>
+      <AnchoredPopover open={active && open} anchor={triggerRef} placement="top-start" onClose={close}>
+      <div id={id} ref={popoverRef} role="dialog" aria-label={label} tabIndex={-1}
+        className="ct-menu w-64 max-w-full p-3 text-xs text-[var(--ct-fg)]">
         {view && <InlineErrorNotice
           description={view.severity === "transient" ? { title: view.label, cause: view.reason, raw: view.details ?? "", actions: [] } : undefined}
           error={view.details} operation="connecting to the agent runtime"
           actions={[{ label: "Retry", disabled: !view.canRetry, onClick: onRetry }]} />}
-      </div>}
+      </div>
+      </AnchoredPopover>
     </div>
   </div>;
 }
