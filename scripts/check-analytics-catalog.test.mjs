@@ -11,7 +11,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 test("catalog checker rejects stale TypeScript and regenerates it", () => {
   const fixture = mkdtempSync(resolve(tmpdir(), "domios-catalog-"));
   try {
-    for (const path of ["prod-docs/ACCOUNT.md", "src-tauri/crates/codeterm-analytics/catalog.schema.json", "src-tauri/crates/codeterm-analytics/src/catalog/generated.rs", "src/lib/productAnalytics.generated.ts"]) {
+    for (const path of ["prod-docs/ACCOUNT.md", "src-tauri/crates/domios-analytics/catalog.schema.json", "src-tauri/crates/domios-analytics/src/catalog/generated.rs", "src/lib/productAnalytics.generated.ts"]) {
       mkdirSync(dirname(resolve(fixture, path)), { recursive: true });
       cpSync(resolve(root, path), resolve(fixture, path));
     }

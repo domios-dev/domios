@@ -51,7 +51,7 @@ const env = {
 };
 const result = spawnSync(
   "cargo",
-  ["run", "--manifest-path", "src-tauri/Cargo.toml", "-p", "codeterm-types", "--bin", "export_chat_types"],
+  ["run", "--manifest-path", "src-tauri/Cargo.toml", "-p", "domios-types", "--bin", "export_chat_types"],
   { cwd: root, env, stdio: "inherit" },
 );
 

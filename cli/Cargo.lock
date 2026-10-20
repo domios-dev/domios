@@ -301,273 +301,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "codeterm-blueprint-types"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-build-info"
-version = "0.0.0"
-
-[[package]]
-name = "codeterm-cli"
-version = "1.15.0"
-dependencies = [
- "base64",
- "chrono",
- "clap",
- "codeterm-blueprint-types",
- "codeterm-build-info",
- "codeterm-mem-store",
- "codeterm-mesh",
- "codeterm-notification-core",
- "codeterm-paths",
- "codeterm-plugin",
- "codeterm-plugins",
- "codeterm-process-identity",
- "codeterm-types",
- "codeterm-wire",
- "deunicode",
- "dirs 5.0.1",
- "ed25519-dalek",
- "include_dir",
- "interprocess",
- "regex",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "sqlite-vec",
- "tempfile",
- "toml",
- "urlencoding",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-decision"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "codeterm-local-recording"
-version = "0.0.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "codeterm-mem-store"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "codeterm-paths",
- "rusqlite",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "codeterm-mesh"
-version = "0.0.0"
-dependencies = [
- "aes-gcm",
- "base64",
- "chrono",
- "codeterm-build-info",
- "codeterm-paths",
- "codeterm-types",
- "codeterm-util",
- "dirs 6.0.0",
- "ed25519-dalek",
- "hostname",
- "if-addrs",
- "log",
- "mdns-sd",
- "parking_lot",
- "rand 0.8.8",
- "reqwest",
- "semver",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "uuid",
- "x25519-dalek",
-]
-
-[[package]]
-name = "codeterm-notification-core"
-version = "0.0.0"
-dependencies = [
- "codeterm-notify-types",
- "codeterm-types",
- "codeterm-util",
- "log",
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-notify-types"
-version = "0.0.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "codeterm-paths"
-version = "0.0.0"
-dependencies = [
- "dirs 6.0.0",
-]
-
-[[package]]
-name = "codeterm-plugin"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "base64",
- "chrono",
- "codeterm-blueprint-types",
- "codeterm-build-info",
- "codeterm-decision",
- "codeterm-local-recording",
- "codeterm-paths",
- "codeterm-provider-signals",
- "codeterm-types",
- "codeterm-usage",
- "codeterm-util",
- "codeterm-wire",
- "dirs 6.0.0",
- "futures-executor",
- "futures-util",
- "include_dir",
- "indexmap",
- "libc",
- "log",
- "md-5",
- "notify",
- "parking_lot",
- "quick-xml",
- "regex",
- "reqwest",
- "rquickjs",
- "rusqlite",
- "semver",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tokio",
- "toml",
- "uuid",
- "wait-timeout",
-]
-
-[[package]]
-name = "codeterm-plugins"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "codeterm-util",
- "dirs 5.0.1",
- "log",
- "reqwest",
- "semver",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-process-identity"
-version = "0.0.0"
-dependencies = [
- "codeterm-types",
- "core-foundation 0.10.1",
- "libc",
- "security-framework",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-provider-signals"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "codeterm-types"
-version = "0.0.0"
-dependencies = [
- "codeterm-notify-types",
- "codeterm-provider-signals",
- "codeterm-wire",
- "dirs 6.0.0",
- "serde",
- "serde_json",
- "toml",
- "ts-rs",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-usage"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "codeterm-types",
- "parking_lot",
- "rusqlite",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "codeterm-util"
-version = "0.0.0"
-dependencies = [
- "codeterm-paths",
- "libc",
- "log",
- "parking_lot",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
- "uuid",
- "vt100",
- "winapi",
- "windows-sys 0.61.2",
- "winreg",
-]
-
-[[package]]
-name = "codeterm-wire"
-version = "0.0.0"
-dependencies = [
- "serde",
- "ts-rs",
-]
-
-[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -778,6 +511,273 @@ name = "doctest-file"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2db04e74f0a9a93103b50e90b96024c9b2bdca8bce6a632ec71b88736d3d359"
+
+[[package]]
+name = "domios-blueprint-types"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "domios-build-info"
+version = "0.0.0"
+
+[[package]]
+name = "domios-cli"
+version = "1.15.0"
+dependencies = [
+ "base64",
+ "chrono",
+ "clap",
+ "deunicode",
+ "dirs 5.0.1",
+ "domios-blueprint-types",
+ "domios-build-info",
+ "domios-mem-store",
+ "domios-mesh",
+ "domios-notification-core",
+ "domios-paths",
+ "domios-plugin",
+ "domios-plugins",
+ "domios-process-identity",
+ "domios-types",
+ "domios-wire",
+ "ed25519-dalek",
+ "include_dir",
+ "interprocess",
+ "regex",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "sqlite-vec",
+ "tempfile",
+ "toml",
+ "urlencoding",
+ "uuid",
+]
+
+[[package]]
+name = "domios-decision"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "domios-local-recording"
+version = "0.0.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "domios-mem-store"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "domios-paths",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "domios-mesh"
+version = "0.0.0"
+dependencies = [
+ "aes-gcm",
+ "base64",
+ "chrono",
+ "dirs 6.0.0",
+ "domios-build-info",
+ "domios-paths",
+ "domios-types",
+ "domios-util",
+ "ed25519-dalek",
+ "hostname",
+ "if-addrs",
+ "log",
+ "mdns-sd",
+ "parking_lot",
+ "rand 0.8.8",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "uuid",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "domios-notification-core"
+version = "0.0.0"
+dependencies = [
+ "domios-notify-types",
+ "domios-types",
+ "domios-util",
+ "log",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "domios-notify-types"
+version = "0.0.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "domios-paths"
+version = "0.0.0"
+dependencies = [
+ "dirs 6.0.0",
+]
+
+[[package]]
+name = "domios-plugin"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "base64",
+ "chrono",
+ "dirs 6.0.0",
+ "domios-blueprint-types",
+ "domios-build-info",
+ "domios-decision",
+ "domios-local-recording",
+ "domios-paths",
+ "domios-provider-signals",
+ "domios-types",
+ "domios-usage",
+ "domios-util",
+ "domios-wire",
+ "futures-executor",
+ "futures-util",
+ "include_dir",
+ "indexmap",
+ "libc",
+ "log",
+ "md-5",
+ "notify",
+ "parking_lot",
+ "quick-xml",
+ "regex",
+ "reqwest",
+ "rquickjs",
+ "rusqlite",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tokio",
+ "toml",
+ "uuid",
+ "wait-timeout",
+]
+
+[[package]]
+name = "domios-plugins"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "dirs 5.0.1",
+ "domios-util",
+ "log",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "uuid",
+]
+
+[[package]]
+name = "domios-process-identity"
+version = "0.0.0"
+dependencies = [
+ "core-foundation 0.10.1",
+ "domios-types",
+ "libc",
+ "security-framework",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-provider-signals"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "domios-types"
+version = "0.0.0"
+dependencies = [
+ "dirs 6.0.0",
+ "domios-notify-types",
+ "domios-provider-signals",
+ "domios-wire",
+ "serde",
+ "serde_json",
+ "toml",
+ "ts-rs",
+ "uuid",
+]
+
+[[package]]
+name = "domios-usage"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "domios-types",
+ "parking_lot",
+ "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "domios-util"
+version = "0.0.0"
+dependencies = [
+ "domios-paths",
+ "libc",
+ "log",
+ "parking_lot",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "uuid",
+ "vt100",
+ "winapi",
+ "windows-sys 0.61.2",
+ "winreg",
+]
+
+[[package]]
+name = "domios-wire"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "ts-rs",
+]
 
 [[package]]
 name = "ed25519"

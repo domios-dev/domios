@@ -80,8 +80,9 @@ function makeHarness() {
   const devBin = path.join(dir, "dev-bin");
   const parentRecord = path.join(dir, "parent-record.jsonl");
   const devRecord = path.join(dir, "dev-record.jsonl");
-  const parentCli = path.join(parentBin, "codeterm");
-  const devCli = path.join(devBin, "codeterm");
+  const parentCli = path.join(parentBin, "domios");
+  const parentLegacyCli = path.join(parentBin, "codeterm");
+  const devCli = path.join(devBin, "domios");
   const padPath = path.join(dir, "agent-pad");
   const fixtureBuild = path.join(dir, "build.sh");
   const buildSource = readFileSync(buildPath, "utf8").replaceAll("\r\n", "\n");
@@ -89,6 +90,7 @@ function makeHarness() {
   assert.ok(buildSource.includes(gateway), "build fixture must stub the Cargo gateway");
   writeFileSync(fixtureBuild, buildSource.replace(gateway, 'enter_cargo_gateway() { :; }'));
   writeFakeCli(parentCli, parentRecord);
+  writeFakeCli(parentLegacyCli, parentRecord); // rename-bridge
   writeFakeCli(devCli, devRecord);
   mkdirSync(padPath, { recursive: true });
   return {

@@ -18,7 +18,7 @@ const SCOPES = ['identity', 'cli', 'crates', 'native', 'docs'];
 function normalize(file) { return file.replaceAll('\\', '/').replace(/^\.\//, ''); }
 
 export function parseArgs(argv) {
-  const args = { scope: 'all', report: false, root: REPO, allowlist: DEFAULT_ALLOWLIST, ownership: DEFAULT_OWNERSHIP, checkLane: null };
+  const args = { scope: 'all', report: false, root: REPO, allowlist: DEFAULT_ALLOWLIST, ownership: DEFAULT_OWNERSHIP, checkLane: null, baseRef: null };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     const value = argv[index + 1];
@@ -27,6 +27,7 @@ export function parseArgs(argv) {
     else if (flag === '--allowlist' && value) { args.allowlist = path.resolve(value); index += 1; }
     else if (flag === '--ownership' && value) { args.ownership = path.resolve(value); index += 1; }
     else if (flag === '--check-lane' && value && !args.checkLane) { args.checkLane = value; index += 1; }
+    else if (flag === '--base' && value) { args.baseRef = value; index += 1; }
     else if (flag === '--report') args.report = true;
     else throw new Error(`unexpected or incomplete argument: ${flag}`);
   }
@@ -161,21 +162,33 @@ function projectedBridgePath(file) {
   }).join('/');
 }
 
+function ownedPathMatches(candidate, allowed) {
+  if (candidate === allowed || candidate.startsWith(allowed + '/')) return true;
+  if (!allowed.includes('*') && !allowed.includes('?')) return false;
+  return globRegex(allowed).test(candidate) || globRegex(allowed + '/**').test(candidate);
+}
+
 function ownedBy(file, owner) {
   const exact = normalize(file).toLowerCase();
   const projected = projectedBridgePath(file).toLowerCase();
-  return owner.paths.some((entry) => {
+  const matchesEntry = (entry) => {
     const declared = normalize(entry).toLowerCase().replace(/\/$/, '');
-    return exact === declared || projected === declared || exact.startsWith(`${declared}/`) || projected.startsWith(`${declared}/`);
-  });
+    const projectedDeclared = projectedBridgePath(declared).toLowerCase();
+    const candidates = [exact, projected];
+    const allowedPaths = [declared, projectedDeclared];
+    return allowedPaths.some((allowed) => candidates.some((candidate) => ownedPathMatches(candidate, allowed)));
+  };
+  if ((owner.exclude_paths ?? []).some(matchesEntry)) return false;
+  return owner.paths.some(matchesEntry);
 }
 
-export function checkLane({ root = REPO, ownership = DEFAULT_OWNERSHIP, taskKey } = {}) {
+export function checkLane({ root = REPO, ownership = DEFAULT_OWNERSHIP, taskKey, baseRef } = {}) {
   const manifest = JSON.parse(readFileSync(ownership, 'utf8'));
   const owners = Object.values(manifest.phases ?? {}).flat();
   const owner = owners.find((entry) => [entry.key, entry.id, entry.handle].includes(taskKey));
   if (!owner) throw new Error(`task key not found in ownership manifest: ${taskKey}`);
-  const base = runGit(root, ['merge-base', 'HEAD', 'develop']);
+  const comparisonRef = baseRef ?? process.env.CODETERM_LANE_BASE ?? 'origin/rename/domios';
+  const base = runGit(root, ['merge-base', 'HEAD', comparisonRef]);
   const rows = runGit(root, ['diff', '--name-status', '-z', `${base}...HEAD`]).split('\0');
   const changed = [];
   for (let index = 0; index < rows.length;) {
@@ -251,7 +264,7 @@ function printLane(result) {
 function main(argv) {
   const args = parseArgs(argv);
   if (args.checkLane) {
-    const result = checkLane({ root: args.root, ownership: args.ownership, taskKey: args.checkLane });
+    const result = checkLane({ root: args.root, ownership: args.ownership, taskKey: args.checkLane, baseRef: args.baseRef });
     printLane(result);
     return result.pathFailures.length || result.bridgeFailures.length ? 1 : 0;
   }

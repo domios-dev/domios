@@ -1,6 +1,6 @@
 {
   "license": "Apache-2.0",
-  "name": "@codeterm/provider-opencode",
+  "name": "@domios/provider-opencode",
   "version": "1.14.9",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     ".": "./src/index.ts"
   },
   "devDependencies": {
-    "@codeterm/plugin-sdk": "workspace:*"
+    "@domios/plugin-sdk": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.0.0"

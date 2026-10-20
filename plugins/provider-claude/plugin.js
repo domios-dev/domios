@@ -144,7 +144,7 @@ function parseContextUsage(record3) {
   };
 }
 var STATUSLINE_FLAG = "--codeterm-statusline";
-var STATUSLINE_FORWARD = 'payload=$(cat); if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then printf \'%s\' "$payload" | curl -s --max-time 2 -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/context" -H \'Content-Type: application/json\' -H "Authorization: Bearer $CODETERM_API_TOKEN" -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE:-}" --data-binary @- || true; fi';
+var STATUSLINE_FORWARD = 'payload=$(cat); if [ -n "${DOMIOS_API_URL:-}" ] && [ -n "${DOMIOS_API_TOKEN:-}" ] && [ -n "${DOMIOS_TAB_ID:-}" ]; then printf \'%s\' "$payload" | curl -s --max-time 2 -o /dev/null -X POST "$DOMIOS_API_URL/api/tabs/$DOMIOS_TAB_ID/hook/context" -H \'Content-Type: application/json\' -H "Authorization: Bearer $DOMIOS_API_TOKEN" -H "X-Domios-Binding-Nonce: ${DOMIOS_SESSION_BINDING_NONCE:-}" --data-binary @- || true; fi';
 function statuslineSettings(settings) {
   if (!settings || typeof settings !== "object" || Array.isArray(settings)) return null;
   const line = settings.statusLine;
@@ -2418,23 +2418,24 @@ function claudePermissionPromptResponse(toolName, prompt, screen) {
   };
 }
 
+// plugins/provider-claude/src/upgrade_from_1_14_9.ts
+var CODETERM_CLAUDE_HOOK_MARKER_V1149 = "codeterm-hook-v3";
+function commandIsOwned(command) {
+  const marker = "X-CodeTerm-Hook: " + CODETERM_CLAUDE_HOOK_MARKER_V1149;
+  const index = command.indexOf(marker);
+  if (index === -1) return false;
+  const isTokenChar = (value) => !!value && /[A-Za-z0-9_-]/.test(value);
+  return !isTokenChar(command[index - 1]) && !isTokenChar(command[index + marker.length]);
+}
+
 // plugins/provider-claude/src/hookOwnership.ts
-var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
-var CODETERM_HOOK_TIMEOUT_SECONDS = 5;
-var CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
-var CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
+var DOMIOS_HOOK_MARKER = "domios-hook-v4";
+var DOMIOS_HOOK_TIMEOUT_SECONDS = 5;
+var DOMIOS_HOOK_MARKER_HEADER = "X-Domios-Hook: domios-hook-v4";
+var DOMIOS_HOOK_MARKER_ARG = '-H "' + DOMIOS_HOOK_MARKER_HEADER + '"';
 var INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
-var CODETERM_CURRENT_ROUTES = [
-  "/api/tabs/$CODETERM_TAB_ID/hook/permission",
-  "/api/tabs/$CODETERM_TAB_ID/hook/stop",
-  "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
-  "$CODETERM_API_URL/api/mem/flush"
-];
-var LEGACY_V2_SESSION_START = "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\" -d '{}' > /dev/null 2>&1 || true";
-var LEGACY_V2_STOP = "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true";
-var LEGACY_V2_COMMANDS = /* @__PURE__ */ new Set([LEGACY_V2_SESSION_START, LEGACY_V2_STOP]);
 function commandCarriesMarker(command) {
-  return command.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
+  return command.indexOf(DOMIOS_HOOK_MARKER_HEADER) !== -1;
 }
 function entryCarriesMarker(entry) {
   const hooks = entry && entry.hooks;
@@ -2442,46 +2443,33 @@ function entryCarriesMarker(entry) {
     return typeof hook.command === "string" && commandCarriesMarker(hook.command);
   });
 }
-function entryIsLegacyPaneCodetermHook(entry) {
+function entryIs1149Hook(entry) {
   const hooks = entry && entry.hooks;
   return Array.isArray(hooks) && hooks.some((hook) => {
-    return typeof hook.command === "string" && LEGACY_V2_COMMANDS.has(hook.command);
+    return typeof hook.command === "string" && commandIsOwned(hook.command);
   });
 }
 function isCurrentHookCommand(command, platform) {
   const executable = platform === "windows" ? "curl.exe " : "curl ";
   return command.indexOf(executable) === 0 && command.indexOf(" --request POST ") !== -1 && command.indexOf(" --data-binary ") !== -1 && command.indexOf("if [") === -1 && command.indexOf("|| true") === -1;
 }
-function commandIsCurrentUnmarked(command) {
-  if (command.indexOf("$CODETERM_API_URL") === -1) return false;
-  if (command.indexOf("$CODETERM_TAB_ID") === -1) return false;
-  if (command.indexOf("$CODETERM_API_TOKEN") === -1) return false;
-  return CODETERM_CURRENT_ROUTES.some((route) => command.indexOf(route) !== -1);
-}
-function isCodetermHook(entry) {
+function isDomiosHook(entry) {
   const hooks = entry && entry.hooks;
   if (!Array.isArray(hooks)) return false;
   return hooks.some((hook) => {
-    if (!hook) return false;
-    if (typeof hook._source === "string" && (hook._source.indexOf("codeterm-hook") === 0 || hook._source === "codeterm")) {
-      return true;
-    }
-    const command = hook.command;
-    return typeof command === "string" && (commandCarriesMarker(command) || commandIsCurrentUnmarked(command) || LEGACY_V2_COMMANDS.has(command));
+    if (!hook || typeof hook.command !== "string") return false;
+    return commandCarriesMarker(hook.command) || commandIsOwned(hook.command);
   });
 }
 function entriesCarryMarker(entries) {
   return entries.every((entry) => {
-    if (!isCodetermHook(entry)) return true;
-    const hooks = entry && entry.hooks || [];
-    return hooks.some((hook) => {
-      return typeof hook.command === "string" && commandCarriesMarker(hook.command);
-    });
+    if (!isDomiosHook(entry)) return true;
+    return entryCarriesMarker(entry);
   });
 }
 function entriesHaveBoundedTimeout(entries) {
   return entries.every((entry) => (entry.hooks || []).every((hook) => {
-    return !isCodetermHook({ hooks: [hook] }) || hook.timeout === CODETERM_HOOK_TIMEOUT_SECONDS;
+    return !isDomiosHook({ hooks: [hook] }) || hook.timeout === DOMIOS_HOOK_TIMEOUT_SECONDS;
   }));
 }
 
@@ -2559,7 +2547,7 @@ function isBrailleSpinner(ch) {
 function retainForeignPrecompactEntry(entry) {
   if (!entry || !Array.isArray(entry.hooks)) return true;
   const previous = entry.hooks;
-  const remaining = previous.filter((hook) => !isCodetermHook({ hooks: [hook] }));
+  const remaining = previous.filter((hook) => !isDomiosHook({ hooks: [hook] }));
   if (remaining.length === previous.length) return true;
   entry.hooks = remaining;
   return remaining.length > 0;
@@ -2840,7 +2828,7 @@ var plugin = {
   sessionUsageSources(sessionFilePath, sessionId) {
     return subAgentUsageSources(sessionFilePath, sessionId);
   },
-  // Write bridge rule to `~/.claude/rules/codeterm.md` via host APIs.
+  // Write the existing bridge rule path via host APIs. // rename-bridge
   installBridgeRule(payload) {
     const m = manifest();
     const rulePath = m && m.rule && m.rule.path || "~/.claude/rules/codeterm.md";
@@ -2882,6 +2870,7 @@ var plugin = {
         session_start_hook: false,
         target: path || "~/.claude/settings.json",
         backup_exists: !!path && host.fileExists(path + ".codeterm-backup"),
+        // rename-bridge
         proposed_changes: ["PermissionRequest", "Notification", "Stop", "SessionStart"]
       };
     }
@@ -2904,7 +2893,7 @@ var plugin = {
         for (let j = 0; j < hooks.length; j++) {
           const hook = hooks[j];
           const command = hook && hook.command;
-          if (typeof command === "string" && (!completion || command.includes("CODETERM_SESSION_BINDING_NONCE") && command.includes('--data-binary "@-"')) && isCurrentHookCommand(command, host.platform()) && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("CODETERM_API_URL") !== -1 && command.indexOf("CODETERM_API_TOKEN") !== -1 && command.indexOf("CODETERM_API_PORT") === -1 && command.indexOf("CODETERM_PANE_ID") === -1) return true;
+          if (typeof command === "string" && (!completion || command.includes("DOMIOS_SESSION_BINDING_NONCE") && command.includes('--data-binary "@-"')) && isCurrentHookCommand(command, host.platform()) && command.indexOf("DOMIOS_TAB_ID") !== -1 && command.indexOf("DOMIOS_API_URL") !== -1 && command.indexOf("DOMIOS_API_TOKEN") !== -1 && command.indexOf("DOMIOS_API_PORT") === -1 && command.indexOf("DOMIOS_PANE_ID") === -1) return true;
         }
       }
       return false;
@@ -2918,7 +2907,7 @@ var plugin = {
         for (let j = 0; j < hooks.length; j++) {
           const h = hooks[j];
           const command = h && h.command;
-          if (typeof command === "string" && isCurrentHookCommand(command, host.platform()) && command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("CODETERM_API_URL") !== -1 && command.indexOf("CODETERM_API_TOKEN") !== -1 && command.indexOf("CODETERM_API_PORT") === -1 && command.indexOf("CODETERM_PANE_ID") === -1) return true;
+          if (typeof command === "string" && isCurrentHookCommand(command, host.platform()) && command.indexOf("DOMIOS_SESSION_BINDING_NONCE") !== -1 && command.indexOf("DOMIOS_TAB_ID") !== -1 && command.indexOf("DOMIOS_API_URL") !== -1 && command.indexOf("DOMIOS_API_TOKEN") !== -1 && command.indexOf("DOMIOS_API_PORT") === -1 && command.indexOf("DOMIOS_PANE_ID") === -1) return true;
         }
       }
       return false;
@@ -2926,14 +2915,12 @@ var plugin = {
     const n = present("Notification");
     const pr = present("PermissionRequest");
     const s = present("Stop", true);
-    const pc = Array.isArray(json.hooks?.PreCompact) && json.hooks.PreCompact.some(isCodetermHook);
+    const pc = Array.isArray(json.hooks?.PreCompact) && json.hooks.PreCompact.some(isDomiosHook);
     const ss = sessionStartCurrent();
     const installed = n && pr && s && ss;
     const owned = INTEGRATION_HOOK_KEYS.some((key) => {
       const arr = json.hooks && json.hooks[key];
-      return Array.isArray(arr) && arr.some((entry) => {
-        return entryCarriesMarker(entry) || entryIsLegacyPaneCodetermHook(entry);
-      });
+      return Array.isArray(arr) && arr.some(isDomiosHook);
     });
     let marked = true;
     for (let i = 0; i < INTEGRATION_HOOK_KEYS.length; i++) {
@@ -2954,6 +2941,7 @@ var plugin = {
       session_start_hook: ss,
       target: path,
       backup_exists: host.fileExists(path + ".codeterm-backup"),
+      // rename-bridge
       proposed_changes: ["PermissionRequest", "Notification", "Stop", "SessionStart"]
     };
   },
@@ -2985,17 +2973,21 @@ var plugin = {
     if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
       return { ok: false, error: "hooks is not an object" };
     }
+    const has1149Hook = Object.values(json.hooks || {}).some((entries) => Array.isArray(entries) && entries.some(entryIs1149Hook));
+    if (host.envGet("DOMIOS_INSTANCE") !== null && has1149Hook) {
+      return { ok: true, changed: false, reason: "DEV left the 1.14.9 hook generation untouched" };
+    }
     if (!json.hooks) json.hooks = {};
     const executable = host.platform() === "windows" ? "curl.exe" : "curl";
     const hookCommand = (path2, body, extraHeaders, stdin) => {
       const payload = stdin ? '--data-binary "@-"' : `--data-binary "${body}"`;
-      return `${executable} --silent --request POST "$CODETERM_API_URL${path2}" --header "Content-Type: application/json" --header "Authorization: Bearer $CODETERM_API_TOKEN" ${CODETERM_HOOK_MARKER_ARG} ${extraHeaders} ${payload}`;
+      return `${executable} --silent --request POST "$DOMIOS_API_URL${path2}" --header "Content-Type: application/json" --header "Authorization: Bearer $DOMIOS_API_TOKEN" ${DOMIOS_HOOK_MARKER_ARG} ${extraHeaders} ${payload}`;
     };
-    const nonceHeader = '--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"';
-    const notifyCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/permission", "", nonceHeader, true);
-    const stopCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/stop", "", nonceHeader, true);
+    const nonceHeader = '--header "X-Domios-Binding-Nonce: $DOMIOS_SESSION_BINDING_NONCE"';
+    const notifyCmd = hookCommand("/api/tabs/$DOMIOS_TAB_ID/hook/permission", "", nonceHeader, true);
+    const stopCmd = hookCommand("/api/tabs/$DOMIOS_TAB_ID/hook/stop", "", nonceHeader, true);
     const sessionStartCmd = hookCommand(
-      "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+      "/api/tabs/$DOMIOS_TAB_ID/hook/session_start",
       "",
       nonceHeader,
       true
@@ -3007,15 +2999,15 @@ var plugin = {
           type: "command",
           command: cmd,
           timeout,
-          _source: CODETERM_HOOK_MARKER
+          _source: DOMIOS_HOOK_MARKER
         }]
       };
     }
     const newHooks = {
-      PermissionRequest: newEntry("*", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
-      Notification: newEntry("permission_prompt", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
-      Stop: newEntry("", stopCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
-      SessionStart: newEntry("", sessionStartCmd, CODETERM_HOOK_TIMEOUT_SECONDS)
+      PermissionRequest: newEntry("*", notifyCmd, DOMIOS_HOOK_TIMEOUT_SECONDS),
+      Notification: newEntry("permission_prompt", notifyCmd, DOMIOS_HOOK_TIMEOUT_SECONDS),
+      Stop: newEntry("", stopCmd, DOMIOS_HOOK_TIMEOUT_SECONDS),
+      SessionStart: newEntry("", sessionStartCmd, DOMIOS_HOOK_TIMEOUT_SECONDS)
     };
     const keys = INTEGRATION_HOOK_KEYS;
     let preservedUnclassified = 0;
@@ -3025,7 +3017,7 @@ var plugin = {
         return { ok: false, error: "hooks." + k + " is not an array" };
       }
       const existing = Array.isArray(json.hooks[k]) ? json.hooks[k].filter((entry) => {
-        const retained = k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry);
+        const retained = k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isDomiosHook(entry);
         if (retained) preservedUnclassified++;
         return retained;
       }) : [];
@@ -3079,7 +3071,7 @@ var plugin = {
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
       if (Array.isArray(json.hooks[k])) {
-        json.hooks[k] = json.hooks[k].filter((entry) => k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry));
+        json.hooks[k] = json.hooks[k].filter((entry) => k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isDomiosHook(entry));
       }
     }
     const ok = host.fs.writeJson(path, json);

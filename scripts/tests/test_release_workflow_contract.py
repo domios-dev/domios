@@ -245,13 +245,13 @@ class SingleRunGraphTest(unittest.TestCase):
         build = (ROOT / "build.sh").read_text(encoding="utf-8")
         self.assertIn('cargo_target_args=(--target "$CARGO_BUILD_TARGET")', build)
         self.assertIn('--features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol"', build)
-        self.assertIn("--bin codeterm", build)
+        self.assertIn("--bin domios", build)
 
     def test_embedding_runtime_has_no_sidecar_or_onnx_dependencies(self):
         config = json.loads((ROOT / "src-tauri/tauri.conf.json").read_text())
         self.assertEqual(config["bundle"].get("externalBin", []), [])
         self.assertFalse((ROOT / "src-tauri/src/bin/codeterm_embed.rs").exists())
-        for relative in ["src-tauri/Cargo.toml", "src-tauri/crates/codeterm-service-core/Cargo.toml", "src-tauri/crates/codeterm-mem/Cargo.toml"]:
+        for relative in ["src-tauri/Cargo.toml", "src-tauri/crates/domios-service-core/Cargo.toml", "src-tauri/crates/domios-mem/Cargo.toml"]:
             manifest = (ROOT / relative).read_text()
             self.assertNotRegex(manifest, r"(?m)^\s*(?:fastembed|ort)\s*=")
             self.assertNotIn("codeterm-embed", manifest)

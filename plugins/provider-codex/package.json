@@ -1,6 +1,6 @@
 {
   "license": "Apache-2.0",
-  "name": "@codeterm/provider-codex",
+  "name": "@domios/provider-codex",
   "version": "1.14.48",
   "private": true,
   "type": "module",
@@ -12,10 +12,10 @@
     "./src/parser": "./src/parser.ts"
   },
   "dependencies": {
-    "@codeterm/chat-core": "workspace:*"
+    "@domios/chat-core": "workspace:*"
   },
   "devDependencies": {
-    "@codeterm/plugin-sdk": "workspace:*"
+    "@domios/plugin-sdk": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.0.0"

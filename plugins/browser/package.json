@@ -1,11 +1,11 @@
 {
   "license": "Apache-2.0",
-  "name": "@codeterm/plugin-browser",
+  "name": "@domios/plugin-browser",
   "version": "1.12.4",
   "private": true,
   "type": "module",
   "description": "CodeTerm core Browser plugin: teaches agents the browser verbs of the core browser surface runtime.",
   "devDependencies": {
-    "@codeterm/plugin-sdk": "workspace:*"
+    "@domios/plugin-sdk": "workspace:*"
   }
 }

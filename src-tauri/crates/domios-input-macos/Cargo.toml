@@ -1,0 +1,8 @@
+[package]
+license = "AGPL-3.0-only"
+name = "domios-input-macos"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true

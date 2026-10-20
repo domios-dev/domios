@@ -1,0 +1,21 @@
+[package]
+name = "domios-process-identity"
+version = "0.0.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[lints]
+workspace = true
+
+[dependencies]
+domios-types = { path = "../domios-types" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3.7"
+core-foundation = "0.10"

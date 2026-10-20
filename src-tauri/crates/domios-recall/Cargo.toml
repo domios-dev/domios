@@ -1,0 +1,29 @@
+[package]
+license = "AGPL-3.0-only"
+name = "domios-recall"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+domios-agent-model = { path = "../domios-agent-model" }
+domios-config = { path = "../domios-config" }
+domios-decision = { path = "../domios-decision" }
+domios-mem = { path = "../domios-mem", default-features = false }
+domios-paths = { path = "../domios-paths" }
+domios-plan = { path = "../domios-plan" }
+domios-supporter = { path = "../domios-supporter" }
+domios-types = { path = "../domios-types" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+
+[dev-dependencies]
+domios-decision = { path = "../domios-decision", features = ["decision-fixture-clock"] }
+parking_lot = "0.12"
+tempfile = "3"
+
+[features]
+test-support = []

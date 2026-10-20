@@ -9,13 +9,13 @@ const { execSync } = require("child_process");
 const isWindows = process.platform === "win32";
 const isMacOS = process.platform === "darwin";
 const repoRoot = path.resolve(__dirname, "..");
-const binName = isWindows ? "codeterm.exe" : "codeterm";
+const binName = isWindows ? "domios.exe" : "domios";
 
 // One name per platform, whether or not CARGO_BUILD_TARGET is set. A local build
-// used to stage `codeterm.exe` while CI staged `codeterm-<triple>.exe`, so an app
+// used to stage the plain executable while CI staged a triple-named one, so an app
 // installed from CI kept a stale triple-named resource that the startup lookup
 // prefers — the fresh CLI was bundled and then permanently ignored, which is how
-// a local install could leave every `codeterm` command talking an old protocol.
+// a local install could leave every `domios` command talking an old protocol.
 function hostWindowsTarget(arch = process.arch) {
   if (arch === "arm64") return "aarch64-pc-windows-msvc";
   if (arch === "ia32") return "i686-pc-windows-msvc";
@@ -23,8 +23,8 @@ function hostWindowsTarget(arch = process.arch) {
 }
 
 function bundledCliName(env = process.env, platform = process.platform, arch = process.arch) {
-  if (platform !== "win32") return "codeterm";
-  return `codeterm-${env.CARGO_BUILD_TARGET || hostWindowsTarget(arch)}.exe`;
+  if (platform !== "win32") return "domios";
+  return `domios-${env.CARGO_BUILD_TARGET || hostWindowsTarget(arch)}.exe`;
 }
 
 function peMachineForTarget(target) {
@@ -74,7 +74,7 @@ function resolveCliSource(env = process.env, root = repoRoot, binary = binName) 
 
 function clearStaleBundledCli(destDir, keepName) {
   for (const entry of fs.readdirSync(destDir, { withFileTypes: true })) {
-    if (entry.name !== keepName && entry.isFile() && /^codeterm(?:-[^.]+)?(?:\.exe)?$/.test(entry.name)) {
+    if (entry.name !== keepName && entry.isFile() && /^(?:domios|codeterm)(?:-[^.]+)?(?:\.exe)?$/.test(entry.name)) { // rename-bridge
       fs.rmSync(path.join(destDir, entry.name));
     }
   }

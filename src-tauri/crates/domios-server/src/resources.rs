@@ -22,7 +22,8 @@ pub fn pin_worker_cli(shell: &dyn Shell, expected: &str) -> io::Result<WorkerCli
         .ok_or_else(|| io::Error::other("Server worker CLI resource unavailable"))?
         .canonicalize()?;
     let worker = verify_worker_cli(&path, expected)?;
-    std::env::set_var("CODETERM_CLI_PATH", &worker.path);
+    std::env::set_var("DOMIOS_CLI_PATH", &worker.path);
+    std::env::set_var("CODETERM_CLI_PATH", &worker.path); // rename-bridge
     Ok(worker)
 }
 
@@ -40,9 +41,9 @@ fn verify_worker_cli(path: &Path, expected: &str) -> io::Result<WorkerCli> {
         .prefix("domios-worker-")
         .tempdir()?;
     let destination = lease.path().join(if cfg!(windows) {
-        "codeterm.exe"
+        "domios.exe"
     } else {
-        "codeterm"
+        "domios"
     });
     let mut copy = std::fs::OpenOptions::new()
         .write(true)

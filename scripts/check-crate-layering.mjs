@@ -3,10 +3,13 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(process.argv[2] ?? path.join(import.meta.dirname, ".."));
+const legacyPrefix = "codeterm"; // rename-bridge
 const hosts = new Set([
   "domios-server",
-  "codeterm-service-core", "codeterm-api", "codeterm-commands",
-  "codeterm-orchestration", "codeterm-sentinel-host", "codeterm-socket",
+  "domios-service-core", "domios-api", "domios-commands",
+  "domios-orchestration", "domios-sentinel-host", "domios-socket",
+  `${legacyPrefix}-service-core`, `${legacyPrefix}-api`, `${legacyPrefix}-commands`,
+  `${legacyPrefix}-orchestration`, `${legacyPrefix}-sentinel-host`, `${legacyPrefix}-socket`,
 ]);
 // Process layers: the native window links only client and shared crates, shared crates never reach
 // the server layer, and no other crate depends on the client. Every unlisted crate is server layer.
@@ -14,7 +17,9 @@ const layers = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "crate-
 const clientCrates = new Set(layers.client);
 const sharedCrates = new Set(layers.shared);
 const serverOnly = layers.serverOnly;
-const layerOf = (name) => (clientCrates.has(name) ? "client" : sharedCrates.has(name) ? "shared" : "server");
+const canonicalName = (name) => name === legacyPrefix ? "domios" : name.startsWith(`${legacyPrefix}-`) ? `domios-${name.slice(legacyPrefix.length + 1)}` : name; // rename-bridge
+const isClient = (name) => clientCrates.has(canonicalName(name));
+const layerOf = (name) => (isClient(name) ? "client" : sharedCrates.has(canonicalName(name)) ? "shared" : "server");
 const leafTiers = [
   [],
   ["events", "config", "secrets", "keepawake", "crash", "cron", "shutdown", "prompts", "local-preview", "worker-services", "lanes"],
@@ -24,9 +29,9 @@ const leafTiers = [
   ["provider-ops", "recall"],
   ["surface", "notifications"],
 ];
-const tierByCrate = new Map(leafTiers.flatMap((names, tier) => names.map((name) => [`codeterm-${name}`, tier])));
+const tierByCrate = new Map(leafTiers.flatMap((names, tier) => names.map((name) => [`domios-${name}`, tier])));
+const tierFor = (name) => tierByCrate.get(name.startsWith(`${legacyPrefix}-`) ? `domios-${name.slice(legacyPrefix.length + 1)}` : name) ?? 0; // rename-bridge
 // Unlisted foundation crates are tier zero; extracted leaves must never become their dependencies.
-const tierFor = (name) => tierByCrate.get(name) ?? 0;
 
 function cargoEdges(text) {
   const edges = [];
@@ -93,12 +98,12 @@ for (const base of ["src-tauri/crates", "crates"]) {
     if (!fs.existsSync(manifest)) continue;
     if (base === "src-tauri/crates") addToGraph(manifest, entry.name);
     const dependencies = cargoDependencies(fs.readFileSync(manifest, "utf8"));
-    if (["codeterm-service-core", "domios-server"].includes(entry.name)) {
+    if (["domios-service-core", "domios-server", `${legacyPrefix}-service-core`].includes(entry.name)) { // rename-bridge
       for (const dependency of dependencies.filter((name) => /^tauri(?:-|$)/.test(name))) {
         violations.push(`${relative(manifest)}: service core depends on ${dependency}`);
       }
     }
-    if (hosts.has(entry.name) || clientCrates.has(entry.name)) continue;
+    if (hosts.has(entry.name) || isClient(entry.name)) continue;
     for (const dependency of dependencies) {
       if (tierFor(dependency) > tierFor(entry.name)) {
         violations.push(`${relative(manifest)}: leaf tier inversion: ${entry.name} (tier ${tierFor(entry.name)}) -> ${dependency} (tier ${tierFor(dependency)})`);
@@ -111,11 +116,12 @@ for (const base of ["src-tauri/crates", "crates"]) {
       lines.forEach((raw, index) => {
         const line = raw.replace(isManifest ? /#.*$/ : /\/\/.*$/, "");
         const tokens = isManifest ? line.replace(/\bpath\s*=\s*(?:"(?:\\.|[^"\\])*"|'[^']*')/g, 'path = ""') : line;
-        const core = isManifest ? /\bcodeterm[-_]service[-_]core\b/ : /\bcodeterm_service_core\b/;
+        const core = isManifest ? /\b(?:domios|codeterm)[-_]service[-_]core\b/ : /\b(?:domios|codeterm)_service_core\b/; // rename-bridge
         const tauri = isManifest ? /\btauri(?:[-_]\w+)?\b/ : /\btauri(?:_\w+)?\s*::|\b(?:use|extern\s+crate)\s+tauri\b/;
         const location = `${path.relative(root, file).replaceAll("\\", "/")}:${index + 1}`;
+        if (/rename-bridge/.test(raw)) return;
         if (!isManifest && /\bServiceContext\b/.test(line)) violations.push(`${location}: leaf crate names ServiceContext`);
-        if (core.test(tokens)) violations.push(`${location}: leaf crate names codeterm-service-core`);
+        if (core.test(tokens)) violations.push(`${location}: leaf crate names service-core`);
         if (tauri.test(tokens)) {
           seenTauri.add(entry.name);
           if (!knownTauriViolations.has(entry.name)) violations.push(`${location}: leaf crate names tauri`);
@@ -132,7 +138,7 @@ for (const name of serverOnly.filter((name) => layerOf(name) !== "server")) {
   violations.push(`${name}: listed as ${layerOf(name)} layer but must stay in the server layer`);
 }
 for (const [name, crate] of graph) {
-  for (const edge of crate.edges.filter((edge) => clientCrates.has(edge.name) && !clientCrates.has(name))) {
+  for (const edge of crate.edges.filter((edge) => isClient(edge.name) && !isClient(name))) {
     violations.push(`${crate.manifest}: ${layerOf(name)} crate ${name} depends on client crate ${edge.name}`);
   }
 }

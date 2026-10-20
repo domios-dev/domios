@@ -1,0 +1,26 @@
+[package]
+license = "AGPL-3.0-only"
+name = "domios-config"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+hostname = "0.4.2"
+url = "2"
+domios-mesh = { path = "../domios-mesh" }
+domios-paths = { path = "../domios-paths" }
+domios-types = { path = "../domios-types" }
+domios-util = { path = "../domios-util" }
+log = "0.4"
+parking_lot = "0.12"
+serde = "1"
+serde_json = "1"
+toml = "0.8"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+domios-notify-types = { path = "../domios-notify-types" }
+tempfile = "3"
+
+[lints]
+workspace = true

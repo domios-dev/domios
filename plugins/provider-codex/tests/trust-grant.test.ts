@@ -39,8 +39,8 @@ const HOOKS_PATH = `${HOME}/.codex/hooks.json`;
 const CONFIG_PATH = `${HOME}/.codex/config.toml`;
 const MANAGED_KEY = `${HOOKS_PATH}:session_start:0:0`;
 const MANAGED_STOP_KEY = `${HOOKS_PATH}:stop:0:0`;
-const MANAGED_COMMAND = "curl ... /api/tabs/$CODETERM_TAB_ID/hook/session_start ...";
-const MANAGED_STOP_COMMAND = "curl ... /api/tabs/$CODETERM_TAB_ID/hook/stop ...";
+const MANAGED_COMMAND = 'curl ... /api/tabs/$DOMIOS_TAB_ID/hook/session_start ... -H "X-Domios-Hook: domios-hook-v4"';
+const MANAGED_STOP_COMMAND = 'curl ... /api/tabs/$DOMIOS_TAB_ID/hook/stop ... -H "X-Domios-Hook: domios-hook-v4"';
 
 function fsHost(files: Map<string, string>) {
   return {

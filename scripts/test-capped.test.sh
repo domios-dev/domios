@@ -73,12 +73,12 @@ filtered_zero_match_fails_closed() {
     local output="$TMPDIR/filtered-zero-match.out"
     local exit_code
     exit_code=$(run_wrapper_against_fake_cargo "$output" \
-        --manifest-path src-tauri/Cargo.toml -p codeterm-plan --lib no_such_test_name)
+        --manifest-path src-tauri/Cargo.toml -p domios-plan --lib no_such_test_name)
     [ "$exit_code" -eq 97 ] || {
         printf 'filtered_zero_match_fails_closed: expected exit 97, got %s\n' "$exit_code" >&2
         exit 1
     }
-    grep -q 'ZERO MATCHES: filter no_such_test_name selected no tests in codeterm-plan\.' "$output" || {
+    grep -q 'ZERO MATCHES: filter no_such_test_name selected no tests in domios-plan\.' "$output" || {
         printf 'filtered_zero_match_fails_closed: diagnostic did not name the filter and crate\n' >&2
         exit 1
     }
@@ -92,7 +92,7 @@ filtered_match_remains_successful() {
     local output="$TMPDIR/filtered-match.out"
     local exit_code
     exit_code=$(run_wrapper_against_fake_cargo "$output" \
-        --manifest-path src-tauri/Cargo.toml -p codeterm-plan --lib wrapper_fixture_matching_test)
+        --manifest-path src-tauri/Cargo.toml -p domios-plan --lib wrapper_fixture_matching_test)
     [ "$exit_code" -eq 0 ] || {
         printf 'filtered_match_remains_successful: expected exit 0, got %s\n' "$exit_code" >&2
         exit 1
@@ -111,7 +111,7 @@ full_run_passes_through() {
     local output="$TMPDIR/full-run.out"
     local exit_code
     exit_code=$(run_wrapper_against_fake_cargo "$output" \
-        --manifest-path src-tauri/Cargo.toml -p codeterm-plan --lib)
+        --manifest-path src-tauri/Cargo.toml -p domios-plan --lib)
     [ "$exit_code" -eq 0 ] || {
         printf 'full_run_passes_through: expected exit 0, got %s\n' "$exit_code" >&2
         exit 1
