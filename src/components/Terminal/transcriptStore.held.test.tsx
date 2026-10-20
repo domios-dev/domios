@@ -5,6 +5,7 @@ import { afterEach, test } from "vitest";
 import { transcriptRows } from "@codeterm/chat-core";
 import { awaitsTranscriptEcho, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
+import { HoldWhileHidden } from "./HoldWhileHidden";
 import {
   clearTranscriptWindows,
   commitTranscriptBatch,
@@ -74,6 +75,28 @@ test("a held view keeps its window from eviction", async () => {
   await act(async () => root.render(<Transcript live={false} />));
   for (let index = 0; index < 12; index++) markTranscriptSnapshotReady(`other-${index}`, "nonce");
   assert.equal(transcriptRows(readTranscriptWindow(KEY).transcript).length, 1);
+  await act(async () => root.unmount());
+});
+
+let rowRenders = 0;
+function Row({ value }: { value: number }) {
+  rowRenders++;
+  return <output aria-label="Row">{value}</output>;
+}
+
+test("hidden rows keep their last render until the chat is visible again", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const shown = () => host.querySelector("output")?.textContent;
+  await act(async () => root.render(<HoldWhileHidden visible><Row value={1} /></HoldWhileHidden>));
+  await act(async () => root.render(<HoldWhileHidden visible={false}><Row value={2} /></HoldWhileHidden>));
+  await act(async () => root.render(<HoldWhileHidden visible={false}><Row value={3} /></HoldWhileHidden>));
+  assert.equal(rowRenders, 1);
+  assert.equal(shown(), "1");
+  await act(async () => root.render(<HoldWhileHidden visible><Row value={4} /></HoldWhileHidden>));
+  assert.equal(rowRenders, 2);
+  assert.equal(shown(), "4");
   await act(async () => root.unmount());
 });
 
