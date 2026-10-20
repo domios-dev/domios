@@ -40,6 +40,7 @@ import {
 } from "./tabAttention";
 import { tabRowText } from "./tabRowModel";
 import { sameRowTab } from "./tabRowEquality";
+import { ChecklistToggleButton, type ChecklistToggle } from "./WorkerChecklist";
 
 interface TabItemProps {
   tab: Tab;
@@ -80,6 +81,8 @@ interface TabItemProps {
   ownerBadgeTab?: Tab | null;
   /** Owner row folding its surface attachments. */
   attachmentToggle?: AttachmentToggle | null;
+  /** Worker row disclosure for its read-only checklist detail. */
+  checklistToggle?: ChecklistToggle | null;
   startedBy?: TabStartedBy | null;
 }
 
@@ -239,6 +242,7 @@ function TabItemInner({
   insetPx,
   ownerBadgeTab = null,
   attachmentToggle = null,
+  checklistToggle = null,
 }: TabItemProps) {
   const attachment = variant === "attachment";
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
@@ -532,6 +536,7 @@ function TabItemInner({
       </span>}
       <div className={`shrink-0 relative z-[1] flex items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`}`}>
         {!attachment && !touchMode && <MeshDot label={meshLabel} />}
+        {checklistToggle && <ChecklistToggleButton toggle={checklistToggle} title={displayTitle} />}
         {attachmentToggle && attachmentToggle.count > 0 && <AttachmentToggleButton toggle={attachmentToggle} />}
         {touchMode && tabMenu}
       </div>
@@ -571,6 +576,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.attachmentToggle?.count !== next.attachmentToggle?.count ||
     prev.attachmentToggle?.collapsed !== next.attachmentToggle?.collapsed ||
     prev.attachmentToggle?.onToggle !== next.attachmentToggle?.onToggle ||
+    prev.checklistToggle !== next.checklistToggle ||
     prev.startedBy?.id !== next.startedBy?.id ||
     prev.startedBy?.label !== next.startedBy?.label ||
     prev.onToggleCollapse !== next.onToggleCollapse ||

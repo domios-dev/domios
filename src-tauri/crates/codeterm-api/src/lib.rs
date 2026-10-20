@@ -70,6 +70,7 @@ pub mod tab_agent_routes;
 pub mod tab_chat_routes;
 pub(crate) mod tab_repair_routes;
 pub mod tab_routes;
+mod tab_todo_routes;
 pub mod task_routes;
 pub mod team_mission_control_routes;
 pub mod team_routes;

@@ -592,6 +592,7 @@ pub(super) fn create_router_with_preview_admission(
             get(web_routes::peer_cron_history),
         )
         .merge(super::runtime_login::router())
+        .merge(super::tab_todo_routes::router())
         .route(
             "/api/tabs/{id}/agent/runtime/retry",
             post(web_routes::agent_runtime_retry),
