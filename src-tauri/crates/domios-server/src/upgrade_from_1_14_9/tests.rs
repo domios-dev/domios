@@ -1,5 +1,5 @@
 use super::*;
-use std::sync::Mutex;
+use std::{io::Write, sync::Mutex};
 
 const MESH_PEERS_FILE: &str = "mesh/peers.json";
 
@@ -250,6 +250,91 @@ fn upgrade_from_1_14_9_refuses_both_data_directories_without_merging() {
         std::fs::read(fixture.new.join("new.marker")).unwrap(),
         b"new"
     );
+    let _ = std::fs::remove_dir_all(&fixture.registry);
+}
+
+#[test]
+fn destination_model_accepts_only_the_native_client_startup_trail() {
+    let trail_only = BTreeSet::from([
+        (PathBuf::from("logs"), DestinationEntryKind::Directory),
+        (
+            PathBuf::from(CLIENT_STARTUP_LOG),
+            DestinationEntryKind::File,
+        ),
+    ]);
+    assert_eq!(
+        classify_destination(&trail_only),
+        DestinationContent::ClientStartupTrail
+    );
+    assert_eq!(
+        classify_destination(&BTreeSet::from([(
+            PathBuf::from("logs"),
+            DestinationEntryKind::Directory,
+        )])),
+        DestinationContent::Empty
+    );
+    assert_eq!(
+        classify_destination(&BTreeSet::new()),
+        DestinationContent::Empty
+    );
+
+    let mut with_other_content = trail_only.clone();
+    with_other_content.insert((PathBuf::from("config.toml"), DestinationEntryKind::File));
+    assert_eq!(
+        classify_destination(&with_other_content),
+        DestinationContent::Other
+    );
+}
+
+#[test]
+fn upgrade_from_1_14_9_moves_preexisting_client_trail_before_first_server_start() {
+    let fixture = fixture(STORAGE_SCHEMA_VERSION);
+    let startup_log = fixture.new.join(CLIENT_STARTUP_LOG);
+    std::fs::create_dir_all(startup_log.parent().unwrap()).unwrap();
+    let mut client_trail = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&startup_log)
+        .unwrap();
+    writeln!(client_trail, "client trail before first server start").unwrap();
+
+    let (owner, notices) = run(fixture.identity, &fixture.registry).unwrap();
+
+    writeln!(client_trail, "client trail after relocation").unwrap();
+    drop(client_trail);
+    let relocated_log = fixture.new.join(CLIENT_STARTUP_LOG);
+    assert_eq!(
+        std::fs::read(relocated_log).unwrap(),
+        b"client trail before first server start\nclient trail after relocation\n"
+    );
+    assert!(fixture.new.join("sentinel.bin").exists());
+    assert!(!fixture.old.exists());
+    assert!(notices.is_empty());
+    drop(owner);
+    let _ = std::fs::remove_dir_all(&fixture.registry);
+}
+
+#[test]
+fn upgrade_from_1_14_9_resumes_after_trail_staging_left_an_empty_destination() {
+    let fixture = fixture(STORAGE_SCHEMA_VERSION);
+    std::fs::create_dir_all(fixture.old.join("logs")).unwrap();
+    std::fs::write(
+        fixture.old.join(CLIENT_STARTUP_LOG),
+        b"client trail staged before an interrupted root rename",
+    )
+    .unwrap();
+    std::fs::create_dir_all(fixture.new.join("logs")).unwrap();
+
+    let (owner, notices) = run(fixture.identity, &fixture.registry).unwrap();
+
+    assert_eq!(
+        std::fs::read(fixture.new.join(CLIENT_STARTUP_LOG)).unwrap(),
+        b"client trail staged before an interrupted root rename"
+    );
+    assert!(fixture.new.join("sentinel.bin").exists());
+    assert!(!fixture.old.exists());
+    assert!(notices.is_empty());
+    drop(owner);
     let _ = std::fs::remove_dir_all(&fixture.registry);
 }
 
