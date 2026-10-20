@@ -14,6 +14,7 @@ pub enum JobMembership {
     KilledWithLauncher,
 }
 
+#[cfg(any(windows, test))]
 pub(crate) fn job_membership(in_job: bool, kill_on_job_close: bool) -> JobMembership {
     match (in_job, kill_on_job_close) {
         (false, _) => JobMembership::Outside,
@@ -87,6 +88,7 @@ fn current_job_membership() -> io::Result<JobMembership> {
 }
 
 /// A job without breakaway permission refuses CREATE_BREAKAWAY_FROM_JOB outright.
+#[cfg(any(windows, test))]
 pub(crate) fn retry_without_breakaway(error: &io::Error) -> bool {
     const ERROR_ACCESS_DENIED: i32 = 5;
     error.raw_os_error() == Some(ERROR_ACCESS_DENIED)

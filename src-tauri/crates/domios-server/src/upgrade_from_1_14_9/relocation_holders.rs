@@ -7,6 +7,8 @@ const ERROR_ACCESS_DENIED: i32 = 5;
 const ERROR_SHARING_VIOLATION: i32 = 32;
 const ERROR_LOCK_VIOLATION: i32 = 33;
 
+// Only the Windows holder probe constructs these; other platforms render and test them.
+#[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum HolderEvidence {
     Executable(PathBuf),
