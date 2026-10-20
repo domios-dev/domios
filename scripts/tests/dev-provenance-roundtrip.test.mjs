@@ -37,7 +37,7 @@ function fixture() {
   for (const dir of ['scripts', clientDebug, 'data/bin', 'dist']) {
     fs.mkdirSync(path.join(checkout, dir), { recursive: true });
   }
-  for (const name of ['dev-prep.mjs', 'dev-reload-inputs.cjs', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'windows-dev-desktop.cs', 'build-identity.cjs']) {
+  for (const name of ['dev-prep.mjs', 'dev-reload-inputs.cjs', 'crate-layers.json', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'windows-dev-desktop.cs', 'build-identity.cjs']) {
     fs.copyFileSync(path.join(root, 'scripts', name), path.join(checkout, 'scripts', name));
   }
   const exe = process.platform === 'win32' ? '.exe' : '';

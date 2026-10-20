@@ -193,7 +193,8 @@ fn report_without_flags_leaves_structured_fields_unset() {
             assert!(args.status.is_none());
             assert!(args.branch.is_none());
             assert!(args.sha.is_none());
-            assert!(args.base.is_none());
+            // `--base` falls back to the dispatch-time CODETERM_LANE_BASE by design.
+            assert_eq!(args.base, std::env::var("CODETERM_LANE_BASE").ok());
             assert!(args.changed_files.is_none());
             assert!(args.test_cmd.is_none());
             assert!(args.test_result.is_none());

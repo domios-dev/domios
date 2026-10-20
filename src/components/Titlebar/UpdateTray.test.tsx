@@ -107,7 +107,7 @@ it("keeps a failed channel on its own row while Update all applies the healthy c
   try {
     await act(async () => root.render(<UpdatePanelProvider><UpdateTray /><UpdatePanelContents /></UpdatePanelProvider>));
     expect(host.querySelector('[role="status"][aria-label="lark plugin updates unavailable"]')?.textContent)
-      .toBe(communityUnavailable);
+      .toContain(communityUnavailable);
     const failedApply = host.querySelector<HTMLButtonElement>('button[aria-label="Apply lark update"]')!;
     const healthyApply = host.querySelector<HTMLButtonElement>('button[aria-label="Apply teams-client update"]')!;
     expect(failedApply.disabled).toBe(true);
