@@ -5,6 +5,7 @@ use super::*;
 
 mod cache_schema;
 mod freshness;
+mod live_refresh;
 mod model_resolution;
 mod opencode_listing;
 
