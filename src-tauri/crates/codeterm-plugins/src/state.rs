@@ -44,7 +44,13 @@ pub(super) fn read_channel_registry() -> Result<ChannelRegistry, String> {
         return Ok(ChannelRegistry::default());
     }
     let text = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))
+    let mut registry: ChannelRegistry =
+        serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))?;
+    // A relocated data root keeps its registry, so a stored absolute cache path would recreate the old root.
+    for record in registry.channels.values_mut() {
+        record.path = channels_root().join(&record.name).display().to_string();
+    }
+    Ok(registry)
 }
 
 pub(super) fn write_channel_registry(registry: &ChannelRegistry) -> Result<(), String> {
