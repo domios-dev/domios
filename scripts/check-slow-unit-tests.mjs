@@ -49,7 +49,8 @@ export function parseTimings(output) {
     const previous = entries.get(runIdentity(entry));
     if (!previous || entry.measuredSeconds > previous.measuredSeconds) entries.set(runIdentity(entry), entry);
   }
-  if (!entries.size) throw new Error('nextest report contains no per-test timings');
+  // A runner whose inventory holds no test passes nextest's no-tests check and has nothing to measure.
+  if (!entries.size && executed > 0) throw new Error('nextest report contains no per-test timings');
   if (entries.size !== executed) throw new Error(`incomplete nextest timings: ${entries.size} of ${executed} executed tests`);
   return [...entries.values()];
 }

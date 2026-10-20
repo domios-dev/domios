@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 
 struct FixtureSentinels(Arc<Mutex<Store>>);
 
-pub(super) fn manage(
+pub(crate) fn manage(
     svc: &codeterm_service_core::service::ServiceContext,
     store: &Arc<Mutex<Store>>,
 ) {

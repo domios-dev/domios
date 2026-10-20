@@ -35,7 +35,7 @@ codeterm agent cli install <provider>
 codeterm agent cli update <provider>
 ```
 
-The `agent cli` verbs are local-only; run them in a tab on the target peer. Status returns `required`, `installed` (true/false/null for unknown), `binary`, `resolved_path`, `detected_version`, `latest_version`, `update_job`, `update_refusal`, `availability`, `searched`, `installer`, and `updater`. `latest_version` is the already-published provider update availability; status never starts discovery. `update_job` reports the current job state/result. Status also includes `installer_prerequisites` and `updater_prerequisites`: detected command runners with `binary`, `installed` (true/false/null), and a setup `hint`. Runners and `command -v`/`which`/`Get-Command` checks are detected from the manifest command (diagnostic, not a shell parser). Missing runners produce warnings and setup guidance; conditional commands may select an available alternative. The host does not install prerequisites or alter manifest commands. Install/update dispatch JSON adds `warnings`, and completion retains prerequisite diagnostics. Install/update refuse when the OS has no manifest command; otherwise they open a visible utility tab in the caller's workspace and Team and return `tab_id`, `launch_state: "command_dispatched"`. Shell completion or exit produces a routed report for an agent caller or a kept notification record for a shell caller. Completion prose is never sent as shell input. It also keeps the result in the utility tab description and emits `provider-cli-completed` with a fresh status. A completion deadline reports uncertainty; dispatch alone never means installation succeeded. `agent providers` names missing CLIs; `agent spawn` refuses before creating a tab and names the installer and CLI fix. REST: `GET /api/agents/providers/{id}/cli` returns status; `POST` accepts `{operation: "install"|"update", caller_tab_id?}`. Plugin `--json` responses add `cli_status`, keyed by installed provider id.
+The `agent cli` verbs are local-only; run them in a tab on the target peer. Status returns `required`, `installed` (true/false/null for unknown), `binary`, `resolved_path`, `detected_version`, `latest_version`, `update_job`, `update_refusal`, `availability`, `searched`, `installer`, and `updater`. `latest_version` is the published update availability; status never starts discovery. `update_job` reports the current job state/result. Status also includes `installer_prerequisites` and `updater_prerequisites`: detected command runners with `binary`, `installed` (true/false/null), and a setup `hint`. Runners and `command -v`/`which`/`Get-Command` checks are detected from the manifest command (diagnostic, not a shell parser); missing runners produce warnings and setup guidance. The host never installs prerequisites or alters manifest commands. Dispatch JSON adds `warnings`; completion retains prerequisite diagnostics. Install/update refuse when the OS has no manifest command; otherwise they open a visible utility tab in the caller's workspace and Team and return `tab_id`, `launch_state: "command_dispatched"`. Shell completion or exit produces a routed report for an agent caller or a kept notification record for a shell caller. Completion prose is never sent as shell input; the result also lands in the utility tab description and `provider-cli-completed` carries a fresh status. A completion deadline reports uncertainty; dispatch alone never means installation succeeded. `agent providers` names missing CLIs; `agent spawn` refuses before creating a tab and names the installer and CLI fix. REST: `GET /api/agents/providers/{id}/cli` returns status; `POST` accepts `{operation: "install"|"update", caller_tab_id?}`. Plugin `--json` responses add `cli_status`, keyed by installed provider id.
 
 ### Agent usage, reset credits, and child history
 
@@ -167,7 +167,7 @@ Dev builds use identifier `com.codeterm.dev` and are fully isolated from product
 
 ## Role presets
 
-A launch's role text comes from its role preset; task personality, `role_guidance`, and `executor_role` enter as that preset's task overlay.
+A launch's role text comes from its role preset; task personality, `role_guidance` and `executor_role` enter as its task overlay.
 
 ### Role preset inspection
 
@@ -177,7 +177,7 @@ A launch's role text comes from its role preset; task personality, `role_guidanc
 | `codeterm persona show --role <Manager\|Worker> [--kind <id>] [--guidance <text>] [--occasion <id>]` | `persona.show` | The exact text each occasion emits, its fragments, and their provenance |
 | `codeterm persona reload` | `persona.reload` | Re-read `<data-dir>/role-presets/*.toml` without a restart or rebuild |
 
-Overlay files add leaf kinds only. Declaring capability, claiming an anchoring or Team-authority base, overriding a builtin kind, or asking to own a contract without the coordination core is refused with a named reason and skipped.
+Overlay files add leaf kinds only; one that declares capability, claims an anchoring or Team-authority base, overrides a builtin kind, or owns a contract without the coordination core is refused with a reason and skipped.
 
 ## Account
 
@@ -213,4 +213,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 51 -->
+<!-- revision: 52 -->
