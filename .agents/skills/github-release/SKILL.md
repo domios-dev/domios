@@ -53,6 +53,10 @@ For a plugin release, run `node scripts/release-plugin.mjs bump <id> <version>`,
 `--min-codeterm` only when a new host capability is required. Verify `release-plugin.mjs check`
 and `check-plugin.mjs <id>`, merge the checked PR, then with publication GO tag the verified master
 commit `plugin-<id>-v<version>`. Verify the installed version through `codeterm plugin update-system`.
+The tag's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
+`plugins/` tree as `codeterm-core.tar.gz` (+ `.sha256`, `.source-commit`) to the public
+`rollacode/codeterm-releases` release `codeterm-core-latest`, skips an older master commit, and
+verifies the anonymous download. Every install refreshes `codeterm-core` from there.
 
 ## Application train
 

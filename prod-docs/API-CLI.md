@@ -69,7 +69,7 @@ Official system plugins have independent release versions. Their `minCodeterm` d
 
 `codeterm update check [--force]` returns `{items, errors}` from `GET /api/update/availability?force=true` (omit force for an immediate cached snapshot and background refresh). The desktop command is `check_update_availability`. Each item has `{id, kind: plugin|app|frontend, installed, latest, compatible, state: up_to_date|update_available|ready_to_apply|incompatible|core_silent, reason, channel}`; versions and channel may be null. Errors are keyed by source. `ready_to_apply` identifies a verified staged Interface bundle, offered even when no downloaded bundle is active. Apply and Update all use the existing checkpoint, consent, activation and health/rollback flow. The app offer comes from the platform's updater manifest; frontend offers come from signed frontend-latest metadata and its host API range. A plugin offer must come from its recorded channel, match its payload version, and meet both minimum host declarations. `up_to_date` with an unavailable or malformed source reason does not authorize installation.
 
-`update-availability-changed` carries the same `{items, errors}` snapshot when discovery or completed plugin actions change it. Plugin enable/disable settings recompute the inventory too. `plugin channel diff --json` includes the same item as `availability` on each row; refresh the channel first for fresh metadata. Aggregate refresh reports failures after trying all channels and preserves their last validated caches.
+`update-availability-changed` carries the same `{items, errors}` snapshot when discovery or completed plugin actions change it. Plugin enable/disable settings recompute the inventory too. `plugin channel diff --json` includes the same item as `availability` on each row; refresh the channel first for fresh metadata. Aggregate refresh reports failures after trying all channels and preserves their last validated caches. A channel failure names its cause and source, for example `Plugin channel unavailable: repository not found or not readable without access (github.com/owner/repo.git). Domios will retry.`; causes are repository not found, authentication required, network unavailable, release asset not found, access denied, and failed integrity check. The official `codeterm-core` channel is a public release archive with a SHA-256 sidecar, readable without a GitHub identity. When it is unreachable the bundled core set stays installed, core items stay `core_silent` against the bundled manifest, and its error is diagnostic only.
 
 ### CLI JSON ID Contract
 
@@ -213,4 +213,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 52 -->
+<!-- revision: 53 -->

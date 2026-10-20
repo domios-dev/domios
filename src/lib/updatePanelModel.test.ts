@@ -42,11 +42,16 @@ assert.equal(panelItems([staged])[0].group, "Interface");
 assert.deepEqual(nextUpdateStep(availabilityIntent([staged]), "1.0.0", panelItems([staged])), { kind: "interface" });
 console.log("staged Interface availability: 5 assertions passed");
 
-const failingChannelItem: UpdateAvailabilityItem = { ...plugin, id: "core-plugin", channel: "codeterm-core" };
+const failingChannelItem: UpdateAvailabilityItem = { ...plugin, id: "lark", channel: "community" };
 const healthyChannelItem: UpdateAvailabilityItem = { ...plugin, id: "teams-client", channel: "codeterm-plugins" };
-const channelErrors = { "codeterm-core": "Plugin updates are unavailable right now. Domios will retry." };
-const channelRows = panelItems([failingChannelItem, healthyChannelItem], channelErrors);
-assert.equal(channelRows.find(item => item.id === "core-plugin")?.channelError, channelErrors["codeterm-core"]);
+const coreItem: UpdateAvailabilityItem = { ...plugin, id: "claude", state: "core_silent", reason: "local_ahead", channel: "codeterm-core" };
+const channelErrors = {
+  community: "Plugin channel unavailable: network unavailable (example.com/community.git). Domios will retry.",
+  "codeterm-core": "Plugin channel unavailable: repository not found or not readable without access (github.com/rollacode/codeterm.git). Domios will retry.",
+};
+const channelRows = panelItems([failingChannelItem, healthyChannelItem, coreItem], channelErrors);
+assert.equal(channelRows.find(item => item.id === "lark")?.channelError, channelErrors.community);
 assert.equal(channelRows.find(item => item.id === "teams-client")?.channelError, undefined);
-assert.deepEqual(availabilityIntent(updateableItems([failingChannelItem, healthyChannelItem], channelErrors)).pluginIds, ["teams-client"]);
-console.log("failed channel isolation with one healthy channel: 3 assertions passed");
+assert.equal(channelRows.find(item => item.id === "claude"), undefined);
+assert.deepEqual(availabilityIntent(updateableItems([failingChannelItem, healthyChannelItem, coreItem], channelErrors)).pluginIds, ["teams-client"]);
+console.log("failed channel isolation with one healthy channel and a silent core channel: 4 assertions passed");

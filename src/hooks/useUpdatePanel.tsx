@@ -5,7 +5,7 @@ import { availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpd
 import { acceptFrontendUpdate, setFrontendUpdateHeld, frontendUpdateOffer, subscribeFrontendUpdateOffer } from "../lib/frontendUpdate/browser";
 import { runPluginSnapshotAction } from "../lib/pluginSnapshotStore";
 import { useUpdate } from "./useUpdate";
-import { classifyUpdateFailure, classifyUpdateStatus, PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE, type UpdateFailure } from "../lib/updateStatusModel";
+import { channelDiagnostics, classifyUpdateFailure, classifyUpdateStatus, type UpdateFailure } from "../lib/updateStatusModel";
 
 import { DEV_BUILD } from "../lib/devBuild";
 
@@ -42,6 +42,7 @@ function useUpdatePanelController() {
   const status = classifyUpdateStatus(snapshot);
   const items = panelItems(snapshot.items, status.errors);
   const updateable = panelItems(updateableItems(snapshot.items, status.errors));
+  const diagnostics = channelDiagnostics(status.errors, new Set(items.flatMap(item => item.channelError && item.channel ? [item.channel] : [])));
 
   const refresh = useCallback(async (force = false) => {
     try {
@@ -110,10 +111,10 @@ function useUpdatePanelController() {
         } else save(null);
       } catch (failure) {
         const classified = classifyUpdateFailure("update", failure);
-        if (classified?.message === PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE && pluginId && pluginChannel) {
+        if (classified?.channelUnavailable && pluginId && pluginChannel) {
           setSnapshot(previous => ({
             ...previous,
-            errors: { ...previous.errors, [pluginChannel]: PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE },
+            errors: { ...previous.errors, [pluginChannel]: classified.message },
           }));
           save({ ...currentIntent, stage: "plugins", pluginIds: currentIntent.pluginIds.filter(id => id !== pluginId) });
         } else setError(classified);
@@ -167,7 +168,7 @@ function useUpdatePanelController() {
     } catch (failure) { setError(classifyUpdateFailure("check", failure)); }
   };
 
-  return { snapshot, items, information: status.information, busy: starting || intent !== null || app.installing, error: error?.message ?? (app.error ? classifyUpdateFailure("update", app.error)?.message : null),
+  return { snapshot, items, information: status.information, diagnostics, busy: starting || intent !== null || app.installing, error: error?.message ?? (app.error ? classifyUpdateFailure("update", app.error)?.message : null),
     errorDetails: error ? [error.details, app.error].filter(Boolean).join("\n") : app.error,
     updateAll, applyItem, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id)) };
 }

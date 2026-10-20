@@ -59,10 +59,10 @@ fn validate_identifier(value: &str, domain: &str) -> Result<(), String> {
 
 pub(super) const SYSTEM_CHANNEL_NAME: &str = "codeterm-core";
 pub(super) const DEFAULT_PLUGIN_CHANNEL_NAME: &str = "codeterm-plugins";
-// master carries only released code; develop is unreleased, and installing from
-// it stamped System trust on it. Opt in via CODETERM_SYSTEM_PLUGIN_CHANNEL_URL.
+// Public release assets published only from verified plugin release tags, so every
+// install reads it without a GitHub identity. Override via CODETERM_SYSTEM_PLUGIN_CHANNEL_URL.
 pub(super) const DEFAULT_SYSTEM_CHANNEL_URL: &str =
-    "https://github.com/rollacode/codeterm.git#master:plugins";
+    "https://github.com/rollacode/codeterm-releases/releases/download/codeterm-core-latest/codeterm-core.tar.gz";
 pub(super) const DEFAULT_PLUGIN_CHANNEL_URL: &str =
     "https://github.com/rollacode/codeterm-plugins.git";
 include!(concat!(env!("OUT_DIR"), "/bundled_plugins.rs"));
@@ -91,6 +91,7 @@ pub(super) struct ChannelRecord {
 pub(super) enum ChannelKind {
     Local,
     Git,
+    Archive,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
