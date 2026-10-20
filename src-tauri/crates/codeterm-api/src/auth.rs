@@ -72,6 +72,18 @@ fn peer_protocol_refusal(version: u16) -> Option<String> {
         .then(codeterm_service_core::mesh::version::peer_upgrade_message)
 }
 
+fn announce_judges_own_protocol(method: &Method, path: &str) -> bool {
+    method == Method::POST && path == "/api/mesh/announce"
+}
+
+// A signed announce is the only writer of the stored protocol, so it is judged by its own body.
+fn stored_protocol_refusal(method: &Method, path: &str, stored_version: u16) -> Option<String> {
+    if announce_judges_own_protocol(method, path) {
+        return None;
+    }
+    peer_protocol_refusal(stored_version)
+}
+
 fn requires_mesh_network(method: &Method, path: &str) -> bool {
     path.starts_with("/api/mesh/")
         && path != "/api/mesh/ping"
@@ -432,7 +444,7 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
                     .into_response()
                     .into();
             }
-            if let Some(message) = peer_protocol_refusal(relay_protocol_version) {
+            if let Some(message) = stored_protocol_refusal(&method, &path, relay_protocol_version) {
                 log::warn!(
                     "[auth] Rejecting peer {} with relay protocol {} on {} {}",
                     instance_id,
@@ -640,6 +652,73 @@ mod tests {
             assert!(peer_protocol_allowed(version, "/api/events/stream"));
             assert!(peer_protocol_allowed(version, "/api/tabs/abc/send"));
         }
+    }
+
+    #[test]
+    fn upgraded_peer_announce_refreshes_a_stored_v1_record_then_other_routes_pass() {
+        use codeterm_service_core::mesh::types::{
+            PairedPeer, PeerAddress, PeerAnnounce, RELAY_PROTOCOL_VERSION,
+        };
+        let mut mesh = codeterm_service_core::mesh::MeshManager::new("auth-test".into(), 7685);
+        mesh.disk_persist = false;
+        mesh.paired_peers.insert(
+            "air".into(),
+            PairedPeer {
+                instance_id: "air".into(),
+                instance_name: "air".into(),
+                addresses: vec![PeerAddress::from_ip("100.64.0.7")],
+                api_port: 7685,
+                public_key: String::new(),
+                paired_at: "then".into(),
+                last_seen: None,
+                online: true,
+                is_primary: false,
+                access_level: AccessLevel::Full,
+                version: None,
+                web_ui: None,
+                relay_protocol_version: 1,
+                consecutive_misses: 0,
+                last_active_ms: None,
+            },
+        );
+        let stored = |mesh: &codeterm_service_core::mesh::MeshManager| {
+            mesh.paired_peers["air"].relay_protocol_version
+        };
+        let announce = |relay_protocol_version| PeerAnnounce {
+            instance_id: "air".into(),
+            instance_name: "air".into(),
+            addresses: vec![PeerAddress::from_ip("100.64.0.7")],
+            api_port: 7685,
+            online: true,
+            web_ui: None,
+            relay_protocol_version,
+        };
+
+        assert!(
+            stored_protocol_refusal(&Method::GET, "/api/mesh/inventory", stored(&mesh)).is_some()
+        );
+        assert!(stored_protocol_refusal(&Method::POST, "/api/mesh/sync", stored(&mesh)).is_some());
+        assert!(
+            stored_protocol_refusal(&Method::POST, "/api/mesh/announce", stored(&mesh)).is_none()
+        );
+
+        assert!(mesh.apply_announce("air", &announce(1)).is_err());
+        assert_eq!(stored(&mesh), 1);
+
+        mesh.apply_announce("air", &announce(RELAY_PROTOCOL_VERSION))
+            .expect("v2 announce accepted over a stored v1 record");
+        assert_eq!(stored(&mesh), RELAY_PROTOCOL_VERSION);
+        assert!(
+            stored_protocol_refusal(&Method::GET, "/api/mesh/inventory", stored(&mesh)).is_none()
+        );
+        assert!(stored_protocol_refusal(&Method::POST, "/api/mesh/sync", stored(&mesh)).is_none());
+    }
+
+    #[test]
+    fn only_the_announce_post_bypasses_the_stored_protocol() {
+        assert!(stored_protocol_refusal(&Method::GET, "/api/mesh/announce", 1).is_some());
+        assert!(stored_protocol_refusal(&Method::POST, "/api/mesh/announce/all", 1).is_some());
+        assert!(stored_protocol_refusal(&Method::POST, "/api/tabs/abc/send", 1).is_some());
     }
 
     #[test]

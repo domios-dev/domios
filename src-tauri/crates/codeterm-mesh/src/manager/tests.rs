@@ -135,6 +135,58 @@ fn apply_announce_same_addrs_returns_no_change() {
     assert!(!res.changed(), "identical list reports no change");
 }
 
+fn announce_with_protocol(relay_protocol_version: u16) -> PeerAnnounce {
+    PeerAnnounce {
+        instance_id: "peer-A".into(),
+        instance_name: "TestPeer".into(),
+        addresses: vec![PeerAddress::from_ip("100.64.0.5")],
+        api_port: 7685,
+        online: true,
+        web_ui: None,
+        relay_protocol_version,
+    }
+}
+
+#[test]
+fn apply_announce_refreshes_a_stored_v1_record_from_a_supported_announce() {
+    let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
+    m.paired_peers
+        .get_mut("peer-A")
+        .unwrap()
+        .relay_protocol_version = 1;
+
+    let change = m
+        .apply_announce(
+            "peer-A",
+            &announce_with_protocol(types::RELAY_PROTOCOL_VERSION),
+        )
+        .expect("supported announce accepted");
+
+    assert!(change.metadata_changed);
+    assert_eq!(
+        m.paired_peers["peer-A"].relay_protocol_version,
+        types::RELAY_PROTOCOL_VERSION
+    );
+}
+
+#[test]
+fn apply_announce_refuses_an_unsupported_protocol_and_keeps_the_record() {
+    let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
+    m.paired_peers
+        .get_mut("peer-A")
+        .unwrap()
+        .relay_protocol_version = 1;
+
+    let err = m
+        .apply_announce("peer-A", &announce_with_protocol(1))
+        .unwrap_err();
+
+    assert!(err.contains("upgrade both peers"), "got: {err}");
+    let peer = &m.paired_peers["peer-A"];
+    assert_eq!(peer.relay_protocol_version, 1);
+    assert_eq!(peer.addresses[0].ip, "192.168.1.5");
+}
+
 #[test]
 fn set_peer_addr_override_replaces_with_single_entry() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);

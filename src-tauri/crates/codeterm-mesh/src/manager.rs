@@ -904,7 +904,7 @@ mod liveness_tests {
                     api_port: 7685,
                     online: false,
                     web_ui: None,
-                    relay_protocol_version: 0,
+                    relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
                 },
             )
             .unwrap();
@@ -934,7 +934,7 @@ mod liveness_tests {
                     api_port: 7685,
                     online: true,
                     web_ui: None,
-                    relay_protocol_version: 0,
+                    relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
                 },
             )
             .unwrap();
@@ -963,7 +963,7 @@ mod liveness_tests {
                     api_port: 7685,
                     online: false,
                     web_ui: None,
-                    relay_protocol_version: 0,
+                    relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
                 },
             )
             .unwrap();
