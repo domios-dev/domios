@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { useMemo, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   type CollisionDetection,
   DndContext,
@@ -44,6 +44,13 @@ export const TEAM_PREFIX = "team:";
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.closest('input, textarea, select, [contenteditable], [role="textbox"]') !== null;
+}
+
+/** Cocoa WebKit focuses the sortable wrapper around a pressed button and scrolls it into view.
+ *  Attach above every SortableRow: dnd-kit ignores a press whose default is already prevented. */
+export function keepPressFocusInPlace(event: ReactMouseEvent<HTMLElement>): void {
+  if (event.button !== 0 || event.defaultPrevented || isEditableTarget(event.target)) return;
+  if (event.target instanceof Element && event.target.closest("[data-dnd-group]")) event.preventDefault();
 }
 
 /** Strip the type prefix off a sortable id, yielding the raw backend id. */

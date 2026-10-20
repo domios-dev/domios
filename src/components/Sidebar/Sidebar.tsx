@@ -20,6 +20,7 @@ import { OrchestrationCreate, type OrchestrationCreateResult } from "./Orchestra
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RecentlyClosed } from "./RecentlyClosed";
 import {
+  keepPressFocusInPlace,
   SidebarDnd,
   sortByOrder,
   WS_PREFIX,
@@ -764,7 +765,7 @@ export const Sidebar = memo(function Sidebar({
         >
           {(!isSidebarCollapsed || isPeeking) && (
             <>
-            <div className="ct-sidebar-content flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+            <div className="ct-sidebar-content flex-1 min-w-0 overflow-y-auto overflow-x-hidden" onMouseDown={keepPressFocusInPlace}>
               {restoring && <SidebarSkeleton compact={isCompact} />}
               {isCompact && !restoring && (
                 <SidebarCompactRail
