@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EMPTY_SELECTION, orderedSelection, reduceMessageSelection, selectionActive, type MessageSelection, type MessageSelectionAction } from "./messageSelection";
 
 const ORDER = ["a", "b", "c", "d", "e"];
@@ -106,6 +106,33 @@ it("counts partial selections as parts and restores a whole message when all its
   expect(clipsForParts(index, [first, second])[0].source).toBe("  First.\n\nSecond.\n");
   expect(clipsForParts(index, ["missing"])).toEqual([]);
 }, 20_000);
+
+it("splits a message into parts only when a row, a selection or a lookup asks for it", async () => {
+  vi.resetModules();
+  const parsed: string[] = [];
+  vi.doMock("@codeterm/chat-ui", () => ({
+    messageParts: (id: string, source: string) => {
+      parsed.push(id);
+      return [{ id: `${id}:0-1`, start: 0, end: 1, renderedStart: 0, renderedEnd: 1 }, { id: `${id}:1-${source.length}`, start: 1, end: source.length, renderedStart: 1, renderedEnd: source.length }];
+    },
+  }));
+  try {
+    const { indexMessageParts, partSelectionSummary } = await import("./messagePartSelection");
+    const index = indexMessageParts(["a", "b", "c"].map((id) => ({ id, role: "assistant" as const, author: "Agent", source: `${id} text` })));
+    expect(partSelectionSummary(index, []).count).toBe(0);
+    expect(index.clipFor("b")?.source).toBe("b text");
+    expect(parsed).toEqual([]);
+    expect(index.partsFor("b").map((part) => part.id)).toEqual(["b:0-1", "b:1-6"]);
+    expect(index.partsFor("b")).toBe(index.partsFor("b"));
+    expect(parsed).toEqual(["b"]);
+    expect(index.messageOf("c:1-6")).toBe("c");
+    expect(index.clipFor("c:1-6")?.source).toBe(" text");
+    expect(parsed).toEqual(["b", "a", "c"]);
+  } finally {
+    vi.doUnmock("@codeterm/chat-ui");
+    vi.resetModules();
+  }
+});
 
 it("adds and removes a contiguous range of source part IDs across message boundaries", () => {
   const order = ["a:0-10", "a:12-20", "b:0-6", "b:8-14"];
