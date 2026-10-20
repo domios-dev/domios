@@ -309,7 +309,7 @@ pub(crate) fn request_client_quit_exact(
 
 fn close_client_only(app: &codeterm_host_runtime::app_runtime::AppHandle) {
     if crash::exit::confirm_client_only_exit() {
-        log::warn!("[client] Quit closed this client only; the server was not asked to stop");
+        crate::host_ports::native_client::record_client_only_quit();
         app.exit(0);
     }
 }
