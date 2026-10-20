@@ -1800,6 +1800,7 @@ dependencies = [
  "chrono",
  "codeterm-util",
  "dirs 5.0.1",
+ "flate2",
  "log",
  "reqwest 0.12.28",
  "semver",
@@ -1807,6 +1808,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
+ "tar",
  "tempfile",
  "uuid",
 ]

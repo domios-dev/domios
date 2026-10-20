@@ -109,12 +109,24 @@ pub(super) fn update_system_cached(id: Option<String>) -> Result<serde_json::Val
             manifest.name
         ));
     }
-    let current_ids: Vec<String> = manifest
+    // The bundle is authoritative: a stale or older channel never retires what this build ships.
+    let mut current_ids: Vec<String> = manifest
         .plugins
         .iter()
         .map(|plugin| plugin.id.clone())
         .collect();
-    let retired = retirement::retire_missing_official_plugins(&current_ids, &manifest.retired)?;
+    for id in SYSTEM_PLUGIN_IDS {
+        if !current_ids.iter().any(|current| current == id) {
+            current_ids.push(id.to_string());
+        }
+    }
+    let retired_ids: Vec<String> = manifest
+        .retired
+        .iter()
+        .filter(|id| !SYSTEM_PLUGIN_IDS.contains(&id.as_str()))
+        .cloned()
+        .collect();
+    let retired = retirement::retire_missing_official_plugins(&current_ids, &retired_ids)?;
     let requested = match id {
         Some(id) => {
             let plugin = manifest
@@ -157,6 +169,9 @@ pub(super) fn update_system_cached(id: Option<String>) -> Result<serde_json::Val
                 compatible: compat_check(manifest_min_codeterm(&source_dir).as_deref()).is_ok(),
             }),
         );
+        if decision.reason == "local_ahead" {
+            continue;
+        }
         if !decision.available && decision.reason != "same_version" {
             blocked.push(format!(
                 "system plugin '{id}' is not installable: {}",
