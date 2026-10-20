@@ -11,6 +11,22 @@ export function selectTab(state: ExtendedState, tabId: string): Tab | undefined 
   return state.tabs[tabId];
 }
 
+export function selectActiveWorkspaceId(state: ExtendedState): string | null {
+  return state.active_workspace_id ?? null;
+}
+
+const APP_SHELL_FIELDS = [
+  "workspaces", "tabs", "teams", "activeTabIds", "active_workspace_id", "focused_tab_id",
+  "notifications", "notificationsLoaded", "toasts", "storageUnavailable",
+] as const satisfies ReadonlyArray<keyof ExtendedState>;
+
+/** The app shell reads the generation only as route readiness, so a snapshot that changed nothing else keeps it still. */
+export function appShellStateEqual(a: ExtendedState, b: ExtendedState): boolean {
+  if (a === b) return true;
+  if (Math.min(a.generation, 1) !== Math.min(b.generation, 1)) return false;
+  return APP_SHELL_FIELDS.every((field) => a[field] === b[field]);
+}
+
 export function selectTeams(state: ExtendedState): Team[] {
   return state.teams;
 }

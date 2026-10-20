@@ -229,7 +229,6 @@ function Projection() {
         teams={teams}
         planIndex={index.index}
         plans={full.plans}
-        activeWork={null}
         providers={[]}
         closingTabIds={new Set()}
         appearingTabIds={new Set()}

@@ -8,6 +8,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { isPhoneViewport } from "../../hooks/useSidebarViewport";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { shareRecord } from "../../lib/sameJson";
 import { selectSidebarState, sidebarStateEqual } from "./sidebarState";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
@@ -30,7 +31,6 @@ import { flattenSidebarTabs, isSidebarTabVisible, tabsInWorkspace } from "./work
 import { aggregateTabStatuses } from "./tabStatuses";
 import { usePlanIndexOptional, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import { renamePlan } from "../Canvas/plansApi";
-import { selectActiveWork } from "../Canvas/planView/activeWork";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
@@ -132,10 +132,16 @@ export const Sidebar = memo(function Sidebar({
     upsertToast,
   } = useMultiplexer();
   const state = useMuxSelector(selectSidebarState, sidebarStateEqual);
-  const attention = useMemo(
-    () => tabAttentionByTab(state.tabs, state.tabStatuses, state.notifications),
-    [state.tabs, state.tabStatuses, state.notifications],
-  );
+  const reopenRecentlyClosed = useCallback((workspaceId: string, index: number, orphaned: boolean, tabId: string) => {
+    if (orphaned) restoreOrphaned(tabId);
+    else reopenClosed(workspaceId, index);
+  }, [restoreOrphaned, reopenClosed]);
+  // Rows compare attention by identity, so a tab whose attention did not change keeps its previous entry.
+  const attentionRef = useRef<ReturnType<typeof tabAttentionByTab>>({});
+  const attention = useMemo(() => {
+    attentionRef.current = shareRecord(attentionRef.current, tabAttentionByTab(state.tabs, state.tabStatuses, state.notifications));
+    return attentionRef.current;
+  }, [state.tabs, state.tabStatuses, state.notifications]);
   const isWorkspaceMode = mainView === "workspace";
   const [folderPicker, setFolderPicker] = useState<{
     title: string;
@@ -161,10 +167,6 @@ export const Sidebar = memo(function Sidebar({
     await renamePlan(planApi, planId, title);
     await Promise.all([refetchPlanIndex(), refetchFullPlans()]);
   } : undefined, [planApi, refetchPlanIndex, refetchFullPlans]);
-  const activeWork = useMemo(
-    () => selectActiveWork(fullPlans.plans, state.tabs),
-    [fullPlans.plans, state.tabs],
-  );
   const agentsConfig = config?.agents;
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
@@ -681,7 +683,6 @@ export const Sidebar = memo(function Sidebar({
     teams: state.teams,
     planIndex,
     plans: fullPlans.plans,
-    activeWork,
     providers: visibleProviders,
     providersLoading,
     closingTabIds,
@@ -697,7 +698,7 @@ export const Sidebar = memo(function Sidebar({
     sidebarActionText,
     orchestrators: orchestratorTabs,
     newSessionDisabled: firstRunActive,
-  }), [state.tabs, state.tabStatuses, attention, state.teams, planIndex, fullPlans.plans, activeWork, visibleProviders,
+  }), [state.tabs, state.tabStatuses, attention, state.teams, planIndex, fullPlans.plans, visibleProviders,
     providersLoading, closingTabIds, appearingTabs, closingTeamIds, state.activeTabIds, state.active_workspace_id,
     isWorkspaceMode, workspaceCanvasActive, touchMode, uiFontScale, isCompact, sidebarActionText, orchestratorTabs, firstRunActive]);
   const workspaceDetailActions = useMemo<SidebarWorkspaceDetailActions>(() => ({
@@ -845,10 +846,7 @@ export const Sidebar = memo(function Sidebar({
                   structures={state.closed_structures ?? []}
                   views={views}
                   showWorkspace={state.workspaces.length > 1 || hasOrphaned}
-                  onReopen={(wsId, idx, orphaned, tabId) => {
-                    if (orphaned) { restoreOrphaned(tabId); }
-                    else { reopenClosed(wsId, idx); }
-                  }}
+                  onReopen={reopenRecentlyClosed}
                   onReopenGroup={reopenGroup}
                   touchMode={touchMode}
                   uiFontScale={uiFontScale}

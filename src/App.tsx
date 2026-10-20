@@ -68,8 +68,10 @@ import { usePluginActivity } from "./lib/usePluginActivity";
 import {
   MultiplexerProvider,
   useMultiplexer,
-  useMuxState,
+  useMuxSelector,
 } from "./store/multiplexer";
+import { appShellStateEqual } from "./store/multiplexer/selectors";
+import type { ExtendedState } from "./store/multiplexer/tree";
 import { defaultSpawnProviderId } from "./lib/agentDescriptorCache";
 import { openNewSessionPicker } from "./lib/newSessionChoice";
 import { matchesBinding } from "./lib/keybindings";
@@ -108,6 +110,8 @@ function useStableJsonValue<T>(value: T): T {
   }
   return ref.current;
 }
+
+const selectWholeState = (state: ExtendedState) => state;
 
 function AppInner() {
   useAgentProviderCachePublisher();
@@ -245,7 +249,7 @@ function AppInner() {
     dismissToast,
     spawnClaudeTab,
   } = useMultiplexer();
-  const state = useMuxState();
+  const state = useMuxSelector(selectWholeState, appShellStateEqual);
   useEffect(() => {
     if (IS_WEB && !configLoading) void emitFeatureUsed(localJson, "web_ui_opened");
   }, [configLoading]);
@@ -421,6 +425,11 @@ function AppInner() {
     setMemoryOpen(true);
     navigationStore.clear();
   }, []);
+
+  const closeSettings = useCallback(() => { setSettingsSection(undefined); setSettingsOpen(false); }, [setSettingsOpen]);
+  const closeMemory = useCallback(() => { setMemoryOpen(false); setMemoryInitial(undefined); }, [setMemoryOpen]);
+  const closeMesh = useCallback(() => setMeshOpen(false), [setMeshOpen]);
+  const closeCanvasFocus = useCallback(() => canvasFocusStore.close(), []);
 
   const handleMemoryFocusTab = useCallback((tabId: string) => {
     setFocusedTab(tabId);
@@ -781,12 +790,9 @@ function AppInner() {
               <SettingsPanel
                 config={config}
                 onUpdateConfig={updateConfig}
-                onClose={() => { setSettingsSection(undefined); setSettingsOpen(false); }}
+                onClose={closeSettings}
                 initialSection={settingsSection}
                 guideRequest={requestedGuide}
-                tabs={state.tabs}
-                workspaces={state.workspaces}
-                teams={state.teams}
               />
             </div>
           )}
@@ -799,10 +805,7 @@ function AppInner() {
             >
               <MemoryPanel
                 api={stableApiConfig}
-                onClose={() => {
-                  setMemoryOpen(false);
-                  setMemoryInitial(undefined);
-                }}
+                onClose={closeMemory}
                 initialState={memoryInitial}
                 onFocusTab={handleMemoryFocusTab}
                 config={config}
@@ -822,7 +825,7 @@ function AppInner() {
                 api={stableApiConfig}
                 config={config}
                 onConfigUpdate={updateConfig}
-                onClose={() => setMeshOpen(false)}
+                onClose={closeMesh}
               />
             </div>
           )}
@@ -902,7 +905,7 @@ function AppInner() {
                 orchestratorTabId={canvasFocusTarget.orchestratorTabId}
                 focusTabId={canvasFocusTarget.focusTabId}
                 api={stableApiConfig}
-                onClose={() => canvasFocusStore.close()}
+                onClose={closeCanvasFocus}
               />
             </div>
           )}

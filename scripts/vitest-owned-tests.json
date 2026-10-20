@@ -246,5 +246,13 @@
   "src/components/Sidebar/ProviderSwitchDialog.test.tsx",
   "src/components/Terminal/RemoteTaskTab.test.tsx",
   "src/components/AgentRun/RunChatPopup.test.tsx",
-  "src/components/Jobs/PeerJobsView.test.tsx"
+  "src/components/Jobs/PeerJobsView.test.tsx",
+  "src/store/multiplexer/structuralShare.test.ts",
+  "src/components/Terminal/ChatTranscriptRow.renderCount.test.tsx",
+  "src/components/Terminal/useChatMessageSelection.stability.test.tsx",
+  "src/components/MeshPanel/MeshPanel.renderCount.test.tsx",
+  "src/components/Jobs/useCronJobs.identity.test.tsx",
+  "src/components/Sidebar/sortable.contextStability.test.tsx",
+  "src/components/Terminal/useComposerBackgroundWork.identity.test.tsx",
+  "src/components/shared/deferredComponent.memo.test.tsx"
 ]
