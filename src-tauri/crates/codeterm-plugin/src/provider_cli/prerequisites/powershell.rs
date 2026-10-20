@@ -1,5 +1,5 @@
 use super::CommandPrerequisite;
-use codeterm_util::windows_powershell::ExecutionPolicyValues;
+use codeterm_util::windows_powershell::{ExecutionPolicyValues, PowerShellHost};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -44,7 +44,11 @@ fn effective_policy(values: &ExecutionPolicyValues) -> (ExecutionPolicy, bool) {
             return (policy, index < 2);
         }
     }
-    (ExecutionPolicy::Restricted, false)
+    let default = match values.host {
+        PowerShellHost::Windows => ExecutionPolicy::Restricted,
+        PowerShellHost::Core => ExecutionPolicy::RemoteSigned,
+    };
+    (default, false)
 }
 
 pub(super) fn runs_downloaded_script(command: &str) -> bool {

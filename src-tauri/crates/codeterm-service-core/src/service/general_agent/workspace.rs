@@ -75,6 +75,24 @@ pub(super) fn ensure_general_workspace_without_persist(
     ensure_general_workspace_inner(mux, default_chat_view)
 }
 
+/// Only a visible tab that already is the General (kind-stamped or
+/// protected) may be claimed; installer shells and user tabs never are.
+fn claimable_general_tab(
+    mux: &crate::multiplexer::state::MultiplexerState,
+    tab_ids: &[String],
+) -> Option<String> {
+    let visible = |tab: &&crate::multiplexer::types::Tab| !tab.hidden && tab.show_in_tabbar;
+    let tabs: Vec<_> = tab_ids
+        .iter()
+        .filter_map(|tab_id| mux.get_tab(tab_id))
+        .filter(visible)
+        .collect();
+    tabs.iter()
+        .find(|tab| super::identity::is_general_agent(tab))
+        .or_else(|| tabs.iter().find(|tab| tab.protected))
+        .map(|tab| tab.id.clone())
+}
+
 fn ensure_general_workspace_inner(
     mux: &mut crate::multiplexer::state::MultiplexerState,
     default_chat_view: bool,
@@ -119,22 +137,16 @@ fn ensure_general_workspace_inner(
             let _ = mux.rename_workspace(&ws_id, GENERAL_WORKSPACE_NAME);
         }
         mux.move_workspace_to_front(&ws_id);
-        let tab_id = protected_ws[0]
-            .tab_ids
-            .iter()
-            .find(|tab_id| {
-                mux.get_tab(tab_id)
-                    .map(|tab| !tab.hidden && tab.show_in_tabbar)
-                    .unwrap_or(false)
-            })
-            .cloned()
-            .or_else(|| match mux.create_tab(&ws_id) {
+        let tab_id = claimable_general_tab(mux, &protected_ws[0].tab_ids).or_else(|| {
+            match mux.create_tab(&ws_id) {
                 Ok(tab_id) => {
                     let _ = mux.rename_tab(&tab_id, GENERAL_TAB_TITLE);
+                    let _ = mux.set_active_workspace(&ws_id);
+                    let _ = mux.set_focused_tab(&tab_id);
                     log::info!(
-                        "[general-agent] Repaired empty General workspace {} with Tab {}",
-                        ws_id,
-                        tab_id
+                        "[general-agent] Created a dedicated General Tab {} in workspace {}",
+                        tab_id,
+                        ws_id
                     );
                     Some(tab_id)
                 }
@@ -142,7 +154,8 @@ fn ensure_general_workspace_inner(
                     log::error!("[general-agent] Failed to repair General tab: {}", e);
                     None
                 }
-            });
+            }
+        });
         if let Some(pid) = tab_id {
             let pid = pid.clone();
             let _ = mux.rename_tab(&pid, GENERAL_TAB_TITLE);
@@ -252,6 +265,10 @@ mod tests {
         let (mut mux, _) = MultiplexerState::new();
         let ws_id = mux.list_workspaces()[0].id.clone();
         mux.set_workspace_protected(&ws_id, true);
+        let existing = mux.list_workspaces()[0].tab_ids[0].clone();
+        crate::service::general_agent::identity::apply_general_agent_kind(
+            mux.get_tab_mut(&existing).expect("existing General Tab"),
+        );
 
         super::ensure_general_workspace(&mut mux, true);
 
@@ -287,6 +304,53 @@ mod tests {
         assert_eq!(tab.title, GENERAL_TAB_TITLE);
         assert!(tab.protected);
         assert!(tab.chat_view);
+    }
+
+    #[test]
+    fn general_workspace_creates_a_dedicated_tab_beside_an_installer_shell() {
+        let mut mux = MultiplexerState::empty();
+        let ws = mux.create_workspace("Welcome".to_string(), None);
+        mux.set_workspace_protected(&ws.id, true);
+        let installer = mux.create_tab(&ws.id).expect("installer Tab");
+        let _ = mux.rename_tab(&installer, "CliInstall");
+
+        super::ensure_general_workspace(&mut mux, true);
+
+        let general = mux
+            .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
+            .expect("General alias");
+        assert_ne!(general, installer);
+        let general_tab = mux.get_tab(&general).expect("General Tab");
+        assert_eq!(general_tab.title, GENERAL_TAB_TITLE);
+        assert!(crate::service::general_agent::identity::is_general_agent(
+            general_tab
+        ));
+        let installer_tab = mux.get_tab(&installer).expect("installer Tab remains");
+        assert_eq!(installer_tab.title, "CliInstall");
+        assert!(installer_tab.role_profile.is_none());
+        assert!(!installer_tab.protected);
+        assert_eq!(mux.find_workspace_for_tab(&general), Some(ws.id));
+    }
+
+    #[test]
+    fn general_workspace_reclaims_the_existing_general_over_an_earlier_shell() {
+        let mut mux = MultiplexerState::empty();
+        let ws = mux.create_workspace(GENERAL_WORKSPACE_NAME.to_string(), None);
+        mux.set_workspace_protected(&ws.id, true);
+        let shell = mux.create_tab(&ws.id).expect("shell Tab");
+        let general = mux.create_tab(&ws.id).expect("General Tab");
+        crate::service::general_agent::identity::apply_general_agent_kind(
+            mux.get_tab_mut(&general).expect("General Tab"),
+        );
+
+        super::ensure_general_workspace(&mut mux, false);
+
+        assert_eq!(
+            mux.resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS),
+            Some(general)
+        );
+        assert!(mux.get_tab(&shell).expect("shell").role_profile.is_none());
+        assert_eq!(mux.list_workspaces()[0].tab_ids.len(), 2);
     }
 
     #[test]
