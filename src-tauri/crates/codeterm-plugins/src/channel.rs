@@ -62,6 +62,8 @@ pub(super) fn add_channel(
             path: final_path.display().to_string(),
             kind: if is_local {
                 ChannelKind::Local
+            } else if archive_channel::is_archive_url(url) {
+                ChannelKind::Archive
             } else {
                 ChannelKind::Git
             },
@@ -107,11 +109,16 @@ pub(super) fn channels_view() -> Vec<ChannelRecord> {
         .iter()
         .any(|channel| channel.name == SYSTEM_CHANNEL_NAME)
     {
+        let url = system_channel_url();
         channels.push(ChannelRecord {
             name: SYSTEM_CHANNEL_NAME.to_string(),
-            url: system_channel_url(),
+            kind: if archive_channel::is_archive_url(&url) {
+                ChannelKind::Archive
+            } else {
+                ChannelKind::Git
+            },
+            url,
             path: String::new(),
-            kind: ChannelKind::Git,
         });
     }
     channels.sort_by(|a, b| a.name.cmp(&b.name));
@@ -266,7 +273,7 @@ pub(super) fn materialize_channel_for_diff(ch: &ChannelRecord) -> Result<PathBuf
                 Ok(parse_channel_source(&ch.url).source_dir())
             }
         }
-        ChannelKind::Git => {
+        ChannelKind::Git | ChannelKind::Archive => {
             let cache = PathBuf::from(&ch.path);
             if !cache.exists() {
                 refresh_channel_record(ch)?;

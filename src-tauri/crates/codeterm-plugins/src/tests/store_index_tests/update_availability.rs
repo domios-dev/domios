@@ -130,9 +130,9 @@ fn system_sync_repairs_equal_versions_but_never_downgrades() {
             installed_manifest.to_string(),
         )
         .unwrap();
-        assert!(update_system_command(None)
-            .unwrap_err()
-            .contains("local_ahead"));
+        let result = update_system_command(None).expect("a newer install is kept silently");
+        assert_eq!(result["updated"], serde_json::json!([]));
+        assert_eq!(result["warnings"], serde_json::json!([]));
         assert_eq!(
             manifest_version(&installed).unwrap().as_deref(),
             Some("2.0.0")

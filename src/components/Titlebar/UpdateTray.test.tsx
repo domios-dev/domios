@@ -22,7 +22,7 @@ vi.mock("../../lib/bridge", () => ({ listen: async (_event: string, handler: typ
 import { UpdatePanelProvider } from "../../hooks/useUpdatePanel";
 import { UpdateTray } from "./UpdateTray";
 import { UpdatePanelContents } from "../UpdatePanel";
-import { classifyUpdateStatus, PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE } from "../../lib/updateStatusModel";
+import { classifyUpdateStatus } from "../../lib/updateStatusModel";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const snapshot: UpdateAvailabilitySnapshot = { errors: {}, items: [
@@ -33,32 +33,42 @@ const snapshot: UpdateAvailabilitySnapshot = { errors: {}, items: [
 ] };
 afterEach(() => { localStorage.clear(); fake.offer = null; vi.clearAllMocks(); });
 
-for (const failure of [null, "git_non_interactive: remote: Repository not found"]) {
-  it(`wires local-ahead information and ${failure ? "a hidden background failure" : "no failure badge"}`, async () => {
-    const ahead: UpdateAvailabilitySnapshot = { items: [{ ...snapshot.items[3], id: "codex", installed: "2.0.0", latest: "1.0.0", reason: "local_ahead" }],
-      errors: { core: `system plugin 'codex' is not installable: local_ahead${failure ? `; ${failure}` : ""}` } };
-    fake.check.mockResolvedValue(ahead);
-    const host = document.createElement("div"); document.body.append(host);
-    const root = createRoot(host);
-    try {
-      await act(async () => root.render(<UpdatePanelProvider><UpdateTray /><UpdatePanelContents /></UpdatePanelProvider>));
-      expect(host.querySelector('[role="status"][aria-label="Installed plugin ahead of channel"]')?.textContent)
-        .toBe(classifyUpdateStatus(ahead).information[0]);
-      const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]');
-      expect(Boolean(trigger)).toBe(Boolean(failure));
-      expect(host.querySelector('[role="alert"]')).toBeNull();
-      if (failure) {
-        const check = [...host.querySelectorAll("button")].find(button => button.textContent === "Check again")!;
-        await act(async () => check.click());
-        expect(fake.check).toHaveBeenLastCalledWith(true);
-        expect(host.querySelector('[role="alert"]')).toBeNull();
-        expect(host.querySelector('[role="status"][aria-label="codex plugin updates unavailable"]')?.textContent)
-          .toBe(PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE);
-        expect(host.textContent).not.toContain(failure);
-      }
-    } finally { await act(async () => root.unmount()); host.remove(); }
-  });
-}
+const coreUnavailable = "Plugin channel unavailable: repository not found or not readable without access (github.com/rollacode/codeterm.git). Domios will retry.";
+const communityUnavailable = "Plugin channel unavailable: network unavailable (example.com/community.git). Domios will retry.";
+
+it("keeps an unreachable core channel silent and names its cause as a diagnostic", async () => {
+  const core: UpdateAvailabilitySnapshot = { items: [
+    { ...snapshot.items[0], latest: "1.0.0", state: "up_to_date" },
+    { ...snapshot.items[3], id: "claude", installed: "1.14.14", latest: "1.14.4", reason: "local_ahead", channel: "codeterm-core" },
+  ], errors: { "codeterm-core": coreUnavailable } };
+  fake.check.mockResolvedValue(core);
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTray /><UpdatePanelContents /></UpdatePanelProvider>));
+    expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
+    expect(host.querySelector('button[aria-label^="Apply"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Installed plugin ahead of channel"]')).toBeNull();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('[role="status"][aria-label="codeterm-core channel diagnostics"]')?.textContent)
+      .toBe(`Core plugins: ${coreUnavailable} Bundled core plugins stay installed.`);
+    const updateAll = [...host.querySelectorAll("button")].find(button => button.textContent === "Update all")!;
+    expect(updateAll.disabled).toBe(true);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("wires local-ahead information for a non-core plugin without a failure badge", async () => {
+  const ahead: UpdateAvailabilitySnapshot = { items: [{ ...snapshot.items[1], id: "lark", installed: "2.0.0", latest: "1.0.0", state: "up_to_date", reason: "local_ahead" }], errors: {} };
+  fake.check.mockResolvedValue(ahead);
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTray /><UpdatePanelContents /></UpdatePanelProvider>));
+    expect(host.querySelector('[role="status"][aria-label="Installed plugin ahead of channel"]')?.textContent)
+      .toBe(classifyUpdateStatus(ahead).information[0]);
+    expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
 
 it("opens grouped offers and the Update all handler persists intent before installation", async () => {
   fake.check.mockResolvedValue(snapshot);
@@ -87,21 +97,20 @@ it("opens grouped offers and the Update all handler persists intent before insta
 it("keeps a failed channel on its own row while Update all applies the healthy channel", async () => {
   const mixed: UpdateAvailabilitySnapshot = { items: [
     { ...snapshot.items[0], latest: "1.0.0", state: "up_to_date" },
-    { ...snapshot.items[3], id: "codex", state: "update_available", channel: "codeterm-core" },
+    { ...snapshot.items[1], id: "lark", channel: "community" },
     { ...snapshot.items[1], id: "teams-client", channel: "codeterm-plugins" },
-  ], errors: { "codeterm-core": "git_non_interactive: remote: Repository not found" } };
+  ], errors: { community: communityUnavailable } };
   fake.check.mockResolvedValue(mixed);
   fake.plugin.mockResolvedValue({ plugins: [], channels: [], diff: [] });
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
     await act(async () => root.render(<UpdatePanelProvider><UpdateTray /><UpdatePanelContents /></UpdatePanelProvider>));
-    expect(host.querySelector('[role="status"][aria-label="codex plugin updates unavailable"]')?.textContent)
-      .toBe(PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE);
-    expect(host.textContent).not.toContain("Repository not found");
-    const coreApply = host.querySelector<HTMLButtonElement>('button[aria-label="Apply codex update"]')!;
+    expect(host.querySelector('[role="status"][aria-label="lark plugin updates unavailable"]')?.textContent)
+      .toBe(communityUnavailable);
+    const failedApply = host.querySelector<HTMLButtonElement>('button[aria-label="Apply lark update"]')!;
     const healthyApply = host.querySelector<HTMLButtonElement>('button[aria-label="Apply teams-client update"]')!;
-    expect(coreApply.disabled).toBe(true);
+    expect(failedApply.disabled).toBe(true);
     expect(healthyApply.disabled).toBe(false);
     const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
     await act(async () => trigger.click());
@@ -110,16 +119,16 @@ it("keeps a failed channel on its own row while Update all applies the healthy c
     await act(async () => updateAll.click());
     expect(fake.plugin).toHaveBeenCalledExactlyOnceWith({ kind: "update", pluginId: "teams-client" });
     expect(host.querySelector('[role="alert"]')).toBeNull();
-    expect(panel.textContent).toContain(PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE);
+    expect(panel.textContent).toContain(communityUnavailable);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
 it("allows Apply from a healthy channel while another channel is unavailable", async () => {
   const mixed: UpdateAvailabilitySnapshot = { items: [
     { ...snapshot.items[0], latest: "1.0.0", state: "up_to_date" },
-    { ...snapshot.items[3], id: "codex", state: "update_available", channel: "codeterm-core" },
+    { ...snapshot.items[1], id: "lark", channel: "community" },
     { ...snapshot.items[1], id: "teams-client", channel: "codeterm-plugins" },
-  ], errors: { "codeterm-core": "git_non_interactive: remote: Repository not found" } };
+  ], errors: { community: communityUnavailable } };
   fake.check.mockResolvedValue(mixed);
   fake.plugin.mockResolvedValue({ plugins: [], channels: [], diff: [] });
   const host = document.createElement("div"); document.body.append(host);
@@ -133,7 +142,7 @@ it("allows Apply from a healthy channel while another channel is unavailable", a
     await act(async () => healthyApply.click());
     expect(fake.plugin).toHaveBeenCalledExactlyOnceWith({ kind: "update", pluginId: "teams-client" });
     expect(panel.querySelector('[role="alert"]')).toBeNull();
-    expect(panel.textContent).toContain(PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE);
+    expect(panel.textContent).toContain(communityUnavailable);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 

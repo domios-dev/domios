@@ -44,7 +44,7 @@ jobs:
         env:
           PLUGIN_ID: ${{ steps.plugin.outputs.id }}
         run: |
-          node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
+          node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs scripts/tests/core-channel-publication.test.mjs
           node scripts/check-plugin.mjs "$PLUGIN_ID"
       - name: Archive plugin
         env:
@@ -61,3 +61,23 @@ jobs:
           gh release create "$PLUGIN_TAG" "$PLUGIN_TAG.tar.gz" "$PLUGIN_TAG.tar.gz.sha256" \
             --verify-tag --latest=false --title "$PLUGIN_TAG" \
             --notes-file plugin-release.json
+  # Every install reads codeterm-core from these public assets; the source repository stays private.
+  publish_core_channel:
+    name: publish public codeterm-core channel
+    needs: publish
+    runs-on: [self-hosted, linux-build]
+    concurrency:
+      group: codeterm-core-channel-publication
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: Publish the core channel archive to the public release mirror
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: node scripts/publish-core-channel.mjs publish "$GITHUB_SHA" rollacode/codeterm-releases

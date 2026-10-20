@@ -31,7 +31,10 @@ impl UpdateDiscoverySource for OfficialUpdateSource {
             .header(reqwest::header::CACHE_CONTROL, "no-cache, no-store")
             .send()
             .and_then(|r| r.error_for_status())
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                log::warn!("update discovery fetch failed: {e}");
+                super::channel_failure::http_failure_cause(&e)
+            })?;
         let mut bytes = Vec::new();
         response
             .take(limit as u64 + 1)
@@ -46,10 +49,14 @@ impl UpdateDiscoverySource for OfficialUpdateSource {
     fn materialize_channel(&self, _name: &str, url: &str, dest: &Path) -> Result<(), String> {
         let source = super::parse_channel_source(url);
         if super::looks_like_local_path(&source.base) {
-            super::copy_dir_filtered(&source.source_dir(), dest)
+            return super::copy_dir_filtered(&source.source_dir(), dest);
+        }
+        let result = if super::archive_channel::is_archive_url(url) {
+            super::archive_channel::materialize(|url, limit| self.fetch(url, limit), url, dest)
         } else {
             super::clone_git_channel(&source, dest)
-        }
+        };
+        result.map_err(|cause| super::channel_failure::channel_unavailable(&cause, url))
     }
 }
 
