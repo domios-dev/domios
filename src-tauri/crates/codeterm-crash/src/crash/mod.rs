@@ -1,6 +1,6 @@
 //! Crash reporting — panic hook (Rust) + native-crash handler (SIGSEGV/SIGABRT/SEH).
 //!
-//! Reports land in `~/.codeterm/crashes/` (dev: `~/.codeterm-dev/crashes/`):
+//! Reports land in `~/.domios/crashes/` (dev: `~/.domios-dev/crashes/`):
 //!   crash-<ts>-panic.txt  — Rust panic (always readable)
 //!   crash-<ts>-native.dmp — binary minidump from crash-handler
 //!   crash-<ts>-native.txt — readable sidecar for the minidump

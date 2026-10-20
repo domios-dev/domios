@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn list_renders_capability_columns_and_refusals() {
         let rendered = render_list(&json!({
-            "overlay_dir": "/home/a/.codeterm/role-presets",
+            "overlay_dir": "/home/a/.domios/role-presets",
             "kinds": [
                 {"kind_id": "orchestrator", "label": "Orchestrator", "origin": "builtin",
                  "anchors_team": true, "team_authority": true, "can_spawn": true},
@@ -208,7 +208,7 @@ mod tests {
             ]
         }));
 
-        assert!(rendered.contains("/home/a/.codeterm/role-presets"));
+        assert!(rendered.contains("/home/a/.domios/role-presets"));
         assert!(rendered.contains("anchors=true authority=true spawn=true"));
         assert!(rendered.contains("anchors=false authority=false spawn=false"));
         assert!(rendered.contains("role-presets/hostile.toml [capability_escalation]"));

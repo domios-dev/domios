@@ -169,7 +169,7 @@ fn mirrors_plan_units_into_project_local_mem_db() {
         .path()
         .canonicalize()
         .unwrap()
-        .join(".codeterm/test-plan-index");
+        .join(".domios/test-plan-index");
     assert!(
         db.starts_with(&expected_index_root),
         "index path {db:?} escaped test root {:?}",
@@ -854,9 +854,9 @@ fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
     assert_eq!(loaded.project_path, main_root.display().to_string());
     assert!(store.database_path_for_test().exists());
     assert!(!main_root
-        .join(format!(".codeterm/plans/active/{}/plan.yaml", plan.id))
+        .join(format!(".domios/plans/active/{}/plan.yaml", plan.id))
         .exists());
-    assert!(!linked.join(".codeterm/plans").exists());
+    assert!(!linked.join(".domios/plans").exists());
     flush_index_queue_for_test(&main_root);
 
     let tasks = store.list_tasks(TaskListFilter {

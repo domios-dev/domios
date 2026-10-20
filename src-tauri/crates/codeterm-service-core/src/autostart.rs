@@ -45,8 +45,8 @@ fn cli_path() -> Result<std::path::PathBuf, String> {
     };
     let home = dirs::home_dir().ok_or_else(|| "home dir not found".to_string())?;
     for candidate in [
-        home.join(".codeterm").join("bin").join(name),
-        home.join(".codeterm-dev").join("bin").join(name),
+        home.join(".domios").join("bin").join(name),
+        home.join(".domios-dev").join("bin").join(name),
     ] {
         if candidate.exists() {
             return Ok(candidate);

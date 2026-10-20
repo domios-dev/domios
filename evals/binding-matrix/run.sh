@@ -46,7 +46,7 @@ mkdir -p "$OUT"
 TRACK="$OUT/tracked.txt"   # one "tab_id provider ws cwd" per line
 : > "$TRACK"
 
-LOG="$HOME/.codeterm-dev/logs/codeterm.log"
+LOG="$HOME/.domios-dev/logs/domios.log"
 # Note: avoid `grep | wc` — under `set -o pipefail` a zero-match grep exits 1,
 # which both prints the count AND trips a trailing `|| echo 0`, yielding "0\n0".
 count_mismatch() {

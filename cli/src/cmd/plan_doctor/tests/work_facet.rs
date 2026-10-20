@@ -21,7 +21,7 @@ fn compliant_plan() -> Value {
 #[test]
 fn work_facet_quality_names_every_legacy_task_and_preserves_storage() {
     let dir = tempfile::tempdir().unwrap();
-    let plan_dir = dir.path().join(".codeterm/plans/active/pl_work");
+    let plan_dir = dir.path().join(".domios/plans/active/pl_work");
     let mut plan = compliant_plan();
     let cases = [
         ("task_missing", json!([]), "missing"),

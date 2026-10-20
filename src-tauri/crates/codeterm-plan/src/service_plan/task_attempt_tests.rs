@@ -73,7 +73,7 @@ fn report_target_write_timestamp_persists_across_store_reopen() {
     assert!(store
         .mark_report_target_written(&plan_id, &task_id, &attempt_id, 5)
         .unwrap());
-    let reopened = PlanStore::open(dir.path().join(".codeterm").join("plans.db")).unwrap();
+    let reopened = PlanStore::open(dir.path().join(".domios").join("plans.db")).unwrap();
     assert_eq!(
         reopened.get(&plan_id).unwrap().tasks[0].execution_attempts[0].report_target_written_at,
         Some(5)

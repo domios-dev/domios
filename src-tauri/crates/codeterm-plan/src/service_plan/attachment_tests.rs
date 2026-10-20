@@ -35,10 +35,10 @@ fn attachment_storage_is_global_to_the_database_not_project_sidecars() {
     let stored = store.attachment_abs_path(&plan, &attachment.path).unwrap();
 
     assert_eq!(std::fs::read_to_string(&stored).unwrap(), "proof");
-    assert!(stored.starts_with(dir.path().join(".codeterm").join("plans").join(&plan.id)));
+    assert!(stored.starts_with(dir.path().join(".domios").join("plans").join(&plan.id)));
     assert!(!dir
         .path()
-        .join(".codeterm/plans/active")
+        .join(".domios/plans/active")
         .join(&plan.id)
         .join(&attachment.path)
         .exists());
@@ -61,7 +61,7 @@ fn deleting_a_plan_removes_its_global_assets() {
     assert!(!stored.exists());
     assert!(!dir
         .path()
-        .join(".codeterm")
+        .join(".domios")
         .join("plans")
         .join(&plan.id)
         .exists());

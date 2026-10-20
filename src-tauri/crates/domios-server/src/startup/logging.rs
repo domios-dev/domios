@@ -12,15 +12,15 @@ const THIRD_PARTY_WARN_TARGETS: &[&str] =
 
 fn rotate(log_dir: &std::path::Path) {
     use std::fs;
-    let file = log_dir.join("codeterm.log");
-    let _ = fs::remove_file(log_dir.join(format!("codeterm.log.{LOG_GENERATIONS}")));
+    let file = log_dir.join("domios.log");
+    let _ = fs::remove_file(log_dir.join(format!("domios.log.{LOG_GENERATIONS}")));
     for generation in (1..LOG_GENERATIONS).rev() {
         let _ = fs::rename(
-            log_dir.join(format!("codeterm.log.{generation}")),
-            log_dir.join(format!("codeterm.log.{}", generation + 1)),
+            log_dir.join(format!("domios.log.{generation}")),
+            log_dir.join(format!("domios.log.{}", generation + 1)),
         );
     }
-    let _ = fs::rename(&file, log_dir.join("codeterm.log.1"));
+    let _ = fs::rename(&file, log_dir.join("domios.log.1"));
 }
 
 /// A log sink that rotates itself. `fern::log_file` hands back a plain handle
@@ -33,7 +33,7 @@ struct RotatingLog {
 
 impl RotatingLog {
     fn open(dir: &std::path::Path) -> std::io::Result<Self> {
-        let path = dir.join("codeterm.log");
+        let path = dir.join("domios.log");
         let written = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         Ok(Self {
             dir: dir.to_path_buf(),
@@ -53,7 +53,7 @@ impl std::io::Write for RotatingLog {
             self.file = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(self.dir.join("codeterm.log"))?;
+                .open(self.dir.join("domios.log"))?;
             self.written = 0;
         }
         let n = self.file.write(buf)?;
@@ -74,7 +74,7 @@ pub fn setup_logging() {
     let log_dir = paths::data_dir().join("logs");
     fs::create_dir_all(&log_dir).ok();
 
-    let log_file = log_dir.join("codeterm.log");
+    let log_file = log_dir.join("domios.log");
 
     let level = if cfg!(debug_assertions) {
         log::LevelFilter::Debug

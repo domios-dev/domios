@@ -34,34 +34,34 @@ mod tests {
     #[test]
     fn renders_file_manifest() {
         let rendered = render_file_manifest(&json!({
-            "index_path": ".codeterm/plans/active/pl_1/INDEX.md",
+            "index_path": ".domios/plans/active/pl_1/INDEX.md",
             "entries": [
                 {
                     "kind": "section",
                     "title": "Spec",
-                    "path": ".codeterm/plans/active/pl_1/sections/sec_1.md"
+                    "path": ".domios/plans/active/pl_1/sections/sec_1.md"
                 },
                 {
                     "kind": "task",
                     "title": "Build",
-                    "path": ".codeterm/plans/active/pl_1/tasks/task_1.md"
+                    "path": ".domios/plans/active/pl_1/tasks/task_1.md"
                 }
             ]
         }));
-        assert!(rendered.contains("INDEX.md\t.codeterm/plans/active/pl_1/INDEX.md"));
-        assert!(rendered.contains("Spec\t.codeterm/plans/active/pl_1/sections/sec_1.md"));
-        assert!(rendered.contains("Build\t.codeterm/plans/active/pl_1/tasks/task_1.md"));
+        assert!(rendered.contains("INDEX.md\t.domios/plans/active/pl_1/INDEX.md"));
+        assert!(rendered.contains("Spec\t.domios/plans/active/pl_1/sections/sec_1.md"));
+        assert!(rendered.contains("Build\t.domios/plans/active/pl_1/tasks/task_1.md"));
     }
 
     #[test]
     fn non_existent_task_path_is_annotated_with_read_command() {
         let rendered = render_file_manifest(&json!({
-            "index_path": ".codeterm/plans/active/pl_1/INDEX.md",
+            "index_path": ".domios/plans/active/pl_1/INDEX.md",
             "entries": [
                 {
                     "kind": "task",
                     "title": "Build",
-                    "path": ".codeterm/plans/active/pl_1/tasks/task_1.md",
+                    "path": ".domios/plans/active/pl_1/tasks/task_1.md",
                     "exists": false,
                     "read_command": "codeterm plan task show pl_1 task_1"
                 }
@@ -85,7 +85,7 @@ mod tests {
                 {
                     "kind": "task",
                     "title": "Build",
-                    "path": ".codeterm/plans/active/pl_1/tasks/task_1.md",
+                    "path": ".domios/plans/active/pl_1/tasks/task_1.md",
                     "exists": true,
                     "read_command": "codeterm plan task show pl_1 task_1"
                 }
@@ -93,7 +93,7 @@ mod tests {
         }));
         assert_eq!(
             rendered.trim_end(),
-            "Build\t.codeterm/plans/active/pl_1/tasks/task_1.md"
+            "Build\t.domios/plans/active/pl_1/tasks/task_1.md"
         );
     }
 }

@@ -147,7 +147,7 @@ def test_cli_put_get_pop_rm_parity(api_only):
     """codeterm paste subcommand should round-trip through the same daemon."""
     cli = shutil.which("codeterm") or os.path.join(
         os.environ.get("USERPROFILE", os.environ.get("HOME", "")),
-        ".codeterm-dev",
+        ".domios-dev",
         "bin",
         "codeterm.exe" if os.name == "nt" else "codeterm",
     )

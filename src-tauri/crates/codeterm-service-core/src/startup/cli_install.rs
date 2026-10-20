@@ -149,7 +149,7 @@ pub(crate) fn refresh_installed_cli_with(
     let bin_name = cli_bin_name();
     let dest_dir = data_dir.join("bin");
     let dest = dest_dir.join(bin_name);
-    let prod_dest_dir = home.join(".codeterm").join("bin");
+    let prod_dest_dir = home.join(".domios").join("bin");
     let is_prod_dest = dest_dir == prod_dest_dir;
     let mut needs_copy = true;
 
@@ -266,7 +266,7 @@ pub fn install_bundled_cli(shell: &dyn crate::ports::host::Shell) {
 }
 
 /// Refresh the installed CLI right after an in-app update applies the new
-/// bundle, so `~/.codeterm/bin/codeterm` matches the freshly-installed app's
+/// bundle, so `~/.domios/bin/codeterm` matches the freshly-installed app's
 /// resource CLI without waiting for (or depending on) the next cold startup.
 /// Synchronous: the caller is already off the UI hot path (update apply).
 pub fn refresh_bundled_cli(shell: &dyn crate::ports::host::Shell) {
@@ -394,7 +394,7 @@ mod tests {
     fn refresh_installs_then_skips_then_reinstalls_on_change() {
         use std::io::Write;
         let home = tempfile::tempdir().unwrap();
-        let data_dir = home.path().join(".codeterm");
+        let data_dir = home.path().join(".domios");
         let srcdir = tempfile::tempdir().unwrap();
         let src = srcdir.path().join("codeterm");
         let user_path = RecordingUserPath::default();
@@ -446,7 +446,7 @@ mod tests {
     fn refresh_dev_instance_installs_into_data_dir_not_prod() {
         use std::io::Write;
         let home = tempfile::tempdir().unwrap();
-        let data_dir = home.path().join(".codeterm-dev-phase-c-linux");
+        let data_dir = home.path().join(".domios-dev-phase-c-linux");
         let srcdir = tempfile::tempdir().unwrap();
         let src = srcdir.path().join("codeterm");
         std::fs::File::create(&src)
@@ -462,7 +462,7 @@ mod tests {
         let dev_dest = data_dir.join("bin").join(super::cli_bin_name());
         let prod_dest = home
             .path()
-            .join(".codeterm")
+            .join(".domios")
             .join("bin")
             .join(super::cli_bin_name());
         assert_eq!(std::fs::read(&dev_dest).unwrap(), b"dev-instance-binary");

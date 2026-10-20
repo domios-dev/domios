@@ -213,7 +213,7 @@ fn batch_handoff_sidecar_is_not_written_when_later_op_fails() {
     assert!(matches!(err, PlanError::TaskNotFound));
     assert!(store.get(&plan_id).unwrap().elements.is_empty());
     let handoffs_dir = root
-        .join(".codeterm")
+        .join(".domios")
         .join("plans")
         .join(&plan_id)
         .join("handoffs");
@@ -256,7 +256,7 @@ fn batch_spec_side_effects_are_not_written_when_later_op_fails() {
         .unwrap_err();
     assert!(matches!(err, PlanError::TaskNotFound));
     assert!(store.list_spec_index().is_empty());
-    let specs_dir = root.join(".codeterm").join("specs");
+    let specs_dir = root.join(".domios").join("specs");
     let leftover = specs_dir
         .read_dir()
         .map(|mut entries| entries.next().is_some())
@@ -268,7 +268,7 @@ fn batch_spec_side_effects_are_not_written_when_later_op_fails() {
 fn batch_create_plan_from_spec_is_not_written_when_later_op_fails() {
     let (root, store, plan_id) = store_with_plan_root();
     let before = root
-        .join(".codeterm")
+        .join(".domios")
         .join("plans")
         .read_dir()
         .unwrap()
@@ -300,7 +300,7 @@ fn batch_create_plan_from_spec_is_not_written_when_later_op_fails() {
         .unwrap_err();
     assert!(matches!(err, PlanError::TaskNotFound));
     assert_eq!(
-        root.join(".codeterm")
+        root.join(".domios")
             .join("plans")
             .read_dir()
             .unwrap()

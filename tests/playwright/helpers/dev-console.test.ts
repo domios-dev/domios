@@ -29,7 +29,7 @@ function instance(apiPort: number): DevInstance {
     vitePort: apiPort + 1,
     cdpPort: apiPort + 2,
     identifier: "playwright-pw-test",
-    dataDirName: ".codeterm-dev-pw-test",
+    dataDirName: ".domios-dev-pw-test",
     apiBase: `http://127.0.0.1:${apiPort}`,
     cdpBase: `http://127.0.0.1:${apiPort + 2}`,
     webUrl: `http://127.0.0.1:${apiPort + 1}`,

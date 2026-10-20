@@ -220,7 +220,7 @@ async function startSustainedLoad(page: Page, tabIds: string[]): Promise<void> {
 }
 
 function backendEvidence(): BackendEvidence {
-  const logPath = path.join(os.homedir(), ".codeterm-dev", "logs", "codeterm.log");
+  const logPath = path.join(os.homedir(), ".domios-dev", "logs", "domios.log");
   const text = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8").slice(-500_000) : "";
   const lines = text.split(/\r?\n/);
   return {

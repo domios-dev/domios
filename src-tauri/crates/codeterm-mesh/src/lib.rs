@@ -19,6 +19,7 @@ pub mod serve_setup;
 pub mod toggle;
 pub mod transport;
 pub mod types;
+pub mod version;
 pub mod web_ui_endpoints;
 
 use std::sync::Arc;

@@ -789,7 +789,7 @@ impl ServiceContext {
                     .as_millis() as u64,
             )?;
         }
-        let legacy_plans_dir = project_root.join(".codeterm").join("plans");
+        let legacy_plans_dir = project_root.join(".domios").join("plans");
         let mut watchers = self.ext::<crate::service::PlanWatchers>().0.lock();
         if legacy_plans_dir.is_dir() && !watchers.contains_key(&project_root) {
             match crate::service::plan::watcher::PlanWatcher::watch_project(

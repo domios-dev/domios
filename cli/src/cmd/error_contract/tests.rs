@@ -58,7 +58,7 @@ fn daemon_connection_failures_are_unavailable() {
     for message in [
         "failed to connect to local API: refused",
         "CodeTerm socket attempt failed: nothing listening; loopback HTTP attempt failed: x",
-        "CodeTerm socket 'codeterm-dev.sock' is not live.",
+        "CodeTerm socket 'domios-dev.sock' is not live.",
     ] {
         assert_eq!(
             classify(message, None, None),

@@ -220,7 +220,7 @@ fn colocated_spec_does_not_fk_fail_the_plan_on_fresh_scan() {
 
     // Wipe the index DB, keep the on-disk yaml: mimic a fresh startup that must
     // re-import plan.yaml plus its co-located spec.yaml from scratch.
-    let db = dir.path().join(".codeterm").join("plans.db");
+    let db = dir.path().join(".domios").join("plans.db");
     for suffix in ["", "-wal", "-shm"] {
         let _ = std::fs::remove_file(format!("{}{}", db.display(), suffix));
     }
