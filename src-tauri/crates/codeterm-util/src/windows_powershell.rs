@@ -14,10 +14,13 @@ pub struct ExecutionPolicyValues {
 }
 
 pub fn host_of(shell: &str) -> PowerShellHost {
-    let name = std::path::Path::new(shell)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or_default();
+    // Split on both separators: a Windows shell path must classify the same on every host.
+    let file = shell.rsplit(['\\', '/']).next().unwrap_or_default();
+    let name = file
+        .len()
+        .checked_sub(4)
+        .filter(|&stem| file.is_char_boundary(stem) && file[stem..].eq_ignore_ascii_case(".exe"))
+        .map_or(file, |stem| &file[..stem]);
     if name.eq_ignore_ascii_case("pwsh") {
         PowerShellHost::Core
     } else {

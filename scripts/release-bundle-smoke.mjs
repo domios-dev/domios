@@ -61,6 +61,15 @@ export function checkContents(appBytes, serverBytes, sha) {
     }
   }
 }
+// A macOS x64 bundle built on Apple Silicon must run its CLI there, which needs Rosetta.
+export function canExecuteTarget(target, host = { platform: platform(), arch: arch() }, rosetta = existsSync('/Library/Apple/usr/libexec/oah/libRosettaRuntime')) {
+  if (target === host.arch) return true;
+  if (host.platform === 'darwin' && host.arch === 'arm64' && target === 'x64') {
+    if (!rosetta) throw new Error('The macOS x64 CLI must execute here: install Rosetta on this runner (softwareupdate --install-rosetta --agree-to-license)');
+    return true;
+  }
+  return false;
+}
 export function smoke(kind, directory, sha, expectedArch) {
   const version = JSON.parse(readFileSync(path.join(root, 'package.json'))).version;
   const scratch = mkdtempSync(path.join(tmpdir(), 'release-bundle-check-'));
@@ -112,7 +121,7 @@ export function smoke(kind, directory, sha, expectedArch) {
       console.log(`Authenticode (not required): ${statuses}`);
       if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Authenticode (not required): ${statuses}\n`);
     }
-    const canExecute = expectedArch === arch() || (platform() === 'darwin' && arch() === 'arm64' && expectedArch === 'x64');
+    const canExecute = canExecuteTarget(expectedArch);
     if (canExecute) {
       const output = run(cli, ['--version']).trim();
       if (!new RegExp(`^codeterm ${version.replaceAll('.', '\\.')}$$`, 'i').test(output)) throw new Error(`Embedded CLI version mismatch: ${output}`);
