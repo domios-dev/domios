@@ -154,7 +154,7 @@ const prepare = source.slice(
 );
 if (!prepare.includes("pnpm build")) throw new Error("release inputs must build the frontend");
 if (!source.includes("  release-inputs)")) throw new Error("release-inputs operation is missing");
-if (!build.includes("pnpm tauri build")) throw new Error("release build no longer invokes Tauri");
+if (!build.includes("bundle_common_stage")) throw new Error("release build no longer packages the shared stage");
 const config = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
 if (config.build.beforeBuildCommand) throw new Error("Tauri must not own release input preparation");
 for (const index of [4, 5, 6, 8, 9]) {
