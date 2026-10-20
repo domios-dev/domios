@@ -716,9 +716,33 @@ gates skill's Release section owns that step.
    ```
 
    `build` always creates a fresh nonincremental target under
-   `%LOCALAPPDATA%\CodeTerm\build-gateway\targets\release\<job>\`. It remains
+   `targets\release\<job>\` under the gateway cache home
+   (`CODETERM_RUST_CACHE_ROOT`, else `%LOCALAPPDATA%\domios-build-gateway`). It remains
    intentionally slower and isolated. The updater helper stops only the
    current-user installed Domios, runs NSIS, and restarts it.
+
+### Build gateway location (Windows)
+
+Gateway state lives in `%LOCALAPPDATA%\domios-build-gateway`, outside every
+per-user install folder. While a pre-existing `%LOCALAPPDATA%\CodeTerm\build-gateway`
+remains, gateway commands keep sharing it with older checkouts; each gateway
+acquisition tries to move it by one same-volume rename under its metadata mutex
+when no slot or queue ticket is held. A busy or held directory prints a notice
+and stays in use; nothing is ever copied or merged.
+
+`./build.sh gateway-relocate` performs the move on demand. It refuses while
+Cargo or rustc runs, stops the idle sccache server (its log is held open inside
+the directory), then exits 0 when moved or nothing remains, 75 while busy, and 3
+when both directories exist. Exit 3 means an older checkout recreated the legacy
+directory: delete it once no older checkout builds.
+
+**Before taking the 1.15.0 update on a 1.14.9 machine that builds Domios:** the
+1.14.9 updater registers every file of the install folder with Restart Manager
+and fails with `register install files: ... (os error 29)` when the gateway's
+tens of thousands of files sit there. Stop all builds, run
+`./build.ps1 gateway-relocate` from a checkout that has it, confirm
+`%LOCALAPPDATA%\CodeTerm\build-gateway` no longer exists, then update. From
+1.15.0 the updater registers only the install's executables and DLLs.
 
 ### Repairing a corrupted user PATH (Windows)
 
