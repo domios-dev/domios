@@ -1,5 +1,7 @@
 use codeterm_service_core::{PathOwnership, ResolvedInstancePaths};
 use rusqlite::{Connection, OpenFlags};
+mod relocation_holders;
+use relocation_holders::{rename_legacy_root, SystemLegacyRootHolderProbe};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     io,
@@ -117,7 +119,7 @@ fn migrate(
             }
             Some(DestinationContent::Other) | None => None,
         };
-        if let Err(error) = std::fs::rename(old_data, new_data) {
+        if let Err(error) = rename_legacy_root(old_data, new_data, &SystemLegacyRootHolderProbe) {
             let rollback = staged_client_trail
                 .as_deref()
                 .map(|staged| restore_client_startup_trail(staged, new_data));
@@ -127,24 +129,9 @@ fn migrate(
                 }
                 _ => error.to_string(),
             };
-            return Err(io::Error::new(
-                error.kind(),
-                format!(
-                    "Cannot atomically rename {} to {}: {reason}",
-                    old_data.display(),
-                    new_data.display()
-                ),
-            ));
+            return Err(io::Error::new(error.kind(), reason));
         }
         drop(old_owner);
-    } else if new_exists {
-        match workspace_roots(new_data) {
-            Ok(roots) => project_roots = roots,
-            Err(error) => notices.push(format!(
-                "Could not read workspace roots from {} for project directory relocation: {error}",
-                new_data.display()
-            )),
-        }
     }
 
     migrate_secret_namespaces(secret_items)?;
@@ -513,12 +500,6 @@ fn validate_1_14_9_schema(root: &Path) -> io::Result<Vec<PathBuf>> {
     }
     drop(plans);
     Ok(project_roots)
-}
-
-fn workspace_roots(root: &Path) -> io::Result<Vec<PathBuf>> {
-    let state_path = root.join("storage").join("state.db");
-    let state = open_read_only(root, "storage", &state_path)?;
-    workspace_roots_from(&state, root)
 }
 
 fn workspace_roots_from(connection: &Connection, root: &Path) -> io::Result<Vec<PathBuf>> {
