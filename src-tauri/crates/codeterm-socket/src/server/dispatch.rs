@@ -90,6 +90,7 @@ pub(super) fn dispatch(
                 "tab.todo.create",
                 "tab.todo.append",
                 "tab.todo.state",
+                "tab.todo.reopen",
                 "tab.todo.amend",
                 "tab.todo.clear_one",
                 "tab.todo.clear_all",

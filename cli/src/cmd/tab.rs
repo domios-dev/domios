@@ -964,7 +964,8 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
         TabAction::Todo { action } => match action {
             crate::args::tab_todo::TabTodoAction::Init { tab, .. }
             | crate::args::tab_todo::TabTodoAction::Append { tab, .. }
-            | crate::args::tab_todo::TabTodoAction::Amend { tab, .. } => {
+            | crate::args::tab_todo::TabTodoAction::Amend { tab, .. }
+            | crate::args::tab_todo::TabTodoAction::Reopen { tab, .. } => {
                 invalid(tab).then_some(tab.as_str())
             }
             crate::args::tab_todo::TabTodoAction::List { tab }

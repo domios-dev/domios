@@ -3,12 +3,14 @@
 use crate::error::StorageError;
 use std::collections::HashSet;
 
-pub const MAX_TAB_TODO_ITEMS: usize = 16;
+pub const MAX_TAB_TODO_ITEMS: usize = 12;
 pub const MAX_TAB_TODO_AUDIT_EVENTS: usize = 64;
+pub const MAX_TAB_TODO_ITEM_EVENTS: usize = 32;
 const MAX_TAB_ID_BYTES: usize = 256;
 const MAX_ITEM_ID_BYTES: usize = 128;
 const MAX_TEAM_ID_BYTES: usize = 256;
 const MAX_LINK_JSON_BYTES: usize = 4096;
+const MAX_REASON_BYTES: usize = 512;
 const RECORD_OVERHEAD: usize = 96;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +22,31 @@ pub struct TabTodoItemRecord {
     pub state: String,
     pub revision: u64,
     pub link_json: Option<String>,
+    pub locked: bool,
+    pub reason: Option<String>,
+    pub attempt: u64,
+    pub counters: TabTodoCountersRecord,
+    /// Newest `MAX_TAB_TODO_ITEM_EVENTS` events, oldest first.
+    pub events: Vec<TabTodoItemEventRecord>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TabTodoCountersRecord {
+    pub started: u64,
+    pub completed: u64,
+    pub reopened: u64,
+    pub blocked: u64,
+    pub skipped: u64,
+    pub folded_events: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabTodoItemEventRecord {
+    pub kind: String,
+    pub attempt: u64,
+    pub actor_tab_id: Option<String>,
+    pub reason: Option<String>,
+    pub happened_at: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,7 +146,7 @@ pub(crate) fn validate_items(items: &[TabTodoNewItemRecord]) -> Result<usize, St
     if items.is_empty() || items.len() > MAX_TAB_TODO_ITEMS {
         return Err(StorageError::invalid(
             "todo items",
-            "must contain 1..=16 items",
+            "must contain 1..=12 items",
         ));
     }
     let mut ids = HashSet::with_capacity(items.len());
@@ -134,6 +161,27 @@ pub(crate) fn validate_items(items: &[TabTodoNewItemRecord]) -> Result<usize, St
 
 pub(crate) fn validate_item_id(value: &str) -> Result<(), StorageError> {
     identifier("todo item id", value, MAX_ITEM_ID_BYTES)
+}
+
+pub(crate) fn validate_reason(value: Option<&str>, required: bool) -> Result<(), StorageError> {
+    match value {
+        None if required => Err(StorageError::invalid(
+            "todo reason",
+            "is required for blocked, skipped and reopened items",
+        )),
+        None => Ok(()),
+        Some(value)
+            if value.trim().is_empty()
+                || value.len() > MAX_REASON_BYTES
+                || value.chars().any(char::is_control) =>
+        {
+            Err(StorageError::invalid(
+                "todo reason",
+                "must contain 1..=512 bytes without controls",
+            ))
+        }
+        Some(_) => Ok(()),
+    }
 }
 
 fn validate_title(value: &str) -> Result<(), StorageError> {

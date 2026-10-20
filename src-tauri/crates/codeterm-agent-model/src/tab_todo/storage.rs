@@ -1,9 +1,10 @@
 use codeterm_storage::{
-    TabTodoAmendmentRecord, TabTodoChecklistRecord, TabTodoNewItemRecord, TabTodoRepository,
+    TabTodoAmendmentRecord, TabTodoChecklistRecord, TabTodoItemEventRecord, TabTodoItemRecord,
+    TabTodoNewItemRecord, TabTodoRepository,
 };
 use codeterm_types::agent::{
-    TabTodoChecklist, TabTodoChecklistStatus, TabTodoItem, TabTodoLink, TabTodoNewItem,
-    TabTodoState,
+    TabTodoChecklist, TabTodoChecklistStatus, TabTodoCounters, TabTodoEventKind, TabTodoItem,
+    TabTodoItemEvent, TabTodoLink, TabTodoNewItem, TabTodoState,
 };
 
 /// Typed domain boundary over the shared Storage tab-todo repository.
@@ -75,6 +76,7 @@ impl TabTodoStore {
         item_id: String,
         expected_revision: u64,
         state: TabTodoState,
+        reason: Option<String>,
         actor: Option<String>,
         at: u64,
     ) -> Result<TabTodoChecklist, String> {
@@ -86,6 +88,7 @@ impl TabTodoStore {
                     item_id,
                     expected_revision,
                     state_string(state).into(),
+                    reason,
                     actor,
                     at,
                 )
@@ -93,6 +96,49 @@ impl TabTodoStore {
                 .map_err(storage_error)?
                 .value,
         )
+    }
+
+    pub async fn reopen(
+        &self,
+        tab_id: String,
+        generation: u64,
+        item_id: String,
+        reason: String,
+        actor: Option<String>,
+        at: u64,
+    ) -> Result<TabTodoChecklist, String> {
+        checklist(
+            self.repository
+                .reopen(tab_id, generation, item_id, reason, actor, at)
+                .await
+                .map_err(storage_error)?
+                .value,
+        )
+    }
+
+    pub async fn transfer(
+        &self,
+        source_tab_id: String,
+        target_tab_id: String,
+        workspace_id: String,
+        team_id: Option<String>,
+        actor: Option<String>,
+        at: u64,
+    ) -> Result<Option<TabTodoChecklist>, String> {
+        self.repository
+            .transfer(
+                source_tab_id,
+                target_tab_id,
+                workspace_id,
+                team_id,
+                actor,
+                at,
+            )
+            .await
+            .map_err(storage_error)?
+            .value
+            .map(checklist)
+            .transpose()
     }
 
     pub async fn amend(
@@ -244,33 +290,76 @@ fn checklist(record: TabTodoChecklistRecord) -> Result<TabTodoChecklist, String>
         items: record
             .items
             .into_iter()
-            .map(|item| {
-                Ok(TabTodoItem {
-                    id: item.id,
-                    position: item.position,
-                    title: item.title,
-                    description: item.description,
-                    state: match item.state.as_str() {
-                        "open" => TabTodoState::Open,
-                        "in_progress" => TabTodoState::InProgress,
-                        "done" => TabTodoState::Done,
-                        value => {
-                            return Err(format!("storage returned unknown todo state {value}"))
-                        }
-                    },
-                    revision: item.revision,
-                    link: item
-                        .link_json
-                        .map(|json| {
-                            serde_json::from_str::<TabTodoLink>(&json).map_err(|error| {
-                                format!("storage returned malformed todo link: {error}")
-                            })
-                        })
-                        .transpose()?,
-                })
-            })
+            .map(item)
             .collect::<Result<Vec<_>, String>>()?,
     })
+}
+
+fn item(record: TabTodoItemRecord) -> Result<TabTodoItem, String> {
+    let counters = &record.counters;
+    Ok(TabTodoItem {
+        state: parse_state(&record.state)?,
+        link: record
+            .link_json
+            .map(|json| {
+                serde_json::from_str::<TabTodoLink>(&json)
+                    .map_err(|error| format!("storage returned malformed todo link: {error}"))
+            })
+            .transpose()?,
+        attempt: narrow(record.attempt),
+        counters: TabTodoCounters {
+            started: narrow(counters.started),
+            completed: narrow(counters.completed),
+            reopened: narrow(counters.reopened),
+            blocked: narrow(counters.blocked),
+            skipped: narrow(counters.skipped),
+            folded_events: narrow(counters.folded_events),
+        },
+        history: record
+            .events
+            .into_iter()
+            .map(event)
+            .collect::<Result<Vec<_>, String>>()?,
+        id: record.id,
+        position: record.position,
+        title: record.title,
+        description: record.description,
+        revision: record.revision,
+        locked: record.locked,
+        reason: record.reason,
+    })
+}
+
+fn event(record: TabTodoItemEventRecord) -> Result<TabTodoItemEvent, String> {
+    Ok(TabTodoItemEvent {
+        kind: match record.kind.as_str() {
+            "started" => TabTodoEventKind::Started,
+            "completed" => TabTodoEventKind::Completed,
+            "reopened" => TabTodoEventKind::Reopened,
+            "blocked" => TabTodoEventKind::Blocked,
+            "skipped" => TabTodoEventKind::Skipped,
+            value => return Err(format!("storage returned unknown todo event {value}")),
+        },
+        attempt: narrow(record.attempt),
+        actor_tab_id: record.actor_tab_id,
+        reason: record.reason,
+        at: record.happened_at,
+    })
+}
+
+fn parse_state(value: &str) -> Result<TabTodoState, String> {
+    Ok(match value {
+        "open" => TabTodoState::Open,
+        "in_progress" => TabTodoState::InProgress,
+        "done" => TabTodoState::Done,
+        "blocked" => TabTodoState::Blocked,
+        "skipped" => TabTodoState::Skipped,
+        value => return Err(format!("storage returned unknown todo state {value}")),
+    })
+}
+
+fn narrow(value: u64) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
 }
 
 fn encode_link(link: Option<TabTodoLink>) -> Result<Option<String>, String> {
@@ -283,6 +372,8 @@ fn state_string(state: TabTodoState) -> &'static str {
         TabTodoState::Open => "open",
         TabTodoState::InProgress => "in_progress",
         TabTodoState::Done => "done",
+        TabTodoState::Blocked => "blocked",
+        TabTodoState::Skipped => "skipped",
     }
 }
 
