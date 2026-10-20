@@ -1,7 +1,5 @@
 use std::{sync::Arc, time::Duration};
 
-use codeterm_commands::update::single_flight::{global, UpdateLease};
-use codeterm_service_core::{update_state::UpdatePhase, UpdateStateHandle};
 use codeterm_types::{
     native_update::{
         NativeUpdateAction, NativeUpdateAttachment, NativeUpdateDispatchOutcome,
@@ -10,6 +8,8 @@ use codeterm_types::{
     },
     server_bootstrap::{ServerComponentManifest, ServerReady},
 };
+use codeterm_update::single_flight::{global, UpdateLease};
+use codeterm_update::{update_state::UpdatePhase, UpdateStateHandle};
 use parking_lot::Mutex;
 use tokio::sync::watch;
 

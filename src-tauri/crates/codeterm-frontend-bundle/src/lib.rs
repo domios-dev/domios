@@ -1,5 +1,6 @@
 pub mod activation;
 pub mod manifest;
+pub mod selection;
 pub mod store;
 pub mod update;
 
@@ -24,7 +25,7 @@ pub struct FrontendBundles {
     inner: Mutex<(Store, Activation)>,
     check_job: update::CheckJob,
     pub api_version: u32,
-    bundled_version: semver::Version,
+    app_version: semver::Version,
     public_key: Option<String>,
     discovery_url: String,
     allow_loopback: bool,
@@ -37,7 +38,7 @@ impl FrontendBundles {
     pub fn open(
         root: &Path,
         api_version: u32,
-        bundled_version: &str,
+        app_version: &str,
         public_key: Option<String>,
         discovery_url: String,
         allow_loopback: bool,
@@ -46,11 +47,10 @@ impl FrontendBundles {
         if allow_loopback && !cfg!(debug_assertions) {
             return Err("DEV loopback forbidden in release".into());
         }
-        let bundled_version = semver::Version::parse(bundled_version).map_err(|e| e.to_string())?;
+        let app_version = semver::Version::parse(app_version).map_err(|e| e.to_string())?;
         let mut store = Store::open(root)?;
         let mut state = store.load()?;
-        state.recover(api_version);
-        state.retire_not_newer(&bundled_version);
+        selection::settle(&mut state, &app_version, api_version);
         for manifest in [
             state.active.clone(),
             state.previous.clone(),
@@ -80,7 +80,7 @@ impl FrontendBundles {
             inner: Mutex::new((store, state)),
             check_job: update::CheckJob::default(),
             api_version,
-            bundled_version,
+            app_version,
             public_key,
             discovery_url,
             allow_loopback,
@@ -99,30 +99,24 @@ impl FrontendBundles {
 
     pub fn local_availability(&self) -> codeterm_plugins::AvailabilityItem {
         let inner = self.inner.lock();
-        let installed = inner.1.active.as_ref().map(|m| m.version.as_str());
-        let bundled = self.bundled_version.to_string();
-        let installed = installed.unwrap_or(&bundled);
-        let pending =
-            inner.1.pending.as_ref().filter(|m| {
-                inner.1.loading.is_none() && !inner.1.quarantined.contains(&m.release_id)
-            });
-        let mut item = codeterm_plugins::AvailabilityItem::release(
-            "frontend",
-            codeterm_plugins::UpdateKind::Frontend,
-            installed,
-            pending.map(|m| m.version.as_str()).unwrap_or(installed),
-            pending.is_none_or(|m| m.compatible(self.api_version)),
-        );
-        if pending.is_some() && item.compatible {
-            item.state = codeterm_plugins::AvailabilityState::ReadyToApply;
-            item.reason = "staged_bundle".into();
-        }
-        item
+        selection::availability(
+            &selection::rendered(&inner.1, &self.app_version).version,
+            selection::staged(&inner.1),
+            None,
+            self.api_version,
+        )
+    }
+
+    pub fn rendered(&self) -> selection::Rendered {
+        selection::rendered(&self.inner.lock().1, &self.app_version)
     }
 
     pub fn status(&self) -> Value {
         let inner = self.inner.lock();
         let mut status = inner.1.public_status();
+        let rendered = selection::rendered(&inner.1, &self.app_version);
+        status["rendered"] =
+            serde_json::json!({"version": rendered.version, "releaseId": rendered.release_id});
         status["apiVersion"] = self.api_version.into();
         status["updatesEnabled"] = self.public_key.is_some().into();
         status
@@ -138,12 +132,12 @@ impl FrontendBundles {
             .as_deref()
             .ok_or("Frontend signing identity not provisioned")?;
         let manifest = update::discover(&self.discovery_url, key, self.allow_loopback)?;
-        Ok(codeterm_plugins::AvailabilityItem::release(
-            "frontend",
-            codeterm_plugins::UpdateKind::Frontend,
-            &self.version_floor().to_string(),
-            &manifest.version,
-            manifest.compatible(self.api_version),
+        Ok(selection::offer_availability(
+            &self.rendered().version,
+            Some(selection::Offer {
+                version: &manifest.version,
+                compatible: manifest.compatible(self.api_version),
+            }),
         ))
     }
 
@@ -181,16 +175,10 @@ impl FrontendBundles {
     }
 
     fn version_floor(&self) -> semver::Version {
-        let active = self
-            .inner
-            .lock()
-            .1
-            .active
-            .as_ref()
-            .and_then(|m| semver::Version::parse(&m.version).ok());
-        active
-            .filter(|v| v > &self.bundled_version)
-            .unwrap_or_else(|| self.bundled_version.clone())
+        semver::Version::parse(&self.rendered().version)
+            .ok()
+            .filter(|v| v > &self.app_version)
+            .unwrap_or_else(|| self.app_version.clone())
     }
 
     pub fn activate(

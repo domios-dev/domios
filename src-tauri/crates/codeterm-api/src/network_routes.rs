@@ -160,7 +160,7 @@ pub async fn restart_app(
         codeterm_service_core::crash::shutdown::mark_shutting_down_for(
             codeterm_service_core::crash::lifecycle::ShutdownReason::Restart,
         );
-        codeterm_service_core::startup::restart_stdio_detach_for_restart();
+        codeterm_util::restart_stdio::detach_for_restart();
         if let Err(error) = app.restart() {
             log::error!("[restart] {error}");
         }

@@ -19,7 +19,7 @@ It is **additive** — a new eval set only, no production behavior change.
 ```bash
 evals/agent-state/run.sh          # dev-locked wrapper (sources evals/_lib/lib.sh)
 # or directly:
-cd src-tauri && cargo test --test agent_state_replay -- --nocapture
+cd src-tauri && cargo test -p codeterm-devtools --test agent_state_replay -- --nocapture
 ```
 
 ## Capture real fixtures (RT3 driver)
@@ -56,7 +56,7 @@ the test skips; in CI it fails.
 evals/agent-state/
   README.md            this file
   run.sh               dev-locked runner -> cargo test
-src-tauri/tests/
+src-tauri/tools/codeterm-devtools/tests/
   agent_state_replay.rs   the harness (cast parser + replay + oracles + scorecard)
 tests/fixtures/agent-state/<provider>/<state>/
   recording.cast       asciicast v2: header, then [t,"o",data] + [t,"r","COLSxROWS"]

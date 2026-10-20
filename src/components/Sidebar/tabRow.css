@@ -102,53 +102,53 @@
   color: var(--ct-fg);
 }
 
-.sidebar-worker-checklist {
+.sidebar-agent-checklist {
   margin: 0 0.5rem 0.25rem 2.25rem;
   font-size: 10px;
   line-height: 14px;
   color: var(--ct-muted-fg);
 }
 
-.sidebar-worker-checklist__note {
+.sidebar-agent-checklist__note {
   margin: 0;
   opacity: 0.8;
 }
 
-.sidebar-worker-checklist__items {
+.sidebar-agent-checklist__items {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.sidebar-worker-checklist__item {
+.sidebar-agent-checklist__item {
   display: flex;
   min-width: 0;
   align-items: center;
   gap: 4px;
 }
 
-.sidebar-worker-checklist__glyph {
+.sidebar-agent-checklist__glyph {
   flex: none;
 }
 
-.sidebar-worker-checklist__item[data-state="in_progress"] .sidebar-worker-checklist__glyph {
+.sidebar-agent-checklist__item[data-state="in_progress"] .sidebar-agent-checklist__glyph {
   color: var(--ct-accent);
 }
 
-.sidebar-worker-checklist__item[data-state="done"] .sidebar-worker-checklist__glyph {
+.sidebar-agent-checklist__item[data-state="done"] .sidebar-agent-checklist__glyph {
   color: var(--ct-green);
 }
 
-.sidebar-worker-checklist__item[data-state="blocked"] .sidebar-worker-checklist__glyph {
+.sidebar-agent-checklist__item[data-state="blocked"] .sidebar-agent-checklist__glyph {
   color: var(--ct-red);
 }
 
-.sidebar-worker-checklist__item[data-state="skipped"] .sidebar-worker-checklist__glyph,
-.sidebar-worker-checklist__item[data-state="skipped"] .sidebar-worker-checklist__title {
+.sidebar-agent-checklist__item[data-state="skipped"] .sidebar-agent-checklist__glyph,
+.sidebar-agent-checklist__item[data-state="skipped"] .sidebar-agent-checklist__title {
   color: var(--ct-muted-fg);
 }
 
-.sidebar-worker-checklist__title {
+.sidebar-agent-checklist__title {
   min-width: 0;
   flex: 1;
   overflow: clip;
@@ -157,11 +157,11 @@
   color: var(--ct-fg);
 }
 
-.sidebar-worker-checklist__item[data-state="done"] .sidebar-worker-checklist__title {
+.sidebar-agent-checklist__item[data-state="done"] .sidebar-agent-checklist__title {
   color: var(--ct-muted-fg);
 }
 
-.sidebar-worker-checklist__state {
+.sidebar-agent-checklist__state {
   flex: none;
   opacity: 0.7;
 }

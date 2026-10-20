@@ -68,7 +68,7 @@ test('lane dispatch uses Clippy libraries, touched root bins and isolated leaf t
       assert.ok(calls[0].includes('-p codeterm-service-core'));
       assert.ok(calls[0].includes('--no-default-features'));
       assert.ok(calls[0].includes('--features codeterm-service-core/embeddings'));
-      assert.equal(calls[0].includes('--features codeterm/embeddings'), rootTouched);
+      assert.doesNotMatch(calls[0], /--features codeterm\//);
       assert.doesNotMatch(calls[0], /--tests/);
       assert.match(calls[1], /-p codeterm-opaque --lib --tests/);
     }

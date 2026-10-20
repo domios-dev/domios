@@ -1,13 +1,13 @@
 use codeterm_plugins::{AvailabilityItem, PluginCtx, UpdateKind};
 use std::sync::Arc;
 
-use codeterm_service_core::update_state::AvailabilitySnapshot;
+use codeterm_update::update_state::AvailabilitySnapshot;
 
 static LAST: parking_lot::Mutex<Option<AvailabilitySnapshot>> = parking_lot::Mutex::new(None);
 
 pub async fn check(
     ui: &Arc<dyn codeterm_service_core::ports::host::UiEvents>,
-    state: &codeterm_service_core::UpdateStateHandle,
+    state: &codeterm_update::UpdateStateHandle,
     bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
     force: bool,
 ) -> Result<AvailabilitySnapshot, String> {
@@ -67,12 +67,12 @@ mod cache;
 
 async fn refresh(
     ui: &Arc<dyn codeterm_service_core::ports::host::UiEvents>,
-    state: &codeterm_service_core::UpdateStateHandle,
+    state: &codeterm_update::UpdateStateHandle,
     bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
     force: bool,
 ) -> Result<AvailabilitySnapshot, String> {
     let method = state.lock().install_method.clone();
-    let app_result = super::checker::check_for_update(&method).await;
+    let app_result = codeterm_update::checker::check_for_update(&method).await;
     if let Ok(info) = &app_result {
         let mut state = state.lock();
         state.last_check = Some(info.clone());
@@ -287,12 +287,12 @@ pub fn frontend_installed(
         let Some(latest) = item.latest.as_deref() else {
             return;
         };
-        let next = AvailabilityItem::release(
-            "frontend",
-            UpdateKind::Frontend,
+        let next = codeterm_frontend_bundle::selection::offer_availability(
             installed,
-            latest,
-            item.compatible,
+            Some(codeterm_frontend_bundle::selection::Offer {
+                version: latest,
+                compatible: item.compatible,
+            }),
         );
         if *item == next {
             None

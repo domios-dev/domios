@@ -11,7 +11,8 @@ async function fixture(target, options, check) {
   const repo = await mkdtemp(path.join(os.tmpdir(), 'domios-mac-signing-fixture-'));
   const calls = [];
   const stage = path.join(repo, 'target', 'domios-package');
-  const release = path.join(repo, 'src-tauri', 'target', ...(target.startsWith('x86_64') ? [target] : []), 'release');
+  const cargoTarget = options.cargoTarget ? path.join(repo, options.cargoTarget) : path.join(repo, 'src-tauri', 'target');
+  const release = path.join(cargoTarget, ...(target.startsWith('x86_64') ? [target] : []), 'release');
   const app = path.join(release, 'bundle', 'macos', 'CodeTerm.app');
   const server = Buffer.from('fixture final signed server');
   const cli = Buffer.from('fixture final signed CLI');
@@ -47,7 +48,8 @@ async function fixture(target, options, check) {
       }
     };
     const invoke = () => bundleMacPair({ repo, target, run, sourceSha: 'a'.repeat(40),
-      env: { APPLE_SIGNING_IDENTITY: 'Fixture Developer ID', APPLE_TEAM_ID: 'JMMWQ9LWF7', RELEASE_KEYCHAIN: 'fixture.keychain' },
+      env: { APPLE_SIGNING_IDENTITY: 'Fixture Developer ID', APPLE_TEAM_ID: 'JMMWQ9LWF7', RELEASE_KEYCHAIN: 'fixture.keychain',
+        ...(options.cargoTarget ? { CARGO_TARGET_DIR: cargoTarget } : {}) },
       linkApplications: destination => writeFile(destination, 'fixture Applications link') });
     await check({ invoke, calls, repo, app, release, server, cli, hash });
   } finally {
@@ -90,6 +92,15 @@ for (const relative of ['Contents/MacOS/domios-server', 'Contents/Resources/cli/
     });
   });
 }
+
+test('a fresh local Cargo target holds the bundled app and image', async () => {
+  await fixture('aarch64-apple-darwin', { cargoTarget: 'fresh-release-target' }, async ({ invoke, repo }) => {
+    const result = await invoke();
+    const release = path.join(repo, 'fresh-release-target', 'release', 'bundle');
+    assert.equal(result.app, path.join(release, 'macos', 'CodeTerm.app'));
+    assert.equal(result.dmg, path.join(release, 'dmg', 'CodeTerm_1.14.9_aarch64.dmg'));
+  });
+});
 
 test('development executables are refused before signing the application', async () => {
   await fixture('aarch64-apple-darwin', { extra: true }, async ({ invoke, calls }) => {

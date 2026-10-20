@@ -1,6 +1,5 @@
 mod command_registration;
 mod host_ports;
-mod plugin_bundle;
 mod run;
 mod startup;
 
@@ -8,8 +7,6 @@ mod startup;
 pub fn run() {
     codeterm_build_info::install(env!("BUILD_SHA"), env!("BUILD_HASH"));
     codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
-    plugin_bundle::install();
-    codeterm_orchestration::register_orchestration();
     run::run(app_context(), command_registration::register_commands);
 }
 
@@ -88,7 +85,7 @@ pub(crate) fn preflight_client_arguments(
 }
 
 pub(crate) fn install_client_startup_options(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
     options: ClientStartupOptions,
 ) -> Result<(), &'static str> {
     use tauri::Manager as _;

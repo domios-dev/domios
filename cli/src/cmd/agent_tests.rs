@@ -36,6 +36,25 @@ fn live_discovery_warning_is_limited_to_live_required_catalogues() {
 }
 
 #[test]
+fn live_discovery_warning_carries_the_daemon_reason_in_both_modes() {
+    let text = live_discovery_warning("vendor", Some("opaque-reason"), false);
+    assert!(text.contains("vendor"));
+    assert!(text.contains("(opaque-reason)"));
+    let json: serde_json::Value = serde_json::from_str(&live_discovery_warning(
+        "vendor",
+        Some("opaque-reason"),
+        true,
+    ))
+    .unwrap();
+    assert_eq!(json["warning"], "live_model_discovery_not_refreshed");
+    assert_eq!(json["provider"], "vendor");
+    assert_eq!(json["reason"], "opaque-reason");
+    let unknown: serde_json::Value =
+        serde_json::from_str(&live_discovery_warning("vendor", None, true)).unwrap();
+    assert!(unknown["reason"].is_null());
+}
+
+#[test]
 fn missing_report_binding_is_a_loud_orchestration_incident() {
     let message = missing_report_binding_incident("tab-worker");
     assert!(message.contains("ORCHESTRATION AUTHORITY REFUSED"));

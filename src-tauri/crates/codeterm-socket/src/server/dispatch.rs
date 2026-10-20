@@ -89,6 +89,7 @@ pub(super) fn dispatch(
                 "tab.list",
                 "tab.todo.create",
                 "tab.todo.append",
+                "tab.todo.write",
                 "tab.todo.state",
                 "tab.todo.reopen",
                 "tab.todo.amend",

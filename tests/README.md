@@ -51,11 +51,12 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `process-probe-arbitration` | contract | mixed | manual | no | no | 600 | single | `./build.sh process-probe --case arbitration --instance split-oracle` | `.agents/skills/testing/SKILL.md` |
 | `rust-service-core` | unit | rust | release | no | no | 3600 | nextest-list (fallback static-scan) | `./build.sh nextest app` | `.agents/skills/gates/SKILL.md` |
 | `rust-app` | unit | rust | release | no | no | 900 | nextest-list (fallback static-scan) | `./build.sh nextest shell` | `.agents/skills/gates/SKILL.md` |
-| `rust-app-agent-state-replay` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --test agent_state_replay -- --nocapture` | `evals/agent-state/README.md` |
-| `rust-app-pty-test` | integration | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --test pty_test` | `.agents/skills/gates/SKILL.md` |
-| `rust-app-snapshot-testbench` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --test snapshot_testbench -- --nocapture` | `testbench/README.md` |
-| `rust-app-state-calibration` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --test state_calibration -- --nocapture` | `testbench/README.md` |
-| `rust-app-state-doctor` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --test state_doctor state_dump_quality_gate -- --ignored --nocapture` | `testbench/README.md` |
+| `rust-devtools` | integration | rust | release | no | no | 900 | nextest-list (fallback static-scan) | `./build.sh nextest devtools` | `.agents/skills/gates/SKILL.md` |
+| `rust-app-agent-state-replay` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test agent_state_replay -- --nocapture` | `evals/agent-state/README.md` |
+| `rust-app-pty-test` | integration | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test pty_test` | `.agents/skills/gates/SKILL.md` |
+| `rust-app-snapshot-testbench` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test snapshot_testbench -- --nocapture` | `testbench/README.md` |
+| `rust-app-state-calibration` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test state_calibration -- --nocapture` | `testbench/README.md` |
+| `rust-app-state-doctor` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test state_doctor state_dump_quality_gate -- --ignored --nocapture` | `testbench/README.md` |
 | `rust-build-info` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-build-info` | `.agents/skills/gates/SKILL.md` |
 | `rust-account` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest account` | `.agents/skills/gates/SKILL.md` |
 | `rust-entitlements` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-entitlements` | `.agents/skills/gates/SKILL.md` |
@@ -94,7 +95,9 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-blueprint-types` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-blueprint-types` | `.agents/skills/gates/SKILL.md` |
 | `rust-local-recording` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-local-recording` | `.agents/skills/gates/SKILL.md` |
 | `rust-notify-types` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-notify-types` | `.agents/skills/gates/SKILL.md` |
-| `rust-host-runtime` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-host-runtime` | `.agents/skills/gates/SKILL.md` |
+| `rust-client-shell` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-client-shell` | `.agents/skills/gates/SKILL.md` |
+| `rust-update` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-update` | `.agents/skills/gates/SKILL.md` |
+| `rust-frontend-shell` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-frontend-shell` | `.agents/skills/gates/SKILL.md` |
 | `rust-events` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-events` | `.agents/skills/gates/SKILL.md` |
 | `rust-config` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-config` | `.agents/skills/gates/SKILL.md` |
 | `rust-secrets` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-secrets` | `.agents/skills/gates/SKILL.md` |

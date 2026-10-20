@@ -84,7 +84,6 @@ jobs:
       # Absolute: the prebuild step runs from the repo root and tauri-action runs
       # cargo from src-tauri, so a relative path lands in src-tauri/src-tauri/target.
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
-      CODETERM_RELEASE_FEATURES: embeddings
       CODETERM_RELEASE_COMMON_STAGE: '1'
       CARGO_INCREMENTAL: '0'
       # linuxdeploy is itself an AppImage; if FUSE is unavailable in the runner's
@@ -189,7 +188,7 @@ jobs:
         # Cargo's raw domios-server file occupies the resource directory name during compilation.
         run: >-
           node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log --
-          pnpm tauri build --no-bundle --target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"
+          pnpm tauri build --no-bundle --target "$TARGET"
           --config '{"bundle":{"resources":[],"externalBin":[]}}'
 
       - name: Stage final pair resources and bundle without compilation
@@ -204,7 +203,7 @@ jobs:
             --cargo-log "release-artifacts/build-logs/$TARGET/server.jsonl" \
             --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" \
             --client-file "src-tauri/target/$TARGET/release/domios"
-          pnpm tauri bundle --no-binary-patching --target "$TARGET" --features "$CODETERM_RELEASE_FEATURES" --bundles deb,appimage
+          pnpm tauri bundle --no-binary-patching --target "$TARGET" --bundles deb,appimage
 
       - name: Produce shared headless stage and package
         shell: bash
