@@ -4,6 +4,7 @@
   "src/components/Terminal/useBodyPainted.test.tsx",
   "src/components/Terminal/childTranscriptViewModel.test.ts",
   "src/components/AgentPicker/FirstRunGeneralPicker.test.tsx",
+  "src/components/AgentPicker/AgentProviderPicker.test.tsx",
   "src/components/Sidebar/cronRowMenu.test.ts",
   "src/components/Sidebar/sortable.editing.test.tsx",
   "src/components/Sidebar/sortable.clickDrift.test.tsx",

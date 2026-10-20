@@ -33,9 +33,9 @@ mod webhook;
 
 pub use agent_commands::{catalog_from_manifest, JsAgentCommandHandler};
 pub use bin_resolve::{
-    forget_resolved_bin, forget_resolved_bins, probe_bin, probe_bin_in, probe_bin_with_environment,
-    resolved_bin_path, well_known_bin_dirs, BinProbe, BinResolution, BinSearchEnvironment,
-    EnvironmentValue,
+    forget_resolved_bin, forget_resolved_bins, probe_bin, probe_bin_from, probe_bin_in,
+    probe_bin_with_environment, refresh_user_path, resolved_bin_path, well_known_bin_dirs,
+    BinProbe, BinResolution, BinSearchEnvironment, EnvironmentValue, PathSource, SystemPathSource,
 };
 pub use bubble::JsBubbleProvider;
 pub use chatbackend::JsChatBackend;

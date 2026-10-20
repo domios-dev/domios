@@ -9,6 +9,11 @@ vi.mock("../../lib/bridge", () => ({
   listen: vi.fn(async () => () => {}),
 }));
 
+vi.mock("./pickerNavigation", async (original) => ({
+  ...await original<typeof import("./pickerNavigation")>(),
+  usePickerNavigation: () => ({ show: () => {}, activeTabId: () => null }),
+}));
+
 import { invoke } from "../../lib/bridge";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
