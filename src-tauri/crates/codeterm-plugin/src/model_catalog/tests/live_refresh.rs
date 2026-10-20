@@ -76,10 +76,15 @@ async fn a_probe_that_resolves_its_cli_still_publishes() {
         during_discovery: None,
     });
     let published = refresh_live(provider, Duration::from_secs(5)).await;
+    let changed_while_installed = provider_binary_changed(id);
     let _ = std::fs::remove_file(&bin);
     assert_eq!(published.map(|models| models.len()), Some(1));
     assert_eq!(last_refresh_failure(id), None);
-    assert!(!provider_binary_changed(id));
+    assert!(!changed_while_installed);
+    assert!(
+        provider_binary_changed(id),
+        "an uninstalled CLI no longer describes the snapshot, as its watcher Remove event says"
+    );
     cleanup(id);
 }
 
