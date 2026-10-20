@@ -175,6 +175,13 @@ dev_notify_ready_once() {
   dev_notify_send_once "$marker" "$tab_id" "$body_file" verbose "Dev ready"
 }
 
+# The notice only reports readiness the caller already proved, so its failure never fails DEV.
+dev_notify_ready_after_proof() {
+  if ! dev_notify_ready_once "$@"; then
+    echo "WARNING: DEV is ready, but its readiness notice to tab $2 failed; DEV keeps running." >&2
+  fi
+}
+
 dev_notify_failure_once() {
   local marker="$1" tab_id="$2" stage="$3" instance="$4" api_port="$5" log_file="$6" rc="${7:-}"
   local body_file

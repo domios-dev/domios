@@ -879,7 +879,7 @@ fn discover_windows_pipe() -> Result<String, String> {
             let mut candidates: Vec<String> = entries
                 .flatten()
                 .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
-                .filter(|n| n.starts_with("domios-"))
+                .filter(|n| is_daemon_socket_name(n))
                 .collect();
             candidates.sort();
             if let Some(name) = pick_preferred_socket(&candidates, prefers_dev_socket()) {
@@ -895,14 +895,18 @@ fn discover_windows_pipe() -> Result<String, String> {
     }
 }
 
-/// Whether a `/tmp` entry can name a CodeTerm daemon socket.
-///
-/// `codeterm-gateway-mutex-*.sock` is a build-only lock namespace, not a daemon endpoint.
-#[cfg(not(target_os = "windows"))]
+/// Whether a `/tmp` entry or named pipe names a daemon endpoint: `domios-<pid>.sock` or
+/// `domios-dev[-<instance>].sock`. Server-internal channels share the `domios-` prefix.
 fn is_daemon_socket_name(name: &str) -> bool {
-    name.starts_with("domios-")
-        && name.ends_with(".sock")
-        && !name.starts_with("codeterm-gateway-mutex-")
+    let Some(stem) = name
+        .strip_prefix("domios-")
+        .and_then(|rest| rest.strip_suffix(".sock"))
+    else {
+        return false;
+    };
+    (!stem.is_empty() && stem.bytes().all(|byte| byte.is_ascii_digit()))
+        || stem == "dev"
+        || instance_socket_name_from_path(name).is_some()
 }
 
 #[cfg(not(target_os = "windows"))]
