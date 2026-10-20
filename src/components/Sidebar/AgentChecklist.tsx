@@ -7,9 +7,9 @@ import {
   eventNeedsReread,
   isTabTodoChanged,
   TAB_TODO_CHANGED_EVENT,
-  type WorkerChecklist,
-  type WorkerChecklistState,
-} from "./workerChecklistModel";
+  type AgentChecklist,
+  type AgentChecklistState,
+} from "./agentChecklistModel";
 
 export interface ChecklistToggle {
   expanded: boolean;
@@ -20,15 +20,15 @@ export interface ChecklistToggle {
 type ChecklistView =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; checklist: WorkerChecklist | null };
+  | { status: "ready"; checklist: AgentChecklist | null };
 
 /** Mounted only while the detail is open, so the subscription never outlives the disclosure. */
-function useWorkerChecklist(tabId: string): ChecklistView {
+function useAgentChecklist(tabId: string): ChecklistView {
   const [view, setView] = useState<ChecklistView>({ status: "loading" });
   useEffect(() => {
     let disposed = false;
     let unlisten: UnlistenFn | null = null;
-    let shown: WorkerChecklist | null = null;
+    let shown: AgentChecklist | null = null;
     let issued = 0;
     let applied = 0;
     const reread = () => {
@@ -60,33 +60,33 @@ function useWorkerChecklist(tabId: string): ChecklistView {
   return view;
 }
 
-function StateGlyph({ state }: { state: WorkerChecklistState }) {
+function StateGlyph({ state }: { state: AgentChecklistState }) {
   const Icon = state === "done" ? CircleCheck
     : state === "in_progress" ? CircleDot
     : state === "blocked" ? CircleAlert
     : state === "skipped" ? CircleMinus
     : Circle;
-  return <Icon size={10} strokeWidth={1.75} aria-hidden="true" className="sidebar-worker-checklist__glyph" />;
+  return <Icon size={10} strokeWidth={1.75} aria-hidden="true" className="sidebar-agent-checklist__glyph" />;
 }
 
-function WorkerChecklistRegion({ id, tabId }: { id: string; tabId: string }) {
-  const view = useWorkerChecklist(tabId);
+function AgentChecklistRegion({ id, tabId, title }: { id: string; tabId: string; title: string }) {
+  const view = useAgentChecklist(tabId);
   const items = view.status === "ready" ? view.checklist?.items ?? [] : [];
   return (
-    <section id={id} role="region" aria-label="Worker checklist" className="sidebar-worker-checklist">
+    <section id={id} role="region" aria-label={`Checklist of ${title}`} className="sidebar-agent-checklist">
       {view.status === "loading" ? (
-        <p className="sidebar-worker-checklist__note">Loading checklist</p>
+        <p className="sidebar-agent-checklist__note">Loading checklist</p>
       ) : view.status === "error" ? (
-        <p className="sidebar-worker-checklist__note">Checklist unavailable</p>
+        <p className="sidebar-agent-checklist__note">Checklist unavailable</p>
       ) : items.length === 0 ? (
-        <p className="sidebar-worker-checklist__note">No checklist</p>
+        <p className="sidebar-agent-checklist__note">No checklist</p>
       ) : (
-        <ol className="sidebar-worker-checklist__items">
+        <ol className="sidebar-agent-checklist__items">
           {items.map((item) => (
-            <li key={item.id} data-state={item.state} className="sidebar-worker-checklist__item">
+            <li key={item.id} data-state={item.state} className="sidebar-agent-checklist__item">
               <StateGlyph state={item.state} />
-              <span className="sidebar-worker-checklist__title" title={item.reason ? `${item.title} — ${item.reason}` : item.title}>{item.title}</span>
-              <span className="sidebar-worker-checklist__state">{checklistStateLabel(item.state)}</span>
+              <span className="sidebar-agent-checklist__title" title={item.reason ? `${item.title} — ${item.reason}` : item.title}>{item.title}</span>
+              <span className="sidebar-agent-checklist__state">{checklistStateLabel(item.state)}</span>
             </li>
           ))}
         </ol>
@@ -95,15 +95,16 @@ function WorkerChecklistRegion({ id, tabId }: { id: string; tabId: string }) {
   );
 }
 
-export function WorkerChecklistDisclosure({ tabId, children }: {
+export function AgentChecklistDisclosure({ tabId, title, children }: {
   tabId: string;
+  title: string;
   children: (toggle: ChecklistToggle, detail: ReactNode) => ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   const controlsId = useId();
   const onToggle = useCallback(() => setExpanded((open) => !open), []);
   const toggle = useMemo(() => ({ expanded, controlsId, onToggle }), [expanded, controlsId, onToggle]);
-  const detail = expanded ? <WorkerChecklistRegion key={tabId} id={controlsId} tabId={tabId} /> : null;
+  const detail = expanded ? <AgentChecklistRegion key={tabId} id={controlsId} tabId={tabId} title={title} /> : null;
   return <>{children(toggle, detail)}</>;
 }
 

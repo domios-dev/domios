@@ -1,10 +1,12 @@
 use codeterm_storage::{
     TabTodoAmendmentRecord, TabTodoChecklistRecord, TabTodoItemEventRecord, TabTodoItemRecord,
-    TabTodoNewItemRecord, TabTodoRepository,
+    TabTodoItemRefRecord, TabTodoNewItemRecord, TabTodoOwnWriteBase, TabTodoOwnWriteRecord,
+    TabTodoRepository, TabTodoStateChangeRecord,
 };
 use codeterm_types::agent::{
     TabTodoChecklist, TabTodoChecklistStatus, TabTodoCounters, TabTodoEventKind, TabTodoItem,
-    TabTodoItemEvent, TabTodoLink, TabTodoNewItem, TabTodoState,
+    TabTodoItemEvent, TabTodoLink, TabTodoNewItem, TabTodoState, TabTodoWriteBase,
+    TabTodoWritePlan, TabTodoWriteTarget,
 };
 
 /// Typed domain boundary over the shared Storage tab-todo repository.
@@ -232,6 +234,75 @@ impl TabTodoStore {
                 .map_err(storage_error)?
                 .value,
         )
+    }
+
+    /// Applies an owner's planned write; `appended` resolves `plan.appends` in order.
+    pub async fn write_own(
+        &self,
+        tab_id: String,
+        workspace_id: String,
+        team_id: Option<String>,
+        at: u64,
+        generation: u64,
+        plan: &TabTodoWritePlan,
+        appended: Vec<TabTodoNewItem>,
+    ) -> Result<TabTodoChecklist, String> {
+        let state_changes = plan
+            .state_changes
+            .iter()
+            .map(|change| {
+                let (item_id, expected_revision) = match &change.target {
+                    TabTodoWriteTarget::Existing(item) => {
+                        (item.item_id.clone(), item.expected_revision)
+                    }
+                    TabTodoWriteTarget::Appended(index) => appended
+                        .get(*index)
+                        .map(|item| (item.id.clone(), 1))
+                        .ok_or_else(|| {
+                            "todo write state change names no appended item".to_string()
+                        })?,
+                };
+                Ok(TabTodoStateChangeRecord {
+                    item_id,
+                    expected_revision,
+                    state: state_string(change.state).into(),
+                    reason: change.reason.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let write = TabTodoOwnWriteRecord {
+            base: match plan.base {
+                TabTodoWriteBase::Fresh => TabTodoOwnWriteBase::Fresh,
+                TabTodoWriteBase::Clear => TabTodoOwnWriteBase::Clear,
+                TabTodoWriteBase::Edit => TabTodoOwnWriteBase::Edit,
+            },
+            generation,
+            removals: plan
+                .removals
+                .iter()
+                .map(|item| TabTodoItemRefRecord {
+                    item_id: item.item_id.clone(),
+                    expected_revision: item.expected_revision,
+                })
+                .collect(),
+            appends: new_items(appended)?,
+            state_changes,
+        };
+        checklist(
+            self.repository
+                .write_own(tab_id, workspace_id, team_id, at, write)
+                .await
+                .map_err(storage_error)?
+                .value,
+        )
+    }
+
+    pub async fn tab_ids_with_items(&self) -> Result<Vec<String>, String> {
+        self.repository
+            .tab_ids_with_items()
+            .await
+            .map(|read| read.value)
+            .map_err(storage_error)
     }
 
     pub async fn forget_tab(&self, tab_id: String) -> Result<(), String> {

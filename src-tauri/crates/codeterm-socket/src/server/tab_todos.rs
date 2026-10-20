@@ -3,7 +3,7 @@
 use super::{get_string_param, opt_string_param, JsonRpcError};
 use codeterm_service_core::service::ServiceState;
 use codeterm_types::agent::{
-    tab_todo_bound_refusal, TabTodoDraft, TabTodoState, MAX_TAB_TODO_ITEMS,
+    tab_todo_bound_refusal, TabTodoDraft, TabTodoState, TabTodoWriteEntry, MAX_TAB_TODO_ITEMS,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -39,6 +39,20 @@ pub(super) fn dispatch(
                 )
                 .map_err(service_error)?;
                 serde_json::to_value(checklist)
+            }
+            "tab.todo.write" => {
+                let actor_id = actor
+                    .as_deref()
+                    .ok_or_else(|| invalid("caller_tab_id is required"))?;
+                let entries: Vec<TabTodoWriteEntry> = write_entries(params)?;
+                let outcome = codeterm_service_core::async_runtime::block_on(
+                    svc.tab_todo_write(&target, actor_id, entries),
+                )
+                .map_err(service_error)?;
+                Ok(serde_json::json!({
+                    "checklist": outcome.checklist,
+                    "omitted_locked_items": outcome.omitted_locked_items,
+                }))
             }
             "tab.todo.state" => {
                 let generation = number_param(params, "generation")?;
@@ -192,6 +206,19 @@ fn bounded_array<T: DeserializeOwned>(
         return Err(invalid(format!("{name}: {}", tab_todo_bound_refusal())));
     }
     serde_json::from_value(value.clone()).map_err(|error| invalid(error.to_string()))
+}
+
+/// An empty declaration is valid: it removes every unlocked item.
+fn write_entries(params: &Option<Value>) -> Result<Vec<TabTodoWriteEntry>, JsonRpcError> {
+    let array = params
+        .as_ref()
+        .and_then(|value| value.get("items"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("items must be an array"))?;
+    if array.len() > MAX_TAB_TODO_ITEMS {
+        return Err(invalid(format!("items: {}", tab_todo_bound_refusal())));
+    }
+    serde_json::from_value(Value::Array(array.clone())).map_err(|error| invalid(error.to_string()))
 }
 
 fn object_param<T: DeserializeOwned>(
