@@ -78,18 +78,25 @@ export function bindNativeBridgeTransport(client: TransportClient): void {
   daemonTransport = client;
 }
 
-function subscribeNativeResize(event: string, handler: () => void): NativeUnsubscribe {
-  let cancelled = false;
-  let unsubscribe: NativeUnsubscribe | undefined;
-  const registration = listen(event, () => { if (!cancelled) handler(); });
-  void registration.then((fn) => { if (cancelled) fn(); else unsubscribe = fn; }).catch((error: unknown) => {
-    if (!cancelled) console.warn("Native resize subscription failed", error);
-  });
-  return () => { cancelled = true; unsubscribe?.(); unsubscribe = undefined; };
+/** One native registration per event for the app's lifetime; mounts and tab switches only join or leave in process. */
+function nativeEventFanout<T>(name: string, register: (emit: (value: T) => void) => Promise<unknown>) {
+  const handlers = new Set<(value: T) => void>();
+  let registered: Promise<unknown> | null = null;
+  return (handler: (value: T) => void): NativeUnsubscribe => {
+    handlers.add(handler);
+    registered ??= register((value) => { for (const each of [...handlers]) each(value); }).catch((error: unknown) => {
+      registered = null;
+      console.warn(`Native ${name} subscription failed`, error);
+    });
+    return () => { handlers.delete(handler); };
+  };
 }
 
 export function createNativeBridge(native: boolean = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window): NativeBridge {
   const unavailable = (name: string): never => { throw new NativeCapabilityUnavailable(name); };
+  const fileDrop = nativeEventFanout<FileDropEvent>("file drop", (emit) => getCurrentWebview().onDragDropEvent((event) => emit(event.payload)));
+  const resizeStart = nativeEventFanout<void>("resize", (emit) => listen("terminal-window-resize-start", () => emit()));
+  const resizeCommit = nativeEventFanout<void>("resize", (emit) => listen("terminal-window-resize-commit", () => emit()));
   const clipboard = () => {
     if (!globalThis.navigator?.clipboard) return unavailable("browser clipboard");
     return globalThis.navigator.clipboard;
@@ -138,13 +145,8 @@ export function createNativeBridge(native: boolean = typeof window !== "undefine
     screenCapture: typeof globalThis.navigator?.mediaDevices?.getDisplayMedia === "function" ? {
       capture: () => navigator.mediaDevices.getDisplayMedia({ video: true }),
     } : undefined,
-    fileDrop: native ? {
-      subscribe: (handler) => getCurrentWebview().onDragDropEvent((event) => handler(event.payload)),
-    } : undefined,
-    resizeEvents: native ? {
-      onStart: (handler) => subscribeNativeResize("terminal-window-resize-start", handler),
-      onCommit: (handler) => subscribeNativeResize("terminal-window-resize-commit", handler),
-    } : undefined,
+    fileDrop: native ? { subscribe: (handler) => Promise.resolve(fileDrop(handler)) } : undefined,
+    resizeEvents: native ? { onStart: resizeStart, onCommit: resizeCommit } : undefined,
     readClipboardText: () => native ? invoke("read_clipboard_text") : clipboard().readText(),
     readClipboard: () => clipboard().read(),
     async openUrl(url) {

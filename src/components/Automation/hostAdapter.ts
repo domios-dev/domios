@@ -4,6 +4,9 @@ import { orchestrationTransport, listenOrchestration as listen } from "../../lib
 import { ALL_JOBS_SCOPE, sameScope, type AutomationGraphAdapter, type AutomationIdentity, type AutomationScope } from "./types";
 
 export const AUTOMATION_GRAPH_EVENT = "automation-graph-changed";
+export const BLUEPRINT_CHAT_CONNECTION = "blueprint-chat";
+/** Surfaces that remount with tabs share one event-refreshed read per scope; the Jobs view reads fresh. */
+const PAGE_CACHED_CONNECTIONS = new Set(["sidebar", "composer", BLUEPRINT_CHAT_CONNECTION]);
 
 const graphCache = createPageLoadCache(async (attachment: AutomationScope) => attachment.team_id === ALL_JOBS_SCOPE
   ? orchestrationTransport().automation_graph_workspace_snapshot({ workspaceId: attachment.workspace_id })
@@ -52,7 +55,7 @@ export const hostAutomationAdapter: AutomationGraphAdapter = {
     signal.throwIfAborted();
     const generation = webRequestContext();
     if (generation !== pageGeneration) { graphCache.clear(); pageGeneration = generation; }
-    const graph = pageCacheActive && attachment.connection_id === "sidebar"
+    const graph = pageCacheActive && PAGE_CACHED_CONNECTIONS.has(attachment.connection_id)
       ? await graphCache.read({ workspace_id: attachment.workspace_id, team_id: attachment.team_id })
       : attachment.team_id === ALL_JOBS_SCOPE
         ? await orchestrationTransport().automation_graph_workspace_snapshot({ workspaceId: attachment.workspace_id })

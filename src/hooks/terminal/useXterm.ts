@@ -12,6 +12,7 @@ import type { ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/
 import { shouldEnableXtermA11yMode } from "./xtermTestMode";
 import { scheduleXtermInit } from "./xtermInitScheduler";
 import { terminalXtermOptions } from "./terminalXtermOptions";
+import { knownWindowsBuildNumber, readWindowsBuildNumber } from "./windowsBuildNumber";
 import { DEV_BUILD } from "../../lib/devBuild";
 
 // Playwright harness (`/?a11y=1`) can enable xterm screen-reader mode.
@@ -64,12 +65,10 @@ export function useXterm({
 
   const [bellFlash, setBellFlash] = useState(false);
   const [termReady, setTermReady] = useState(false);
-  const [winBuildNumber, setWinBuildNumber] = useState<number>(19041);
+  const [winBuildNumber, setWinBuildNumber] = useState(knownWindowsBuildNumber);
 
   useEffect(() => {
-    if (navigator.platform.startsWith("Win")) {
-      nativeBridge.windowsBuildNumber().then(setWinBuildNumber).catch(() => {});
-    }
+    if (navigator.platform.startsWith("Win")) void readWindowsBuildNumber().then(setWinBuildNumber);
   }, []);
 
   // staggered one-per-frame so parallel tab mounts don't stack into one long task.
