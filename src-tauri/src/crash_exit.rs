@@ -50,6 +50,7 @@ pub fn plan_client_lifecycle(event: ClientLifecycleEvent) -> ClientLifecycleActi
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClientExitReason {
     ExplicitQuit,
+    ClientOnlyQuit,
     #[cfg(unix)]
     UnixSignal,
 }
@@ -140,6 +141,29 @@ impl ClientExitGate {
         true
     }
 
+    // A Requested shutdown is still in flight and only its own outcome may resolve it.
+    fn confirm_client_only(&self) -> bool {
+        let mut state = self.lock();
+        match state.active.as_mut() {
+            None => {
+                state.next_operation_id = state.next_operation_id.wrapping_add(1).max(1);
+                state.active = Some(ClientExitStatus {
+                    operation_id: state.next_operation_id,
+                    reason: ClientExitReason::ClientOnlyQuit,
+                    phase: ClientExitPhase::Confirmed,
+                });
+                true
+            }
+            Some(active) => match active.phase {
+                ClientExitPhase::Uncertain | ClientExitPhase::Confirmed => {
+                    active.phase = ClientExitPhase::Confirmed;
+                    true
+                }
+                ClientExitPhase::Requested => false,
+            },
+        }
+    }
+
     fn refuse_before_dispatch(&self, ticket: ClientExitTicket) -> bool {
         let mut state = self.lock();
         let Some(active) = state.active else {
@@ -174,6 +198,10 @@ pub fn mark_client_exit_uncertain(ticket: ClientExitTicket) -> bool {
 
 pub fn confirm_client_exit(ticket: ClientExitTicket) -> bool {
     client_exit_gate().confirm(ticket)
+}
+
+pub fn confirm_client_only_exit() -> bool {
+    client_exit_gate().confirm_client_only()
 }
 
 pub fn refuse_client_exit_before_dispatch(ticket: ClientExitTicket) -> bool {
@@ -316,6 +344,28 @@ mod tests {
         assert!(gate.status().is_some_and(|status| {
             status.operation_id == next.operation_id && status.phase == ClientExitPhase::Confirmed
         }));
+    }
+
+    #[test]
+    fn client_only_exit_never_preempts_an_in_flight_shutdown_and_resolves_uncertainty() {
+        let idle = ClientExitGate::default();
+        assert!(idle.confirm_client_only());
+        assert!(idle.status().is_some_and(|status| {
+            status.reason == ClientExitReason::ClientOnlyQuit
+                && status.phase == ClientExitPhase::Confirmed
+        }));
+
+        let gate = ClientExitGate::default();
+        let ticket = gate.begin(ClientExitReason::ExplicitQuit).unwrap();
+        assert!(!gate.confirm_client_only());
+        assert!(gate.mark_uncertain(ticket));
+        assert!(gate.confirm_client_only());
+        assert!(gate.status().is_some_and(|status| {
+            status.operation_id == ticket.operation_id
+                && status.reason == ClientExitReason::ExplicitQuit
+                && status.phase == ClientExitPhase::Confirmed
+        }));
+        assert!(gate.confirm_client_only());
     }
 
     #[test]
