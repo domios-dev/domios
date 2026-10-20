@@ -68,12 +68,14 @@ pub fn run(
     options: LaunchOptions,
     acknowledge: impl FnOnce(&ServerReady, Option<&str>) -> io::Result<()>,
 ) -> io::Result<()> {
-    if !matches!(
+    let job = if matches!(
         &options.instance,
         codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }
     ) {
-        crate::launch::ensure_detached()?;
-    }
+        None
+    } else {
+        Some(crate::launch::ensure_detached()?)
+    };
     crate::launch::install_selectors(&options)?;
     let identity = crate::launch::verify_identity(&options, ResolvedInstancePaths::current()?)?;
     let isolated = matches!(
@@ -150,6 +152,9 @@ pub fn run(
     };
     codeterm_service_core::crash::install();
     crate::startup::setup_logging();
+    if job == Some(crate::launch::JobMembership::SurvivesLauncher) {
+        log::info!("[bootstrap] server runs inside a job object that survives its launcher");
+    }
     note(&mut audit, "crash")?;
     codeterm_service_core::crash::record_startup();
     note(&mut audit, "config-credential-hook-state")?;
@@ -267,6 +272,11 @@ pub fn run(
         "[bootstrap] inherited ready acknowledgement completed: {}",
         acknowledgement.is_ok()
     );
+    if job.is_some() {
+        if let Err(error) = crate::launch::release_launch_stderr() {
+            log::warn!("[bootstrap] launcher stderr release failed: {error}");
+        }
+    }
     let control_result = continue_after_ack(acknowledgement, || {
         runtime.block_on(async {
             let control = channel::serve(listener, ready, token);

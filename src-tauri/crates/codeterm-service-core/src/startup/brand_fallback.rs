@@ -5,6 +5,8 @@ pub enum BrandFallback {
     Starting,
     /// The native client lost its interface and retries on its own.
     Reconnecting,
+    /// The server refused to start; the URL fragment carries its stated reason.
+    StartFailed,
     /// The server is running but has no frontend files to serve.
     InterfaceMissing,
 }
@@ -13,6 +15,25 @@ pub enum BrandFallback {
 const NATIVE_CHROME: &str = r#"<header><div class="drag" onmousedown="if(event.button===0)location.href='domios-shell://drag'"></div><a href="domios-shell://minimize" aria-label="Minimize">&#8212;</a><a href="domios-shell://maximize" aria-label="Maximize">&#9633;</a><a class="close" href="domios-shell://close" aria-label="Close">&#10005;</a></header>"#;
 
 const RETRY_ACTION: &str = r#"<a class="retry" href="domios-shell://retry" aria-label="Retry now; retries automatically every second">Retry now</a>"#;
+
+/// A stated refusal repeats on every attempt, so this page retries only when asked.
+const START_FAILED_ACTION: &str =
+    r#"<p class="detail" hidden></p><a class="retry" href="domios-shell://retry">Retry</a>"#;
+
+/// The reason travels in the fragment so the document stays fixed for navigation checks; textContent keeps it inert.
+const START_FAILED_SCRIPT: &str = r#"<script>
+(() => {
+  const detail = document.querySelector(".detail");
+  const show = () => {
+    let text = "";
+    try { text = decodeURIComponent(location.hash.slice(1)); } catch {}
+    detail.textContent = text;
+    detail.hidden = !text;
+  };
+  addEventListener("hashchange", show);
+  show();
+})();
+</script>"#;
 
 /// Faint dot grid; each wave leaves the mark at its brightest beat (CSS and canvas share one 2.6 s period).
 /// The beat curve and wave timing must match `src/components/brand/useBrandMotion.ts` (`beatLevel`, `BEAT_PEAK`);
@@ -90,6 +111,17 @@ pub fn brand_fallback_page(kind: BrandFallback) -> String {
             "",
             DOT_WAVES,
         ),
+        BrandFallback::StartFailed => (
+            "Could not start",
+            "Domios could not start",
+            "The server refused to start. Resolve the reason below, then retry.",
+            "alert",
+            "",
+            NATIVE_CHROME,
+            "",
+            START_FAILED_ACTION,
+            START_FAILED_SCRIPT,
+        ),
         BrandFallback::InterfaceMissing => (
             "Interface unavailable",
             "The interface could not load",
@@ -131,5 +163,17 @@ mod tests {
         let missing = brand_fallback_page(BrandFallback::InterfaceMissing);
         assert!(!missing.contains("<script"));
         assert!(!missing.contains("domios-shell://"));
+    }
+
+    #[test]
+    fn start_failure_offers_a_manual_retry_and_a_reason_slot() {
+        let page = brand_fallback_page(BrandFallback::StartFailed);
+        assert!(!page.contains("{{"));
+        assert!(page.contains(r#"role="alert""#));
+        assert!(page.contains(r#"class="detail""#));
+        assert!(page.contains("location.hash"));
+        assert!(page.contains("domios-shell://retry"));
+        assert!(page.contains("domios-shell://close"));
+        assert!(!page.contains("setInterval"));
     }
 }

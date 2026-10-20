@@ -174,20 +174,41 @@ fn starting_url() -> Result<Url, url::ParseError> {
     brand_page_url(codeterm_service_core::startup::BrandFallback::Starting)
 }
 
+const START_FAILURE_DETAIL_CHARS: usize = 600;
+
+fn start_failure_url(detail: Option<&str>) -> Result<Url, url::ParseError> {
+    let mut url = brand_page_url(codeterm_service_core::startup::BrandFallback::StartFailed)?;
+    if let Some(detail) = detail {
+        let detail = detail
+            .chars()
+            .take(START_FAILURE_DETAIL_CHARS)
+            .collect::<String>();
+        url.set_fragment(Some(&component_encode(&detail)));
+    }
+    Ok(url)
+}
+
 fn brand_page_url(
     kind: codeterm_service_core::startup::BrandFallback,
 ) -> Result<Url, url::ParseError> {
     let html = codeterm_service_core::startup::brand_fallback_page(kind);
-    // Form encoding turns spaces into '+', which a data: URL keeps literally.
-    let encoded = url::form_urlencoded::byte_serialize(html.as_bytes())
+    Url::parse(&format!(
+        "data:text/html;charset=utf-8,{}",
+        component_encode(&html)
+    ))
+}
+
+/// Form encoding turns spaces into '+', which a data: URL and decodeURIComponent keep literally.
+fn component_encode(text: &str) -> String {
+    url::form_urlencoded::byte_serialize(text.as_bytes())
         .collect::<String>()
-        .replace('+', "%20");
-    Url::parse(&format!("data:text/html;charset=utf-8,{encoded}"))
+        .replace('+', "%20")
 }
 
 fn navigation_allowed(url: &Url, origin: Option<&str>, unavailable: &Url, fallback: &Url) -> bool {
     same_navigation_document(url, unavailable)
         || starting_url().is_ok_and(|starting| same_navigation_document(url, &starting))
+        || start_failure_url(None).is_ok_and(|failed| same_navigation_document(url, &failed))
         || same_navigation_document(url, fallback)
         || origin.is_some_and(|origin| {
             url.origin().ascii_serialization() == origin
@@ -478,6 +499,8 @@ fn navigation_identity(url: &Url) -> String {
 
 /// WebView reports data: URLs inconsistently, so the recovery surface is tracked explicitly.
 static ON_RECOVERY_SURFACE: AtomicBool = AtomicBool::new(false);
+/// The start-failure page is a recovery surface the retrying page must still replace.
+static ON_START_FAILURE: AtomicBool = AtomicBool::new(false);
 
 /// Startup keeps the window hidden until something worth seeing is painted; this bounds that wait.
 const REVEAL_DEADLINE: Duration = Duration::from_secs(4);
@@ -508,7 +531,8 @@ pub(crate) fn reveal_after_deadline(app: codeterm_host_runtime::app_runtime::App
 fn show_unavailable(window: &WebviewWindow) {
     reveal_main(window.app_handle());
     // Re-navigating would restart the page (and its retry ring) on every failed attempt.
-    if ON_RECOVERY_SURFACE.swap(true, Ordering::AcqRel) {
+    let on_recovery_surface = ON_RECOVERY_SURFACE.swap(true, Ordering::AcqRel);
+    if !ON_START_FAILURE.swap(false, Ordering::AcqRel) && on_recovery_surface {
         return;
     }
     match unavailable_url()
@@ -521,6 +545,24 @@ fn show_unavailable(window: &WebviewWindow) {
         Err(error) => {
             ON_RECOVERY_SURFACE.store(false, Ordering::Release);
             log::error!("[frontend-shell] recovery surface failed: {error}");
+        }
+    }
+}
+
+/// A fragment-only change keeps the document, so a repeated refusal just updates its reason.
+pub(crate) fn show_start_failure(window: &WebviewWindow, reason: &str) {
+    reveal_main(window.app_handle());
+    ON_RECOVERY_SURFACE.store(true, Ordering::Release);
+    ON_START_FAILURE.store(true, Ordering::Release);
+    match start_failure_url(Some(reason))
+        .map_err(|error| error.to_string())
+        .and_then(|url| window.navigate(url).map_err(|error| error.to_string()))
+    {
+        Ok(()) => log::debug!("[frontend-shell] start failure surface selected"),
+        Err(error) => {
+            ON_START_FAILURE.store(false, Ordering::Release);
+            ON_RECOVERY_SURFACE.store(false, Ordering::Release);
+            log::error!("[frontend-shell] start failure surface failed: {error}");
         }
     }
 }
@@ -872,7 +914,11 @@ async fn reinitialize_client(app: codeterm_host_runtime::app_runtime::AppHandle)
         Err(error) => {
             log::error!("[frontend-shell] client retry refused: {error}");
             if let Some(window) = app.get_webview_window("main") {
-                show_unavailable(&window);
+                if error.stated_refusal() {
+                    show_start_failure(&window, error.message());
+                } else {
+                    show_unavailable(&window);
+                }
             }
         }
     }
