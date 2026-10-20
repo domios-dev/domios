@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { createReadStream, existsSync, statSync } from "node:fs";
+// Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-windows-dev-cleanup-selection.ps1, dev-prep.mjs, tests/dev-static-api.test.mjs
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, request } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,6 +88,16 @@ export function proxyDevApi(req, res, apiPort) {
   return true;
 }
 
+// The watcher rewrites dist/ in place; a reload mid-write must still get the last complete shell.
+let lastIndex = null;
+function currentIndex() {
+  try {
+    const bytes = readFileSync(index);
+    if (bytes.length > 0) lastIndex = bytes;
+  } catch {}
+  return lastIndex;
+}
+
 export async function startServer() {
   if (!indexReady()) {
     console.log(`[dev-static] waiting for ${index}`);
@@ -95,6 +106,14 @@ export async function startServer() {
   return createServer((req, res) => {
     if (proxyDevApi(req, res, Number(process.env.CODETERM_API_PORT) || 7686)) return;
     const file = resolveAsset(req.url);
+    if (file === index) {
+      const body = currentIndex();
+      if (body) {
+        res.writeHead(200, { "cache-control": "no-cache", "content-type": "text/html; charset=utf-8" });
+        res.end(body);
+        return;
+      }
+    }
     if (!file || !existsSync(file)) {
       res.writeHead(404, { "cache-control": "no-cache" });
       res.end("dist/index.html missing");

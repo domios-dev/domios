@@ -7,12 +7,34 @@ impl JsProvider {
         &self,
         path: &std::path::Path,
         from_offset: u64,
+        byte_budget: u64,
     ) -> SessionDelta {
+        if let Some(source) = self
+            .manifest
+            .capabilities
+            .record_sources
+            .get("sessionTranscript")
+            .filter(|_| self.has_js("parseSessionRecords"))
+        {
+            return crate::jsonl_window::records::read_records(
+                path,
+                from_offset,
+                byte_budget,
+                source,
+                None,
+            )
+            .ok()
+            .and_then(|window| self.js_parse_session_records(&window).ok())
+            .unwrap_or(SessionDelta {
+                new_offset: from_offset,
+                messages: Vec::new(),
+            });
+        }
         // Seek-based and capped: session files reach hundreds of MB, and this runs on every tailer poll.
         let read = crate::jsonl_window::read_records_from(
             path,
             from_offset,
-            crate::jsonl_window::DELTA_CHUNK_BYTES,
+            byte_budget.min(crate::jsonl_window::DELTA_CHUNK_BYTES),
         );
         let window = match read {
             Ok(w) => w,
@@ -32,7 +54,8 @@ impl JsProvider {
         }
         let consumed_bytes = window.new_offset - from_offset;
         // land inside line bodies, which the plugin's per-line JSON.parse will reject. Byte-count is no longer trusted from JS; we computed it above.
-        let chunk = String::from_utf8_lossy(&window.bytes).to_string();
+        let line_starts = crate::jsonl_window::record_starts(&window.bytes);
+        let chunk = chunk_value(window.bytes);
         let context = serde_json::json!({
             "session_key": path.to_string_lossy(),
             "from_offset": from_offset,
@@ -42,14 +65,14 @@ impl JsProvider {
             messages: Vec<serde_json::Value>,
         }
         let parsed = self
-            .try_call::<JsDelta>("parseSessionDelta", &[serde_json::json!(chunk), context])
+            .try_call::<JsDelta>("parseSessionDelta", &[chunk, context])
             .and_then(|d| crate::jsonl_window::rows_from_plugin(d.messages));
         match parsed {
             Some((mut messages, record_indexes)) => {
-                crate::jsonl_window::anchor_rows(
+                crate::jsonl_window::anchor_rows_from_starts(
                     &mut messages,
                     &record_indexes,
-                    &window.bytes,
+                    &line_starts,
                     from_offset,
                 );
                 SessionDelta {
@@ -70,4 +93,64 @@ impl JsProvider {
             }
         }
     }
+
+    pub(super) fn js_parse_session_records(
+        &self,
+        window: &crate::jsonl_window::records::RecordWindow,
+    ) -> Result<SessionDelta, String> {
+        if let Some(error) = &window.projection_error {
+            return Err(error.clone());
+        }
+        #[derive(serde::Deserialize)]
+        struct Delta {
+            messages: Vec<serde_json::Value>,
+            new_offset: u64,
+        }
+        let delta: Delta = self
+            .try_call_records(
+                "parseSessionRecords",
+                &[
+                    serde_json::json!(window.records),
+                    serde_json::json!(window.meta),
+                ],
+                window,
+            )
+            .ok_or("Parsed session record projection failed")?;
+        if delta.new_offset != window.meta.new_offset {
+            return Err("Parsed session record offset differs from host boundary".into());
+        }
+        let (mut messages, indexes) = crate::jsonl_window::rows_from_plugin(delta.messages)
+            .ok_or("Parsed session record row is invalid")?;
+        let mut starts = Vec::new();
+        for record in &window.records {
+            starts.resize(record.row + 1, u64::MAX);
+            starts[record.row] = record.offset - window.meta.from_offset;
+        }
+        starts.push(window.meta.new_offset - window.meta.from_offset);
+        let indexes: Vec<_> = indexes
+            .into_iter()
+            .map(|index| {
+                index.filter(|index| starts.get(*index).is_some_and(|offset| *offset != u64::MAX))
+            })
+            .collect();
+        crate::jsonl_window::anchor_rows_from_starts(
+            &mut messages,
+            &indexes,
+            &starts,
+            window.meta.from_offset,
+        );
+        Ok(SessionDelta {
+            messages,
+            new_offset: window.meta.new_offset,
+        })
+    }
 }
+
+fn chunk_value(bytes: Vec<u8>) -> serde_json::Value {
+    let chunk = String::from_utf8(bytes)
+        .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
+    serde_json::Value::String(chunk)
+}
+
+#[cfg(test)]
+mod tests;

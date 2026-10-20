@@ -1,6 +1,7 @@
 // Run: npx tsx src/components/Sidebar/orchestrationSections.test.ts
 
 import type { Tab } from "../../lib/types";
+import { RELEASE_MANAGER_KIND, REVIEWER_KIND, QA_KIND } from "../../lib/roleKind";
 import {
   countBySection,
   partitionBySection,
@@ -36,9 +37,9 @@ try {
   assert(sectionForRole(undefined, undefined) === "worker", "undefined -> worker");
   assert(sectionForRole("Worker", "") === "worker", "empty -> worker");
   const before = debugCalls.length;
-  assert(sectionForRole("Worker", "reviewer") === "worker", "unknown worker profile -> worker fallback");
+  assert(sectionForRole("Worker", "auditor") === "worker", "unknown worker profile -> worker fallback");
   assert(debugCalls.length === before + 1, "unknown role logs exactly one debug breadcrumb");
-  assert(debugCalls[before].includes("reviewer"), "debug breadcrumb names the unknown role");
+  assert(debugCalls[before].includes("auditor"), "debug breadcrumb names the unknown role");
   // Known buckets never spam the log.
   const q = debugCalls.length;
   sectionForRole("Manager", "planner");
@@ -60,6 +61,18 @@ assert(
 );
 assert(roleBadgeLabel(tab({ role: "Worker" })) === null, "plain worker has no leadership badge label");
 assert(roleShieldLabel(tab({ role: "Worker" })) === null, "workers have no role shield");
+assert(sectionForRole("Worker", QA_KIND) === "worker", "qa stays a Worker");
+assert(sectionForRole("Worker", RELEASE_MANAGER_KIND) === "worker", "release manager stays a Worker");
+assert(roleBadgeLabel(tab({ role: "Worker", role_profile: QA_KIND })) === null, "qa has no manager badge");
+assert(roleBadgeLabel(tab({ role: "Worker", role_profile: RELEASE_MANAGER_KIND })) === null, "release manager has no manager badge");
+assert(roleShieldLabel(tab({ role: "Worker", role_profile: QA_KIND })) === "QA", "qa badge");
+assert(
+  roleShieldLabel(tab({ role: "Worker", role_profile: RELEASE_MANAGER_KIND })) === "RELEASE MANAGER",
+  "release manager badge",
+);
+assert(sectionForRole("Worker", REVIEWER_KIND) === "worker", "reviewer stays a Worker");
+assert(roleBadgeLabel(tab({ role: "Worker", role_profile: REVIEWER_KIND })) === null, "reviewer has no manager badge");
+assert(roleShieldLabel(tab({ role: "Worker", role_profile: REVIEWER_KIND })) === "REVIEWER", "reviewer badge");
 assert(roleShieldLabel(tab({ role: "Manager", role_profile: "orchestrator" })) === "ORCHESTRATOR", "orchestrator shield");
 assert(roleShieldLabel(tab({ role: "Manager", role_profile: "planner" })) === "PLANNER", "planner shield");
 assert(roleShieldLabel(tab({ role: "Manager", role_profile: null })) === null, "unnamed manager has no UI role");

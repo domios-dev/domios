@@ -18,12 +18,13 @@ mod status_view;
 mod tab;
 mod tab_runtime;
 mod task_keys;
+mod wire_snapshot;
 mod workspace;
 
 pub use closed::{
-    ArchivedTab, ClosedGroup, ClosedStructure, ClosedStructureView, ClosedTabView, ClosedTabsStore,
-    GroupKind, PreparedWorkspaceClose, StructureState, TabCloseReservation, CLOSED_GROUP_CAP,
-    RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
+    ArchivedTab, ClosedGroup, ClosedHistoryBatch, ClosedStructure, ClosedStructureView,
+    ClosedTabView, ClosedTabsStore, GroupKind, PreparedWorkspaceClose, StructureState,
+    TabCloseReservation, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
 };
 pub use snapshot::SnapshotMergeReport;
 pub use status_view::{
@@ -82,11 +83,10 @@ pub struct MultiplexerState {
     /// (older generation) that resolves after a newer one — kills the
     /// spawn-then-blink race where a pre-tab `mux_get_state` clobbers the tab.
     generation: AtomicU64,
-    /// Durable browser-style closed-tab history. Leaf lock (its own
-    /// `Mutex<Connection>`); only ever touched while the mux lock is held, never
-    /// across an await. Defaults to in-memory; production swaps in a file-backed
-    /// store at startup via [`MultiplexerState::attach_closed_store`].
+    /// Durable history writes are drained after mux commits; snapshots use the store's cached views.
     pub(super) closed_store: ClosedTabsStore,
+    defer_closed_history: bool,
+    pending_closed_history: Vec<closed::ClosedHistoryWrite>,
     workspace_close_reservations: HashMap<String, String>,
     tab_close_reservations: HashMap<String, (String, String)>,
 }
@@ -129,6 +129,7 @@ pub struct TeamResolution {
 #[derive(Debug, Clone, Serialize)]
 pub struct MultiplexerSnapshot {
     pub workspaces: Vec<Workspace>,
+    #[serde(serialize_with = "wire_snapshot::tabs")]
     pub tabs: HashMap<String, Tab>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub teams: Vec<Team>,
@@ -167,6 +168,8 @@ impl MultiplexerState {
                 team_order: self.team_order.clone(),
                 generation: AtomicU64::new(self.generation.load(Ordering::Relaxed)),
                 closed_store: ClosedTabsStore::in_memory(),
+                defer_closed_history: false,
+                pending_closed_history: Vec::new(),
                 workspace_close_reservations: self.workspace_close_reservations.clone(),
                 tab_close_reservations: self.tab_close_reservations.clone(),
             },
@@ -210,6 +213,8 @@ impl MultiplexerState {
             team_order: Vec::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
+            defer_closed_history: false,
+            pending_closed_history: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
         }
@@ -305,6 +310,7 @@ impl MultiplexerState {
     /// Called once at startup so closed-tab history survives daemon restarts.
     pub fn attach_closed_store(&mut self, store: ClosedTabsStore) {
         self.closed_store = store;
+        self.defer_closed_history = true;
     }
 
     /// Create a new state with a default "Main" workspace and one tab.
@@ -329,6 +335,7 @@ impl MultiplexerState {
             pending_delivery: None,
             title: names::generate_tab_name(),
             description: None,
+            description_origin: Default::default(),
             cwd: None,
             provisioned_cwd: None,
             url: None,
@@ -363,6 +370,8 @@ impl MultiplexerState {
             lifecycle_epoch: None,
             lifecycle_operation_id: None,
             task_binding: None,
+            taskless_authorized_gates: Vec::new(),
+            taskless_authorized_review_tasks: Vec::new(),
             roleless_tracked: false,
             managed: None,
             role: Some(AgentRole::Manager),
@@ -396,6 +405,11 @@ impl MultiplexerState {
             skip_snapshot: false,
             show_in_tabbar: true,
             worker_id: None,
+            frozen: false,
+            slept_at_ms: None,
+            sleep_reason: None,
+            last_active_at_ms: None,
+            last_opened_at_ms: None,
             restored_from_snapshot: false,
             scrollback_seed_pending: false,
             pending_scrollback_tail: None,
@@ -432,6 +446,8 @@ impl MultiplexerState {
             team_order: Vec::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
+            defer_closed_history: false,
+            pending_closed_history: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
         };

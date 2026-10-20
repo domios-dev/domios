@@ -10,6 +10,7 @@ export interface UpdateItem {
   name: string;
   currentVersion: string;
   targetVersion: string;
+  channelError?: string;
 }
 
 export function groupUpdates(items: readonly UpdateItem[]) {
@@ -70,12 +71,25 @@ export function hasUpdateBadge(item: UpdateAvailabilityItem | undefined): boolea
     && item.installed !== null && item.latest !== null && item.installed !== item.latest;
 }
 
-export function panelItems(items: readonly UpdateAvailabilityItem[]): UpdateItem[] {
-  return items.filter(hasUpdateBadge).map(item => ({
+export function updateableItems(
+  items: readonly UpdateAvailabilityItem[],
+  channelErrors: Readonly<Record<string, string>>,
+): UpdateAvailabilityItem[] {
+  return items.filter(item => item.kind !== "plugin" || !item.channel || !channelErrors[item.channel]);
+}
+
+export function panelItems(
+  items: readonly UpdateAvailabilityItem[],
+  channelErrors: Readonly<Record<string, string>> = {},
+): UpdateItem[] {
+  return items.filter(item => hasUpdateBadge(item)
+    || (item.kind === "plugin" && item.channel !== null && Boolean(channelErrors[item.channel])))
+    .map(item => ({
     id: item.id,
     group: item.kind === "app" ? "App" : item.kind === "frontend" ? "Interface" : "Plugins",
     name: item.kind === "app" ? "Domios" : item.kind === "frontend" ? "Interface" : item.id,
     currentVersion: item.installed ?? "Bundled", targetVersion: item.latest!,
+    channelError: item.kind === "plugin" && item.channel ? channelErrors[item.channel] : undefined,
   }));
 }
 

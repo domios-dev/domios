@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use codeterm_types::decision::{
+use codeterm_decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPricing,
     DecisionPrimitives, DecisionQuestion, DecisionQuestionsRequest, DecisionRequest,
     NamedDecisionQuestion, TokenMode,
@@ -106,6 +106,8 @@ fn parity_decision_model_opencode_run_shared_fixtures() {
     let bundle = include_str!("../../../../../../plugins/provider-opencode/plugin.js");
     let setup = r#"
         host.exec = function() { return JSON.stringify({code: 0, stdout: 'fixture/model'}); };
+        host.execStart = function() { return JSON.stringify({jobId: 'fixture-discovery'}); };
+        host.awaitJob = function(id, then) { return then({code: 0, stdout: 'fixture/model'}); };
         host.exec.async = function(opts, then) {
             var request = JSON.parse(opts.stdin);
             var config = JSON.parse(opts.env.OPENCODE_CONFIG_CONTENT);
@@ -115,6 +117,7 @@ fn parity_decision_model_opencode_run_shared_fixtures() {
                 : {type:'score',score:2,probabilities:{'0':0.1,'1':0.2,'2':0.7},confidence:0.7};
             return then({code:0,stdout:JSON.stringify({type:'text',part:{text:JSON.stringify(answer)}})+'\n'+JSON.stringify({type:'step_finish',part:{reason:'stop'}})});
         };
+        host.fs.fileExists = function() { return false; };
         host.fs.readFile = function() { return null; };
     "#;
     let vm = Arc::new(PluginVm::from_source("run-fixture", format!("{setup}\n{bundle}")).unwrap());
@@ -291,7 +294,7 @@ fn parity_decision_model_multi_question_shared_state_and_sequential_local_adapte
 
 #[test]
 fn parity_decision_metadata_and_model_selection_apply_without_cross_adapter_leak() {
-    use codeterm_types::decision::DecisionMetadata;
+    use codeterm_decision::DecisionMetadata;
     struct Native(parking_lot::Mutex<String>);
     impl DecisionModel for Native {
         fn id(&self) -> &str {

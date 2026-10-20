@@ -41,10 +41,10 @@ const cases: Array<[string, () => Promise<void>]> = [
     const { host } = await render(<GenericToolCard event={event({ kind: "search", phase: "result", status: "error", result: "RESULT" })} expanded onToggle={() => {}} />);
     if (!host.textContent?.includes("RESULT") || !host.querySelector(".ct-card--error")) throw new Error("error lifecycle regression");
   }],
-  ["long output stays bounded and scrollable", async () => {
+  ["long output stays bounded and clipped", async () => {
     const { host } = await render(<GenericToolCard event={event({ kind: "fetch", phase: "result", status: "success", result: "line\n".repeat(500) })} expanded onToggle={() => {}} />);
     const output = host.querySelector('[data-testid="toolcard-result"] pre');
-    if (!output || !output.className.includes("overflow-auto") || (output as HTMLElement).style.maxHeight !== "12rem") throw new Error("bounded output regression");
+    if (!output || (output as HTMLElement).style.overflowY !== "hidden" || (output as HTMLElement).style.maxHeight !== "12rem") throw new Error("bounded output regression");
   }],
   ["generic does not leak braces", async () => {
     const { host } = await render(<GenericToolCard event={event({ kind: "generic", detail: "plain" })} expanded onToggle={() => {}} />);

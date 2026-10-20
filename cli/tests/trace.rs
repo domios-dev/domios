@@ -1,9 +1,12 @@
+#[path = "support/codeterm_bin.rs"]
+mod codeterm_bin;
+
 use codeterm_types::trace::{Event, Sink};
 use serde_json::Value;
 use std::process::Command;
 
 fn run(root: &std::path::Path, args: &[&str]) -> std::process::Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_codeterm"));
+    let mut command = Command::new(codeterm_bin::codeterm_bin());
     for (key, _) in std::env::vars() {
         if key.starts_with("CODETERM_") {
             command.env_remove(key);

@@ -118,7 +118,12 @@ pub use args::team::TeamAction;
 pub use args::update::UpdateAction;
 pub use args::usage::UsageAction;
 
+#[path = "../../src-tauri/src/plugin_bundle.rs"]
+mod plugin_bundle;
+
 fn main() {
+    codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
+    plugin_bundle::install();
     stdout::run(main_impl);
 }
 
@@ -132,7 +137,6 @@ fn main_impl() {
         print!("{}", cmd::docs::render_help());
         return;
     }
-    hydrate_tab_task_binding_env(&args);
     cmd::error_contract::set_json_mode(args.iter().skip(1).any(|arg| arg == "--json"));
     let mut cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
         if e.use_stderr() && cmd::error_contract::json_mode() {
@@ -147,6 +151,9 @@ fn main_impl() {
         e.exit()
     });
     cmd::error_contract::set_json_mode(cli.json);
+    if let Commands::App { action } = &cli.command {
+        cmd::app::handle(action, cli.json, cli.mesh.is_some());
+    }
     if let Commands::Tab { action } = &mut cli.command {
         if let Err(error) = args::misc::normalize_required_tab_selector(action) {
             crate::cmd::print::fail(2, error.to_string());
@@ -228,7 +235,7 @@ fn main_impl() {
         return;
     }
 
-    let Some(cli) = transport::pre_socket::dispatch(cli) else {
+    let Some(mut cli) = transport::pre_socket::dispatch(cli) else {
         return;
     };
 
@@ -244,7 +251,13 @@ fn main_impl() {
         }
     };
 
+    if command_consumes_binding(&cli.command) {
+        hydrate_tab_task_binding_env(&args, &mut client);
+        cli = Cli::try_parse_from(&args).unwrap_or_else(|error| error.exit());
+    }
+
     let result = match cli.command {
+        Commands::App { .. } => unreachable!(),
         Commands::Trace { .. } => unreachable!(),
         Commands::Identify => cmd::identify::handle(&mut client, cli.json, resolved_socket),
 
@@ -291,6 +304,11 @@ fn main_impl() {
 
         Commands::Tab { action } => {
             cmd::tab::handle_tab(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Todo { action } => {
+            cmd::todo::handle(&mut client, cli.json, action);
             return;
         }
 
@@ -646,7 +664,23 @@ fn main_impl() {
     handle_result(cli.json, result);
 }
 
-fn hydrate_tab_task_binding_env(args: &[String]) {
+fn command_consumes_binding(command: &Commands) -> bool {
+    matches!(
+        command,
+        Commands::Agent {
+            action: AgentAction::Ack { .. } | AgentAction::Report(_) | AgentAction::Spawn { .. }
+        } | Commands::Orchestrator { .. }
+            | Commands::Plan {
+                action: PlanAction::Record { .. }
+                    | PlanAction::Skill { .. }
+                    | PlanAction::Loop {
+                        action: args::plan::PlanLoopAction::Record { .. }
+                    }
+            }
+    )
+}
+
+fn hydrate_tab_task_binding_env(args: &[String], client: &mut impl client::RpcClient) {
     if args
         .iter()
         .any(|arg| arg == "--mesh" || arg.starts_with("--mesh="))
@@ -666,9 +700,6 @@ fn hydrate_tab_task_binding_env(args: &[String]) {
     if tab_id.trim().is_empty() || (has_plan && has_task) {
         return;
     }
-    let Ok((mut client, _)) = SocketClient::connect_local() else {
-        return;
-    };
     let Ok(response) = client.call(
         "plan.binding.resolve",
         Some(serde_json::json!({"tab_id": tab_id})),
@@ -1088,3 +1119,6 @@ mod zero_flag_plan_context_tests;
 
 #[cfg(test)]
 mod test_support;
+
+#[cfg(test)]
+mod startup_tests;

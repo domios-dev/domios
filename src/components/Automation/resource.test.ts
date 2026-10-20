@@ -76,6 +76,26 @@ test("event while reading discards obsolete record and coalesces another read", 
   off();
 });
 
+test("an identical graph read keeps the published snapshot so subscribers do not re-render", async () => {
+  const transport = new FixtureTransport();
+  transport.readOverride = async () => fixtureGraph();
+  const resource = new AutomationResource(transport, attachment);
+  let publishes = 0;
+  const off = resource.subscribe(() => { publishes++; });
+  await nextSnapshot(resource, (snapshot) => snapshot.graph !== null);
+  const published = resource.getSnapshot();
+  const before = publishes;
+  await resource.refresh();
+  await resource.refresh();
+  assert.equal(transport.reads, 3);
+  assert.equal(publishes, before);
+  assert.equal(resource.getSnapshot(), published);
+  transport.readOverride = async () => ({ ...fixtureGraph(), revision: "revision-changed" });
+  await resource.refresh();
+  assert.equal(resource.getSnapshot().graph?.revision, "revision-changed");
+  off();
+});
+
 test("detached response and old event cannot restore stale attachment state", async () => {
   const transport = new FixtureTransport();
   const resource = new AutomationResource(transport, attachment);

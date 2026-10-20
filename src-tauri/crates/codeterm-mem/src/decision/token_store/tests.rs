@@ -114,11 +114,11 @@ fn token_store_debug_and_errors_are_redacted() {
     assert!(!format!("{store:?}").contains(TOKEN));
     assert!(!format!("{:?}", store.status("typesafe-jev").unwrap()).contains(TOKEN));
     let errors = [
-        codeterm_types::decision::DecisionError::Unavailable("token_missing".into()),
-        codeterm_types::decision::DecisionError::Deadline,
-        codeterm_types::decision::DecisionError::Http(401),
-        codeterm_types::decision::DecisionError::Transport("request_failed".into()),
-        codeterm_types::decision::DecisionError::Parse("invalid_answer".into()),
+        codeterm_decision::DecisionError::Unavailable("token_missing".into()),
+        codeterm_decision::DecisionError::Deadline,
+        codeterm_decision::DecisionError::Http(401),
+        codeterm_decision::DecisionError::Transport("request_failed".into()),
+        codeterm_decision::DecisionError::Parse("invalid_answer".into()),
     ];
     for error in errors {
         assert!(!format!("{error:?}").contains(TOKEN));

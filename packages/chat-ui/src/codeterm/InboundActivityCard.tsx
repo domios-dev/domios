@@ -46,6 +46,7 @@ export function InboundActivityCard({ message, testId, title, summary, presentat
   }
 
   return (
+    <section role="group" aria-label={title}>
     <ToolCardFrame
       testId={testId}
       event={event}
@@ -62,5 +63,6 @@ export function InboundActivityCard({ message, testId, title, summary, presentat
     >
       {children}
     </ToolCardFrame>
+    </section>
   );
 }

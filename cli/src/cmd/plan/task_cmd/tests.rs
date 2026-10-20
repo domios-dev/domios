@@ -93,12 +93,15 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
             agent: Some("codex".into()),
             authorized_gates: Vec::new(),
             canonical_writer: false,
+            worker_kind: None,
             model: Some("gpt-9-bogus".into()),
+            description: None,
             reasoning_effort: None,
             parent: None,
             workspace: None,
             cwd: None,
             execution_intent: "read_only".into(),
+            sandbox: None,
             provider_reserve_pct: 0.0,
         },
         None,
@@ -132,13 +135,56 @@ fn dispatch_action(cwd: &str) -> PlanTaskAction {
         agent: None,
         authorized_gates: Vec::new(),
         canonical_writer: false,
+        worker_kind: None,
         model: None,
+        description: None,
         reasoning_effort: None,
         parent: None,
         workspace: None,
         cwd: Some(cwd.into()),
         execution_intent: "mutating".into(),
+        sandbox: None,
         provider_reserve_pct: 0.0,
+    }
+}
+
+#[test]
+fn plan_task_dispatch_sends_explicit_description_override() {
+    let mut client = FakeRpc::scripted([owner_epoch_task(), json!({"tab_id":"worker"})]);
+    let mut action = dispatch_action("lane");
+    let PlanTaskAction::Dispatch { description, .. } = &mut action else {
+        unreachable!()
+    };
+    *description = Some(vec!["Owner".into(), "summary".into()]);
+
+    let _ = run_dispatch(&mut client, true, action, None).expect("dispatch runs");
+    let params = client
+        .calls
+        .iter()
+        .find(|(method, _)| method == "plan.task.dispatch")
+        .and_then(|(_, params)| params.as_ref())
+        .expect("dispatch params");
+    assert_eq!(params["description"], "Owner summary");
+}
+
+#[test]
+fn plan_task_dispatch_sends_selected_worker_kind() {
+    for kind in ["release_manager", "reviewer"] {
+        let mut client = FakeRpc::scripted([owner_epoch_task(), json!({"tab_id":"worker"})]);
+        let mut action = dispatch_action("lane");
+        let PlanTaskAction::Dispatch { worker_kind, .. } = &mut action else {
+            unreachable!()
+        };
+        *worker_kind = Some(kind.into());
+
+        let _ = run_dispatch(&mut client, true, action, None).expect("dispatch runs");
+        let params = client
+            .calls
+            .iter()
+            .find(|(method, _)| method == "plan.task.dispatch")
+            .and_then(|(_, params)| params.as_ref())
+            .expect("dispatch params");
+        assert_eq!(params["worker_kind"], kind);
     }
 }
 
@@ -646,4 +692,16 @@ fn structured_task_files_use_authorized_update_and_preserve_paths() {
         params["files"],
         json!({"edit":["new file.rs"],"read":["context.md"]})
     );
+}
+
+#[test]
+fn plan_task_dispatch_forwards_explicit_sandbox_choice() {
+    let mut client = FakeRpc::scripted([owner_epoch_task(), json!({"tab_id":"worker"})]);
+    let mut action = dispatch_action("lane");
+    let PlanTaskAction::Dispatch { sandbox, .. } = &mut action else {
+        unreachable!()
+    };
+    *sandbox = Some("read-only".into());
+    run_dispatch(&mut client, true, action, None).unwrap();
+    assert_eq!(client.calls[1].1.as_ref().unwrap()["sandbox"], "read-only");
 }

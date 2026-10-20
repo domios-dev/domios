@@ -5,10 +5,22 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { parse } from 'yaml';
-import { parseWarnings, deduplicate, makeBaseline, ratchet, assertBaselineShrinks, capture, renderReport } from '../collect-rust-warnings.mjs';
+import { parseWarnings, deduplicate, makeBaseline, ratchet, assertBaselineShrinks, capture, renderReport, renderedCompilerErrors } from '../collect-rust-warnings.mjs';
 const fixture = name => fs.readFileSync(new URL('../../tests/fixtures/rust-warnings/' + name, import.meta.url), 'utf8');
 const opts = { platform: 'Windows', target: 'x86_64-pc-windows-msvc' };
 const warnings = () => parseWarnings(fixture('windows.txt'), opts);
+
+test('compiler errors retain rendered source diagnostics and stay out of warning records', () => {
+  const input = fixture('compile-errors.jsonl');
+  const diagnostics = input.split('\n').flatMap(line => {
+    try { return [JSON.parse(line)]; } catch { return []; }
+  }).filter(item => item.reason === 'compiler-message' && item.message.level === 'error');
+  assert.equal(diagnostics.length, 2);
+  assert.equal(renderedCompilerErrors(input), diagnostics.map(item => item.message.rendered).join(''));
+  assert.deepEqual(parseWarnings(input, opts).map(w => w.message), ['fixture warning']);
+  assert.equal(renderedCompilerErrors('{"reason":"compiler-message","message":{"level":"error","message":"fallback"}}'), 'fallback\n');
+  assert.equal(renderedCompilerErrors('null\n{}\ninvalid'), '');
+});
 test('Cargo JSON keeps warning location, lint, crate and ANSI-free snippet', () => {
   const [w] = parseWarnings(fixture('cargo.jsonl'), opts);
   assert.equal(w.crate, 'codeterm');
@@ -27,6 +39,10 @@ test('Windows text collects both imports, unused mut and both dead methods witho
   assert.equal(records.find(w => w.message.includes('request_stop')).line, 151);
   assert.equal(records.find(w => w.message.includes('feed_pty_output_inner')).line, 23);
   assert.ok(records.every(w => w.crate === 'codeterm'));
+});
+test('a failed build reports its compile error, never Cargo status lines, as warnings', () => {
+  const text = '   Compiling fixture-crate v0.1.0\nerror[E0599]: no variant named `Other`\nwarning: build failed, waiting for other jobs to finish...\nerror: could not compile `fixture-crate`\n';
+  assert.deepEqual(parseWarnings(text, { platform: 'Linux', target: 'x86_64-unknown-linux-gnu' }), []);
 });
 test('JSON and text warnings deduplicate by target/file/line/lint/message; other targets remain', () => {
   const records = parseWarnings(fixture('windows.txt') + fixture('cargo.jsonl'), opts);
@@ -69,7 +85,7 @@ test('report includes per-target/lint/file counts and rendered diagnostics', () 
   assert.match(report, /let mut child/);
 });
 const workflow = name => parse(fs.readFileSync(new URL('../../.github/workflows/' + name + '.yml', import.meta.url), 'utf8'));
-test('every active release compiler and test archive/clippy uploads through the shared action', () => {
+test('every active release compiler, Rust test and clippy job uploads through the shared action', () => {
   for (const name of ['release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows']) {
     const steps = workflow(name).jobs.build.steps;
     const artifact = steps.find(s => s.uses === './.github/actions/rust-warnings');
@@ -77,12 +93,12 @@ test('every active release compiler and test archive/clippy uploads through the 
     assert.equal(artifact['continue-on-error'], true);
     assert.ok(steps.some(s => s.run?.includes('collect-rust-warnings.mjs run')));
   }
-  for (const id of ['rust-archives', 'clippy-linux']) {
+  for (const id of ['rust-tests', 'rust-platform', 'clippy-linux']) {
     assert.ok(workflow('tests').jobs[id].steps.some(s => s.uses === './.github/actions/rust-warnings'));
   }
-  assert.deepEqual(workflow('release').jobs['rust-warnings'].needs, ['prepare', 'quick-checks', 'tests', 'macos', 'linux-arm64', 'linux-x86_64', 'windows']);
+  assert.deepEqual(workflow('release').jobs['rust-warnings'].needs, ['prepare', 'quick-checks', 'tests', 'macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']);
   assert.equal(workflow('release').jobs['rust-warnings'].if, 'always()');
-  assert.equal(workflow('tests').jobs['rust-warnings'].if, 'always()');
+  assert.equal(workflow('tests').jobs['rust-warnings'].if, "${{ always() && inputs.source_ref == '' && needs.changed.result == 'success' }}");
 });
 
 test('summary CLI persists a complete seed, preserves unbuilt targets, reports a new warning before failing', () => {

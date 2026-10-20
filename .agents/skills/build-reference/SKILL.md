@@ -40,7 +40,7 @@ path (`pnpm tauri build`), not this raw-executable dev oracle.
 
 ## Git Hooks
 
-Custom git hooks live in `.githooks/` and are automatically wired via `git config core.hooksPath` by every `./build.sh` invocation. The pre-push hook is intentionally a no-op: pushing never compiles, formats, lints, or prepares resources. Run focused checks before handoff and broad gates in the canonical checkout; CI remains the remote enforcement boundary.
+The repository has no git hooks: pushing and committing never compile, format, lint, or prepare resources. Run focused checks before handoff and broad gates in the canonical checkout; CI remains the remote enforcement boundary.
 
 Focused Rust tests use the same Windows rule. `scripts/test-capped.sh` keeps the
 manifest's warm target normally and selects checkout-local `target-check` with
@@ -102,7 +102,7 @@ Test layers, commands and the runbook: `.agents/skills/testing/SKILL.md`.
 | `pnpm install --frozen-lockfile` fails with `ENOENT` for a package inside `node_modules/.pnpm` | The local pnpm virtual store contains a partial package directory, so the lockfile is valid but linking cannot read the package manifest | Run `pnpm install --frozen-lockfile --force`, verify the missing binary or package is present, then rerun the original test command |
 
 
-If `.\build.ps1 test` stops before the Rust summary with `os error 232` or "the
+If `./build.ps1 test` stops before the Rust summary with `os error 232` or "the
 pipe is being closed", the build command lost its stdout reader; this is a
 gateway logging failure, not a test verdict. The gateway now owns the `tee`
 reader, closes its writer descriptors after the final exit-status line, and

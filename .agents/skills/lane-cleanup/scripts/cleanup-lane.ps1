@@ -30,18 +30,28 @@ function Assert-Success([string]$Operation) {
 $canonical = Resolve-ExistingPath $CanonicalPath
 $root = Resolve-ExistingPath $WorktreeRoot
 $laneItem = Get-Item -LiteralPath $LanePath -Force
-if (($laneItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-    throw "Refusing lane path that is itself a reparse point: $LanePath"
+$ancestor = $laneItem
+while ($null -ne $ancestor) {
+    if (($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Refusing lane path through a reparse point: $($ancestor.FullName)"
+    }
+    $ancestor = $ancestor.Parent
 }
 
 function Remove-LaneReparsePoints([string]$Path) {
-    $links = @(Get-ChildItem -LiteralPath $Path -Force -Recurse -Attributes ReparsePoint -ErrorAction Stop |
-        Sort-Object { $_.FullName.Length } -Descending)
-    foreach ($link in $links) {
-        if (($link.Attributes -band [IO.FileAttributes]::Directory) -ne 0) {
-            [IO.Directory]::Delete($link.FullName, $false)
-        } else {
-            [IO.File]::Delete($link.FullName)
+    $pending = [Collections.Generic.Stack[string]]::new()
+    $pending.Push($Path)
+    while ($pending.Count -gt 0) {
+        foreach ($item in Get-ChildItem -LiteralPath $pending.Pop() -Force -ErrorAction Stop) {
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                if (($item.Attributes -band [IO.FileAttributes]::Directory) -ne 0) {
+                    [IO.Directory]::Delete($item.FullName, $false)
+                } else {
+                    [IO.File]::Delete($item.FullName)
+                }
+            } elseif ($item.PSIsContainer) {
+                $pending.Push($item.FullName)
+            }
         }
     }
 }

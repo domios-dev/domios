@@ -179,7 +179,7 @@ function WorkspaceItemInner({
         ${detailHeader ? "text-[var(--ct-fg)]" : isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
       `}
     >
-      <div className={`flex items-center min-w-0 ${touchMode ? "gap-2" : "gap-1"}`}>
+      <div className={`flex ${detailHeader ? "items-baseline" : "items-center"} min-w-0 ${touchMode ? "gap-2" : "gap-1"}`}>
         {showDisclosure && (
           <SidebarDisclosure
             expanded={isExpanded}

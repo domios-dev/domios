@@ -46,7 +46,35 @@ pub enum RuntimeFrame {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeServiceTierSelection {
+    #[serde(deserialize_with = "deserialize_service_tier_id")]
+    pub id: Option<String>,
+}
+
+fn deserialize_service_tier_id<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    Option::<String>::deserialize(deserializer)
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeServiceTier {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<RuntimeServiceTierSelection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier_availability:
+        Option<std::collections::BTreeMap<String, Vec<RuntimeServiceTier>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -138,6 +166,8 @@ pub struct RuntimeContext {
     pub epoch: u64,
     pub tab_id: String,
     pub binding_nonce: String,
+    #[serde(default)]
+    pub host_owned: crate::provider::HostOwnedCapabilities,
     pub cwd: String,
     pub host_version: String,
     pub claimed_sends: Vec<ClaimedSend>,
@@ -159,10 +189,18 @@ pub struct RuntimeContext {
     deny_unknown_fields
 )]
 pub enum RuntimeOperation {
+    BackgroundProcesses {
+        thread_id: String,
+        action: super::RuntimeBackgroundProcessAction,
+    },
     Initialize,
     OpenThread {
         instructions: String,
         settings: RuntimeSettings,
+    },
+    ForkThread {
+        source_thread_id: String,
+        turn_id: String,
     },
     ResumeThread {
         thread_id: String,
@@ -173,6 +211,8 @@ pub enum RuntimeOperation {
         thread_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        order: Option<HistoryOrder>,
     },
     SubmitTurn {
         thread_id: String,
@@ -207,8 +247,10 @@ pub enum RuntimeOperation {
 impl RuntimeOperation {
     pub fn kind(&self) -> &'static str {
         match self {
+            Self::BackgroundProcesses { .. } => "backgroundProcesses",
             Self::Initialize => "initialize",
             Self::OpenThread { .. } => "openThread",
+            Self::ForkThread { .. } => "forkThread",
             Self::ResumeThread { .. } => "resumeThread",
             Self::ReadHistory { .. } => "readHistory",
             Self::SubmitTurn { .. } => "submitTurn",
@@ -257,6 +299,14 @@ pub struct OpenItem {
     pub item: ChatMsg,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HistoryOrder {
+    #[default]
+    Asc,
+    Desc,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -265,10 +315,32 @@ pub struct OpenItem {
     deny_unknown_fields
 )]
 pub enum RuntimeResult {
-    Initialized,
+    Goal {
+        thread_id: String,
+        intent: Option<codeterm_types::agent::chat_types::ChatSessionIntent>,
+    },
+    BackgroundProcesses {
+        thread_id: String,
+        processes: Vec<super::RuntimeBackgroundProcess>,
+        next_cursor: Option<String>,
+    },
+    BackgroundProcessTermination {
+        thread_id: String,
+        process_id: String,
+        acknowledged: bool,
+    },
+    Initialized {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        binary_version: Option<String>,
+    },
     ThreadLoaded {
         thread_id: String,
         settings: RuntimeSettings,
+    },
+    ThreadForked {
+        source_thread_id: String,
+        thread_id: String,
+        turn_id: String,
     },
     HistoryPage {
         thread_id: String,
@@ -278,12 +350,18 @@ pub enum RuntimeResult {
         open_items: Vec<OpenItem>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         questions: Option<Vec<RuntimeHistoryQuestion>>,
+        /// Echo of the requested order; absent means ascending.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        order: Option<HistoryOrder>,
     },
     TurnAccepted {
         thread_id: String,
         send_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         turn_id: Option<String>,
+    },
+    ResetCreditConsumed {
+        outcome: ResetCreditOutcome,
     },
     Done,
 }
@@ -298,6 +376,8 @@ pub enum RuntimeResult {
 pub enum RuntimeStep {
     Continue {
         plan: RuntimePlan,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        history: Option<RuntimeResult>,
         #[serde(default)]
         before_acceptance: bool,
     },
@@ -317,6 +397,8 @@ pub enum RuntimeStep {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TokenUsage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_micros: Option<u64>,
     pub input_tokens: u64,
     pub output_tokens: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -337,6 +419,30 @@ pub enum RuntimeTurnState {
     NeedsInput,
 }
 
+/// Why a turn is in its state; each value pairs with one [`RuntimeTurnState`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeTurnDetail {
+    Compacting,
+    AwaitingApproval,
+    AwaitingInput,
+    SystemError,
+    Interrupted,
+    Failed,
+}
+
+impl RuntimeTurnDetail {
+    pub fn state(self) -> RuntimeTurnState {
+        match self {
+            Self::Compacting => RuntimeTurnState::Working,
+            Self::AwaitingApproval | Self::AwaitingInput | Self::SystemError => {
+                RuntimeTurnState::NeedsInput
+            }
+            Self::Interrupted | Self::Failed => RuntimeTurnState::Idle,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -345,11 +451,17 @@ pub enum RuntimeTurnState {
     deny_unknown_fields
 )]
 pub enum AgentRuntimeEvent {
+    BackgroundProcesses {
+        thread_id: String,
+        processes: Vec<super::RuntimeBackgroundProcess>,
+    },
     AuthLogin {
         login: RuntimeLoginState,
     },
     Auth {
         state: RuntimeAuthState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        billing_mode: Option<codeterm_usage::contract::BillingMode>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         detail: Option<String>,
     },
@@ -363,6 +475,10 @@ pub enum AgentRuntimeEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread_id: Option<String>,
         rate_limits: Vec<RuntimeRateLimit>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        resets: Option<ResetCredits>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account_credits: Option<RuntimeAccountCredits>,
     },
     ChatItem {
         thread_id: String,
@@ -379,8 +495,14 @@ pub enum AgentRuntimeEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parent_thread_id: Option<String>,
         state: RuntimeTurnState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<RuntimeTurnDetail>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status_line: Option<String>,
     },
     SendEvidence {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item_id: Option<String>,
         thread_id: String,
         send_id: String,
         turn_id: String,
@@ -405,6 +527,9 @@ pub enum AgentRuntimeEvent {
     ContextCompacted {
         thread_id: String,
         item_id: String,
+    },
+    ThreadReverted {
+        thread_id: String,
     },
 }
 
@@ -431,6 +556,18 @@ pub struct RuntimeRateLimit {
     pub resets_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_minutes: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum RuntimeAccountCredits {
+    Balance { balance: String },
+    Unlimited,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -551,4 +688,39 @@ pub enum RuntimeLoginStatus {
     Completed,
     Failed,
     Canceled,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResetCredits {
+    pub available_count: u64,
+    pub next_expiry: Option<u64>,
+    pub credits: Option<Vec<ResetCredit>>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResetCredit {
+    pub id: String,
+    pub status: ResetCreditStatus,
+    pub expires_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ResetCreditStatus {
+    Available,
+    Redeeming,
+    Redeemed,
+    Unknown,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ResetCreditOutcome {
+    Reset,
+    NothingToReset,
+    NoCredit,
+    AlreadyRedeemed,
 }

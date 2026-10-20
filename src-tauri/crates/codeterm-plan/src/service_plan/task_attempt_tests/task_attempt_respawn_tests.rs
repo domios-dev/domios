@@ -21,12 +21,13 @@ fn attempt_model_fields_round_trip() {
                 .iter_mut()
                 .find(|task| task.id == task_id)
                 .unwrap();
+            task.interruption.execution_intent = crate::plan::ExecutionIntent::Mutating;
             let attempt = task
                 .execution_attempts
                 .iter_mut()
                 .find(|attempt| attempt.id == attempt_id)
                 .unwrap();
-            attempt.provider = Some("codex".into());
+            attempt.provider = Some("fixture-agent".into());
             attempt.model = Some("gpt-6-luna".into());
             attempt.reasoning_effort = Some("xhigh".into());
             attempt.session_model = Some("gpt-runtime".into());
@@ -42,7 +43,7 @@ fn attempt_model_fields_round_trip() {
         .next()
         .unwrap();
     let json = serde_json::to_value(&saved).unwrap();
-    assert_eq!(json["provider"], "codex");
+    assert_eq!(json["provider"], "fixture-agent");
     assert_eq!(json["model"], "gpt-6-luna");
     assert_eq!(json["reasoning_effort"], "xhigh");
     assert_eq!(json["session_model"], "gpt-runtime");
@@ -57,7 +58,11 @@ fn attempt_model_fields_round_trip() {
             },
         )
         .unwrap();
-    assert_eq!(draft.provider, "codex");
+    assert_eq!(
+        draft.execution_intent,
+        crate::plan::ExecutionIntent::Mutating
+    );
+    assert_eq!(draft.provider, "fixture-agent");
     assert_eq!(draft.model.as_deref(), Some("gpt-6-luna"));
     assert_eq!(draft.reasoning_effort.as_deref(), Some("xhigh"));
 
@@ -65,10 +70,299 @@ fn attempt_model_fields_round_trip() {
         .record_task_respawn_attempt(&plan_id, &task_id, "worker-next", &draft, Some("worker"), 5)
         .unwrap();
     assert_eq!(respawned.attempt.id, draft.attempt_id);
-    assert_eq!(respawned.attempt.provider.as_deref(), Some("codex"));
+    assert_eq!(respawned.attempt.provider.as_deref(), Some("fixture-agent"));
     assert_eq!(respawned.attempt.model.as_deref(), Some("gpt-6-luna"));
     assert_eq!(respawned.attempt.reasoning_effort.as_deref(), Some("xhigh"));
     assert_eq!(respawned.attempt.session_model, None);
+}
+
+#[test]
+fn respawn_uses_source_resolved_model_instead_of_conflicting_task_model() {
+    let (_dir, store, plan_id, task_id) = super::bound_report_store();
+    let source_attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+        .id
+        .clone();
+    store
+        .with_plan(&plan_id, 4, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.model = Some("fixture-agent:model".into());
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == source_attempt_id)
+                .unwrap();
+            attempt.provider = Some("fixture-agent".into());
+            attempt.agent_type = Some("fixture-agent".into());
+            attempt.model = None;
+            attempt.provider_resolved_model = Some("haiku".into());
+            attempt.requested_model = Some("haiku".into());
+            Ok(())
+        })
+        .unwrap();
+
+    let draft = store
+        .build_task_respawn_draft(
+            &plan_id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: source_attempt_id,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    assert_eq!(draft.provider, "fixture-agent");
+    assert_eq!(draft.model.as_deref(), Some("haiku"));
+}
+
+#[test]
+fn respawn_from_a_source_attempt_is_single_use_while_replacement_is_live() {
+    let (_dir, store, plan_id, task_id) = super::bound_report_store();
+    let source_attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+        .id
+        .clone();
+    let request = || task_attempts::TaskRespawnRequest {
+        attempt_id: source_attempt_id.clone(),
+        ..Default::default()
+    };
+
+    let first = store
+        .build_task_respawn_draft(&plan_id, &task_id, request())
+        .unwrap();
+    let first_reservation = store
+        .reserve_task_respawn_startup(&plan_id, &task_id, &source_attempt_id, &first.attempt_id)
+        .unwrap();
+    let first_created = store
+        .record_task_respawn_attempt(
+            &plan_id,
+            &task_id,
+            "worker-first-respawn",
+            &first,
+            Some("worker"),
+            4,
+        )
+        .unwrap();
+    drop(first_reservation);
+
+    let second = store
+        .build_task_respawn_draft(&plan_id, &task_id, request())
+        .unwrap();
+    let result = store.reserve_task_respawn_startup(
+        &plan_id,
+        &task_id,
+        &source_attempt_id,
+        &second.attempt_id,
+    );
+
+    assert!(matches!(
+        result,
+        Err(PlanError::RespawnAttemptNotCurrent { current_attempt_id, tab_id })
+            if current_attempt_id == first_created.attempt.id && tab_id == "worker-first-respawn"
+    ));
+    let task = store.show_task(&task_id).unwrap().task;
+    assert_eq!(
+        task.execution_attempts
+            .iter()
+            .filter(|attempt| attempt.closed_at.is_none())
+            .count(),
+        1
+    );
+    assert_eq!(
+        task.assigned_tab_id.as_deref(),
+        Some("worker-first-respawn")
+    );
+
+    store
+        .with_plan(&plan_id, 6, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == first_created.attempt.id)
+                .unwrap()
+                .closed_at = Some(6);
+            Ok(())
+        })
+        .unwrap();
+    let after_loss = store
+        .build_task_respawn_draft(
+            &plan_id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: first_created.attempt.id.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let recovered_reservation = store
+        .reserve_task_respawn_startup(
+            &plan_id,
+            &task_id,
+            &first_created.attempt.id,
+            &after_loss.attempt_id,
+        )
+        .unwrap();
+    drop(recovered_reservation);
+}
+
+#[test]
+fn replay_after_a_respawn_closes_refuses_the_retired_source_without_mutation() {
+    let (_dir, store, plan_id, task_id) = super::bound_report_store();
+    let source_attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+        .id
+        .clone();
+    let first = store
+        .build_task_respawn_draft(
+            &plan_id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: source_attempt_id.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let reservation = store
+        .reserve_task_respawn_startup(&plan_id, &task_id, &source_attempt_id, &first.attempt_id)
+        .unwrap();
+    let created = store
+        .record_task_respawn_attempt(
+            &plan_id,
+            &task_id,
+            "worker-first-respawn",
+            &first,
+            Some("worker"),
+            4,
+        )
+        .unwrap();
+    drop(reservation);
+    store
+        .with_plan(&plan_id, 5, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id).unwrap();
+            task.execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == created.attempt.id)
+                .unwrap()
+                .closed_at = Some(5);
+            Ok(())
+        })
+        .unwrap();
+    let before = store.show_task(&task_id).unwrap().task;
+    let replay = store
+        .build_task_respawn_draft(
+            &plan_id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: source_attempt_id.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let refusal = match store.reserve_task_respawn_startup(
+        &plan_id,
+        &task_id,
+        &source_attempt_id,
+        &replay.attempt_id,
+    ) {
+        Ok(_) => panic!("a printed command cannot reuse its retired source attempt"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        &refusal,
+        PlanError::RespawnAttemptNotCurrent { current_attempt_id, tab_id }
+            if current_attempt_id == &created.attempt.id && tab_id == "worker-first-respawn"
+    ));
+    assert_ne!(refusal.rpc_code(), 0);
+    let refusal_data = refusal.to_json();
+    assert_eq!(refusal_data["type"], "respawn_attempt_not_current");
+    assert_eq!(refusal_data["current_attempt_id"], created.attempt.id);
+    assert_eq!(refusal_data["tab_id"], "worker-first-respawn");
+    let after = store.show_task(&task_id).unwrap().task;
+    assert_eq!(
+        after.execution_attempts.len(),
+        before.execution_attempts.len()
+    );
+    assert_eq!(after.assigned_tab_id, before.assigned_tab_id);
+    assert_eq!(
+        after.execution_attempts.last().unwrap().id,
+        created.attempt.id
+    );
+}
+
+#[test]
+fn concurrent_respawns_of_one_source_create_only_one_replacement() {
+    let (_dir, store, plan_id, task_id) = super::bound_report_store();
+    let store = Arc::new(store);
+    let source_attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+        .id
+        .clone();
+    let barrier = Arc::new(Barrier::new(2));
+    let workers = ["worker-respawn-a", "worker-respawn-b"].map(|tab_id| {
+        let store = store.clone();
+        let plan_id = plan_id.clone();
+        let task_id = task_id.clone();
+        let source_attempt_id = source_attempt_id.clone();
+        let barrier = barrier.clone();
+        std::thread::spawn(move || {
+            let draft = store
+                .build_task_respawn_draft(
+                    &plan_id,
+                    &task_id,
+                    task_attempts::TaskRespawnRequest {
+                        attempt_id: source_attempt_id.clone(),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            barrier.wait();
+            let reservation = store.reserve_task_respawn_startup(
+                &plan_id,
+                &task_id,
+                &source_attempt_id,
+                &draft.attempt_id,
+            );
+            match reservation {
+                Ok(_reservation) => store
+                    .record_task_respawn_attempt(
+                        &plan_id,
+                        &task_id,
+                        tab_id,
+                        &draft,
+                        Some("worker"),
+                        4,
+                    )
+                    .map(|created| Some(created.attempt.id)),
+                Err(error) => Err(error),
+            }
+        })
+    });
+    let outcomes = workers.map(|worker| worker.join().unwrap());
+    let created = outcomes
+        .iter()
+        .find_map(|outcome| outcome.as_ref().ok().and_then(|created| created.clone()))
+        .expect("one concurrent respawn creates a replacement");
+    assert_eq!(outcomes.iter().filter(|outcome| outcome.is_ok()).count(), 1);
+    assert!(outcomes.iter().any(|outcome| matches!(
+        outcome,
+        Err(PlanError::DispatchInFlight { .. }) | Err(PlanError::RespawnAttemptNotCurrent { .. })
+    )));
+    let task = store.show_task(&task_id).unwrap().task;
+    assert_eq!(task.execution_attempts.len(), 2);
+    assert_eq!(
+        task.execution_attempts
+            .iter()
+            .filter(|attempt| attempt.closed_at.is_none())
+            .count(),
+        1
+    );
+    assert_eq!(task.execution_attempts.last().unwrap().id, created);
 }
 
 #[test]

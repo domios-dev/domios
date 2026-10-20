@@ -1,4 +1,5 @@
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useReducer, useRef, type KeyboardEvent, type MouseEvent, type RefObject } from "react";
+import { useLatestCallback } from "../../hooks/useLatestCallback";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useReducer, useRef, type KeyboardEvent, type MouseEvent, type RefObject } from "react";
 import {
   clipMessage,
   DOMIOS_TEXT_MIME,
@@ -96,7 +97,7 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
   const [state, dispatch] = useReducer(reduceMessageSelection, EMPTY_SELECTION);
   const renderingStreamId = useDeferredValue(streamingMessageId);
   const index = useMemo(() => indexMessageParts(rows.map((row) => rowClip(row, chatClipNames(agent))), renderingStreamId), [rows, agent, renderingStreamId]);
-  const { byMessage: partsByMessage, order } = index;
+  const { order } = index;
   const live = useRef({ index, state });
   live.current = { index, state };
   const focusCursor = useRef(false);
@@ -106,23 +107,23 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
   useEffect(() => { dispatch({ type: "prune", order }); }, [order]);
   useEffect(() => () => stopTracking.current?.(), []);
 
-  const clipsOf = useCallback((ids: readonly string[]): ClipMessage[] => {
+  const clipsOf = useLatestCallback((ids: readonly string[]): ClipMessage[] => {
     return clipsForParts(live.current.index, ids);
   }, []);
-  const clipFor = useCallback((id: string): ClipMessage | null => live.current.index.byId.get(id) ?? null, []);
-  const selectedClips = useCallback(() => clipsOf(orderedSelection(live.current.state, live.current.index.order)), [clipsOf]);
+  const clipFor = useLatestCallback((id: string): ClipMessage | null => live.current.index.byId.get(id) ?? null, []);
+  const selectedClips = useLatestCallback(() => clipsOf(orderedSelection(live.current.state, live.current.index.order)), [clipsOf]);
 
-  const clear = useCallback(() => dispatch({ type: "clear" }), []);
-  const select = useCallback((id: string) => {
+  const clear = useLatestCallback(() => dispatch({ type: "clear" }), []);
+  const select = useLatestCallback((id: string) => {
     const ids = live.current.index.byMessage.get(id)?.map((part) => part.id) ?? [id];
     for (const target of ids) if (!live.current.state.selected.includes(target)) dispatch({ type: "toggle", id: target });
     focusCursor.current = true;
   }, []);
-  const copySelection = useCallback(() => writeClipboardFlavours(messagesClipboard(selectedClips())), [selectedClips]);
-  const quoteSelection = useCallback(() => { quoteMessages(tabId, selectedClips()); dispatch({ type: "clear" }); }, [selectedClips, tabId]);
-  const askSelection = useCallback(() => { askAboutMessages(tabId, selectedClips()); dispatch({ type: "clear" }); }, [selectedClips, tabId]);
+  const copySelection = useLatestCallback(() => writeClipboardFlavours(messagesClipboard(selectedClips())), [selectedClips]);
+  const quoteSelection = useLatestCallback(() => { quoteMessages(tabId, selectedClips()); dispatch({ type: "clear" }); }, [selectedClips, tabId]);
+  const askSelection = useLatestCallback(() => { askAboutMessages(tabId, selectedClips()); dispatch({ type: "clear" }); }, [selectedClips, tabId]);
 
-  const track = useCallback(() => {
+  const track = useLatestCallback(() => {
     stopTracking.current?.();
     const onMove = (event: globalThis.MouseEvent) => {
       const current = press.current;
@@ -151,7 +152,7 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
     stopTracking.current = stop;
   }, [surfaceRef]);
 
-  const rowMouseDown = useCallback((id: string, event: MouseEvent<HTMLElement>) => {
+  const rowMouseDown = useLatestCallback((id: string, event: MouseEvent<HTMLElement>) => {
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return;
     const target = event.target as HTMLElement;
     const targetId = rowIdAt(target, surfaceRef.current, event.clientY);
@@ -173,7 +174,7 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
     track();
   }, [track]);
 
-  const onKeyDown = useCallback((event: KeyboardEvent<HTMLElement>) => {
+  const onKeyDown = useLatestCallback((event: KeyboardEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
     const row = target.closest<HTMLElement>("[data-message-part-id], [data-message-id]");
     if (row === null || target !== row || event.altKey || event.ctrlKey || event.metaKey) return;
@@ -228,26 +229,31 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
   }, [active, selectedClips]);
 
   const { selected, partial, count } = useMemo(() => partSelectionSummary(index, state.selected), [index, state.selected]);
+  const liveSelected = useRef(selected);
+  liveSelected.current = selected;
+  // Lookups read the latest index and selection, so streamed transcript changes keep the handlers stable; a selection change renews them.
   const rowHandlers = useMemo<MessageRowHandlers>(() => ({
     clipFor,
-    partsFor: (id) => partsByMessage.get(id) ?? [],
-    selectedFor: (id) => selected.has(id),
+    partsFor: (id) => live.current.index.byMessage.get(id) ?? [],
+    selectedFor: (id) => liveSelected.current.has(id),
     cursorFor: (id) => state.cursor === id,
     joinNextFor: (id) => {
-      const at = order.indexOf(id);
-      return at >= 0 && selected.has(id) && selected.has(order[at + 1]);
+      const current = live.current.index.order;
+      const at = current.indexOf(id);
+      return at >= 0 && liveSelected.current.has(id) && liveSelected.current.has(current[at + 1]);
     },
     select,
     toggle: (id) => dispatch({ type: "toggle", id }),
     range: (from, to, start) => {
-      if (start) dispatch({ type: "dragStart", id: from, order, extend: false });
-      dispatch({ type: "dragTo", id: to, order });
+      const current = live.current.index.order;
+      if (start) dispatch({ type: "dragStart", id: from, order: current, extend: false });
+      dispatch({ type: "dragTo", id: to, order: current });
     },
     endRange: () => dispatch({ type: "dragEnd" }),
     rowMouseDown,
     quote: (clip) => quoteMessages(tabId, [clip]),
     ask: (clip) => askAboutMessages(tabId, [clip]),
-  }), [clipFor, rowMouseDown, select, tabId, partsByMessage, selected, state.cursor, order]);
+  }), [clipFor, rowMouseDown, select, tabId, state.selected, state.cursor]);
   return {
     rowHandlers,
     selected,

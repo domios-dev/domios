@@ -27,9 +27,9 @@ assert.equal(pattern(modelPicker.targetRegex, "haiku").exec(modelScreen)?.groups
 assert.equal(pattern(modelPicker.targetRegex, "sonnet").exec(modelScreen)?.groups?.position, "4");
 assert.equal(pattern(modelPicker.targetRegex, "sonnet").exec(modelScreen)?.groups?.label, "Sonnet 5.5");
 assert.equal(pattern(modelPicker.targetRegex, "absent").exec(modelScreen), null);
-assert.ok(pattern(commands.model.prompt.screenRegex, "opus").test(fixture("opus-confirmation.txt")));
-assert.ok(pattern(commands.model.prompt.screenRegex, "sonnet").test(fixture("cached-sonnet-confirmation.txt")));
-assert.equal(pattern(commands.model.prompt.screenRegex, "opus").test(fixture("cached-sonnet-confirmation.txt")), false);
+assert.equal(commands.model.confirmationPromptKind, "switch_confirmation");
+assert.equal(commands.effort.confirmationPromptKind, "switch_confirmation");
+assert.equal(commands.model.prompt, undefined);
 assert.ok(pattern(commands.model.confirmation, "sonnet").test("Set model to `Sonnet 5.5` for this session only"));
 assert.equal(pattern(commands.model.confirmation, "sonnet").test("Set model to `Sonnet 5.5` and saved as your default for new sessions"), false);
 

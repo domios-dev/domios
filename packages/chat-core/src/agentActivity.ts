@@ -11,6 +11,8 @@ export interface AgentNode {
   depth: number;
   description?: string;
   model?: string;
+  reasoningEffort?: string;
+  ordinal?: number;
   durationMs?: number;
   toolUses?: number;
   tokens?: number;
@@ -33,7 +35,7 @@ export interface AgentActivityTree {
 
 const KNOWN_STATES: readonly AgentActivityState[] = ["started", "running", "completed", "failed", "interrupted", "closed"];
 const ACTION_KINDS: readonly ToolEventKind[] = ["command", "edit", "read", "search", "task", "fetch", "codeterm", "web", "image", "generic"];
-const DETAIL_KEYS = ["description", "model", "durationMs", "toolUses", "tokens", "result", "actions"] as const;
+const DETAIL_KEYS = ["description", "model", "reasoningEffort", "ordinal", "durationMs", "toolUses", "tokens", "result", "actions"] as const;
 
 function clean(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -95,6 +97,8 @@ export function agentActivityOf(message: NormalizedChatMessage): AgentActivity |
   const details: Partial<AgentActivity> = {
     description: clean(source.agent_description),
     model: clean(source.agent_model),
+    reasoningEffort: clean(source.agent_reasoning_effort),
+    ordinal: count(source.agent_ordinal),
     durationMs: count(source.agent_duration_ms),
     toolUses: count(source.agent_tool_uses),
     tokens: count(source.agent_tokens),

@@ -482,7 +482,24 @@ fn parent_rolls_up_open_child_statuses_in_plan_state() {
     );
     assert_eq!(parent_lane.subtasks.len(), 1);
     assert_eq!(parent_lane.subtasks[0].status, TaskStatus::Pending);
-    assert!(task_projection(&plan, &plan.tasks[0]).needs_orchestrator_action());
+    assert!(!task_projection(&plan, &plan.tasks[0]).needs_orchestrator_action());
+}
+
+#[test]
+fn split_parent_with_open_children_needs_no_dispatch_until_children_close() {
+    let mut plan = fixture();
+    let parent = task("t_parent", TaskStatus::Pending, &[]);
+    let mut done_child = task("t_done", TaskStatus::Done, &[]);
+    done_child.parent_task_id = Some(parent.id.clone());
+    let mut open_child = task("t_open", TaskStatus::InProgress, &[]);
+    open_child.parent_task_id = Some(parent.id.clone());
+    plan.tasks = vec![parent, done_child, open_child];
+    assert!(!task_projection(&plan, &plan.tasks[0]).needs_orchestrator_action());
+
+    plan.tasks[2].status = TaskStatus::Done;
+    let projection = task_projection(&plan, &plan.tasks[0]);
+    assert_eq!(projection.presentation, TaskPresentation::ActionablePending);
+    assert!(projection.needs_orchestrator_action());
 }
 
 #[test]
@@ -649,4 +666,35 @@ fn orphaned_plan_next_action_is_adoption_not_dispatch() {
     );
     assert!(snap.next_actions[0].message.contains(&plan.id));
     assert!(snap.next_actions[0].message.contains("reason-token"));
+}
+
+#[test]
+fn mission_control_projects_tab_todo_link_as_one_task_event() {
+    let mut plan = fixture();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == "t_done")
+        .unwrap();
+    task.milestones.push(Milestone {
+        id: "tab_todo_item-1".into(),
+        from: crate::plan::AgentRef::from_tab("worker"),
+        kind: "tab_todo_linked".into(),
+        text: "Checklist item linked: Review source".into(),
+        ts: 500,
+        links: vec![],
+        loop_id: None,
+        iteration: None,
+        canvas: Default::default(),
+        attachments: vec![],
+    });
+    let log = super::mission_control::build_plan_event_log(&plan);
+    let events: Vec<_> = log
+        .entries
+        .iter()
+        .filter(|event| event.kind == "tab_todo_linked")
+        .collect();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].task_id.as_deref(), Some("t_done"));
+    assert_eq!(events[0].text, "Checklist item linked: Review source");
 }

@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw, Sparkles } from "lucide-react";
 import type { HelpSectionId } from "../../help/types";
@@ -154,7 +155,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
             size="sm"
             className="!h-7 !w-7 !min-h-7 !p-0"
             disabled={controls.busy}
-            onClick={() => void controls.refreshStatus()}
+            onClick={() => void controls.refreshStatus(true)}
             aria-label="Refresh Spinal Cord status and models"
             title="Refresh Spinal Cord status and models"
           >
@@ -168,13 +169,9 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
         <p role="status" aria-live="polite" className="sr-only">
           {announcement}
         </p>
-        {controls.statusFailed && (
-          <p role="alert">Status is unavailable. Saved rows may be stale; refresh before making changes.</p>
-        )}
-        {controls.catalogFailed && <p role="alert">The model catalogue is unavailable. Refresh to choose a model.</p>}
-        {status?.adapter && !selected ? (
-          <p role="alert">The selected connection could not be verified. Refresh status before making changes.</p>
-        ) : null}
+        {controls.manualRefreshFailure === "status" && <InlineErrorNotice error={{ code: "supporter_status_unavailable", raw: "" }} />}
+        {controls.manualRefreshFailure === "catalog" && <InlineErrorNotice error={{ code: "supporter_catalogue_unavailable", raw: "" }} />}
+        {controls.catalogFailed && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">Model list is unavailable.</p>}
         {!selected && status && !status.adapter && (
           <p className="text-xs text-[var(--ct-muted-fg)]">
             {controls.statusFailed
@@ -250,9 +247,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
         {Object.entries(controls.errors)
           .filter(([adapter]) => !rows.some((row) => row.adapter === adapter))
           .map(([adapter, error]) => (
-            <p key={adapter} role="alert">
-              {error.message}
-            </p>
+            <div key={adapter}><InlineErrorNotice error={error.message} operation="connecting the Supporter" blocking /></div>
           ))}
         <InlineLinkButton
           label="How it works"

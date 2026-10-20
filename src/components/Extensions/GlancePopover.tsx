@@ -4,8 +4,8 @@ import { invokePluginWithConsent } from "../../lib/pluginConsent";
  * plugin's read-only `renderGlance()` ViewNode tree. Not settings: a quick peek
  * (Bitwarden account, transcriber status, …) with a gear to open full settings.
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { invoke } from "../../lib/bridge";
 import { PluginUiHost } from "./PluginUiHost";
 import type { PluginUiHostState } from "../../lib/pluginUiHostModel";
@@ -16,13 +16,6 @@ import { ensurePluginSnapshot } from "../../lib/pluginSnapshotStore";
 import { buildGlanceView, pluginHasGlance } from "./glanceModel";
 import { GlanceBody, type GlanceView } from "./ViewNodeRenderer";
 
-export interface GlanceAnchor {
-  right: number;
-  /** Anchor from the bottom tab-footer bubble. */
-  top?: number;
-  bottom?: number;
-}
-
 export function GlancePopover({
   pluginId,
   displayName,
@@ -31,18 +24,17 @@ export function GlancePopover({
   ctx,
   onClose,
   onOpenSettings,
-  trigger,
   hoverOnly = false,
   footer,
 }: {
-  trigger?: HTMLElement | null;
   hoverOnly?: boolean;
   footer?: ReactNode;
   pluginId: string;
   displayName: string;
   /** Opt-in instructions; absent means this plugin is not AI-configurable. */
   configHelp?: string;
-  anchor: GlanceAnchor;
+  /** The trigger the glance hangs from. */
+  anchor: RefObject<HTMLElement | null>;
   ctx?: Record<string, unknown>;
   onClose: () => void;
   onOpenSettings: (pluginId: string) => void;
@@ -80,6 +72,7 @@ export function GlancePopover({
 
   // Dismiss on outside click + Escape.
   useEffect(() => {
+    const trigger = anchor.current;
     const onDown = (e: MouseEvent) => {
       if (document.querySelector("[data-plugin-consent]")) return;
       if (menuRef.current && !menuRef.current.contains(e.target as Node) && !trigger?.contains(e.target as Node)) onClose();
@@ -103,7 +96,7 @@ export function GlancePopover({
       document.removeEventListener("mousedown", onDown, true);
       document.removeEventListener("keydown", onKey);
     };
-  }, [onClose, trigger, hoverOnly]);
+  }, [onClose, anchor, hoverOnly]);
 
   const onAction = useCallback(
     (action: string) => {
@@ -143,16 +136,13 @@ export function GlancePopover({
     : view.nodes.length ? { status: "ready" }
     : { status: "empty", reason: "This plugin has no status to show." };
 
-  return createPortal(
+  return (
+    <AnchoredPopover open anchor={anchor} placement="bottom-end" gap={6}>
     <div
       ref={menuRef}
       role="dialog"
       aria-label={`${displayName} receiver status`}
-      className="fixed z-50"
       style={{
-        top: anchor.top,
-        bottom: anchor.bottom,
-        right: anchor.right,
         width: 280,
         background: "color-mix(in srgb, var(--ct-bg-elev, #1e1e2e) 92%, transparent)",
         backdropFilter: "blur(24px) saturate(150%)",
@@ -177,7 +167,7 @@ export function GlancePopover({
         {view && <GlanceBody view={view} onAction={onAction} />}
       </PluginUiHost>
       {footer}
-    </div>,
-    document.body,
+    </div>
+    </AnchoredPopover>
   );
 }

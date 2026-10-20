@@ -11,6 +11,7 @@ import { mapCursorStyle, buildXtermTheme } from "../../components/Terminal/helpe
 import type { ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { shouldEnableXtermA11yMode } from "./xtermTestMode";
 import { scheduleXtermInit } from "./xtermInitScheduler";
+import { terminalXtermOptions } from "./terminalXtermOptions";
 import { DEV_BUILD } from "../../lib/devBuild";
 
 // Playwright harness (`/?a11y=1`) can enable xterm screen-reader mode.
@@ -33,6 +34,7 @@ export interface UseXtermOptions {
   // Visible/focused tabs init ahead of backgrounded ones in the stagger queue.
   priority?: boolean;
   renderEnabled?: boolean;
+  viewerLocalGeometry?: boolean;
 }
 
 export interface UseXtermReturn {
@@ -50,12 +52,15 @@ export function useXterm({
   terminalConfig,
   priority = false,
   renderEnabled = true,
+  viewerLocalGeometry = false,
 }: UseXtermOptions): UseXtermReturn {
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const webglRef = useRef<WebglAddon | null>(null);
   const initialized = useRef(false);
+  const viewerLocalGeometryRef = useRef(viewerLocalGeometry);
+  viewerLocalGeometryRef.current = viewerLocalGeometry;
 
   const [bellFlash, setBellFlash] = useState(false);
   const [termReady, setTermReady] = useState(false);
@@ -93,10 +98,7 @@ export function useXterm({
         // DOM accessibility mirror for Playwright/e2e (`/?a11y=1`).
         // It disables truecolor, so normal/dev sessions keep WebGL.
         screenReaderMode: E2E_TEST_MODE,
-        windowsPty: {
-          backend: "conpty",
-          buildNumber: winBuildNumber,
-        },
+        ...terminalXtermOptions(viewerLocalGeometryRef.current, winBuildNumber),
       });
 
       const fitAddon = new FitAddon();
@@ -190,14 +192,14 @@ export function useXterm({
     term.options.cursorBlink = terminalConfig?.cursor_blink ?? true;
     term.options.cursorStyle = mapCursorStyle(terminalConfig?.cursor_style);
     term.options.scrollback = terminalConfig?.scrollback ?? 10000;
-    if (navigator.platform.startsWith("Win")) {
-      term.options.windowsPty = { backend: "conpty", buildNumber: winBuildNumber };
-    }
+    const geometryOptions = terminalXtermOptions(viewerLocalGeometry, winBuildNumber);
+    term.options.windowsPty = geometryOptions.windowsPty;
+    term.options.reflowCursorLine = geometryOptions.reflowCursorLine;
 
     requestAnimationFrame(() => {
       try { fitAddonRef.current?.fit(); } catch { /* ignore */ }
     });
-  }, [theme, fontConfig, terminalConfig, winBuildNumber]);
+  }, [theme, fontConfig, terminalConfig, viewerLocalGeometry, winBuildNumber]);
 
   return { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady };
 }

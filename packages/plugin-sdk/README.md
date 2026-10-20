@@ -51,8 +51,10 @@ import type { PluginModule } from "@codeterm/plugin-sdk";
 const plugin: PluginModule = {
   statusBubble(ctx) {
     if (!ctx?.cwd) return null;
-    const r = JSON.parse(host.exec(JSON.stringify({ bin: "git", args: ["-C", ctx.cwd, "rev-parse", "--abbrev-ref", "HEAD"] })));
-    return r.code === 0 ? { label: r.stdout.trim(), tone: "default", action: "openPanel:view:my-plugin" } : null;
+    return host.exec.async({ bin: "git", args: ["-C", ctx.cwd, "rev-parse", "--abbrev-ref", "HEAD"], timeoutMs: 4000 }, (r) =>
+      r.code === 0 && !r.error && !r.truncated
+        ? { label: (r.stdout || "").trim(), tone: "default", action: "openPanel:view:my-plugin" }
+        : null);
   },
 };
 
@@ -62,6 +64,16 @@ export default plugin;
 Build it to the QuickJS-compatible `plugin.js` with Domios's `build-plugin.mjs`
 (esbuild, CJS, `module.exports.default`). QuickJS has no `console`/`fetch`/timers —
 stay on the `host.*` surface. See the Domios plugin authoring guide for details.
+
+Return `host.exec.async(opts, continuation)` from a hook to release the VM while
+the subprocess runs. It uses the same binary allowlist, host identity environment,
+and detached-log write policy as synchronous `host.exec`; it grants no additional
+filesystem, SQLite, or environment access. Its event wait has a five-second failure
+deadline. Each output stream retains at most 128 KiB, with `truncated: true` when
+bytes were discarded. Keep `timeoutMs` below the event deadline and retain the last
+successful display on errors or truncation. Hooks return continuations, not Promises.
+
+The host snapshots callable exports when the bundle evaluates; methods added later are invisible until a bundle reload includes them.
 
 Exports: `Host`, `HostFs`, `HostShell`, `HostPath`, `DirEntry`, `ExecOpts`,
 `ExecResult`, `FetchOpts`, `FetchResult`, and the capability contracts

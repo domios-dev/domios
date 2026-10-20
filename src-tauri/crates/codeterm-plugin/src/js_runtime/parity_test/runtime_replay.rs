@@ -37,12 +37,16 @@ enum Record {
     Outbound {
         #[serde(default)]
         receipt_ms: Option<f64>,
+        #[serde(default)]
+        adapter_step: bool,
         operation: usize,
         action: RuntimeAction,
     },
     Inbound {
         #[serde(default)]
         receipt_ms: Option<f64>,
+        #[serde(default)]
+        adapter_step: bool,
         operation: Option<usize>,
         #[serde(default)]
         reply: Option<RpcReply>,
@@ -116,6 +120,19 @@ fn paths() -> Vec<FixturePaths> {
     discovered
 }
 
+/// The runtime bundle that declares history bounds, with those bounds.
+fn history_bounds_inputs() -> (FixturePaths, Value) {
+    let inputs = paths()
+        .into_iter()
+        .find(|input| input.dir.with_file_name("history-bounds.json").is_file())
+        .expect("a runtime bundle declares history bounds");
+    let sizes = serde_json::from_str(
+        &std::fs::read_to_string(inputs.dir.with_file_name("history-bounds.json")).unwrap(),
+    )
+    .unwrap();
+    (inputs, sizes)
+}
+
 fn load_provider(manifest_path: &Path, declaration_path: &Path) -> JsProvider {
     let mut raw: Value =
         serde_json::from_str(&std::fs::read_to_string(manifest_path).unwrap()).unwrap();
@@ -147,8 +164,8 @@ fn fixtures(dir: &Path) -> Vec<(PathBuf, Fixture)> {
     let mut paths = scenario_paths(dir);
     assert_eq!(
         paths.len(),
-        8,
-        "shared runtime gate requires all eight scenarios"
+        11,
+        "shared runtime gate requires all eleven scenarios"
     );
     let captures = dir.join("captured");
     if captures.exists() {
@@ -161,18 +178,26 @@ fn fixtures(dir: &Path) -> Vec<(PathBuf, Fixture)> {
                 serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
             let mut previous = 0.0;
             for record in &fixture.rpc {
-                let receipt = match record {
-                    Record::Outbound { receipt_ms, .. } | Record::Inbound { receipt_ms, .. } => {
-                        receipt_ms
+                let (receipt, adapter_step) = match record {
+                    Record::Outbound {
+                        receipt_ms,
+                        adapter_step,
+                        ..
                     }
+                    | Record::Inbound {
+                        receipt_ms,
+                        adapter_step,
+                        ..
+                    } => (receipt_ms, *adapter_step),
                 };
                 if let Some(receipt) = receipt {
+                    assert!(!adapter_step, "an adapter step claims no receipt");
                     assert!(receipt.is_finite() && *receipt >= previous);
                     previous = *receipt;
                 } else {
                     assert!(
-                        fixture.captured.is_none(),
-                        "captured RPC record must have receiptMs"
+                        fixture.captured.is_none() || adapter_step,
+                        "captured RPC record must have receiptMs or be an adapterStep"
                     );
                 }
             }
@@ -193,6 +218,7 @@ async fn replay(
                 && !capture.scenario.is_empty()
         );
     }
+    let mut histories: HashMap<usize, RuntimeHistory> = HashMap::new();
     let mut plans: HashMap<usize, RuntimePlan> = HashMap::new();
     let mut counts: HashMap<usize, usize> = HashMap::new();
     let mut state = Value::Null;
@@ -221,7 +247,13 @@ async fn replay(
                         provider.runtime_plan(ctx, &case.operation).await.unwrap(),
                     );
                 }
-                assert_eq!(&plans[operation].action, action);
+                let mut expected = action.clone();
+                if let RuntimeAction::Request { call } = &mut expected {
+                    if call.method == "account/rateLimits/read" {
+                        call.params = json!({"excludeResetCreditDetails":true});
+                    }
+                }
+                assert_eq!(plans[operation].action, expected);
                 if matches!(action, RuntimeAction::QuestionAnswer { .. }) {
                     plans.remove(operation);
                 }
@@ -241,10 +273,35 @@ async fn replay(
                 let count = counts.entry(*index).or_insert(0);
                 *count += 1;
                 assert!(*count <= MAX_RUNTIME_STEPS);
-                let step = provider
+                let mut step = provider
                     .runtime_response(ctx, &case.operation, &plan.state, reply)
                     .await
                     .unwrap();
+                if let RuntimeStep::Continue {
+                    history: Some(chunk),
+                    ..
+                } = &step
+                {
+                    histories.entry(*index).or_default().append(chunk.clone());
+                }
+                if let RuntimeStep::Complete {
+                    result:
+                        RuntimeResult::HistoryPage {
+                            thread_id,
+                            next_cursor,
+                            ..
+                        },
+                    ..
+                } = &step
+                {
+                    let thread = thread_id.clone();
+                    let cursor = next_cursor.clone();
+                    if let RuntimeStep::Complete { result, .. } = &mut step {
+                        let mut history = histories.remove(index).unwrap_or_default();
+                        history.append(result.clone());
+                        *result = history.finish(thread, cursor);
+                    }
+                }
                 if let RuntimeStep::Continue { plan, .. } = &step {
                     plans.insert(*index, plan.clone());
                 } else {
@@ -322,6 +379,7 @@ fn p99(samples: &mut [Duration]) -> Duration {
 }
 
 #[tokio::test]
+#[ignore = "Manual performance check: absolute wall-clock throughput depends on host load; see the testing skill"]
 async fn runtime_quickjs_frame_mapping_benchmark() {
     for paths in paths() {
         benchmark(&paths).await;
@@ -464,4 +522,172 @@ fn observed_rates(fixtures: &[(PathBuf, Fixture)]) -> (f64, f64) {
         "a real complete ten-second streaming capture is required"
     );
     (sustained, peak)
+}
+
+#[tokio::test]
+async fn runtime_large_history_streams_bounded_quickjs_state() {
+    let (inputs, _) = history_bounds_inputs();
+    let provider = load_provider(&inputs.manifest, &inputs.declaration);
+    let fixture: Fixture =
+        serde_json::from_str(&std::fs::read_to_string(inputs.dir.join("resume.json")).unwrap())
+            .unwrap();
+    let context = fixture.context;
+    let op = RuntimeOperation::ReadHistory {
+        thread_id: context.thread_id.clone().unwrap(),
+        cursor: None,
+        order: None,
+    };
+    let plan = provider.runtime_plan(&context, &op).await.unwrap();
+    let mut step = provider.runtime_response(&context, &op, &plan.state, &RpcReply::Success { value: json!({"data":[{"id":"long-turn","status":"completed","ignored":"x".repeat(MAX_RUNTIME_STATE_BYTES)}]}) }).await.unwrap();
+    let mut history = RuntimeHistory::default();
+    for index in 0..80 {
+        let RuntimeStep::Continue { plan, .. } = step else {
+            panic!("history must continue")
+        };
+        validate_runtime_state(&plan.state).unwrap();
+        assert!(serde_json::to_vec(&plan.state).unwrap().len() < 1024);
+        let value = json!({"data":[{"item":{"type":"agentMessage","id":format!("item-{index}"),"text":"x".repeat(8192)}}],"nextCursor":(index < 79).then(|| format!("cursor-{index}"))});
+        step = provider
+            .runtime_response(&context, &op, &plan.state, &RpcReply::Success { value })
+            .await
+            .unwrap();
+        if let RuntimeStep::Continue {
+            history: Some(chunk),
+            ..
+        } = &step
+        {
+            history.append(chunk.clone());
+        }
+    }
+    let RuntimeStep::Continue { plan, .. } = step else {
+        panic!("expected goal")
+    };
+    validate_runtime_state(&plan.state).unwrap();
+    let complete = provider
+        .runtime_response(
+            &context,
+            &op,
+            &plan.state,
+            &RpcReply::Error {
+                error: RpcFailure {
+                    code: -32601,
+                    message: "unsupported".into(),
+                    data: None,
+                },
+            },
+        )
+        .await
+        .unwrap();
+    let RuntimeStep::Complete { result, .. } = complete else {
+        panic!("expected completion")
+    };
+    history.append(result);
+    let result = history.finish(context.thread_id.unwrap(), None);
+    assert!(serde_json::to_vec(&result).unwrap().len() > MAX_RUNTIME_STATE_BYTES);
+    let RuntimeResult::HistoryPage { items, .. } = result else {
+        panic!()
+    };
+    assert_eq!(items.len(), 80);
+    assert_eq!(items.last().unwrap().seq, 80);
+}
+
+#[tokio::test]
+async fn runtime_multi_mib_history_is_bounded_before_and_after_quickjs() {
+    let (inputs, sizes) = history_bounds_inputs();
+    let provider = load_provider(&inputs.manifest, &inputs.declaration);
+    let fixture: Fixture =
+        serde_json::from_str(&std::fs::read_to_string(inputs.dir.join("resume.json")).unwrap())
+            .unwrap();
+    let context = fixture.context;
+    let op = RuntimeOperation::ReadHistory {
+        thread_id: context.thread_id.clone().unwrap(),
+        cursor: None,
+        order: None,
+    };
+    let plan = provider.runtime_plan(&context, &op).await.unwrap();
+    let mut step = provider
+        .runtime_response(
+            &context,
+            &op,
+            &plan.state,
+            &RpcReply::Success {
+                value: json!({"data":[{"id":"turn","status":"inProgress","startedAt":1}]}),
+            },
+        )
+        .await
+        .unwrap();
+    let mut data = vec![
+        json!({"item":{"id":"image","type":"userMessage","content":[{"type":"image","url":format!("data:image/png;base64,{}","A".repeat(sizes["imageBytes"].as_u64().unwrap() as usize))}]}}),
+        json!({"item":{"id":"tool","type":"commandExecution","command":"cat","aggregatedOutput":"x".repeat(sizes["toolBytes"].as_u64().unwrap() as usize),"status":"completed"}}),
+    ];
+    data.extend((0..98).map(|index| json!({"item":{"id":format!("item-{index}"),"type":"agentMessage","text":"\u{0001}雪🙂".repeat(2000)}})));
+    let mut history = RuntimeHistory::default();
+    let mut outputs = 0;
+    loop {
+        let RuntimeStep::Continue { plan, .. } = step else {
+            panic!("expected history continuation")
+        };
+        let RuntimeAction::Request { call } = &plan.action else {
+            panic!("expected request")
+        };
+        if call.method != "thread/items/list" {
+            step = provider
+                .runtime_response(
+                    &context,
+                    &op,
+                    &plan.state,
+                    &RpcReply::Error {
+                        error: RpcFailure {
+                            code: -32601,
+                            message: "unsupported".into(),
+                            data: None,
+                        },
+                    },
+                )
+                .await
+                .unwrap();
+            break;
+        }
+        outputs += 1;
+        assert!(outputs <= 100);
+        step = provider
+            .runtime_response(
+                &context,
+                &op,
+                &plan.state,
+                &RpcReply::Success {
+                    value: json!({"data":data}),
+                },
+            )
+            .await
+            .unwrap();
+        let wire = serde_json::to_vec(&step).unwrap();
+        assert!(wire.len() < sizes["chunkBytes"].as_u64().unwrap() as usize);
+        validate_runtime_size(&step, MAX_RUNTIME_VALUE_BYTES).unwrap();
+        assert!(!String::from_utf8(wire).unwrap().contains("data:image/"));
+        if let RuntimeStep::Continue {
+            history: Some(chunk),
+            ..
+        } = &step
+        {
+            history.append(chunk.clone());
+        }
+    }
+    assert!(outputs > 1);
+    let RuntimeStep::Complete { result, .. } = step else {
+        panic!("expected completed history")
+    };
+    history.append(result);
+    let RuntimeResult::HistoryPage {
+        items, open_items, ..
+    } = history.finish(context.thread_id.unwrap(), None)
+    else {
+        panic!("expected page")
+    };
+    assert_eq!(items.len(), 100);
+    assert_eq!(open_items.len(), 99);
+    assert_eq!(items.last().unwrap().seq, 100);
+    let wire = serde_json::to_string(&items).unwrap();
+    assert!(wire.contains("[image omitted: 6291478 bytes]"));
+    assert!(wire.contains("[content truncated: 5242880 bytes total]"));
 }

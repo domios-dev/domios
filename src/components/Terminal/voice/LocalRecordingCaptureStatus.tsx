@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import type { LocalRecordingCaptureState } from "./localRecordingCaptureModel";
 
 function statusMessage(state: LocalRecordingCaptureState): string {
@@ -21,7 +22,7 @@ export function LocalRecordingCaptureStatus({ state }: {
       {state.phase !== "error" && (
         <p role="status" aria-live="polite" aria-atomic="true">{statusMessage(state)}</p>
       )}
-      {state.error && <p role="alert" aria-live="assertive">{state.error}</p>}
+      {state.error && <InlineErrorNotice error={state.error} operation="recording this voice note" blocking />}
     </div>
   );
 }

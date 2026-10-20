@@ -337,6 +337,16 @@ fn handle_backups(
     token: Option<&str>,
 ) {
     match action {
+        BackupsAction::Export {
+            name,
+            sanitize,
+            out,
+        } => {
+            backup_exchange::export(json_mode, http, base, token, &name, sanitize, &out);
+        }
+        BackupsAction::Import { file } => {
+            backup_exchange::import(json_mode, http, base, token, &file);
+        }
         BackupsAction::List { limit } => {
             let url = format!("{}/api/session/backups", base);
             let mut req = http.get(&url);
@@ -437,3 +447,5 @@ fn handle_backups(
 
 #[cfg(test)]
 mod tests;
+
+mod backup_exchange;

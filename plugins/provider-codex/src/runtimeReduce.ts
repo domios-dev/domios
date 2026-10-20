@@ -1,29 +1,41 @@
+import { goalIntent } from "./runtimeGoal";
 import type { RuntimeContext, JsonValue, RuntimeFrame, RuntimeReduction, AgentEvent, ChatMsg, TokenUsage } from "@codeterm/plugin-sdk";
+import { rateLimitEvents } from "./runtimeUsage";
 import { object, text, list, serverRequestMethods } from "./runtimeProtocol";
-import { json, runtimeItem, runtimeItems } from "./runtimeMessages";
+import { json, runtimeItem } from "./runtimeMessages";
 import { runtimeError } from "./runtimeErrors";
 import { loginCompleted } from "./runtimeLogin";
 import { notificationAuth } from "./runtimeAuth";
 import { runtimeQuestions } from "./runtimeQuestions";
 import { runtimePrompt } from "./runtimePrompts";
 import { codexReportedSettings } from "./runtimeSettings";
+import { abandonOpenTurn, interruptPendingCalls, runningCallStatus, stampToolLifecycle, type RuntimeItem } from "./runtimeAbandonedTurns";
+import { reduceRuntimeAgents, type RuntimeAgents } from "./runtimeAgents";
+import { threadStatus, turnOutcome, requestDetail, withDetail } from "./runtimeTurnStatus";
+import { compactState, isRetired, markClosed, markOpen } from "./runtimeStateBudget";
+import { budgetReduction } from "./runtimeBatchBudget";
 
 interface ReduceState {
   epoch: number;
   bindingNonce: string;
   threadId?: string;
   seq: number;
-  items: Record<string,ChatMsg>;
+  items: Record<string,RuntimeItem>;
   completed: string[];
   compacted: string[];
   evidenced: string[];
   questions?:string[];
   activeTurnId?: string;
+  abandoned?: string[];
   parents?:Record<string,string>;
   childActive?:Record<string,string>;
   childCompleted?:string[];
   rateLimitSnapshot?:Record<string,unknown>;
   reasoning?:Record<string,{summary:string[]; content:string[]}>;
+  agents?:RuntimeAgents;
+  compacting?:string;
+  open?:string[];
+  retired?:string[];
 }
 function initial(ctx: RuntimeContext, raw: JsonValue): ReduceState {
   const state = object(raw);
@@ -31,6 +43,7 @@ function initial(ctx: RuntimeContext, raw: JsonValue): ReduceState {
     const restored=JSON.parse(JSON.stringify(state)) as ReduceState;
     restored.items=Object.assign(Object.create(null),restored.items);
     if(restored.parents) restored.parents=Object.assign(Object.create(null),restored.parents);
+    if(restored.agents) restored.agents.rows=Object.assign(Object.create(null),restored.agents.rows);
     return restored;
   }
   return {epoch:ctx.epoch,bindingNonce:ctx.bindingNonce,threadId:ctx.threadId,seq:0,items:Object.create(null),completed:[],compacted:[],evidenced:[],activeTurnId:ctx.activeTurnId};
@@ -46,7 +59,7 @@ function usage(params: Record<string,unknown>): TokenUsage | undefined {
   const token = object(params.tokenUsage);
   const total = object(token.total);
   if (typeof total.inputTokens !== "number" || typeof total.outputTokens !== "number") return undefined;
-  return {input_tokens:total.inputTokens,output_tokens:total.outputTokens,
+  return {...(typeof total.costUsd === "number" && Number.isFinite(total.costUsd) && total.costUsd >= 0 ? {cost_micros:Math.round(total.costUsd * 1e6)} : {}),input_tokens:total.inputTokens,output_tokens:total.outputTokens,
     ...(typeof total.cacheWriteInputTokens === "number" ? {cache_write_tokens:total.cacheWriteInputTokens} : {}),
     ...(typeof total.cachedInputTokens === "number" ? {cache_read_tokens:total.cachedInputTokens} : {}),
     ...(typeof object(token.last).totalTokens === "number" ? {used_tokens:Number(object(token.last).totalTokens)} : {}),
@@ -68,16 +81,19 @@ function sendEvidence(ctx: RuntimeContext, item: Record<string,unknown>, turnId:
     if (expected.url) return image.type === "image" && image.url === expected.url;
     return !!expected.path && image.type === "localImage" && image.path === expected.path;
   })) return undefined;
-  return {kind:"sendEvidence",threadId:claim.threadId,sendId:claim.sendId,turnId};
+  return {kind:"sendEvidence",threadId:claim.threadId,sendId:claim.sendId,turnId,...(text(item.id) ? {itemId:text(item.id)!} : {})};
 }
-function stamp(state: ReduceState, row: ChatMsg, params: Record<string,unknown>): ChatMsg {
+function stamp(state: ReduceState, row: RuntimeItem, params: Record<string,unknown>): RuntimeItem {
   const previous = state.items[row.id];
   row.seq = previous?.seq ?? ++state.seq;
   const ms = params.startedAtMs ?? params.completedAtMs;
   if (previous?.timestamp) row.timestamp = previous.timestamp;
   else if (typeof ms === "number" && Number.isFinite(ms)) row.timestamp = new Date(ms).toISOString();
   const turnId = text(params.turnId) ?? text(object(params.turn).id);
-  if (turnId) row.toolFlowId = turnId;
+  if (turnId && !row.toolFlowId) row.toolFlowId = turnId;
+  if (row.toolKind === "agent" && row.toolName === "agent_activity") {
+    row.toolInput = json({...object(row.toolInput), agent_binding_nonce: state.bindingNonce, agent_runtime_epoch: state.epoch});
+  }
   state.items[row.id] = row;
   return row;
 }
@@ -85,13 +101,16 @@ function mapItem(state: ReduceState, method: string, params: Record<string,unkno
   const raw = object(params.item);
   const id = text(raw.id) ?? text(params.itemId);
   if (!id) return undefined;
-  const previous = state.items[id];
+  const retired = isRetired(state,id);
+  const previous = retired ? undefined : state.items[id];
   if (method === "item/started" || method === "item/completed") {
+    if (method === "item/started") markOpen(state,id); else markClosed(state,id);
     const row = runtimeItem(raw,state.seq + 1,previous);
-    return row ? stamp(state,row,params) : undefined;
+    return row ? stamp(state,stampToolLifecycle(row,previous,method,params),params) : undefined;
   }
   const delta = text(params.delta) ?? text(params.message);
-  if (!delta) return undefined;
+  if (!delta || retired) return undefined;
+  markOpen(state,id);
   const row: ChatMsg = previous ? {...previous} : {id,seq:state.seq + 1,type:"assistant",content:""};
   switch (method) {
     case "item/agentMessage/delta": case "item/plan/delta": row.type = "assistant"; row.content += delta; break;
@@ -102,7 +121,7 @@ function mapItem(state: ReduceState, method: string, params: Record<string,unkno
     case "item/mcpToolCall/progress": row.type = "tool_call"; row.toolKind = "generic"; row.toolId = id; row.toolDetail = delta; break;
     default: return undefined;
   }
-  return stamp(state,row,params);
+  return stamp(state,stampToolLifecycle(row,previous,method,params),params);
 }
 
 export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: readonly RuntimeFrame[]): RuntimeReduction {
@@ -114,7 +133,12 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       events.push(loginCompleted(params)); continue;
     }
     if (frame.kind === "notification" && frame.method === "account/updated") {
+      if (ctx.threadId) events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{serviceTierAvailability:{}}});
       events.push(notificationAuth(params)); continue;
+    }
+    if (frame.kind === "notification" && frame.method === "thread/reverted") {
+      if (ctx.threadId && params.threadId === ctx.threadId) events.push({kind:"threadReverted",threadId:ctx.threadId});
+      continue;
     }
     state.parents ??= Object.fromEntries(ctx.threadParents.map(parent=>[parent.threadId,parent.parentThreadId]));
     if (frame.kind === "notification" && frame.method === "thread/started") {
@@ -124,6 +148,11 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       continue;
     }
     if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents,params.threadId) && frame.method !== "serverRequest/resolved") {
+      if ((frame.method === "item/started" || frame.method === "item/completed") && ctx.threadId) {
+        state.agents ??= {rows:Object.create(null),ordinal:0};
+        const agents = reduceRuntimeAgents(state.agents,state.items,state.parents,params.threadId,params.item,state.seq+1);
+        if (agents) for (const activity of agents) events.push({kind:"chatItem",threadId:ctx.threadId,item:stamp(state,activity,params)});
+      }
       const threadId=params.threadId;const turnId=text(object(params.turn).id) ?? text(params.turnId);
       if (!turnId) continue;
       state.childActive ??= {};state.childCompleted ??= [];
@@ -142,14 +171,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       const limits = object(params.rateLimits);
       if (limits.limitId && limits.limitId !== "codex") continue;
       state.rateLimitSnapshot = {...state.rateLimitSnapshot,...limits};
-      const windows = ["primary","secondary"].flatMap(window => {
-        const value = object(state.rateLimitSnapshot?.[window]);
-        if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
-        return [{window,usedPercent:Math.max(0,Math.min(100,value.usedPercent)),
-          ...(typeof value.resetsAt === "number" && value.resetsAt >= 0 ? {resetsAt:value.resetsAt * 1000} : {}),
-          ...(typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? {windowMinutes:value.windowDurationMins} : {})}];
-      });
-      if (windows.length) events.push({kind:"rateLimits",rateLimits:windows});
+      events.push(...rateLimitEvents(state.rateLimitSnapshot,params.rateLimitResetCredits));
       continue;
     }
     const descendant = typeof params.threadId === "string" && ctx.threadParents.some(parent => parent.threadId === params.threadId);
@@ -157,7 +179,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       if (!(serverRequestMethods as readonly string[]).includes(frame.method)) continue;
       const prompt = runtimePrompt(frame.method,params,frame.requestId);
       const turnId = descendant ? ctx.activeTurnId : text(params.turnId);
-      if (prompt) events.push({kind:"prompt",threadId:ctx.threadId,requestId:frame.requestId,prompt},{kind:"turnState",threadId:ctx.threadId,state:"needs_input",...(turnId ? {turnId} : {})});
+      if (prompt) events.push({kind:"prompt",threadId:ctx.threadId,requestId:frame.requestId,prompt},{kind:"turnState",threadId:ctx.threadId,state:"needs_input",detail:requestDetail(frame.method),...(turnId ? {turnId} : {})});
       continue;
     }
     if (ctx.threadId && descendant && frame.kind === "notification" && frame.method === "serverRequest/resolved") {
@@ -167,10 +189,13 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
     if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
     const threadId = ctx.threadId;
     const turnId = text(params.turnId) ?? text(object(params.turn).id);
+    if (turnId && state.abandoned?.includes(turnId)) continue;
     switch (frame.method) {
       case "turn/started": {
         if (!turnId || state.completed.includes(turnId)) break;
+        events.push(...abandonOpenTurn(state,threadId,turnId));
         state.activeTurnId = turnId;
+        delete state.compacting;
         const settings = codexReportedSettings({...params,...object(params.turn)});
         if (Object.keys(settings).length) events.push({kind:"controlsConfirmed",threadId,settings});
         events.push({kind:"turnState",threadId,turnId,state:"working",...timing(params)}); break;
@@ -179,20 +204,36 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         if (!turnId || state.completed.includes(turnId)) break;
         state.completed.push(turnId);
         if (state.activeTurnId && state.activeTurnId !== turnId) break;
+        events.push(...interruptPendingCalls(state,threadId,turnId));
         delete state.activeTurnId;
+        delete state.compacting;
         const failure = object(object(params.turn).error);
         if (text(failure.message)) {
           const error = runtimeError(failure);
           events.push({kind:"chatItem",threadId,item:stamp(state,{id:`${turnId}:error`,seq:state.seq+1,type:"system",content:error.message,systemSubtype:"api_error",toolInput:error.metadata},params)});
         }
-        events.push({kind:"turnState",threadId,turnId,state:"idle",...timing(params)}); break;
+        const outcome = turnOutcome(params.turn);
+        events.push({kind:"turnState",threadId,turnId,state:"idle",...(outcome ? {detail:outcome} : {}),...timing(params)}); break;
       }
       case "thread/status/changed": {
-        const status = object(params.status);
-        const type = typeof params.status === "string" ? params.status : status.type;
-        if (type === "idle") events.push({kind:"turnState",threadId,state:"idle"});
-        else if (type === "active") events.push({kind:"turnState",threadId,state:list(status.activeFlags).some(f => f === "waitingOnApproval" || f === "waitingOnUserInput") ? "needs_input" : "working"});
+        const status = threadStatus(params.status);
+        if (!status) break;
+        if (status.state === "working" && !state.activeTurnId) break;
+        if (status.state === "idle" && state.activeTurnId && !pendingStatus(state,threadId)) break;
+        if (status.state === "idle") delete state.compacting;
+        events.push((status.state !== "needs_input" && pendingStatus(state,threadId))
+          || {kind:"turnState",threadId,...withDetail(status,!!state.compacting),...(state.activeTurnId && status.state !== "idle" ? {turnId:state.activeTurnId} : {})});
         break;
+      }
+      case "item/fileChange/patchUpdated": {
+        const id = text(params.itemId);
+        if (!id || !Array.isArray(params.changes) || isRetired(state,id)) break;
+        const previous = state.items[id];
+        const row = runtimeItem({id,type:"fileChange",changes:params.changes,status:"inProgress"},state.seq+1,previous);
+        if (!row) break;
+        markOpen(state,id);
+        if (previous?.toolResult !== undefined) row.toolResult = previous.toolResult;
+        events.push({kind:"chatItem",threadId,item:stamp(state,row,params)}); break;
       }
       case "thread/tokenUsage/updated": {
         const mapped = usage(params); if (mapped) events.push({kind:"usage",threadId,usage:mapped}); break;
@@ -221,7 +262,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       }
       case "thread/goal/updated": {
         const goal = text(object(params.goal).objective);
-        if (goal) events.push({kind:"chatItem",threadId,item:stamp(state,{id:"thread:goal",seq:state.seq+1,type:"custom",content:"",sessionIntent:{goal}},params)});
+        if (goal) events.push({kind:"chatItem",threadId,item:stamp(state,{id:"thread:goal",seq:state.seq+1,type:"custom",content:"",sessionIntent:goalIntent(params.goal) ?? {goal}},params)});
         break;
       }
       case "turn/plan/updated": {
@@ -236,6 +277,14 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       default: {
         let row:ChatMsg | undefined;
         const rawItem = object(params.item);
+        if (frame.method === "item/started" || frame.method === "item/completed") {
+          state.agents ??= {rows:Object.create(null),ordinal:0};
+          const agents = reduceRuntimeAgents(state.agents,state.items,state.parents!,threadId,rawItem,state.seq+1);
+          if (agents) {
+            for (const activity of agents) events.push({kind:"chatItem",threadId,item:stamp(state,activity,params)});
+            continue;
+          }
+        }
         if (frame.method === "item/completed" && rawItem.type === "agentMessage" && rawItem.delivery === "async" && list(rawItem.questions).length) {
           const itemId = text(rawItem.id);
           state.questions ??= [];
@@ -245,24 +294,42 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
           }
           continue;
         }
+        const compactionId = rawItem.type === "contextCompaction" ? text(rawItem.id) : undefined;
+        if (compactionId && frame.method === "item/started" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) {
+          if (state.compacting === compactionId || state.compacted.includes(compactionId)) continue;
+          state.compacting = compactionId;
+          events.push({kind:"turnState",threadId,state:"working",detail:"compacting",...(turnId ? {turnId} : {})});
+          continue;
+        }
+        if (compactionId && frame.method === "item/completed" && state.compacting === compactionId) {
+          delete state.compacting;
+          if (turnId && state.activeTurnId === turnId) events.push({kind:"turnState",threadId,turnId,state:"working"});
+        }
         const reasoningId = text(rawItem.id) ?? text(params.itemId);
         if (reasoningId && (rawItem.type === "reasoning" || frame.method.startsWith("item/reasoning/"))) {
+          if (frame.method !== "item/completed" && isRetired(state,reasoningId)) continue;
           state.reasoning ??= {};
           const parts = state.reasoning[reasoningId] ?? {summary:[],content:[]};
           state.reasoning[reasoningId] = parts;
           if (rawItem.type === "reasoning") {
             if (list(rawItem.summary).length) parts.summary = list(rawItem.summary).map(String);
             if (list(rawItem.content).length) parts.content = list(rawItem.content).map(String);
+          } else if (frame.method === "item/reasoning/summaryPartAdded") {
+            const index = Number(params.summaryIndex);
+            if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts.summary[index] ??= "";
+            continue;
           } else {
             const stream = frame.method === "item/reasoning/summaryTextDelta" ? "summary" : "content";
             const index = Number(params.summaryIndex ?? params.contentIndex ?? 0);
             if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts[stream][index] = (parts[stream][index] ?? "") + String(params.delta ?? "");
           }
-          row = stamp(state,{id:reasoningId,seq:state.seq+1,type:"thinking",content:parts.summary.join("\n") || parts.content.join("\n"),collapsed:true},params);
-        } else if ((frame.method === "item/started" || frame.method === "item/completed") && rawItem.type === "collabAgentToolCall" && list(rawItem.receiverThreadIds).length) {
-          for (const activity of runtimeItems(rawItem,state.seq+1)) events.push({kind:"chatItem",threadId,item:stamp(state,activity,params)});
+          row = stamp(state,{id:reasoningId,seq:state.seq+1,type:"thinking",content:parts.summary.filter(Boolean).join("\n") || parts.content.join("\n"),collapsed:true},params);
+          if (frame.method === "item/completed") markClosed(state,reasoningId); else markOpen(state,reasoningId);
         } else row = mapItem(state,frame.method,params);
-        if (row) events.push({kind:"chatItem",threadId,item:row});
+        if (row) {
+          events.push({kind:"chatItem",threadId,item:row});
+          if (row.type === "tool_call" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) events.push({kind:"turnState",threadId,...(state.activeTurnId ? {turnId:state.activeTurnId} : {}),state:"working",...{statusLine:runningCallStatus(state) ?? ""}});
+        }
         if (frame.method === "item/started" || frame.method === "item/completed") {
           const evidence = sendEvidence(ctx,object(params.item),turnId);
           if (evidence?.kind === "sendEvidence" && !state.evidenced.includes(evidence.sendId)) {
@@ -276,5 +343,11 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
       }
     }
   }
-  return {state:json(state),events};
+  compactState(state);
+  return budgetReduction(json(state),events);
+}
+
+function pendingStatus(state: ReduceState, threadId: string): AgentEvent | undefined {
+  const statusLine = runningCallStatus(state);
+  return statusLine && state.activeTurnId ? {kind:"turnState",threadId,turnId:state.activeTurnId,state:"working",...{statusLine}} : undefined;
 }

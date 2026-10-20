@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import { RefreshCw, Trash2 } from "lucide-react";
@@ -190,7 +191,7 @@ export function LogsTab({ config }: { config: AppConfig }) {
       </div>
 
       {error && (
-        <p className="ct-logs__error" data-testid="settings-logs-error" role="alert">Failed to load logs: {error}</p>
+        <div data-testid="settings-logs-error"><InlineErrorNotice error={error} operation="loading logs" blocking /></div>
       )}
 
       <div className="ct-logs__list" data-testid="settings-logs-list">

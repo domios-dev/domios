@@ -4,8 +4,8 @@ pub mod usage_tui;
 pub use provider::ClaudeProvider;
 
 use crate::plugin_manager::{
-    Plugin, PluginActivation, PluginCapabilities, PluginManifest, PluginMeta, PluginPermissions,
-    PluginPrompt, PluginTier,
+    Plugin, PluginActivation, PluginCapabilities, PluginManager, PluginManifest, PluginMeta,
+    PluginPermissions, PluginPrompt, PluginTier,
 };
 use crate::provider::AgentProvider;
 
@@ -33,7 +33,7 @@ impl AgentClaudePlugin {
         PluginManifest {
             plugin: PluginMeta {
                 name: PLUGIN_ID.into(),
-                version: env!("CARGO_PKG_VERSION").into(),
+                version: codeterm_build_info::version().into(),
                 description: "Claude Code agent provider — detection, sessions, TUI control".into(),
                 tier: PluginTier::Native,
                 entrypoint: None,
@@ -80,13 +80,33 @@ impl Plugin for AgentClaudePlugin {
     }
 }
 
+impl PluginManager {
+    pub fn activate_builtin_native_plugins(&self) -> Result<(), String> {
+        let plugin = AgentClaudePlugin::new();
+        let manifest = AgentClaudePlugin::manifest();
+        let id = manifest.plugin.name.clone();
+        self.register(manifest);
+        self.attach_native(Box::new(plugin))?;
+        self.activate(&id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    type PluginUnderTest = AgentClaudePlugin;
+
+    #[test]
+    fn plugin_manager_activates_builtin_native_plugins() {
+        let manager = PluginManager::new();
+        manager.activate_builtin_native_plugins().unwrap();
+        assert_eq!(manager.active().len(), 1);
+    }
+
     #[test]
     fn manifest_is_valid() {
-        let m = AgentClaudePlugin::manifest();
+        let m = PluginUnderTest::manifest();
         assert_eq!(m.plugin.name, PLUGIN_ID);
         assert_eq!(m.plugin.tier, PluginTier::Native);
         assert!(m.matches_platform());
@@ -95,7 +115,7 @@ mod tests {
 
     #[test]
     fn plugin_lifecycle() {
-        let mut p = AgentClaudePlugin::new();
+        let mut p = PluginUnderTest::new();
         assert!(!p.activated);
         assert!(p.activate().is_ok());
         assert!(p.activated);
@@ -105,7 +125,7 @@ mod tests {
 
     #[test]
     fn contributes_claude_provider() {
-        let p = AgentClaudePlugin::new();
+        let p = PluginUnderTest::new();
         let providers = p.agent_providers();
         assert_eq!(providers.len(), 1);
         assert_eq!(providers[0].id(), "claude");
@@ -113,7 +133,7 @@ mod tests {
 
     #[test]
     fn provider_has_expected_capabilities() {
-        let p = AgentClaudePlugin::new();
+        let p = PluginUnderTest::new();
         let providers = p.agent_providers();
         let claude = &providers[0];
         assert_eq!(claude.display_name(), "Claude Code");

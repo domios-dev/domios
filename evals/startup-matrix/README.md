@@ -1,0 +1,141 @@
+# Curated startup matrix
+
+Versioned diagnostic captures and their exact commands, fixtures, far-end
+oracles, artifact contracts and gaps are indexed in [SCENARIOS.md](SCENARIOS.md).
+
+This live bench adopts the owner's real DEV window (default instance, API 7686,
+WebView2 CDP from health). It spends provider tokens: one unique response-token prompt per
+tab. The scripted matrix never closes tabs, replaces drafts, or changes product code.
+After its table, follow [EXPLORE.md](EXPLORE.md) for the required agent-driven
+visual pass, including the explicitly authorized single-fixture close/restore probe.
+
+Reserve serialized QA with the Orchestrator first. Run from a Team-bound QA shell:
+
+```bash
+bash evals/startup-matrix/run.sh --dependencies C:/Developer/codeterm/codeterm --expect-build 3b7bf7ea2
+```
+
+`--dependencies` selects a checkout with installed `@playwright/test`; omit when
+installed in this lane. `--out DIR` selects the single results directory. Wait for
+`ARMED <dir>`, then have the Orchestrator run in canonical:
+
+```powershell
+.\build.ps1 kill
+.\build.ps1 dev-prebuilt --wait
+```
+
+The driver observes log changes, checks health for a new boot ID, and verifies a
+new PID and kernel start time on the explicitly expected measured build. It subscribes with the new boot's
+replay cursor, recording every frame. A 120 s failure deadline bounds restart,
+boot readiness, click wake, and reply observation. Log and DOM events drive waits;
+the three-second timer samples health latency only.
+
+Entry preflight makes one health request with a 30-second failure deadline. A
+response taking more than 5 seconds records an `api_unresponsive` FAILURE row
+with its measured latency, even when it eventually responds. The same response
+proves the default DEV identity before the matrix continues. A response within
+30 seconds allows the matrix to run while preserving the preflight failure and
+nonzero final verdict. No retry or second health request establishes entry.
+If the request never answers, results still contain the failure row and request
+evidence; `phase: preflight` identifies the unavailable tab inventory explicitly.
+Health sampling begins after entry preflight, so it does not add concurrent
+requests to that measurement. All `dc` sends retain the shared lib's own guard.
+
+If restart preflight interrupts the run before any prompts, preserve that directory
+and use `--resume <old-dir>` with a fresh `--out`. This reuses its pre-restart
+inventory and listener proof and attaches to the new boot's replay ring. It is
+only for a run that sent no prompts; it does not repeat a completed probe.
+
+After a process crash, `--attach <crashed-dir>` adopts the freshly restarted DEV
+using the crashed run's listener identity, then takes a fresh policy inventory.
+Prior attempted receipts remain in the evidence. Each tab receives a new unique
+probe, and only that probe's own response token can complete its round trip.
+
+New unique probes may be sent to every DEV tab even when earlier probes remain
+unresolved. OpenCode and Aider stay in every provider sweep. Optionally pass
+`--preserve-input <comma-separated-tab-ids>` when a particular tab should receive
+no new input; there are no default preserved IDs.
+Those rows retain startup observations and receive a visual visit, but get no
+new payload. They remain explicit incomplete reply coverage, never a passing row.
+
+The inventory classifies every visible agent tab. The action matrix covers all
+General tabs, every Endure fixture, an outside recent tab when available, and a
+frozen tab. Missing activity means asleep outside General. Expected policy is
+computed from the pre-action state; selection may update activity on later runs.
+The first frozen chat fixture gets an agent-send wake without a preceding click;
+other fixtures get real accessible sidebar clicks. Chat tabs use their own named
+composer; PTY tabs receive a dev-locked `dc send`. Replies reuse core-journeys'
+exact new assistant transcript and own-session oracle, including idle completion.
+Input is sent immediately after opening, without waiting for agent readiness.
+Chat input must accept within 1000 ms of visible content; PTY readiness must
+arrive within 5000 ms of boot or the wake action. A refused send, missing reply,
+missing readiness event or missed latency bound fails. Every row shows its SLA
+measurement and verdict. The agent-send wake uses a frozen PTY fixture when one
+is available so chat fixtures retain the click-and-type journey.
+
+Artifacts in `target-check/evals/startup-matrix/<stamp>/`:
+
+- `results.json`: schema 1, inventory, per-tab policy/state, boot/wake event,
+  ready/reply timings, delivery receipt, UI render latency, health samples,
+  restart listener proof, coverage, errors and screenshot paths.
+- `preflight-entry.json`: the entry request's latency, 5-second warning threshold,
+  30-second deadline, response or error and measured DEV identity.
+- `results.md`: generated tab table, byte-identical to the JSON rendering.
+- `events.jsonl`, `before-state.json`, `boot-state.json`, `final-state.json`:
+  exact API evidence; `transcript-<tab>.json`: baseline IDs and resulting chat.
+- `dev.log` and `lock-holds.md`: only this run's appended log bytes, every lock
+  hold above 500 ms and every SLOW-IPC line, grouped and sorted by total time.
+- `screenshots/`: failure captures. A late capture can show the current selected
+  tab; per-tab click-time failures are captured immediately.
+
+`ready_ms` measures receipt of `agent_ready` relative to the new listener's kernel
+start. SSE has no emission timestamp: replay gives an upper bound, and overflow
+frames explicitly preserve gaps. Frozen tabs have no boot-ready duration; their
+separate `wake_ms` is relative to the action. No screenshot implies agent readiness.
+`reply_ms` records the first new assistant content observed through the API;
+`completed_ms` separately includes waiting for idle after the exact response token.
+Each probe carries a unique run/tab token; only assistant items after that exact
+user turn and before the next user turn qualify, even if a sleeping tab's initial
+chat snapshot was unavailable. A retained pending CLI receipt is not a refusal
+or proof of a reply; only the own-session transcript can complete the round trip.
+
+Validate with `node evals/startup-matrix/contract.mjs <dir>`: exit 0 means complete
+passing evidence; 3 means complete evidence with observed failures; 1 means an
+incomplete evidence contract. The driver uses 3 for observed failures. Offline
+checks: `node --test evals/startup-matrix/*.test.mjs`. An unresponsive entry with
+complete request evidence also exits 3; it does not imply tabs were exercised.
+
+### Independent Windows terminal baseline (manual, on request)
+
+Use this only to compare installed providers outside Domios launch admission.
+It is not a CI gate. Start a visible system PowerShell without its profile:
+
+    Start-Process powershell.exe -WindowStyle Normal -ArgumentList '-NoLogo','-NoProfile','-NoExit','-File','C:/Developer/codeterm/codeterm/evals/startup-matrix/native-baseline.ps1','-Provider','claude','-OutputDirectory','C:/Developer/codeterm/codeterm/target-check/evals/native-baseline/UNIQUE-RUN/claude'
+
+Repeat sequentially for grok, aider, opencode and codex. The script removes
+Domios routing variables, writes launch.json and uses an independent workspace
+under C:/Developer/codeterm-native-baseline, outside repository ancestry.
+Keep existing authentication and user plugins/configuration; do not label this
+a factory-reset profile or an idle-machine measurement. Codex uses --no-daemon
+and measures its CLI, which differs from the app's Codex Chat transport.
+
+Use native-console.ps1 with the exact shell PID and an output file to capture
+the native console viewport. Capture and actually view the same window with
+native-window.ps1 using its verified native window handle. It brings that window
+forward and fits it to the primary display. Record each action, UTC, process,
+token, image path and observation in steps.jsonl.
+
+For a provider whose actual composer has been inspected and is ready, a fresh
+probe may be written with native-input.ps1 using -ShellProcessId, -InputFile
+(a body in the caller's pad) and -ReceiptFile. Never answer a login, trust or
+permission prompt this way. OS input acceptance is not delivery; require the
+exact new reply in this console/session. Aider requires a separately configured
+model/key; a credential prompt is an uncovered case, not a slow launch.
+
+Separate first frame, setup completion, actual editable-input readiness,
+first engine turn and reply completion. Use timestamped provider signals or
+own-session records; screenshots captured later do not establish startup time.
+Retain blocked attempts and configuration differences. OpenCode --print-logs
+can overlap its TUI; note this instrumentation interference. Compare matched
+fresh/resumed commands and current machine load before attributing a delta
+to Domios.

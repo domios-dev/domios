@@ -15,7 +15,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@codeterm/plugin-sdk": ["./packages/plugin-sdk/src/index.ts"]
+    }
   },
   "include": [
     "src",
@@ -25,7 +28,6 @@
     "plugins/provider-codex/src/plugin.ts",
     "plugins/provider-opencode/src/plugin.ts",
     "plugins/provider-cursor/src/plugin.ts",
-    "plugins/git/src",
     "plugins/analytics/src",
     "plugins/analytics/ui/src",
     "plugins/analytics/tests",

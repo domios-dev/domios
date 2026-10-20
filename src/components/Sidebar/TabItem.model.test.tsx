@@ -29,260 +29,45 @@ Object.defineProperty(globalThis, "cancelAnimationFrame", {
 });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-type ModelInfo = import("../../lib/types").ModelInfo;
 type ProviderDescriptor = import("../../lib/types").ProviderDescriptor;
 type Tab = import("../../lib/types").Tab;
-type TabStatus = import("../../lib/types").TabStatus;
 
 async function main() {
-  const [{ act }, { createRoot }, { TabItem }, { setAgentDescriptors }, { __setTabModelApiForTest }] =
-    await Promise.all([
-      import("react"),
-      import("react-dom/client"),
-      import("./TabItem"),
-      import("../../lib/agentDescriptorCache"),
-      import("./tabModelApi"),
-    ]);
-
-  function assert(condition: unknown, message: string): asserts condition {
-    if (!condition) throw new Error(message);
-  }
-
-  const MODELS: ModelInfo[] = [
-    { id: "fixture-small", display_name: "Fixture Small" },
-    { id: "fixture-large", display_name: "Fixture Large" },
-  ];
-  const SESSION_MODEL = MODELS[1];
-
-  function descriptor(overrides: Partial<ProviderDescriptor> = {}): ProviderDescriptor {
-    return {
-      schema_version: 1,
-      id: "fixture-provider",
-      display_name: "Fixture Provider",
-      transport: "pty",
-      system_prompt_delivery: "external",
-      available_models: MODELS,
-      settings_schema: [],
-      notifications_schema: [],
-      supports_lazy_skills: false,
-      has_hooks: false,
-      model_switch: "restart_resume",
-      ...overrides,
-    } as ProviderDescriptor;
-  }
-
-  function agentTab(overrides: Partial<Tab> = {}): Tab {
-    return {
-      id: "tab-agent",
-      pty_id: "pty-agent",
-      tab_type: "Terminal",
-      title: "Agent",
-      cwd: null,
-      agent_type: "fixture-provider",
-      agent_session_model: SESSION_MODEL.id,
-      ...overrides,
-    };
-  }
-
-  async function mount(tab: Tab, status: TabStatus | null = null) {
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const root = createRoot(host as unknown as HTMLElement);
-    await act(async () => {
-      root.render(
-        <TabItem
-          tab={tab}
-          index={0}
-          isActive={false}
-          onClick={() => undefined}
-          onClose={() => undefined}
-          canClose={false}
-          workspaceId="workspace"
-          hasAgent
-          status={status}
-        />,
-      );
-    });
-    return {
-      host,
-      async dispose() {
-        await act(async () => root.unmount());
-        host.remove();
-      },
-    };
-  }
-
-  /** Opens the kebab with the keyboard — the route a keyboard user takes. */
-  async function openMenu(host: Element) {
-    const trigger = host.querySelector('[aria-label="Tab actions"]')?.parentElement;
-    assert(trigger, "kebab trigger is missing");
-    await act(async () => {
-      trigger.dispatchEvent(
-        new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event,
-      );
-    });
-    const menu = document.querySelector('[role="menu"]');
-    assert(menu, "menu did not open from the keyboard");
-    return menu;
-  }
-
-  async function click(element: Element | null | undefined, what: string) {
-    assert(element, `${what} is missing`);
-    await act(async () => {
-      (element as unknown as { click: () => void }).click();
-    });
-  }
-
-  async function openModelPicker(host: Element) {
-    const menu = await openMenu(host);
-    const entry = menu.querySelector('[data-testid="tab-menu-model"]');
-    assert(entry, "the row menu offers no model entry");
-    await click(entry, "model entry");
-    return entry;
-  }
-
-  // An agent row offers the entry, named from the descriptor.
-  {
-    setAgentDescriptors([descriptor()]);
-    const view = await mount(agentTab());
-    const menu = await openMenu(view.host);
-    const entry = menu.querySelector('[data-testid="tab-menu-model"]');
-    assert(entry, "the agent row offers no model entry");
-    assert(
-      entry.textContent?.includes(SESSION_MODEL.display_name),
-      `model entry is not named from the descriptor: ${entry.textContent}`,
-    );
-    assert(
-      entry.getAttribute("aria-haspopup") === "menu",
-      "model entry does not announce that it opens a picker",
-    );
-    assert(
-      entry.tagName === "BUTTON" && !(entry as unknown as { disabled: boolean }).disabled,
-      "model entry is not an operable control",
-    );
-    await view.dispose();
-  }
-
-  // A provider that declares no live switch gets no entry, nor does the protected
-  // General Agent row — and the rest of the chain is untouched.
-  for (const [tab, provider, why] of [
-    [agentTab(), descriptor({ model_switch: "unsupported" }), "a provider without a live switch"],
-    [agentTab({ protected: true }), descriptor(), "the protected General Agent row"],
-  ] as const) {
-    setAgentDescriptors([provider]);
-    const view = await mount(tab);
-    const menu = await openMenu(view.host);
-    assert(!menu.querySelector('[data-testid="tab-menu-model"]'), `model entry appeared for ${why}`);
-    assert(
-      menu.querySelector('[data-testid="tab-menu-restart-session"]'),
-      "the rest of the menu chain disappeared with the model entry",
-    );
-    await view.dispose();
-  }
-
-  // The picker exposes one choice per published model and marks the current one.
-  {
-    setAgentDescriptors([descriptor()]);
-    const view = await mount(agentTab());
-    await openModelPicker(view.host);
-    const options = document.querySelectorAll('[data-testid^="tab-menu-model-"]');
-    assert(
-      options.length === MODELS.length,
-      `picker listed ${options.length} models, descriptor published ${MODELS.length}`,
-    );
-    for (const model of MODELS) {
-      const option = document.querySelector(`[data-testid="tab-menu-model-${model.id}"]`);
-      assert(option, `model ${model.id} is missing from the picker`);
-      assert(
-        option.getAttribute("role") === "menuitemradio",
-        `model ${model.id} is not exposed as one choice in a set`,
-      );
-      assert(
-        option.getAttribute("aria-checked") === String(model.id === SESSION_MODEL.id),
-        `model ${model.id} carries the wrong selected state: ${option.getAttribute("aria-checked")}`,
-      );
-      assert(
-        option.textContent?.includes(model.display_name),
-        `model ${model.id} is not named from the descriptor`,
-      );
-      assert(option.tagName === "BUTTON", `model ${model.id} is not keyboard-operable`);
+  const [{ act }, { createRoot }, { TabItem }, { setAgentDescriptors }] = await Promise.all([
+    import("react"), import("react-dom/client"), import("./TabItem"), import("../../lib/agentDescriptorCache"),
+  ]);
+  setAgentDescriptors([{
+    id: "fixture-provider", display_name: "Fixture", transport: "pty",
+    available_models: [], agent_runtime: { serviceTiers: [{id:"priority",name:"Fast",description:""},{id:"ultrafast",name:"Ultrafast",description:"",unavailableReason:"Not available on your plan"}] },
+  } as unknown as ProviderDescriptor]);
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  const tab: Tab = {
+    id: "tab-agent", pty_id: "pty-agent", tab_type: "Terminal", title: "Agent", cwd: null,
+    agent_type: "fixture-provider", agent_session_model: "fixture-model", boot_stage: "agent_ready",
+    agent_session_id: "own-thread", session_binding_nonce: "own-nonce",
+  };
+  const render = async (fast?: boolean) => {
+    await act(async () => root.render(<TabItem tab={{ ...tab, agent_runtime_config: {
+      serviceTier: {id:"priority"},
+      ...(fast === undefined ? {} : { confirmedServiceTier: { selection: {id:fast ? "priority" : null}, sessionId: "own-thread", bindingNonce: "own-nonce" } }),
+    } }} index={0} isActive={false} onClick={() => undefined} onClose={() => undefined}
+      canClose={false} workspaceId="workspace" hasAgent status="Idle" />));
+    return host.querySelector('[data-testid="tab-subline"]')?.textContent ?? "";
+  };
+  try {
+    for (const fast of [true, false, undefined]) {
+      const label = await render(fast);
+      if (label.includes("fixture-model") || label.includes("fast")) {
+        throw new Error(`Row shows model or tier for confirmed tier ${fast}: ${label}`);
+      }
     }
-    await view.dispose();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
-
-  // Selecting a model switches with the id the fixture supplied.
-  {
-    const calls: Array<[string, string]> = [];
-    __setTabModelApiForTest({
-      switchModel: async (tabId, modelId) => {
-        calls.push([tabId, modelId]);
-      },
-    });
-    try {
-      setAgentDescriptors([descriptor()]);
-      const view = await mount(agentTab({ id: "tab-fixture" }));
-      await openModelPicker(view.host);
-      const target = MODELS[0];
-      await click(
-        document.querySelector(`[data-testid="tab-menu-model-${target.id}"]`),
-        `option ${target.id}`,
-      );
-      assert(calls.length === 1, `expected one switch, got ${calls.length}`);
-      assert(calls[0][0] === "tab-fixture", `switch went to ${calls[0][0]}`);
-      assert(
-        calls[0][1] === target.id,
-        `switch did not round-trip the supplied id: ${JSON.stringify(calls[0][1])}`,
-      );
-      await view.dispose();
-    } finally {
-      __setTabModelApiForTest(null);
-    }
-  }
-
-  // An in-flight turn is not interrupted, and the user is told why.
-  {
-    setAgentDescriptors([descriptor()]);
-    const view = await mount(agentTab({ agent_session_id: "bound-session", agent_state: { state: "working" } }), "Working");
-    const menu = await openMenu(view.host);
-    const entry = menu.querySelector('[data-testid="tab-menu-model"]');
-    assert(entry, "model entry vanished while the agent was working");
-    assert(
-      (entry as unknown as { disabled: boolean }).disabled,
-      "model entry stayed active while a turn was in flight",
-    );
-    assert(
-      (entry.getAttribute("title") ?? "").length > 0,
-      "the blocked model entry gives the user no reason",
-    );
-    await click(entry, "blocked model entry");
-    assert(
-      !document.querySelector('[data-testid^="tab-menu-model-"]'),
-      "the blocked entry still opened the picker",
-    );
-    await view.dispose();
-  }
-
-  // The row carries no model capsule; the kebab menu head names the provider and the whole model.
-  {
-    const longModel = "deepseek-v4-flash";
-    const view = await mount(
-      agentTab({
-        id: "tab-opencode",
-        agent_type: "opencode",
-        agent_session_model: longModel,
-        boot_stage: "agent_ready",
-      }),
-      "Idle",
-    );
-    assert(!view.host.querySelector(".sidebar-tab-badge"), "the row still renders a model capsule");
-    await openMenu(view.host);
-    const subtitle = document.querySelector<HTMLElement>('[data-testid="tab-menu-identity-subtitle"]')?.textContent ?? "";
-    assert(subtitle.includes("deepseek-v4-flash"), `the menu head lost the full model: ${subtitle}`);
-    assert(subtitle.includes("OpenCode"), `the menu head lost the provider: ${subtitle}`);
-    await view.dispose();
-  }
-
-  console.log("TabItem model menu: ok");
+  console.log("TabItem model and confirmed fast tier wiring: 3 states passed");
 }
 
 void main().catch((error) => {

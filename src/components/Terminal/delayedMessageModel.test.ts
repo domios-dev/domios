@@ -11,6 +11,16 @@ test("missing and sending entries cannot be sent from a stale stash", async () =
   }
 });
 
+test("a system heartbeat cannot be sent or replayed", async () => {
+  const system = { id: "system:heartbeat:pl:tab", state: "queued", origin: "system" } as DelayedMessage;
+  assert.equal(canSendDelayedMessage(system), false);
+  assert.equal(canSendDelayedMessage({ ...system, origin: undefined }), false);
+  await sendCurrentDelayedMessage(system.id, {
+    load: async () => [system],
+    send: async () => assert.fail("system entry sent"),
+  });
+});
+
 test("send now uses the latest authoritative queued, stashed, or failed entry once", async () => {
   for (const state of ["queued", "stashed", "failed"] as const) {
     const sent: string[] = [];

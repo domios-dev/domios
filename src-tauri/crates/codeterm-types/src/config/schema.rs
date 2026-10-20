@@ -7,17 +7,20 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
-use crate::notification::{NotifyDestination, NotifyLevel};
+use codeterm_notify_types::{NotifyDestination, NotifyLevel};
 
 pub use super::dream_hygiene::DreamHygieneConfig;
 pub use super::model_defaults::ModelDefaultsConfig;
 pub use super::supporter::{
     MemoryRerankConfig, SupporterConfig, SupporterConnection, SupporterSources,
 };
+pub use super::tab_sleep::TabSleepConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
+    pub restore: RestoreConfig,
+    pub tab_sleep: TabSleepConfig,
     pub account: serde_json::Value,
     pub billing: serde_json::Value,
     pub theme: ThemeConfig,
@@ -71,6 +74,8 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            restore: RestoreConfig::default(),
+            tab_sleep: TabSleepConfig::default(),
             account: serde_json::json!({}),
             billing: serde_json::json!({"provider": "cloud"}),
             theme: ThemeConfig::default(),
@@ -586,6 +591,8 @@ pub struct GeneralAgentConfig {
     pub capability_hints: bool,
     pub enabled: bool,
     pub agent_provider: String,
+    pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub auto_restart: bool,
     pub max_restart_attempts: u32,
     pub restart_delay_s: u32,
@@ -604,6 +611,8 @@ impl Default for GeneralAgentConfig {
             capability_hints: true,
             enabled: true,
             agent_provider: "claude".to_string(),
+            model: None,
+            reasoning_effort: None,
             auto_restart: true,
             max_restart_attempts: 5,
             restart_delay_s: 5,
@@ -1114,3 +1123,17 @@ impl Default for RunawayConfig {
 mod tests;
 
 pub use super::utility_tabs::{UtilityTabLimits, UtilityTabsConfig};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RestoreConfig {
+    pub active_window_hours: u64,
+}
+
+impl Default for RestoreConfig {
+    fn default() -> Self {
+        Self {
+            active_window_hours: 48,
+        }
+    }
+}

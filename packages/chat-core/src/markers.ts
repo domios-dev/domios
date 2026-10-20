@@ -1,3 +1,4 @@
+import { attachmentMarkerSegments, formatAttachmentMarker } from "./attachmentMarker";
 import { buildDomiosMessage, parseDomiosMessage } from "./domios";
 
 /**
@@ -67,6 +68,19 @@ export function parseMarker(text: string): ParsedMarker | null {
       normalized = normalized.slice(0, -BRACKETED_PASTE_END.length);
     }
   }
+  if (normalized.startsWith("<domios ")) {
+    const end = normalized.indexOf("/>");
+    if (end < 0) return null;
+    const segments = attachmentMarkerSegments(normalized);
+    const first = segments[0];
+    if (!first || !("attachment" in first) || first.attachment.kind !== "voice") return null;
+    const head = normalized.slice(0, end + 2);
+    if (/\sfrom=/.test(head)) return null;
+    const attrs: Record<string, string> = { file: first.attachment.path };
+    if (/\sstatus="untranscribed"/.test(head)) attrs.status = "untranscribed";
+    const body = normalized.slice(head.length);
+    return { kind: "voice", attrs, payload: voicePayload(body.replace(/^(?:\r\n|[\r\n])/, "")) };
+  }
   if (!normalized.startsWith(MARKER_OPEN)) return null;
   const rest = normalized.slice(MARKER_OPEN.length);
   const close = rest.indexOf(MARKER_CLOSE);
@@ -98,12 +112,51 @@ function isLegacyRouteKind(kind: string): boolean {
 const opt = (k: string, v: string | null | undefined): Array<[string, string]> =>
   v ? [[k, v]] : [];
 
-export const markVoice = (file: string, transcript?: string | null, note?: string | null) =>
-  transcript
-    ? buildMarker("voice", [["file", file]], transcript)
-    : note
-      ? buildMarker("voice", [["file", file], ["status", "untranscribed"]], note)
-      : buildMarker("voice", [["file", file]]);
+const TRANSCRIPT_OPEN = "<transcript>";
+const TRANSCRIPT_CLOSE = "</transcript>";
+
+function escapeTranscript(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function unescapeTranscript(value: string): string {
+  let decoded = "";
+  let index = 0;
+  while (index < value.length) {
+    if (value.startsWith("&lt;", index)) {
+      decoded += "<";
+      index += 4;
+    } else if (value.startsWith("&gt;", index)) {
+      decoded += ">";
+      index += 4;
+    } else if (value.startsWith("&amp;", index)) {
+      decoded += "&";
+      index += 5;
+    } else {
+      decoded += value[index];
+      index += 1;
+    }
+  }
+  return decoded;
+}
+
+function voicePayload(payload: string): string {
+  if (!payload.startsWith(TRANSCRIPT_OPEN)) return payload;
+  const end = payload.indexOf(TRANSCRIPT_CLOSE);
+  if (end < 0) return payload;
+  const tail = payload.slice(end + TRANSCRIPT_CLOSE.length);
+  if (tail.trim()) return payload;
+  return unescapeTranscript(payload.slice(TRANSCRIPT_OPEN.length, end));
+}
+
+/** A transcript is one element. An untranscribed note keeps `status` on the frame and no element. */
+export function markVoice(file: string, transcript?: string | null, note?: string | null): string {
+  const marker = formatAttachmentMarker(file, "voice", "voice");
+  const untranscribed = transcript == null && note != null;
+  const head = untranscribed ? marker.replace(" />", ' status="untranscribed" />') : marker;
+  if (transcript) return `${head}\n${TRANSCRIPT_OPEN}${escapeTranscript(transcript)}${TRANSCRIPT_CLOSE}`;
+  return note ? `${head}\n${note}` : head;
+}
 export const markPhoto = (file: string, name?: string | null) =>
   buildMarker("photo", [["file", file], ...opt("name", name)]);
 export const markAttachment = (file: string, name?: string | null) =>

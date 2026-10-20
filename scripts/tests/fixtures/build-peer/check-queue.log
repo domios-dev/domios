@@ -1,0 +1,12 @@
+MSVC env loaded (VS 2022 at C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools, MSVC 14.44.35207, link libraries x64)
+Build gateway job 20261015T101500-4242-1 log: C:\Users\rog\AppData\Local/CodeTerm/build-gateway/jobs/20261015T101500-4242-1.log
+    Checking codeterm-plan v1.14.9 (X:\src-tauri\crates\codeterm-plan)
+src-tauri\crates\codeterm-plan\src\store.rs:41:9: error[E0425]: cannot find value `taks` in this scope
+check-queue: dev-lib args=--manifest-path src-tauri/Cargo.toml -p codeterm --lib --profile dev --no-default-features exit=0
+check-queue: app-test scope=nextest args=--manifest-path src-tauri/Cargo.toml -p codeterm-service-core --lib --no-default-features --profile test --tests exit=0
+check-queue: app-test scope=test-one args=--manifest-path src-tauri/Cargo.toml -p codeterm-service-core --lib --profile test --tests exit=0
+src-tauri\crates\codeterm-plan\src\store.rs:41:9: error[E0425]: cannot find value `taks` in this scope
+errors=1 shown=1
+warnings crate=codeterm-plan count=2
+warnings=2 shown=2 failing=codeterm-plan
+check-queue: sha=1111111111111111111111111111111111111111 packages=-p codeterm-plan -p codeterm cli=0 exit=101 wall=412s full-log=C:\Users\rog\AppData\Local/CodeTerm/build-gateway/jobs/20261015T101500-4242-1.check.log

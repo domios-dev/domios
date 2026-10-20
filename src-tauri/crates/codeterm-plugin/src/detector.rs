@@ -271,7 +271,33 @@ pub fn parse_interactive_picker(text: &str) -> Option<InteractivePicker> {
 fn has_input_prompt_after(lines: &[&str], option_row: usize) -> bool {
     lines[option_row + 1..]
         .iter()
-        .any(|line| matches!(line.trim(), "❯" | "›"))
+        .any(|line| composer_prompt_line(line))
+}
+
+fn composer_prompt_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    let Some(rest) = trimmed
+        .strip_prefix('❯')
+        .or_else(|| trimmed.strip_prefix('›'))
+    else {
+        return false;
+    };
+    let rest = rest.trim_start();
+    rest.is_empty() || !menu_choice_body(rest)
+}
+
+fn menu_choice_body(rest: &str) -> bool {
+    let mut chars = rest.chars();
+    match chars.next() {
+        Some(digit) if digit.is_ascii_digit() => {
+            let after = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+            after.starts_with(". ") || after.starts_with(") ")
+        }
+        Some('A'..='C') => {
+            matches!(chars.next(), Some('.' | ')')) && chars.next().is_some_and(char::is_whitespace)
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -305,6 +331,29 @@ mod tests {
     fn test_parse_permission_prompt_no_match() {
         let text = "Regular output with no prompts";
         assert!(parse_permission_prompt(text).is_none());
+    }
+
+    #[test]
+    fn filled_composer_is_not_a_live_menu() {
+        let history = "\
+2. keep `cargo check -p <crate>` in the lane\n\
+3. leave the other item\n\
+────────────────────────────────\n\
+❯ <domios type=\"attachment\" kind=\"voice\" path=\"voice-note-a\" label=\"voice\" />\n\
+  transcript line\n\
+────────────────────────────────\n\
+  bypass permissions on (shift+tab to cycle)    ctrl+g to edit in Notepad\n";
+        assert!(parse_permission_prompt(history).is_none());
+        let menu = "\
+Do you want to proceed?\n\
+  ❯ 1. Yes\n\
+    2. No\n\
+Esc to cancel · Tab to amend\n";
+        assert!(parse_permission_prompt(menu).is_some());
+        let parked = format!(
+            "{menu}❯ <domios type=\"attachment\" kind=\"voice\" path=\"voice-note-a\" label=\"voice\" />\n"
+        );
+        assert!(parse_permission_prompt(&parked).is_none());
     }
 
     #[test]

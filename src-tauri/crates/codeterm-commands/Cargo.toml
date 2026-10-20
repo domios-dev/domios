@@ -1,0 +1,65 @@
+[package]
+license = "PolyForm-Shield-1.0.0"
+name = "codeterm-commands"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[lib]
+name = "codeterm_commands"
+
+[features]
+default = []
+desktop = ["dep:codeterm-host-runtime", "dep:tauri", "dep:tauri-plugin-shell", "dep:tauri-plugin-dialog", "dep:tauri-plugin-updater", "dep:clipboard-win", "dep:objc2-app-kit", "dep:objc2-foundation"]
+# Enables file:// and loopback HTTP manifest sources in update::manifest.
+dev-updater-allowlocal = []
+
+[dependencies]
+codeterm-host-runtime = { path = "../codeterm-host-runtime", optional = true }
+codeterm-build-info = { path = "../codeterm-build-info" }
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-orchestration = { path = "../codeterm-orchestration" }
+codeterm-analytics = { path = "../codeterm-analytics" }
+codeterm-frontend-bundle = { path = "../codeterm-frontend-bundle" }
+tempfile = "3"
+tauri = { version = "2", optional = true, features = ["tray-icon", "webview-data-url"] }
+tauri-plugin-shell = { version = "2", optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+codeterm-types = { path = "../codeterm-types" }
+codeterm-events = { path = "../codeterm-events" }
+codeterm-util = { path = "../codeterm-util" }
+codeterm-mesh = { path = "../codeterm-mesh" }
+codeterm-plugin = { path = "../codeterm-plugin" }
+log = { version = "0.4", features = ["release_max_level_info"] }
+parking_lot = "0.12"
+base64 = "0.22"
+dirs = "6"
+axum = { version = "0.8", features = ["multipart"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
+semver = "1"
+url = "2"
+async-trait = "0.1"
+which = "7"
+codeterm-plugins = { path = "../codeterm-plugins" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", optional = true, features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
+objc2-foundation = { version = "0.3", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+clipboard-win = { version = "5", optional = true }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }

@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useCallback, useRef, useState } from "react";
 import { PauseCircle, PlayCircle } from "lucide-react";
 import type { ApiConfig } from "../../../lib/types";
@@ -80,9 +81,7 @@ export function PlanModeControls({ plan, api }: PlanModeControlsProps) {
         </button>
       )}
       {error && (
-        <span data-testid="plan-mode-error" className="plan-mode-error" title={error}>
-          Action failed
-        </span>
+        <div data-testid="plan-mode-error"><InlineErrorNotice error={error} operation="changing this plan" /></div>
       )}
     </div>
   );

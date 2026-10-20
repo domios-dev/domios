@@ -51,8 +51,8 @@ fn graph_nodes_accepts_converters_and_event_sources() {
     assert_eq!(
         cap.converters[0],
         crate::converter::Conversion::new(
-            codeterm_types::sentinel_input::MediaKind::Audio,
-            codeterm_types::sentinel_input::MediaKind::Text
+            codeterm_blueprint_types::sentinel_input::MediaKind::Audio,
+            codeterm_blueprint_types::sentinel_input::MediaKind::Text
         )
     );
     assert_eq!(cap.event_sources.len(), 1);

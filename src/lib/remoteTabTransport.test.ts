@@ -2,6 +2,25 @@ import { describe, expect, finish, it } from "../test/standaloneTest";
 import { classifyTabTarget, hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
 
 describe("remote tab transport adapter", () => {
+  it("resolves child authority from the owning peer's current tab",()=>{
+    const call=remoteTransportCall("agent_runtime_child_authority",{tabId:"mesh:peer/owned"});
+    expect(call).toMatchObject({peerId:"peer",method:"GET",suffix:"/runtime-authority"});
+    expect(call?.select?.({tabs:{owned:{agent_session_id:"root",session_binding_nonce:"fresh",agent_runtime_state:{state:"loaded",epoch:8}}}})).toEqual({rootThreadId:"root",bindingNonce:"fresh",epoch:8});
+  });
+  it("reads a child through the owning peer without changing its tab binding",()=>{
+    expect(remoteTransportCall("agent_runtime_child_history",{tabId:"mesh:peer/owned",threadId:"child",request:{rootThreadId:"root",bindingNonce:"nonce",epoch:4}})).toMatchObject({
+      peerId:"peer",remoteTabId:"owned",method:"GET",suffix:"/agent/runtime/children/child/history?rootThreadId=root&bindingNonce=nonce&epoch=4",body:null,
+    });
+  });
+  it("lists and stops a background process on the owning peer",()=>{
+    const authority={rootThreadId:"root",bindingNonce:"nonce",epoch:4};
+    expect(remoteTransportCall("agent_runtime_background_processes",{tabId:"mesh:peer/owned",request:authority})).toMatchObject({
+      peerId:"peer",remoteTabId:"owned",method:"GET",suffix:"/agent/runtime/background-processes?rootThreadId=root&bindingNonce=nonce&epoch=4",body:null,
+    });
+    expect(remoteTransportCall("agent_runtime_stop_background_process",{tabId:"mesh:peer/owned",request:{...authority,threadId:"child",processId:"process"}})).toMatchObject({
+      peerId:"peer",remoteTabId:"owned",method:"POST",suffix:"/agent/runtime/background-processes",body:{...authority,threadId:"child",processId:"process"},
+    });
+  });
   it("preserves the opaque prompt identity in peer approval replies", () => {
     const identity = { kind: "structured", options: [{ label: "display", value: "native" }], request_id: "opaque" };
     const args = { tabId: "mesh:peer/owned", value: "native", identity };
@@ -62,6 +81,9 @@ describe("remote tab transport adapter", () => {
     const stop = remoteTransportCall("chat_stop", { tabId: "mesh:peer/shared", subscriptionId: "sub-1" });
     expect(start?.body).toEqual({ subscriptionId: "sub-1" });
     expect(stop?.body).toEqual({ subscriptionId: "sub-1" });
+    const knownWindow = { source_session_id: "own", session_binding_nonce: "nonce", end_offset: 10, file_length: 10, cursor: "opaque" };
+    expect(remoteTransportCall("chat_start", { tabId: "mesh:peer/shared", subscriptionId: "sub-1", knownWindow })?.body)
+      .toEqual({ subscriptionId: "sub-1", knownWindow });
     const claim = remoteTransportCall("claim_resize_owner", {
       tabId: "mesh:peer/shared", ptyId: "mesh:peer/pty-1", clientId: "client-1", cols: 91, rows: 33, force: true,
     });
@@ -106,7 +128,7 @@ describe("remote tab transport adapter", () => {
       "get_tab_output", "get_tab_history_raw", "write_pty_string", "interrupt_agent",
       "resize_pty", "read_pty", "claim_resize_owner", "chat_start", "chat_stop",
       "chat_backfill", "chat_send_text", "chat_send_status", "shell_command_snapshot",
-      "delayed_send_list", "delayed_send_create", "mux_respond_prompt", "restart_agent_tab",
+      "delayed_send_list", "delayed_send_create", "mux_respond_prompt", "restart_agent_tab", "switch_agent_provider", "provider_switch_status", "read_provider_history",
       "switch_agent_model",
     ];
 
@@ -121,9 +143,9 @@ describe("remote tab transport adapter", () => {
       expect(call?.ordinaryTabId.slice(`mesh:${peerId}/`.length)).toBe(call?.remoteTabId);
     }
 
-    const modelSwitch = remoteTransportCall("switch_agent_model", { tabId: composite, model: "opaque-model-5d", reasoningEffort: "high", runtimeMode: "auto" });
+    const modelSwitch = remoteTransportCall("switch_agent_model", { tabId: composite, model: "opaque-model-5d", reasoningEffort: "high", runtimeMode: "auto", serviceTier: {id:null} });
     expect(modelSwitch?.suffix).toBe("/agent/model");
-    expect(modelSwitch?.body).toEqual({ model: "opaque-model-5d", reasoning_effort: "high", runtime_mode: "auto" });
+    expect(modelSwitch?.body).toEqual({ model: "opaque-model-5d", reasoning_effort: "high", runtime_mode: "auto", service_tier: {id:null} });
     const fallbackSwitch = remoteTransportCall("switch_agent_model", { tabId: composite, model: "opaque-model-5d", restartResume: true });
     expect(fallbackSwitch?.body).toEqual({ model: "opaque-model-5d", reasoning_effort: undefined, runtime_mode: undefined, restart_resume: true });
 
@@ -158,4 +180,14 @@ describe("remote tab transport adapter", () => {
   });
 });
 
+
+it("routes reset confirmation and UUID unchanged to the owning machine", () => {
+  const request = {action:"redeem",confirmed:true,idempotencyKey:"fixture-key"};
+  expect(remoteTransportCall("agent_runtime_reset_credits",{tabId:"mesh:peer/owned",request})).toMatchObject({peerId:"peer",remoteTabId:"owned",method:"POST",suffix:"/agent/runtime/reset-credits",body:request});
+});
+
+it("routes goal confirmation with its exact session binding", () => {
+  const request = {action:"cancel",confirmed:true,binding:{threadId:"thread",bindingNonce:"nonce",epoch:3},expectedIntent:{goal:"fixture",goalStatus:"active"}};
+  expect(remoteTransportCall("agent_runtime_goal",{tabId:"mesh:peer/owned",request})).toMatchObject({peerId:"peer",remoteTabId:"owned",method:"POST",suffix:"/agent/runtime/goal",body:request});
+});
 finish();

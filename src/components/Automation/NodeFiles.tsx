@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
 import { LocalArtifactBlock, RichMarkdown } from "@codeterm/chat-ui";
 import type { AutomationIdentity } from "./types";
@@ -31,7 +32,7 @@ export function NodeFiles({ identity, bucket = null, handler = null, adapter = n
         <button type="button" className={AUTOMATION_TOOL} disabled={!file.exists} aria-label={`${revealLabel}: ${file.name}`} onClick={() => perform(adapter.reveal(file.path))}>{revealLabel}</button>
       </div>
     </li>)}</ul>
-    {failed && <p role="alert" className="ct-job-note">The file could not be opened.</p>}
+    {failed && <InlineErrorNotice error={{ code: "file_open_failed", raw: "" }} />}
     {opened && preview && <div className="flex flex-col items-start gap-2">
       <button type="button" className={AUTOMATION_TOOL} aria-label="Close file preview" onClick={() => setOpened(null)}>Close preview</button>
       <LocalArtifactBlock directive={{ kind: preview, path: opened.path }} renderMarkdown={(source) => <RichMarkdown text={source} localArtifacts={false} />} />

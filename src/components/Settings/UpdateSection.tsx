@@ -1,7 +1,8 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UpdatePanelContents } from "../UpdatePanel";
 import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useEffect } from "react";
-import { AlertCircle, CheckCircle2, Download, ExternalLink, RefreshCw } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, RefreshCw } from "lucide-react";
 import { useUpdate } from "../../hooks/useUpdate";
 import { BusySpinner } from "../shared/BusyState";
 import { UI_BUTTON } from "../shared/design";
@@ -28,9 +29,10 @@ export function UpdateSection({ config, onUpdate }: {
     error,
   } = useUpdate();
 
+  const hasUnifiedPanel = Boolean(unified);
   useEffect(() => {
-    void refresh(true);
-  }, [refresh]);
+    if (!hasUnifiedPanel) void refresh(true, { silent: true });
+  }, [refresh, hasUnifiedPanel]);
 
   const checking = status === "checking" && !installing;
   const updateAvailable = status === "available" && latestVersion && latestVersion !== currentVersion;
@@ -57,7 +59,7 @@ export function UpdateSection({ config, onUpdate }: {
     <SettingsCard
       icon={<Download size={16} />}
       title="Updates"
-      headerRight={<SettingsPill tone={unified?.items.length ? "accent" : statusTone}>{unified?.items.length ? "updates available" : statusText}</SettingsPill>}
+      headerRight={<SettingsPill tone={unified?.error ? "red" : unified?.items.length ? "accent" : statusTone}>{unified?.error ? "failed" : unified?.items.length ? "updates available" : statusText}</SettingsPill>}
     >
       <div className="flex flex-col gap-3">
         {unified && <UpdatePanelContents />}
@@ -87,15 +89,15 @@ export function UpdateSection({ config, onUpdate }: {
                 <span>{installing ? "Updating..." : "Update now"}</span>
               </button>
             )}
-            <button
+            {!unified && <button
               type="button"
-              onClick={() => { void (unified ? unified.refresh(true) : refresh(true)).catch(() => {}); }}
+              onClick={() => void refresh(true)}
               disabled={installing || checking}
               className={`${UI_BUTTON.ghost} ${UI_BUTTON.sm} gap-1.5 disabled:opacity-50`}
             >
               <BusySpinner icon={RefreshCw} size={13} spinning={checking} />
               <span>{checking ? "Checking..." : "Check again"}</span>
-            </button>
+            </button>}
           </div>
         </div>
 
@@ -126,11 +128,8 @@ export function UpdateSection({ config, onUpdate }: {
           </div>
         )}
 
-        {error && (
-          <div className="flex items-start gap-2 rounded-md border border-[var(--ct-red)]/30 bg-[var(--ct-red)]/10 px-3 py-2 text-xs text-[var(--ct-red)]">
-            <AlertCircle size={14} className="mt-0.5 shrink-0" />
-            <span>{error}</span>
-          </div>
+        {!unified && error && (
+          <InlineErrorNotice error={error} operation="checking for updates" blocking />
         )}
 
         {updateAvailable && releaseNotes && releaseNotes.trim().length > 0 && (

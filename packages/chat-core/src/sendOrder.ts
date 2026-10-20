@@ -2,6 +2,30 @@ import { matchedOptimisticEchoes } from "./dedupe";
 import { normalizeChatText } from "./normalize";
 import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
+import type { MessageSegment } from "./envelope";
+import type { TranscriptAuthority } from "./transcript";
+
+export interface SendEchoBoundary {
+  sourceSessionId: string;
+  sessionBindingNonce: string | null;
+  lastRowId: string | null;
+}
+
+export type MatchedRowRecord =
+  | { kind: "structured"; thread_id: string; item_id: string }
+  | { kind: "jsonl"; incarnation: string; record_start: number; record_row: number };
+
+export interface MatchedRow {
+  source: { source_session_id: string; record: MatchedRowRecord };
+  ordinal: number;
+}
+
+export function captureSendEchoBoundary(
+  authority: TranscriptAuthority | null, rows: readonly NormalizedChatMessage[],
+): SendEchoBoundary | undefined {
+  if (!authority?.sourceSessionId) return;
+  return { ...authority, sourceSessionId: authority.sourceSessionId, lastRowId: rows[rows.length - 1]?.id ?? null };
+}
 
 /** The committed source row a send reconciled to, identified by what re-parsing keeps stable. */
 export interface SendEcho {
@@ -16,12 +40,23 @@ export interface ChatSend {
   sentAtMs: number;
   correlationId?: string;
   echo?: SendEcho;
+  matchedRow?: MatchedRow;
   echoEligible?: boolean;
   flowAtMs?: number;
+  segments?: MessageSegment[];
+  echoBoundary?: SendEchoBoundary;
 }
 
 function isUserAuthored(row: NormalizedChatMessage): boolean {
-  return row.type === "user" || row.type === "local_command";
+  return row.inheritedFromSessionId == null && (row.type === "user" || row.type === "local_command");
+}
+
+export function matchesMatchedRow(row: NormalizedChatMessage, matchedRow: MatchedRow): boolean {
+  if (!isUserAuthored(row) || row.sourceSessionId !== matchedRow.source.source_session_id) return false;
+  const record = matchedRow.source.record;
+  return record.kind === "structured"
+    && record.thread_id === matchedRow.source.source_session_id
+    && (row.id === record.item_id || row.sourceMessageId === record.item_id);
 }
 
 function echoContent(content: string): string {
@@ -41,6 +76,7 @@ export function sendRow(send: ChatSend): NormalizedChatMessage {
     id: send.id,
     type: "user",
     content: send.content,
+    segments: send.segments,
     timestamp: String(send.sentAtMs),
     correlationId: send.correlationId,
   };
@@ -50,6 +86,7 @@ export function sendRow(send: ChatSend): NormalizedChatMessage {
 export function reconcileSends(
   sends: readonly ChatSend[],
   rows: readonly NormalizedChatMessage[],
+  authority: TranscriptAuthority | null = null,
 ): { echoes: Map<string, SendEcho>; pending: ChatSend[] } {
   const echoes = new Map<string, SendEcho>();
   const pending: ChatSend[] = [];
@@ -59,9 +96,67 @@ export function reconcileSends(
   const users = rows.flatMap((row, index) => (isUserAuthored(row) ? [index] : []));
   const recorded = new Set<number>();
   const open: ChatSend[] = [];
+  const boundaries = new Map(sends.filter((send) => send.echoBoundary).map((send) => {
+    const lastRowId = send.echoBoundary!.lastRowId;
+    const index = lastRowId == null ? -1 : rows.findIndex((row) => row.id === lastRowId);
+    return [send.id, lastRowId != null && index < 0 ? rows.length : index];
+  }));
+  const appendedRow = (sendId: string, index: number) => {
+    const boundary = boundaries.get(sendId);
+    if (boundary == null) return;
+    return index > boundary && rows[index].sourceSessionId === authority?.sourceSessionId;
+  };
   for (const send of sends) {
     if (send.echoEligible === false) {
       pending.push(send);
+      continue;
+    }
+    if (send.matchedRow) {
+      const matchedRow = send.matchedRow;
+      const sourceSessionId = matchedRow.source.source_session_id;
+      const record = matchedRow.source.record;
+      if (record.kind === "structured") {
+        if (send.echoBoundary
+          ? send.echoBoundary.sourceSessionId !== sourceSessionId
+          : sourceSessionId !== authority?.sourceSessionId) {
+          if (!send.echo) pending.push(send);
+          continue;
+        }
+        const index = users.find((candidate) => !recorded.has(candidate)
+          && matchesMatchedRow(rows[candidate], matchedRow));
+        if (index == null && !send.echo) pending.push(send);
+        else if (index != null) {
+          recorded.add(index);
+          claim(send, index);
+        }
+        continue;
+      }
+      if (send.echo) {
+        if (send.echoBoundary
+          ? send.echoBoundary.sourceSessionId !== sourceSessionId
+          : sourceSessionId !== authority?.sourceSessionId) continue;
+        const index = users.find((candidate) => !recorded.has(candidate)
+          && rows[candidate].sourceSessionId === sourceSessionId
+          && send.correlationId != null
+          && rows[candidate].correlationId === send.correlationId);
+        if (index != null) {
+          recorded.add(index);
+          claim(send, index);
+        }
+        continue;
+      }
+      const boundary = send.echoBoundary;
+      if (!boundary
+        || boundary.sourceSessionId !== sourceSessionId
+        || boundary.sourceSessionId !== authority?.sourceSessionId
+        || boundary.sessionBindingNonce !== authority?.sessionBindingNonce) {
+        pending.push(send);
+        continue;
+      }
+    }
+    if (send.echoBoundary && (send.echoBoundary.sourceSessionId !== authority?.sourceSessionId
+      || send.echoBoundary.sessionBindingNonce !== authority?.sessionBindingNonce)) {
+      if (!send.echo) pending.push(send);
       continue;
     }
     if (!send.echo) {
@@ -69,7 +164,7 @@ export function reconcileSends(
       continue;
     }
     const echo = send.echo;
-    const index = users.find((candidate) => isRecordedEcho(echo, rows[candidate]));
+    const index = users.find((candidate) => appendedRow(send.id, candidate) !== false && isRecordedEcho(echo, rows[candidate]));
     if (index == null) continue;
     recorded.add(index);
     claim(send, index);
@@ -84,6 +179,7 @@ export function reconcileSends(
       correlationId: send.correlationId,
     })),
     candidates.map((index) => rows[index]),
+    (sendId, index) => appendedRow(sendId, candidates[index]),
   );
   const byId = new Map(open.map((send) => [send.id, send]));
   for (const { echoId, parsedIndex } of claims) {

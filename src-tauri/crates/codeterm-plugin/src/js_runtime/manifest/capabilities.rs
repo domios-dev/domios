@@ -4,7 +4,7 @@ use super::graph_nodes::GraphNodesCap;
 use super::surfaces::SurfaceDecl;
 use super::tab_menu::TabMenuItem;
 use crate::provider::ContextOwner;
-use codeterm_types::decision::TokenMode;
+use codeterm_decision::TokenMode;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatPreprocessorCap {
@@ -360,6 +360,11 @@ pub struct WebhookReceiverCap {
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_task: Option<crate::remote_tasks::RemoteTaskCapability>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub record_sources:
+        std::collections::BTreeMap<String, crate::jsonl_window::records::RecordSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_runtime: Option<crate::agent_runtime::AgentRuntimeCapability>,
     #[serde(default)]
     pub structured_control: Option<crate::provider::StructuredControl>,
@@ -367,6 +372,8 @@ pub struct Capabilities {
     pub context_attach: Option<crate::provider::ContextAttach>,
     #[serde(default)]
     pub agent_provider: bool,
+    #[serde(default)]
+    pub subagent_visibility: bool,
     #[serde(default)]
     pub reply_relay: bool,
     #[serde(default)]
@@ -410,9 +417,9 @@ pub struct Capabilities {
     #[serde(default)]
     pub webhook_receiver: Option<WebhookReceiverCap>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub local_recording_trigger: Option<crate::local_recording::LocalRecordingTrigger>,
+    pub local_recording_trigger: Option<codeterm_local_recording::LocalRecordingTrigger>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub receiver_status_query: Option<crate::local_recording::ReceiverStatusQuery>,
+    pub receiver_status_query: Option<codeterm_local_recording::ReceiverStatusQuery>,
     /// Items the host renders in every tab's kebab menu; each action is host-owned.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tab_menu: Vec<TabMenuItem>,

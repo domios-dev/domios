@@ -1,4 +1,3 @@
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -14,13 +13,11 @@ use crate::provider::{
 };
 use codeterm_types::pty::PendingPrompt;
 
-use super::super::{call_json, manifest_settings_sections, IntegrationKind, SerdeModelInfo};
-use super::command_template::{launch_command_from_template, resume_command_from_template};
-use super::wire::{
-    launch_params_to_json, SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES,
-};
+use super::super::{call_json, manifest_settings_sections, IntegrationKind};
+use super::wire::{SerdeSessionMetadata, VmUsageParser};
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
+mod capabilities;
 mod chat_read;
 mod delivery;
 mod directory_trust;
@@ -32,8 +29,46 @@ use session_wire::WireUsageSource;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
+    fn supports_subagent_visibility(&self) -> bool {
+        capabilities::supports_subagent_visibility(self)
+    }
+
+    fn record_source(&self, source: &str) -> Option<&crate::jsonl_window::records::RecordSource> {
+        capabilities::record_source(self, source)
+    }
+
+    fn parse_session_records(
+        &self,
+        window: &crate::jsonl_window::records::RecordWindow,
+    ) -> Result<codeterm_types::agent::chat_types::SessionDelta, String> {
+        self.js_parse_session_records(window)
+    }
+
+    fn runtime_stored_records(
+        &self,
+        session: &str,
+        window: &crate::jsonl_window::records::RecordWindow,
+    ) -> Result<Vec<codeterm_types::agent::chat_types::ChatMsg>, String> {
+        self.js_runtime_stored_records(session, window)
+    }
+    fn remote_task_capability(&self) -> Option<crate::remote_tasks::RemoteTaskCapability> {
+        self.manifest.capabilities.remote_task.clone()
+    }
+
     fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
         self.manifest.capabilities.agent_runtime.clone()
+    }
+
+    fn runtime_stored_history_available(&self, cwd: &str, session_id: &str) -> bool {
+        self.js_runtime_stored_history_available(cwd, session_id)
+    }
+
+    fn runtime_stored_history(
+        &self,
+        session_id: &str,
+        records: &str,
+    ) -> Result<Vec<codeterm_types::agent::chat_types::ChatMsg>, String> {
+        self.js_runtime_stored_history(session_id, records)
     }
 
     fn authorize_agent_runtime(
@@ -117,6 +152,9 @@ impl AgentProvider for JsProvider {
     fn cli_compatibility(&self) -> Option<crate::provider_compat::CompatibilityManifest> {
         self.manifest.cli_compatibility.clone()
     }
+    fn worker_lane_settings(&self) -> Vec<crate::provider::WorkerLaneSetting> {
+        self.manifest.worker_lane_settings.clone()
+    }
 
     fn id(&self) -> &str {
         &self.manifest.id
@@ -165,14 +203,23 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.launch_permissions.clone()
     }
 
+    fn execution_sandbox_capability(&self) -> Option<provider::ExecutionSandboxCapability> {
+        self.manifest.spawn.execution_sandbox.clone()
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
-        if !self.has_js("buildLaunchCommand") {
-            if let Some(command) = launch_command_from_template(&self.manifest, params) {
-                return command;
-            }
-        }
-        self.try_call::<String>("buildLaunchCommand", &[launch_params_to_json(params)])
-            .unwrap_or_default()
+        super::command_template::build_launch_command(self, params)
+    }
+
+    fn declares_launch_spec(&self) -> bool {
+        self.manifest.commands.launch_spec.is_some() || self.vm.declares_launch_spec()
+    }
+
+    fn launch_spec(
+        &self,
+        params: &crate::provider::LaunchSpecParams<'_>,
+    ) -> Option<codeterm_types::agent::LaunchSpec> {
+        super::command_template::launch_spec(self, params)
     }
 
     fn release_tab_launch_artifacts(
@@ -289,6 +336,10 @@ impl AgentProvider for JsProvider {
             .unwrap_or(false)
     }
 
+    fn supports_session_name_detection(&self) -> bool {
+        self.has_js("extractSessionName")
+    }
+
     fn extract_session_name(&self, screen: &str) -> Option<String> {
         self.try_call::<Option<String>>("extractSessionName", &[json!(screen)])
             .flatten()
@@ -307,10 +358,6 @@ impl AgentProvider for JsProvider {
             &[arg],
         )
         .flatten()
-    }
-
-    fn delivery_modal_visible(&self, snapshot: &crate::tab_state::TabStateSnapshot) -> bool {
-        delivery::delivery_modal_visible(self, snapshot)
     }
 
     fn is_output_noise(&self, text: &str) -> bool {
@@ -438,6 +485,14 @@ impl AgentProvider for JsProvider {
         self.try_call::<Option<String>>("launchOnboardingSafeChoice", &[json!(screen)])?
     }
 
+    fn parse_switch_confirmation_prompt(
+        &self,
+        screen: &str,
+        selection: &str,
+    ) -> Option<PendingPrompt> {
+        self.switch_confirmation_prompt_from_js(screen, selection)
+    }
+
     fn live_prompt_response(&self, option_index: usize, screen: &str) -> Option<Vec<Vec<u8>>> {
         self.live_prompt_response_from_js(option_index, screen)
     }
@@ -482,20 +537,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
-        // Hook-reported evidence wins over any reconstruction; absence falls through.
-        let path = crate::session_evidence::stored_transcript_path(session_id)
-            .or_else(|| self.owned_session_file_path(cwd, session_id))?;
-        if self
-            .manifest
-            .commands
-            .model_switch_commands
-            .as_ref()
-            .is_some_and(|commands| commands.turn_completion.is_some())
-        {
-            self.permitted_session_path(path)
-        } else {
-            Some(path)
-        }
+        self.js_session_file_path(cwd, session_id)
     }
 
     fn additional_usage_sources(&self, session_file: &Path, session_id: &str) -> Vec<PathBuf> {
@@ -703,36 +745,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn parse_session_messages(&self, file_path: &Path) -> Vec<SessionMessage> {
-        if !self.has_js("parseSessionMessages") {
-            return match self.native() {
-                Some(n) => n.parse_session_messages(file_path),
-                None => Vec::new(),
-            };
-        }
-        let Ok(file) = std::fs::File::open(file_path) else {
-            return Vec::new();
-        };
-        let mut reader = BufReader::new(file);
-        let mut out = Vec::new();
-        let mut chunk = String::new();
-        let mut line = String::new();
-        loop {
-            line.clear();
-            match reader.read_line(&mut line) {
-                Ok(0) => break,
-                Ok(_) => {}
-                Err(_) => break,
-            }
-            chunk.push_str(&line);
-            if chunk.len() >= SESSION_PARSE_CHUNK_BYTES {
-                self.extend_parsed_session_chunk(&mut out, &chunk);
-                chunk.clear();
-            }
-        }
-        if !chunk.is_empty() {
-            self.extend_parsed_session_chunk(&mut out, &chunk);
-        }
-        out
+        self.js_parse_session_messages(file_path)
     }
 
     fn session_content_source(&self) -> provider::SessionContentSource {
@@ -770,7 +783,11 @@ impl AgentProvider for JsProvider {
         session_id: &str,
         cursor: Option<&str>,
     ) -> codeterm_types::agent::chat_types::StructuredChat {
-        self.js_read_structured_chat(cwd, session_id, cursor)
+        let mut chat = self.js_read_structured_chat(cwd, session_id, cursor);
+        for message in &mut chat.messages {
+            message.refresh_segments();
+        }
+        chat
     }
 
     fn supports_chat_ui(&self) -> bool {
@@ -786,7 +803,16 @@ impl AgentProvider for JsProvider {
         path: &std::path::Path,
         from_offset: u64,
     ) -> codeterm_types::agent::chat_types::SessionDelta {
-        self.js_parse_session_delta(path, from_offset)
+        self.js_parse_session_delta(path, from_offset, crate::jsonl_window::DELTA_CHUNK_BYTES)
+    }
+
+    fn parse_session_delta_bounded(
+        &self,
+        path: &std::path::Path,
+        from_offset: u64,
+        byte_budget: u64,
+    ) -> Option<codeterm_types::agent::chat_types::SessionDelta> {
+        (byte_budget > 0).then(|| self.js_parse_session_delta(path, from_offset, byte_budget))
     }
 
     fn parse_interactive_events(
@@ -797,18 +823,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
-        if !self.has_js("buildResumeCommand") {
-            if let Some(command) =
-                resume_command_from_template(&self.manifest, session_id, skip_permissions)
-            {
-                return Some(command);
-            }
-        }
-        self.try_call::<Option<String>>(
-            "buildResumeCommand",
-            &[json!(session_id), json!(skip_permissions)],
-        )
-        .flatten()
+        super::command_template::build_resume_command(self, session_id, skip_permissions)
     }
 
     fn build_resume_command_with_context(
@@ -949,6 +964,10 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.idle_restart_termination
     }
 
+    fn supports_exact_session_resume(&self) -> bool {
+        self.js_supports_exact_session_resume()
+    }
+
     fn stop_keystroke(&self) -> Option<&str> {
         self.manifest.commands.stop_key.as_deref()
     }
@@ -1058,6 +1077,12 @@ impl AgentProvider for JsProvider {
         self.manifest.updater.get(platform).cloned()
     }
 
+    fn provider_self_update_capability(
+        &self,
+    ) -> Option<crate::provider_self_update::ProviderSelfUpdateCapability> {
+        self.js_self_update_capability()
+    }
+
     fn update_prompt_availability(&self, screen: &str) -> Option<ProviderUpdateAvailability> {
         self.update_prompt_availability_from_js(screen)
     }
@@ -1081,11 +1106,7 @@ impl AgentProvider for JsProvider {
     }
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
-        // `null` is the plugin's honest "no genuine discovery" signal — it must
-        // not deserialize-fail into warn noise, and never falls back to a seed.
-        self.try_call::<Option<Vec<SerdeModelInfo>>>("discoverModels", &[])
-            .flatten()
-            .map(|models| models.iter().map(ModelInfo::from).collect())
+        self.js_discover_models()
     }
 
     fn default_model(&self) -> Option<String> {
@@ -1118,18 +1139,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {
-        if !self.has_custom_settings_schema {
-            let mut fields = manifest_settings_sections(&self.manifest);
-            if self.auth_status_probe().is_some() {
-                fields.push(provider::structured_signals_section());
-            }
-            return fields;
-        }
-        // Cached: describe() polls hit this; the plugin schema is a pure constant.
-        self.schema_cache
-            .get_or_init(|| self.compute_schemas())
-            .0
-            .clone()
+        capabilities::settings_schema(self)
     }
 
     fn notifications_schema(&self) -> Vec<SettingField> {

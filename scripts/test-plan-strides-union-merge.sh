@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: docs evals/prompt-contract/protocol-fixtures.json
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"

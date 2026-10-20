@@ -1,4 +1,15 @@
 *.sh text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.ps1 text eol=lf
+*.mjs text eol=lf
+*.js text eol=lf
+.pnpmfile.cjs text eol=lf
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+tests/fixtures/**/*.txt text eol=lf
+prod-docs/*.md text eol=lf
 generated/cli/cli.md text eol=lf
 generated/cli/cli-manifest.json text eol=lf
 
@@ -20,3 +31,9 @@ tests/fixtures/plan-state/*.yaml text eol=lf
 # failed the release provenance check on a dirty tree.
 **/Cargo.toml text eol=lf
 **/Cargo.lock text eol=lf
+
+# Tauri regenerates these with LF on every check/dev run.
+src-tauri/gen/schemas/*.json text eol=lf
+
+# Producer vector packet bytes are pinned by SHA256; never normalize line endings.
+src-tauri/crates/codeterm-entitlements/vectors/** -text

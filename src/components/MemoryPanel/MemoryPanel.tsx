@@ -1,3 +1,5 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { listen } from "../../lib/bridge";
 import { memoryListControlsVisible } from "./memoryDetailModel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { List, Network } from "lucide-react";
@@ -82,15 +84,13 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
     const load = () => fetchStats(api).then((s) => { if (active) setMemStats(s); }).catch(() => {});
     load();
     let unlisten: (() => void) | null = null;
-    import("../../lib/bridge").then(({ listen }) => {
-      listen<{ op: string }>("mem-activity", (ev) => {
-        if (!active) return;
-        if (ev.payload?.op === "write" || ev.payload?.op === "delete") load();
-      }).then((fn) => {
-        if (!active) { fn(); return; }
-        unlisten = fn;
-      }).catch(() => {});
-    });
+    listen<{ op: string }>("mem-activity", (ev) => {
+      if (!active) return;
+      if (ev.payload?.op === "write" || ev.payload?.op === "delete") load();
+    }).then((fn) => {
+      if (!active) { fn(); return; }
+      unlisten = fn;
+    }).catch(() => {});
     return () => { active = false; if (unlisten) unlisten(); };
   }, [api.host, api.port, api.token]);
 
@@ -211,9 +211,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           </div>
         )}
         {activeTab === "inspect" && inspectView === "graph" && snapshotError && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-2 rounded bg-[var(--ct-red)] text-white text-xs" data-testid="memory-graph-error" role="alert">
-            {snapshotError}
-          </div>
+          <div data-testid="memory-graph-error"><InlineErrorNotice error={snapshotError} operation="loading memory" blocking /></div>
         )}
         {activeTab === "inspect" && inspectView === "graph" && showSnapshotEmpty && (
           <div className="absolute inset-0 flex items-center justify-center">

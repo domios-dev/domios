@@ -44,8 +44,13 @@ it("essence map wires the shared toolbar and selector once", async () => {
   await click("Zoom out"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(-0.25); fakes.zoom.mockClear();
   await click("Zoom in"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(0.25);
   await click("Refresh"); expect(refresh).toHaveBeenCalledTimes(1);
-  const selector = host.querySelector<HTMLSelectElement>('[role="toolbar"] select')!;
-  await act(async () => { selector.value = "/repo"; selector.dispatchEvent(new Event("change", { bubbles: true })); });
+  const selector = Array.from(host.querySelectorAll<HTMLButtonElement>("button[aria-label]"))
+    .find((button) => button.getAttribute("aria-label")?.startsWith("Fly to project map:"));
+  expect(selector).not.toBeNull();
+  await act(async () => selector!.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+  const item = document.body.querySelector<HTMLButtonElement>('[role="menuitem"], [role="menuitemradio"]')!;
+  expect(item).not.toBeNull();
+  await act(async () => item.click());
   expect(fakes.fly).toHaveBeenCalledTimes(1);
 });
 it("Blueprint wires the shared toolbar once", async () => {
@@ -64,9 +69,10 @@ it("memory wires the shared toolbar to its camera and refresh once", async () =>
   await click("Refresh"); expect(refresh).toHaveBeenCalledTimes(1);
 });
 it("mesh wires the shared toolbar once", async () => {
-  await mount(<MeshCanvas thisMachine={{ name: "Fixture", ip: "127.0.0.1" }} peers={[]} services={[]} recentPushes={[]} onPeerClick={() => {}} width={600} height={400} />);
+  const refresh = vi.fn();
+  await mount(<MeshCanvas onRefresh={refresh} thisMachine={{ name: "Fixture", ip: "127.0.0.1" }} peers={[]} recentPushes={[]} onPeerClick={() => {}} width={600} height={400} />);
   await click("Fit all"); expect(fakes.fit).toHaveBeenCalledTimes(1);
   await click("Zoom out"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(-0.06); fakes.zoom.mockClear();
   await click("Zoom in"); expect(fakes.zoom).toHaveBeenCalledExactlyOnceWith(0.06);
-  expect(host.querySelector('[role="toolbar"] button[aria-label="Refresh"]')).toBeNull();
+  await click("Refresh"); expect(refresh).toHaveBeenCalledTimes(1);
 });

@@ -1,5 +1,12 @@
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
-import { ChevronUp, CircleCheck, Clock3, Infinity as InfinityIcon, Map, Plus, Timer, Workflow, X } from "lucide-react";
+import { SessionGoalDetails } from "./SessionGoalDetails";
+import { ComposerContextChip } from "./ComposerContextChip";
+import { RemovedChatPlugin } from "./RemovedChatPlugin";
+import { removedChatPluginId } from "./removedChatPluginError";
+import type { ChatSessionIntent } from "@codeterm/chat-core";
+import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { memo, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { Activity, ChevronUp, CircleCheck, Clock3, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Target, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
 import { deleteJobConfirmation, deleteMergedJob, stopMergedJob, type JobsActionAdapter } from "../Jobs/jobActions";
@@ -7,12 +14,22 @@ import { canStopJob, jobStateLabel, tabJobKey, type MergedJob, type TabJob } fro
 import { requestOpenJob } from "../Jobs/openJobEvent";
 import { openTabJob, useTabJobs } from "../Jobs/useTabJobs";
 import { formatScheduledTime, type DelayedMessage } from "./delayedSend";
+import { isSystemDelayedMessage } from "./systemHeartbeatProjection";
 import { useResolvedTabActivity, useTabHasPlan } from "./useTabPlanActivity";
 import { usePhoneViewport } from "../../hooks/useSidebarViewport";
+import { useMuxSelector } from "../../store/multiplexer";
+import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
+import { goalVisible } from "./goalModel";
+import { ComposerBackgroundWorkPanel, SubagentCapsules } from "./ComposerBackgroundWorkPanel";
+import { useComposerBackgroundWorkStatus } from "./ComposerBackgroundWorkContext";
+import { composerBackgroundWorkBubble } from "./composerBackgroundWorkModel";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
-export type ContextKind = "blueprints" | "crons" | "delayed";
+export type ContextKind = "blueprints" | "crons" | "delayed" | "goal" | "background";
 
 interface ComposerContextHeaderProps {
+  pluginError?: string | null;
+  sessionIntent?: ChatSessionIntent | null;
   tabId: string;
   workspaceId: string | null;
   delayed: readonly DelayedMessage[];
@@ -27,13 +44,16 @@ interface ComposerContextHeaderProps {
 
 type OwnedBlueprint = ReturnType<typeof useTabJobs>["blueprints"][number];
 
-const KIND_ICON = { blueprints: Workflow, crons: Clock3, delayed: Timer } as const;
-const KIND_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed messages" } as const;
-const KIND_SHORT_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed" } as const;
+const KIND_ICON = { blueprints: Workflow, crons: Clock3, delayed: Timer, goal: Target, background: Activity } as const;
+const KIND_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed messages", goal: "Session goal", background: "Background work" } as const;
+const KIND_SHORT_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed", goal: "Goal", background: "Background" } as const;
 
 const keepComposerFocus = (event: MouseEvent) => event.preventDefault();
 
-function ContextBubble({ tone, label, onOpen, dismissLabel, dismissTitle, onDismiss, children }: {
+function ContextBubble({ tone, label, onOpen, dismissLabel, dismissTitle, onDismiss, triggerRef, title, expanded, children }: {
+  triggerRef?: RefObject<HTMLButtonElement | null>;
+  title?: string;
+  expanded?: boolean;
   tone: string;
   label?: string;
   onOpen: () => void;
@@ -44,7 +64,7 @@ function ContextBubble({ tone, label, onOpen, dismissLabel, dismissTitle, onDism
 }) {
   return (
     <span className="ct-ctx-bubble" data-tone={tone}>
-      <button type="button" className="ct-ctx-bubble__open" aria-label={label} onMouseDown={keepComposerFocus} onClick={onOpen}>{children}</button>
+      <button ref={triggerRef} title={title} aria-expanded={expanded} aria-haspopup={expanded === undefined ? undefined : "dialog"} type="button" className="ct-ctx-bubble__open" aria-label={label} onMouseDown={keepComposerFocus} onClick={onOpen}>{children}</button>
       {onDismiss && (
         <button type="button" className="ct-ctx-bubble__dismiss" aria-label={dismissLabel} title={dismissTitle} onMouseDown={keepComposerFocus} onClick={onDismiss}>
           <X size={11} aria-hidden="true" />
@@ -52,6 +72,29 @@ function ContextBubble({ tone, label, onOpen, dismissLabel, dismissTitle, onDism
       )}
     </span>
   );
+}
+
+function ContextPopoverBubble({ label, tone, title, children, details }: {
+  label: string;
+  tone: string;
+  title?: string;
+  children: ReactNode;
+  details: ReactNode;
+}) {
+  const { open, triggerRef, popoverRef, toggle, close } = useRuntimeStatusPopover();
+  return <div className="inline-flex min-w-0 max-w-full">
+    <ComposerContextChip kind={tone} open={open} ref={triggerRef} aria-label={label} title={title} aria-expanded={open} aria-haspopup="dialog" onClick={toggle}>{children}</ComposerContextChip>
+    <AnchoredPopover open={open} anchor={triggerRef} placement="top-end" onClose={close}>
+      <div ref={popoverRef} role="dialog" aria-label={label} tabIndex={-1}
+        className="ct-menu w-64 max-w-full whitespace-pre-wrap break-words p-3 text-xs text-[var(--ct-fg)]">{details}</div>
+    </AnchoredPopover>
+  </div>;
+}
+
+function RemovedPluginBubble({ error }: { error: string }) {
+  return <ContextPopoverBubble tone="waiting" label="Plugin removed" details={<RemovedChatPlugin error={error} />}>
+    <TriangleAlert size={13} aria-hidden="true" />
+  </ContextPopoverBubble>;
 }
 
 function StateBody({ title, state }: { title: string; state: string }) {
@@ -84,24 +127,46 @@ function delayedTone(message: DelayedMessage): string {
 
 type ResolvedPlan = ReturnType<typeof useResolvedTabActivity>;
 
-export function ComposerContextHeader(props: ComposerContextHeaderProps) {
+export const ComposerContextHeader = memo(function ComposerContextHeader(props: ComposerContextHeaderProps) {
   return useTabHasPlan(props.tabId) ? <PlannedContextHeader {...props} /> : <ContextHeaderBody {...props} plan={null} />;
-}
+});
 
 function PlannedContextHeader(props: ComposerContextHeaderProps) {
   const plan = useResolvedTabActivity(props.tabId, props.workspaceId);
   return <ContextHeaderBody {...props} plan={plan.activity ? plan : null} />;
 }
 
-function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDeleteDelayed, onScheduleDelayed, draftActive = false, adapter, jobActionAdapter, plan }: ComposerContextHeaderProps & { plan: ResolvedPlan | null }) {
+function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, delayed, onEditDelayed, onDeleteDelayed, onScheduleDelayed, draftActive = false, adapter, jobActionAdapter, plan }: ComposerContextHeaderProps & { plan: ResolvedPlan | null }) {
+  const providerId = useMuxSelector(state => {
+    const tab = state.tabs[tabId];
+    return tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null);
+  });
+  const descriptor = useAgentDescriptor(providerId);
+  const backgroundWork = useComposerBackgroundWorkStatus();
+  const backgroundBubble = composerBackgroundWorkBubble(backgroundWork.items.filter(item => item.kind === "terminal"));
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
   const [requested, setRequested] = useState<ContextKind | null>(null);
-  const [shown, setShown] = useState<ContextKind | null>(null);
+  const goalTriggerRef = useRef<HTMLButtonElement>(null);
+  const [unavailableGoal, setUnavailableGoal] = useState<string | null>(null);
+  const goalKey = JSON.stringify([tabId, providerId, sessionIntent?.goal]);
+  const hasGoal = goalVisible(descriptor?.agent_runtime, sessionIntent) && unavailableGoal !== goalKey;
   const [confirming, setConfirming] = useState<MergedJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const phone = usePhoneViewport();
+  const linkedGroupId = useId();
   const [unfolded, setUnfolded] = useState(false);
+
+  useEffect(() => {
+    if (requested !== "goal") return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.code !== "Escape" || event.defaultPrevented) return;
+      setRequested(null);
+      goalTriggerRef.current?.focus();
+    };
+    document.addEventListener("keydown", dismiss);
+    return () => document.removeEventListener("keydown", dismiss);
+  }, [requested]);
 
   useEffect(() => {
     if (!draftActive) return;
@@ -115,20 +180,25 @@ function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDelet
     blueprints: blueprintChips.length + blueprints.length,
     crons: cronChips.length,
     delayed: delayed.length,
+    goal: Number(hasGoal),
+    background: backgroundBubble?.count ?? 0,
   };
   const alerts: Record<ContextKind, boolean> = {
     blueprints: blueprintChips.some((chip) => chip.state === "waiting on you"),
     crons: cronChips.some((chip) => chip.state === "waiting on you"),
     delayed: delayed.some((message) => message.state === "failed"),
+    goal: false,
+    background: false,
   };
   const kinds = (Object.keys(counts) as ContextKind[]).filter((kind) => counts[kind] > 0);
   const open = requested && counts[requested] > 0 ? requested : null;
 
-  if (!plan && kinds.length === 0) return null;
+  const hasPluginError = removedChatPluginId(pluginError ?? null) !== null;
+  if (!hasGoal && !hasPluginError && !plan && kinds.length === 0 && backgroundWork.items.length === 0) return null;
 
   const toggle = (kind: ContextKind) => {
     setRequested(open === kind ? null : kind);
-    setShown(kind);
+    setUnfolded(true);
   };
 
   const confirmDelete = async () => {
@@ -180,31 +250,36 @@ function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDelet
   );
 
   const strip: Record<ContextKind, () => ReactNode> = {
+    goal: () => sessionIntent && <SessionGoalDetails key={goalKey} tabId={tabId} intent={sessionIntent} triggerRef={goalTriggerRef} onUnavailable={() => { setUnavailableGoal(goalKey); setRequested(null); }} />,
     blueprints: () => <>{blueprints.map(blueprintBubble)}{blueprintChips.map(jobBubble)}</>,
     crons: () => <>{[...cronChips].sort((a, b) => Number(b.state === "waiting on you") - Number(a.state === "waiting on you")).map(jobBubble)}</>,
     delayed: () => (
       <>
-        {[...delayed].sort((a, b) => Number(a.state === "stashed") - Number(b.state === "stashed")).map((message) => (
+        {[...delayed].sort((a, b) => Number(a.state === "stashed") - Number(b.state === "stashed")).map((message) => {
+          const system = isSystemDelayedMessage(message);
+          return (
           <ContextBubble
             key={message.id}
             tone={delayedTone(message)}
-            label={`Edit ${message.state === "stashed" ? "stashed" : "delayed"} message: ${message.text}`}
+            label={system ? `System heartbeat: ${message.text}` : `Edit ${message.state === "stashed" ? "stashed" : "delayed"} message: ${message.text}`}
             onOpen={() => onEditDelayed(message)}
-            dismissLabel="Cancel delayed message"
-            dismissTitle="Cancel"
-            onDismiss={() => onDeleteDelayed(message.id)}
+            dismissLabel={system ? undefined : "Cancel delayed message"}
+            dismissTitle={system ? undefined : "Cancel"}
+            onDismiss={system ? undefined : () => onDeleteDelayed(message.id)}
           >
             {message.state === "stashed"
               ? <InfinityIcon size={13} aria-label="Stashed, sends only when you schedule it" className="ct-ctx-bubble__stash" />
               : <span className="ct-ctx-bubble__meta">{delayedWhen(message)}</span>}
             <span className="ct-ctx-bubble__title ct-ctx-bubble__title--text">{message.text}</span>
           </ContextBubble>
-        ))}
+          );
+        })}
         <button type="button" className="ct-ctx-bubble ct-ctx-bubble--add" onMouseDown={keepComposerFocus} onClick={onScheduleDelayed}>
           <Plus size={11} aria-hidden="true" />Schedule
         </button>
       </>
     ),
+    background: () => <ComposerBackgroundWorkPanel items={backgroundBubble?.items ?? []} onStop={backgroundWork.stop} />,
   };
 
   const fallbackTitle = () => {
@@ -216,13 +291,14 @@ function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDelet
     return next ? <ContextTitle kind="delayed" prefix="Next:" primary={delayedWhen(next)} secondary={next.text} /> : null;
   };
 
-  const total = kinds.reduce((sum, kind) => sum + counts[kind], 0);
-  const PillIcon = plan ? Map : KIND_ICON[kinds[0]];
+  const total = kinds.reduce((sum, kind) => sum + counts[kind], 0) + Number(hasPluginError);
+  const PillIcon = plan ? Map : kinds.length > 0 ? KIND_ICON[kinds[0]] : hasGoal ? Target : TriangleAlert;
   const pill = phone && (
     <button
       type="button"
       className="ct-ctx-pill"
       data-testid="composer-context-pill"
+      aria-controls={total > 0 ? linkedGroupId : undefined}
       aria-expanded={unfolded}
       aria-label={unfolded ? "Hide plan and linked items" : "Show plan and linked items"}
       onMouseDown={keepComposerFocus}
@@ -232,65 +308,67 @@ function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDelet
       }}
     >
       <PillIcon size={12} aria-hidden="true" className="ct-ctx-pill__icon" data-kind={plan ? "plan" : kinds[0]} />
-      <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]]}</span>
+      <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]] ?? (hasGoal ? "Session goal" : hasPluginError ? "Plugin removed" : "Subagents")}</span>
       {total > 0 && <span className="ct-ctx-pill__count">+{total}</span>}
       <ChevronUp size={12} aria-hidden="true" className="ct-ctx-pill__chev" />
       {Object.values(alerts).some(Boolean) && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
     </button>
   );
 
-  const body = (
+  const body = open && (
     <>
-      <div className="ct-ctx__head">
-        {plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
-        {kinds.length > 0 && (
-          <div className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
-            {kinds.map((kind) => {
-              const Icon = KIND_ICON[kind];
-              return (
-                <button
-                  key={kind}
-                  type="button"
-                  className="ct-ctx-kind"
-                  data-kind={kind}
-                  data-open={open === kind || undefined}
-                  aria-pressed={open === kind}
-                  aria-label={`${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${alerts[kind] ? ", one needs you" : ""}`}
-                  title={KIND_LABEL[kind]}
-                  onMouseDown={keepComposerFocus}
-                  onClick={() => toggle(kind)}
-                >
-                  <Icon size={13} aria-hidden="true" />
-                  {phone && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
-                  {(phone || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
-                  {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
       <div className="ct-ctx__reveal" data-open={open !== null || undefined}>
         <div className="ct-ctx__reveal-inner">
-          {shown && (
-            <div className="ct-ctx__strip" data-kind={shown} role="group" aria-label={KIND_LABEL[shown]}>
-              {strip[shown]()}
-            </div>
-          )}
+          <div className="ct-ctx__strip" data-kind={open} role={open === "goal" ? "dialog" : "group"} aria-label={KIND_LABEL[open]}>
+            {strip[open]()}
+          </div>
         </div>
       </div>
     </>
   );
 
+  const linkedChips = (
+    (hasGoal || hasPluginError || kinds.length > 0) && (
+      <div id={linkedGroupId} hidden={phone && !unfolded} className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
+        {hasPluginError && pluginError && <RemovedPluginBubble error={pluginError} />}
+        {kinds.map((kind) => {
+          const Icon = KIND_ICON[kind];
+          return (
+            <ComposerContextChip
+              key={kind}
+              ref={kind === "goal" ? goalTriggerRef : undefined}
+              kind={kind}
+              open={open === kind}
+              aria-pressed={open === kind}
+              aria-label={kind === "goal" ? KIND_LABEL.goal : `${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${alerts[kind] ? ", one needs you" : ""}`}
+              title={KIND_LABEL[kind]}
+              onClick={() => toggle(kind)}
+            >
+              <Icon size={13} aria-hidden="true" />
+              {phone && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
+              {(phone || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
+              {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
+            </ComposerContextChip>
+          );
+        })}
+      </div>
+    )
+  );
+
   return (
     <div className="ct-ctx" data-testid="composer-context-header" data-open-kind={open ?? undefined} data-phone={phone || undefined}>
-      {pill}
-      {phone ? (
+      <div className="ct-ctx__head ct-ctx__compact">
+        {phone ? pill : plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
+        {!phone && linkedChips}
+      </div>
+      {phone && linkedChips}
+      <SubagentCapsules items={backgroundWork.items.filter(item => item.kind === "agent")} />
+      {open && (phone ? (
         <div className="ct-ctx__reveal" data-open={unfolded || undefined}>
           <div className="ct-ctx__reveal-inner">{body}</div>
         </div>
-      ) : body}
-      {error && !confirming && <span role="alert" className="ct-ctx__error">{error}</span>}
+      ) : body)}
+      {error && !confirming && <InlineErrorNotice error={error} operation="updating the composer context" blocking />}
       {confirming && (() => {
         const copy = deleteJobConfirmation(confirming);
         return (

@@ -92,6 +92,21 @@ pub(super) fn handle(
             inject_trusted_session(&mut params);
             call_plan_rpc(client, "plan.review.authorize-reporter", params).map(Some)
         }
+        PlanReviewAction::Delegate {
+            plan_id,
+            task_id,
+            qa_tab_id,
+        } => {
+            let mut params = json!({
+                "task_id": task_id,
+                "qa_tab_id": qa_tab_id,
+            });
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            inject_trusted_session(&mut params);
+            call_plan_rpc(client, "plan.review.delegate", params).map(Some)
+        }
         PlanReviewAction::Accept {
             plan_id,
             task_id,
@@ -114,7 +129,7 @@ pub(super) fn handle(
             if let Some(residual_risk) = residual_risk {
                 params["residual_risk"] = json!(residual_risk);
             }
-            maybe_inject_caller_tab(&mut params);
+            inject_trusted_session(&mut params);
             call_plan_rpc(client, "plan.review.accept", params).map(Some)
         }
         PlanReviewAction::Bounce {
@@ -124,6 +139,7 @@ pub(super) fn handle(
             note_from_pad,
             changed_executable_surfaces,
             distinct_oracle,
+            todo_item,
         } => {
             let mut params = json!({
                 "task_id": task_id,
@@ -134,6 +150,9 @@ pub(super) fn handle(
             });
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
+            }
+            if let Some(todo_item) = todo_item {
+                params["todo_item"] = json!(todo_item);
             }
             inject_trusted_session(&mut params);
             call_plan_rpc(client, "plan.review.bounce", params).map(Some)
@@ -152,7 +171,7 @@ pub(super) fn handle(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_tab(&mut params);
+            inject_trusted_session(&mut params);
             call_plan_rpc(client, "plan.review.hold", params).map(Some)
         }
     }

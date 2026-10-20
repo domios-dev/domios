@@ -52,6 +52,39 @@ const tick = (): Promise<void> => new Promise((r) => queueMicrotask(() => r()));
 void (async () => {
   console.log("refresh coalescer");
 
+  await test("unchanged generation skips fetching and a new generation fetches", async () => {
+    let cached: number | undefined = 7;
+    let calls = 0;
+    const coalescer = createRefreshCoalescer(async () => {
+      calls++;
+      cached = 8;
+      return true;
+    }, undefined, () => cached);
+    assert(await coalescer.request(7), "cached generation succeeds");
+    assert(calls === 0, "cached snapshot needs no fetch");
+    assert(await coalescer.request(8), "new generation succeeds");
+    assert(Number(calls) === 1, "new snapshot fetches once");
+    await coalescer.request();
+    assert(Number(calls) === 2, "unversioned requests always fetch");
+  });
+
+  await test("queued generation is skipped after the in-flight read cached it", async () => {
+    const backend = controllable();
+    let cached = 1;
+    const coalescer = createRefreshCoalescer(async () => {
+      const result = await backend.run();
+      cached = 2;
+      return result;
+    }, undefined, () => cached);
+    const first = coalescer.request(2);
+    const queued = coalescer.request(2);
+    backend.releaseNext();
+    await tick();
+    await tick();
+    assert(backend.calls() === 1, "queued duplicate needs no second fetch");
+    assert((await Promise.all([first, queued])).every(Boolean), "both requests succeed");
+  });
+
   await test("a burst of 200 requests costs two fetches, never two at once", async () => {
     const backend = controllable();
     const coalescer = createRefreshCoalescer(backend.run);

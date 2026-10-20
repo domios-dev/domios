@@ -91,7 +91,6 @@ suite.test("Open in browser sits right after the address field", async () => {
   const open = getByRole(toolbar, "button", "Open in browser");
   assert.equal(address.nextElementSibling, open);
   assert.equal(open.getAttribute("title"), "Open in browser");
-  assert.ok(open.classList.contains("ct-surface-icon-btn"), "the quiet ghost icon style of the other toolbar icons");
   assert.ok(open.querySelector("svg"), "icon only");
   await unmount();
 });

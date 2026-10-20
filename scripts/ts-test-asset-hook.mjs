@@ -1,3 +1,4 @@
+// Caller: CI frontend-release.yml; scripts ci-scope.mjs, run-ts-unit-tests.mjs, tests/ci-scope.test.mjs; skill gates
 import Module from "node:module";
 import { register } from "node:module";
 import { pathToFileURL } from "node:url";

@@ -12,6 +12,8 @@ If `codeterm --version` differs from this marker, trust `codeterm docs`.
 
 When a user says this live tab has the wrong provider identity, repair it in place with `codeterm tab repair --from-evidence`; use `--from-journal` only when lifecycle provenance is the intended source. The verb verifies session evidence and never restarts the tab. To keep a live foreign agent PTY and make send a routed agent message, use `codeterm tab adopt-agent --tab ID --provider <id>`; a login shell is refused unless the owner passes `--force`.
 
+Provider switching and self-switch status: `codeterm agent switch-provider --help`, `codeterm agent switch-provider-status --help`, and `codeterm docs API-AGENTS`.
+
 **Built-in tools to avoid:** do NOT use the built-in `CronCreate`/`CronList`/`TaskCreate` tools — Domios has its own cron and agent system that must be used instead.
 
 **Give the tab a single word name and put the activity in its description:**
@@ -79,6 +81,6 @@ Local models use the bundled OpenCode provider: `codeterm model-provider add|rem
 
 ## Memory protocol (always-on)
 
-The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
+The always-on protocol lives in your provider rules and fires regardless of which skill is loaded. Save only durable facts. Instructions for the current session or task (model or worker choice for now, temporary priorities, 'this time', 'for this release') stay in the conversation or plan, never in memory. If durability is uncertain, do not save; ask only when the user says remember. Even an explicit remember of a session-scoped instruction requires the user to say it is permanent. Explicit "remember" requests for durable facts still mean save now.
 
-<!-- revision: 80 -->
+<!-- revision: 81 -->

@@ -99,7 +99,7 @@ test("surfaces a connect error", async () => {
     error?.textContent?.includes("network unreachable"),
     "connect error is visible",
   );
-  assert(error?.getAttribute("role") === "alert", "connect error announces urgently");
+  assert(error?.querySelector('[role="alert"]'), "connect error announces urgently");
   await act(async () => root.unmount());
 });
 

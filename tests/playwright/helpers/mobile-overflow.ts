@@ -22,7 +22,7 @@ export const INTERACTIVE = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
-export type ReachabilityMode = "all" | "open-drawer" | "peer-picker-menu" | "settings-menu" | "workspace-dropdown" | "new-session-picker";
+export type ReachabilityMode = "all" | "open-drawer" | "peer-picker-menu" | "settings-menu" | "new-session-picker";
 
 export const SANCTIONED_HSCROLL_OWNER = {
   className: "ct-hscroll",
@@ -52,18 +52,9 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
     const settingsMenu = mode === "settings-menu"
       ? document.querySelector('[data-testid="settings-menu"]')
       : null;
-    const newSessionDialog = mode === "new-session-picker" || mode === "workspace-dropdown"
+    const newSessionDialog = mode === "new-session-picker"
       ? document.querySelector('[data-testid="new-session-picker"] > [role="dialog"][aria-modal="true"]')
       : null;
-    const workspaceOption = mode === "workspace-dropdown"
-      ? Array.from(document.querySelectorAll('[data-testid^="picker-workspace-option-"]')).find((node) => {
-        const rect = node.getBoundingClientRect();
-        const style = window.getComputedStyle(node);
-        return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
-      })
-      : null;
-    const workspaceFloat = workspaceOption?.closest(".ct-float") as HTMLElement | null;
-    const workspaceDropdown = workspaceFloat && window.getComputedStyle(workspaceFloat).position === "fixed" ? workspaceFloat : null;
     const clips = (value: string) => /auto|scroll|hidden|clip/.test(value);
     const isFullyClippedByAncestor = (el: HTMLElement, rect: DOMRect) => {
       let parent = el.parentElement;
@@ -123,9 +114,7 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
           el.closest(".xterm-accessibility, .xterm-helper-textarea") !== null;
         if (hidden) return null;
         const inNewSessionDialog = !!newSessionDialog?.contains(el);
-        const inWorkspaceDropdown = !!workspaceDropdown?.contains(el);
         if (mode === "new-session-picker" && !inNewSessionDialog) return null;
-        if (mode === "workspace-dropdown" && !inNewSessionDialog && !inWorkspaceDropdown) return null;
         const left = rect.left;
         const right = rect.right;
         const top = rect.top;
@@ -143,8 +132,6 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
         const inSettingsMenu = !!settingsMenu?.contains(el);
         const hitInSettingsMenu = hit instanceof Node &&
           (!!settingsMenu?.contains(hit) || hit === settingsMenu);
-        const hitInWorkspaceDropdown = hit instanceof Node &&
-          (!!workspaceDropdown?.contains(hit) || hit === workspaceDropdown);
         const xInBounds = left >= -1 && right <= viewportWidth + 1;
         const yInBounds = top >= -1 && bottom <= viewportHeight + 1;
         const inBounds = (xInBounds || ownsSanctionedHorizontalClip(el, rect)) && yInBounds;
@@ -163,8 +150,6 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
           }
         } else if (mode === "settings-menu") {
           layerReachabilityOk = inSettingsMenu ? reachable : reachable || (!reachable && hitInSettingsMenu);
-        } else if (mode === "workspace-dropdown") {
-          layerReachabilityOk = inWorkspaceDropdown ? reachable : reachable || (!reachable && hitInWorkspaceDropdown);
         }
         if (inBounds && layerReachabilityOk) return null;
         return {
@@ -189,8 +174,6 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
           inSettingsMenu,
           hitInSettingsMenu,
           inNewSessionDialog,
-          inWorkspaceDropdown,
-          hitInWorkspaceDropdown,
           hitTag: hit instanceof HTMLElement ? hit.tagName.toLowerCase() : null,
           hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
         };

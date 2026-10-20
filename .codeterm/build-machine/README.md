@@ -1,7 +1,7 @@
 # Domios local build machine
 
-Each push to `release/X.Y.Z` starts one `release.yml` run. Preparation queues Rust archives and parallel fast checks together; fast checks gate
-four platform callers: macOS, Linux arm64, Linux x86_64, Windows. macOS and Windows each have
+Each push to `release/X.Y.Z` starts one `release.yml` run. Fast checks run first and gate both the
+Rust tests and four platform callers: macOS, Linux arm64, Linux x86_64, Windows. macOS and Windows each have
 independent architecture matrix jobs with `fail-fast: false`. The final manifest needs every
 platform caller and both test stages, verifies downloaded draft artifact signatures, then publishes.
 
@@ -15,7 +15,11 @@ platform caller and both test stages, verifies downloaded draft artifact signatu
 | **`linux-ci`** | ubunta and BLACKSTAR-wsl-ci (WSL2 Ubuntu 24.04 on BLACKSTAR) | `tests.yml` Linux jobs and the PR lint workflows | test pool only: either idle runner takes the job; never packaging or signing |
 | **`windows-ci`** | ROG and BLACKSTAR-windows-x64 | `tests.yml` Windows lib and CLI jobs | test pool only; release packaging keeps `windows-build` (arm64 on ROG) and `windows-x64-build` (x64 on BLACKSTAR) |
 
-Strength tiers (runner labels, independent of the release owners above): `heavy` = eight (`codeterm-builder-2`), BLACKSTAR-wsl-ci, BLACKSTAR-windows-x64; `medium` = ROG; `light` = ubunta, plus every heavy runner that can also take quick checks (eight, BLACKSTAR-wsl-ci). Platform-independent quick checks such as `fmt` ask for `light` and run on any free one; release Rust archives queue independently of fast checks; standalone full tests keep the fmt prerequisite.
+Strength tiers (runner labels, independent of the release owners above): `heavy` = eight (`codeterm-builder-2`), BLACKSTAR-wsl-ci, BLACKSTAR-windows-x64; `medium` = ROG; `light` = ubunta, plus every heavy runner that can also take quick checks (eight, BLACKSTAR-wsl-ci). Platform-independent quick checks such as `guards` (file sizes, fmt, contracts) ask for `light` and run on any free one; release Rust tests wait for the fast gate like the builds; standalone test runs keep the guards prerequisite.
+
+### Pausing a machine (owner is working on it)
+
+`./build.sh runner-pause BLACKSTAR` parks every `BLACKSTAR-*` runner: its custom labels become `paused`, so no workflow job routes there, and any label only it served (today `windows-x64-build`) is lent to an online runner of the same OS (ROG). The saved labels live in `.codeterm/build-machine/paused/BLACKSTAR.json`; commit it so the pause is visible in git. `./build.sh runner-resume BLACKSTAR` restores the labels, takes the lent ones back and deletes the file; `./build.sh runner-status` lists runners and paused machines. Run `scripts/check-release-runners.sh` after either. A pause refuses when a label would be left with no online runner of that OS.
 
 ### Observed release/test runner overlap
 
@@ -23,80 +27,53 @@ Inventory read with `gh api repos/rollacode/codeterm/actions/runners` on 2026-10
 
 | Runner | Test labels | Default release labels | Queue overlap |
 |---|---|---|---|
-| codeterm-builder-2 (eight, macOS ARM64) | `rust-shard`, `codeterm-builder` (macOS archive) | `codeterm-builder` (both macOS architectures and Linux arm64 Docker) | Mac archives/shards |
-| ubunta-linux-build (Linux X64) | `rust-shard`, `linux-ci`, `linux-build` (Linux archive) | `linux-build` (Linux x86_64) | Linux archives/shards |
-| BLACKSTAR-windows-x64 (Windows X64) | `rust-shard`, `windows-ci` (Windows archive/native tests) | `windows-x64-build` | Windows archives/shards |
-| ROG-windows-build (Windows X64) | `rust-shard`, `windows-ci` (Windows archive/native tests) | `windows-build` (Windows arm64 cross-build) | Windows archives/shards |
-| air-macos (macOS ARM64) | `rust-shard`, `macos-ci` | none | tests only |
+| codeterm-builder-2 (eight, macOS ARM64) | `rust-tests` (pool, to add), `rust-shard` (macOS platform subset) | `codeterm-builder` (both macOS architectures and Linux arm64 Docker) | full suite or macOS subset |
+| ubunta-linux-build (Linux X64) | `rust-tests` (pool, to add), `linux-ci` (Linux platform subset) | `linux-build` (Linux x86_64) | full suite or Linux subset |
+| BLACKSTAR-windows-x64 (Windows X64) | `windows-ci` (Windows platform subset; paused) | `windows-x64-build` | Windows subset |
+| ROG-windows-build (Windows X64) | `rust-tests` (pool, to add), `windows-ci` (Windows platform subset) | `windows-build` (Windows arm64 cross-build) | full suite or Windows subset |
+| air-macos (macOS ARM64) | `rust-shard` (macOS platform subset), `macos-ci` | none | tests only |
 | BLACKSTAR-wsl-ci (Linux X64) | `linux-ci`, `light`, `heavy` | none | fast checks/native tests |
 | BLACKSTAR-wsl-light-1 / -2 (Linux X64) | `light` | none | fast checks only |
-| green-windows-ci (Windows X64) | `windows-light` | none | no current Rust shard assignment |
+| green-windows-ci (Windows X64) | `windows-light` | none | no Rust tests (no MSVC) |
 
-All nine runners were online. The inventory has five `rust-shard` runners;
-green currently lacks that label. Matching remains capability/label based, so
-any idle qualified runner can take a job; no runner name is pinned in the workflows.
-Every default release builder overlaps tests. At source preparation completion,
-Rust archives and the parallel fast checks queue together; archives have no fast-gate
-prerequisite. When the fast gate is green, all four artifact callers queue immediately,
-with no archive-completion dependency. A free runner matching a build's labels may
-start it while archives/tests still run. Shards and native tests queue as soon as
-archives complete, followed by coverage. Any failed Rust test requests cancellation
-before receipt upload; a failed gate also cancels the caller run.
+All nine runners were online when inventoried. Matching is capability/label based,
+so any idle qualified runner takes a job; no runner name is pinned in the workflows.
 
-GitHub has no runner queue priority. Earlier archive submission gives tests a head
-start on shared machines; queue order is best effort, not a guarantee. Builds are
-never serialized behind an OS archive by the graph. Refresh this inventory when
-changing repository routing variables or runner labels; test-free builders need no
-extra dependency and already start as soon as fast checks pass.
+When the fast gate is green, the Rust tests and all four artifact callers queue
+together and run in parallel. A failed test never cancels the run: builds finish,
+the run is red, and publication still needs both test stages green.
 
-Rust test distribution uses generic `rust-shard` on qualified runners. Keep the OS
-labels alongside it. Twelve nextest hash partitions are queued together, and any idle
-qualified runner takes the next one. Native Linux, macOS and Windows jobs execute
-cfg-gated tests for their OS from the same compiled archives.
+Rust tests compile and run in place; nothing ships a nextest archive between
+runners (an archive download alone took ~12 minutes at ~0.4 MB/s, against a full
+app suite of ~2 minutes after an 8-9 minute compile from the shared S3 cache).
 
-Registration: include `rust-shard` in `config.sh --labels` / `config.cmd --labels`
-alongside the existing custom labels; the Windows bootstrap defaults include it.
-For an already registered runner, add it without replacing the other labels:
-`gh api --method POST repos/rollacode/codeterm/actions/runners/<runner-id>/labels -f 'labels[]=rust-shard'`.
-Verify the repository runner inventory lists at least one online pool member per
-machine before dispatching `gh workflow run tests.yml --ref ci/<branch>`.
+- `rust-tests` runs the whole suite (app workspace libraries and the CLI) once, on
+  any free runner carrying the `rust-tests` label. The pool is eight (macOS ARM64),
+  ROG (Windows X64) and ubunta (Linux X64); green lacks MSVC and BLACKSTAR is paused.
+- `rust-platform` runs on macOS (`rust-shard`: eight, air-macos), Linux (`linux-ci`)
+  and Windows (`windows-ci`) in parallel. Each runs only the cfg(target_os)-gated
+  tests for its OS plus the native input crates (`codeterm-input-macos`,
+  `codeterm-input-windows`).
+- `rust test receipts` requires exactly one passing full-suite receipt and one
+  passing platform receipt per OS, each with a non-zero executed test count.
 
-Compile once per supported OS/architecture before distributing tests: macOS
-ARM64 on eight (`codeterm-builder`), Linux X64 on ubunta (`linux-build`), and
-Windows X64 on one `windows-ci` runner. Each builder publishes workspace and CLI
-nextest archives plus a classified inventory. Shared jobs retain only the generic
-`rust-shard` label; after assignment they download the artifact matching
-`runner.os` and `runner.arch`. Native cfg jobs use those same archives.
-Add an archive-builder matrix entry before qualifying a runner with a new
-OS/architecture combination. Absent or mismatched archives fail explicitly.
+Coverage trade-off: the full suite exercises only the pool runner's OS. Tests gated
+to another OS run only in that OS's platform subset, which the nightly run on
+develop repeats daily with the same graph.
 
-Consumers install nextest without a Rust toolchain, remap the archive workspace
-to their source checkout, and run hash partitions without compilation. Alone
-confirmations use the same archive. The semantic-test embed sidecar travels
-inside the workspace archive. Build receipts report one compile/archive duration
-per platform; shard receipts report extraction/execution/audit time separately.
+Registration: add `rust-tests` to the pool runners without replacing their labels:
+`gh api --method POST repos/rollacode/codeterm/actions/runners/<runner-id>/labels -f 'labels[]=rust-tests'`.
+Keep `rust-shard` on the macOS runners (the platform job's macOS label) and the OS labels everywhere.
 
 The classifier in `scripts/ci-test-classifier` follows Rust source modules and
 inherited cfg gates, including platform cfg attributes inside test bodies.
-`ci-rust-shards.mjs` joins this with nextest's compiled inventory for workspace
-libraries and CLI test targets. Unknown tests and reasonless ignores fail explicitly; every source-authored ignore
-is named with its reason in logs, receipts and the final summary, including
-counts of distinct tests and OS/test entries per reason.
-The coverage job requires all fifteen successful receipts, identical shared
-inventories across every OS, and exactly one primary shard assignment per
-runnable shared test. Candidate timing reruns are recorded separately.
-Normal suite groups use nextest default parallelism; listener groups remain
-serial for their native isolation boundary. Each nonempty nextest subgroup
-emits every per-test duration with `--status-level pass`; its captured log must
-pass the `check-slow-unit-tests.mjs` ratchet against the fetched
-`origin/develop` baseline. Parallel measurements select exact binary/test
-candidates; only those candidates rerun serially using saved binary and Cargo
-metadata. The guard judges alone measurements and reports both timings in the
-receipt and summary. Logs accompany the receipts.
-
-It publishes runner names, test counts and durations in the workflow summary;
-failures identify the shard and runner in their logs. Fixture tests enter shared
-shards automatically after their fixture-only platform gates are removed.
+`ci-rust-tests.mjs platform` joins it with nextest's compiled inventory; unknown
+tests and reasonless ignores fail explicitly and every source-authored ignore is
+named with its reason in the log. Listener groups stay serial for their native
+isolation boundary; other groups use nextest default parallelism and emit every
+per-test duration for the `check-slow-unit-tests.mjs` ratchet. Non-release macOS
+runs enforce it with serial confirmation of the candidates; release runs and the
+Linux and Windows runs report parallel timings as advice.
 
 Why this split:
 - **macOS** must be native (Developer ID + notarization need a Mac keychain).
@@ -110,7 +87,9 @@ CI builds macOS and Linux arm64 independently; `build-all.sh` remains a manual h
 Linux arm64 receives an auth-free source bundle and runs in the baked native arm64 container.
 Each artifact job clears only its own incomplete upload slots and emits its own updater fragment.
 Builds use checkout-local targets; the verify-only cache setting prohibits CI cache reconfiguration.
-Docker uses its isolated clean target and does not provision a shared cache server.
+Docker uses an isolated clean target and owns its container-local S3 cache server.
+The host passes vault credentials only through process environment; host cache statistics
+do not describe container compilations. Native CI only verifies its prestarted server.
 
 ### Runner routing and retries
 
@@ -154,7 +133,7 @@ Serial named gates for warm-checkout verification (orchestrator stride paste-bac
 ## Files
 
 ```
-docker/Dockerfile.linux-arm64   baked aarch64 Linux env (webkit/gtk + rust 1.95 + node/pnpm)
+docker/Dockerfile.linux-arm64   baked aarch64 Linux env (webkit/gtk + rust 1.99.1 + node/pnpm)
 docker/Dockerfile.linux-x64     ORPHANED — x86_64 Linux now builds natively on the ROG/WSL runner
                                 (release-linux.yml), not cross-compiled here. Kept for ad-hoc use.
 scripts/build-linux.sh          thin in-container step: clone tag → pnpm install → tauri build → collect
@@ -177,24 +156,26 @@ Mac release runners need Xcode command line tools, Rust, Node and pnpm; Linux ar
 needs Docker and the baked arm64 image. Signing state comes from repository secrets, not
 machine provisioning. Every macOS matrix job and the Mac-hosted Linux arm64 job imports
 `APPLE_CERTIFICATE` with `APPLE_CERTIFICATE_PASSWORD` into its own `RUNNER_TEMP` keychain,
-configures codesign access, and validates the Apple notary credentials there. Existing identities
-in other keychains remain untouched. `APPLE_SIGNING_IDENTITY` selects the imported identity.
+imports the pinned public Apple Developer ID intermediates, configures codesign access,
+and validates the Apple notary credentials there. Existing identities
+in other keychains remain untouched. `APPLE_SIGNING_IDENTITY` matches the imported identity
+by full name or fingerprint; setup verifies the team and valid certificate chain, then
+exports the fingerprint for Tauri and codesign.
 `TAURI_SIGNING_PRIVATE_KEY` is written to a mode-0600 job file; `TAURI_KEY_PASSWORD` is passed
 through the signer environment. An `always()` step removes the keychain, its search-list entry,
 and the updater key, including after failures. Credential preflight uses the same setup.
 
 **Windows host (the ROG), one-time:** registered as a **self-hosted GitHub Actions runner**
 (`ROG-windows-build`, labels include `windows-build`) — NOT driven over SSH. Toolchain on the runner:
-rustup on the repo-pinned channel (1.95.0) with targets `x86_64-pc-windows-msvc` &
+rustup on the repo-pinned channel (1.99.1) with targets `x86_64-pc-windows-msvc` &
 `aarch64-pc-windows-msvc` installed, VS2022 C++ build tools (x64 **and** ARM64 — the aarch64 build
 loads `vcvarsall x64_arm64`), node 22 + pnpm 10.32.1, git, LLVM. Windows signing uses the
 `TAURI_SIGNING_PRIVATE_KEY` / optional `TAURI_KEY_PASSWORD` repo secrets directly on the runner;
 publishing to the mirror uses `PACKAGE_REPOS_TOKEN`. No SSH, no remote-build env — the old
 Mac→Windows SSH/QEMU path is gone.
 
-**x86_64 Linux runner (the ROG's WSL2), one-time:** install WSL2 with **Ubuntu 24.04** (glibc 2.39 —
-required by the onnxruntime static lib), register a **self-hosted GitHub Actions runner** with label
-`linux-build`, and install rustup on the repo-pinned channel (1.95.0), node 22 + pnpm 10.32.1, `gh`,
+**x86_64 Linux runner (the ROG's WSL2), one-time:** install WSL2 with **Ubuntu 24.04**, register a **self-hosted GitHub Actions runner** with label
+`linux-build`, and install rustup on the repo-pinned channel (1.99.1), node 22 + pnpm 10.32.1, `gh`,
 and the apt deps listed in `release-linux.yml` (`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`,
 `libayatana-appindicator3-dev`, `librsvg2-dev`, `libssl-dev`, `patchelf`). Same signing/mirror
 secrets as Windows. Runs natively → produces the `x86_64` AppImage the ARM Mac can't.
@@ -246,16 +227,14 @@ restarts a server or checks for an idle machine. Set
 `CODETERM_SCCACHE_VERIFY_ONLY=1` in each CI build process so build setup follows
 that same verification path. Provision local-to-S3 storage separately while idle.
 
-BLACKSTAR-CI WSL builds are owned by a Windows runner. That Windows parent runs
-`codeterm mem secret sync`, resolves both vault entries into `AWS_ACCESS_KEY_ID`
-and `AWS_SECRET_ACCESS_KEY`, and sets `CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner`.
-Forward these three names through `WSLENV` to the WSL process; append them to any
-existing `WSLENV` list. Values stay exclusively in process environment, never
-runner `.env`, command arguments, files or logs. This explicit source selects
-inherited runner credentials instead of querying an unavailable WSL vault CLI.
-Both values are required. No standalone WSL Worker builds are supported; keep
-Windows interop and mount settings unchanged. Select pinned Rust 1.95.0 only in
-the build process, preserving the machine's default toolchain.
+CI never reads the vault. Every workflow that builds Rust or verifies the cache
+sets workflow-level `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` from the repo
+secrets `SCCACHE_AWS_ACCESS_KEY_ID` and `SCCACHE_AWS_SECRET_ACCESS_KEY`, plus
+`CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner`, on every runner including the
+BLACKSTAR WSL runners, which have no `codeterm` CLI. Values stay in process
+environment, never runner `.env`, command arguments, files or logs; both are
+required. Select pinned Rust 1.99.1 only in the build process, preserving the
+machine's default toolchain.
 
 Post-release follow-up: establish a shared Linux user or an approved `/opt` path
 and compare cold/consumer hit and miss data at identical checkout, Cargo and
@@ -276,13 +255,12 @@ claim cross-machine reuse.
   runner (`release-linux.yml`). The historical Mac approach (cross `.deb` only, via
   `Dockerfile.linux-x64` with multiarch amd64 libs — no sysroot) is retired from the release path;
   the Docker x64 image is kept only for ad-hoc local use.
-- **Cross builds need embed/cli stubs pre-created** or `tauri-build` glob validation fails
-  (`resource path bundled-embed/codeterm-embed-<triple> doesn't exist`). Handled in the scripts and
-  in `release-windows.yml` (the aarch64 cross build pre-creates the target-triple sidecar stubs).
+- **Cross builds need CLI resource stubs pre-created** for `tauri-build` glob validation.
+  The build scripts and `release-windows.yml` stage the target-correct CLI.
 - **Release compilation uses one target contract.** Each platform job sets `CARGO_TARGET_DIR` to the
   checkout's `src-tauri/target`; cross-target lanes carry their target in `CARGO_BUILD_TARGET`,
-  and all jobs pin the `embeddings` features with `CARGO_INCREMENTAL=0`. `release-inputs` builds both application bins
-  before Tauri bundles them, so the dependency graph is not compiled a second time. The three
+  and all jobs pin the `embeddings` features with `CARGO_INCREMENTAL=0`. `release-inputs` builds the application bin
+  before Tauri bundles it, so the dependency graph is not compiled a second time. The three
   platform workflows intentionally have no Rust target-cache action or target upload.
 - **macOS architectures rerun independently.** Matrix siblings each build, notarize, staple and
   pack their own bundle. `mac-overlap.sh` is used only by the manual combined helper.
@@ -335,4 +313,36 @@ No SSH between machines; each runner signs and uploads its platform assets, and 
 job publishes the verified release. Keep the repo private / gate fork PRs — self-hosted runners
 execute repo workflow code.
 
-<!-- revision: 6 -->
+## Measured shared-cache reuse
+
+Source fix `872e5793fd331cd28b039f5ee32be300dad961da` wires native release
+wrappers and Docker cache setup, routes Windows archive builds through pwsh,
+and rejects synthetic offline sccache statistics. Sccache 0.16 can print zero
+counters and a configured S3 location without a reachable server; use
+`build.sh cache-verify` and `cache-stats` for a live endpoint check.
+
+Air ran two clean-target `release-inputs` builds at that exact SHA, using Rust
+1.95.0, sccache 0.16.0, identical checkout/compiler/Cargo paths and the same
+S3 prefix. Both exited 0; no suite, packaging or publication ran.
+
+| Phase | Wall seconds | Hits / misses | Rust hits / misses | Hit rate |
+|---|---:|---:|---:|---:|
+| Producer | 770.687 | 355 / 2027 | 0 / 913 | 14.90% |
+| Consumer | 396.604 | 2380 / 2 | 912 / 1 | 99.92% |
+
+Both recorded 2618 compile requests and zero cache errors/timeouts. The shared
+cache already contained some native objects before the producer; this was a
+clean target, not an empty S3 bucket. Consumer wall time fell 48.54% on air.
+The separate Windows app-test measurement reused 784 Rust entries from ROG on
+green (87.79% Rust hits), but green took longer overall; compiler installation
+paths differed and no Windows wall-time speedup was established.
+
+Backlog qualification: rebuild the existing Linux arm64 Docker image and verify
+S3 support inside it; then run two sequential nonpublishing dry runs of the
+same merged SHA for all six release variants. Full signed-job cache statistics,
+eight-to-air clean app-test reuse, BLACKSTAR WSL runner-context provisioning,
+and common Linux physical paths remain separate follow-ups. The historical
+air server shutdown/endpoint anomaly is not uniquely explained by its retained
+logs; the fixed same-SHA measurement establishes current wrapper usage.
+
+<!-- revision: 8 -->

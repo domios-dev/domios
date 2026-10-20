@@ -459,7 +459,7 @@ fn generated_id(
 ) -> String {
     (1..)
         .map(|ordinal| {
-            codeterm_types::automation_name::generated_handler_id(
+            codeterm_blueprint_types::automation_name::generated_handler_id(
                 if kind == "blueprint" {
                     "sentinel"
                 } else {
@@ -484,7 +484,7 @@ fn unique_id(
 ) -> String {
     let mut ordinal = 1;
     loop {
-        let id = codeterm_types::automation_name::generated_handler_id(
+        let id = codeterm_blueprint_types::automation_name::generated_handler_id(
             if kind == "blueprint" {
                 "sentinel"
             } else {

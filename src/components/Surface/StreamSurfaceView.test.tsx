@@ -15,6 +15,7 @@ import {
   grabSendArgs,
   needsHumanNotice,
   NEW_PROFILE_OPTION,
+  DELETE_PROFILE_OPTION,
   profileSwitchedNotice,
   SNIP_DIALOG_LABEL,
   surfaceLabel,
@@ -35,9 +36,10 @@ interface MountOptions {
   ownerName?: string;
   surfaceTabId?: string;
   opened?: string[];
+  clipboard?: Pick<Clipboard, "readText" | "writeText">;
 }
 
-async function mount({ ownerName, surfaceTabId, opened = [] }: MountOptions = {}) {
+async function mount({ ownerName, surfaceTabId, opened = [], clipboard }: MountOptions = {}) {
   const fake = createFakeStreamTransport();
   const view = await render(
     <StreamSurfaceView
@@ -49,6 +51,7 @@ async function mount({ ownerName, surfaceTabId, opened = [] }: MountOptions = {}
       surfaceTabId={surfaceTabId}
       decode={decode}
       openExternal={(url) => opened.push(url)}
+      clipboard={clipboard}
     />,
   );
   return { ...view, fake, region: () => getByRole(view.host, "region", label) };
@@ -101,12 +104,41 @@ suite.test("pushed state drives the label; Take control enables navigation", asy
   await unmount();
 });
 
+suite.test("copy reads remote selection and paste sends local clipboard text once", async () => {
+  const copied: string[] = [];
+  const { fake, region, unmount } = await mount({ clipboard: {
+    readText: async () => "local paste",
+    writeText: async (text) => { copied.push(text); },
+  } });
+  await resizeStages(640, 480);
+  await act(async () => fake.emitState(state));
+  fake.respond("selection.copy", () => ({ text: "remote selection" }));
+  await act(async () => getByRole(region(), "button", "Take control").click());
+  const canvas = getByRole(region(), "application");
+  await act(async () => canvas.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "c", code: "KeyC", ctrlKey: true })));
+  await flushAsync();
+  assert.deepEqual(copied, ["remote selection"]);
+  await act(async () => canvas.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "v", code: "KeyV", ctrlKey: true })));
+  await flushAsync();
+  assert.deepEqual(fake.callsTo("input").map((call) => call.args), [{ kind: "text", text: "local paste" }]);
+  await unmount();
+});
+
 const capture: SnipCapture = { id: "s1", width: 640, height: 480, thumbnail: "data:image/jpeg;base64,AA==" };
 const pointer = (type: string, clientX: number, clientY: number) =>
   new PointerEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button: 0, pointerId: 1 });
 const snipOverlay = (scope: ParentNode) => scope.querySelector<HTMLElement>("[data-testid='surface-snip']");
 const escape = () => new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
 const snipFrame = (scope: ParentNode) => scope.querySelector<HTMLElement>("[data-testid='surface-snip-frame']");
+const byTestId = (scope: ParentNode, id: string) => scope.querySelector<HTMLElement>(`[data-testid='${id}']`);
+
+function assertSnipRestored(scope: ParentNode) {
+  assert.equal(snipOverlay(scope), null, "the selection overlay is gone");
+  assert.equal(snipFrame(scope), null, "the selected frame is gone");
+  assert.equal(queryByRole(scope, "dialog"), null, "the ask dialog is closed");
+  assert.equal(scope.querySelector<HTMLCanvasElement>(".ct-surface-canvas")?.dataset.mode, "watch", "the canvas is live and unobscured");
+  assert.equal((getByRole(scope, "button", "Snip and ask") as HTMLButtonElement).getAttribute("aria-pressed"), "false");
+}
 
 function assertFrameAtSelection(scope: ParentNode) {
   const frame = snipFrame(scope);
@@ -172,9 +204,28 @@ suite.test("snip and ask works beside the agent: drag, capture in page coords, o
   await ask(host, "why is this cut off?");
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend).map((call) => call.args), [{ id: "s1", comment: "why is this cut off?", image: true }]);
   assert.equal(fake.callsTo(SURFACE_METHOD.snipCancel).length, 0, "a sent capture is not discarded");
-  assert.equal(queryByRole(host, "dialog"), null);
-  assert.equal(snipFrame(region()), null, "sending clears the frame with the composer");
+  assertSnipRestored(region());
   control.assertUntouched(region());
+  await unmount();
+});
+
+suite.test("a failed send closes the ask UI and restores the live canvas", async () => {
+  const { fake, region, host, unmount } = await startSnip();
+  fake.respond(SURFACE_METHOD.snipSend, () => Promise.reject(new Error("send failed")));
+  await dragArea(region());
+  await ask(host, "what is this?");
+  assertSnipRestored(region());
+  assert.ok(byTestId(region(), "surface-notice"), "the send failure is reported");
+  await unmount();
+});
+
+suite.test("a failed capture removes its pending frame and selection state", async () => {
+  const { fake, region, unmount } = await startSnip();
+  fake.respond(SURFACE_METHOD.snipCapture, () => Promise.reject(new Error("capture failed")));
+  await dragArea(region());
+  assertSnipRestored(region());
+  assert.ok(byTestId(region(), "surface-notice"), "the capture failure is reported");
+  assert.equal(fake.callsTo(SURFACE_METHOD.snipSend).length, 0);
   await unmount();
 });
 
@@ -195,7 +246,11 @@ suite.test("Esc cancels the selection and the composer without sending anything"
   const { fake, region, host, control, unmount } = await startSnip();
   await act(async () => { snipOverlay(region())!.dispatchEvent(escape()); });
   assert.equal(snipOverlay(region()), null, "Esc leaves the selection");
+  assert.equal(region().querySelector<HTMLCanvasElement>(".ct-surface-canvas")?.dataset.mode, "watch");
   assert.deepEqual(fake.calls.filter((call) => call.method.startsWith("snip.")), [], "nothing captured");
+  await act(async () => getByRole(region(), "button", "Snip and ask").click());
+  await act(async () => { snipOverlay(region())!.dispatchEvent(escape()); });
+  assertSnipRestored(region());
   await act(async () => getByRole(region(), "button", "Snip and ask").click());
   await dragArea(region());
   assertFrameAtSelection(region());
@@ -203,11 +258,30 @@ suite.test("Esc cancels the selection and the composer without sending anything"
   await changeValue(editor as unknown as HTMLInputElement, "draft", "input");
   await act(async () => { editor.dispatchEvent(escape()); });
   await flushAsync();
-  assert.equal(queryByRole(host, "dialog"), null);
-  assert.equal(snipFrame(region()), null, "Esc clears the frame with the composer");
+  assertSnipRestored(region());
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend), [], "nothing sent");
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCancel).map((call) => call.args), [{ id: "s1" }], "the capture is discarded");
   control.assertUntouched(region());
+  await unmount();
+});
+
+suite.test("closing an empty ask dialog from outside cancels the snip exactly once", async () => {
+  const { fake, region, unmount } = await startSnip();
+  await dragArea(region());
+  await act(async () => { document.body.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await flushAsync();
+  assertSnipRestored(region());
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCancel).map((call) => call.args), [{ id: "s1" }]);
+  await unmount();
+});
+
+suite.test("toggling the snip button off closes the ask dialog and restores watch mode", async () => {
+  const { fake, region, unmount } = await startSnip();
+  await dragArea(region());
+  await act(async () => { getByRole(region(), "button", "Snip and ask").click(); });
+  await flushAsync();
+  assertSnipRestored(region());
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCancel).map((call) => call.args), [{ id: "s1" }]);
   await unmount();
 });
 
@@ -289,6 +363,7 @@ suite.test("point and ask works beside the agent: selects, sends the annotation 
 suite.test("+ New profile opens a dialog whose name switches the profile", async () => {
   const { fake, region, unmount } = await mount();
   fake.respond("profiles.use", (args) => ({ current: args.name, profiles: [args.name] }));
+  fake.respond("profiles.create", () => ({ current: "clean", profiles: ["Work"] }));
   await resizeStages(640, 480);
   await act(async () => fake.emitState(state));
   const profile = getByRole(region(), "combobox", "Browser profile") as HTMLSelectElement;
@@ -299,8 +374,27 @@ suite.test("+ New profile opens a dialog whose name switches the profile", async
   await act(async () => getByRole(dialog, "button", "Create").click());
   await flushAsync();
   assert.deepEqual(fake.callsTo("profiles.use").map((call) => call.args), [{ name: "Work" }]);
+  assert.deepEqual(fake.callsTo("profiles.create").map((call) => call.args), [{ name: "Work" }]);
   assert.equal(queryByRole(document.body, "dialog", "New profile"), null, "the dialog closes on submit");
   assert.ok(getByRole(region(), "status", profileSwitchedNotice("Work")));
+  await unmount();
+});
+
+suite.test("profile deletion requires an existing inactive profile and explicit submission", async () => {
+  const { fake, region, unmount } = await mount();
+  fake.respond("profiles.delete", () => ({ current: "clean", profiles: [] }));
+  await resizeStages(640, 480);
+  await act(async () => fake.emitState({ ...state, profiles: ["Work"] }));
+  await changeValue(getByRole(region(), "combobox", "Browser profile") as HTMLSelectElement, DELETE_PROFILE_OPTION, "change");
+  assert.equal(fake.callsTo("profiles.delete").length, 0);
+  const dialog = getByRole(document.body, "dialog", "Delete profile");
+  const input = getByRole(dialog, "textbox", "Profile name") as HTMLInputElement;
+  await changeValue(input, "Missing", "input");
+  assert.equal((getByRole(dialog, "button", "Delete") as HTMLButtonElement).disabled, true);
+  await changeValue(input, "Work", "input");
+  await act(async () => getByRole(dialog, "button", "Delete").click());
+  await flushAsync();
+  assert.deepEqual(fake.callsTo("profiles.delete").map((call) => call.args), [{ name: "Work" }]);
   await unmount();
 });
 
@@ -391,6 +485,18 @@ suite.test("a viewport mismatch heals once until a matching frame arrives", asyn
   await unmount();
 });
 
+suite.test("a failed automatic viewport resize stays quiet", async () => {
+  const { host, fake, unmount } = await mount();
+  await resizeStages(640, 480);
+  await act(async () => fake.emitFrame(frameAt(640, 480)));
+  fake.respond(SURFACE_METHOD.resize, () => Promise.reject(new Error("resize temporarily unavailable")));
+  await act(async () => fake.emitFrame(frameAt(1280, 960)));
+  await flushAsync();
+  assert.equal(queryByRole(host, "alert"), null, "automatic resize failure does not render an alert");
+  assert.ok(queryByRole(host, "img"), "the last rendered surface remains available");
+  await unmount();
+});
+
 async function withDocument(overrides: { visibilityState?: DocumentVisibilityState; focused?: boolean }, run: () => Promise<void>) {
   const target = document as unknown as Record<string, unknown>;
   if (overrides.visibilityState) Object.defineProperty(document, "visibilityState", { value: overrides.visibilityState, configurable: true });
@@ -420,7 +526,6 @@ for (const [name, overrides] of [
 }
 
 const pausedNotice = { text: PREVIEW_PAUSED_TEXT, kind: "preview_paused", detail: "no frame: window not rendering (timeout)" } as const;
-const byTestId = (scope: ParentNode, id: string) => scope.querySelector<HTMLElement>(`[data-testid='${id}']`);
 
 suite.test("a paused preview shows a quiet inline state, never the notice bar, and clears on the next frame", async () => {
   const { fake, region, unmount } = await mount();

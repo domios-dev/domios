@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { PageDataContext } from "../../hooks/PageDataContext";
+import { useCallback, useEffect, useMemo, useRef, useState, useContext } from "react";
 import { orchestrationTransport, listenOrchestration as listen } from "../../lib/transport/orchestrationRuntime";
+import { DEV_BUILD } from "../../lib/devBuild";
 import type { CronJob } from "../../lib/types";
 
 export interface CronJobsState {
@@ -9,6 +11,19 @@ export interface CronJobsState {
 
 /** Same `cron_list` read as the sidebar, but a failed or malformed read stays unavailable instead of empty; a null workspace reads every Cron on this machine. */
 export function useCronJobs(workspaceId: string | null) {
+  const page = useContext(PageDataContext);
+  const local = useCronJobsLoader(workspaceId, !page);
+  const crons = page?.crons;
+  // Consumers derive memoized job lists from this array, so it keeps its identity until the page data changes.
+  const pageJobs = useMemo(
+    () => crons?.ready ? crons.jobs.filter((job) => workspaceId === null || job.workspace_id === workspaceId) : null,
+    [crons?.ready, crons?.jobs, workspaceId],
+  );
+  if (!crons) return local;
+  return { jobs: pageJobs, failed: crons.failed, refresh: crons.refresh };
+}
+
+function useCronJobsLoader(workspaceId: string | null, enabled: boolean) {
   const [state, setState] = useState<CronJobsState>({ jobs: null, failed: false });
   const sequence = useRef(0);
   const active = useRef(true);
@@ -18,13 +33,20 @@ export function useCronJobs(workspaceId: string | null) {
     try {
       const next = await orchestrationTransport().cron_list(workspaceId === null ? {} : { workspaceId });
       if (!active.current || read !== sequence.current) return;
-      setState(Array.isArray(next) ? { jobs: next, failed: false } : (current) => ({ jobs: current.jobs, failed: true }));
-    } catch {
-      if (active.current && read === sequence.current) setState((current) => ({ jobs: current.jobs, failed: true }));
+      if (Array.isArray(next)) setState({ jobs: next, failed: false });
+      else {
+        if (DEV_BUILD) console.debug("Background Cron list refresh returned invalid data");
+        setState((current) => ({ jobs: current.jobs, failed: true }));
+      }
+    } catch (error) {
+      if (!active.current || read !== sequence.current) return;
+      if (DEV_BUILD) console.debug("Background Cron list refresh failed", error);
+      setState((current) => ({ jobs: current.jobs, failed: true }));
     }
   }, [workspaceId]);
 
   useEffect(() => {
+    if (!enabled) return;
     active.current = true;
     let unlisten: (() => void) | undefined;
     void refresh();
@@ -36,7 +58,7 @@ export function useCronJobs(workspaceId: string | null) {
       active.current = false;
       unlisten?.();
     };
-  }, [refresh]);
+  }, [refresh, enabled]);
 
   return { ...state, refresh };
 }

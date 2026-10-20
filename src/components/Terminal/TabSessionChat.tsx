@@ -1,23 +1,31 @@
+import { useLatestCallback } from "../../hooks/useLatestCallback";
+import { ChatComposerSurface } from "./ChatComposerSurface";
+import { ChildTranscriptScope } from "./ChildTranscriptScope";
+import { chatLayoutTokens } from "./chatLayoutTokens";
 import { RuntimeQuestionCard } from "./RuntimeQuestionCard";
-import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
+import { heldMessagesForLaunch } from "./chatSetupModel";
+import { useComposerPresentation } from "./useComposerPresentation";
+import { ComposerIssuesProvider } from "./ComposerIssuesContext";
+import { runtimeResponseDeadlinePending, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
-import { VoiceTranscriptionProgress } from "./voice/VoiceTranscriptionProgress";
 import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
+import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
+import { forkableTurnEnds } from "./messageForkModel";
+import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
+import { chatWindowRows } from "./chatWindowRowsModel";
+import { chatLiveOperationLabel, projectChatTranscriptActivity } from "./chatTranscriptActivity";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
-import { RemovedChatPlugin } from "./RemovedChatPlugin";
-import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
-  ChatSessionIntentLine,
+  chatDaySeparators,
+  chatLocalDay,
+  messageRowTime,
   isSessionIntentOnlyMessage,
-  MessageBubble,
-  MessageTimeFrame,
-  OutboundReportCard,
-  sessionIntentFromMessages,
 } from "@codeterm/chat-ui";
 import { ChatBlockHostProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
@@ -32,6 +40,7 @@ import {
   selectTabAgentTypes,
   selectTabAsks,
   selectTabTitleMap,
+  selectTabCommunicationNameMap,
   selectPlanNavContext,
   tabAsksEqual,
 } from "../../store/multiplexer/selectors";
@@ -42,7 +51,7 @@ import { statusLineModelName } from "./statusLinePickerModel";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
-import type { ApiConfig, PendingPrompt } from "../../lib/types";
+import type { ApiConfig, Notification, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { ManagedTabBar } from "./ManagedTabBar";
 import { managedTabPresentation } from "../../lib/managedTab";
@@ -52,6 +61,7 @@ import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./Permissi
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { TabStatusLineModelPicker } from "./StatusLineModelPicker";
 import { useTabActivity } from "../../lib/useTabActivity";
+import { ComposerBackgroundWorkProvider } from "./ComposerBackgroundWorkContext";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
 import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
@@ -64,18 +74,19 @@ import type { ChatOrigin } from "../../lib/chatPrefixes";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
 import { ScrollToLatestButton } from "./ScrollToLatestButton";
 import { ChatSetupState, chatSetupView } from "./ChatSetupState";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatLayoutInsets } from "./useChatLayoutInsets";
-import { ChatHighlightBudgetProvider, ChatHighlightRow } from "@codeterm/chat-ui";
+import { ChatHighlightBudgetProvider } from "@codeterm/chat-ui";
 import { useMountedChatWindow } from "./useMountedChatWindow";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
+import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
 import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
-import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
@@ -84,10 +95,9 @@ import { useTabChatBlockHost } from "./pinnedBlocks";
 import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
-import { ChatDeliveryState } from "./ChatDeliveryState";
 import { deliveryPresentation, sendForRow } from "./chatDeliveryModel";
-import { beginChatSendRetry, failChatSendRequest, useChatSends } from "./chatSendStore";
-import { sendTrackedChatMessage } from "./chatSendStatus";
+import { beginChatSendRetry, failChatSendRequest, useChatSendSnapshot } from "./chatSendStore";
+import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { MessageSelectionBar } from "./MessageSelectionBar";
@@ -110,6 +120,11 @@ interface Props {
 }
 
 const DISABLED_PLAN_API: ApiConfig = { enabled: false, host: "127.0.0.1", port: 0, token: null, cors: false };
+
+const CHAT_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const NO_RAIL_INDICES: readonly number[] = [];
+const NO_REPORTS: readonly OutboundReportEntry[] = [];
+const NO_ASKS: readonly Notification[] = [];
 
 function isMicrophonePermissionError(message: string): boolean {
   const normalized = message.toLowerCase();
@@ -172,7 +187,11 @@ function OriginPluginAvatar({ pluginId, iconSvg }: { pluginId: string; iconSvg?:
   );
 }
 
-export function TabSessionChat({
+export function TabSessionChat(props: Props) {
+  return <ComposerIssuesProvider key={props.tabId}><TabSessionChatBody {...props} /></ComposerIssuesProvider>;
+}
+
+function TabSessionChatBody({
   inputStatus,
   tabId,
   api,
@@ -189,7 +208,7 @@ export function TabSessionChat({
   }
 
   const touchMode = useTouchOptimizedUi();
-  const deliverySends = useChatSends(tabId);
+  const { sends: deliverySends } = useChatSendSnapshot(tabId);
   const { expand: expandDeliveryTasks, plansSink: deliveryPlansSink } = useDsTasksExpander(tabId);
   const tabBlockHost = useTabChatBlockHost(tabId);
   const lastStopAtRef = useRef(0);
@@ -199,14 +218,15 @@ export function TabSessionChat({
 
   const { setFocusedTab, selectTabByTab, addNotification, answerNotification } = useMultiplexer();
   const openPlanTarget = usePlanTargetNavigation();
-  const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
+  const tabSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
-  const workspaceSelector = useCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
+  const workspaceSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
   const workspaceId = useMuxSelector(workspaceSelector);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
+  const tabCommunicationNames = useMuxSelector(selectTabCommunicationNameMap, tabTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
   const tabAgentTypes = useMuxSelector(selectTabAgentTypes, tabAgentTypesEqual);
-  const askSelector = useCallback((s: Parameters<typeof selectTabAsks>[0]) => selectTabAsks(s, tabId), [tabId]);
+  const askSelector = useLatestCallback((s: Parameters<typeof selectTabAsks>[0]) => selectTabAsks(s, tabId), [tabId]);
   const asks = useMuxSelector(askSelector, tabAsksEqual);
   const { index: planIndex } = usePlanIndexOptional();
   const tabProvider = tab?.agent_type ?? null;
@@ -237,7 +257,7 @@ export function TabSessionChat({
   const resolvePeerName = useMeshPeerNameResolver(isActive);
   const resolvePluginName = usePluginDisplayNameResolver();
 
-  const showComposerError = useCallback((message: string) => {
+  const showComposerError = useLatestCallback((message: string) => {
     addNotification({
       tab_id: tabId,
       workspace_id: null,
@@ -259,6 +279,7 @@ export function TabSessionChat({
     recovering,
     error,
     attachmentState,
+    snapshotReady,
     transcriptUnavailable,
     allMessages,
     enrichedMessages,
@@ -266,6 +287,7 @@ export function TabSessionChat({
     newerMessageCount,
     canBackfillOlder,
     backfillLoading,
+    backfillNotice,
     loadOlder,
     showLatest,
     prepareMessage,
@@ -279,11 +301,13 @@ export function TabSessionChat({
     sessionBindingNonce: tab?.session_binding_nonce,
     onError,
     active: isActive,
+    retainAttachment: true,
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
     followTailRef: chatFollowTailRef,
+    history: runtime.state?.history,
   });
-  const retryChatDelivery = async (id: string) => {
+  const retryChatDelivery = useLatestCallback(async (id: string) => {
     const send = beginChatSendRetry(tabId, id);
     if (!send) return;
     let content = send.content;
@@ -295,7 +319,7 @@ export function TabSessionChat({
       void invoke<import("./chatSendStatus").ChatSendStatus[]>("chat_send_status", { tabId })
         .then((statuses) => statuses.forEach(observeChatSendStatus)).catch(() => {});
     }
-  };
+  }, [tabId, expandDeliveryTasks, observeChatSendStatus]);
   useEffect(() => {
     chatChangesStore.bind(tabId, JSON.stringify([agentSessionId, tab?.session_binding_nonce]));
   }, [tabId, agentSessionId, tab?.session_binding_nonce]);
@@ -307,36 +331,62 @@ export function TabSessionChat({
   }, [tabId, allMessages, isActive]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
+  const forkableMessages = useMemo(() => forkableTurnEnds(
+    allMessages,
+    descriptor?.agent_runtime?.threadHistory?.actions.includes("fork") === true,
+    newerMessageCount > 0,
+  ), [allMessages, descriptor, newerMessageCount]);
+  const heldAuthority = readTranscriptWindow(transcriptWindowKey(tabId, agentSessionId)).transcript.authority;
+  const hasHeldWindow = heldAuthority != null
+    && heldAuthority.sourceSessionId === agentSessionId
+    && heldAuthority.sessionBindingNonce === (tab?.session_binding_nonce ?? null);
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
   // reachability); remote PTY/output channel state never gates it.
-  const runtimeUnavailable = runtime.state != null && runtime.state.state !== "loaded";
-  const runtimeDegraded = runtime.state?.state === "degraded";
-  const runtimeReplacement = runtimeDegraded
-    ? <AgentRuntimeBanner tabId={tabId} state={runtime.state} iconSvg={provider?.iconSvg} onRetry={() => { void runtime.retry(); }} /> : undefined;
+  const runtimeDeadlinePending = runtimeResponseDeadlinePending(runtime.state);
+  const runtimeUnavailable = runtimeStatusPresentation(runtime.state) !== null && !runtimeDeadlinePending;
+  const { runtimeBadge, sessionIntent } = useComposerPresentation({ tabId, nonce: tab?.session_binding_nonce ?? null,
+    state: runtime.state, retry: runtime.retry, startupOwned: !snapshotReady || bootSetupView.kind === "starting",
+    iconSvg: provider?.iconSvg, messages: allMessages });
+  const runtimeReplacement = runtimeUnavailable ? runtimeBadge : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
   const chatChannelLoading = !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
   const chatLoading = chatChannelLoading || error != null;
-  const setupView = runtimeUnavailable ? { kind: "none" as const } : chatBodyView({
+  const setupView = runtimeUnavailable && snapshotReady && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
     hasTranscript,
+    hasHeldWindow,
+    snapshotReady,
     chatLoading,
     unavailable: transcriptUnavailable,
     bootView: bootSetupView,
   });
 
   const renderedEnrichedMessages = useMemo(
-    () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
-    [enrichedMessages],
+    () => setupView.kind !== "none" ? [] : chatWindowRows(enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg))),
+    [enrichedMessages, setupView.kind],
+  );
+  const transcriptActivityAvailable = setupView.kind === "none" && !chatLoading;
+  const chatTranscriptActivity = useMemo(
+    () => projectChatTranscriptActivity(
+      renderedEnrichedMessages,
+      transcriptActivityAvailable ? agentActivity.kind : "idle",
+      descriptor,
+      tab?.backing,
+      effectiveChatBackend,
+    ),
+    [agentActivity.kind, descriptor, effectiveChatBackend, renderedEnrichedMessages, tab?.backing, transcriptActivityAvailable],
   );
   const sharedScrollRef = useRef<HTMLDivElement | null>(null);
+  const chatUserScrollingRef = useRef(false);
   const mountedWindow = useMountedChatWindow({ rows: renderedEnrichedMessages, scrollRef: sharedScrollRef,
-    active: isActive, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}` });
+    active: isActive, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}`, userScrollingRef: chatUserScrollingRef });
   const mountedContentVersion = useMemo(() => ({ enrichedMessages, start: mountedWindow.range.start,
     end: mountedWindow.range.end, revision: mountedWindow.revision }),
     [enrichedMessages, mountedWindow.range.start, mountedWindow.range.end, mountedWindow.revision]);
   const {
     scrollRef,
     showScrollDown,
+    gestureOwned,
     scrollToBottom,
     followSend: rawFollowSentMessage,
     prepareForHistoryPrepend,
@@ -346,6 +396,8 @@ export function TabSessionChat({
   } = useChatScroll({
     scrollRef: sharedScrollRef,
     onViewportChange: mountedWindow.syncViewport,
+    userScrollingRef: chatUserScrollingRef,
+    foldLayoutDrift: mountedWindow.foldDrift,
     sessionKey: `${tabId}:${agentSessionId ?? ""}`,
     active: isActive,
     loading,
@@ -363,21 +415,39 @@ export function TabSessionChat({
     prepareMessage: (id) => mountedWindow.prepareMessage(id) || prepareMessage(id),
   });
 
-  const followSentMessage = useCallback(() => {
+  const followSentMessage = useLatestCallback(() => {
     showLatest();
     rawFollowSentMessage();
   }, [showLatest, rawFollowSentMessage]);
   const choiceHost = useTabChoiceHost(tabId, { messages: allMessages, addOptimistic, followSentMessage, observeChatSendStatus });
   const chatBlockHost = useMemo(() => ({ ...tabBlockHost, choice: choiceHost }), [tabBlockHost, choiceHost]);
 
-  const willSendMessage = useCallback(() => {
+  const willSendMessage = useLatestCallback(() => {
     followSentMessage();
   }, [followSentMessage]);
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
+  const [pendingThreadRevertTurn, setPendingThreadRevertTurn] = useState<string | null>(null);
   const [contextSlot, setContextSlot] = useState<HTMLDivElement | null>(null);
   const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
+  const runThreadHistory = useLatestCallback(async (action: "fork" | "revert", turnId: string, confirmed = false) => {
+    const threadId = tab?.agent_session_id;
+    const bindingNonce = tab?.session_binding_nonce;
+    const epoch = runtime.state?.epoch;
+    if (!threadId || !bindingNonce || !epoch) {
+      showComposerError("Runtime thread binding is unavailable");
+      return;
+    }
+    try {
+      await invoke("agent_runtime_thread_history", {
+        tabId,
+        request: { action, turnId, confirmed, binding: { threadId, bindingNonce, epoch } },
+      });
+    } catch (error) {
+      showComposerError(error instanceof Error ? error.message : String(error));
+    }
+  }, [runtime.state?.epoch, showComposerError, tab?.agent_session_id, tab?.session_binding_nonce, tabId]);
   useEffect(() => {
     if (!sessionBindingSurface.showRecoveryAction) setBindingRecoveryOpen(false);
   }, [sessionBindingSurface.showRecoveryAction]);
@@ -388,7 +458,7 @@ export function TabSessionChat({
   }, [pendingPrompt]);
 
   const promptResponseInFlight = useRef(false);
-  const handleRespondPrompt = useCallback(
+  const handleRespondPrompt = useLatestCallback(
     async (value: string) => {
       if (promptResponseInFlight.current) return;
       promptResponseInFlight.current = true;
@@ -406,7 +476,7 @@ export function TabSessionChat({
     [pendingPrompt, structuredPrompts, tabId, showComposerError],
   );
   // input path the composer uses; jump surfaces the live terminal output.
-  const handleRerunShellCommand = useCallback((command: string) => {
+  const handleRerunShellCommand = useLatestCallback((command: string) => {
     if (!currentPtyId) {
       showComposerError("Tab has no PTY");
       return;
@@ -416,18 +486,21 @@ export function TabSessionChat({
     );
   }, [currentPtyId, showComposerError, tabId, tab?.managed]);
 
-  const handleJumpToShellCommand = useCallback(() => {
+  const handleJumpToShellCommand = useLatestCallback(() => {
     onOpenTerminalFallback?.();
   }, [onOpenTerminalFallback]);
 
-  const focusComposer = useCallback(() => {
+  const focusComposer = useLatestCallback(() => {
     chatRootRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
   }, []);
 
-  const handleStopAgent = useCallback(() => {
-    const args = interruptAgentArgs({ id: tabId, pty_id: currentPtyId, managed: tab?.managed });
+  const interruptTarget = useMemo(() => ({ id: tabId, pty_id: currentPtyId, managed: tab?.managed, backing: tab?.backing }),
+    [tabId, currentPtyId, tab?.managed, tab?.backing]);
+  const canInterrupt = interruptAgentArgs(interruptTarget) !== null;
+  const handleStopAgent = useLatestCallback(() => {
+    const args = interruptAgentArgs(interruptTarget);
     if (!args) {
-      showComposerError("Tab has no PTY");
+      showComposerError("Tab has no interrupt route");
       return;
     }
     const now = Date.now();
@@ -438,13 +511,13 @@ export function TabSessionChat({
     void invoke("interrupt_agent", args).catch((e) =>
       showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [currentPtyId, showComposerError, tabId, tab?.managed]);
+  }, [interruptTarget, showComposerError]);
 
-  const openJobs = useCallback(() => {
+  const openJobs = useLatestCallback(() => {
     window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:jobs" } }));
   }, []);
 
-  const handleStopReminder = useCallback(async (id: string) => {
+  const handleStopReminder = useLatestCallback(async (id: string) => {
     try {
       await invoke("delayed_send_delete", { id });
     } catch (error) {
@@ -452,7 +525,7 @@ export function TabSessionChat({
     }
   }, [showComposerError]);
 
-  const handleAnswerInteractive = useCallback<InteractiveAnswerHandler>(
+  const handleAnswerInteractive = useLatestCallback<InteractiveAnswerHandler>(
     async (text, element) => {
       const answer = text.trim();
       if (!answer) return;
@@ -493,6 +566,7 @@ export function TabSessionChat({
     enabled: !loading && !error,
     onError: showComposerError,
   });
+  const pasteIntoComposer = useLatestCallback(handlePasteEvent, [tabId]);
 
   // Names change far more rarely than the transcript that carries them; keep the
   // map (and resolveTabName below) stable while streaming only appends content.
@@ -501,20 +575,20 @@ export function TabSessionChat({
     value: new Map(),
   });
   const communicationTabNames = useMemo(() => {
-    const names = new Map(tabTitleMap);
+    const names = new Map(tabCommunicationNames);
     for (const { origin } of enrichedMessages) {
       if (origin?.kind !== "tab") continue;
       const sender = origin.title.split("@")[0]?.trim();
-      if (sender) names.set(origin.tabIdShort.slice(0, 8), sender);
+      if (sender && !names.has(origin.tabIdShort.slice(0, 8))) names.set(origin.tabIdShort.slice(0, 8), sender);
     }
     const key = JSON.stringify([...names]);
     const prev = communicationTabNamesRef.current;
     if (key === prev.key) return prev.value;
     communicationTabNamesRef.current = { key, value: names };
     return names;
-  }, [enrichedMessages, tabTitleMap]);
+  }, [enrichedMessages, tabCommunicationNames]);
 
-  const resolveTabName = useCallback(
+  const resolveTabName = useLatestCallback(
     (tabRef: string): string | undefined => communicationTabNames.get(tabRef.slice(0, 8)),
     [communicationTabNames],
   );
@@ -548,47 +622,22 @@ export function TabSessionChat({
 
   const renderOutboundReport = (index: number) => {
     const entry = outboundReports[index];
-    if (!entry) return null;
-    return (
-      <div
-        key={entry.descriptor.reportId}
-        data-testid="chat-outbound-report-row"
-        data-report-id={entry.descriptor.reportId}
-        role="article"
-        aria-label={`Report to ${entry.descriptor.recipient}`}
-      >
-        <MessageTimeFrame timestamp={entry.at == null ? undefined : String(entry.at)} side="left">
-          <OutboundReportCard
-            report={entry.descriptor}
-            onFocusTab={() => resolveFocusTab(entry.targetTabId)}
-            fontScale={uiFontScale}
-            onOpenPlan={onOpenPlan}
-            resolvePlanRef={resolvePlanRef}
-          />
-        </MessageTimeFrame>
-      </div>
-    );
+    return entry ? <OutboundReportRow key={entry.descriptor.reportId} entry={entry} context={rowContext} /> : null;
   };
   const renderAsk = (index: number) => {
     const ask = asks[index];
-    if (!ask) return null;
-    return (
-      <MessageTimeFrame key={ask.id} timestamp={String(ask.timestamp)} side="left">
-        <ChatAskCard
-          notification={ask}
-          onAnswer={answerNotification}
-          resolveTabName={resolveTabName}
-          fontScale={uiFontScale}
-        />
-      </MessageTimeFrame>
-    );
+    return ask ? <AskRow key={ask.id} ask={ask} context={rowContext} /> : null;
   };
 
+  const localToday = chatLocalDay(Date.now(), CHAT_TIME_ZONE);
+  const daySeparators = useMemo(() => chatDaySeparators(renderedEnrichedMessages.map(({ msg, item, origin }) => messageRowTime(msg, item, origin)?.timestamp ?? null), {
+    now: Date.now(), timeZone: CHAT_TIME_ZONE,
+    labels: { today: "Today", yesterday: "Yesterday" },
+  }), [renderedEnrichedMessages, localToday]);
   const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
   const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId, prepareMessage: mountedWindow.prepareMessage, contentVersion: mountedContentVersion });
-  const jumpToQuoted = useCallback((messageId: string) => { requestChatMessageReveal(tabId, messageId); }, [tabId]);
+  const jumpToQuoted = useLatestCallback((messageId: string) => { requestChatMessageReveal(tabId, messageId); }, [tabId]);
 
-  const sessionIntent = useMemo(() => sessionIntentFromMessages(allMessages), [allMessages]);
   // The rails are content, so they answer to the same authority the setup view
   // does: a body that still owns a loading or failed state emits no rail rows.
   const railsVisible = chatRailsVisible(setupView);
@@ -648,7 +697,7 @@ export function TabSessionChat({
     api ?? DISABLED_PLAN_API,
     visiblePlanRefs,
   );
-  const resolvePlanRef = useCallback(
+  const resolvePlanRef = useLatestCallback(
     (planId: string, targetId?: string, targetKind?: "plan" | "task" | "section") => {
       const kind = targetKind ?? (targetId ? "task" : "plan");
       const key = `${kind}:${planId}:${targetId ?? ""}`;
@@ -672,7 +721,7 @@ export function TabSessionChat({
     [resolvedPlanRefs, planIndex, planNav.workspaces],
   );
 
-  const onOpenPlan = useCallback(
+  const onOpenPlan = useLatestCallback(
     (planId: string, taskId?: string, targetKind?: "plan" | "task" | "section") => {
       const kind = targetKind ?? (taskId ? "task" : "plan");
       const resolved = resolvedPlanRefs.refs.get(`${kind}:${planId}:${taskId ?? ""}`);
@@ -685,7 +734,7 @@ export function TabSessionChat({
     [openPlanTarget, resolvedPlanRefs.refs],
   );
 
-  const resolveFocusTab = useCallback((ref: string) => {
+  const resolveFocusTab = useLatestCallback((ref: string) => {
     const target = resolveTabNavigationTarget(ref, Object.keys(tabAgentTypes), planNav.workspaces);
     if (target) void selectTabByTab(target.workspaceId, target.tabId);
   }, [tabAgentTypes, planNav.workspaces, selectTabByTab]);
@@ -750,6 +799,40 @@ export function TabSessionChat({
     );
   }, [chatBacking, effectiveChatBackend]);
 
+  const deleteSend = useLatestCallback((sendId: string) => {
+    void deleteTrackedChatMessage(tabId, sendId).catch((error: unknown) => showComposerError(error instanceof Error ? error.message : String(error)));
+  }, [tabId, showComposerError]);
+  const forkFrom = useLatestCallback((turnId: string) => { void runThreadHistory("fork", turnId); }, [runThreadHistory]);
+  const revertTo = useLatestCallback((turnId: string) => setPendingThreadRevertTurn(turnId), []);
+  const canRevertTurns = descriptor?.agent_runtime?.threadHistory?.actions.includes("revert") === true;
+  const rowContext = useMemo<ChatTranscriptRowContext>(() => ({
+    tabId,
+    promptAnswers,
+    uiFontScale,
+    answeredInteractiveIds,
+    handlers: messageSelection.rowHandlers,
+    onContentLayout: handleContentLayout,
+    resolveTabName,
+    resolvePeerName,
+    onOpenPlan,
+    resolvePlanRef,
+    onAnswerInteractive: handleAnswerInteractive,
+    onRerunShellCommand: handleRerunShellCommand,
+    onStopReminder: handleStopReminder,
+    onOpenJobs: openJobs,
+    onJumpToShellCommand: onOpenTerminalFallback ? handleJumpToShellCommand : undefined,
+    onFocusTab: resolveFocusTab,
+    onJumpToMessage: jumpToQuoted,
+    onAnswerAsk: answerNotification,
+    deleteSend,
+    retrySend: retryChatDelivery,
+    forkFrom,
+    revertTo,
+  }), [tabId, promptAnswers, uiFontScale, answeredInteractiveIds, messageSelection.rowHandlers, handleContentLayout, resolveTabName,
+    resolvePeerName, onOpenPlan, resolvePlanRef, handleAnswerInteractive, handleRerunShellCommand, handleStopReminder, openJobs,
+    onOpenTerminalFallback, handleJumpToShellCommand, resolveFocusTab, jumpToQuoted, answerNotification, deleteSend, retryChatDelivery,
+    forkFrom, revertTo]);
+
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
@@ -759,6 +842,8 @@ export function TabSessionChat({
 
   return (
     <ChatHighlightBudgetProvider>
+    <ChildTranscriptScope tabId={tabId} authority={runtime.state?.state === "loaded" && tab?.agent_session_id && tab.session_binding_nonce
+      ? {rootThreadId:tab.agent_session_id,bindingNonce:tab.session_binding_nonce,epoch:runtime.state.epoch} : null}>
     <LocalArtifactScope tabId={tabId}>
     <ChatBlockHostProvider value={chatBlockHost}>
     <PluginNameProvider resolve={resolvePluginName}>
@@ -767,10 +852,12 @@ export function TabSessionChat({
       className="ct-chat-shell w-full h-full flex flex-col relative"
       data-testid="tab-session-chat"
       data-tab-id={tabId}
+      data-snapshot-ready={snapshotReady}
       role="region"
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
-      aria-busy={chatChannelLoading && setupView.kind !== "failed"}
+      aria-busy={setupView.kind !== "failed" && setupView.kind !== "launch_failed" && (!snapshotReady || chatChannelLoading)}
       style={{
+        ...chatLayoutTokens().variables,
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
       }}
@@ -788,8 +875,6 @@ export function TabSessionChat({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
-      {!runtimeUnavailable && <RemovedChatPlugin error={effectiveChatBackend ? error : null} />}
-      <ChatSessionIntentLine intent={sessionIntent} />
       <div className="relative flex-1 min-h-0">
       {showEmptyState && (
         <div
@@ -821,7 +906,7 @@ export function TabSessionChat({
             style={{ height: "calc(1.25rem + var(--ct-safe-top, 0px))" }}
           />
         )}
-        {(hiddenMessageCount > 0 || canBackfillOlder) && (
+        {railsVisible && (hiddenMessageCount > 0 || canBackfillOlder) && (
           <div className="flex justify-center pb-2 pt-1">
             <button
               type="button"
@@ -839,75 +924,55 @@ export function TabSessionChat({
                 border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 25%, transparent)",
               }}
             >
-              {hiddenMessageCount > 0
-                ? `Show older (${hiddenMessageCount})`
-                : backfillLoading
-                  ? <TabLoadingIndicator label="Loading older messages" compact deferred={false} />
-                  : "Show older"}
+              {backfillLoading
+                ? <TabLoadingIndicator label="Searching older messages" compact deferred={false} />
+                : hiddenMessageCount > 0 ? `Show older (${hiddenMessageCount})` : "Show older"}
             </button>
           </div>
         )}
+        {backfillNotice === "stalled_cursor"
+          ? <InlineErrorNotice error="Older history could not be read." operation="loading older messages" />
+          : backfillNotice && <p role="status" className="text-center text-xs text-[var(--ct-muted-fg)]">
+            {backfillNotice === "limit" ? "No messages in this section. Show older to keep searching." : "No earlier messages."}
+          </p>}
         {isActive && (reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
         {isActive && (askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
-        {isActive && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
-        <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.range.top }} />
-        {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map(({ msg, item, origin }, mountedIndex) => {
+        {isActive && railsVisible && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
+        <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.topSpacer }} />
+        <div ref={mountedWindow.rowsRef}>
+        {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map((entry, mountedIndex) => {
+          const { msg } = entry;
           const messageIndex = mountedWindow.range.start + mountedIndex;
-          const originProps = originPropsById.get(msg.id);
-          const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
+          const following = reportPlacement.afterIndex.get(messageIndex) ?? NO_RAIL_INDICES;
+          const followingAsks = askPlacement.afterIndex.get(messageIndex) ?? NO_RAIL_INDICES;
           const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
           const deliverySend = sendForRow(deliverySends, msg);
-          const deliveryView = deliverySend ? deliveryPresentation(deliverySend, allMessages) : undefined;
           return (
-            <Fragment key={msg.id}>
-            <div data-chat-window-row={msg.id} style={{ display: "flow-root" }}>
-            <ChatHighlightRow id={msg.id}>
-            <ChatMessageRow
-              msg={msg}
+            <ChatTranscriptRow
+              key={msg.id}
+              entry={entry}
+              daySeparator={daySeparators.get(messageIndex)}
+              originProps={originPropsById.get(msg.id)}
+              reports={following.length ? following.map((index) => outboundReports[index]).filter(Boolean) : NO_REPORTS}
+              asks={followingAsks.length ? followingAsks.map((index) => asks[index]).filter(Boolean) : NO_ASKS}
+              liveActivityLabel={msg.id === chatTranscriptActivity.liveToolId ? chatLiveOperationLabel(msg) : undefined}
+              deliverySend={deliverySend}
+              deliveryView={deliverySend ? deliveryPresentation(deliverySend, agentActivity.kind) : undefined}
               sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
               ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
               selected={messageSelection.selected.has(msg.id)}
               joinNext={nextId !== undefined && following.length === 0 && messageSelection.selected.has(nextId)}
               selecting={messageSelection.active}
               cursor={messageSelection.cursor ? messageSelection.cursor === msg.id : messageIndex === renderedEnrichedMessages.length - 1}
-              handlers={messageSelection.rowHandlers}
-            >
-              <MessageBubble
-                message={promptAnswers ? msg : { ...msg, interactive: [] }}
-                onContentLayout={handleContentLayout}
-                streaming={msg.id === streamingId}
-                userProgress={deliveryView === "sending" && Boolean(deliverySend?.draft?.recordedVoiceAttachments.length)
-                  ? <VoiceTranscriptionProgress /> : undefined}
-                userFooter={deliverySend && deliveryView && deliveryView !== "delivered" && deliveryView !== "settled"
-                  ? <ChatDeliveryState state={deliveryView} onRetry={deliverySend.status?.system_send ? undefined : () => void retryChatDelivery(deliverySend.id)} />
-                  : undefined}
-                item={item.kind === "tool" ? item : undefined}
-                isLatestFailedToolCall={msg.id === latestFailedToolCallId}
-                origin={originProps?.origin ?? origin}
-                resolveTabName={resolveTabName}
-                resolvePeerName={resolvePeerName}
-                onOpenPlan={onOpenPlan}
-                resolvePlanRef={resolvePlanRef}
-                fontScale={uiFontScale}
-                onAnswerInteractive={promptAnswers ? handleAnswerInteractive : undefined}
-                answeredInteractiveIds={answeredInteractiveIds}
-                onRerunShellCommand={handleRerunShellCommand}
-                onStopReminder={handleStopReminder}
-                onOpenJobs={openJobs}
-                onJumpToShellCommand={onOpenTerminalFallback ? handleJumpToShellCommand : undefined}
-                originAvatar={originProps?.originAvatar}
-                onOriginClick={originProps?.onOriginClick}
-                onFocusTab={resolveFocusTab}
-                onJumpToMessage={jumpToQuoted}
-              />
-            </ChatMessageRow>
-            </ChatHighlightRow>
-              {following.map(renderOutboundReport)}
-              {(askPlacement.afterIndex.get(messageIndex) ?? []).map(renderAsk)}
-            </div>
-            </Fragment>
+              streaming={msg.id === streamingId}
+              latestFailedToolCall={msg.id === latestFailedToolCallId}
+              forkable={forkableMessages.has(msg.id)}
+              revertible={canRevertTurns}
+              context={rowContext}
+            />
           );
         })}
+        </div>
         <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
         {runtime.questions.map((item) => <RuntimeQuestionCard key={JSON.stringify([tab?.session_binding_nonce, item.threadId, item.itemId])} tabId={tabId} item={item} onReceipt={observeChatSendStatus} />)}
         {promptPart && <ChatMessageRow
@@ -925,7 +990,13 @@ export function TabSessionChat({
         </ChatMessageRow>}
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
+        <AutoConfirmedPromptRows records={autoConfirmations} />
+        </div>
+      </div>
         <ChatSetupState
+          visible={isActive}
+          waitingMessages={heldMessagesForLaunch(deliverySends)}
+          workspace={planNav.workspaces.find(workspace => workspace.id === workspaceId)}
           tab={tab}
           view={setupView}
           providerName={provider?.displayName ?? "the agent"}
@@ -934,9 +1005,6 @@ export function TabSessionChat({
           providerIconHint={provider?.iconHint}
           onEscape={focusComposer}
         />
-        <AutoConfirmedPromptRows records={autoConfirmations} />
-        </div>
-      </div>
       <MessageSelectionBar
         count={messageSelection.count}
         partial={messageSelection.partial}
@@ -946,9 +1014,11 @@ export function TabSessionChat({
         onClear={messageSelection.clear}
       />
       {(showScrollDown || newerMessageCount > 0) && (
-        <div className="absolute right-4 z-30" style={{ bottom: floatingBottomInset + 16 }}>
+        <div className="absolute right-4 z-30" style={{ bottom: floatingBottomInset + 16, pointerEvents: "none" }}>
         <ScrollToLatestButton
           testId="chat-scroll-bottom"
+          gestureOwned={gestureOwned}
+          userScrollingRef={chatUserScrollingRef}
           onClick={() => {
             showLatest();
             scrollToBottom();
@@ -958,7 +1028,8 @@ export function TabSessionChat({
         </div>
       )}
       </div>
-      <div data-composer-height-surface className="ct-chat-bottom-bar shrink-0">
+      <ComposerBackgroundWorkProvider tabId={tabId} messages={allMessages}>
+      <ChatComposerSurface view={setupView} providerId={tabProvider ?? undefined} tabId={tabId}>
       {isWatcherTab && watcherSpec ? (
         runtimeReplacement ?? <WatcherReadOnlyBar
           watcher={watcherSpec}
@@ -971,15 +1042,16 @@ export function TabSessionChat({
         <AgentStateIndicator
           tab={tab}
           activity={agentActivity}
+          activeTool={allMessages.find((message) => message.type === "tool_call" && message.toolStatus === "running")}
           runtimeState={runtime.state}
-          showActivity={setupView.kind === "none" && !chatChannelLoading}
-          channelLoadingLabel={chatChannelLoadingRow(chatChannelLoading, setupView) === "model"
+          showActivity={setupView.kind === "none" && !chatLoading}
+          channelLoadingLabel={chatChannelLoadingRow(chatLoading, setupView, snapshotReady, hasHeldWindow) === "model"
             ? `${provider?.displayName ?? tabProvider} loading chat` : undefined}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}
           reasoningEffort={tab?.reasoning_effort_identity}
           className="ct-composer-lane mx-auto w-full"
-          onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
+          onStop={canInterrupt ? handleStopAgent : undefined}
           onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
           onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
           onRebind={sessionBindingSurface.showRecoveryAction
@@ -998,35 +1070,47 @@ export function TabSessionChat({
       {tab?.managed && <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={handleStopAgent} />}
       {inputStatus && <div className="ct-composer-lane mx-auto w-full">{inputStatus}</div>}
       {uploadStatus}
-      {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
-        tabId={tabId}
-        tabProvider={tabProvider}
-        currentPtyId={currentPtyId}
-        chatBackend={effectiveChatBackend}
-        isActive={isActive && !runtimeDegraded}
-        replacement={runtimeReplacement}
-        pendingPrompt={pendingPrompt}
-        attachments={attachments}
-        addAttachments={addAttachments}
-        removeAttachment={removeAttachment}
-        clearAttachments={clearAttachments}
-        handlePasteEvent={handlePasteEvent}
-        inlineAttachmentSink={inlineSinkRef}
-        contextSlot={contextSlot}
-        onWillSendMessage={willSendMessage}
-        addOptimistic={addOptimistic}
-        updateOptimistic={updateOptimistic}
-        observeChatSendStatus={observeChatSendStatus}
-        showComposerError={showComposerError}
-        onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+      {pendingThreadRevertTurn && <ThreadRevertConfirmation
+        turnId={pendingThreadRevertTurn}
+        onCancel={() => setPendingThreadRevertTurn(null)}
+        onConfirm={(turnId) => {
+          setPendingThreadRevertTurn(null);
+          void runThreadHistory("revert", turnId, true);
+        }}
       />}
+        {managedTabPresentation(tab?.managed).locked ? runtimeReplacement : <ChatComposer
+          tabId={tabId}
+          tabProvider={tabProvider}
+          currentPtyId={currentPtyId}
+          chatBackend={effectiveChatBackend}
+          isActive={isActive}
+          promptDock={runtimeBadge}
+          pendingPrompt={pendingPrompt}
+          attachments={attachments}
+          addAttachments={addAttachments}
+          removeAttachment={removeAttachment}
+          clearAttachments={clearAttachments}
+          handlePasteEvent={pasteIntoComposer}
+          inlineAttachmentSink={inlineSinkRef}
+          pluginError={!runtimeUnavailable && effectiveChatBackend ? error : null}
+          sessionIntent={sessionIntent}
+          contextSlot={contextSlot}
+          onWillSendMessage={willSendMessage}
+          addOptimistic={addOptimistic}
+          updateOptimistic={updateOptimistic}
+          observeChatSendStatus={observeChatSendStatus}
+          showComposerError={showComposerError}
+          onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+        />}
       </>
       )}
-      </div>
+      </ChatComposerSurface>
+      </ComposerBackgroundWorkProvider>
     </div>
     </PluginNameProvider>
     </ChatBlockHostProvider>
     </LocalArtifactScope>
+    </ChildTranscriptScope>
     </ChatHighlightBudgetProvider>
   );
 }

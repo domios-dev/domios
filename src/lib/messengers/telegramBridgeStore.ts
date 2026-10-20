@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
+import { DEV_BUILD } from "../devBuild";
 import { appConfigSource } from "../appConfigSource";
 import { IS_WEB } from "../webApi";
 import { connectTelegram, telegramBridgeApi, type TelegramBridgeApi, type TelegramBridgeRaw } from "./telegramBridge";
@@ -31,7 +32,10 @@ export function createTelegramBridgeStore(api: TelegramBridgeApi, watchConfig: (
     reading ??= api.state().then(
       (raw) => publish({ kind: "ready", raw }),
       (error: unknown) => {
-        if (snapshot.kind !== "ready") publish({ kind: "unavailable", message: error instanceof Error ? error.message : String(error) });
+        if (snapshot.kind !== "ready" && snapshot.kind !== "unavailable") {
+          publish({ kind: "unavailable", message: error instanceof Error ? error.message : String(error) });
+        }
+        if (DEV_BUILD) console.debug("Telegram status refresh failed", error);
       },
     ).finally(() => {
       reading = null;

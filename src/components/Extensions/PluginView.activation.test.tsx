@@ -60,7 +60,7 @@ describe("plugin view activation", () => {
       source: ownWindow, data: { __ctUiState: { status: "error", reason: "Target container is not a DOM element." } },
     })));
     expect(host!.querySelector('[role="alert"]')?.textContent).toContain("Target container is not a DOM element.");
-    await act(async () => host!.querySelector<HTMLButtonElement>("button")!.click());
+    await act(async () => [...host!.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Retry plugin UI")!.click());
     expect(documentLoad).toHaveBeenLastCalledWith(expect.stringContaining("reload=1"));
     expect(host!.querySelector('[role="alert"]')).toBeNull();
   });

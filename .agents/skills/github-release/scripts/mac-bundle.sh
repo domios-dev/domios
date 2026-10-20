@@ -25,11 +25,13 @@ case "$ARCH" in
     BUILD_ARG=arm64
     DMG_ARCH=aarch64
     DMG=src-tauri/target/release/bundle/dmg/CodeTerm_${VER}_aarch64.dmg
+    APP=src-tauri/target/release/bundle/macos/CodeTerm.app
     ;;
   x86_64|x64)
     BUILD_ARG=x86_64
     DMG_ARCH=x64
     DMG=src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/CodeTerm_${VER}_x64.dmg
+    APP=src-tauri/target/x86_64-apple-darwin/release/bundle/macos/CodeTerm.app
     ;;
   *) echo "unknown arch: $ARCH (expected arm64 or x86_64)" >&2; exit 2 ;;
 esac
@@ -40,6 +42,8 @@ echo "=== build $ARCH ===" >&2
 
 echo "=== notarize+staple $DMG ===" >&2
 "$SCRIPT_DIR/notarize-dmg.sh" "$DMG" >&2
+xcrun stapler staple "$APP" >&2
+spctl --assess --type execute "$APP" >&2
 
 echo "=== pack updater bundle $DMG_ARCH ===" >&2
 SIG=$("$SCRIPT_DIR/pack-mac-updater.sh" "$VER" "$DMG_ARCH" "$WORK")

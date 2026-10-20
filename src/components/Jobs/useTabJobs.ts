@@ -1,10 +1,11 @@
+import { jobWorkspace } from "./jobsModel";
 import { useCallback, useMemo } from "react";
 import type { ReturnTo } from "../../lib/returnTo";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
 import { pipelineModel } from "../Automation/pipelineModel";
 import { blueprintScenarioJobs } from "../Automation/scenarios";
 import type { AutomationGraphAdapter } from "../Automation/types";
-import { hostJobsActionAdapter, jobWorkspace, type JobActionContext, type JobsActionAdapter } from "./jobActions";
+import { hostJobsActionAdapter, type JobActionContext, type JobsActionAdapter } from "./jobActions";
 import { jobsForTab, mergeJobs, mergedJobId, NO_JOBS_FILTER, tabJobKey, type MergedJob } from "./jobsModel";
 import { requestOpenJob } from "./openJobEvent";
 import { useCronJobs } from "./useCronJobs";

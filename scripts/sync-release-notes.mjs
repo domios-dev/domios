@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: CI release-manifest-validate.yml; scripts tests/release-notes-sync.test.mjs, tests/test_release_workflow_contract.py; skill github-release
 
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

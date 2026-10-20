@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use codeterm_lib::agent::offline_state_classifier::{
+use codeterm_service_core::agent::offline_state_classifier::{
     classify_timeline, CastEvent, CastTimelineInput, ClassifiedSegment, QuestionSubtype,
     TimelineState, TICK_MS,
 };

@@ -1,0 +1,10 @@
+{
+  "machine": "BLACKSTAR",
+  "runners": [
+    { "id": 32, "name": "BLACKSTAR-windows-x64", "labels": ["windows-x64-build", "heavy", "windows-ci", "rust-shard"] },
+    { "id": 31, "name": "BLACKSTAR-wsl-ci", "labels": ["linux-ci", "light", "heavy"] },
+    { "id": 33, "name": "BLACKSTAR-wsl-light-1", "labels": ["light"] },
+    { "id": 34, "name": "BLACKSTAR-wsl-light-2", "labels": ["light"] }
+  ],
+  "borrowed": { "ROG-windows-build": ["windows-x64-build"] }
+}

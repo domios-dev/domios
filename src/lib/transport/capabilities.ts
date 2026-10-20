@@ -215,14 +215,6 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
       );
       return resp.path ?? "";
     },
-    save_temp_file: async (a) => {
-      const resp = await webJson<{ path?: string }>("POST", "/api/attachments/temp-file", {
-        data: a.data,
-        extension: a.extension,
-        name: a.name,
-      });
-      return resp.path ?? "";
-    },
     services_create: (a) => webJson("POST", "/api/services", a.input),
     services_delete: (a) => webJson("DELETE", `/api/services/${enc(s(a, "id"))}`),
     services_list: () => webJson("GET", "/api/services"),

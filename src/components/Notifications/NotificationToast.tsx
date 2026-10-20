@@ -76,7 +76,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
         </button>
         {notification.body && (
           <div className="min-w-0 flex-1 truncate text-[var(--ct-muted-fg)] [&_*]:whitespace-nowrap [&_p]:m-0 [&_p]:inline">
-            <NotificationBody text={notification.body} tabId={notification.tab_id} />
+            <NotificationBody text={notification.body} tabId={notification.tab_id} failure={notification.level === "failure" || notification.severity === "Error"} operation={notification.title} preview />
           </div>
         )}
       </div>
@@ -152,7 +152,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
               <div className="font-medium text-[var(--ct-fg)]">{notification.title}</div>
               {notification.body && (
                 <div className="mt-2 max-h-[min(420px,60vh)] overflow-y-auto break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
-                  <NotificationBody text={notification.body} tabId={notification.tab_id} />
+                  <NotificationBody text={notification.body} tabId={notification.tab_id} failure={notification.level === "failure" || notification.severity === "Error"} operation={notification.title} />
                 </div>
               )}
               <div className="mt-3 flex flex-wrap gap-1.5">

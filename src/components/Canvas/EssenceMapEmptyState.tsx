@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { AlertTriangle, FileText, Map as MapIcon, RefreshCw } from "lucide-react";
 import { SendIcon } from "../Icons";
 import { UI_BUTTON } from "../shared/design";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { projectName, statusLabel } from "./EssenceMapProjectView";
 import type { EssenceMapProject } from "./essenceMapModel";
 import type { MapOrchestrator } from "./essenceMapOrchestrator";
@@ -42,7 +43,7 @@ export function EssenceMapEmptyState({ projects, orchestrator, onAskOrchestrator
       <ul aria-label="Project map status" className="flex w-full flex-col gap-1 text-xs text-[var(--ct-muted-fg)]">
         {projects.map((project) => <li key={project.file.project_path} data-testid={`essence-map-project-${project.status}`} className="flex min-w-0 items-center justify-center gap-2" title={project.file.project_path}>
           {ATTENTION_STATUSES.has(project.status) ? <AlertTriangle size={13} aria-hidden="true" className="shrink-0 text-[var(--ct-yellow)]" /> : <FileText size={13} aria-hidden="true" className="shrink-0" />}
-          <span className="truncate"><span className="font-medium text-[var(--ct-fg)]">{projectName(project.file.project_path)}</span> · {project.error ?? statusLabel(project)}</span>
+          <div className="min-w-0"><span className="font-medium text-[var(--ct-fg)]">{projectName(project.file.project_path)}</span> · <span role="status">{statusLabel(project)}</span></div>
         </li>)}
       </ul>
       <p id="essence-map-empty-next" className="text-xs text-[var(--ct-muted-fg)]">
@@ -55,7 +56,7 @@ export function EssenceMapEmptyState({ projects, orchestrator, onAskOrchestrator
         </button>}
         {onRetry && <button type="button" className={`${UI_BUTTON.ghost} inline-flex items-center gap-1.5`} onClick={onRetry}><RefreshCw size={12} aria-hidden="true" />Check again</button>}
       </div>
-      {error && <p role="alert" className="text-xs text-[var(--ct-red)]">{error}</p>}
+      {error && <InlineErrorNotice error={error} operation="creating the project map" blocking />}
     </section>
   </div>;
 }

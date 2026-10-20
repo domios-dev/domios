@@ -1,4 +1,4 @@
-import { clampFloatingPosition } from "../shared/floatingPosition";
+import { anchoredPopoverPosition, pointAnchor } from "../shared/floatingPosition";
 import type { PageRect } from "./streamModel";
 
 export const NEEDS_HUMAN_KINDS = ["captcha", "consent", "login", "dialog", "file_chooser"] as const;
@@ -40,6 +40,7 @@ export interface SurfaceChromeSpec {
   pointAndAsk?: boolean;
   snip?: boolean;
   openExternal?: boolean;
+  clipboard?: boolean;
 }
 
 export interface SelectOption {
@@ -72,11 +73,12 @@ export interface Invocation {
   args: Record<string, unknown>;
 }
 
-export const CHROME_ITEM = { pick: "pick", snip: "snip", openExternal: "open-external", takeControl: "take-control" } as const;
+export const CHROME_ITEM = { pick: "pick", snip: "snip", copy: "copy-selection", paste: "paste-text", openExternal: "open-external", takeControl: "take-control" } as const;
 
 export const CLEAN_PROFILE = "clean";
 const ATTACHED_PROFILE = "attached";
 export const NEW_PROFILE_OPTION = "__new";
+export const DELETE_PROFILE_OPTION = "__delete";
 export const PROFILE_NAME_MAX = 40;
 const PROFILE_NAME = /^[A-Za-z0-9_-]+$/;
 
@@ -118,6 +120,7 @@ export function profileOptions(state: SurfaceState): { options: SelectOption[]; 
     { value: CLEAN_PROFILE, label: "Clean profile" },
     ...names.map((name) => ({ value: name, label: `Profile: ${name}` })),
     { value: NEW_PROFILE_OPTION, label: "+ New profile…" },
+    ...(names.length ? [{ value: DELETE_PROFILE_OPTION, label: "Delete profile…" }] : []),
   ];
   const locked = state.profile === ATTACHED_PROFILE;
   const current = state.profile && !locked ? state.profile : CLEAN_PROFILE;
@@ -177,6 +180,10 @@ export function resolveToolbar(spec: SurfaceChromeSpec, context: ToolbarContext)
   }
   if (external) navigation.push(external);
   const chrome: ResolvedToolbarItem[] = [];
+  if (spec.clipboard) {
+    chrome.push({ id: CHROME_ITEM.copy, kind: "button", label: "Copy selected text", icon: "copy", disabled: !context.interactive });
+    chrome.push({ id: CHROME_ITEM.paste, kind: "button", label: "Paste text", icon: "clipboard-paste", disabled: !context.interactive });
+  }
   if (spec.pointAndAsk) chrome.push({ id: CHROME_ITEM.pick, kind: "toggle", label: "Pick element", icon: "crosshair", pressed: context.picking, disabled: false });
   if (spec.snip) chrome.push({ id: CHROME_ITEM.snip, kind: "toggle", label: "Snip and ask", icon: "camera", pressed: context.snipping ?? false, disabled: context.busy?.has(CHROME_ITEM.snip) ?? false });
   const takeControl: ResolvedToolbarItem[] = spec.takeControl
@@ -192,12 +199,13 @@ export function toolbarInvocation(item: ToolbarItemSpec, value?: string): Invoca
   return { method: item.invoke.method, args };
 }
 
-export type SelectChoice = { kind: "new-profile" } | { kind: "value"; value: string };
+export type SelectChoice = { kind: "new-profile" } | { kind: "delete-profile" } | { kind: "value"; value: string };
 
 // The core reads "" as the clean profile.
 export function selectChoice(item: Pick<ToolbarItemSpec, "source">, value: string): SelectChoice {
   if (item.source !== "profiles") return { kind: "value", value };
   if (value === NEW_PROFILE_OPTION) return { kind: "new-profile" };
+  if (value === DELETE_PROFILE_OPTION) return { kind: "delete-profile" };
   return { kind: "value", value: value === CLEAN_PROFILE ? "" : value };
 }
 
@@ -419,14 +427,12 @@ const ASK_POPOVER_GAP = 12;
 const ASK_POPOVER_MARGIN = 8;
 
 export function askPopoverPosition(anchor: PopoverAnchor): { left: number; top: number } {
-  const { left, top } = clampFloatingPosition(
-    anchor.x + ASK_POPOVER_GAP,
-    anchor.y + ASK_POPOVER_GAP,
-    ASK_POPOVER_SIZE.width,
-    ASK_POPOVER_SIZE.height,
-    anchor.width,
-    anchor.height,
-    ASK_POPOVER_MARGIN,
+  const { left, top } = anchoredPopoverPosition(
+    pointAnchor(anchor.x + ASK_POPOVER_GAP, anchor.y),
+    ASK_POPOVER_SIZE,
+    { width: anchor.width, height: anchor.height },
+    "bottom-start",
+    { margin: ASK_POPOVER_MARGIN, gap: ASK_POPOVER_GAP },
   );
   return { left, top };
 }

@@ -1,8 +1,11 @@
 #!/usr/bin/env node
+// Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/dev-prebuilt; scripts tests/release-input-reuse.test.mjs
 import crypto from "node:crypto";
+import { StringDecoder } from "node:string_decoder";
+import { runDevApp, nativeLocatorRecord, prebuiltReadinessPhase } from "./dev-app-process.mjs";
+import { devRuntimeEnvironment } from "./dev-runtime-environment.mjs";
 import {
   accessSync,
-  closeSync,
   constants,
   existsSync,
   lstatSync,
@@ -11,25 +14,26 @@ import {
   readFileSync,
   readdirSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
   writeFileSync,
-  writeSync,
 } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repo = realpathSync.native(resolve(dirname(fileURLToPath(import.meta.url)), ".."));
 const require = createRequire(import.meta.url);
 const { gitOutput } = require("./build-identity.cjs");
+const { reloadPlan, inputSnapshot, cliSourceRoots } = require("./dev-reload-inputs.cjs");
 const isWin = process.platform === "win32";
 const pnpm = isWin ? "pnpm.cmd" : "pnpm";
 const cargo = isWin ? "cargo.exe" : "cargo";
 const node = process.execPath;
-const provenanceSchema = 1;
+const provenanceSchema = 3;
 const childExitDeadlineMs = 10_000;
 const inputPathspecs = [
   "build.sh",
@@ -50,17 +54,31 @@ const inputPathspecs = [
   "crates",
   "src-tauri",
   "scripts/dev-prep.mjs",
+  "scripts/dev-reload-inputs.cjs",
+  "scripts/dev-server.mjs",
+  "scripts/dev-server-bootstrap.ps1",
+  "scripts/server-artifact.mjs",
+  "scripts/package-server-component-manifest.mjs",
+  "scripts/dev-app-process.mjs",
+  "scripts/dev-runtime-environment.mjs",
+  "scripts/dev-instance-policy.mjs",
+  "scripts/windows-dev-app.ps1",
+  "scripts/windows-dev-app.cs",
+  "scripts/windows-dev-desktop.cs",
   "scripts/bundle-cli.js",
-  "scripts/bundle-embed.js",
+  "scripts/build-artifacts.cjs",
+  "scripts/frontend-build.mjs",
   "scripts/prepare-cli-stub.js",
-  "scripts/prepare-embed-stub.js",
   "scripts/dev-resource-preflight.mjs",
   "scripts/dev-static-server.mjs",
-  "scripts/convert-plan-storage.rs",
   "scripts/cache-policy.sh",
   "scripts/build-gateway.sh",
   "scripts/release-signing.sh",
 ];
+
+function devResourceRoot(app) {
+  return isWin ? dirname(app) : resolve(dirname(app), "../lib/codeterm");
+}
 
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
@@ -134,8 +152,12 @@ function listTree(root) {
   return files;
 }
 
+function artifactPath(requested) {
+  return realpathSync.native(resolve(requested));
+}
+
 function hashPath(requested, expectedType, requireExecutable = false) {
-  const path = resolve(requested);
+  const path = artifactPath(requested);
   if (!existsSync(path)) throw new Error(`artifact is absent: ${path}`);
   const stat = lstatSync(path);
   if (expectedType === "file" && !stat.isFile()) throw new Error(`artifact is not a file: ${path}`);
@@ -143,7 +165,15 @@ function hashPath(requested, expectedType, requireExecutable = false) {
   if (requireExecutable && !isWin && (stat.mode & 0o111) === 0) throw new Error(`artifact is not executable: ${path}`);
   const hash = sha256();
   let bytes = 0;
-  const files = stat.isDirectory() ? listTree(path) : [path];
+  const files = expectedType === "runtime-resources"
+    ? ["cli", "skills", "LICENSE", "NOTICE", ...(isWin ? ["conpty"] : [])].flatMap(name => {
+        const resource = join(path, name);
+        const metadata = lstatSync(resource);
+        const entries = metadata.isDirectory() ? listTree(resource) : [resource];
+        if (metadata.isSymbolicLink() || entries.some(file => lstatSync(file).isSymbolicLink())) throw new Error("Runtime resource links are not accepted");
+        return entries;
+      }).sort()
+    : stat.isDirectory() ? listTree(path) : [path];
   if (files.length === 0) throw new Error(`artifact is empty: ${path}`);
   for (const file of files) {
     const fileStat = lstatSync(file);
@@ -165,8 +195,8 @@ function hashPath(requested, expectedType, requireExecutable = false) {
   return { path, type: expectedType, sha256: hash.digest("hex"), bytes, mode: stat.mode & 0o777 };
 }
 
-function inputFingerprint() {
-  const listed = gitOutput([
+function inputFiles() {
+  return gitOutput([
     "ls-files",
     "-z",
     "--cached",
@@ -179,6 +209,10 @@ function inputFingerprint() {
     .filter(Boolean)
     .map((path) => path.replaceAll("\\", "/"))
     .sort();
+}
+
+function inputFingerprint() {
+  const listed = inputFiles();
   if (listed.length === 0) throw new Error("no build inputs were found");
   const hash = sha256();
   for (const path of listed) {
@@ -205,6 +239,13 @@ function gitSha() {
   return sha;
 }
 
+function provenanceSha(options) {
+  if (!options.has("--launch-sha")) return gitSha();
+  const sha = option(options, "--launch-sha");
+  if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error("invalid launch SHA");
+  return sha;
+}
+
 function instanceFrom(options) {
   return {
     name: option(options, "--instance", true),
@@ -220,24 +261,30 @@ function artifactPaths(options) {
     app: option(options, "--app"),
     cli: option(options, "--cli"),
     frontend: option(options, "--frontend"),
+    server: join(devResourceRoot(option(options, "--app")), "domios-server", isWin ? "domios-server.exe" : "domios-server"),
+    inventory: join(devResourceRoot(option(options, "--app")), "server-component.json"),
+    resources: devResourceRoot(option(options, "--app")),
   };
 }
 
 function buildProvenance(options) {
   const expectedSha = option(options, "--build-sha");
-  const currentSha = gitSha();
+  const currentSha = provenanceSha(options);
   if (expectedSha !== currentSha) throw new Error(`build SHA mismatch: expected ${expectedSha}, got ${currentSha}`);
   const paths = artifactPaths(options);
   return {
     schema: provenanceSchema,
     buildSha: currentSha,
     inputsSha256: inputFingerprint(),
+    reload: { inputs: inputSnapshot(repo, inputFiles()), cliRoots: cliSourceRoots(repo) },
     instance: instanceFrom(options),
     artifacts: {
       app: hashPath(paths.app, "file", true),
       cli: hashPath(paths.cli, "file", true),
-      embed: hashPath(option(options, "--embed"), "file", true),
       frontend: hashPath(paths.frontend, "tree"),
+      server: hashPath(paths.server, "file", true),
+      inventory: hashPath(paths.inventory, "file"),
+      resources: hashPath(paths.resources, "runtime-resources"),
     },
   };
 }
@@ -262,8 +309,8 @@ function assertKeys(value, keys, label) {
 
 function validateArtifact(recorded, expectedPath, expectedType, label, requireExecutable = false) {
   assertKeys(recorded, ["path", "type", "sha256", "bytes", "mode"], `${label} artifact`);
-  const expected = resolve(expectedPath);
-  if (resolve(recorded.path) !== expected) throw new Error(`${label} artifact path mismatch`);
+  const expected = artifactPath(expectedPath);
+  if (artifactPath(recorded.path) !== expected) throw new Error(`${label} artifact path mismatch`);
   if (recorded.type !== expectedType) throw new Error(`${label} artifact type mismatch`);
   const current = hashPath(expected, expectedType, requireExecutable);
   if (recorded.sha256 !== current.sha256 || recorded.bytes !== current.bytes || recorded.mode !== current.mode) {
@@ -271,23 +318,7 @@ function validateArtifact(recorded, expectedPath, expectedType, label, requireEx
   }
 }
 
-function validateEmbedArtifact(recorded) {
-  assertKeys(recorded, ["path", "type", "sha256", "bytes", "mode"], "embed artifact");
-  const expectedRoot = resolve(repo, "src-tauri", "bundled-embed");
-  const path = resolve(recorded.path);
-  const withinRoot = path.startsWith(`${expectedRoot}${sep}`);
-  if (!withinRoot || dirname(path) !== expectedRoot) throw new Error("embed artifact path is outside bundled-embed");
-  if (!/^codeterm-embed-[a-zA-Z0-9_.-]+(?:\.exe)?$/.test(path.slice(expectedRoot.length + 1))) {
-    throw new Error("embed artifact name is invalid");
-  }
-  if (recorded.type !== "file") throw new Error("embed artifact type mismatch");
-  const current = hashPath(path, "file", true);
-  if (recorded.sha256 !== current.sha256 || recorded.bytes !== current.bytes || recorded.mode !== current.mode) {
-    throw new Error("embed artifact content mismatch");
-  }
-}
-
-function checkProvenance(options) {
+function checkProvenance(options, serverReload = false) {
   const record = resolve(option(options, "--record"));
   if (!existsSync(record)) throw new Error(`record is absent: ${record}`);
   let data;
@@ -296,22 +327,29 @@ function checkProvenance(options) {
   } catch (error) {
     throw new Error(`record is unparseable: ${error.message}`);
   }
-  assertKeys(data, ["schema", "buildSha", "inputsSha256", "instance", "artifacts"], "record");
+  const {nativeClient, reload, ...buildRecord} = data;
+  assertKeys(buildRecord, ["schema", "buildSha", "inputsSha256", "instance", "artifacts"], "record");
   if (data.schema !== provenanceSchema) throw new Error(`unsupported record schema: ${data.schema}`);
-  if (data.buildSha !== gitSha()) throw new Error("recorded build commit does not match HEAD");
-  if (!/^[0-9a-f]{64}$/.test(data.inputsSha256) || data.inputsSha256 !== inputFingerprint()) {
+  if (!serverReload && data.buildSha !== provenanceSha(options)) throw new Error("recorded build commit does not match HEAD or launch SHA");
+  const fingerprint = inputFingerprint();
+  if (!/^[0-9a-f]{64}$/.test(data.inputsSha256) || (!serverReload && data.inputsSha256 !== fingerprint)) {
     throw new Error("recorded build inputs are stale");
   }
   const expectedInstance = instanceFrom(options);
   assertKeys(data.instance, ["name", "apiPort", "vitePort", "cdpPort", "identifier"], "instance");
   if (JSON.stringify(data.instance) !== JSON.stringify(expectedInstance)) throw new Error("recorded instance does not match this dev instance");
-  assertKeys(data.artifacts, ["app", "cli", "embed", "frontend"], "artifacts");
+  assertKeys(data.artifacts, ["app", "cli", "frontend", "server", "inventory", "resources"], "artifacts");
   const paths = artifactPaths(options);
   validateArtifact(data.artifacts.app, paths.app, "file", "app", true);
   validateArtifact(data.artifacts.cli, paths.cli, "file", "CLI", true);
-  validateEmbedArtifact(data.artifacts.embed);
-  validateArtifact(data.artifacts.frontend, paths.frontend, "tree", "frontend");
-  console.log(`[dev-provenance] matched ${record} at ${data.buildSha}`);
+  if (!serverReload) validateArtifact(data.artifacts.frontend, paths.frontend, "tree", "frontend");
+  validateArtifact(data.artifacts.server, paths.server, "file", "server", true);
+  validateArtifact(data.artifacts.inventory, paths.inventory, "file", "inventory");
+  validateArtifact(data.artifacts.resources, paths.resources, "runtime-resources", "resources");
+  if (serverReload) {
+    const plan = reloadPlan(reload?.inputs, inputSnapshot(repo, inputFiles()), reload?.cliRoots ?? []);
+    console.log(`${plan.cli ? 'cli' : 'server'}:${fingerprint}`);
+  } else console.log(`[dev-provenance] matched ${record} at ${data.buildSha}`);
 }
 
 function checkRuntime(options) {
@@ -373,59 +411,139 @@ async function terminateOwnedChild(child) {
 }
 
 function readinessSignal(line, apiPort) {
-  return (
-    process.env.CODETERM_TEST_PREBUILT_NEVER_READY !== "1" &&
-    line.includes("REST API generation ") &&
-    line.includes(" health-proven on http://") &&
-    new RegExp(`:${apiPort}(?:\\b|/)`).test(line)
-  );
+  if (process.env.CODETERM_TEST_PREBUILT_NEVER_READY === "1") return false;
+  const prefix = "DOMIOS_DEV_ATTACHMENT ";
+  if (!line.startsWith(prefix)) return false;
+  try {
+    const status = JSON.parse(line.slice(prefix.length));
+    return Object.keys(status).sort().join(",") === "api_address,client_pid,epoch,protocol,server_pid"
+      && status.protocol === 2 && Number.isSafeInteger(status.client_pid) && status.client_pid > 0
+      && Number.isSafeInteger(status.server_pid) && status.server_pid > 0 && status.client_pid !== status.server_pid
+      && typeof status.epoch === "string" && /^[a-f0-9-]{36}$/.test(status.epoch)
+      && [`127.0.0.1:${apiPort}`, `[::1]:${apiPort}`].includes(status.api_address);
+  } catch { return false; }
+}
+
+function startupFailureSignal(line) {
+  const prefix = "ERROR: DOMIOS_DEV_FAILURE ";
+  if (!line.startsWith(prefix)) return null;
+  try {
+    const value = JSON.parse(line.slice(prefix.length));
+    const stages = ["resource_root", "inventory", "install", "resource_verification", "server_artifact", "client_artifact", "identity_resolution", "attach", "launch", "reply_validation", "api_attachment", "native_enrollment", "frontend", "startup"];
+    if (Object.keys(value).sort().join(",") !== "exit_code,io_kind,os_error,stage,status"
+      || !stages.includes(value.stage) || value.status !== "refused"
+      || value.io_kind !== null || value.os_error !== null || value.exit_code !== null) return null;
+    return `Native client startup refused at ${value.stage}`;
+  } catch { return null; }
+}
+
+function attachmentProof(lines, port, listenerPid, alive) {
+  const events = lines.filter(line => readinessSignal(line, port));
+  if (!events.length) throw new Error("Native attachment readiness is absent");
+  const event = JSON.parse(events.at(-1).slice("DOMIOS_DEV_ATTACHMENT ".length));
+  if (!/^[1-9][0-9]*$/.test(String(listenerPid)) || event.server_pid !== Number(listenerPid)) {
+    throw new Error("Native attachment differs from the actual DEV API listener");
+  }
+  if (!alive(event.client_pid) || !alive(event.server_pid)) {
+    throw new Error("Native attachment client or server is no longer live");
+  }
+  return event;
+}
+
+function checkAttachment(options) {
+  const log = resolve(option(options, "--log"));
+  const stat = lstatSync(log);
+  if (!stat.isFile() || stat.size > 4 * 1024 * 1024) throw new Error("Native attachment log exceeds its bound");
+  const port = option(options, "--api-port");
+  attachmentProof(readFileSync(log, "utf8").split(/\r?\n/), port, option(options, "--listener-pid"), pid => {
+    try { process.kill(pid, 0); return true; } catch { return false; }
+  });
 }
 
 function disconnectSupervisor() {
   if (process.connected) process.disconnect();
 }
 
+function nativeLocatorSink(options) {
+  if (!options.has("--record")) return () => {};
+  const file=resolve(option(options,"--record")), app=realpathSync.native(option(options,"--app"));
+  let partial="", attachment=null, pending=null;
+  const decoder=new StringDecoder("utf8");
+  const write = data => {
+    const temporary=`${file}.${process.pid}.locator.tmp`;
+    writeFileSync(temporary,JSON.stringify(data,null,2)+"\n",{flag:"wx"});
+    renameSync(temporary,file);
+  };
+  const initial=JSON.parse(readFileSync(file,"utf8"));
+  write({...initial,nativeClient:null});
+  return chunk => {
+    const lines=(partial+decoder.write(chunk)).split(/\r?\n/); partial=lines.pop();
+    if (partial.length > 65536) throw Error("Native DEV diagnostic line exceeds bound");
+    for (const line of lines) {
+      if (readinessSignal(line,option(options,"--api-port"))) attachment=JSON.parse(line.slice("DOMIOS_DEV_ATTACHMENT ".length));
+      if (line.startsWith("DOMIOS_DEV_NATIVE_LOCATOR ")) pending=line;
+      if (!attachment || !pending) continue;
+      const record=JSON.parse(readFileSync(file,"utf8"));
+      const next=nativeLocatorRecord(pending,record,app,attachment);
+      if (next) write(next);
+      pending=null;
+    }
+  };
+}
+
 async function supervisePrebuilt(options) {
   const app = resolve(option(options, "--app"));
   const log = resolve(option(options, "--log"));
   const apiPort = option(options, "--api-port");
-  mkdirSync(dirname(log), { recursive: true });
-  writeFileSync(log, "");
-  const logHandle = openSync(log, "a");
-  const partial = { stdout: "", stderr: "" };
+  const decoder = new StringDecoder("utf8");
+  let partial = "";
   let ready = false;
-  const child = spawn(app, [], {
-    cwd: repo,
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true,
-  });
-  const consume = (source, chunk) => {
-    writeSync(logHandle, chunk);
-    const lines = `${partial[source]}${chunk.toString("utf8")}`.split(/\r?\n/);
-    partial[source] = lines.pop() ?? "";
-    const signal = lines.find((line) => readinessSignal(line, apiPort));
-    if (!ready && signal) {
-      ready = true;
-      if (process.connected) process.send({ type: "ready", signal });
-      disconnectSupervisor();
-    }
-  };
-  child.stdout.on("data", (chunk) => consume("stdout", chunk));
-  child.stderr.on("data", (chunk) => consume("stderr", chunk));
-  child.once("error", (error) => {
-    writeSync(logHandle, `[dev-prebuilt] app spawn failed: ${error.message}\n`);
-    if (process.connected) process.send({ type: "failed", error: error.message });
-    disconnectSupervisor();
-  });
-  child.once("exit", (code, signal) => {
+  let startupFailed = false;
+  let readinessPhase=0;
+  const locator = options.has("--record") ? nativeLocatorSink(options) : () => {};
+  try {
+    const { code, signal } = await runDevApp({ app, log, interactiveDesktop: true, cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
+      locator(chunk);
+      const lines = `${partial}${decoder.write(chunk)}`.split(/\r?\n/);
+      partial = lines.pop() ?? "";
+      for (const line of lines) {
+        const next=prebuiltReadinessPhase(readinessPhase,line);
+        if (next !== readinessPhase && !ready && !startupFailed && process.connected) {
+          readinessPhase=next;
+          process.send({type:"phase",phase:next});
+        }
+      }
+      const failure = lines.map(startupFailureSignal).find(Boolean);
+      if (!ready && failure && process.connected) {
+        startupFailed = true;
+        process.send({ type: "failed", error: failure });
+        disconnectSupervisor();
+      }
+      const signal = lines.find(line => readinessSignal(line, apiPort));
+      if (!ready && !startupFailed && signal) {
+        ready = true;
+        if (process.connected) process.send({ type: "ready", signal });
+        disconnectSupervisor();
+      }
+    } });
     if (!ready && process.connected) {
       process.send({ type: "failed", error: `prebuilt app exited before readiness (code=${code}, signal=${signal})` });
-      disconnectSupervisor();
     }
-    closeSync(logHandle);
-    process.exitCode = code ?? (signal ? 1 : 0);
+    process.exitCode = startupFailed ? 1 : code ?? (signal ? 1 : 0);
+  } catch (error) {
+    if (process.connected) process.send({ type: "failed", error: error.message });
+    process.exitCode = 1;
+  } finally { disconnectSupervisor(); }
+
+}
+
+async function runPrebuilt(options) {
+  const locator=nativeLocatorSink(options);
+  const { code, signal } = await runDevApp({
+    app: resolve(option(options, "--app")), log: resolve(option(options, "--log")), interactiveDesktop: true,
+    cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => { locator(chunk); process.stdout.write(chunk); },
   });
+  process.exitCode = code ?? (signal ? 1 : 0);
 }
 
 async function launchPrebuilt(options) {
@@ -440,12 +558,13 @@ async function launchPrebuilt(options) {
   if (!existsSync(app) || !statSync(app).isFile()) throw new Error(`prebuilt app is absent: ${app}`);
   let child;
   let deadline;
+  let phase=0;
   try {
     await new Promise((resolveReady, rejectReady) => {
       const fail = (error) => rejectReady(error instanceof Error ? error : new Error(String(error)));
       child = spawn(
         node,
-        [fileURLToPath(import.meta.url), "--supervise-prebuilt", "--app", app, "--log", log, "--api-port", apiPort],
+        [fileURLToPath(import.meta.url), "--supervise-prebuilt", "--app", app, "--log", log, "--api-port", apiPort, ...(options.has("--record")?["--record",option(options,"--record")]:[])],
         {
           cwd: repo,
           detached: true,
@@ -454,9 +573,14 @@ async function launchPrebuilt(options) {
           windowsHide: true,
         },
       );
-      child.once("message", (message) => {
+      child.on("message", (message) => {
         if (message?.type === "ready") resolveReady(message.signal);
         else if (message?.type === "failed") fail(new Error(message.error));
+        else if (message?.type === "phase" && Number.isInteger(message.phase) && message.phase === phase+1 && message.phase <= 2) {
+          phase=message.phase;
+          clearTimeout(deadline);
+          armDeadline();
+        }
       });
       child.once("error", fail);
       child.once("exit", (code, signal) =>
@@ -464,7 +588,10 @@ async function launchPrebuilt(options) {
       );
       child.unref();
       console.log(`[dev-prebuilt] launched pid ${child.pid}, log ${log}`);
-      deadline = setTimeout(() => fail(new Error(`prebuilt app did not report readiness within ${deadlineMs}ms`)), deadlineMs);
+      function armDeadline() {
+        deadline = setTimeout(() => fail(new Error(`prebuilt app did not report readiness within ${deadlineMs}ms (phase=${['preparation','bootstrap','attachment'][phase]})`)), deadlineMs);
+      }
+      armDeadline();
     }).then((signal) => console.log(`[dev-prebuilt] readiness signal: ${signal}`));
   } catch (error) {
     await terminateOwnedChild(child);
@@ -477,41 +604,21 @@ async function launchPrebuilt(options) {
 
 function runRegularPrep() {
   const startServer = !process.argv.includes("--no-server");
-  const host = output(cargo, ["-vV"])
-    .split(/\r?\n/)
-    .find((line) => line.startsWith("host:"))
-    ?.split(":")[1]
-    ?.trim();
-
-  if (!host) {
-    console.error("[dev-prep] failed to detect cargo host triple");
-    process.exit(1);
-  }
-
-  const embedBundle = join(repo, "src-tauri", "bundled-embed", `codeterm-embed-${host}${isWin ? ".exe" : ""}`);
   run(cargo, ["build", "--release", "--manifest-path", "cli/Cargo.toml"]);
   process.env.CODETERM_DEV = "1";
   run(node, ["scripts/bundle-cli.js"]);
-  run(node, ["scripts/prepare-embed-stub.js"]);
-
-  const embedSize = existsSync(embedBundle) ? statSync(embedBundle).size : 0;
-  if (process.env.REBUILD_EMBED === "1" || embedSize < 1_048_576) {
-    console.log(`[dev-prep] building codeterm-embed (size=${embedSize}, REBUILD_EMBED=${process.env.REBUILD_EMBED ?? "0"})`);
-    run(cargo, ["build", "--release", "--manifest-path", "src-tauri/Cargo.toml", "--bin", "codeterm-embed"]);
-    run(node, ["scripts/bundle-embed.js"]);
-  } else {
-    console.log(`[dev-prep] skipping codeterm-embed rebuild (bundle exists, ${embedSize} bytes; set REBUILD_EMBED=1 to force)`);
-  }
-
   if (startServer) run(node, ["scripts/dev-static-server.mjs"]);
 }
 
 const command = process.argv[2];
 try {
-  if (command === "--write-provenance") writeProvenance(parseOptions(process.argv.slice(3)));
+  if (command === "--check-attachment") checkAttachment(parseOptions(process.argv.slice(3)));
+  else if (command === "--write-provenance") writeProvenance(parseOptions(process.argv.slice(3)));
   else if (command === "--check-provenance") checkProvenance(parseOptions(process.argv.slice(3)));
+  else if (command === "--check-server-reload") checkProvenance(parseOptions(process.argv.slice(3)), true);
   else if (command === "--check-runtime") checkRuntime(parseOptions(process.argv.slice(3)));
   else if (command === "--supervise-prebuilt") await supervisePrebuilt(parseOptions(process.argv.slice(3)));
+  else if (command === "--run-prebuilt") await runPrebuilt(parseOptions(process.argv.slice(3)));
   else if (command === "--launch-prebuilt") await launchPrebuilt(parseOptions(process.argv.slice(3)));
   else runRegularPrep();
 } catch (error) {

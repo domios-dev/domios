@@ -123,7 +123,7 @@ const T0 = 1_700_000_000_000;
   const file = "C:\\tmp\\voice-note-123.webm";
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
     [echo("opt-voice", markVoice(file, null, "no transcriber daemon"), T0)],
-    [user("voice-0", markVoice(file, "transcribed later", null), T0 - 60_000)],
+    [{ ...user("voice-0", markVoice(file, "transcribed later", null), T0 - 60_000), segments: [{ type: "attachment", kind: "voice", path: file, label: "voice", body: "transcribed later", status: null }] }],
   );
   eq(matchedIds, ["opt-voice"], "voice marker clears by file identity");
   eq(pendingIds, [], "voice marker leaves no duplicate pending bubble");
@@ -142,7 +142,7 @@ const T0 = 1_700_000_000_000;
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
     [echo("opt-1", "check the cursor ordering bug", T0)],
-    [user("a-0", markTab("Andrey", "abc12345", "check the cursor ordering bug"), T0 + 500)],
+    [{ ...user("a-0", markTab("Andrey", "abc12345", "check the cursor ordering bug"), T0 + 500), segments: [{ type: "frame", from: "tab", attrs: { from: "tab", label: "Andrey", tab: "abc12345" }, body: "check the cursor ordering bug", tip: null }] }],
   );
   eq(matchedIds, ["opt-1"], "transport-prefixed stored echo matches optimistic body");
   eq(pendingIds, [], "transport-prefixed echo leaves no duplicate pending bubble");

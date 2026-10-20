@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
 import { servicesCreate, servicesSmartAddInspect } from "./meshApi";
 import type { HealthMode } from "./types";
@@ -25,6 +26,7 @@ export function AddServiceWizard({ onClose, onCreated }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [inspecting, setInspecting] = useState(false);
   const [inspectHint, setInspectHint] = useState<string | null>(null);
+  const [inspectError, setInspectError] = useState<unknown>(null);
 
   const canSubmit =
     !!name.trim() &&
@@ -74,6 +76,7 @@ export function AddServiceWizard({ onClose, onCreated }: Props) {
   const handleInspect = async () => {
     setInspecting(true);
     setInspectHint(null);
+    setInspectError(null);
     try {
       const result = await servicesSmartAddInspect(url.trim());
       if (result.recommended_health_path && healthPath === "/healthz") {
@@ -86,7 +89,7 @@ export function AddServiceWizard({ onClose, onCreated }: Props) {
           : "No standard fields detected",
       );
     } catch (e) {
-      setInspectHint(`Inspect failed: ${String(e)}`);
+      setInspectError(e);
     } finally {
       setInspecting(false);
     }
@@ -172,6 +175,7 @@ export function AddServiceWizard({ onClose, onCreated }: Props) {
                   onChange={(e) => {
                     setUrl(e.target.value);
                     setInspectHint(null);
+    setInspectError(null);
                   }}
                   placeholder="http://127.0.0.1:7891"
                   className={`${INPUT_MONO} flex-1`}
@@ -184,6 +188,7 @@ export function AddServiceWizard({ onClose, onCreated }: Props) {
                   {inspecting ? "…" : "Inspect"}
                 </button>
               </div>
+              {inspectError != null && <InlineErrorNotice error={inspectError} operation="inspecting this service" blocking />}
               {inspectHint && (
                 <p className="text-[10px] text-[var(--ct-muted)] mt-1">
                   {inspectHint}
@@ -255,9 +260,7 @@ export function AddServiceWizard({ onClose, onCreated }: Props) {
         </label>
 
         {error && (
-          <div className="text-[10px] text-[var(--ct-red)] bg-[var(--ct-bg)] border border-[var(--ct-red)] rounded p-2 break-all">
-            {error}
-          </div>
+          <InlineErrorNotice error={error} operation="adding this service" />
         )}
 
         <div className="flex gap-2 mt-2 justify-end">

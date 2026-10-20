@@ -29,6 +29,8 @@ pub struct SubprocessPermission {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SpawnConfig {
     #[serde(default)]
+    pub execution_sandbox: Option<crate::provider::ExecutionSandboxCapability>,
+    #[serde(default)]
     pub capability_probe: Option<crate::provider::CapabilityProbe>,
     #[serde(default)]
     pub fork_session_args: Option<Vec<String>>,
@@ -505,6 +507,8 @@ pub struct CommandsConfig {
     /// plugin exports no `buildLaunchCommand`. See LAUNCH_TEMPLATE_PLACEHOLDERS.
     #[serde(default)]
     pub launch_args_format: Option<String>,
+    #[serde(default)]
+    pub launch_spec: Option<codeterm_types::agent::LaunchSpec>,
     /// `resumeArgsFormat`: resume counterpart for a missing
     /// `buildResumeCommand`. See RESUME_TEMPLATE_PLACEHOLDERS.
     #[serde(default)]

@@ -49,6 +49,15 @@ mod store_index_tests {
     }
 
     fn write_channel(dir: &Path, name: &str, plugins: &[(&str, &str)]) {
+        write_channel_with_retired(dir, name, plugins, &[]);
+    }
+
+    fn write_channel_with_retired(
+        dir: &Path,
+        name: &str,
+        plugins: &[(&str, &str)],
+        retired: &[&str],
+    ) {
         std::fs::create_dir_all(dir).unwrap();
         let entries = plugins
             .iter()
@@ -56,7 +65,13 @@ mod store_index_tests {
             .collect::<Vec<_>>();
         std::fs::write(
             dir.join("channel.json"),
-            serde_json::json!({"schemaVersion": 1, "name": name, "plugins": entries}).to_string(),
+            serde_json::json!({
+                "schemaVersion": 1,
+                "name": name,
+                "plugins": entries,
+                "retired": retired
+            })
+            .to_string(),
         )
         .unwrap();
         for (id, path) in plugins {
@@ -88,11 +103,12 @@ mod store_index_tests {
             serde_json::from_str(&text).expect("channel.json must parse as ChannelManifest");
 
         assert_eq!(manifest.name, "codeterm-core");
-        assert_eq!(
-            manifest.plugins.len(),
-            7,
-            "expected claude/codex/opencode/cursor/chat-preprocessor/analytics/browser in the core channel"
-        );
+        let bundled_count = std::fs::read_dir(&plugins_dir)
+            .expect("bundled plugins directory must be readable")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().join("plugin.json").is_file())
+            .count();
+        assert_eq!(manifest.plugins.len(), bundled_count);
 
         for p in &manifest.plugins {
             let rel = p.path.as_ref().expect("each channel plugin needs a path");
@@ -154,6 +170,39 @@ mod store_index_tests {
             git_ref, "develop",
             "the default system channel installs as System trust; it must not track unreleased code"
         );
+        assert_eq!(
+            DEFAULT_PLUGIN_CHANNEL_URL,
+            "https://github.com/rollacode/codeterm-plugins.git"
+        );
+    }
+
+    #[test]
+    fn system_channel_url_defaults_to_private_source() {
+        with_data_root(|_| {
+            std::env::remove_var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL");
+            assert_eq!(system_channel_url(), DEFAULT_SYSTEM_CHANNEL_URL);
+        });
+    }
+
+    #[test]
+    fn system_channel_url_honors_developer_override() {
+        with_data_root(|root| {
+            let override_url = format!("file://{}", root.join("developer-channel").display());
+            std::env::set_var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", &override_url);
+            assert_eq!(system_channel_url(), override_url);
+        });
+    }
+
+    #[test]
+    fn git_channel_errors_are_actionable_and_hide_raw_details() {
+        let error =
+            git_non_interactive_error("remote: Repository not found. fatal: repository is private");
+
+        assert_eq!(
+            error,
+            "Plugin updates are unavailable right now. Domios will retry."
+        );
+        assert!(!error.contains("Repository not found"));
     }
 
     #[test]
@@ -943,7 +992,7 @@ exit /b 0
     }
 
     #[test]
-    fn update_system_installs_manifest_additions_and_warns_without_auto_removing_deletions() {
+    fn update_system_installs_additions_and_retires_removed_official_plugins() {
         with_data_root(|root| {
             let prev_system_url = std::env::var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL").ok();
             let source = root.join("system-source");
@@ -972,17 +1021,63 @@ exit /b 0
             assert_eq!(extra["verified"], serde_json::json!(true));
 
             write_channel(&source, SYSTEM_CHANNEL_NAME, &[]);
-            let second = update_system_command(None).expect("removal warning does not uninstall");
+            let second = update_system_command(None).expect("removed official plugin retires");
             assert_eq!(second["updated"], serde_json::json!([]));
-            assert!(second["warnings"][0]
-                .as_str()
-                .unwrap()
-                .contains("left installed"));
-            assert!(plugin_dir(&PluginId::validated("extra-system"))
-                .join("plugin.json")
-                .exists());
+            assert_eq!(second["retired"], serde_json::json!(["extra-system"]));
+            assert!(!plugin_dir(&PluginId::validated("extra-system")).exists());
 
             restore_env("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", prev_system_url);
+        });
+    }
+
+    #[test]
+    fn update_system_retires_manifest_listed_legacy_plugins_without_install_records() {
+        with_data_root(|root| {
+            let previous_url = std::env::var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL").ok();
+            let source = root.join("system-source");
+            let retired_id = retired_system_plugin_ids()
+                .first()
+                .expect("embedded channel declares a retired id")
+                .clone();
+            write_channel_with_retired(&source, SYSTEM_CHANNEL_NAME, &[], &[retired_id.as_str()]);
+            std::env::set_var(
+                "CODETERM_SYSTEM_PLUGIN_CHANNEL_URL",
+                format!("file://{}", source.display()),
+            );
+
+            let legacy_dir = plugins_root().join(&retired_id);
+            let legacy_data = root.join("legacy-data");
+            std::fs::create_dir_all(&legacy_dir).unwrap();
+            std::fs::create_dir_all(&legacy_data).unwrap();
+            std::fs::write(
+                legacy_dir.join("plugin.json"),
+                serde_json::json!({
+                    "id": retired_id.clone(),
+                    "version": "0.1.0",
+                    "dataPaths": [legacy_data.display().to_string()]
+                })
+                .to_string(),
+            )
+            .unwrap();
+
+            let first = update_system_command(None).expect("manifest retirement succeeds");
+            assert_eq!(first["retired"], serde_json::json!([retired_id]));
+            assert!(!legacy_dir.exists());
+            assert!(legacy_data.is_dir());
+
+            let second = update_system_command(None).expect("repeat sync is idempotent");
+            assert_eq!(second["retired"], serde_json::json!([]));
+            let events = std::fs::read_to_string(audit_log_path()).unwrap();
+            let retirements = events
+                .lines()
+                .filter(|line| {
+                    let event: serde_json::Value = serde_json::from_str(line).unwrap();
+                    event["kind"] == "retire" && event["plugin"] == retired_id
+                })
+                .count();
+            assert_eq!(retirements, 1);
+
+            restore_env("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", previous_url);
         });
     }
 
@@ -1002,8 +1097,10 @@ exit /b 0
                 .collect();
             assert_eq!(non_system.len(), 1);
             assert_eq!(non_system[0]["id"], serde_json::json!("real"));
-            assert!(rows.iter().any(|p| p["id"] == serde_json::json!("claude")
-                && p["removable"] == serde_json::json!(false)));
+            assert!(rows
+                .iter()
+                .any(|p| p["id"] == serde_json::json!(SYSTEM_PLUGIN_IDS[0])
+                    && p["removable"] == serde_json::json!(false)));
         });
     }
 

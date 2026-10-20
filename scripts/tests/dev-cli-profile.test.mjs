@@ -1,0 +1,128 @@
+import assert from 'node:assert/strict';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import test from 'node:test';
+
+const root = path.resolve(import.meta.dirname, '../..');
+const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
+const source = readFileSync(path.join(root, 'build.sh'), 'utf8').replaceAll('\r\n', '\n');
+const helpers = ['cli_profile_dir', 'cli_release_dir', 'cli_profile_binary', 'cli_release_binary', 'dev_cli_target_dir', 'build_dev_cli']
+  .map(name => source.match(new RegExp(`^${name}\\(\\) \\{[^]*?^\\}`, 'm'))?.[0] || source.match(new RegExp(`^${name}\\(\\) \\{[^\\n]+`, 'm'))?.[0]).join('\n');
+const start = source.indexOf('    echo "Building CLI..."');
+const end = source.indexOf('\n    build_and_launch_dev "${@:2}"', start);
+const body = source.slice(start, end);
+
+for (const [platform, extension] of [['linux-gnu', ''], ['darwin', ''], ['msys', '.exe']]) {
+  for (const target of ['', 'opaque-target']) {
+    test(`DEV builds and installs its dev CLI artifact: ${platform}, target=${target || 'host'}`, () => {
+      assert.ok(start > 0 && end > start);
+      const logs = mkdtempSync(path.join(os.tmpdir(), 'dev-cli-profile-'));
+      try {
+      const result = spawnSync(bash, ['-c', `set -eu
+        set -- dev
+        ${helpers}
+        OSTYPE=${platform}
+        CARGO_TARGET_DIR='cache root'
+        CARGO_BUILD_TARGET=${target}
+        CT_DATA_DIR='dev data'
+        tauri_debug_dir() { printf '%s' '${logs.replaceAll('\\', '/')}'; }
+        cargo() { printf 'cargo %s\\n' "$*"; }
+        cli_file_sha256_or_status() { printf opaque-hash; }
+        install_cli_to() { printf 'installed:%s:%s:%s\\n' "$1" "$2" "$3"; }
+        ${body}
+        printf 'bundled:%s\\n' "$built_cli_artifact"
+        printf 'production:%s\\n' "$(cli_release_binary)"
+      `], { cwd: root, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      const directory = `cache root/${target ? target + '/' : ''}`;
+      assert.deepEqual(result.stdout.trim().split(/\r?\n/), [
+        'Building CLI...',
+        `installed:dev data/bin:cache root/cli/${target ? target + '/' : ''}debug/codeterm${extension}:opaque-hash`,
+        `bundled:cache root/cli/${target ? target + '/' : ''}debug/codeterm${extension}`,
+        `production:${directory}release/codeterm${extension}`,
+      ]);
+      assert.equal(readFileSync(path.join(logs, '.domios-dev-build/cli.jsonl'), 'utf8').trim(), 'cargo build --manifest-path cli/Cargo.toml --message-format=json-render-diagnostics');
+      } finally { rmSync(logs, { recursive: true, force: true }); }
+    });
+  }
+}
+
+test('a failed DEV CLI build stops before installing an artifact', () => {
+  const logs = mkdtempSync(path.join(os.tmpdir(), 'dev-cli-failure-'));
+  try {
+  const result = spawnSync(bash, ['-c', `set -eu
+    ${helpers}
+    tauri_debug_dir() { printf '%s' '${logs.replaceAll('\\', '/')}'; }
+    set -- dev
+    cargo() { return 41; }
+    install_cli_to() { printf unexpected-install; }
+    ${body}
+  `], { cwd: root, encoding: 'utf8' });
+  assert.equal(result.status, 41, result.stderr);
+  assert.doesNotMatch(result.stdout, /unexpected-install/);
+  } finally { rmSync(logs, { recursive: true, force: true }); }
+});
+
+for (const [platform, extension] of [['linux-gnu', ''], ['darwin', ''], ['msys', '.exe']]) {
+  for (const target of ['', 'opaque-target']) {
+    test(`named DEV preserves the exact CLI artifact after native compilation: ${platform}/${target || 'host'}`, () => {
+      const directory = mkdtempSync(path.join(os.tmpdir(), 'dev cli collision-'));
+      try {
+        const layout = ['tauri_debug_dir', 'dev_built_app_path']
+          .map(name => source.match(new RegExp(`^${name}\\(\\) \\{[^]*?^\\}`, 'm'))[0]).join('\n');
+        const result = spawnSync(bash, ['-c', `set -euo pipefail
+${helpers}
+${layout}
+cd "$1"
+OSTYPE="$2" CARGO_BUILD_TARGET="$3"
+app_target="$PWD/target/dev-instances/opaque-instance"
+export CARGO_TARGET_DIR="$app_target"
+cargo() {
+  [ "$CARGO_TARGET_DIR" = "$app_target/cli" ]
+  artifact="$(cli_profile_binary debug)"
+  mkdir -p "$(dirname "$artifact")"
+  printf opaque-cli-bytes > "$artifact"
+  printf 'cargo-receipt:%s\\n' "$artifact"
+}
+cli_file_sha256_or_status() { echo opaque-digest; }
+build_dev_cli "$PWD/cli.jsonl"
+[ "$CARGO_TARGET_DIR" = "$app_target" ]
+native="$(dev_built_app_path)"
+mkdir -p "$(dirname "$native")"
+printf opaque-native-bytes > "$native"
+[ "$native" != "$built_cli_artifact" ]
+printf '%s\\n' "$built_cli_artifact" "$native" "$(cat "$built_cli_artifact")" "$(cat "$native")" "$(cat cli.jsonl)"
+`, '--', directory, platform, target], {encoding: 'utf8'});
+        assert.equal(result.status, 0, result.stderr);
+        const [cli, native, cliBytes, nativeBytes, receipt] = result.stdout.trim().split(/\r?\n/);
+        assert.ok(cli.endsWith(`/cli/${target ? target + '/' : ''}debug/codeterm${extension}`));
+        assert.ok(native.endsWith(`/${target ? target + '/' : ''}debug/codeterm${extension}`));
+        assert.notEqual(cli, native);
+        assert.equal(cliBytes, 'opaque-cli-bytes');
+        assert.equal(nativeBytes, 'opaque-native-bytes');
+        assert.equal(receipt, `cargo-receipt:${cli}`);
+      } finally { rmSync(directory, {recursive: true, force: true}); }
+    });
+  }
+}
+
+for (const platform of ['linux-gnu', 'darwin', 'msys']) {
+  for (const target of ['', 'opaque-target']) {
+    test(`DEV layout retains raw Cargo outputs and derives staged paths: ${platform}/${target || 'host'}`, () => {
+      const layout = ['tauri_debug_dir', 'dev_resource_dir', 'dev_built_app_path', 'dev_app_path']
+        .map(name => source.match(new RegExp(`^${name}\\(\\) \\{[^]*?^\\}`, 'm'))[0]).join('\n');
+      const result = spawnSync(bash, ['-c', `set -eu
+${layout}
+OSTYPE=${platform} CARGO_TARGET_DIR='cache root' CARGO_BUILD_TARGET=${target}
+printf '%s\\n' "$(dev_built_app_path)" "$(dev_app_path)" "$(dev_resource_dir)"
+`], { cwd: root, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      const directory = `cache root/${target ? target + '/' : ''}debug`;
+      assert.deepEqual(result.stdout.trim().split(/\r?\n/), platform === 'msys'
+        ? [`${directory}/codeterm.exe`, `${directory}/codeterm.exe`, directory]
+        : [`${directory}/codeterm`, `${directory}/.domios-dev-runtime/bin/codeterm`, `${directory}/.domios-dev-runtime/lib/codeterm`]);
+    });
+  }
+}

@@ -93,9 +93,10 @@ export function CronsTable({
           <div
             key={`cron-issue-${p.instance_id}`}
             data-testid="cron-peer-unavailable"
+            role="status"
             className="px-2 py-2 text-[11px] text-[var(--ct-yellow)]"
           >
-            {p.name}: cron services {p.services_error ? `unreachable (${p.services_error})` : "cached / stale"}
+            {p.name}: cron services {p.services_loaded ? "cached / stale" : "unavailable"}
           </div>
         ))}
       </div>

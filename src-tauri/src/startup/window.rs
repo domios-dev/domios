@@ -1,9 +1,7 @@
 //! Window styling + system tray setup.
 
-use tauri::Manager;
-
 /// Set window icon and apply platform-specific styling.
-pub(crate) fn setup_window_styling(window: &crate::app_runtime::WebviewWindow) {
+pub(crate) fn setup_window_styling(window: &codeterm_host_runtime::app_runtime::WebviewWindow) {
     let icon_bytes = include_bytes!("../../icons/icon.png");
     if let Ok(mut reader) = png::Decoder::new(std::io::Cursor::new(icon_bytes)).read_info() {
         let info = reader.info().clone();
@@ -48,7 +46,7 @@ pub(crate) fn setup_window_styling(window: &crate::app_runtime::WebviewWindow) {
 
 /// Build and configure the system tray icon and menu.
 pub(crate) fn build_system_tray(
-    app: &crate::app_runtime::App,
+    app: &codeterm_host_runtime::app_runtime::App,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -88,12 +86,7 @@ pub(crate) fn build_system_tray(
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "retry-daemon" => super::frontend_shell::retry(app),
-            "show" => {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.set_focus();
-                }
-            }
+            "show" => super::desktop_lifecycle::activate(app),
             "quit" => {
                 app.exit(0);
             }
@@ -106,10 +99,7 @@ pub(crate) fn build_system_tray(
                 ..
             } = event
             {
-                if let Some(w) = tray.app_handle().get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.set_focus();
-                }
+                super::desktop_lifecycle::activate(tray.app_handle());
             }
         })
         .build(app)?;

@@ -1,0 +1,29 @@
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { expect, test, vi } from "vitest";
+import { ComposerUploadNotices } from "./ComposerUploadNotices";
+import type { ComposerUpload } from "./composerUploadModel";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+test("a failed upload's Remove control is reachable without hover and fires once", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const onRemove = vi.fn();
+  const upload: ComposerUpload = { id: 1, name: "bad.mp4", label: "video1", blob: new Blob(["x"]), state: "failed", failure: { message: "Unsupported video format", retryable: false } };
+  const registry = { video1: { label: "video1", kind: "video" as const, path: "", uploadId: 1 } };
+  try {
+    await act(async () => root.render(
+      <ComposerUploadNotices value={"\u2068\u2007\u2007\u00a0video1\u00a0\u2069"} registry={registry} onRemove={onRemove} uploads={[upload]} />,
+    ));
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    const remove = host.querySelector<HTMLButtonElement>('[aria-label="Remove attachment bad.mp4"]');
+    expect(remove).not.toBeNull();
+    await act(async () => remove!.click());
+    expect(onRemove).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

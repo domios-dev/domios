@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AppConfig } from "../../lib/types";
-import { modelDefaultRows } from "./modelDefaultsModel";
+import { modelDefaultGuideSection, modelDefaultPatch, modelDefaultRows } from "./modelDefaultsModel";
 
 function config(overrides: Partial<AppConfig>): AppConfig {
   return {
@@ -11,6 +11,18 @@ function config(overrides: Partial<AppConfig>): AppConfig {
     ...overrides,
   } as unknown as AppConfig;
 }
+
+test("editing a default preserves other provider and memory settings", () => {
+  const original = config({ agents: { fixture: { default_model: "old", visible_in_menu: false } } });
+  const row = modelDefaultRows(original)[0];
+  assert.deepEqual(modelDefaultPatch(original, row, "next"), {
+    agents: { fixture: { default_model: "next", visible_in_menu: false } },
+  });
+  const memoryRow = { key: "memory.extraction_model", subject: "opaque", provider: "fixture", model: "old" };
+  assert.deepEqual(modelDefaultPatch(original, memoryRow, "next"), {
+    memory: { ...original.memory, extraction_model: "next" },
+  });
+});
 
 test("every stored default is listed with the provider that owns it", () => {
   const rows = modelDefaultRows(config({
@@ -31,4 +43,20 @@ test("a replacement note shows only while the replaced value is still configured
   assert.equal(current[0].replacedFrom, "gpt-5.1-codex");
   const changedSince = modelDefaultRows(config({ agents: { codex: { default_model: "gpt-5.5" } }, model_defaults: { replaced } }));
   assert.equal(changedSince[0].replacedFrom, undefined);
+});
+
+test("model default help follows its setting namespace", () => {
+  const row = { key: "memory.extraction_model", subject: "opaque", provider: "fixture", model: "m" };
+  assert.equal(modelDefaultGuideSection(row), "memory");
+  assert.equal(modelDefaultGuideSection({ ...row, key: "agents.fixture.default_model" }), "agents");
+});
+
+
+test("provider tier defaults persist explicit on and off alongside model defaults", () => {
+  const original = config({ agents: { arbitrary: { default_model: "old", visible_in_menu: false } } });
+  const row = modelDefaultRows(original)[0];
+  for (const serviceTier of [{id:null},{id:"priority"},{id:"ultrafast"}]) {
+    assert.deepEqual(modelDefaultPatch(original, row, "next", serviceTier).agents?.arbitrary,
+      { default_model: "next", visible_in_menu: false, default_service_tier: serviceTier.id ?? "" });
+  }
 });

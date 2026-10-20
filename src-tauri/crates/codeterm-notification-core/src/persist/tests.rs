@@ -1,8 +1,8 @@
+use crate::contract::NotificationAction;
 use crate::dedupe::TabCondition;
 use crate::persist;
 use crate::push::NotifyLevel;
 use crate::store::{Ask, NotificationProvenance, NotificationSeverity, NotificationStore};
-use codeterm_types::notification::NotificationAction;
 use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
 
 fn provenance(tab_id: &str) -> NotificationProvenance {

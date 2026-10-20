@@ -5,6 +5,36 @@
 use super::*;
 use crate::jsonl_window::{anchor_rows, rows_from_plugin};
 
+#[test]
+fn bounded_session_delta_matches_host_record_boundaries_and_identity() {
+    require_plugins().expect("bundled plugins are required for bounded parser parity");
+    let provider = load_js("claude");
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let lines: Vec<String> = (0..30)
+        .map(|index| {
+            serde_json::json!({"type":"user", "uuid":format!("supplied-{index}"),
+            "message":{"role":"user", "content":"x".repeat(40)}})
+            .to_string()
+                + "\n"
+        })
+        .collect();
+    std::fs::write(file.path(), lines.concat()).unwrap();
+    let mut offset = 0;
+    for budget in [1024, 200, 1] {
+        let host = crate::jsonl_window::read_records_from(file.path(), offset, budget).unwrap();
+        let parsed = provider
+            .parse_session_delta_bounded(file.path(), offset, budget)
+            .unwrap();
+        assert_eq!(parsed.new_offset, host.new_offset);
+        assert!(parsed.new_offset <= offset + budget || parsed.messages.len() == 1);
+        assert_eq!(parsed.messages.first().unwrap().record_start, Some(offset));
+        offset = parsed.new_offset;
+    }
+    assert!(provider
+        .parse_session_delta_bounded(file.path(), offset, 0)
+        .is_none());
+}
+
 fn line_start(lines: &[&str], line: usize) -> u64 {
     lines[..line].iter().map(|l| l.len() as u64 + 1).sum()
 }
@@ -30,7 +60,7 @@ fn tab_chat_identity_claude_rows_anchor_to_their_record_start() {
     if require_plugins().is_none() {
         return;
     }
-    let claude = load_js("claude");
+    let provider = load_js("claude");
     let lines = [
         r#"{"type":"user","uuid":"c-uuid","message":{"role":"user","content":"with uuid é ✓"}}"#,
         r#"{"type":"user","message":{"role":"user","content":"no uuid"}}"#,
@@ -43,17 +73,17 @@ fn tab_chat_identity_claude_rows_anchor_to_their_record_start() {
         (Some(line_start(&lines, 3)), 0, None),
     ];
     assert_eq!(
-        anchors(&claude, &lines, 0),
+        anchors(&provider, &lines, 0),
         expected,
         "multi-record chunk from byte 0"
     );
     assert_eq!(
-        anchors(&claude, &lines, line_start(&lines, 1)),
+        anchors(&provider, &lines, line_start(&lines, 1)),
         expected[1..].to_vec(),
         "a record-aligned later read keeps absolute starts"
     );
     assert_eq!(
-        anchors(&claude, &lines, 5),
+        anchors(&provider, &lines, 5),
         expected[1..].to_vec(),
         "a read starting mid-record drops the partial head and keeps absolute starts"
     );

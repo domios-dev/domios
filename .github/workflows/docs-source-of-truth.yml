@@ -8,8 +8,8 @@ on:
       - ".agents/skills/**"
       - "prod-docs/**"
       - "src-tauri/prompts/**"
-      - "src-tauri/src/prompts.rs"
-      - "src-tauri/src/api/**"
+      - "src-tauri/crates/codeterm-service-core/src/prompts.rs"
+      - "src-tauri/crates/codeterm-api/src/**"
       - "CLAUDE.md"
       - "AGENTS.md"
       - "scripts/check-*.sh"
@@ -24,8 +24,8 @@ on:
       - ".agents/skills/**"
       - "prod-docs/**"
       - "src-tauri/prompts/**"
-      - "src-tauri/src/prompts.rs"
-      - "src-tauri/src/api/**"
+      - "src-tauri/crates/codeterm-service-core/src/prompts.rs"
+      - "src-tauri/crates/codeterm-api/src/**"
       - "CLAUDE.md"
       - "AGENTS.md"
       - "scripts/check-*.sh"
@@ -38,7 +38,7 @@ concurrency:
 
 jobs:
   source-of-truth:
-    runs-on: [self-hosted, linux-ci]
+    runs-on: [self-hosted, Linux, light]
     steps:
       - uses: actions/checkout@v5
         with:

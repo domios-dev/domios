@@ -38,6 +38,9 @@ export default defineConfig(({ command }) => {
       __CODETERM_HTML_TAILWIND_RUNTIME__: JSON.stringify(htmlTailwindRuntime),
     },
     plugins: [
+      // React's dev build diffs every changed prop object into the Performance track when console.timeStamp exists;
+      // with hundreds of tab rows that froze typing for seconds, so the dev server hides it before React loads.
+      { name: "dev-no-react-perf-track", apply: "serve", transformIndexHtml: () => [{ tag: "script", children: "console.timeStamp = undefined;", injectTo: "head-prepend" }] },
       react(),
       tailwindcss(),
       buildIdentityAsset(buildHash),
@@ -58,11 +61,24 @@ export default defineConfig(({ command }) => {
       }),
     ],
     clearScreen: false,
+    // The repo vendors unrelated HTML under references/ and refs/; scan only the app entry.
+    optimizeDeps: { entries: ["index.html"] },
     server: {
       host: "127.0.0.1",
       // Per-worktree dev isolation: build.sh derives a stable per-instance port.
       port: Number(process.env.CODETERM_VITE_PORT) || 1420,
       strictPort: true,
+      // `build.sh dev-front` serves the native DEV window; daemon routes stay same-origin like the static server.
+      // Whole path segments only: a bare "/frontend" prefix would also swallow /frontend-release-contract.json.
+      proxy: {
+        "^/(api|frontend|bundled)(/|$)": {
+          target: `http://127.0.0.1:${process.env.CODETERM_API_PORT || 7686}`,
+          ws: true,
+        },
+      },
+      watch: {
+        ignored: ["**/src-tauri/target/**", "**/cli/target/**", "**/target-check/**", "**/target/**", "**/src-tauri/crates/**", "**/references/**", "**/refs/**"],
+      },
     },
     envPrefix: ["VITE_", "TAURI_"],
   };

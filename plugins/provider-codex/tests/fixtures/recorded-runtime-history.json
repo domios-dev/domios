@@ -1,0 +1,186 @@
+{
+  "sessionId": "own-session",
+  "records": [
+    {
+      "type": "session_meta",
+      "payload": {
+        "id": "own-session"
+      }
+    },
+    {
+      "type": "response_item",
+      "payload": {
+        "type": "message",
+        "id": "different-projection-id",
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "opaque duplicate representation"
+          }
+        ]
+      }
+    },
+    {
+      "type": "event_msg",
+      "payload": {
+        "type": "task_started",
+        "thread_id": "own-session",
+        "turn_id": "turn-one"
+      }
+    },
+    {
+      "timestamp": "2026-10-15T00:00:00.000Z",
+      "type": "event_msg",
+      "payload": {
+        "type": "item_completed",
+        "thread_id": "own-session",
+        "turn_id": "turn-one",
+        "item": {
+          "type": "UserMessage",
+          "id": "user-one",
+          "content": [
+            {
+              "type": "Text",
+              "text": "opaque first input"
+            }
+          ]
+        },
+        "started_at_ms": 1000,
+        "completed_at_ms": 1100
+      }
+    },
+    {
+      "timestamp": "2026-10-15T00:00:00.000Z",
+      "type": "event_msg",
+      "payload": {
+        "type": "item_completed",
+        "thread_id": "own-session",
+        "turn_id": "turn-one",
+        "item": {
+          "type": "AgentMessage",
+          "id": "msg_one",
+          "text": "opaque first answer"
+        },
+        "started_at_ms": 1200,
+        "completed_at_ms": 1300
+      }
+    },
+    {
+      "timestamp": "2026-10-15T00:00:00.000Z",
+      "type": "event_msg",
+      "payload": {
+        "type": "item_completed",
+        "thread_id": "own-session",
+        "turn_id": "turn-two",
+        "item": {
+          "type": "UserMessage",
+          "id": "user-two",
+          "content": [
+            {
+              "type": "Text",
+              "text": "opaque second input"
+            }
+          ]
+        },
+        "started_at_ms": 2000,
+        "completed_at_ms": 2100
+      }
+    },
+    {
+      "timestamp": "2026-10-15T00:00:00.000Z",
+      "type": "event_msg",
+      "payload": {
+        "type": "item_completed",
+        "thread_id": "own-session",
+        "turn_id": "turn-two",
+        "item": {
+          "type": "AgentMessage",
+          "id": "msg_two",
+          "text": "opaque second answer"
+        },
+        "started_at_ms": 2200,
+        "completed_at_ms": 2300
+      }
+    },
+    {
+      "type": "event_msg",
+      "payload": {
+        "type": "item_completed",
+        "thread_id": "foreign-session",
+        "turn_id": "foreign-turn",
+        "item": {
+          "type": "AgentMessage",
+          "id": "foreign-item",
+          "text": "opaque foreign answer"
+        }
+      }
+    }
+  ],
+  "runtimeTurns": [
+    {
+      "id": "turn-one",
+      "status": "completed",
+      "items": [
+        {
+          "item": {
+            "type": "userMessage",
+            "id": "user-one",
+            "content": [
+              {
+                "type": "text",
+                "text": "opaque first input"
+              }
+            ]
+          },
+          "startedAtMs": 1000,
+          "completedAtMs": 1100
+        },
+        {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_one",
+            "text": "opaque first answer"
+          },
+          "startedAtMs": 1200,
+          "completedAtMs": 1300
+        }
+      ]
+    },
+    {
+      "id": "turn-two",
+      "status": "completed",
+      "items": [
+        {
+          "item": {
+            "type": "userMessage",
+            "id": "user-two",
+            "content": [
+              {
+                "type": "text",
+                "text": "opaque second input"
+              }
+            ]
+          },
+          "startedAtMs": 2000,
+          "completedAtMs": 2100
+        },
+        {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_two",
+            "text": "opaque second answer"
+          },
+          "startedAtMs": 2200,
+          "completedAtMs": 2300
+        }
+      ]
+    }
+  ],
+  "expectedIds": [
+    "user-one",
+    "msg_one",
+    "user-two",
+    "msg_two"
+  ]
+}

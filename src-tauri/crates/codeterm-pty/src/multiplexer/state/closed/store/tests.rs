@@ -13,6 +13,7 @@ fn tab(tab_id: &str, ws: &str, title: &str, closed_at: u64) -> ClosedTab {
         role_profile: None,
         worker_id: None,
         model: None,
+        agent_runtime_config: None,
         restorable_launch: Default::default(),
         chat_view: false,
         closed_at,
@@ -255,6 +256,31 @@ fn backing_round_trips_through_sqlite() {
             session_id: "s7".into(),
         }
     );
+}
+
+#[test]
+fn runtime_config_survives_closed_history_database_reopen() {
+    let db = temp_db();
+    let runtime_config = serde_json::json!({
+        "model":"gpt-6-luna",
+        "effort":"low",
+        "serviceTier":{"id":"priority"},
+        "mode":"auto"
+    });
+    {
+        let store = ClosedTabsStore::open_at(&db).unwrap();
+        let mut closed = tab("runtime", "w", "Agent", 1);
+        closed.agent_runtime_config = Some(runtime_config.clone());
+        store
+            .insert_group(&group("g1", GroupKind::Single, "w", 1), &[closed])
+            .unwrap();
+    }
+    let reopened = ClosedTabsStore::open_at(&db).unwrap();
+    assert_eq!(
+        reopened.list_for_workspace("w")[0].agent_runtime_config,
+        Some(runtime_config)
+    );
+    std::fs::remove_dir_all(db.parent().unwrap()).ok();
 }
 
 #[test]

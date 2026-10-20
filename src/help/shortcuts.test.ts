@@ -12,7 +12,7 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const keybindings: KeybindingsConfig = { reopen_tab: "Ctrl+Shift+T" };
+const keybindings: KeybindingsConfig = { reopen_tab: "Ctrl+Shift+T", next_tab: "Ctrl+Tab" };
 const config = { keybindings } as AppConfig;
 
 test("resolves app shortcuts from registry", () => {

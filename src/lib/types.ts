@@ -1,3 +1,4 @@
+import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../packages/plugin-sdk/src/agentRuntime";
 import type { RemoteChannelAvailabilityMap } from "./remoteTabTransportState";
 import type {ProviderSignals} from "./providerSignals";
 
@@ -149,7 +150,7 @@ export interface TabAgentState {
   question?: string | null;
   /** Provider-derived work phase, e.g. thinking/streaming/tool, when known. */
   phase?: string | null;
-  /** Parsed elapsed time for the provider status line, in milliseconds. */
+  /** Parsed elapsed time in milliseconds: the live turn while working, the finished turn while idle. */
   elapsed_ms?: number | null;
   subtype?: "model_choice" | "model_picker" | "permission" | "auth" | "rate_limit" | "update" | "error" | "unknown";
 }
@@ -177,10 +178,29 @@ export type BootStage =
 export interface TabBootStageEvent {
   tab_id: string;
   stage: BootStage;
+  agent_booting?: boolean;
+  session_bound?: boolean;
   reason?: string | null;
+  provisional_launch?: ProvisionalLaunch | null;
+  launch_generation?: {
+    epoch: number | null;
+    operation_id: string | null;
+    pty_id: string | null;
+    binding_nonce: string | null;
+  };
+}
+
+export interface ProvisionalLaunch {
+  pty_id: string;
+  binding_nonce: string;
+  reason: string;
+  awaiting_binding_ack?: boolean;
+  first_turn_input_ready?: boolean;
+  first_turn_payload_written?: boolean;
 }
 
 export interface Tab {
+  agent_runtime_config?: { confirmedServiceTier?: { selection: ServiceTierSelection; sessionId: string; bindingNonce: string | null }; serviceTier?: ServiceTierSelection; serviceTierAvailability?: Record<string, readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>; serviceTierAvailabilityBinding?: {sessionId:string;bindingNonce:string|null}; [key: string]: unknown } | null;
   agent_runtime_questions?: import("./agentRuntimeQuestions").AgentRuntimeQuestion[];
   agent_runtime_state?: import("./agentRuntimeState").AgentRuntimeState | null;
   pending_model_selection?: { model: string; effort: string | null } | null;
@@ -254,6 +274,9 @@ export interface Tab {
   show_in_tabbar?: boolean;
   worker_id?: string | null;
   agent_booting?: boolean;
+  frozen?: boolean;
+  slept_at_ms?: number | null;
+  last_active_at_ms?: number | null;
   /** True only when this visible session explicitly bypasses provider permissions/sandbox. */
   auto_approve?: boolean;
   /** Opt-in: provider-recognized permission prompts are answered with their affirmative option. */
@@ -262,7 +285,11 @@ export interface Tab {
   /** Current agent-boot stage for late attachers reading the live snapshot.
    *  Absent once boot completes or before it begins. */
   boot_stage?: BootStage | null;
+  lifecycle_epoch?: number | null;
+  lifecycle_operation_id?: string | null;
+  session_bound?: boolean;
   boot_failure_reason?: string | null;
+  provisional_launch?: ProvisionalLaunch | null;
   /** Machine+watcher chatBackend session — read-only tab with tick-driven inputs. */
   watcher?: WatcherSpec | null;
   remote_peer_id?: string;
@@ -468,6 +495,7 @@ export interface CronRunInfo {
 }
 
 export interface CronJob {
+  protected?: boolean;
   id: string;
   name: string;
   description: string | null;
@@ -606,9 +634,9 @@ export interface KeybindingsConfig {
   zoom_out?: string;
   zoom_reset?: string;
   open_settings?: string;
-  reopen_tab?: string;
+  reopen_tab: string;
   /** Cycle to the next sidebar item (plan entry or tab) in the active workspace. */
-  next_tab?: string;
+  next_tab: string;
   /** Cycle to the previous sidebar item (plan entry or tab) in the active workspace. */
   prev_tab?: string;
 }
@@ -639,6 +667,8 @@ export interface GeneralAgentConfig {
   capability_hints?: boolean;
   enabled: boolean;
   agent_provider: string;
+  model?: string | null;
+  reasoning_effort?: string | null;
   auto_restart: boolean;
   max_restart_attempts: number;
   restart_delay_s: number;
@@ -818,6 +848,8 @@ export interface UiConfig {
 }
 
 export interface AppConfig {
+  tab_sleep?: { enabled: boolean; idle_minutes: number };
+  restore?: { active_window_hours: number };
   updater?: {
     channel?: string;
     allow_provider_updates_in_non_prod?: boolean;
@@ -1058,7 +1090,21 @@ export interface ModelCatalogueCapability {
 export type ModelSwitchMode = "live" | "live_command" | "next_turn" | "restart_resume" | "unsupported";
 
 export interface ProviderDescriptor {
+  remote_task?: import("../../packages/plugin-sdk/src/remoteTasks").RemoteTaskCapability;
+  agent_runtime?: {
+    serviceTiers?: readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[];
+    usage?: boolean;
+    backgroundProcesses?: boolean;
+    goals?: { actions: readonly string[] };
+    threadHistory?: { actions: readonly ("fork" | "revert")[] };
+  };
   supports_session_fork?: boolean;
+  supports_subagent_visibility?: boolean;
+  structured_control?: {
+    protocol: string;
+    minVersion: string;
+    runtimeModes?: readonly { id: string; displayName: string }[];
+  };
   cli_status?: import("./providerCli").ProviderCliStatus;
   schema_version: number;
   id: string;
@@ -1136,31 +1182,4 @@ export interface ModelCatalogueChanged {
   version: number;
 }
 
-/** Input for `createOrchestrationPair` — camelCase for ergonomic call sites;
- *  translated to the snake_case wire shape shared by CLI/REST/Tauri. */
-export interface OrchestrationPairInput {
-  orchestratorAgent: string;
-  orchestratorModel?: string;
-  orchestratorReasoningEffort?: string;
-  plannerAgent: string;
-  plannerModel?: string;
-  plannerReasoningEffort?: string;
-  workspaceId?: string;
-  title?: string;
-  /** Blank picker tab to claim for the Orchestrator in place (task_e0ddee08) —
-   *  confirming the picker transforms that tab instead of leaving it behind. */
-  existingTabId?: string;
-}
-
-/** Mirrors Rust `OrchestrationPairResult` (task_7e5f9354) — plain snake_case,
- *  same shape returned by the socket RPC, REST, and Tauri command. Success
- *  only: a failed Planner spawn rejects with the exact recovery command
- *  instead of resolving to a half-populated result. */
-export interface OrchestrationPairResult {
-  plan_id: string;
-  orchestrator_tab_id: string;
-  orchestrator_model?: string;
-  planner_tab_id: string;
-  planner_model?: string;
-  warning?: string;
-}
+export type { OrchestrationPairInput, OrchestrationPairResult } from "./orchestrationPairTypes";

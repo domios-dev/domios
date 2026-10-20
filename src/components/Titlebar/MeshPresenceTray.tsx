@@ -3,7 +3,7 @@ import { Check } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { useConfig } from "../../hooks/useConfig";
 import { webRequestContext, assertWebRequestContext } from "../../lib/webApi";
-import { createPortal } from "react-dom";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 type Presence = "online" | "offline";
 
@@ -32,7 +32,6 @@ export function MeshPresenceTray() {
   const state = ready ? currentPresence ?? (config.mesh.enabled ? "online" : "offline") : null;
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setPresence(null), [config]);
 
@@ -43,28 +42,6 @@ export function MeshPresenceTray() {
     if (ok) setPresence({ generation, value: next });
   }, [state, ready, generation]);
 
-  useEffect(() => {
-    if (!open) return;
-    const click = (e: MouseEvent) => {
-      if (
-        menuRef.current && !menuRef.current.contains(e.target as Node) &&
-        triggerRef.current && !triggerRef.current.contains(e.target as Node)
-      ) setOpen(false);
-    };
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", click, true);
-    document.addEventListener("keydown", key);
-    return () => {
-      document.removeEventListener("mousedown", click, true);
-      document.removeEventListener("keydown", key);
-    };
-  }, [open]);
-
-  const pos = (() => {
-    if (!open || !triggerRef.current) return null;
-    const rect = triggerRef.current.getBoundingClientRect();
-    return { top: rect.bottom + 4, right: window.innerWidth - rect.right };
-  })();
 
   const dotStyle =
     state === "online"
@@ -93,11 +70,9 @@ export function MeshPresenceTray() {
         />
       </button>
 
-      {open && pos && createPortal(
+      <AnchoredPopover open={open} anchor={triggerRef} placement="bottom-end" width={220} onClose={() => setOpen(false)}>
         <div
-          ref={menuRef}
-          className="ct-portal-menu ct-menu fixed w-[220px]"
-          style={{ top: pos.top, right: pos.right, "--ct-menu-origin": "top right" } as CSSProperties}
+          className="ct-portal-menu ct-menu w-[220px]"
         >
           <div className="ct-menu-caption">Mesh presence</div>
           <PresenceItem
@@ -114,9 +89,8 @@ export function MeshPresenceTray() {
             dotStyle={{ background: "transparent", border: "1.5px solid var(--ct-muted, #888)" }}
             onClick={() => choose("offline")}
           />
-        </div>,
-        document.body
-      )}
+        </div>
+      </AnchoredPopover>
     </>
   );
 }

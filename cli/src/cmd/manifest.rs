@@ -217,6 +217,16 @@ fn output_path(file: &str) -> std::path::PathBuf {
     repo_path(OUTPUT_DIR).join(file)
 }
 
+fn write_if_changed(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    match std::fs::read(path) {
+        Ok(previous) if previous == contents.as_bytes() => return Ok(()),
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    std::fs::write(path, contents)
+}
+
 pub fn handle(write: bool, markdown: bool) {
     if markdown {
         print!("{}", to_markdown());
@@ -227,18 +237,18 @@ pub fn handle(write: bool, markdown: bool) {
         return;
     }
     let manifest = output_path("cli-manifest.json");
-    std::fs::write(&manifest, to_json()).expect("write cli-manifest.json");
+    write_if_changed(&manifest, &to_json()).expect("write cli-manifest.json");
     println!("wrote {}", manifest.display());
 
     let cli_md = output_path("cli.md");
     let md = std::fs::read_to_string(&cli_md).expect("read generated/cli/cli.md");
     let spliced = render_document(&md, MD_PREAMBLE, &to_markdown())
         .expect("invalid generated CLI document markers");
-    std::fs::write(&cli_md, spliced).expect("write generated/cli/cli.md");
+    write_if_changed(&cli_md, &spliced).expect("write generated/cli/cli.md");
     println!("wrote {}", cli_md.display());
 
     let command_paths = repo_path("packages/chat-ui/src/codeterm/commandPaths.ts");
-    std::fs::write(&command_paths, to_command_paths()).expect("write commandPaths.ts");
+    write_if_changed(&command_paths, &to_command_paths()).expect("write commandPaths.ts");
     println!("wrote {}", command_paths.display());
 }
 
@@ -247,6 +257,27 @@ mod tests {
     mod doc_references;
     use super::*;
 
+    #[test]
+    fn build_artifact_writes_preserve_unchanged_metadata_and_replace_changed_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("commandPaths.ts");
+        write_if_changed(&path, "original").unwrap();
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_times(
+            std::fs::FileTimes::new()
+                .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(100)),
+        )
+        .unwrap();
+        let modified = file.metadata().unwrap().modified().unwrap();
+        write_if_changed(&path, "original").unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            modified
+        );
+        write_if_changed(&path, "updated").unwrap();
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "updated");
+    }
+
     fn normalize_newlines(s: &str) -> String {
         s.replace("\r\n", "\n")
     }
@@ -254,6 +285,61 @@ mod tests {
     fn command_paths_path() -> std::path::PathBuf {
         crate::test_support::fixture_manifest_dir()
             .join("../packages/chat-ui/src/codeterm/commandPaths.ts")
+    }
+
+    // Instruction surfaces not embedded in `DOCS`, and so otherwise unvalidated.
+    const PRESCRIPTION_CORPUS: &[&str] = &["skills", "src-tauri/prompts", "generated/cli/cli.md"];
+
+    fn markdown_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                markdown_files(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "md") {
+                out.push(path);
+            }
+        }
+    }
+
+    fn corpus_origin(path: &std::path::Path, rel_root: &str) -> String {
+        let root = repo_path(rel_root);
+        let tail = path.strip_prefix(&root).unwrap_or(path);
+        let tail = tail.to_string_lossy().replace('\\', "/");
+        if tail.is_empty() {
+            rel_root.to_string()
+        } else {
+            format!("{rel_root}/{tail}")
+        }
+    }
+
+    fn prescription_corpus() -> Vec<(std::path::PathBuf, String)> {
+        let mut sources = Vec::new();
+        for &rel in PRESCRIPTION_CORPUS {
+            let path = repo_path(rel);
+            assert!(
+                path.exists(),
+                "prescription corpus entry `{rel}` does not exist — a corpus that resolves to nothing validates nothing"
+            );
+            if path.is_dir() {
+                let mut found = Vec::new();
+                markdown_files(&path, &mut found);
+                assert!(
+                    !found.is_empty(),
+                    "prescription corpus entry `{rel}` contains no markdown"
+                );
+                found.sort();
+                sources.extend(found.into_iter().map(|p| {
+                    let origin = corpus_origin(&p, rel);
+                    (p, origin)
+                }));
+            } else {
+                sources.push((path, rel.to_string()));
+            }
+        }
+        sources
     }
 
     #[test]
@@ -352,333 +438,6 @@ mod tests {
         );
     }
 
-    fn prompt_path() -> std::path::PathBuf {
-        crate::test_support::fixture_manifest_dir().join("../src-tauri/prompts/codeterm_cli.md")
-    }
-    fn skill_path() -> std::path::PathBuf {
-        crate::test_support::fixture_manifest_dir().join("../skills/codeterm/SKILL.md")
-    }
-
-    #[test]
-    fn shipped_agent_instructions_use_tab_cli_vocabulary() {
-        for path in [prompt_path(), skill_path()] {
-            let path_display = path.display();
-            let text = std::fs::read_to_string(&path).expect("read agent instruction source");
-            assert!(
-                !text.contains("codeterm pane "),
-                "{path_display} teaches the removed legacy command namespace"
-            );
-            assert!(
-                !text.contains(" --pane "),
-                "{path_display} teaches the removed `--pane` flag"
-            );
-            assert!(
-                text.contains("codeterm tab "),
-                "{path_display} omits the canonical tab namespace"
-            );
-        }
-    }
-
-    // Walks every token: trimming to the longest resolvable prefix passed
-    // anything under a real namespace, like `codeterm workspace <anything>`.
-    #[test]
-    fn prompt_cli_commands_exist() {
-        let root = Cli::command();
-        let text = std::fs::read_to_string(prompt_path()).expect("read codeterm_cli.md");
-        let mut bad: Vec<String> = Vec::new();
-        for (idx, line) in text.lines().enumerate() {
-            let Some(rest) = prescription(line, "codeterm") else {
-                continue;
-            };
-            let origin = format!("codeterm_cli.md:{}", idx + 1);
-            check_prescription(&root, &[], rest, &origin, &mut bad);
-        }
-        assert!(
-            bad.is_empty(),
-            "prompt references unknown CLI commands:\n{}",
-            bad.join("\n")
-        );
-    }
-
-    // A *prescription* is a line a shipped surface offers as a runnable command.
-    // Prose that merely names a command mid-sentence is commentary, not a recipe.
-    fn prescription<'a>(line: &'a str, head: &str) -> Option<&'a str> {
-        let mut s = line.trim().trim_start_matches(['-', '*', '>', ' ']).trim();
-        s = s.trim_start_matches('`').trim();
-        if let Some(rest) = s.strip_prefix("$ ") {
-            s = rest.trim();
-        }
-        s.strip_prefix(head)?.strip_prefix(' ').map(str::trim_start)
-    }
-
-    fn find_sub<'a>(cmd: &'a Command, name: &str) -> Option<&'a Command> {
-        cmd.get_subcommands()
-            .find(|c| c.get_name() == name || c.get_all_aliases().any(|a| a == name))
-    }
-
-    fn is_subcommand_token(tok: &str) -> bool {
-        tok.starts_with(|c: char| c.is_ascii_lowercase())
-            && tok
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '|')
-    }
-
-    // Globals are declared once on the root and inherited, so an option is known
-    // if the leaf owns it or any ancestor declares it global.
-    fn known_flags(chain: &[&Command]) -> std::collections::HashSet<String> {
-        let mut flags: std::collections::HashSet<String> =
-            ["--help".to_string(), "--version".to_string()].into();
-        let leaf = chain.len() - 1;
-        for (depth, cmd) in chain.iter().enumerate() {
-            for arg in cmd.get_arguments() {
-                if depth != leaf && !arg.is_global_set() {
-                    continue;
-                }
-                if let Some(long) = arg.get_long() {
-                    flags.insert(format!("--{long}"));
-                }
-                for alias in arg.get_all_aliases().unwrap_or_default() {
-                    flags.insert(format!("--{alias}"));
-                }
-            }
-        }
-        flags
-    }
-
-    // The runnable head of a prescription. A `$(...)` span carries another
-    // program's flags, and `—`/`·`/`#` open the prose that explains the command.
-    fn runnable_tokens(rest: &str) -> Vec<String> {
-        let mut flat = String::new();
-        let mut depth = 0usize;
-        let mut chars = rest.chars().peekable();
-        while let Some(ch) = chars.next() {
-            if depth == 0 && ch == '$' && chars.peek() == Some(&'(') {
-                chars.next();
-                depth = 1;
-                continue;
-            }
-            match (depth, ch) {
-                (0, _) => flat.push(ch),
-                (_, '(') => depth += 1,
-                (_, ')') => depth -= 1,
-                _ => {}
-            }
-        }
-        flat.split_whitespace()
-            .take_while(|tok| !matches!(*tok, "—" | "·" | "//") && !tok.starts_with('#'))
-            .map(str::to_string)
-            .collect()
-    }
-
-    fn check_prescription(
-        root: &Command,
-        base: &[String],
-        rest: &str,
-        origin: &str,
-        bad: &mut Vec<String>,
-    ) {
-        let mut chain: Vec<&Command> = vec![root];
-        for seg in base {
-            let Some(next) = find_sub(chain[chain.len() - 1], seg) else {
-                return;
-            };
-            chain.push(next);
-        }
-        let mut walked: Vec<String> = base.to_vec();
-        let render = |walked: &[String]| {
-            if walked.is_empty() {
-                "codeterm".to_string()
-            } else {
-                format!("codeterm {}", walked.join(" "))
-            }
-        };
-
-        let toks = runnable_tokens(rest);
-        let mut cursor = 0;
-        while let Some(tok) = toks.get(cursor).map(String::as_str) {
-            let cur = chain[chain.len() - 1];
-            if cur.get_subcommands().next().is_none() || !is_subcommand_token(tok) {
-                break;
-            }
-            let mut next = None;
-            for alt in tok.split('|').filter(|a| !a.is_empty()) {
-                match find_sub(cur, alt) {
-                    Some(c) => next = Some(c),
-                    None => {
-                        bad.push(format!(
-                            "{origin}: `{alt}` is not a subcommand of `{}`",
-                            render(&walked)
-                        ));
-                        return;
-                    }
-                }
-            }
-            let Some(next) = next else { break };
-            walked.push(tok.to_string());
-            chain.push(next);
-            cursor += 1;
-        }
-
-        let flags = known_flags(&chain);
-        for tok in &toks[cursor..] {
-            let Some(flag) = tok.strip_prefix("--") else {
-                continue;
-            };
-            let flag = flag
-                .split('=')
-                .next()
-                .unwrap_or_default()
-                .trim_end_matches([',', '.', ';', ':', ')', ']', '`', '"', '\'']);
-            if flag.is_empty()
-                || !flag
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-            {
-                continue;
-            }
-            if !flags.contains(&format!("--{flag}")) {
-                bad.push(format!(
-                    "{origin}: `--{flag}` is not an option of `{}`",
-                    render(&walked)
-                ));
-            }
-        }
-    }
-
-    fn check_help_text(root: &Command, cmd: &Command, path: &[String], bad: &mut Vec<String>) {
-        let mut texts: Vec<String> = Vec::new();
-        for text in [cmd.get_about(), cmd.get_long_about()]
-            .into_iter()
-            .flatten()
-        {
-            texts.push(text.to_string());
-        }
-        for arg in cmd.get_arguments() {
-            for text in [arg.get_help(), arg.get_long_help()].into_iter().flatten() {
-                texts.push(text.to_string());
-            }
-        }
-        let origin = format!("help `{}`", {
-            let mut p = vec!["codeterm".to_string()];
-            p.extend(path.iter().cloned());
-            p.join(" ")
-        });
-        for text in &texts {
-            for line in text.lines() {
-                if let Some(rest) = prescription(line, "codeterm") {
-                    check_prescription(root, &[], rest, &origin, bad);
-                }
-                // Help for `agent spawn` writes its examples as `spawn ...`.
-                if let Some(own) = path.last() {
-                    if let Some(rest) = prescription(line, own) {
-                        check_prescription(root, path, rest, &origin, bad);
-                    }
-                }
-            }
-        }
-        for sub in cmd
-            .get_subcommands()
-            .filter(|c| c.get_name() != "help" && !c.is_hide_set())
-        {
-            let mut child = path.to_vec();
-            child.push(sub.get_name().to_string());
-            check_help_text(root, sub, &child, bad);
-        }
-    }
-
-    // Instruction surfaces not embedded in `DOCS`, and so otherwise unvalidated.
-    const PRESCRIPTION_CORPUS: &[&str] = &["skills", "src-tauri/prompts", "generated/cli/cli.md"];
-
-    fn markdown_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                markdown_files(&path, out);
-            } else if path.extension().is_some_and(|ext| ext == "md") {
-                out.push(path);
-            }
-        }
-    }
-
-    fn corpus_origin(path: &std::path::Path, rel_root: &str) -> String {
-        let root = repo_path(rel_root);
-        let tail = path.strip_prefix(&root).unwrap_or(path);
-        let tail = tail.to_string_lossy().replace('\\', "/");
-        if tail.is_empty() {
-            rel_root.to_string()
-        } else {
-            format!("{rel_root}/{tail}")
-        }
-    }
-
-    fn prescription_corpus() -> Vec<(std::path::PathBuf, String)> {
-        let mut sources = Vec::new();
-        for &rel in PRESCRIPTION_CORPUS {
-            let path = repo_path(rel);
-            assert!(
-                path.exists(),
-                "prescription corpus entry `{rel}` does not exist — a corpus that resolves to nothing validates nothing"
-            );
-            if path.is_dir() {
-                let mut found = Vec::new();
-                markdown_files(&path, &mut found);
-                assert!(
-                    !found.is_empty(),
-                    "prescription corpus entry `{rel}` contains no markdown"
-                );
-                found.sort();
-                sources.extend(found.into_iter().map(|p| {
-                    let origin = corpus_origin(&p, rel);
-                    (p, origin)
-                }));
-            } else {
-                sources.push((path, rel.to_string()));
-            }
-        }
-        sources
-    }
-
-    // An agent follows a prescribed command literally; one that cannot run is a
-    // failed tool call, not a typo.
-    #[test]
-    fn shipped_prescriptions_are_runnable() {
-        let root = Cli::command();
-        let mut bad: Vec<String> = Vec::new();
-
-        for document in crate::cmd::docs::DOCS {
-            for (idx, line) in document.body.lines().enumerate() {
-                let Some(rest) = prescription(line, "codeterm") else {
-                    continue;
-                };
-                let origin = format!("docs {}:{}", document.name, idx + 1);
-                check_prescription(&root, &[], rest, &origin, &mut bad);
-            }
-        }
-
-        for (path, label) in prescription_corpus() {
-            let text = std::fs::read_to_string(&path)
-                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-            for (idx, line) in text.lines().enumerate() {
-                let Some(rest) = prescription(line, "codeterm") else {
-                    continue;
-                };
-                let origin = format!("{label}:{}", idx + 1);
-                check_prescription(&root, &[], rest, &origin, &mut bad);
-            }
-        }
-
-        check_help_text(&root, &root, &[], &mut bad);
-
-        assert!(
-            bad.is_empty(),
-            "shipped text prescribes actions the CLI cannot perform:\n{}",
-            bad.join("\n")
-        );
-    }
-
     // `about` string so generated/cli/cli.md and chat cards never render a blank line.
     #[test]
     fn every_leaf_command_has_about() {
@@ -725,6 +484,11 @@ mod tests {
 
     // Contract for the flags the CLI-guidance prompt documents: introspect the
     // live clap tree so a renamed/removed flag fails here, not in an agent's hands.
+    fn find_sub<'a>(cmd: &'a Command, name: &str) -> Option<&'a Command> {
+        cmd.get_subcommands()
+            .find(|c| c.get_name() == name || c.get_all_aliases().any(|a| a == name))
+    }
+
     fn subcommand<'a>(root: &'a Command, path: &[&str]) -> Option<&'a Command> {
         let mut cur = root;
         for seg in path {

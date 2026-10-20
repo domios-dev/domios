@@ -1,21 +1,16 @@
-//! Bundled-plugin bytes embedded into the binary at compile time.
-//!
-//! `build.rs` mirrors `<repo>/plugins/provider-*/` into
-//! `$OUT_DIR/bundled_plugins/<id>/` (filtered — same skip set as the
-//! hash function), and `include_dir!` walks that mirror to produce a
-//! compile-time `Dir`. This is the fallback used when the first-launch
-//! channel fetch fails (offline install) or before the channel infra
-//! lands.
+use include_dir::Dir;
 
-use include_dir::{include_dir, Dir};
-
-pub static EMBEDDED: Dir<'static> = include_dir!("$OUT_DIR/bundled_plugins");
+fn embedded() -> &'static Dir<'static> {
+    crate::bundled::installed()
+        .expect("embedded plugins require bundle installation")
+        .files
+}
 
 /// List the plugin ids the binary ships with as an embedded fallback.
 /// Order is deterministic (alphabetical by directory name from
 /// include_dir's walk).
 pub fn ids() -> Vec<&'static str> {
-    let mut out: Vec<&'static str> = EMBEDDED
+    let mut out: Vec<&'static str> = embedded()
         .dirs()
         .filter_map(|d| d.path().file_name().and_then(|n| n.to_str()))
         .collect();
@@ -32,6 +27,7 @@ pub fn ids() -> Vec<&'static str> {
 /// first-launch / post-upgrade bootstrap; channel-based updates take
 /// over from there.
 pub fn bootstrap_into(user_plugins_dir: &std::path::Path) -> std::io::Result<Vec<String>> {
+    crate::bundled::installed().map_err(std::io::Error::other)?;
     std::fs::create_dir_all(user_plugins_dir)?;
     let mut written = Vec::new();
     for id in ids() {
@@ -47,7 +43,11 @@ pub fn bootstrap_into(user_plugins_dir: &std::path::Path) -> std::io::Result<Vec
 /// stomp user-modified bundles; that's the loader's job after a hash
 /// mismatch).
 pub fn extract_to(id: &str, dst_root: &std::path::Path) -> std::io::Result<bool> {
-    let Some(plugin) = EMBEDDED.get_dir(id) else {
+    let Some(plugin) = crate::bundled::installed()
+        .map_err(std::io::Error::other)?
+        .files
+        .get_dir(id)
+    else {
         return Ok(false);
     };
     let dst = dst_root.join(id);
@@ -64,7 +64,11 @@ pub fn extract_to(id: &str, dst_root: &std::path::Path) -> std::io::Result<bool>
 /// semver than what is installed, and otherwise leaves it alone (never
 /// downgrades a channel-updated bundle). Returns whether bytes changed.
 pub fn sync_to(id: &str, dst_root: &std::path::Path) -> std::io::Result<bool> {
-    let Some(plugin) = EMBEDDED.get_dir(id) else {
+    let Some(plugin) = crate::bundled::installed()
+        .map_err(std::io::Error::other)?
+        .files
+        .get_dir(id)
+    else {
         return Ok(false);
     };
     let dst = dst_root.join(id);
@@ -106,7 +110,7 @@ fn manifest_version(bytes: &[u8]) -> Option<String> {
 }
 
 fn embedded_version(id: &str) -> Option<String> {
-    let plugin = EMBEDDED.get_dir(id)?;
+    let plugin = embedded().get_dir(id)?;
     let file = plugin
         .files()
         .find(|f| f.path().file_name().and_then(|n| n.to_str()) == Some("plugin.json"))?;
@@ -170,9 +174,9 @@ mod tests {
     /// Every system id has a matching embedded tree.
     #[test]
     fn embedded_covers_system_table() {
-        for (id, _) in system_plugins::SYSTEM_PLUGIN_HASHES {
+        for (id, _) in system_plugins::hashes() {
             assert!(
-                EMBEDDED.get_dir(*id).is_some(),
+                embedded().get_dir(*id).is_some(),
                 "no embedded bytes for system plugin {id:?}",
             );
         }
@@ -181,7 +185,7 @@ mod tests {
     /// The Analytics view is a default core plugin: embedded with its UI and in the trust table.
     #[test]
     fn embedded_ships_core_analytics_view() {
-        let plugin = EMBEDDED
+        let plugin = embedded()
             .get_dir("analytics")
             .expect("analytics core plugin is embedded");
         assert!(plugin.get_file("analytics/plugin.json").is_some());
@@ -196,7 +200,7 @@ mod tests {
     #[test]
     fn extracted_hash_matches_table() {
         let tmp = tempfile::tempdir().unwrap();
-        for (id, expected) in system_plugins::SYSTEM_PLUGIN_HASHES {
+        for (id, expected) in system_plugins::hashes() {
             let written = extract_to(id, tmp.path()).unwrap();
             assert!(written, "extract_to should write a fresh dir");
             let dest = tmp.path().join(id);
@@ -212,7 +216,7 @@ mod tests {
     #[test]
     fn extract_is_idempotent() {
         let tmp = tempfile::tempdir().unwrap();
-        let id = match system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+        let id = match system_plugins::hashes().first() {
             Some((id, _)) => *id,
             None => return,
         };
@@ -287,8 +291,7 @@ mod tests {
     #[test]
     fn sync_repairs_same_version_hash_drift() {
         let tmp = tempfile::tempdir().unwrap();
-        let Some((id, expected_hash)) = system_plugins::SYSTEM_PLUGIN_HASHES.first().copied()
-        else {
+        let Some((id, expected_hash)) = system_plugins::hashes().first().copied() else {
             return;
         };
         let Some(version) = embedded_version(id) else {

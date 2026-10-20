@@ -282,6 +282,45 @@ async function runChatSessionHookTests(): Promise<void> {
 
   {
     let starts = 0;
+    let stops = 0;
+    let resumes = 0;
+    let finishResume!: () => void;
+    const cursor = (offset: number) => JSON.stringify({ kind: "bytes", incarnation: "supplied-incarnation", offset,
+      epoch: { source_session_id: "sid-1", session_binding_nonce: null } });
+    __setListenForTest(async () => () => {});
+    __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
+      if (command === "chat_stop") { stops++; return {}; }
+      if (command === "chat_resume") {
+        resumes++;
+        assert(args?.cursor === cursor(resumes === 1 ? 100 : 200), "loss recovery uses the last committed chat cursor");
+        if (resumes > 1) return { kind: "resumed", caught_up: true, deltas: [] };
+        return new Promise(resolve => {
+          finishResume = () => resolve({ kind: "resumed", caught_up: true, deltas: [{ start_offset: 100, offset: 200, cursor: cursor(200),
+            source_session_id: "sid-1", session_binding_nonce: null,
+            messages: [{ id: "resumed-row", type: "assistant", content: "after loss", timestamp: "2" }] }] });
+        });
+      }
+      if (command !== "chat_start") return {};
+      starts++;
+      return { ...chatStartResult("sid-1", { text: "", start_offset: 0, offset: 100, cursor: cursor(100),
+        messages: [{ id: "retained-row", type: "assistant", content: "before loss", timestamp: "1" }] }),
+        subscription_id: args?.subscriptionId };
+    }) as never);
+    const session = await mountSession("sid-1");
+    await act(async () => { fireResync(); fireResync(); });
+    await flush();
+    assert(starts === 1 && stops === 0 && resumes === 1, "overflow resumes without releasing or restarting the chat lease");
+    await act(async () => { fireResync(); fireResync(); });
+    await act(async () => finishResume());
+    await flush();
+    assert(Number(resumes) === 2, "loss observed during an active resume is drained once after it completes");
+    assert(session.latest().messages.map(row => row.id).join(",") === "retained-row,resumed-row", "resume appends without transcript replacement");
+    await act(async () => session.root.unmount());
+    console.log("PASS JSONL loss recovery resumes the committed cursor with no session restart");
+  }
+
+  {
+    let starts = 0;
     __setListenForTest(async () => () => {});
     __setInvokeForTest((async (command: string) => {
       if (command !== "chat_start") return {};
@@ -298,15 +337,68 @@ async function runChatSessionHookTests(): Promise<void> {
       });
     }) as never);
     const session = await mountSession("sid-1");
+    await act(async () => fireResync("reconnected"));
+    await act(async () => fireResync("wake"));
+    await flush();
+    assert(starts === 1, "valid replay and idle wake preserve the existing chat lease");
+    assert(session.latest().messages[0]?.content === "before", "idle wake preserves the visible projection");
     await act(async () => fireResync());
     await flush();
-    assert(starts === 2, "web event loss requests one fresh chat snapshot");
+    assert(Number(starts) === 2, "web event loss requests one fresh chat snapshot");
     assert(
       session.latest().messages.some((message) => message.content === "fresh from snapshot"),
       "web event loss refreshes the visible transcript",
     );
     await act(async () => session.root.unmount());
     console.log("PASS web event loss refreshes the active chat snapshot");
+  }
+
+  {
+    let starts = 0;
+    __setListenForTest(async () => () => {});
+    __setInvokeForTest((async (command: string) => {
+      if (command !== "chat_start") return {};
+      starts += 1;
+      if (starts === 1) throw new Error("opaque-initial-attach-failure");
+      return chatStartResult("sid-1", {
+        text: "", offset: 1,
+        messages: [{ id: "recovered", type: "assistant", content: "recovered", timestamp: "1" }],
+      });
+    }) as never);
+    const session = await mountSession("sid-1");
+    await act(async () => fireResync("reconnected"));
+    await flush();
+    assert(starts === 2, "observed reconnect retries a failed first attachment once");
+    assert(session.latest().messages[0]?.id === "recovered", "failed attach recovery displays its own snapshot");
+    await act(async () => session.root.unmount());
+    console.log("PASS observed reconnect recovers a failed first attachment");
+  }
+
+  {
+    let starts = 0;
+    let finish!: () => void;
+    __setListenForTest(async () => () => {});
+    __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
+      if (command !== "chat_start") return {};
+      starts += 1;
+      return new Promise(resolve => {
+        finish = () => resolve({
+          ...chatStartResult("sid-1", { text: "", offset: 1, messages: [
+            { id: "shared-start", type: "assistant", content: "shared", timestamp: "1" },
+          ] }),
+          subscription_id: args?.subscriptionId,
+        });
+      });
+    }) as never);
+    const session = await mountSession("sid-1");
+    await act(async () => fireResync());
+    await act(async () => fireResync());
+    assert(starts === 1, "resync during initial attach does not launch duplicate snapshots");
+    await act(async () => finish());
+    await flush();
+    assert(session.latest().messages[0]?.id === "shared-start", "single-flight attach adopts its own response");
+    await act(async () => session.root.unmount());
+    console.log("PASS initial attachment is single-flight across resync bursts");
   }
 
   {
@@ -557,7 +649,10 @@ async function runChatSessionHookTests(): Promise<void> {
         if (startArgs.length === 1) {
           return new Promise((resolve) => { initialAttach.resolve = resolve; });
         }
-        return chatStartResult("sid-3", { text: "", offset: 0, pending: true }, "nonce-2");
+        return {
+          ...chatStartResult("sid-3", { text: "", offset: 0, pending: true }, "nonce-2"),
+          subscription_id: String(args?.subscriptionId),
+        };
       }
       if (command === "chat_stop") stops += 1;
       return {};
@@ -566,13 +661,17 @@ async function runChatSessionHookTests(): Promise<void> {
     await session.render("sid-2", true, "nonce-2");
     await session.render("sid-3", true, "nonce-2");
     await timers.advance(0);
-    assert(startArgs.length === 3 && startArgs[2]?.agentSessionId === "sid-3", "T6 deferred initial attach reaches the latest session");
-    assert(stops === 1 && unlistens === 0, "T6 idle rotation releases only the superseded subscription");
-    initialAttach.resolve?.(chatStartResult("sid-1", { text: "", offset: 0, pending: true }, "nonce-1"));
+    assert(startArgs.length === 1, "T6 rotations wait for the in-flight attachment");
+    assert(stops === 0 && unlistens === 0, "T6 queued rotations do not create subscriptions");
+    initialAttach.resolve?.({
+      ...chatStartResult("sid-1", { text: "", offset: 0, pending: true }, "nonce-1"),
+      subscription_id: String(startArgs[0]?.subscriptionId),
+    });
     await flush();
+    assert(Number(startArgs.length) === 2 && startArgs[1]?.agentSessionId === "sid-3", "T6 completion starts only the latest authority");
     await timers.advance(30_000);
-    assert(startArgs.length === 3, "T6 resolving a stale initial attach does not poll or reattach again");
-    assert(stops === 1 && unlistens === 0, "T6 stale completion cannot stop the active subscription");
+    assert(Number(startArgs.length) === 2, "T6 resolving a stale initial attach does not poll or reattach again");
+    assert(Number(stops) === 1 && unlistens === 0, "T6 stale completion cannot stop the active subscription");
     await act(async () => session.root.unmount());
     restoreTimers();
     console.log("PASS T6 deferred idle rotations preserve the active lease without polling");
@@ -594,7 +693,10 @@ async function runChatSessionHookTests(): Promise<void> {
         if (startArgs.length === 2) {
           return new Promise((resolve) => { retryAttach.resolve = resolve; });
         }
-        return chatStartResult("sid-1", { text: "", offset: 0, messages: [] });
+        return {
+          ...chatStartResult(String(args?.agentSessionId), { text: "", offset: 0, messages: [] }),
+          subscription_id: String(args?.subscriptionId),
+        };
       }
       if (command === "chat_stop") stops += 1;
       return {};
@@ -605,17 +707,20 @@ async function runChatSessionHookTests(): Promise<void> {
     await session.render("sid-2");
     await session.render("sid-3");
     await timers.advance(0);
-    assert(startArgs.length === 4 && startArgs[3]?.agentSessionId === "sid-3", "T7 attaching rotation reaches the latest session");
+    assert(startArgs.length === 2, "T7 authority rotations do not overlap the retry request");
     assert(
-      Number(stops) === 3 && unlistens === 0,
+      Number(stops) === 1 && unlistens === 0,
       `T7 attaching rotation releases each superseded subscription (${stops}/${unlistens})`,
     );
-    retryAttach.resolve?.(chatStartResult("sid-1", { text: "", offset: 0, pending: true }));
+    retryAttach.resolve?.({
+      ...chatStartResult("sid-1", { text: "", offset: 0, pending: true }),
+      subscription_id: String(startArgs[1]?.subscriptionId),
+    });
     await flush();
     await timers.advance(30_000);
-    assert(startArgs.length === 4, "T7 attaching rotation does not introduce polling");
+    assert(Number(startArgs.length) === 3 && startArgs[2]?.agentSessionId === "sid-3", "T7 retry completion starts only the latest authority");
     assert(
-      Number(stops) === 4 && unlistens === 0,
+      Number(stops) === 2 && unlistens === 0,
       `T7 stale completion releases its own superseded subscription (${stops}/${unlistens})`,
     );
     await act(async () => session.root.unmount());

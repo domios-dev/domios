@@ -1,0 +1,1097 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "CUR-001",
+      "title": "Chat send once and recipient isolation",
+      "area": "messaging",
+      "tier": "release-core",
+      "surfaces": [
+        "cli",
+        "web"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "claude",
+        "codex"
+      ],
+      "grants": [
+        "dev-browser-auth",
+        "dev-fixture-spawn",
+        "provider-model-budget"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-001-chat-send-once/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-002",
+      "title": "Stop interrupts and stays stopped",
+      "area": "messaging",
+      "tier": "release-core",
+      "surfaces": [
+        "cli",
+        "web",
+        "phone"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "claude",
+        "codex"
+      ],
+      "grants": [
+        "dev-fixture-spawn",
+        "owned-long-turn",
+        "provider-model-budget"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-002-chat-stop/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-003",
+      "title": "Responsive chat affordances",
+      "area": "messaging",
+      "tier": "regression",
+      "surfaces": [
+        "phone",
+        "web"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows",
+        "ios"
+      ],
+      "providers": [],
+      "grants": [
+        "dev-browser-auth",
+        "desktop-viewer",
+        "dev-fixture-spawn"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-003-chat-responsive/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-004",
+      "title": "Image attachment reaches the intended model",
+      "area": "images",
+      "tier": "release-core",
+      "surfaces": [
+        "web",
+        "phone"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "claude",
+        "codex"
+      ],
+      "grants": [
+        "dev-browser-auth",
+        "image-fixture",
+        "provider-model-budget"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-004-image-attachment/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-005",
+      "title": "Image upload pending and failure recovery",
+      "area": "images",
+      "tier": "regression",
+      "surfaces": [
+        "web",
+        "phone"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "claude",
+        "codex"
+      ],
+      "grants": [
+        "dev-browser-auth",
+        "image-fixture",
+        "controlled-upload-failure"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-005-image-upload-recovery/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-006",
+      "title": "Built-in Browser forms and clean profiles",
+      "area": "browser",
+      "tier": "regression",
+      "surfaces": [
+        "web"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "dev-browser-auth",
+        "owned-browser"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-006-browser-public-forms/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-007",
+      "title": "Browser stale references and page boundaries",
+      "area": "browser",
+      "tier": "regression",
+      "surfaces": [
+        "web"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "dev-browser-auth",
+        "owned-browser",
+        "loopback-fixture-server"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-007-browser-navigation-boundaries/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-008",
+      "title": "Browser text selection through the viewer",
+      "area": "browser",
+      "tier": "regression",
+      "surfaces": [
+        "web",
+        "native"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "dev-browser-auth",
+        "desktop-viewer",
+        "owned-browser"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-008-browser-viewer-selection/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-009",
+      "title": "Codex balance and reset cancellation",
+      "area": "account",
+      "tier": "release-core",
+      "surfaces": [
+        "web"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "codex"
+      ],
+      "grants": [
+        "dev-browser-auth",
+        "owned-codex-runtime",
+        "usage-reset-observer"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-009-codex-balance-reset-cancel/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-010",
+      "title": "Worker reports and independent review handoff",
+      "area": "teams",
+      "tier": "release-core",
+      "surfaces": [
+        "cli",
+        "team"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "disposable-team-plan",
+        "owner-task-delegation",
+        "owned-worker-fixtures"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-010-worker-reporting-handoff/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-011",
+      "title": "Restart, restore, and session continuity",
+      "area": "lifecycle",
+      "tier": "release-core",
+      "surfaces": [
+        "cli",
+        "web",
+        "native"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "owner-restart-grant",
+        "owned-worker-fixture",
+        "owned-tabs"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-011-restart-restore-continuity/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-012",
+      "title": "Installed Firebase sign-in lifecycle",
+      "area": "account",
+      "tier": "release-core",
+      "surfaces": [
+        "web",
+        "native"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "explicit-installed-account-grant",
+        "secret-store-access",
+        "owned-browser"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-012-installed-sign-in/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-013",
+      "title": "Telegram inbound and routed reply",
+      "area": "bridge",
+      "tier": "regression",
+      "surfaces": [
+        "cli",
+        "team"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "owner-authorized-test-bot",
+        "owned-test-chat",
+        "far-end-thread-view"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-013-telegram-routed-reply/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-014",
+      "title": "Mesh inventory and persisted job results",
+      "area": "mesh",
+      "tier": "release-core",
+      "surfaces": [
+        "cli",
+        "mesh",
+        "team"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "owned-job-fixture",
+        "mesh-read-only-peer-grant",
+        "scheduled-job-grant"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-014-mesh-jobs-and-inventory/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-015",
+      "title": "Codex update and runtime handoff",
+      "area": "lifecycle",
+      "tier": "release-core",
+      "surfaces": [
+        "cli",
+        "web",
+        "native"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "codex"
+      ],
+      "grants": [
+        "owner-update-grant",
+        "owned-codex-session",
+        "dev-build-install"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-015-codex-update-handoff/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-016",
+      "title": "Claude PTY provider round-trip",
+      "area": "providers",
+      "tier": "release-core",
+      "surfaces": [
+        "cli",
+        "web"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "claude"
+      ],
+      "grants": [
+        "provider-model-budget",
+        "owned-provider-fixture"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-016-provider-claude-roundtrip/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-017",
+      "title": "Codex chat backend provider round-trip",
+      "area": "providers",
+      "tier": "release-core",
+      "surfaces": [
+        "cli",
+        "web"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "codex"
+      ],
+      "grants": [
+        "provider-model-budget",
+        "owned-provider-fixture"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-017-provider-codex-roundtrip/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-018",
+      "title": "Grok PTY provider round-trip",
+      "area": "providers",
+      "tier": "release-core",
+      "surfaces": [
+        "cli"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "grok"
+      ],
+      "grants": [
+        "provider-model-budget",
+        "owned-provider-fixture"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-018-provider-grok-roundtrip/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-019",
+      "title": "Aider routed provider round-trip",
+      "area": "providers",
+      "tier": "regression",
+      "surfaces": [
+        "cli",
+        "team"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "aider"
+      ],
+      "grants": [
+        "provider-model-budget",
+        "owned-taskless-caller"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-019-provider-aider-roundtrip/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-020",
+      "title": "Aider unsolicited acknowledgement after routed work",
+      "area": "providers",
+      "tier": "regression",
+      "surfaces": [
+        "cli",
+        "team"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "aider"
+      ],
+      "grants": [
+        "owned-provider-fixture"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-020-aider-unsolicited-ack/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-021",
+      "title": "OpenCode default provider launch",
+      "area": "providers",
+      "tier": "regression",
+      "surfaces": [
+        "cli"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "opencode"
+      ],
+      "grants": [
+        "owned-provider-fixture"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-021-provider-opencode-launch/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-022",
+      "title": "Cursor provider availability",
+      "area": "providers",
+      "tier": "release-core",
+      "surfaces": [
+        "cli"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [
+        "cursor"
+      ],
+      "grants": [],
+      "automation": "manual",
+      "case": "cases/CUR-022-provider-cursor-availability/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-023",
+      "title": "Codex Cloud provider availability",
+      "area": "providers",
+      "tier": "regression",
+      "surfaces": [
+        "cli"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [
+        "codex-cloud"
+      ],
+      "grants": [],
+      "automation": "manual",
+      "case": "cases/CUR-023-provider-codex-cloud-availability/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-024",
+      "title": "Provider switch handoff and completion",
+      "area": "providers",
+      "tier": "regression",
+      "surfaces": [
+        "web",
+        "team"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "claude",
+        "codex"
+      ],
+      "grants": [
+        "owned-provider-fixture",
+        "provider-model-budget"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-024-provider-switch-handoff/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-025",
+      "title": "Provider switch preserves readable conversation history",
+      "area": "providers",
+      "tier": "regression",
+      "surfaces": [
+        "web"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "claude",
+        "codex"
+      ],
+      "grants": [
+        "owned-provider-fixture"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-025-provider-history-retention/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-026",
+      "title": "Reconnect without replay",
+      "area": "lifecycle",
+      "tier": "regression",
+      "surfaces": [
+        "web"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "codex"
+      ],
+      "grants": [
+        "owned-provider-fixture",
+        "dev-browser-auth"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-026-browser-reconnect-no-replay/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-027",
+      "title": "Close and restore the same provider session",
+      "area": "lifecycle",
+      "tier": "regression",
+      "surfaces": [
+        "web",
+        "cli"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "codex"
+      ],
+      "grants": [
+        "owned-provider-fixture",
+        "owned-tab-close"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-027-backend-close-restore/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-028",
+      "title": "Grok restored provider readiness",
+      "area": "lifecycle",
+      "tier": "regression",
+      "surfaces": [
+        "web",
+        "cli"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [
+        "grok"
+      ],
+      "grants": [
+        "owned-provider-fixture"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-028-grok-restored-readiness/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-029",
+      "title": "Draft survives tab switch and reload",
+      "area": "messaging",
+      "tier": "regression",
+      "surfaces": [
+        "web",
+        "phone"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "dev-browser-auth",
+        "owned-provider-fixture"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-029-draft-persistence/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-030",
+      "title": "Phone composer controls stay in the action row",
+      "area": "messaging",
+      "tier": "regression",
+      "surfaces": [
+        "phone"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "dev-browser-auth",
+        "owned-provider-fixture"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-030-phone-composer-action-row/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-031",
+      "title": "Phone top bar fits the viewport",
+      "area": "messaging",
+      "tier": "regression",
+      "surfaces": [
+        "phone"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [],
+      "automation": "manual",
+      "case": "cases/CUR-031-phone-topbar-fit/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-032",
+      "title": "Owned web navigation stays bounded",
+      "area": "lifecycle",
+      "tier": "regression",
+      "surfaces": [
+        "web"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "dev-browser-auth",
+        "owned-browser"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-032-navigation-stability/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-033",
+      "title": "Mesh remote terminal renders and scrolls",
+      "area": "mesh",
+      "tier": "regression",
+      "surfaces": [
+        "mesh",
+        "phone",
+        "web"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "mesh-online-peer-read",
+        "owned-remote-terminal"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-033-mesh-remote-terminal-render/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-034",
+      "title": "Remote shell lines reflow on phone",
+      "area": "mesh",
+      "tier": "regression",
+      "surfaces": [
+        "mesh",
+        "phone"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "mesh-online-peer-read",
+        "owned-remote-terminal"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-034-mesh-remote-shell-phone-wrap/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-035",
+      "title": "CLI surface lifecycle and persisted results",
+      "area": "cli",
+      "tier": "release-core",
+      "surfaces": [
+        "cli"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "owned-dev-caller",
+        "disposable-workspace",
+        "scheduled-job-grant"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-035-cli-surface-lifecycle/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-036",
+      "title": "Local shell input reaches the owned terminal",
+      "area": "terminal",
+      "tier": "regression",
+      "surfaces": [
+        "web",
+        "native"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "owned-local-shell"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-036-local-shell-input/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-037",
+      "title": "Local shell output does not overprint prior rows",
+      "area": "terminal",
+      "tier": "regression",
+      "surfaces": [
+        "web",
+        "native"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "owned-local-shell"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-037-local-shell-line-render/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-038",
+      "title": "Teams task lifecycle and provider-bound worker recovery",
+      "area": "teams",
+      "tier": "regression",
+      "surfaces": [
+        "team",
+        "cli"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "disposable-team-plan",
+        "owned-orchestrator-worker",
+        "explicit-task-delegation"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-038-teams-round2-lifecycle/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-039",
+      "title": "Composer picker model and settings changes",
+      "area": "settings",
+      "tier": "regression",
+      "surfaces": [
+        "native",
+        "web",
+        "phone"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [
+        "claude",
+        "codex",
+        "grok",
+        "opencode"
+      ],
+      "grants": [
+        "owned-provider-fixtures",
+        "model-change-grant"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-039-composer-model-settings/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-040",
+      "title": "Agent CLI model and speed changes",
+      "area": "settings",
+      "tier": "regression",
+      "surfaces": [
+        "cli"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [
+        "claude",
+        "codex",
+        "grok",
+        "opencode"
+      ],
+      "grants": [
+        "owned-provider-fixtures",
+        "model-change-grant"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-040-agent-cli-model-settings/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-041",
+      "title": "Picker and CLI changes reflect bidirectionally",
+      "area": "settings",
+      "tier": "regression",
+      "surfaces": [
+        "cli",
+        "native",
+        "web",
+        "phone"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [
+        "claude",
+        "codex"
+      ],
+      "grants": [
+        "owned-provider-fixtures",
+        "model-change-grant"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-041-picker-cli-reflection/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-042",
+      "title": "Teams reconfiguration and adopt-plan",
+      "area": "teams",
+      "tier": "exploratory-charter",
+      "surfaces": [
+        "cli",
+        "team"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "disposable-team-plan",
+        "owner-reconfiguration-grant"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-042-teams-reconfiguration-adopt-plan/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-043",
+      "title": "Task-less QA and release-manager worker kinds",
+      "area": "teams",
+      "tier": "exploratory-charter",
+      "surfaces": [
+        "cli",
+        "team"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "owner-taskless-spawn-grant",
+        "disposable-team-plan"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-043-teams-taskless-qa-release-manager/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-044",
+      "title": "Teams and agent refusal hunting",
+      "area": "teams",
+      "tier": "exploratory-charter",
+      "surfaces": [
+        "cli",
+        "team"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "disposable-team-plan",
+        "owner-refusal-hunt-grant"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-044-teams-refusal-hunting/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-045",
+      "title": "Teams composer bubble strip",
+      "area": "teams",
+      "tier": "exploratory-charter",
+      "surfaces": [
+        "web",
+        "phone",
+        "team"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "dev-browser-auth",
+        "owned-team-browser"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-045-teams-composer-bubble-strip/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-046",
+      "title": "Teams agent todo lists",
+      "area": "teams",
+      "tier": "exploratory-charter",
+      "surfaces": [
+        "team",
+        "web"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "disposable-team-plan",
+        "owned-worker-fixtures"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-046-teams-agent-todo-lists/case.md",
+      "status": "active"
+    },
+    {
+      "id": "CUR-047",
+      "title": "CLI smoke and monkey sequence",
+      "area": "cli",
+      "tier": "exploratory-charter",
+      "surfaces": [
+        "cli"
+      ],
+      "platforms": [
+        "windows"
+      ],
+      "providers": [],
+      "grants": [
+        "owned-dev-caller",
+        "disposable-workspace"
+      ],
+      "automation": "manual",
+      "case": "cases/CUR-047-cli-smoke-monkey-charter/case.md",
+      "status": "active"
+    }
+  ]
+}

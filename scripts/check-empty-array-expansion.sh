@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh release-preflight/verify
 # macOS ships bash 3.2, where "${arr[@]}" on an EMPTY array is an unbound
 # variable under `set -u`. bash 4.4+ accepts it, so the bug is invisible on
 # Linux and Windows and only fires on a mac — which for release scripts means

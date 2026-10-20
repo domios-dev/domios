@@ -1,3 +1,4 @@
+import { isGeneralAgent } from "../../lib/roleKind";
 import { pluginTabMenuEntries, type PluginTabMenuEntry, type PluginTabMenuState } from "../../lib/pluginTabMenu";
 import { canMakeOrchestrator } from "../../lib/orchestratorOnboard";
 import { isPlanner } from "../../lib/roleKind";
@@ -35,7 +36,7 @@ export const TAB_MENU_LABELS = {
   makePlanner: "Make Planner",
   replaceOrchestrator: "Replace Orchestrator",
   replaceOrchestratorHint: "Starts a new Team owner without resuming this session.",
-  providerHint: "Restarts the session — the new provider starts fresh.",
+  providerHint: "Continues through a handoff on the target provider. Full history is not transferred.",
   plugins: "Plugins",
   closeSession: "Close Session",
   closeTab: "Close Tab",
@@ -64,6 +65,7 @@ export type TabMenuAction =
 
 export type TabMenuGlyph =
   | "rename"
+  | "fork"
   | "role"
   | "model"
   | "provider"
@@ -182,8 +184,6 @@ function providerSubmenu({ tab, descriptors, status }: TabMenuInput): TabMenuSub
     testId: "tab-menu-provider",
     label: tabProviderEntryLabel(view),
     icon: "provider",
-    disabled: Boolean(view.blockedReason),
-    title: view.blockedReason ?? undefined,
     description: TAB_MENU_LABELS.providerHint,
     entries: view.providers.map((provider): TabMenuItemEntry => ({
       kind: "item",
@@ -356,12 +356,13 @@ export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
       action: { type: "makePlanner", planId: activity.planId },
     });
   }
-  for (const submenu of [modelSubmenu(input), providerSubmenu(input), recoverySubmenu(input)]) {
+  const agentSubmenus = [...(isGeneralAgent(tab) ? [modelSubmenu(input)] : []), providerSubmenu(input)];
+  for (const submenu of [...agentSubmenus, recoverySubmenu(input)]) {
     if (submenu) entries.push(submenu);
   }
   entries.push(...sessionItems(input, session), ...autoConfirmEntries(input));
   if (session.sessionId && input.descriptor?.supports_session_fork === true && !tab.remote_peer_id) {
-    entries.push({kind:"item",id:"fork",label:"Fork session",icon:"restart",action:{type:"fork"}});
+    entries.push({kind:"item",id:"fork",label:"Fork session",icon:"fork",action:{type:"fork"}});
   }
   const plugins = pluginsSubmenu(input);
   if (plugins) entries.push(plugins);

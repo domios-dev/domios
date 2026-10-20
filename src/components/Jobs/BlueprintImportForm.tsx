@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useId, useState, type CSSProperties } from "react";
 import { FileUp } from "lucide-react";
 import { blueprintSharingApi, parseBlueprintRecipe, type BlueprintRecipe, type BlueprintSharingApi } from "../Automation/blueprintSharing";
@@ -60,7 +61,7 @@ export function BlueprintImportForm({ creators, onCreated, onCancel, api = bluep
         <label className={AUTOMATION_LABEL} htmlFor={`${prefix}-${key}`}>{key}: {description}</label>
         <input id={`${prefix}-${key}`} className="ct-field w-full" value={bindings[key] ?? ""} required disabled={busy} onChange={(event) => { const value = event.currentTarget.value; setBindings((current) => ({ ...current, [key]: value })); }} />
       </div>)}
-      {error && <p role="alert" className="ct-job-note">{error}</p>}
+      {error && <InlineErrorNotice error={error} operation="importing this Blueprint" blocking />}
       <div className="ct-job-actions">
         <button type="submit" className={AUTOMATION_PRIMARY} disabled={busy || !recipe || !creators.some((creator) => creator.id === caller)}>Create stopped Blueprint</button>
         <button type="button" className={AUTOMATION_TOOL} disabled={busy} onClick={onCancel}>Cancel import</button>

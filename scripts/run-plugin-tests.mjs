@@ -1,3 +1,4 @@
+// Caller: build.sh release-preflight; package.json script; skill build, testing
 import { spawnSync } from "node:child_process";
 import { delimiter, dirname } from "node:path";
 

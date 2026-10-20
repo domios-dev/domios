@@ -1,3 +1,4 @@
+import { BoundedMessageContent } from "./BoundedMessageContent";
 import React from "react";
 import { FileText } from "lucide-react";
 import type { AttachedDiscussionDoc } from "./discussionDoc";
@@ -61,9 +62,9 @@ export function AttachedDiscussionDocView({ doc, variant = "chat" }: AttachedDis
           <ChevronIcon expanded={expanded} className="shrink-0 opacity-50" />
         </button>
         {expanded && (
-          <div
+          <BoundedMessageContent collapsedHeight={dense ? "16rem" : "28rem"}
             data-testid="attached-discussion-body"
-            className={`overflow-auto border-t ${dense ? "max-h-64 px-2 py-1.5 text-[11px]" : "max-h-[28rem] px-3 py-2 text-xs"}`}
+            className={`border-t ${dense ? "px-2 py-1.5 text-[11px]" : "px-3 py-2 text-xs"}`}
             style={{
               borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 16%, transparent)",
               color: "var(--ct-fg)",
@@ -72,7 +73,7 @@ export function AttachedDiscussionDocView({ doc, variant = "chat" }: AttachedDis
             <div className="text-sm leading-relaxed">
               <RichMarkdown text={doc.body} />
             </div>
-          </div>
+          </BoundedMessageContent>
         )}
         {!expanded && doc.summary.length === 0 && (
           <div className={`border-t px-2.5 py-1 ${PRE_WRAP_CLASS} opacity-60 ${dense ? "text-[10px]" : "text-[11px]"}`}>

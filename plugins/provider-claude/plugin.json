@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.14.4",
-  "minCodeterm": "1.14.7",
+  "version": "1.14.14",
+  "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Claude Code",
   "binaryName": "claude",
@@ -19,8 +19,9 @@
     },
     "taskDelivery": "inline_flag",
     "paste": {
-      "untrustedAboveLines": 4,
-      "typedFollowUp": " Handle the paste as my request.",
+      "untrustedAboveLines": 0,
+      "typedFollowUp": "\npasted by Domios",
+      "pasteMarkerWhen": "multiline",
       "requiresTypedInstructionForRoutedMessages": true
     },
     "systemPromptDelivery": {
@@ -62,6 +63,9 @@
         "Agent",
         "Task"
       ]
+    },
+    "executionSandbox": {
+      "unsupportedReason": "Permission modes and tool rules do not enforce read-only filesystem access for shell commands; use an enforcing provider or an explicit owner-run canonical gate."
     }
   },
   "sessions": {
@@ -203,15 +207,6 @@
       "model": {
         "command": "/model",
         "confirmation": "(?i)^Set model to `?(?:{model}|{display_name})(?: [^`\\r\\n]+)?`? for this session only(?:$|[^a-z0-9_-])",
-        "prompt": {
-          "screenRegex": "(?im)^\\s*Switch model\\?\\s*$[\\s\\S]*^\\s*❯\\s*1\\. Yes, switch to (?:{model}|{display_name})(?: [^\\r\\n]+)?\\s*$[\\s\\S]*^\\s*2\\. No, go back\\s*(?:\\r?\\n\\s*(?:Enter to confirm|Esc to cancel)[^\\r\\n]*)?\\s*\\z",
-          "responseKeys": [
-            "\r"
-          ],
-          "cancelKeys": [
-            "\u001b"
-          ]
-        },
         "picker": {
           "screenRegex": "(?m)^\\s*Select model\\s*$[\\s\\S]*^\\s*Enter to set as default · s to use this session only · Esc to cancel\\s*\\z",
           "selectedRegex": "(?m)^\\s*❯\\s*(?P<position>\\d+)\\.\\s+[^\\r\\n]+\\r?$",
@@ -221,11 +216,13 @@
           "nextKey": "\u001b[B",
           "responseKey": "s",
           "cancelKey": "\u001b"
-        }
+        },
+        "confirmationPromptKind": "switch_confirmation"
       },
       "effort": {
         "command": "/effort {effort}",
-        "confirmation": "(?i)^Set effort level to {effort} \\("
+        "confirmation": "(?i)^Set effort level to {effort} \\(",
+        "confirmationPromptKind": "switch_confirmation"
       }
     },
     "autoApproveFlags": [
@@ -238,7 +235,17 @@
     "reasoningEffortLaunchArgsFormat": [
       "--effort",
       "{effort}"
-    ]
+    ],
+    "launchSpec": {
+      "program": "claude",
+      "args": [
+        "{skipPermissions}",
+        "{args}"
+      ],
+      "envUnset": [
+        "CLAUDECODE"
+      ]
+    }
   },
   "permissions": {
     "subprocess": {
@@ -262,6 +269,34 @@
     "breaking": [],
     "modelMinimumCli": {
       "fable": "2.1.258"
+    }
+  },
+  "workerLaneSettings": [
+    {
+      "path": ".claude/settings.json",
+      "patch": {
+        "enabledPlugins": {
+          "rust-analyzer-lsp@claude-plugins-official": false
+        }
+      }
+    },
+    {
+      "path": ".claude/settings.local.json",
+      "patch": {
+        "enabledPlugins": {
+          "rust-analyzer-lsp@claude-plugins-official": false
+        }
+      }
+    }
+  ],
+  "capabilities": {
+    "agentProvider": true,
+    "subagentVisibility": true,
+    "recordSources": {
+      "sessionTranscript": {
+        "format": "jsonl",
+        "filter": {}
+      }
     }
   }
 }

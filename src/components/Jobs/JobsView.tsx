@@ -1,8 +1,14 @@
+import type { TransportClient } from "../../lib/transportClient";
+import { JobsMachineFilter } from "./JobsMachineFilter";
+import { PeerJobsView } from "./PeerJobsView";
+import { jobsEntryState, THIS_MACHINE } from "./jobsMachineModel";
+import { useJobsMachines } from "./useJobsMachines";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { Clock3, Network, Plus, Square, Trash2, Workflow } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
 import { returnToOrigin, type ReturnTo, type ReturnToRoute } from "../../lib/returnTo";
-import type { Tab, Team } from "../../lib/types";
+import type { PairedPeer, Tab, Team } from "../../lib/types";
 import { usePlanPeerContext } from "../Canvas/usePlanPeerContext";
 import { CronWorkspaceView } from "../Cron/CronWorkspaceView";
 import type { MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions";
@@ -126,7 +132,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
   }, [graphs, selection]);
   const openedBlueprint = selection?.kind === "blueprint" ? pipelines.find(({ pipeline }) => pipeline.id === selection.id) : undefined;
   const missing = selection?.kind === "scenario" && graphsRead && !opened;
-  const notices = useMemo(() => ({ graph: graphs.find((graph) => graph.graph?.truncated)?.graph ?? null, loading: false, failed: graphsFailed, stopping: null, stopFailed: null }), [graphs, graphsFailed]);
+  const notices = useMemo(() => ({ graph: graphs.find((graph) => graph.graph?.truncated)?.graph ?? graphs.find((graph) => graph.graph)?.graph ?? null, loading: false, failed: graphsFailed, stopping: null, stopFailed: null }), [graphs, graphsFailed]);
   const refreshAll = useCallback(() => Promise.all([crons.refresh(), ...graphs.map((graph) => graph.refresh())]), [crons.refresh, graphs]);
   const back = (key: string) => { if (onReturn?.()) return; returnTo.current = key; setSelection(null); };
   const openedDirectly = useRef(initialScenarioId ?? null);
@@ -238,7 +244,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
       <div className="min-w-0 px-4 py-3">
         {openedBlueprint
           ? <BlueprintPipelineCanvas pipeline={openedBlueprint.pipeline} initialRunId={initialRunId} />
-          : graphsRead ? <p role="alert" className="ct-job-note">The selected Blueprint is unavailable.</p> : <p role="status" className="ct-job-note">Reading Blueprint…</p>}
+          : graphsRead ? <InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /> : graphsFailed ? <p role="status" className="ct-job-note">Blueprint is unavailable.</p> : <p role="status" className="ct-job-note">Reading Blueprint…</p>}
       </div>
     </section>;
   }
@@ -249,8 +255,8 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
   const reading = (crons.jobs === null && !crons.failed) || graphs.some((graph) => graph.loading);
   const empty = jobs.length === 0 && crons.jobs !== null && graphsRead && !crons.failed && !graphsFailed;
   return <div ref={list} className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-4 sm:px-6">
-    {missing && <p ref={removed} tabIndex={-1} role="alert" className="mb-3 rounded-md border border-[var(--ct-border)] px-3 py-2 outline-none">The selected Blueprint is unavailable. It may have been removed; choose another job.</p>}
-    {crons.failed && <p role="alert" className="mb-3 rounded-md border border-[var(--ct-border)] px-3 py-2">Cron jobs unavailable. {crons.jobs ? "Showing the last list read." : "No cron records could be read."}</p>}
+    {missing && <div ref={removed} tabIndex={-1} role="status" className="mb-3 rounded-md border border-[var(--ct-border)] px-3 py-2 outline-none"><InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /></div>}
+    {crons.failed && crons.jobs === null && <p role="status" aria-label="Jobs unavailable" className="ct-job-note">Jobs are unavailable.</p>}
     <AutomationNotices state={notices} noun="Blueprints" />
     {reading && <p role="status" className="mb-3 text-[var(--ct-muted-fg)]">Reading jobs…</p>}
     <div role="status" aria-label={empty ? "No jobs" : undefined} className={empty ? "flex flex-1 flex-col items-center justify-center gap-1.5 py-10 text-center" : undefined}>
@@ -286,6 +292,8 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
 }
 
 export interface JobsViewProps {
+  machinePeers?: readonly PairedPeer[];
+  peerClient?: (peerId: string) => TransportClient;
   workspaces: readonly JobsWorkspace[];
   teams: readonly Team[];
   tabs?: Record<string, Tab>;
@@ -303,7 +311,7 @@ export interface JobsViewProps {
 }
 
 /** The one Jobs view: crons and Blueprint graphs narrowed by optional workspace and Team capsules. Hosts differ only by initial filter. */
-export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, returnTo, onReturnTo, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
+export function JobsView({ machinePeers, peerClient, workspaces, teams, tabs = {}, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, returnTo, onReturnTo, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
   const origin = useRef<ReturnToRoute>({ returnTo });
   const onReturn = () => {
     if (!returnToOrigin(origin.current, onReturnTo ?? (() => false))) return false;
@@ -312,6 +320,9 @@ export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS
   };
   const close = () => { if (!onReturn()) onClose?.(); };
   const context = usePlanPeerContext();
+  const machines = useJobsMachines(machinePeers === undefined);
+  const peers = machinePeers ?? machines.peers;
+  const [machineId, setMachineId] = useState(jobsEntryState({ kind: "machine" }).machineId);
   const [importOpen, setImportOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
@@ -327,10 +338,13 @@ export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS
   const sourcesKey = JSON.stringify(layout.sources);
   const sources = useMemo<string[]>(() => JSON.parse(sourcesKey), [sourcesKey]);
   const connectionId = `host:${context.ready ? context.generation : "detached"}`;
+  const changeMachine = (id: string) => { changeFilter(NO_JOBS_FILTER); setMachineId(id); };
+  if (machineId !== THIS_MACHINE) return <PeerJobsView clientForPeer={peerClient} key={machineId} peerId={machineId} peers={peers} onMachineChange={changeMachine} onClose={close} />;
   return <section aria-label="Jobs" tabIndex={-1} className="flex h-full min-h-0 flex-col bg-[var(--ct-bg)] text-[var(--ct-fg)]">
     <header hidden={detailOpen} className="ct-jobs-header flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
       {onClose && <BackPill label="where you were" onBack={close} />}
       <h2 className="flex items-center gap-2 text-[length:var(--ct-font-size-md)] font-semibold"><Workflow size={16} className="shrink-0 text-[var(--ct-tone-blueprint)]" aria-hidden="true" />Jobs</h2>
+      <JobsMachineFilter value={machineId} peers={peers} onChange={changeMachine} />
       <JobsFilterBar filter={filter} layout={layout} teams={teams} onChange={changeFilter} />
       <div className="ml-auto flex shrink-0 items-center gap-2">
         <button type="button" className={AUTOMATION_TOOL} onClick={() => setImportOpen(true)}><Plus size={12} aria-hidden="true" />Import Blueprint</button>
@@ -340,10 +354,11 @@ export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS
       </div>
     </header>
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      {machines.failed && machinePeers === undefined && <p role="status" className="px-4 py-2">Paired machine list unavailable.</p>}
       {importOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintImportForm creators={Object.values(tabs).filter((tab) => tab.team_id && teams.some((team) => team.id === tab.team_id && (filter.teamId === null || team.id === filter.teamId) && (filter.workspaceId === null || team.workspace_id === filter.workspaceId))).map((tab) => ({ id: tab.id, label: `${tab.title} (${teams.find((team) => team.id === tab.team_id)?.name ?? tab.team_id})` }))} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} /></div>}
       {importRevision > 0 && <p role="status" className="px-4 py-2">Blueprint imported stopped.</p>}
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>
-        : !layout.teamAvailable ? <p role="alert" className="p-4">The selected Team is unavailable.</p>
+        : !layout.teamAvailable ? <InlineErrorNotice error={{ code: "team_unavailable", raw: "" }} />
           : <JobsSurface key={JSON.stringify([connectionId, sources, filter, importRevision])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} onExit={onClose} onReturn={onReturn} onDetailChange={setDetailOpen} />}
     </div>
   </section>;

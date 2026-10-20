@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use super::*;
-use codeterm_types::decision::NoulCriteria;
+use codeterm_decision::NoulCriteria;
 
 const TOKEN: &str = "local-test-secret";
 const ANSWER_NOUL: &str = include_str!("../fixtures/answer_noul.json");
@@ -462,7 +462,7 @@ fn typesafe_multi_answer_is_named_and_all_or_nothing() {
 
 #[test]
 fn typesafe_returns_usage_with_one_multi_request_and_credit_errors() {
-    use codeterm_types::decision::physical;
+    use codeterm_decision::physical;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -540,7 +540,7 @@ fn typesafe_returns_usage_with_one_multi_request_and_credit_errors() {
 
 #[test]
 fn typesafe_physical_request_missing_token_does_not_count() {
-    use codeterm_types::decision::physical;
+    use codeterm_decision::physical;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,

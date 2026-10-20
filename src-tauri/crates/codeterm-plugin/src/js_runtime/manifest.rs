@@ -98,6 +98,8 @@ pub struct PluginManifest {
     pub cli_binary: Option<String>,
     #[serde(default)]
     pub cli_compatibility: Option<crate::provider_compat::CompatibilityManifest>,
+    #[serde(default)]
+    pub worker_lane_settings: Vec<crate::provider::WorkerLaneSetting>,
 
     // (transcriber, secret backend) leave it defaulted.
     #[serde(default)]
@@ -230,8 +232,11 @@ fn default_entry() -> String {
 /// shipped before capabilities existed).
 fn default_capabilities() -> Capabilities {
     Capabilities {
+        remote_task: None,
+        record_sources: Default::default(),
         structured_control: None,
         agent_provider: true,
+        subagent_visibility: false,
         reply_relay: false,
         tool_less: false,
         model_provider_config: false,

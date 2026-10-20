@@ -1,5 +1,7 @@
 //! With `--json` every command prints exactly one JSON value on stdout, and every
-//! failure is one error envelope with a closed `error.code`, whatever the cause.
+//! failure uses the shared error envelope, except the finite exact-Quit outcome contract.
+#[path = "support/codeterm_bin.rs"]
+mod codeterm_bin;
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -69,7 +71,7 @@ fn kill_process(pid: u32) {
 /// Runs the CLI against a scratch data dir and a deterministic, never-live socket
 /// name, so no command can reach a real daemon or a real user directory.
 fn run_cli(env: &CliEnv, args: &[String]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_codeterm"));
+    let mut command = Command::new(codeterm_bin::codeterm_bin());
     for (key, _) in std::env::vars() {
         if key.starts_with("CODETERM_") {
             command.env_remove(key);
@@ -251,6 +253,12 @@ fn stub_reply(request: &Value) -> Value {
     let method = request["method"].as_str().unwrap_or_default();
     match method {
         "system.identify" => json!({ "result": { "ok": true } }),
+        "workspace.close" => json!({
+            "result": {
+                "ok": false,
+                "error": "[TEAM CLOSE REFUSED] caller not member"
+            }
+        }),
         "api.request" => {
             let params = &request["params"];
             let verb = params["method"].as_str().unwrap_or_default();
@@ -399,6 +407,25 @@ fn not_found_maps_to_code_end_to_end() {
 }
 
 #[test]
+fn refused_workspace_close_keeps_its_json_body_and_exits_nonzero() {
+    let env = CliEnv::new(Some(start_stub()));
+    let output = run_cli(
+        &env,
+        &json_args(&["workspace", "close", "workspace-refused", "--force"]),
+    );
+
+    assert!(!output.status.success(), "a refused close must fail");
+    assert_eq!(
+        stdout_value(&output).expect("refusal is one JSON value"),
+        json!({
+            "ok": false,
+            "error": "[TEAM CLOSE REFUSED] caller not member"
+        })
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn json_success_paths_print_one_object() {
     let env = CliEnv::new(Some(start_stub()));
 
@@ -426,4 +453,14 @@ fn json_success_paths_print_one_object() {
     assert!(value["content"]
         .as_str()
         .is_some_and(|body| !body.is_empty()));
+}
+
+#[test]
+fn exact_quit_uses_its_finite_refusal_envelope_without_authorizing_replacement() {
+    let environment = CliEnv::new(None);
+    let output = run_cli(&environment, &json_args(&["app", "quit", "--exact"]));
+    assert!(!output.status.success());
+    let value = stdout_value(&output).unwrap();
+    assert_eq!(value, json!({"outcome":"refused","reason":"no_instance"}));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("stub-token"));
 }

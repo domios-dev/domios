@@ -1,4 +1,6 @@
 import { canSendDelayedMessage } from "./delayedMessageModel";
+import { SystemHeartbeatDetail } from "./SystemHeartbeatDetail";
+import { isSystemDelayedMessage } from "./systemHeartbeatProjection";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Timer, X } from "lucide-react";
@@ -63,6 +65,10 @@ export function DelayedMessageModal({ target, busy, onSubmit, onStash, onDelete,
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [busy, onClose]);
+
+  if (editing && isSystemDelayedMessage(editing)) {
+    return <SystemHeartbeatDetail message={editing} busy={busy} onClose={onClose} />;
+  }
 
   const modes: SendMode[] = recurrence ? ["every"] : editing ? ["in", "at"] : ["in", "at", "every"];
   const minutes = Number(mode === "every" ? everyMinutes : inMinutes);

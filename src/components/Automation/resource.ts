@@ -1,4 +1,6 @@
 import { scopedAutomationGraph } from "./model";
+import { DEV_BUILD } from "../../lib/devBuild";
+import { sameJson } from "../../lib/sameJson";
 import { automationKey, type AutomationAttachment, type AutomationGraph, type AutomationGraphAdapter, type AutomationIdentity } from "./types";
 
 export interface AutomationSnapshot {
@@ -48,8 +50,10 @@ export class AutomationResource {
       if (generation !== this.generation) return off();
       this.unlisten = off;
       void this.refresh();
-    }, () => {
-      if (generation === this.generation) this.publish({ loading: false, failed: true });
+    }, (error: unknown) => {
+      if (generation !== this.generation) return;
+      if (DEV_BUILD) console.debug("Background automation listener setup failed", error);
+      this.publish({ loading: false, failed: true });
     });
   }
 
@@ -63,9 +67,15 @@ export class AutomationResource {
     this.controller = controller;
     try {
       const graph = scopedAutomationGraph(await this.adapter.read(this.attachment, controller.signal), this.attachment);
-      if (generation === this.generation && !this.dirty) this.publish({ graph, loading: false, failed: false });
-    } catch {
-      if (generation === this.generation && !this.dirty) this.publish({ loading: false, failed: true });
+      if (generation === this.generation && !this.dirty) {
+        // Graph events outpace graph changes; an identical read keeps the published snapshot for its subscribers.
+        const same = !this.snapshot.loading && !this.snapshot.failed && sameJson(this.snapshot.graph, graph);
+        if (!same) this.publish({ graph, loading: false, failed: false });
+      }
+    } catch (error) {
+      if (generation !== this.generation || this.dirty) return;
+      if (DEV_BUILD) console.debug("Background automation graph refresh failed", error);
+      this.publish({ loading: false, failed: true });
     } finally {
       if (generation === this.generation) {
         this.reading = false;

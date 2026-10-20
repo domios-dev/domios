@@ -1,8 +1,13 @@
+import { ComposerIssuesProvider } from "./ComposerIssuesContext";
+import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
 import { Blob as BrowserBlob, File as BrowserFile, FormData as BrowserFormData } from "happy-dom";
 import { act, useState } from "react";
+import { addChatSend, useChatSends, removeChatSend } from "./chatSendStore";
+import { DroppedUploadNotice } from "./DroppedUploadNotice";
+import { ChatDeliveryState } from "./ChatDeliveryState";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { LocalArtifactScope, MessageBubble } from "@codeterm/chat-ui";
@@ -14,25 +19,38 @@ import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { capsuleSpans } from "./composerCapsules";
 import { ChatComposer } from "./ChatComposer";
+import { prepareBrowserUpload } from "./browserImageUpload";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const path = "/home/owner/.codeterm-dev/uploads/id-photo.png";
 const pixels = "data:image/png;base64,iVBORw0KGgo=";
 
-it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sends its image after editing text: %s", async (failure) => {
+it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError"])("web picker sends immediately and omits failed images without a popup: %s", async (failure) => {
   vi.stubGlobal("Blob", BrowserBlob);
   vi.stubGlobal("File", BrowserFile);
   vi.stubGlobal("FormData", BrowserFormData);
+  if (failure === "HEIC") {
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ width: 2, height: 2, close: vi.fn() })));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(new Blob(["image"], { type: "image/jpeg" })));
+  }
   const sent: string[] = [];
   const previews: string[] = [];
   let requests = 0;
+  let reads = 0;
+  let completeUpload!: () => void;
   const fetch = vi.fn(async (_url: unknown, options?: RequestInit) => {
-    expect(String(_url)).toContain("/api/upload");
+    expect(String(_url)).toContain("/api/attachments/upload");
     const body = options?.body as FormData;
     const file = body.get("file") as File;
-    expect(file.type).toBe("image/png");
+    expect(body).toBeInstanceOf(FormData);
+    expect(file).toBeInstanceOf(Blob);
+    expect(file.type).toBe(failure === "HEIC" ? "image/jpeg" : "image/png");
+    expect(file.name).toBe(failure === "HEIC" ? "photo.jpg" : "photo.png");
     expect(file.size).toBe(5);
+    if (failure === "NotReadableError" && ++reads === 1) throw new DOMException("unreadable", "NotReadableError");
     if (++requests === 1 && failure === "HTTP 503") return new Response("busy", { status: 503 });
+    if (failure === "pending") await new Promise<void>(resolve => { completeUpload = resolve; });
     return Response.json({ path, size: 5 });
   });
   vi.stubGlobal("fetch", fetch);
@@ -60,14 +78,15 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
   function Harness() {
     const [attachments, setAttachments] = useState<string[]>([]);
     const [bubble, setBubble] = useState("");
+    const sends = useChatSends("picker");
     return <MuxStateStoreContext.Provider value={store}><LocalArtifactScope tabId="picker">
-      {bubble && <div role="region" aria-label="Sent message"><MessageBubble message={{ id: "sent", type: "user", content: bubble }} /></div>}
-      <ChatComposer tabId="picker" tabProvider={null} currentPtyId={null} pendingPrompt={null}
+      {bubble && <div role="region" aria-label="Sent message"><MessageBubble message={{ id: "sent", type: "user", content: bubble }} userFooter={<><ChatDeliveryState state="sending" /><DroppedUploadNotice tabId="picker" id="sent" names={sends.find(send => send.id === "sent")?.droppedUploads} /></>} /></div>}
+      <ComposerIssuesProvider><AgentRuntimeBanner state={null} onRetry={() => {}} /><ChatComposer tabId="picker" tabProvider={null} currentPtyId={null} pendingPrompt={null}
         attachments={attachments} addAttachments={(paths) => setAttachments((current) => [...current, ...paths])}
         removeAttachment={(path) => setAttachments((current) => current.filter((item) => item !== path))}
         clearAttachments={() => setAttachments([])} handlePasteEvent={() => {}} onWillSendMessage={() => {}}
-        addOptimistic={(content) => { setBubble(content); return "sent"; }} updateOptimistic={(_id, content) => setBubble(content)}
-        observeChatSendStatus={() => {}} showComposerError={(error) => { throw new Error(error); }} />
+        addOptimistic={(content) => { addChatSend("picker", { id: "sent", content, sentAtMs: Date.now() }); setBubble(content); return "sent"; }} updateOptimistic={(_id, content) => setBubble(content)}
+        observeChatSendStatus={() => {}} showComposerError={(error) => { throw new Error(error); }} /></ComposerIssuesProvider>
     </LocalArtifactScope></MuxStateStoreContext.Provider>;
   }
   try {
@@ -79,20 +98,16 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
       editor.setSelectionRange(15, 15);
     });
     const input = host.querySelector<HTMLInputElement>('[data-testid="composer-attach-input"]')!;
-    const file = new File(["image"], "photo.png", { type: "image/png" });
-    if (failure === "NotReadableError") {
-      const read = file.arrayBuffer.bind(file);
-      let attempts = 0;
-      file.arrayBuffer = () => ++attempts === 1
-        ? Promise.reject(new DOMException("The I/O read operation failed.", "NotReadableError")) : read();
-    }
+    const file = new File(["image"], failure === "HEIC" ? "photo.heic" : "photo.png", { type: failure === "HEIC" ? "image/heic" : "image/png" });
     Object.defineProperty(input, "files", { value: [file] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
-    expect(fetch.mock.calls.length, host.textContent ?? "").toBe(failure === "NotReadableError" ? 0 : 1);
-    if (failure !== "success") {
-      const retry = host.querySelector<HTMLButtonElement>('[aria-label="Retry attachment photo.png"]');
-      expect(retry, host.textContent ?? "").not.toBeNull();
-      await act(async () => retry!.click());
+    expect(fetch.mock.calls.length, host.textContent ?? "").toBe(1);
+    if (failure === "HEIC") await expect(fetch.mock.results[0].value).resolves.toBeInstanceOf(Response);
+    if (failure === "HTTP 503" || failure === "NotReadableError") {
+      const notice = host.querySelector('[role="note"]');
+      expect(notice).not.toBeNull();
+      expect(host.querySelector('[role="group"][aria-label="Message composer"]')?.contains(notice)).toBe(false);
+      expect(editor.value).not.toContain(file.name);
     }
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, `${editor.value} after upload`);
@@ -100,14 +115,61 @@ it.each(["success", "HTTP 503", "NotReadableError"])("web picker retains and sen
     });
     expect(capsuleSpans(editor.value)).toHaveLength(1);
     await act(async () => editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
+    expect(editor.value).toBe("");
+    if (failure === "pending") {
+      expect(sent).toHaveLength(0);
+      expect(host.querySelector('[role="status"]')).not.toBeNull();
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, "next message");
+        editor.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => completeUpload());
+      expect(editor.value).toBe("next message");
+    }
     expect(sent).toHaveLength(1);
+    const row = host.querySelector('[data-testid="user-bubble-row"]')!;
+    expect(row.querySelector('[aria-label="User message"]')?.parentElement).toBe(row);
+    expect(row.querySelector('[role="status"]')?.parentElement).toBe(row);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    if (failure !== "success" && failure !== "HEIC" && failure !== "pending") {
+      expect(parseAttachmentMarkers(sent[0]).attachments).toEqual([]);
+      expect(host.querySelector('button[aria-label="Retry omitted attachments"]')).not.toBeNull();
+      expect(row.querySelector('[role="note"]')).not.toBeNull();
+      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Retry omitted attachments"]')!.click());
+      expect(sent).toHaveLength(2);
+      expect(parseAttachmentMarkers(sent[1]).attachments.map(item => item.path)).toEqual([path]);
+      expect(sent[1]).not.toContain("Please inspect");
+      return;
+    }
     expect(parseAttachmentMarkers(sent[0]).attachments.map((item) => item.path)).toEqual([path]);
     expect(sent[0].indexOf(path)).toBeGreaterThan(sent[0].indexOf("inspect"));
     expect(sent[0].indexOf(path)).toBeLessThan(sent[0].indexOf("here"));
-    expect(host.querySelector<HTMLImageElement>('[aria-label="Sent message"] img')?.src).toBe(pixels);
+    const chip = host.querySelector<HTMLButtonElement>('[aria-label="Sent message"] button[aria-label="Open image image1"]')!;
+    expect(chip.querySelector("img")).toBeNull();
+    await act(async () => chip.focus());
+    expect(document.querySelector<HTMLImageElement>('[role="region"] img')?.src).toBe(pixels);
     expect(previews).toContain(path);
   } finally {
-    await act(async () => root.unmount()); host.remove();
-    __setInvokeForTest(null); __setListenForTest(null); vi.unstubAllGlobals();
+    await act(async () => root.unmount()); host.remove(); removeChatSend("picker", "sent");
+    __setInvokeForTest(null); __setListenForTest(null); vi.unstubAllGlobals(); vi.restoreAllMocks();
   }
+});
+
+
+it("falls back to an image decoder when bitmap HEIF decoding fails and releases its URL", async () => {
+  vi.stubGlobal("createImageBitmap", vi.fn(async () => { throw new Error("unsupported"); }));
+  vi.stubGlobal("Image", class {
+    naturalWidth = 2; naturalHeight = 2; onload: (() => void) | null = null;
+    set src(_url: string) { this.onload?.(); }
+  });
+  const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:opaque");
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(new Blob(["jpeg"], { type: "image/jpeg" })));
+  try {
+    const result = await prepareBrowserUpload(new Blob(["heif"], { type: "image/heif" }), "screen.heif");
+    expect(result.name).toBe("screen.jpg");
+    expect(result.blob.type).toBe("image/jpeg");
+    expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:opaque");
+  } finally { vi.unstubAllGlobals(); vi.restoreAllMocks(); }
 });

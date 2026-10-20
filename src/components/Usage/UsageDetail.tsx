@@ -18,12 +18,13 @@ import {
 } from "./cycle";
 import { BarTooltip, type BarHover } from "./BarTooltip";
 import { UsageGauge, type GaugeMarker } from "./UsageGauge";
-import { visibleUsageMetrics } from "./metrics";
+import { unreportedBillingLabel, visibleUsageMetrics } from "./metrics";
 import { staleBannerCopy } from "./staleBanner";
 
 interface UsageDetailProps {
   snapshot: UsageSnapshot;
-  flipUp: boolean;
+  accountCreditsLabel?: string|null;
+  resetSection?: import("react").ReactNode;
   onRefresh: () => Promise<void>;
   onOpenHistory: () => void;
 }
@@ -46,7 +47,7 @@ function StaleBanner({ snapshot, now }: { snapshot: UsageSnapshot; now: number }
   );
 }
 
-export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: UsageDetailProps) {
+export function UsageDetail({ snapshot, accountCreditsLabel, onRefresh, onOpenHistory, resetSection }: UsageDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   // Open-count gating is centralized in config (bounded writes: stops at MAX)
@@ -117,9 +118,10 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
     [projection?.weekly, snapshot.weekly_pct],
   );
   const metrics = visibleUsageMetrics(snapshot);
+  const billingLabel = unreportedBillingLabel(snapshot);
 
   return (
-    <div className={`ct-usage-popover ${flipUp ? "up" : "down"}`} role="dialog" aria-label="usage details">
+    <div className="ct-usage-popover" role="dialog" aria-label="usage details">
       <div className="head">
         <span className="title">{snapshot.provider} usage</span>
         <button
@@ -137,6 +139,8 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
 
       {isStale && <StaleBanner snapshot={snapshot} now={now} />}
 
+      {billingLabel && <div role="status">{billingLabel}</div>}
+
       {metrics.map((metric) => (
         <UsageGauge
           key={metric.key}
@@ -151,8 +155,10 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
         />
       ))}
 
+      <UsageAccountCreditsRow label={accountCreditsLabel} />
       <MiniWeekBars buckets={buckets} />
 
+      {resetSection}
       <div className="ct-usage-foot">
         <span className="live">
           <span className="pulse ct-live-pulse" />
@@ -168,7 +174,7 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
 }
 
 // the cycle spend and reset instead of the gauge/projection machinery.
-export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailProps) {
+export function UsageSpendDetail({ snapshot, accountCreditsLabel, onRefresh, resetSection }: UsageDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   const now = Date.now();
@@ -199,7 +205,7 @@ export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailPro
   };
 
   return (
-    <div className={`ct-usage-popover ${flipUp ? "up" : "down"}`} role="dialog" aria-label="usage details">
+    <div className="ct-usage-popover" role="dialog" aria-label="usage details">
       <div className="head">
         <span className="title">{snapshot.provider} usage</span>
         <button
@@ -231,6 +237,8 @@ export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailPro
         </span>
       </div>
 
+      <UsageAccountCreditsRow label={accountCreditsLabel} />
+      {resetSection}
       <div className="ct-usage-foot">
         <span className="live">
           <span className="pulse ct-live-pulse" />
@@ -239,6 +247,10 @@ export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailPro
       </div>
     </div>
   );
+}
+
+function UsageAccountCreditsRow({label}: {label?:string|null}) {
+  return label ? <div className="ct-usage-account-credits"><span className="k">Credits</span><span className="v">{label}</span></div> : null;
 }
 
 // ---------- Projection → marker conversion ----------

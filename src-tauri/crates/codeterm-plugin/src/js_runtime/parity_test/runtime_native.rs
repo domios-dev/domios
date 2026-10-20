@@ -49,6 +49,21 @@ impl AgentProvider for NativeRuntime {
         Some(self.0.clone())
     }
 
+    fn runtime_stored_history_available(&self, _: &str, session: &str) -> bool {
+        self.0.stored_history && session != "reference-session"
+    }
+
+    fn runtime_stored_history(&self, session: &str, records: &str) -> Result<Vec<ChatMsg>, String> {
+        if !self.0.stored_history {
+            return Err("unsupported".into());
+        }
+        let value: Value = serde_json::from_str(records).map_err(|error| error.to_string())?;
+        if value["session"].as_str() != Some(session) {
+            return Err("foreign session".into());
+        }
+        serde_json::from_value(value["messages"].clone()).map_err(|error| error.to_string())
+    }
+
     async fn runtime_plan(
         &self,
         ctx: &RuntimeContext,
@@ -56,6 +71,30 @@ impl AgentProvider for NativeRuntime {
     ) -> Result<RuntimePlan, RuntimeFailure> {
         validate_runtime_operation(ctx, op)?;
         let action = match op {
+            RuntimeOperation::ForkThread {
+                source_thread_id, ..
+            } => RuntimeAction::Request {
+                call: RpcCall {
+                    target: None,
+                    method: "thread/turns/list".into(),
+                    params: json!({
+                        "threadId":source_thread_id,
+                        "itemsView":"notLoaded",
+                        "sortDirection":"asc",
+                        "limit":8
+                    }),
+                },
+            },
+            RuntimeOperation::BackgroundProcesses { thread_id, .. } => RuntimeAction::Request {
+                call: RpcCall {
+                    target: Some(RuntimeCallTarget {
+                        thread_id: thread_id.clone(),
+                        turn_id: None,
+                    }),
+                    method: op.kind().into(),
+                    params: json!(op),
+                },
+            },
             RuntimeOperation::AnswerQuestion { answers, .. } => RuntimeAction::QuestionAnswer {
                 input: TurnInput {
                     text: answers
@@ -93,10 +132,21 @@ impl AgentProvider for NativeRuntime {
                 },
             },
         };
-        let plan = RuntimePlan {
-            action,
-            state: Value::Null,
+        let state = match op {
+            RuntimeOperation::ForkThread {
+                source_thread_id,
+                turn_id,
+            } => json!({
+                "stage":"threadHistoryTurns",
+                "action":"fork",
+                "sourceThreadId":source_thread_id,
+                "turnId":turn_id,
+                "cursor":null,
+                "targetFound":false
+            }),
+            _ => Value::Null,
         };
+        let plan = RuntimePlan { action, state };
         validate_runtime_plan(&self.0, ctx, op, &plan)?;
         Ok(plan)
     }
@@ -110,6 +160,95 @@ impl AgentProvider for NativeRuntime {
     ) -> Result<RuntimeStep, RuntimeFailure> {
         validate_runtime_operation(ctx, op)?;
         validate_runtime_state(state)?;
+        if let (
+            RuntimeOperation::ForkThread {
+                source_thread_id,
+                turn_id,
+            },
+            RpcReply::Success { value },
+        ) = (op, reply)
+        {
+            let state_matches =
+                state["sourceThreadId"] == *source_thread_id && state["turnId"] == *turn_id;
+            let step = match state["stage"].as_str() {
+                Some("threadHistoryTurns") if state_matches => {
+                    let found = value["data"].as_array().is_some_and(|turns| {
+                        turns.len() <= 8
+                            && turns.iter().all(|turn| {
+                                turn["id"]
+                                    .as_str()
+                                    .is_some_and(|id| !id.is_empty() && id.len() <= 4096)
+                            })
+                            && turns.iter().any(|turn| {
+                                turn["id"].as_str() == Some(turn_id.as_str())
+                                    && turn["status"] != "inProgress"
+                            })
+                    });
+                    if !found {
+                        return Ok(RuntimeStep::Refused {
+                            reason: RuntimeFailure::new(
+                                RuntimeFailureCode::ProviderRefused,
+                                "selected turn unavailable",
+                            ),
+                            before_acceptance: true,
+                        });
+                    }
+                    RuntimeStep::Continue {
+                        plan: RuntimePlan {
+                            action: RuntimeAction::Request {
+                                call: RpcCall {
+                                    target: None,
+                                    method: "thread/fork".into(),
+                                    params: json!({
+                                        "threadId":source_thread_id,
+                                        "lastTurnId":turn_id
+                                    }),
+                                },
+                            },
+                            state: json!({
+                                "stage":"thread/fork",
+                                "sourceThreadId":source_thread_id,
+                                "turnId":turn_id
+                            }),
+                        },
+                        before_acceptance: false,
+                        history: None,
+                    }
+                }
+                Some("thread/fork") if state_matches => {
+                    let thread_id = value["thread"]["id"].as_str().unwrap_or_default();
+                    if thread_id.is_empty() || thread_id == source_thread_id {
+                        return Ok(RuntimeStep::Refused {
+                            reason: RuntimeFailure::new(
+                                RuntimeFailureCode::ProviderRefused,
+                                "Forked thread identity unverified",
+                            ),
+                            before_acceptance: false,
+                        });
+                    }
+                    RuntimeStep::Complete {
+                        result: RuntimeResult::ThreadForked {
+                            source_thread_id: source_thread_id.clone(),
+                            thread_id: thread_id.into(),
+                            turn_id: turn_id.clone(),
+                        },
+                        notification: None,
+                        events: None,
+                    }
+                }
+                _ => {
+                    return Ok(RuntimeStep::Refused {
+                        reason: RuntimeFailure::new(
+                            RuntimeFailureCode::ProviderRefused,
+                            "Fork did not reach its provider boundary",
+                        ),
+                        before_acceptance: false,
+                    });
+                }
+            };
+            validate_runtime_step(&self.0, ctx, op, reply, &step)?;
+            return Ok(step);
+        }
         let step = match reply {
             RpcReply::Error { error } => RuntimeStep::Refused {
                 reason: RuntimeFailure::new(RuntimeFailureCode::ProviderRefused, &error.message),
@@ -117,7 +256,40 @@ impl AgentProvider for NativeRuntime {
             },
             RpcReply::Success { value } => {
                 let result = match op {
-                    RuntimeOperation::Initialize => RuntimeResult::Initialized,
+                    RuntimeOperation::BackgroundProcesses {
+                        thread_id,
+                        action: RuntimeBackgroundProcessAction::List { .. },
+                    } => RuntimeResult::BackgroundProcesses {
+                        thread_id: thread_id.clone(),
+                        processes: serde_json::from_value(value["processes"].clone()).map_err(
+                            |error| {
+                                RuntimeFailure::new(
+                                    RuntimeFailureCode::InvalidSchema,
+                                    error.to_string(),
+                                )
+                            },
+                        )?,
+                        next_cursor: serde_json::from_value(
+                            value.get("nextCursor").cloned().unwrap_or(Value::Null),
+                        )
+                        .map_err(|error| {
+                            RuntimeFailure::new(
+                                RuntimeFailureCode::InvalidSchema,
+                                error.to_string(),
+                            )
+                        })?,
+                    },
+                    RuntimeOperation::BackgroundProcesses {
+                        thread_id,
+                        action: RuntimeBackgroundProcessAction::Terminate { process_id },
+                    } => RuntimeResult::BackgroundProcessTermination {
+                        thread_id: thread_id.clone(),
+                        process_id: process_id.clone(),
+                        acknowledged: value["acknowledged"] == true,
+                    },
+                    RuntimeOperation::Initialize => RuntimeResult::Initialized {
+                        binary_version: value["binaryVersion"].as_str().map(str::to_string),
+                    },
                     RuntimeOperation::OpenThread { settings, .. } => RuntimeResult::ThreadLoaded {
                         thread_id: value["threadId"]
                             .as_str()
@@ -146,6 +318,7 @@ impl AgentProvider for NativeRuntime {
                         next_cursor: None,
                         open_items: Vec::new(),
                         questions: None,
+                        order: None,
                     },
                     RuntimeOperation::SubmitTurn {
                         thread_id, send_id, ..
@@ -154,12 +327,67 @@ impl AgentProvider for NativeRuntime {
                         send_id: send_id.clone(),
                         turn_id: None,
                     },
+                    RuntimeOperation::Control {
+                        thread_id: Some(thread_id),
+                        action,
+                        ..
+                    } if action == "goal" => RuntimeResult::Goal {
+                        thread_id: thread_id.clone(),
+                        intent: serde_json::from_value(value["intent"].clone()).map_err(
+                            |error| {
+                                RuntimeFailure::new(
+                                    RuntimeFailureCode::InvalidSchema,
+                                    error.to_string(),
+                                )
+                            },
+                        )?,
+                    },
+                    RuntimeOperation::Control {
+                        thread_id: Some(source_thread_id),
+                        action,
+                        value: request,
+                    } if action == "threadHistory" && request["action"] == "fork" => {
+                        RuntimeResult::ThreadForked {
+                            source_thread_id: source_thread_id.clone(),
+                            thread_id: value["thread"]["id"].as_str().unwrap_or_default().into(),
+                            turn_id: request["turnId"].as_str().unwrap_or_default().into(),
+                        }
+                    }
+                    RuntimeOperation::Control { action, .. } if action == "redeemResetCredit" => {
+                        RuntimeResult::ResetCreditConsumed {
+                            outcome: serde_json::from_value(value["outcome"].clone()).map_err(
+                                |error| {
+                                    RuntimeFailure::new(
+                                        RuntimeFailureCode::InvalidSchema,
+                                        error.to_string(),
+                                    )
+                                },
+                            )?,
+                        }
+                    }
                     _ => RuntimeResult::Done,
                 };
-                RuntimeStep::Complete {
-                    result,
-                    events: None,
-                    notification: None,
+                if value["more"] == true && matches!(op, RuntimeOperation::ReadHistory { .. }) {
+                    RuntimeStep::Continue {
+                        history: Some(result),
+                        plan: RuntimePlan {
+                            action: RuntimeAction::Request {
+                                call: RpcCall {
+                                    method: op.kind().into(),
+                                    params: json!(op),
+                                    target: None,
+                                },
+                            },
+                            state: Value::Null,
+                        },
+                        before_acceptance: false,
+                    }
+                } else {
+                    RuntimeStep::Complete {
+                        result,
+                        events: None,
+                        notification: None,
+                    }
                 }
             }
         };
@@ -186,6 +414,12 @@ impl AgentProvider for NativeRuntime {
                 RuntimeFrame::Request { params, .. }
                 | RuntimeFrame::Notification { params, .. } => params,
             };
+            if let Some(event) = params.get("usageEvent") {
+                events.push(serde_json::from_value(event.clone()).map_err(|error| {
+                    RuntimeFailure::new(RuntimeFailureCode::InvalidSchema, error.to_string())
+                })?);
+                continue;
+            }
             let item: ChatMsg = serde_json::from_value(params.clone()).map_err(|e| {
                 RuntimeFailure::new(RuntimeFailureCode::InvalidSchema, e.to_string())
             })?;

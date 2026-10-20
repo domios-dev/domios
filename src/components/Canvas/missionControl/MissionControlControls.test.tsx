@@ -129,9 +129,6 @@ describe("Mission Control controls", () => {
       expect(approve).toHaveBeenCalledWith("plan-visible");
 
       await choose("board", "Clear everything");
-      expect(byTestId("mission-control-clear-everything-dialog-confirm")?.className).toContain(
-        "mc-lifecycle-button-danger",
-      );
       await press("mission-control-clear-everything-dialog-confirm");
       expect(clear).toHaveBeenCalledOnce();
       expect(clear).toHaveBeenCalledWith("plan-visible");
@@ -205,7 +202,7 @@ describe("Mission Control controls", () => {
       await choose("task", "Delete");
       await press("mission-control-delete-task-dialog-confirm");
       expect(remove).toHaveBeenCalledOnce();
-      expect(byTestId("mission-control-delete-task-dialog-error")?.textContent).toBe(
+      expect(byTestId("mission-control-delete-task-dialog-error")?.querySelector("details pre")?.textContent).toBe(
         "task delete failed: 409 caller rebound",
       );
       expect(byTestId("mission-control-delete-task-dialog")).not.toBeNull();

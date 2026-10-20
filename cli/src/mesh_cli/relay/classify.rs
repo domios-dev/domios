@@ -2,7 +2,7 @@
 //! a structured failure. Pure — no I/O, no process exit.
 
 use super::MeshSpawnFailure;
-use codeterm_types::mesh::delivery;
+use codeterm_mesh::contract::delivery;
 
 /// Whether repeating the identical request can ever succeed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,36 +136,21 @@ struct PeerVerdict {
 }
 
 fn peer_delivery_verdict(data: &serde_json::Value) -> PeerVerdict {
-    let Some(error) = data.get("error").filter(|e| e.is_object()) else {
+    let Some(error) = data.get("error").filter(|e| !e.is_null()) else {
         return PeerVerdict::default();
     };
     let text = |key: &str| error.get(key).and_then(|v| v.as_str()).map(str::to_string);
     PeerVerdict {
         code: text("code"),
         bytes_written: error.get("bytes_written").and_then(|v| v.as_bool()),
-        message: text("message"),
+        message: text("message").or_else(|| error.as_str().map(str::to_string)),
     }
 }
 
 /// What a caller may safely do next, given what the payload is known to have
 /// done and whether the refusal can ever clear. An unknown outcome is never
 /// advertised as a free retry.
-fn delivery_retry_hint(
-    data: &serde_json::Value,
-    code: Option<&str>,
-    bytes_written: Option<bool>,
-    status: u16,
-) -> String {
-    if code == Some(PEER_LACKS_DELAYED_RECURRENCE) {
-        return "update the peer or send a one-shot explicitly".to_string();
-    }
-    if let Some(hint) = data
-        .get("error")
-        .and_then(|e| e.get("retry_hint"))
-        .and_then(|v| v.as_str())
-    {
-        return hint.to_string();
-    }
+fn delivery_retry_hint(code: Option<&str>, bytes_written: Option<bool>, status: u16) -> String {
     match (code, bytes_written) {
         (Some(_), Some(true)) => "the payload already reached the target PTY — check the target \
              before resending; a retry may deliver it twice"
@@ -204,10 +189,22 @@ fn route_retry_hint(
     bytes_written: Option<bool>,
     status: u16,
 ) -> String {
-    if code.is_none() && data.get("error").is_none() {
+    if let Some(hint) = data
+        .get("error")
+        .and_then(|error| error.get("retry_hint").or_else(|| error.get("hint")))
+        .and_then(serde_json::Value::as_str)
+    {
+        return hint.to_string();
+    }
+    if code == Some(PEER_LACKS_DELAYED_RECURRENCE) {
+        return "update the peer or send a one-shot explicitly".to_string();
+    }
+    if !super::is_send_relay(relayed.0, relayed.1)
+        || (code.is_none() && data.get("error").is_none())
+    {
         relay_retry_hint(relayed, status)
     } else {
-        delivery_retry_hint(data, code, bytes_written, status)
+        delivery_retry_hint(code, bytes_written, status)
     }
 }
 
@@ -297,6 +294,12 @@ pub(crate) fn classify_relay_answer(
             .get("error")
             .and_then(|v| v.as_str())
             .map(str::to_string)
+            .or_else(|| {
+                val.get("error")?
+                    .get("message")?
+                    .as_str()
+                    .map(str::to_string)
+            })
             .or_else(|| match (&code, &message) {
                 (Some(code), Some(message)) => Some(format!("{code}: {message}")),
                 (Some(code), None) => Some(code.clone()),
@@ -315,14 +318,15 @@ pub(crate) fn classify_relay_answer(
             .with_delivery(code, bytes_written));
     }
 
-    // On a send the peer's own body is the only delivery evidence, so its `ok: false` outranks an accepting envelope.
     let peer_refused = data.get("ok").and_then(|v| v.as_bool()) == Some(false);
-    if super::is_send_relay(relayed.0, relayed.1) && peer_refused {
+    let rpc_error =
+        relayed.1 != "/api/mesh/rpc" && data.get("error").is_some_and(|error| !error.is_null());
+    if peer_refused || rpc_error {
         let reason = match (&code, &message) {
             (Some(code), Some(message)) => format!("{code}: {message}"),
             (Some(code), None) => code.clone(),
             (None, Some(message)) => message.clone(),
-            _ => format!("peer did not confirm delivery (HTTP {envelope_status})"),
+            _ => format!("peer refused the request (HTTP {envelope_status})"),
         };
         let hint = route_retry_hint(
             relayed,

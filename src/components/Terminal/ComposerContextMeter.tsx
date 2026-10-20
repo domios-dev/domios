@@ -1,8 +1,8 @@
-import { useCallback } from "react";
+import { memo, useCallback } from "react";
 import { useMuxSelector } from "../../store/multiplexer";
 import { contextMeter } from "./composerModels";
 
-export function ComposerContextMeter({ tabId }: { tabId: string }) {
+export const ComposerContextMeter = memo(function ComposerContextMeter({ tabId }: { tabId: string }) {
   const context = useMuxSelector(useCallback((state) => {
     const tab = state.tabs[tabId];
     return tab && "context" in tab ? tab.context : undefined;
@@ -13,4 +13,4 @@ export function ComposerContextMeter({ tabId }: { tabId: string }) {
     <meter className="ct-bar-meter" aria-label="Context window" min={0} max={meter.window} value={meter.used}>{Math.round(meter.percent)}%</meter>
     {Math.round(meter.percent)}%
   </span>;
-}
+});

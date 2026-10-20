@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, Bot, Brain, Check, Loader2, Radar, Settings } from "lucide-react";
 import type { ApiConfig } from "../../lib/types";
 import { useAskGeneral } from "../../help/useAskGeneral";
@@ -7,7 +6,7 @@ import { BusySpinner } from "../shared/BusyState";
 import { useSupporterResource } from "../Supporter/useSupporterResource";
 import { ActivityFeed } from "../Supporter/ActivityFeed";
 import { SupporterAllowanceRow } from "../Usage/SupporterAllowanceRow";
-import { clampFloatingPosition } from "../shared/floatingPosition";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 const ASK_PROMPT = "Tell me about Domios's Spinal Cord (the Supporter Agent): what it does for me day to day (memory recall that answers first, noticing a stuck tab, quiet team heartbeats that wake the Orchestrator only when something changed), why it is worth turning on, and what connecting it takes. Keep it short and convincing, then offer to set it up for me yourself. If I say yes, connect it. Answer in my native language, the one I usually write to you in.";
 
@@ -95,46 +94,17 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
   const glint = useIdleGlint(!connected);
   const flash = connected ? pulse : glint;
   const glintClass = connected ? "" : " ct-spinal-glint";
-  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
   const { state, ask } = useAskGeneral();
-
-  useEffect(() => {
-    if (!anchor) return;
-    const onPointer = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (popoverRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
-      setAnchor(null);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setAnchor(null);
-      buttonRef.current?.focus();
-    };
-    document.addEventListener("mousedown", onPointer, true);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onPointer, true);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [anchor]);
+  const close = useCallback(() => setOpen(false), []);
 
   const openSettings = () => {
-    setAnchor(null);
+    setOpen(false);
     window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:supporter-agent" } }));
   };
 
-  const toggle = () => {
-    if (anchor) {
-      setAnchor(null);
-      return;
-    }
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const pos = clampFloatingPosition(rect.left, rect.bottom + 8, POPOVER_WIDTH, 420, window.innerWidth, window.innerHeight);
-    setAnchor({ top: pos.top, left: pos.left });
-  };
+  const toggle = () => setOpen((current) => !current);
 
   return (
     <>
@@ -144,7 +114,7 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
         data-testid="spinal-cord-button"
         data-connected={connected || undefined}
         aria-haspopup="dialog"
-        aria-expanded={anchor !== null}
+        aria-expanded={open}
         aria-label={connected ? "Spinal Cord, connected" : "Spinal Cord, not connected yet"}
         className="ct-spinal-btn"
         onClick={toggle}
@@ -153,14 +123,13 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
         {flash > 0 && <span key={`ring-${connected}-${flash}`} className={`ct-spinal-btn__reflex${glintClass}`} aria-hidden="true" />}
         <span className="ct-spinal-btn__label">Spinal Cord</span>
       </button>
-      {anchor && createPortal(
+      <AnchoredPopover open={open} anchor={buttonRef} gap={8} onClose={close}>
         <div
-          ref={popoverRef}
           role="dialog"
           aria-label="Spinal Cord"
           data-testid="spinal-cord-popover"
-          className="ct-portal-menu ct-menu ct-spinal-pop fixed"
-          style={{ top: anchor.top, left: anchor.left, width: POPOVER_WIDTH }}
+          className="ct-menu ct-spinal-pop"
+          style={{ width: POPOVER_WIDTH }}
         >
           <div className="ct-spinal-pop__head">
             <span className="ct-spinal-pop__badge"><Vertebrae /></span>
@@ -196,9 +165,8 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
               </button>
             </>
           )}
-        </div>,
-        document.body,
-      )}
+        </div>
+      </AnchoredPopover>
     </>
   );
 }

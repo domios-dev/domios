@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh release-preflight/verify/install-local; CI file-sizes.yml; scripts qa-gates.lib.sh, task.mjs, tests/check-file-sizes.test.mjs; skill gates
 # Source-file size discipline check.
 #
 # Walks the tree and flags files >1200 lines among .rs / .ts / .tsx / .py / .swift.

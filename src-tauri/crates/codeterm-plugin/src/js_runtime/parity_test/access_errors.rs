@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_types::agent::provider_signals::ApiErrorKind;
+use codeterm_provider_signals::ApiErrorKind;
 
 #[test]
 fn parity_provider_access_error_fixtures() {

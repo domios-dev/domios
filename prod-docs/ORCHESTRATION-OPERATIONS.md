@@ -4,63 +4,32 @@ Event-driven coordination, acceptance, integration, cleanup, heartbeat, and clos
 
 ## Event-driven coordination
 
-Never sleep or poll for Worker readiness, reports, gates, or process startup.
-Wait on explicit readiness, session-binding, process-exit, stream-completion, or
-report events, with a bounded failure deadline.
+Never sleep or poll for Worker readiness, reports, gates, or process startup. Wait on explicit readiness, session-binding, process-exit, stream-completion, or report events, with a bounded failure deadline.
 
-Long gates run in a visible canonical tab and send an explicit completion
-marker back to the Orchestrator. Continue other frontier work while the gate
-runs. Delegation is allowed only to a Worker assigned to canonical with an
-explicit list of authorized commands.
+Long gates run in a visible canonical tab and send an explicit completion marker back to the Orchestrator. Continue other frontier work while the gate runs. Delegation is allowed only to a Worker assigned to canonical with an explicit list of authorized commands.
 
-One immediate sanity read is allowed after a concrete event. Repeated manual
-checks are polling.
+One immediate sanity read is allowed after a concrete event. Repeated manual checks are polling.
 
 ## Verification and acceptance
 
-Choose the canonical checkout or an isolated lane by concurrency and file
-ownership. This is recommended practice, not a refusal you enforce: lanes keep
-parallel writers apart and diffs reviewable, while canonical stays warm for the
-runs that rebuild everything.
+Choose the canonical checkout or an isolated lane by concurrency and file ownership. This is recommended practice, not a refusal you enforce: lanes keep parallel writers apart and diffs reviewable, while canonical stays warm for the runs that rebuild everything.
 
-Workers in lanes implement source, author coverage, and may run isolated checks
-that do not rebuild the whole project: a type check, the tests covering the
-change, a linter, or the focused tests of a small standalone package, through the
-project's build queue when it has one. A check that needs the whole project or
-its main application unit built is a full rebuild and is left to canonical. The
-Worker judges this per project, names each check's category, and reports exact
-commands, counts and raw exits plus the exact selectors it deferred. Lanes do
-not start dev servers, run full suites, package, or self-install. A Worker in
-canonical runs only the commands its dispatch authorizes.
+Workers in lanes implement source, author coverage, and may run isolated checks that do not rebuild the whole project: a type check, the tests covering the change, a linter, or the focused tests of a small standalone package, through the project's build queue when it has one. A check that needs the whole project or its main application unit built is a full rebuild and is left to canonical. The Worker judges this per project, names each check's category, and reports exact commands, counts and raw exits plus the exact selectors it deferred. Lanes do not start dev servers, run full suites, package, or self-install. A Worker in canonical runs only the commands its dispatch authorizes.
 
 A mutating canonical Worker exists only through the explicit dispatch opt-in:
 
 ```bash
 codeterm plan task dispatch <plan> <task> --execution-intent mutating \
-  --canonical-writer --authorized-gate "<exact focused command>"
+  --canonical-writer --kind qa --authorized-gate "<exact focused command>"
 ```
 
-Use it for sequential work that benefits from fast iteration; parallel source
-work stays in isolated lanes. The writer holds canonical exclusively: occupancy
-refuses a second live canonical attempt, and `plan review accept` refuses lane
-tasks until the writer's own verdict. Authorize only focused tests, check and
-fmt; broad, release and integration gates stay with you. It commits on the
-integration branch and reports its commit ids with a clean tree; the CLI checks
-the SHA against canonical for this placement, and any dirty report is refused,
-even with `--acknowledge-dirty`; that is a bounce. Accept or bounce it before
-merging any lane.
+Use `--kind release_manager` for the same placement with the release-manager prompt. `--kind` preserves the built-in prompt profile without changing the task's saved `executor_role`; it grants no authority beyond the dispatch's explicit placement and authorized gates.
 
-Before accepting, read the report's TESTS COVERING CHANGES line. A missing
-line, or a covering test the Worker left broken or unlisted, is a bounce whose
-note names the test and its failure (`plan review bounce <plan> <task> --note`),
-so the reason stays recorded on the task. Its author fixes it in the same lane;
-you do not patch it, and it is never a follow-up task.
+Use it for sequential work that benefits from fast iteration; parallel source work stays in isolated lanes. The writer holds canonical exclusively: occupancy refuses a second live canonical attempt, and `plan review accept` refuses lane tasks until the writer's own verdict. Authorize only focused tests, check and fmt; broad, release and integration gates stay with you. It commits on the integration branch and reports its commit ids with a clean tree; the CLI checks the SHA against canonical for this placement, and any dirty report is refused, even with `--acknowledge-dirty`; that is a bounce. Accept or bounce it before merging any lane.
 
-Judge the report and the diff, accept on review, and real-merge. Then rerun the
-deferred and focused selectors of the whole merged wave as one canonical QA
-batch, yourself or through a canonical verification Worker: several merged
-lanes, one batch. A canonical failure becomes a bounce or fix task with the
-exact command and failure evidence; it does not hold an acceptance already made.
+Before accepting, read the report's TESTS COVERING CHANGES line. A missing line, or a covering test the Worker left broken or unlisted, is a bounce whose note names the test and its failure (`plan review bounce <plan> <task> --note`), so the reason stays recorded on the task. Its author fixes it in the same lane; you do not patch it, and it is never a follow-up task.
+
+Judge the report and the diff, accept on review, and real-merge. Then rerun the deferred and focused selectors of the whole merged wave as one canonical QA batch, yourself or through a canonical verification Worker: several merged lanes, one batch. A canonical failure becomes a bounce or fix task with the exact command and failure evidence; it does not hold an acceptance already made.
 
 A verification Worker is spawned read-only and owns no task:
 
@@ -73,47 +42,22 @@ codeterm agent spawn <provider> --role Worker \
   --task-file <brief>
 ```
 
-`--plan-task` is deliberately absent. The plan's implementation task stays bound
-to the Worker whose lane was merged, and one task keeps one owner. The verifier
-binds to the plan it was spawned under, reports to its parent, and runs only the
-commands declared with `--authorized-gate`, which arrive in its brief. Because it
-holds no task it can report against none and transition none, so no verification
-run can move implementation state. Repeat `--authorized-gate` per command.
+`--plan-task` is deliberately absent. The plan's implementation task stays bound to the Worker whose lane was merged, and one task keeps one owner. The verifier binds to the plan it was spawned under, reports to its parent, and runs only the commands declared with `--authorized-gate`, which arrive in its brief. Because it holds no task it can report against none and transition none, so no verification run can move implementation state. Repeat `--authorized-gate` per command.
 
-Spawning it is not a way around task binding for source work: a Worker declaring
-`--execution-intent mutating` without a task is refused, and a task-bound Worker
-declares its gates on the dispatch (`plan task dispatch --authorized-gate`),
-where they are also enforced. The Orchestrator running the gate itself in its
-own canonical checkout remains the other sanctioned path.
+Spawning it is not a way around task binding for source work: a Worker declaring `--execution-intent mutating` without a task is refused, and a task-bound Worker declares its gates on the dispatch (`plan task dispatch --authorized-gate`), where they are also enforced. The Orchestrator running the gate itself in its own canonical checkout remains the other sanctioned path.
 
-Design the smallest deterministic user-layer oracle before implementation so
-unit-green changes cannot silently break the real workflow. Keep that oracle
-fast, reusable, and event-driven.
+Design the smallest deterministic user-layer oracle before implementation so unit-green changes cannot silently break the real workflow. Keep that oracle fast, reusable, and event-driven.
 
-During lane iteration, use source review and isolated checks. After real
-merge, run the wave's focused checks in canonical, then the actual user-layer
-oracle once at final integration or release verification.
+During lane iteration, use source review and isolated checks. After real merge, run the wave's focused checks in canonical, then the actual user-layer oracle once at final integration or release verification.
 
 The two tiers are not interchangeable, and the cheap one is mandatory:
 
-- A **focused check** proves one change. Every accepted lane and every repair
-  gets one, scoped to what it actually touched — one test module, one type
-  check, one file's lint. It reruns in canonical in the merged wave's batch,
-  and it is never skipped on the grounds that a broader gate is coming.
-- A **broad or canonical gate** proves a release. It runs on the release SHA,
-  once, immediately before cutting. It is not a per-merge step, and it is never
-  a repair's first executable check: re-running a fifteen-minute matrix to prove
-  a duplicate import or a one-line type fix costs a full slot to learn what the
-  focused check answers in seconds.
+- A **focused check** proves one change. Every accepted lane and every repair gets one, scoped to what it actually touched — one test module, one type check, one file's lint. It reruns in canonical in the merged wave's batch, and it is never skipped on the grounds that a broader gate is coming.
+- A **broad or canonical gate** proves a release. It runs on the release SHA, once, immediately before cutting. It is not a per-merge step, and it is never a repair's first executable check: re-running a fifteen-minute matrix to prove a duplicate import or a one-line type fix costs a full slot to learn what the focused check answers in seconds.
 
-A peer protocol may serialize a shared machine resource — one Docker lease, one
-database, one build slot. It may not forbid the focused checks that keep the
-broad gate down to a single run; a protocol that makes the full gate the first
-executable check on a merge has inverted the two tiers and turns every trivial
-defect into a full run.
+A peer protocol may serialize a shared machine resource — one Docker lease, one database, one build slot. It may not forbid the focused checks that keep the broad gate down to a single run; a protocol that makes the full gate the first executable check on a merge has inverted the two tiers and turns every trivial defect into a full run.
 
-Reaching a second broad-gate run with no release between them is the signal that
-this has happened. Stop and record why before starting a third.
+Reaching a second broad-gate run with no release between them is the signal that this has happened. Stop and record why before starting a third.
 
 The final verification covers the layer where the user experienced the defect:
 
@@ -122,11 +66,9 @@ The final verification covers the layer where the user experienced the defect:
 - run focused tests and type/build checks through repository wrappers;
 - check real UI, persisted state, transport, or recipient output where relevant;
 - review provider, platform, lifecycle, and concurrency blast radius;
-- use an independent adversarial reviewer for broad, hot-path, security,
-  session-binding, provider-boundary, or final integration changes.
+- use an independent adversarial reviewer for broad, hot-path, security, session-binding, provider-boundary, or final integration changes.
 
-Unit-green alone does not close a user-visible defect. Deferred final
-user-layer evidence remains explicit open risk.
+Unit-green alone does not close a user-visible defect. Deferred final user-layer evidence remains explicit open risk.
 
 Testing ladder — per task = focused checks in its lane; per merged wave = one canonical batch of its focused selectors; per release = the broad gate once on the release SHA, then the platform matrix.
 
@@ -134,10 +76,7 @@ Repository-specific restrictions override generic gate suggestions.
 
 ## Integration and cleanup
 
-Integrate accepted work with a real merge commit. Never cherry-pick, squash,
-replay, or patch-copy lane work. Never merge a lane into canonical while a
-canonical writer attempt is live; the merge is plain git, so the accept refusal
-is the recorded stop.
+Integrate accepted work with a real merge commit. Never cherry-pick, squash, replay, or patch-copy lane work. Never merge a lane into canonical while a canonical writer attempt is live; the merge is plain git, so the accept refusal is the recorded stop.
 
 Before deleting a lane:
 
@@ -147,8 +86,7 @@ git merge-base --is-ancestor <lane-tip> <integration-tip>
 
 At every group close:
 
-- pending regression records and retrospectives are advisory; dispatch remains
-  available when authorization, dependencies, review, and lane checks pass;
+- pending regression records and retrospectives are advisory; dispatch remains available when authorization, dependencies, review, and lane checks pass;
 - close completed Worker tabs;
 - remove merged worktrees and branches;
 - stop lane-specific dev processes;
@@ -156,21 +94,15 @@ At every group close:
 - prune stale or superseded milestones;
 - re-run reconciliation and re-derive the frontier.
 
-More than five worktrees or direct Workers is cleanup pressure. More than ten is
-critical: clean inactive or merged lanes before expanding the wave.
+More than five worktrees or direct Workers is cleanup pressure. More than ten is critical: clean inactive or merged lanes before expanding the wave.
 
 ## Heartbeat
 
-Heartbeat preserves the control loop across idle time and compaction. The
-daemon derives it from plan state, live assignments, gates, and durable
-learnings. Orchestrators do not edit heartbeat fields.
+Heartbeat preserves the control loop across idle time and compaction. The daemon derives it from plan state, live assignments, gates, and durable learnings. Orchestrators do not edit heartbeat fields.
 
-A reminder names actionable task ids and gives one compact count for tasks
-parked in later groups. Dependency-waiting, later-group, and machine-paused
-tasks need no dispatch action.
+A reminder names actionable task ids and gives one compact count for tasks parked in later groups. Dependency-waiting, later-group, and machine-paused tasks need no dispatch action.
 
-Do not create self-send polling reminders. The plan already wakes the
-Orchestrator for open work and Worker reports.
+Do not create self-send polling reminders. The plan already wakes the Orchestrator for open work and Worker reports.
 
 ## Handoffs and plan skills
 
@@ -193,8 +125,7 @@ codeterm plan skill new <slug>
 codeterm plan skill edit <slug>
 ```
 
-Keep the oracle immutable and record keep/discard/supersede honestly. Promote a
-generally reusable recipe only during retrospective.
+Keep the oracle immutable and record keep/discard/supersede honestly. Promote a generally reusable recipe only during retrospective.
 
 ## Closeout
 
@@ -211,29 +142,10 @@ An effort is complete only when:
 
 ## Team-bound resources
 
-Every created agent, utility shell, and schedule belongs to its Team. Bind
-utility tabs and crons with `--team <team-id>`; helpers join with
-`codeterm agent spawn <provider> --team <team-id>` or
-`codeterm team adopt-agent <team-id> <tab-id>`. Create a standalone shell or
-cron only at the user's request. Team close finalizes members, attempts, lanes,
-and crons; workspace close applies this to every Team it contains. A Planner
-without spawn authority routes requests, including role, reason, and owned work,
-to its Orchestrator.
+Every created agent, utility shell, and schedule belongs to its Team. Bind utility tabs and crons with `--team <team-id>`; helpers join with `codeterm agent spawn <provider> --team <team-id>` or `codeterm team adopt-agent <team-id> <tab-id>`. Create a standalone shell or cron only at the user's request. Team close finalizes members, attempts, lanes, and crons; workspace close applies this to every Team it contains. A Planner without spawn authority routes requests, including role, reason, and owned work, to its Orchestrator.
 
 ## Closing a busy Team
 
-`codeterm team close <team>` is refused (`[TEAM CLOSE REFUSED] busy`, HTTP
-`409`) while any Team task is `in_progress` or any Worker member is working; the
-message names each Worker and task and nothing is closed. Finish or park the
-work first, or pass `--force` (`force_busy: true`; the desktop and web close
-dialogs send it after confirmation). A forced close reports `killed_workers`,
-`unfinished_tasks`, and `flagged_plans`. A plan that still has unfinished tasks
-is never archived: it stays `active`, ownerless and teamless, with an
-`orphaned` record (`team_id`, `reason`, `unfinished_task_ids`) that `plan list`
-shows as `[flagged: <reason>]`. Its in-progress tasks return to `pending` with
-the `team-closed` label, dirty lanes stay as cleanup debt, and `plan next`
-advises only `codeterm team adopt-plan <team-id> <plan>`, which clears the flag.
-A workspace close passes its `force` through as `force_busy`. A workspace with
-no tabs and no Teams closes for any caller, even without tab identity.
+`codeterm team close <team>` is refused (`[TEAM CLOSE REFUSED] busy`, HTTP `409`) while any Team task is `in_progress` or any Worker member is working; the message names each Worker and task and nothing is closed. Finish or park the work first, or pass `--force` (`force_busy: true`; the desktop and web close dialogs send it after confirmation). A forced close reports `killed_workers`, `unfinished_tasks`, and `flagged_plans`. A plan that still has unfinished tasks is never archived: it stays `active`, ownerless and teamless, with an `orphaned` record (`team_id`, `reason`, `unfinished_task_ids`) that `plan list` shows as `[flagged: <reason>]`. Its in-progress tasks return to `pending` with the `team-closed` label, dirty lanes stay as cleanup debt, and `plan next` advises only `codeterm team adopt-plan <team-id> <plan>`, which clears the flag. A workspace close passes its `force` through as `force_busy`. A workspace with no tabs and no Teams closes for any caller, even without tab identity.
 
-<!-- revision: 13 -->
+<!-- revision: 15 -->

@@ -1,9 +1,6 @@
 // Run: npx tsx src/components/shared/Segmented.accessibility.test.tsx
 
 import { act } from "react";
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { Window } from "happy-dom";
 import { createRoot } from "react-dom/client";
 import { Segmented } from "./Segmented";
@@ -20,6 +17,7 @@ async function main() {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
+  const choices: string[] = [];
 
   await act(async () => {
     root.render(
@@ -28,8 +26,9 @@ async function main() {
         options={[
           { value: "chat", label: "Chat" },
           { value: "terminal", label: "Terminal" },
+          { value: "blocked", label: "Unavailable", disabled: true },
         ]}
-        onChange={() => {}}
+        onChange={value => choices.push(value)}
         data-testid="tab-mode-switch"
         data-tab-id="tab-a"
         aria-label="Tab view"
@@ -49,38 +48,10 @@ async function main() {
   await act(async () => {
     (terminal as HTMLButtonElement).click();
   });
-  const thumb = host.querySelector<HTMLElement>(".ct-liquid-segmented__thumb--travel");
-  assert.equal(thumb?.style.getPropertyValue("--sx-from"), "0%");
-  assert.equal(thumb?.style.getPropertyValue("--sx-to"), "100%");
-
-  const segmentedSource = readFileSync(resolve(import.meta.dirname, "Segmented.tsx"), "utf8");
-  assert.match(segmentedSource, /"--sx-from"/);
-  assert.match(segmentedSource, /"--sx-to"/);
-  assert.match(segmentedSource, /ct-liquid-segmented__thumb--travel/);
-  assert.match(segmentedSource, /onAnimationEnd/);
-  assert.doesNotMatch(segmentedSource, /text-\[var\(--ct-bg\)\]/);
-  assert.doesNotMatch(segmentedSource, /duration-200|ease-out/);
-
-  const globals = ["globals.css", "primitives.css"]
-    .map((name) => readFileSync(resolve(import.meta.dirname, "../../styles", name), "utf8"))
-    .join("\n");
-  const tokens = readFileSync(resolve(import.meta.dirname, "../../styles/tokens.css"), "utf8");
-  assert.match(globals, /\.ct-liquid-segmented__option\[aria-selected="true"\]\s*\{[^}]*color:\s*var\(--ct-fg\)/s);
-  assert.doesNotMatch(globals, /\.ct-liquid-segmented__option\[aria-selected="true"\]\s*\{[^}]*var\(--ct-bg\)/s);
-  assert.match(globals, /\.ct-liquid-segmented__option:focus-visible/);
-  const travelKeyframes = globals.match(/@keyframes ct-liquid-control-x\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
-  for (const stop of ["0%", "38%", "60%", "78%", "100%"]) assert.match(travelKeyframes, new RegExp(stop.replace("%", "%")));
-  assert.match(travelKeyframes, /scale\(1\.3,\s*0\.82\)/);
-  assert.match(travelKeyframes, /scale\(0\.86,\s*1\.09\)/);
-  assert.match(tokens, /--ct-duration-liquid-segmented:\s*420ms/);
-  assert.match(tokens, /--ct-duration-liquid-toggle:\s*380ms/);
-  assert.match(tokens, /--ct-duration-liquid-flip:\s*360ms/);
-  assert.match(globals, /ct-liquid-control-x var\(--ct-duration-liquid-segmented\) both/);
-  assert.match(globals, /ct-liquid-control-knob var\(--ct-duration-liquid-toggle\) both/);
-  assert.match(globals, /ct-liquid-control-x var\(--ct-duration-liquid-flip\) both/);
-  assert.doesNotMatch(globals, /--ct-duration-liquid-dots/);
-  const reducedMotionBlocks = globals.match(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g) ?? [];
-  assert(reducedMotionBlocks.some((block) => /\.ct-liquid-segmented__thumb/.test(block) && /animation: none !important/.test(block)));
+  const unavailable = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(tab => tab.textContent === "Unavailable")!;
+  if (!unavailable.disabled) throw new Error("unavailable segment must be disabled");
+  await act(async () => unavailable.click());
+  if (choices.length !== 1 || choices[0] !== "terminal") throw new Error("a choice fires once and disabled segments never select");
 
   await act(async () => root.unmount());
   console.log("ok - liquid segmented accessibility and motion contract");

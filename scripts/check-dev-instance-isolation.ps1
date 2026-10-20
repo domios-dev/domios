@@ -1,3 +1,4 @@
+# Caller: manual: PowerShell dev-instance isolation check (Windows)
 param(
   [int] $NamedPort = 7787,
   [string] $NamedInstance = "provider-model-oracle"
@@ -48,18 +49,18 @@ try {
   }
   Assert-DefaultHealth (Health 7686) $expectedSha
 
-  $savedInstance = $env:CODETERM_INSTANCE
-  $savedApiPort = $env:CODETERM_API_PORT
+  $savedInstance = $env:CODETERM_DEV_INSTANCE
+  $savedApiPort = $env:CODETERM_DEV_API_PORT
   try {
-    $env:CODETERM_INSTANCE = $NamedInstance
-    $env:CODETERM_API_PORT = [string]$NamedPort
+    $env:CODETERM_DEV_INSTANCE = $NamedInstance
+    $env:CODETERM_DEV_API_PORT = [string]$NamedPort
     & .\build.ps1 kill
     if ($LASTEXITCODE -ne 0) {
       throw "named cleanup exited with $LASTEXITCODE"
     }
   } finally {
-    $env:CODETERM_INSTANCE = $savedInstance
-    $env:CODETERM_API_PORT = $savedApiPort
+    $env:CODETERM_DEV_INSTANCE = $savedInstance
+    $env:CODETERM_DEV_API_PORT = $savedApiPort
   }
 
   $defaultAfter = ListenerPid 7686

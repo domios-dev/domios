@@ -1,9 +1,10 @@
 /** chatBackend model picker backed by the live provider catalog and session API. */
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronUp } from "lucide-react";
 import type { ModelInfo } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { getChatModelBubbleApi } from "./chatModelBubbleApi";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 export function ChatModelBubble({
   pluginId,
@@ -22,6 +23,7 @@ export function ChatModelBubble({
   const [currentModel, setCurrentModel] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let alive = true;
@@ -112,6 +114,7 @@ export function ChatModelBubble({
       }}
     >
       <button
+        ref={triggerRef}
         type="button"
         data-testid="chat-model-bubble"
         className="ct-chat-model-bubble inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs font-mono hover:brightness-110"
@@ -131,17 +134,12 @@ export function ChatModelBubble({
         <span>{label ?? "Select model"}</span>
         <ChevronUp size={11} className="opacity-70" />
       </button>
-      {open && (
+      <AnchoredPopover open={open} anchor={triggerRef} placement="top-start" onClose={() => setOpen(false)}>
         <div
           role="menu"
           aria-label="Available models"
-          className="ct-menu absolute bottom-full left-0 mb-1"
-          style={{
-            maxHeight: 260,
-            overflowY: "auto",
-            "--ct-menu-origin": "bottom left",
-            "--ct-menu-shift": "6px",
-          } as CSSProperties}
+          className="ct-menu"
+          style={{ maxHeight: 260, overflowY: "auto" }}
         >
           {models.map((model) => {
             const selected = model.id === currentModel;
@@ -167,7 +165,7 @@ export function ChatModelBubble({
             );
           })}
         </div>
-      )}
+      </AnchoredPopover>
 
     </div>
   );

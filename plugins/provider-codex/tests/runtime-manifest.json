@@ -1,5 +1,6 @@
 {
   "agentRuntime": {
+    "storedHistory": true,
     "runtime": "stdio-jsonrpc",
     "command": {
       "binary": "codex",
@@ -15,7 +16,8 @@
       "initialize": [
         "initialize",
         "initialized",
-        "account/read"
+        "account/read",
+        "account/rateLimits/read"
       ],
       "openThread": [
         "thread/start",
@@ -25,6 +27,10 @@
         "thread/resume",
         "thread/read",
         "thread/unarchive"
+      ],
+      "forkThread": [
+        "thread/turns/list",
+        "thread/fork"
       ],
       "readHistory": [
         "thread/turns/list",
@@ -45,7 +51,22 @@
         "thread/inject_items",
         "account/read",
         "account/login/start",
-        "account/login/cancel"
+        "account/login/cancel",
+        "account/rateLimits/read",
+        "account/rateLimitResetCredit/consume",
+        "thread/goal/get",
+        "thread/goal/set",
+        "thread/goal/clear",
+        "thread/turns/list",
+        "thread/fork",
+        "thread/revert",
+        "model/list",
+        "configRequirements/read"
+      ],
+      "backgroundProcesses": [
+        "thread/backgroundTerminals/list",
+        "thread/backgroundTerminals/terminate",
+        "thread/backgroundTerminals/clean"
       ]
     },
     "notificationMethods": [
@@ -58,6 +79,7 @@
       "thread/compacted",
       "thread/goal/updated",
       "thread/goal/cleared",
+      "thread/reverted",
       "model/rerouted",
       "turn/diff/updated",
       "account/rateLimits/updated",
@@ -70,8 +92,10 @@
       "item/plan/delta",
       "item/reasoning/textDelta",
       "item/reasoning/summaryTextDelta",
+      "item/reasoning/summaryPartAdded",
       "item/commandExecution/outputDelta",
       "item/fileChange/outputDelta",
+      "item/fileChange/patchUpdated",
       "item/mcpToolCall/progress",
       "serverRequest/resolved",
       "error"
@@ -83,7 +107,39 @@
         "apiKey"
       ],
       "terminalCommand": "codex login"
-    }
+    },
+    "usage": true,
+    "resetCreditsMinVersion": "0.163.0",
+    "backgroundProcesses": true,
+    "goals": {
+      "actions": [
+        "read",
+        "cancel",
+        "pause",
+        "resume",
+        "complete"
+      ]
+    },
+    "threadHistory": {
+      "actions": [
+        "fork",
+        "revert"
+      ]
+    },
+    "serviceTiers": [
+      {
+        "id": "priority",
+        "name": "Fast",
+        "description": "",
+        "unavailableReason": "Availability not confirmed"
+      },
+      {
+        "id": "ultrafast",
+        "name": "Ultrafast",
+        "description": "",
+        "unavailableReason": "Not available on your plan"
+      }
+    ]
   },
   "chatBackend": {
     "spawnable": true,

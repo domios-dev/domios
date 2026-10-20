@@ -17,7 +17,7 @@ assert.equal(readUpdateIntent("broken"), null);
 assert.deepEqual(nextUpdateStep(createUpdateIntent(items.filter(item => item.group === "Plugins")), "1.0.0", items), { kind: "plugin", id: "plugin" });
 console.log("update panel grouping and persisted ordering: 7 assertions passed");
 
-import { availabilityIntent, hasUpdateBadge, panelItems } from "./updatePanelModel";
+import { availabilityIntent, hasUpdateBadge, panelItems, updateableItems } from "./updatePanelModel";
 import type { UpdateAvailabilityItem } from "./updateAvailability";
 const plugin: UpdateAvailabilityItem = { id: "plugin", kind: "plugin", installed: "1.0.0", latest: "2.0.0", compatible: true, state: "update_available", channel: "official", reason: "newer" };
 assert.equal(hasUpdateBadge(plugin), true);
@@ -41,3 +41,12 @@ assert.equal(hasUpdateBadge({ ...staged, kind: "plugin" }), false);
 assert.equal(panelItems([staged])[0].group, "Interface");
 assert.deepEqual(nextUpdateStep(availabilityIntent([staged]), "1.0.0", panelItems([staged])), { kind: "interface" });
 console.log("staged Interface availability: 5 assertions passed");
+
+const failingChannelItem: UpdateAvailabilityItem = { ...plugin, id: "core-plugin", channel: "codeterm-core" };
+const healthyChannelItem: UpdateAvailabilityItem = { ...plugin, id: "teams-client", channel: "codeterm-plugins" };
+const channelErrors = { "codeterm-core": "Plugin updates are unavailable right now. Domios will retry." };
+const channelRows = panelItems([failingChannelItem, healthyChannelItem], channelErrors);
+assert.equal(channelRows.find(item => item.id === "core-plugin")?.channelError, channelErrors["codeterm-core"]);
+assert.equal(channelRows.find(item => item.id === "teams-client")?.channelError, undefined);
+assert.deepEqual(availabilityIntent(updateableItems([failingChannelItem, healthyChannelItem], channelErrors)).pluginIds, ["teams-client"]);
+console.log("failed channel isolation with one healthy channel: 3 assertions passed");

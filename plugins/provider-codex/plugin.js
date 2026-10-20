@@ -30,52 +30,401 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
-// plugins/provider-codex/src/runtimeProtocol.ts
-function object(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+// plugins/provider-shared/sessionRecords.ts
+function* sessionRecords(input, accepts) {
+  if (typeof input !== "string") {
+    for (const record6 of input) yield { row: record6.row, value: record6.value };
+    return;
+  }
+  const lines = String(input || "").split("\n");
+  for (let row3 = 0; row3 < lines.length; row3++) {
+    const line = lines[row3];
+    if (!line || accepts && !accepts(line)) continue;
+    let value;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    yield { row: row3, value };
+  }
 }
-function text(value) {
-  return typeof value === "string" && value.length > 0 ? value : void 0;
-}
-function list(value) {
-  return Array.isArray(value) ? value : [];
-}
-function userThread(value, expected) {
-  const thread = object(object(value).thread);
-  const id = text(thread.id);
-  if (!id || expected && expected !== id || thread.parentThreadId != null || object(thread.source).subAgent != null || String(thread.threadSource ?? "").toLowerCase().startsWith("subagent")) return void 0;
-  return id;
-}
-function steerRefused(error, turn) {
-  return error.code === -32600 && error.data == null && (error.message === "no active turn to steer" || error.message.startsWith(`expected active turn id \`${turn}\` but found \``) && error.message.endsWith("`"));
-}
-function archivedResume(message) {
-  const words = message.toLowerCase().split(/\s+/).map((word) => word.replace(/^[`"']+|[`"'.:;,]+$/g, ""));
-  return words.some((word, index) => word === "codex" && words[index + 1] === "unarchive" || word === "session" && !!words[index + 1] && words[index + 2] === "is" && words[index + 3] === "archived");
-}
-var serverRequestMethods = [
-  "item/commandExecution/requestApproval",
-  "item/fileChange/requestApproval",
-  "item/permissions/requestApproval",
-  "item/tool/requestUserInput",
-  "mcpServer/elicitation/request"
-];
 
-// plugins/provider-codex/src/canonicalJson.ts
-function canonicalJson(value, indentation = 0) {
-  const normalized = JSON.parse(JSON.stringify(value ?? null));
-  const gap = " ".repeat(Math.max(0, Math.min(10, Math.trunc(indentation))));
-  const render = (node, depth) => {
-    if (node === null || typeof node !== "object") return JSON.stringify(node);
-    const parts = Array.isArray(node) ? node.map((entry) => render(entry, depth + 1)) : Object.keys(node).sort().map((key) => `${JSON.stringify(key)}:${gap ? " " : ""}${render(node[key], depth + 1)}`);
-    const [open, close] = Array.isArray(node) ? ["[", "]"] : ["{", "}"];
-    if (!parts.length) return open + close;
-    return gap ? `${open}
-${gap.repeat(depth + 1)}${parts.join(`,
-${gap.repeat(depth + 1)}`)}
-${gap.repeat(depth)}${close}` : open + parts.join(",") + close;
+// plugins/provider-shared/readHome.ts
+function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
+  if (!inheritedHome) return fallback;
+  if (!subpath) return inheritedHome;
+  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
+}
+
+// plugins/provider-codex/src/sessions.ts
+var sessionStoreOverrides = {
+  root: "CODETERM_CODEX_SESSIONS_ROOT",
+  index: "CODETERM_CODEX_SESSION_INDEX_PATH",
+  state: "CODETERM_CODEX_STATE_DB_PATH"
+};
+var STATE_DB_NAME = /^state_(\d+)\.sqlite$/;
+function foldSessionIndex(contents) {
+  const folded = /* @__PURE__ */ new Map();
+  const lines = String(contents || "").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch (_) {
+      continue;
+    }
+    if (!entry || typeof entry.id !== "string" || !entry.id.trim()) continue;
+    if (typeof entry.thread_name !== "string" || typeof entry.updated_at !== "string") continue;
+    const current = folded.get(entry.id);
+    if (!current || sessionTimestamp(entry.updated_at) > sessionTimestamp(current.updated_at)) {
+      folded.set(entry.id, {
+        id: entry.id,
+        thread_name: entry.thread_name,
+        updated_at: entry.updated_at
+      });
+    }
+  }
+  return Array.from(folded.values());
+}
+function sessionFilePath(_cwd, sessionId) {
+  const path = trimmedField(threadRow(sessionId), "rollout_path");
+  return path && host.fs.fileExists(path) ? path : null;
+}
+function sessionExists(_cwd, sessionId) {
+  if (!sessionId) return false;
+  if (threadRow(sessionId) !== null) return true;
+  const store = codexSessionStore();
+  return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
+}
+function detectSessionId(cwd, exclude, maxAgeMs) {
+  if (!cwd || !host.fs.fileExists(cwd)) return null;
+  const store = codexSessionStore();
+  if (!store) return null;
+  const entries = readSessionIndex(store.indexPath);
+  if (entries.length === 0) return null;
+  const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
+  const now = host.unixNowMs ? host.unixNowMs() : Date.now();
+  const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0 ? maxAgeMs : 3e5;
+  const matching = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (excluded.has(entry.id)) continue;
+    const updatedMs = sessionTimestamp(entry.updated_at);
+    if (updatedMs > 0 && now - updatedMs > ageLimit) continue;
+    const project = readThreadCwd(entry.id);
+    if (project && host.path.equal(project, cwd)) matching.push(entry.id);
+  }
+  return matching.length === 1 ? matching[0] : null;
+}
+function enumerateSessions() {
+  const store = codexSessionStore();
+  if (!store) return [];
+  const entries = readSessionIndex(store.indexPath);
+  return entries.map((entry) => ({
+    sessionId: entry.id,
+    provider: "codex",
+    projectPath: readThreadCwd(entry.id),
+    title: entry.thread_name || null,
+    summary: null,
+    filePath: store.indexPath,
+    createdTs: null,
+    modifiedTs: sessionTimestamp(entry.updated_at) > 0 ? Math.floor(sessionTimestamp(entry.updated_at) / 1e3) : null
+  }));
+}
+function findSession(sessionId) {
+  const row3 = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
+  if (!row3) return null;
+  const store = codexSessionStore();
+  return {
+    sessionId,
+    provider: "codex",
+    projectPath: resolveThreadCwd(sessionId, row3),
+    title: trimmedField(row3, "name") || trimmedField(row3, "title"),
+    summary: null,
+    filePath: store ? store.indexPath : codexStateDbPath() || "",
+    createdTs: unixSeconds(row3.created_at),
+    modifiedTs: unixSeconds(row3.updated_at)
   };
-  return render(normalized, 0);
+}
+function detectSessionModel(_cwd, sessionId) {
+  return trimmedField(threadRow(sessionId), "model");
+}
+function detectSessionReasoningEffort(_cwd, sessionId) {
+  const path = sessionFilePath(_cwd, sessionId);
+  if (!path) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (typeof contents !== "string") return null;
+  const lines = contents.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    let entry;
+    try {
+      entry = JSON.parse(lines[index]);
+    } catch (_) {
+      continue;
+    }
+    if (entry.type !== "turn_context" || typeof entry.payload?.effort !== "string") continue;
+    const effort = entry.payload.effort.trim();
+    if (effort) return effort;
+  }
+  return null;
+}
+function threadRow(sessionId) {
+  return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
+}
+function queryThreadRow(sessionId, sql) {
+  if (!sessionId) return null;
+  const db = codexStateDbPath();
+  if (!db || !host.fs.fileExists(db)) return null;
+  try {
+    const rows2 = host.fs.sqliteQuery(db, sql, [sessionId]);
+    return rows2.length > 0 ? rows2[0] : null;
+  } catch (_) {
+    return null;
+  }
+}
+function unixSeconds(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+}
+function trimmedField(row3, field) {
+  const value = row3 ? row3[field] : null;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+function codexStateDbPath() {
+  const override = host.envGet(sessionStoreOverrides.state);
+  if (override) return override;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
+  let entries;
+  try {
+    entries = host.fs.readDir(root);
+  } catch (_) {
+    return null;
+  }
+  let best = null;
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!entry || !entry.isFile) continue;
+    const match = STATE_DB_NAME.exec(entry.name);
+    if (!match) continue;
+    const version = parseInt(match[1], 10);
+    if (!best || version > best.version) best = { name: entry.name, version };
+  }
+  return best ? root + sep + best.name : null;
+}
+function extractSessionUuid(stem) {
+  if (typeof stem !== "string") return null;
+  const prefix = "rollout-";
+  if (stem.indexOf(prefix) !== 0) return null;
+  const rest = stem.substring(prefix.length);
+  if (rest.length <= 20 || rest.charAt(19) !== "-") return null;
+  return rest.substring(20);
+}
+function codexSessionStore() {
+  const indexOverride = host.envGet(sessionStoreOverrides.index);
+  if (indexOverride) return { indexPath: indexOverride };
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
+  return {
+    indexPath: indexOverride || root + sep + "session_index.jsonl"
+  };
+}
+function trimTrailingSeparators(path) {
+  let end = path.length;
+  while (end > 1 && (path.charAt(end - 1) === "/" || path.charAt(end - 1) === "\\")) end--;
+  return path.substring(0, end);
+}
+function codexSessionsRoot(sep) {
+  const override = host.envGet(sessionStoreOverrides.root);
+  if (override) return trimTrailingSeparators(override);
+  const home = host.homeDir();
+  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" : null, "", sep);
+}
+function readSessionIndex(path) {
+  if (!host.fs.fileExists(path)) return [];
+  const contents = host.fs.readFile(path);
+  return typeof contents === "string" ? foldSessionIndex(contents) : [];
+}
+function sessionIndexEntry(path, sessionId) {
+  const entries = readSessionIndex(path);
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].id === sessionId) return entries[i];
+  }
+  return null;
+}
+var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
+function readThreadCwd(sessionId) {
+  return resolveThreadCwd(sessionId, threadRow(sessionId));
+}
+function resolveThreadCwd(sessionId, row3) {
+  if (!row3) {
+    logUnresolvedCwd(sessionId, "no_row");
+    return null;
+  }
+  const cwd = trimmedField(row3, "cwd");
+  if (!cwd) {
+    logUnresolvedCwd(sessionId, "no_cwd");
+    return null;
+  }
+  if (!host.fs.fileExists(cwd)) {
+    logUnresolvedCwd(sessionId, "cwd_absent");
+    return null;
+  }
+  return cwd;
+}
+function logUnresolvedCwd(sessionId, cause) {
+  const key = sessionId + "\0" + cause;
+  if (unresolvedCwdDiagnostics.has(key)) return;
+  unresolvedCwdDiagnostics.add(key);
+  host.log("warn", JSON.stringify({
+    provider: "codex",
+    event: "session_cwd_unresolved",
+    sessionId,
+    cause
+  }));
+}
+function sessionTimestamp(value) {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+// plugins/provider-codex/src/launchSession.ts
+var MARKER_PREFIX = "codeterm-launch-marker:";
+var MIN_MARKER_LENGTH = 16;
+var ROLLOUT_HEAD_BYTES = 262144;
+var EARLY_RECORDS = 24;
+var CANDIDATE_THREADS = 64;
+function withLaunchMarker(instructions, marker) {
+  if (!marker) return instructions;
+  return instructions + "\n\n<!-- " + MARKER_PREFIX + " " + marker + " -->\n";
+}
+function detectCodexLaunchSession(evidence) {
+  const marker = evidence && typeof evidence.launchMarker === "string" ? evidence.launchMarker : "";
+  if (marker.length < MIN_MARKER_LENGTH) return null;
+  const db = codexStateDbPath();
+  if (!db || !host.fs.fileExists(db)) return null;
+  const since = Math.floor(Math.max(0, Number(evidence.launchedAtMs) || 0) / 1e3);
+  const rows2 = host.fs.sqliteQuery(
+    db,
+    "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT " + CANDIDATE_THREADS,
+    [since]
+  );
+  const matches = [];
+  for (let i = 0; i < rows2.length; i++) {
+    const id = typeof rows2[i].id === "string" ? rows2[i].id : "";
+    const path = typeof rows2[i].rollout_path === "string" ? rows2[i].rollout_path : "";
+    if (!id || !path || matches.indexOf(id) !== -1) continue;
+    if (rolloutCarriesMarker(path, id, marker)) matches.push(id);
+  }
+  return matches.length === 1 ? { sessionId: matches[0], source: "launch_marker" } : null;
+}
+function rolloutCarriesMarker(path, id, marker) {
+  const head = host.fs.readFileHead(path, ROLLOUT_HEAD_BYTES);
+  if (typeof head !== "string") return false;
+  const lines = head.split("\n");
+  let records = 0;
+  for (let i = 0; i < lines.length && records < EARLY_RECORDS; i++) {
+    if (!lines[i].trim()) continue;
+    records++;
+    let entry;
+    try {
+      entry = JSON.parse(lines[i]);
+    } catch (_) {
+      if (records === 1) return false;
+      continue;
+    }
+    const payload = entry && entry.payload;
+    if (records === 1) {
+      if (entry.type !== "session_meta" || !payload || payload.id !== id) return false;
+      continue;
+    }
+    if (entry.type !== "response_item" || !payload || payload.type !== "message") continue;
+    if (payload.role !== "developer" && payload.role !== "user") continue;
+    const content = Array.isArray(payload.content) ? payload.content : [];
+    for (let j = 0; j < content.length; j++) {
+      const text7 = content[j] && content[j].text;
+      if (typeof text7 === "string" && text7.indexOf(marker) !== -1) return true;
+    }
+  }
+  return false;
+}
+
+// plugins/provider-codex/src/launchSpec.ts
+var CODEX_LAUNCH_CONFIG = ["-c", "check_for_update_on_startup=false", "-c", "project_doc_max_bytes=65536"];
+var POSIX_ARGV_BUDGET = 256 * 1024;
+function hostOwnedCodexLaunchArgs(hostOwned) {
+  return hostOwned?.questions ? ["--disable", "default_mode_request_user_input"] : [];
+}
+function utf8Bytes(value) {
+  let bytes = 0;
+  for (const character of value) {
+    const code = character.codePointAt(0);
+    bytes += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+  }
+  return bytes;
+}
+function supportsDirectResume() {
+  try {
+    const manifest = JSON.parse(host.manifestJson() || "null");
+    const minimum = manifest?.capabilities?.structuredControl?.minVersion;
+    const observed = JSON.parse(host.providerVersionJson());
+    if (observed?.status !== "detected" || typeof minimum !== "string") return false;
+    const parse = (value) => /^(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);
+    const version = parse(String(observed.version));
+    const bound = parse(minimum);
+    if (!version || !bound) return false;
+    for (let index = 0; index < 3; index++) {
+      if (version[index] !== bound[index]) return version[index] > bound[index];
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+function buildCodexLaunchSpec(input, starter) {
+  const platform = host.platform();
+  if (platform === "windows") return null;
+  const hostOwned = "resume" in input ? input.resume?.hostOwned : input.hostOwned;
+  const args = [...CODEX_LAUNCH_CONFIG];
+  if ("resume" in input) {
+    const resume = input.resume;
+    if (!resume || typeof resume.sessionId !== "string" || !supportsDirectResume()) return null;
+    args.push("resume");
+    if (resume.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
+    args.push(extractSessionUuid(resume.sessionId) || resume.sessionId, "--no-daemon", ...resume.args || []);
+    args.push(...hostOwnedCodexLaunchArgs(hostOwned));
+  } else {
+    if (input.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
+    args.push(...input.args || []);
+    args.push(...hostOwnedCodexLaunchArgs(hostOwned));
+    if (input.task?.trim()) {
+      const instructions = withLaunchMarker(input.task, input.launchMarker).replace(/\n+$/, "");
+      args.push("-c", "developer_instructions=" + instructions);
+      const prompt = starter(input);
+      if (prompt) args.push("--", prompt);
+    }
+  }
+  const values = ["codex", ...args];
+  if (values.some((value) => value.includes("\0"))) return null;
+  if (values.reduce((bytes, value) => bytes + utf8Bytes(value) + 1, 0) > POSIX_ARGV_BUDGET) return null;
+  if (platform === "linux" && values.some((value) => utf8Bytes(value) + 1 > 128 * 1024)) return null;
+  let exclusions;
+  try {
+    exclusions = JSON.parse(host.manifestJson() || "null")?.capabilities?.agentRuntime?.inheritedEnvironmentExclusions;
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(exclusions) || exclusions.some((value) => typeof value !== "string")) return null;
+  return { program: "codex", args, envSet: {}, envUnset: [...exclusions] };
+}
+function codexCommandFromSpec(spec) {
+  const quote = (value) => host.shell.quoteFor(value, host.platform());
+  const unset = spec.envUnset.length ? "unset " + spec.envUnset.map(quote).join(" ") + " && " : "";
+  return unset + [spec.program, ...spec.args].map((value) => /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(value) ? value : quote(value)).join(" ");
 }
 
 // packages/plugin-sdk/src/fileDiffs.ts
@@ -105,30 +454,790 @@ function recordedPatchDiff(path, patch, kind) {
   }];
 }
 
+// packages/plugin-sdk/src/remoteTasks.ts
+var RemoteTaskController = class {
+  constructor(storage, backend) {
+    this.storage = storage;
+    this.backend = backend;
+  }
+  create(tabId, providerId, environment, branch, prompt) {
+    if (this.backend.capability.availability.status !== "available") {
+      throw new Error(this.backend.capability.availability.reason);
+    }
+    if (!branch.trim() || !prompt.trim()) throw new Error("A branch and task are required");
+    const environments = this.backend.environments();
+    if (!environments.some((row3) => row3.id === environment.id && row3.accountRef === environment.accountRef)) {
+      throw new Error("Choose an environment available to this account");
+    }
+    const claim = {
+      revision: 0,
+      providerId,
+      executionMode: this.backend.capability.mode,
+      backend: this.backend.capability.backend,
+      environmentId: environment.id,
+      accountRef: environment.accountRef,
+      branch,
+      phase: "creating",
+      snapshot: null
+    };
+    if (!this.storage.compareExchange(tabId, null, claim)) {
+      throw new Error("This tab already has a remote task; creation was not repeated");
+    }
+    let acknowledgement;
+    try {
+      acknowledgement = this.backend.create({ environmentId: environment.id, accountRef: environment.accountRef, branch, prompt });
+      if (!acknowledgement.taskId) throw new Error("Missing remote task acknowledgement");
+    } catch {
+      const uncertain = { ...claim, revision: 1, phase: "create_uncertain" };
+      this.storage.compareExchange(tabId, claim.revision, uncertain);
+      return uncertain;
+    }
+    const bound = {
+      ...claim,
+      revision: 1,
+      phase: "bound",
+      snapshot: { taskId: acknowledgement.taskId, attempt: null, status: "pending", result: "", diff: null, cursor: null, error: null }
+    };
+    if (!this.storage.compareExchange(tabId, claim.revision, bound)) {
+      throw new Error("Remote creation was acknowledged but its binding could not be saved; do not submit again");
+    }
+    return bound;
+  }
+  restore(tabId) {
+    const binding = this.storage.read(tabId);
+    if (!binding) return null;
+    if (binding.executionMode !== this.backend.capability.mode) throw new Error("Remote execution mode does not match the stored tab");
+    if (binding.backend !== this.backend.capability.backend) throw new Error("Remote backend does not match the stored tab");
+    if (binding.phase !== "bound" || !binding.snapshot) {
+      if (binding.phase === "create_uncertain") return binding;
+      const uncertain = { ...binding, revision: binding.revision + 1, phase: "create_uncertain" };
+      if (!this.storage.compareExchange(tabId, binding.revision, uncertain)) return this.storage.read(tabId);
+      return uncertain;
+    }
+    const snapshot = this.backend.read(binding);
+    if (snapshot.taskId !== binding.snapshot.taskId) throw new Error("Remote response belongs to a different task");
+    const updated = { ...binding, revision: binding.revision + 1, snapshot };
+    if (!this.storage.compareExchange(tabId, binding.revision, updated)) return this.storage.read(tabId);
+    return updated;
+  }
+};
+
+// packages/plugin-sdk/src/remoteTaskStorage.ts
+var RemoteTaskFileStorage = class {
+  constructor(fs, root) {
+    this.fs = fs;
+    this.root = root;
+  }
+  path(tabId) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(tabId)) throw new Error("Invalid remote tab storage identity");
+    return `${this.root}/${tabId}.json`;
+  }
+  read(tabId) {
+    return this.readFile(this.path(tabId));
+  }
+  readFile(path) {
+    const raw = this.fs.readFile(path);
+    if (raw === null) return null;
+    const binding = JSON.parse(raw);
+    if (!binding || !Number.isSafeInteger(binding.revision) || binding.revision < 0 || !["creating", "create_uncertain", "bound"].includes(binding.phase) || ![binding.providerId, binding.executionMode, binding.backend, binding.environmentId, binding.accountRef, binding.branch].every((value) => typeof value === "string" && value.length > 0) || binding.phase === "bound" && (!binding.snapshot || typeof binding.snapshot.taskId !== "string" || !binding.snapshot.taskId)) {
+      throw new Error("Stored remote task binding is invalid; creation was not repeated");
+    }
+    return binding;
+  }
+  compareExchange(tabId, revision, next) {
+    const path = this.path(tabId);
+    if (!this.fs.makeDirs(this.root)) throw new Error("Remote task storage is unavailable");
+    const lock = this.fs.lockFile(`${path}.lock`);
+    if (!lock) throw new Error("Remote task storage is busy; creation was not repeated");
+    try {
+      if ((this.readFile(path)?.revision ?? null) !== revision) return false;
+      if (!this.fs.writeFileAtomic(path, JSON.stringify(next))) throw new Error("Remote task binding could not be saved");
+      return true;
+    } finally {
+      this.fs.unlockFile(lock);
+    }
+  }
+};
+
+// packages/plugin-sdk/src/activityLabel.ts
+var MAX_LABEL_CHARS = 60;
+var POWERSHELL = /* @__PURE__ */ new Set(["pwsh", "powershell"]);
+var POSIX_SHELLS = /* @__PURE__ */ new Set(["bash", "sh", "zsh"]);
+function executableName(token) {
+  const leaf = token.split(/[\\/]+/).filter(Boolean).pop() ?? token;
+  return leaf.replace(/\.(exe|cmd|bat|com)$/i, "");
+}
+function unquoteWhole(value) {
+  const trimmed = value.trim();
+  if (trimmed.length < 2 || !['"', "'"].includes(trimmed[0]) || trimmed[0] !== trimmed[trimmed.length - 1]) return trimmed;
+  if (!/^"(?:[^"\\]|\\.)*"$/.test(trimmed) && !/^'[^']*'$/.test(trimmed)) return trimmed;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return typeof parsed === "string" ? parsed : trimmed;
+  } catch {
+    return trimmed.slice(1, -1);
+  }
+}
+function tokenize(source) {
+  const tokens = [];
+  const starts = [];
+  let current = "";
+  let open = false;
+  let quote = "";
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i];
+    if (quote) {
+      if (char === "\\" && quote === '"' && source[i + 1] === '"') current += source[++i];
+      else if (char === quote) quote = "";
+      else current += char;
+    } else if (char === '"' || char === "'") {
+      if (!open) {
+        starts.push(i);
+        open = true;
+      }
+      quote = char;
+    } else if (/\s/.test(char)) {
+      if (open) {
+        tokens.push(current);
+        current = "";
+        open = false;
+      }
+    } else {
+      if (!open) {
+        starts.push(i);
+        open = true;
+      }
+      current += char;
+    }
+  }
+  if (open) tokens.push(current);
+  return { tokens, rest: (index) => index < starts.length ? source.slice(starts[index]) : "" };
+}
+function argvParsed(argv) {
+  const display2 = argv.map((argument) => argument === "" || /[\s"']/.test(argument) ? JSON.stringify(argument) : argument);
+  return { tokens: argv, rest: (index) => display2.slice(index).join(" ") };
+}
+function isCommandSwitch(name, option) {
+  const flag = option.toLowerCase();
+  if (POWERSHELL.has(name)) return flag === "-command" || flag === "-c";
+  if (POSIX_SHELLS.has(name)) return /^-[a-z]*c$/.test(flag);
+  return name === "cmd" && (flag === "/c" || flag === "/k");
+}
+function innerCommand(parsed) {
+  const name = executableName(parsed.tokens[0] ?? "").toLowerCase();
+  if (!POWERSHELL.has(name) && !POSIX_SHELLS.has(name) && name !== "cmd") return null;
+  for (let i = 1; i < parsed.tokens.length; i++) {
+    if (!isCommandSwitch(name, parsed.tokens[i])) continue;
+    const inner = POSIX_SHELLS.has(name) ? parsed.tokens[i + 1] ?? "" : parsed.rest(i + 1);
+    return inner.trim() ? unquoteWhole(inner) : null;
+  }
+  return null;
+}
+function compact(value) {
+  return value.split(/\r?\n/, 1)[0].replace(/\s+/g, " ").trim();
+}
+function clip(value) {
+  const chars = Array.from(value);
+  if (chars.length <= MAX_LABEL_CHARS) return value;
+  const head = chars.slice(0, MAX_LABEL_CHARS - 1).join("");
+  const boundary = head.lastIndexOf(" ");
+  return (boundary > 30 ? head.slice(0, boundary) : head).trimEnd() + "\u2026";
+}
+function unwrapCommand(command, depth = 0) {
+  let parsed;
+  if (Array.isArray(command) && command.length > 0 && command.every((part) => typeof part === "string")) {
+    parsed = argvParsed(command);
+  } else if (typeof command === "string") {
+    parsed = tokenize(unquoteWhole(command).replace(/^&\s+/, ""));
+  } else {
+    return "";
+  }
+  if (parsed.tokens.length === 0) return "";
+  const inner = innerCommand(parsed);
+  if (inner !== null && depth < 8) return unwrapCommand(inner, depth + 1);
+  const source = parsed.rest(0);
+  const stripped = source.replace(/^(?:Set-Location|cd)\s+(?:"[^"]*"|'[^']*'|[^;&\r\n]+)\s*(?:&&|;)\s*/i, "");
+  if (stripped !== source && depth < 8) return unwrapCommand(stripped, depth + 1);
+  const rest = parsed.rest(1);
+  return compact(`${executableName(parsed.tokens[0])}${rest ? " " + rest : ""}`);
+}
+function record(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function activityCommand(tool) {
+  const input = record(tool.toolInput);
+  const command = input.cmd ?? input.command ?? tool.toolDetail ?? (tool.toolKind === "command" ? tool.toolSummary : void 0);
+  return Array.isArray(command) ? argvParsed(command.map(String)).rest(0) : typeof command === "string" ? command : "";
+}
+function basename(value) {
+  return value.split(/[\\/]/).pop() || "file";
+}
+function activityLabel(tool) {
+  const input = record(tool.toolInput);
+  const name = tool.toolName ?? "";
+  const file = (Array.isArray(tool.fileDiffs) ? record(tool.fileDiffs[0]).path : void 0) ?? input.file_path ?? input.path;
+  if (tool.toolKind === "edit" || /apply_patch|^(?:Edit|Write|MultiEdit)$/i.test(name)) {
+    const patch = typeof tool.toolInput === "string" ? tool.toolInput : String(input.patch ?? input.input ?? "");
+    const path = typeof file === "string" ? file : patch.match(/\*\*\* (?:Update|Add|Delete) File: (.+)/)?.[1] ?? tool.toolSummary;
+    return path ? clip(`Editing ${basename(path.split(/\r?\n/)[0])}`) : "Editing files";
+  }
+  if (tool.toolKind === "read" || /^(?:Read|read_file)$/i.test(name)) {
+    return typeof file === "string" ? clip(`Reading ${basename(file)}`) : "Reading files";
+  }
+  if (tool.toolKind !== "command" && input.cmd === void 0 && input.command === void 0) {
+    return clip(compact(tool.toolTitle || name || "Working"));
+  }
+  const command = activityCommand(tool);
+  if (!command) return clip(compact(tool.toolTitle || name || "Working"));
+  const unwrapped = unwrapCommand(command);
+  const parsed = tokenize(unwrapped);
+  let tokens = parsed.tokens;
+  if (POSIX_SHELLS.has(executableName(tokens[0] ?? "")) && /build\.(?:sh|ps1)$/i.test(tokens[1] ?? "")) tokens = tokens.slice(1);
+  if (["npx", "pnpm", "npm", "yarn", "bun"].includes(executableName(tokens[0] ?? "").toLowerCase())) {
+    tokens = tokens.slice(1);
+    if (["exec", "run", "x"].includes(tokens[0])) tokens = tokens.slice(1);
+  }
+  const exe = executableName(tokens[0] ?? "").toLowerCase();
+  if (exe === "tsc") return "Checking types";
+  if (["vitest", "jest", "test"].includes(exe) || exe === "node" && tokens.includes("--test")) return "Running tests";
+  if (exe === "build.sh" || exe === "build.ps1") return clip(`Build: ${tokens[1] || "build"}`);
+  if (exe === "git") {
+    let index = 1;
+    while (tokens[index]?.startsWith("-")) index += ["-C", "-c", "--git-dir", "--work-tree"].includes(tokens[index]) ? 2 : 1;
+    return clip(`git ${tokens[index] || ""}`.trim());
+  }
+  if (exe === "apply_patch") {
+    const path = command.match(/\*\*\* (?:Update|Add|Delete) File: ([^\r\n]+)/)?.[1];
+    return path ? clip(`Editing ${basename(path)}`) : "Editing files";
+  }
+  if (exe === "rg" || exe === "grep") return "Searching";
+  if (["cat", "get-content"].includes(exe) || exe === "sed" && tokens[1] === "-n") {
+    const args = tokens.slice(exe === "sed" ? 3 : 1);
+    const path = args.find((token) => !token.startsWith("-"));
+    return path ? clip(`Reading ${basename(path)}`) : "Reading files";
+  }
+  return clip(unwrapped) || "Working";
+}
+
+// plugins/provider-codex/src/cloud/backend.ts
+var row = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+var rows = (value) => Array.isArray(value) ? value.map(row) : [];
+var text = (value) => typeof value === "string" ? value : null;
+var CODEX_CLOUD_ACCOUNT_REF = "codexAuth";
+var CLOUD_SIGN_IN_REASON = "Sign in to Codex to use Cloud environments.";
+function cloudTaskPath(environmentId, taskId) {
+  const taskPath = environmentId.startsWith("asenvcfg_") ? "/api/codex/tasks" : "/wham/tasks";
+  return taskId === void 0 ? taskPath : `${taskPath}/${encodeURIComponent(taskId)}`;
+}
+function cloudEnvironmentList(value) {
+  if (!Array.isArray(value)) throw new Error("Cloud environment response is invalid");
+  return value.flatMap((entry) => {
+    const environment = row(entry);
+    const id = text(environment.id);
+    const label = text(environment.label) ?? id;
+    return id && label ? [{ id, label, accountRef: CODEX_CLOUD_ACCOUNT_REF }] : [];
+  });
+}
+function cloudEnvironmentConfigList(value) {
+  const response = row(value);
+  const data = row(response.data);
+  const collection = Array.isArray(value) ? value : [
+    response.items,
+    response.environmentConfigs,
+    response.environment_configs,
+    data.items,
+    data.environmentConfigs,
+    data.environment_configs
+  ].find(Array.isArray);
+  if (!Array.isArray(collection)) throw new Error("Codex Cloud settings response is invalid");
+  const environments = rows(collection).flatMap((environment) => {
+    const id = text(environment.id) ?? text(environment.environmentConfigId) ?? text(environment.environment_config_id);
+    const label = text(environment.name) ?? text(environment.displayName) ?? text(environment.display_name) ?? text(environment.label) ?? id;
+    return id && label ? [{ id, label, accountRef: CODEX_CLOUD_ACCOUNT_REF }] : [];
+  });
+  if (collection.length > 0 && environments.length === 0) throw new Error("Codex Cloud settings response is invalid");
+  return environments;
+}
+function cloudTaskRequest(environmentId, branch, prompt) {
+  return {
+    new_task: { environment_id: environmentId, branch, run_environment_in_qa_mode: false },
+    input_items: [{ type: "message", role: "user", content: [{ content_type: "text", text: prompt }] }]
+  };
+}
+function cloudTaskSnapshot(value, binding) {
+  const details = row(value);
+  const task = row(details.task);
+  const taskId = text(task.id);
+  if (!taskId || taskId !== binding.snapshot?.taskId) throw new Error("Cloud task response does not match this tab");
+  if (task.environment_id !== void 0 && task.environment_id !== binding.environmentId) throw new Error("Cloud task environment does not match this tab");
+  const assistant = row(details.current_assistant_turn);
+  const error = row(assistant.error);
+  const display2 = row(details.task_status_display ?? task.task_status_display);
+  const turn = row(display2.latest_turn_status_display);
+  const status = text(turn.turn_status) ?? text(assistant.turn_status) ?? text(display2.state);
+  const output = rows(assistant.output_items);
+  const result = output.filter((item) => item.type === "message").flatMap(
+    (item) => Array.isArray(item.content) ? item.content.map((fragment) => typeof fragment === "string" ? fragment : text(row(fragment).text) ?? "") : []
+  ).filter(Boolean).join("\n");
+  const diffs = [...rows(row(details.current_diff_task_turn).output_items), ...output];
+  const diff = diffs.map((item) => text(row(item.output_diff).diff) ?? text(item.diff)).find(Boolean) ?? null;
+  const failed = Object.keys(error).length > 0 || ["failed", "cancelled", "error"].includes(status ?? "");
+  return {
+    taskId,
+    attempt: text(assistant.id),
+    status: failed ? "error" : ["completed", "ready", "applied"].includes(status ?? "") ? "ready" : status === "in_progress" ? "running" : "pending",
+    result,
+    diff,
+    cursor: null,
+    error: failed ? "Remote task failed" : null
+  };
+}
+function cloudTaskBackend(capability, transport) {
+  return {
+    capability,
+    environments: () => capability.environments,
+    create(input) {
+      const response = row(transport.request("POST", cloudTaskPath(input.environmentId), input.accountRef, cloudTaskRequest(input.environmentId, input.branch, input.prompt)));
+      const taskId = text(row(response.task).id) ?? text(response.id);
+      if (!taskId) throw new Error("Cloud did not acknowledge a task identity");
+      return { taskId };
+    },
+    read(binding) {
+      if (!binding.snapshot) throw new Error("Cloud task identity is missing");
+      return cloudTaskSnapshot(transport.request("GET", cloudTaskPath(binding.environmentId, binding.snapshot.taskId), binding.accountRef), binding);
+    }
+  };
+}
+
+// plugins/provider-codex/src/cloud/chatBackend.ts
+function taskMessages(binding) {
+  if (!binding) return [];
+  if (binding.phase !== "bound" || !binding.snapshot) {
+    return [{ id: "remote-create-uncertain", type: "assistant", content: "Remote task creation is unconfirmed. Check your Cloud task list before submitting another task. This tab will not resubmit it." }];
+  }
+  const task = binding.snapshot;
+  const content = [
+    `Remote task: ${task.status}`,
+    task.error,
+    task.result,
+    task.diff ? `\`\`\`diff
+${task.diff}
+\`\`\`` : task.status === "ready" ? "No diff was produced." : null
+  ].filter(Boolean).join("\n\n");
+  return [{ id: `${task.taskId}:${binding.revision}`, type: "assistant", content }];
+}
+function remoteChatBackend(storage, backend, providerId) {
+  const controller = new RemoteTaskController(storage, backend);
+  const sessions = /* @__PURE__ */ new Map();
+  return {
+    openSession(ctx) {
+      if (ctx.config?.executionMode !== backend.capability.mode) throw new Error("Choose the declared Cloud execution mode");
+      if (backend.capability.availability.status === "unavailable") throw new Error(backend.capability.availability.reason);
+      const saved = storage.read(ctx.tabId);
+      if (saved && saved.providerId !== providerId) throw new Error("Stored task belongs to another provider");
+      const existing = controller.restore(ctx.tabId);
+      if (!existing && !backend.capability.environments.some((environment) => environment.id === ctx.preset)) {
+        throw new Error("Choose a Cloud environment before opening a remote task");
+      }
+      sessions.set(ctx.tabId, ctx);
+      if (!existing && ctx.systemPrompt?.trim()) {
+        const environment = backend.capability.environments.find((environment2) => environment2.id === ctx.preset);
+        if (!environment) throw new Error("The selected environment is unavailable");
+        try {
+          controller.create(ctx.tabId, providerId, environment, "master", ctx.systemPrompt);
+        } catch (error) {
+          if (!storage.read(ctx.tabId)) throw error;
+        }
+      }
+      return { sessionId: ctx.tabId };
+    },
+    sendMessage(sessionId, prompt) {
+      const ctx = sessions.get(sessionId);
+      if (!ctx) throw new Error("Remote task tab is not open");
+      const environment = backend.capability.environments.find((environment2) => environment2.id === ctx.preset);
+      if (!environment) throw new Error("The selected environment is unavailable");
+      controller.create(sessionId, providerId, environment, "master", prompt);
+    },
+    poll(sessionId, cursor) {
+      if (!sessions.has(sessionId)) throw new Error("Remote task tab is not open");
+      const binding = storage.read(sessionId);
+      const messages = taskMessages(binding);
+      const next = JSON.stringify(messages);
+      return { messages: cursor === next ? [] : messages, cursor: next, done: binding?.snapshot?.status === "ready" || binding?.snapshot?.status === "error" };
+    },
+    closeSession(sessionId) {
+      sessions.delete(sessionId);
+    },
+    listModels: () => [],
+    listPresets: () => backend.capability.environments.map((environment) => ({ id: environment.id, name: environment.label })),
+    viewCall(method, args) {
+      const input = args;
+      const sessionId = input?.sessionId;
+      if (!sessionId) throw new Error("Remote task tab is not open");
+      if (method === "read") {
+        const binding = storage.read(sessionId);
+        if (binding && (binding.executionMode !== backend.capability.mode || binding.providerId !== providerId)) throw new Error("Stored execution mode does not match Cloud");
+        return binding;
+      }
+      if (method === "refresh") return controller.restore(sessionId);
+      if (method === "submit") {
+        if (!sessions.has(sessionId)) throw new Error("Remote task tab must reopen before submission");
+        const environment = backend.capability.environments.find((environment2) => environment2.id === sessions.get(sessionId)?.preset);
+        if (!environment) throw new Error("The selected environment is unavailable");
+        return controller.create(sessionId, providerId, environment, input?.branch ?? "master", input?.prompt ?? "");
+      }
+      throw new Error("This remote task operation is unsupported");
+    }
+  };
+}
+
+// plugins/provider-codex/src/cloud/transport.ts
+var CODEX_AUTH_CREDENTIAL = "codexAuth";
+var CODEX_ACCOUNT_HEADER = "ChatGPT-Account-Id";
+var CLOUD_BASE_URL = "https://chatgpt.com/backend-api";
+var SETTINGS_BASE_URL = "https://chatgpt.com";
+var SETTINGS_ENVIRONMENTS_PATH = "/api/codex-cloud/v1/environment-configs?scope=user&limit=100&omitDraft=true";
+var REPOSITORY_ENVIRONMENTS_PATH = "/wham/environments/by-repo/github/rollacode/codeterm";
+var ENVIRONMENTS_PATH = "/wham/environments";
+var REQUEST_FAILURE = "Codex Cloud request failed.";
+var CloudTransportError = class extends Error {
+  constructor(status) {
+    super(status === 401 || status === 403 ? CLOUD_SIGN_IN_REASON : REQUEST_FAILURE);
+    this.status = status;
+  }
+};
+function record2(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function publicAccountId(host2) {
+  let credential = null;
+  try {
+    const raw = host2.credentialPublic(CODEX_AUTH_CREDENTIAL);
+    credential = raw ? record2(JSON.parse(raw)) : null;
+  } catch {
+    credential = null;
+  }
+  const accountId = credential?.accountId;
+  if (typeof accountId !== "string" || !accountId) throw new CloudTransportError(401);
+  return accountId;
+}
+function readBody(response) {
+  if (typeof response.body !== "string") throw new CloudTransportError();
+  try {
+    return JSON.parse(response.body);
+  } catch {
+    throw new CloudTransportError();
+  }
+}
+function isCodexTaskPath(method, path) {
+  if (method === "POST") return path === "/api/codex/tasks";
+  return path === "/api/codex/tasks/list" || /^\/api\/codex\/tasks\/list\?[^#]*$/.test(path) || /^\/api\/codex\/tasks\/[A-Za-z0-9._-]+$/.test(path);
+}
+function createCodexCloudTransport(host2) {
+  const request2 = (method, path, accountRef, body) => {
+    const settingsRequest = method === "GET" && path === SETTINGS_ENVIRONMENTS_PATH;
+    const legacyRequest = path.startsWith("/wham/");
+    const codexTaskRequest = isCodexTaskPath(method, path);
+    if (accountRef !== CODEX_CLOUD_ACCOUNT_REF || !settingsRequest && !legacyRequest && !codexTaskRequest) throw new CloudTransportError();
+    const accountId = publicAccountId(host2);
+    let result;
+    try {
+      result = JSON.parse(host2.fetch(JSON.stringify({
+        url: `${settingsRequest || codexTaskRequest ? SETTINGS_BASE_URL : CLOUD_BASE_URL}${path}`,
+        method,
+        timeoutMs: 6e3,
+        headers: {
+          [CODEX_ACCOUNT_HEADER]: accountId,
+          "Content-Type": "application/json",
+          "User-Agent": "codeterm-codex-cloud/1.14.47"
+        },
+        ...body === void 0 ? {} : { body: JSON.stringify(body) },
+        credential: {
+          id: CODEX_AUTH_CREDENTIAL,
+          headers: { Authorization: "Bearer {accessToken}" }
+        }
+      })));
+    } catch {
+      throw new CloudTransportError();
+    }
+    const response = record2(result);
+    if (!response || typeof response.status !== "number") throw new CloudTransportError();
+    const status = response.status;
+    if (status < 200 || status >= 300) throw new CloudTransportError(status);
+    return readBody(response);
+  };
+  const discoverRemoteTask = () => {
+    try {
+      try {
+        const settingsEnvironments = cloudEnvironmentConfigList(request2("GET", SETTINGS_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+        if (settingsEnvironments.length > 0) return { availability: { status: "available" }, environments: settingsEnvironments };
+      } catch (error) {
+        if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
+      }
+      let repoEnvironments = null;
+      try {
+        repoEnvironments = cloudEnvironmentList(request2("GET", REPOSITORY_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+      } catch (error) {
+        if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
+      }
+      let allEnvironments = null;
+      try {
+        allEnvironments = cloudEnvironmentList(request2("GET", ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+      } catch (error) {
+        if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
+        if (repoEnvironments === null) throw error;
+      }
+      const environmentsById = new Map((repoEnvironments ?? []).map((environment) => [environment.id, environment]));
+      for (const environment of allEnvironments ?? []) {
+        if (!environmentsById.has(environment.id)) environmentsById.set(environment.id, environment);
+      }
+      const environments = [...environmentsById.values()];
+      return { availability: { status: "available" }, environments };
+    } catch (error) {
+      const reason = error instanceof CloudTransportError && (error.status === 401 || error.status === 403) ? CLOUD_SIGN_IN_REASON : "Could not load Codex Cloud environments. Try again.";
+      return { availability: { status: "unavailable", reason }, environments: [] };
+    }
+  };
+  return { request: request2, discoverRemoteTask };
+}
+
+// plugins/provider-codex/src/cloud/plugin.ts
+function cloudExports(hostRef) {
+  let backend;
+  let capability;
+  let transport;
+  const get = () => {
+    if (backend) return backend;
+    const host2 = hostRef();
+    const manifest = JSON.parse(host2.manifestJson() ?? "{}");
+    const root = host2.fs.expandHome("~/.codeterm/codex/tasks");
+    if (!root) throw new Error("Cloud task storage is unavailable");
+    capability = manifest.capabilities.remoteTask;
+    transport = createCodexCloudTransport(host2);
+    backend = remoteChatBackend(new RemoteTaskFileStorage(host2.fs, root), cloudTaskBackend(capability, transport), manifest.id);
+    return backend;
+  };
+  const discoverRemoteTask = () => {
+    get();
+    const discovery = transport.discoverRemoteTask();
+    Object.assign(capability, discovery);
+    return discovery;
+  };
+  return {
+    discoverRemoteTask,
+    openSession: (ctx) => {
+      const discovery = discoverRemoteTask();
+      if (discovery.availability.status === "unavailable") throw new Error(discovery.availability.reason);
+      return get().openSession(ctx);
+    },
+    sendMessage: (session, text7) => get().sendMessage(session, text7),
+    poll: (session, cursor) => get().poll(session, cursor),
+    closeSession: (session) => get().closeSession(session),
+    viewCall: (method, args) => get().viewCall(method, args)
+  };
+}
+
+// plugins/provider-codex/src/runtimeGoal.ts
+var statuses = /* @__PURE__ */ new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
+function goalIntent(raw, thread) {
+  if (!raw || typeof raw !== "object") return null;
+  const goal = raw;
+  if (thread && goal.threadId !== thread) return null;
+  if (typeof goal.objective !== "string" || !goal.objective.trim()) return null;
+  return { goal: goal.objective, ...typeof goal.status === "string" && statuses.has(goal.status) ? { goalStatus: goal.status } : {} };
+}
+function goalPlan(threadId, value) {
+  const action = value && typeof value === "object" && !Array.isArray(value) ? value.action : void 0;
+  const status = action === "pause" ? "paused" : action === "resume" ? "active" : action === "complete" ? "complete" : void 0;
+  if (action !== "read" && action !== "cancel" && !status) throw new Error("Unsupported goal action");
+  const method = action === "read" ? "thread/goal/get" : action === "cancel" ? "thread/goal/clear" : "thread/goal/set";
+  return { action: { kind: "request", call: { method, params: { threadId, ...action !== "read" ? { origin: "user" } : {}, ...status ? { status } : {} } } }, state: { goalAction: String(action) } };
+}
+function goalResponse(threadId, state, reply) {
+  const refuse = (message) => ({ kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false });
+  if (reply.kind === "error") return refuse(reply.error.message);
+  const value = reply.value;
+  if (!value || typeof value !== "object") return refuse("Goal response is invalid");
+  if (state.goalAction === "cancel") return value.cleared === true ? { kind: "continue", plan: { ...goalPlan(threadId, { action: "read" }), state: { goalAction: "verifyCancel" } } } : refuse("Goal removal was not confirmed");
+  if (!("goal" in value)) return refuse("Goal response is missing");
+  if (state.goalAction === "verifyCancel" && value.goal !== null) return refuse("Goal still exists after removal");
+  const intent = goalIntent(value.goal, threadId);
+  if (value.goal !== null && (!intent || !intent.goalStatus)) return refuse("Goal identity or status is invalid");
+  const expected = state.goalAction === "pause" ? "paused" : state.goalAction === "resume" ? "active" : state.goalAction === "complete" ? "complete" : void 0;
+  if (expected && intent?.goalStatus !== expected) return refuse("Goal status was not confirmed");
+  return { kind: "complete", result: { kind: "goal", threadId, intent } };
+}
+
+// plugins/provider-codex/src/runtimeVersion.ts
+function runtimeBinaryVersion(userAgent) {
+  if (typeof userAgent !== "string") return void 0;
+  return userAgent.match(/^[^\s/]+\/(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?=\s|$)/)?.[0].split("/")[1];
+}
+function initializedResult(state) {
+  const binaryVersion = typeof state.binaryVersion === "string" ? state.binaryVersion : void 0;
+  return { kind: "initialized", ...binaryVersion ? { binaryVersion } : {} };
+}
+
+// plugins/provider-codex/src/runtimeProtocol.ts
+function object(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function text2(value) {
+  return typeof value === "string" && value.length > 0 ? value : void 0;
+}
+function list(value) {
+  return Array.isArray(value) ? value : [];
+}
+function userThread(value, expected) {
+  const thread = object(object(value).thread);
+  const id = text2(thread.id);
+  if (!id || expected && expected !== id || thread.parentThreadId != null || object(thread.source).subAgent != null || String(thread.threadSource ?? "").toLowerCase().startsWith("subagent")) return void 0;
+  return id;
+}
+function steerRefused(error, turn) {
+  return error.code === -32600 && error.data == null && (error.message === "no active turn to steer" || error.message.startsWith(`expected active turn id \`${turn}\` but found \``) && error.message.endsWith("`"));
+}
+function archivedResume(message) {
+  const words = message.toLowerCase().split(/\s+/).map((word) => word.replace(/^[`"']+|[`"'.:;,]+$/g, ""));
+  return words.some((word, index) => word === "codex" && words[index + 1] === "unarchive" || word === "session" && !!words[index + 1] && words[index + 2] === "is" && words[index + 3] === "archived");
+}
+var serverRequestMethods = [
+  "item/commandExecution/requestApproval",
+  "item/fileChange/requestApproval",
+  "item/permissions/requestApproval",
+  "item/tool/requestUserInput",
+  "mcpServer/elicitation/request"
+];
+
+// plugins/provider-codex/src/runtimeTurnStatus.ts
+function threadStatus(raw) {
+  const status = object(raw);
+  const type = typeof raw === "string" ? raw : status.type;
+  if (type === "idle") return { state: "idle" };
+  if (type === "systemError") return { state: "needs_input", detail: "systemError" };
+  if (type !== "active") return void 0;
+  const flags = list(status.activeFlags);
+  if (flags.includes("waitingOnApproval")) return { state: "needs_input", detail: "awaitingApproval" };
+  if (flags.includes("waitingOnUserInput")) return { state: "needs_input", detail: "awaitingInput" };
+  return { state: "working" };
+}
+function turnOutcome(turn) {
+  const status = object(turn).status;
+  return status === "interrupted" ? "interrupted" : status === "failed" ? "failed" : void 0;
+}
+function requestDetail(method) {
+  return method.endsWith("/requestApproval") ? "awaitingApproval" : "awaitingInput";
+}
+function withDetail(status, compacting) {
+  return status.state === "working" && compacting ? { state: "working", detail: "compacting" } : status;
+}
+
+// plugins/provider-codex/src/runtimeHistoryBounds.ts
+var HISTORY_CHUNK_BYTES = 512 * 1024;
+var ITEM_BYTES = 64 * 1024;
+var STRING_BYTES = 16 * 1024;
+function utf8Bytes2(value) {
+  try {
+    return unescape(encodeURIComponent(value)).length;
+  } catch {
+    return value.length + (value.match(/[\u0080-\u07ff]/g)?.length ?? 0) + 2 * (value.match(/[\u0800-\uffff]/g)?.length ?? 0) - 2 * (value.match(/[\ud800-\udbff][\udc00-\udfff]/g)?.length ?? 0);
+  }
+}
+function serializedBytes(value) {
+  return utf8Bytes2(JSON.stringify(value));
+}
+function boundedString(value) {
+  const scrubbed = value.replace(
+    /data:image\/[^\s"'<>]*;base64,[A-Za-z0-9+/=_-]*/gi,
+    (image) => `[image omitted: ${utf8Bytes2(image)} bytes]`
+  );
+  const bytes = utf8Bytes2(scrubbed);
+  if (bytes <= STRING_BYTES) return scrubbed;
+  return `${scrubbed.slice(0, 2048)}
+[content truncated: ${bytes} bytes total]`;
+}
+function sanitizeHistory(value) {
+  return JSON.parse(JSON.stringify(value, (_key, entry) => {
+    if (typeof entry === "string") return boundedString(entry);
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      const item = entry;
+      if (item.type === "image" && typeof item.data === "string" && !item.data.startsWith("[image omitted:")) {
+        const { data, ...rest } = item;
+        return { ...rest, data: `[image omitted: ${utf8Bytes2(data)} bytes]` };
+      }
+      if (item.type === "imageGeneration" && typeof item.result === "string" && !item.result.startsWith("[image omitted:")) {
+        return { ...item, result: `[image omitted: ${utf8Bytes2(item.result)} bytes]` };
+      }
+    }
+    return entry;
+  }));
+}
+function historyItem(value) {
+  const sanitized = sanitizeHistory(value);
+  const bytes = serializedBytes(sanitized);
+  return bytes <= ITEM_BYTES ? sanitized : { id: sanitized.id, type: "error", message: `[history item omitted: ${bytes} serialized bytes]` };
+}
+function boundHistoryRows(rows2) {
+  const bounded = rows2.map((row3) => {
+    const sanitized = sanitizeHistory(row3);
+    const bytes2 = serializedBytes(sanitized);
+    if (sanitized.attachments) {
+      sanitized.attachments = sanitized.attachments.map((attachment) => {
+        if (!attachment.url?.startsWith("[image omitted:")) return attachment;
+        sanitized.content += `
+${attachment.url}`;
+        const { url, ...chip } = attachment;
+        return chip;
+      });
+    }
+    if (bytes2 <= ITEM_BYTES) return sanitized;
+    return { id: row3.id, seq: row3.seq, type: "system", content: `[history item omitted: ${bytes2} serialized bytes]` };
+  });
+  const bytes = serializedBytes(bounded);
+  return bytes <= ITEM_BYTES || !rows2.length ? bounded : [{ id: rows2[0].id, seq: rows2[0].seq, type: "system", content: `[history item omitted: ${bytes} serialized bytes]` }];
+}
+
+// plugins/provider-codex/src/canonicalJson.ts
+function canonicalJson(value, indentation = 0) {
+  const normalized = JSON.parse(JSON.stringify(value ?? null));
+  const gap = " ".repeat(Math.max(0, Math.min(10, Math.trunc(indentation))));
+  const render = (node, depth) => {
+    if (node === null || typeof node !== "object") return JSON.stringify(node);
+    const parts = Array.isArray(node) ? node.map((entry) => render(entry, depth + 1)) : Object.keys(node).sort().map((key) => `${JSON.stringify(key)}:${gap ? " " : ""}${render(node[key], depth + 1)}`);
+    const [open, close] = Array.isArray(node) ? ["[", "]"] : ["{", "}"];
+    if (!parts.length) return open + close;
+    return gap ? `${open}
+${gap.repeat(depth + 1)}${parts.join(`,
+${gap.repeat(depth + 1)}`)}
+${gap.repeat(depth)}${close}` : open + parts.join(",") + close;
+  };
+  return render(normalized, 0);
+}
+
 // plugins/provider-codex/src/runtimeDiffs.ts
 function runtimeFileDiffs(changes) {
   return list(changes).map(object).flatMap((change) => {
-    const path = text(change.path);
+    const path = text2(change.path);
     const kind = object(change.kind);
-    const diff = text(change.diff);
+    const diff = text2(change.diff);
     if (!path || diff === void 0) return [];
     const selected = kind.type === "update" ? "modify" : kind.type === "add" ? "add" : kind.type === "delete" ? "delete" : void 0;
     if (!selected) return [];
-    let rows;
-    if (/^Binary files|^GIT binary patch/m.test(diff)) rows = [{ path, kind: selected, binary: true, additions: 0, deletions: 0, hunks: [] }];
+    let rows2;
+    if (/^Binary files|^GIT binary patch/m.test(diff)) rows2 = [{ path, kind: selected, binary: true, additions: 0, deletions: 0, hunks: [] }];
     else if (selected === "add" || selected === "delete") {
       const lines = diff.replace(/\n$/, "").split("\n");
       const add = selected === "add";
-      rows = [{
+      rows2 = [{
         path,
         kind: selected,
         additions: add ? lines.length : 0,
         deletions: add ? 0 : lines.length,
         hunks: [{ oldStart: add ? 0 : 1, oldLines: add ? 0 : lines.length, newStart: add ? 1 : 0, newLines: add ? lines.length : 0, lines: lines.map((line) => (add ? "+" : "-") + line) }]
       }];
-    } else rows = recordedPatchDiff(path, diff, "modify");
-    const movePath = text(kind.move_path);
-    return rows.map((row2) => ({ ...row2, ...movePath ? { kind: "rename", movePath } : {} }));
+    } else rows2 = recordedPatchDiff(path, diff, "modify");
+    const movePath = text2(kind.move_path);
+    return rows2.map((row3) => ({ ...row3, ...movePath ? { kind: "rename", movePath } : {} }));
   });
 }
 
@@ -136,14 +1245,14 @@ function runtimeFileDiffs(changes) {
 function nativeOption(value) {
   if (typeof value === "string") return { value, label: value };
   const option = object(value);
-  const label = text(option.label) ?? text(option.title);
-  const id = text(option.value) ?? text(option.id) ?? label;
+  const label = text2(option.label) ?? text2(option.title);
+  const id = text2(option.value) ?? text2(option.id) ?? label;
   return label && id ? { value: id, label } : void 0;
 }
 function runtimeQuestions(value) {
   return list(value).map(object).map((question, index) => ({
-    id: text(question.id) ?? String(index),
-    text: text(question.title) ?? text(question.question) ?? "Choose an answer",
+    id: text2(question.id) ?? String(index),
+    text: text2(question.title) ?? text2(question.question) ?? "Choose an answer",
     options: list(question.options).flatMap((option) => {
       const parsed = nativeOption(option);
       return parsed ? [parsed] : [];
@@ -164,14 +1273,14 @@ function answersMatch(questions, raw) {
     const values = answer.values;
     if (new Set(values).size !== values.length || values.some((value) => typeof value !== "string" || !question.options.some((option) => option.value === value))) return false;
     if (!question.multiSelect && values.length > 1) return false;
-    const freeText = text(answer.text);
+    const freeText = text2(answer.text);
     if (answer.text !== void 0 && (!freeText || question.allowFreeText === false)) return false;
     return values.length > 0 || !!freeText;
   });
 }
 function reconcileHistoryQuestions(threadId, raw, previous) {
   const item = object(raw);
-  const itemId = text(item.id);
+  const itemId = text2(item.id);
   if (item.type === "agentMessage" && item.delivery === "async" && itemId && list(item.questions).length) {
     const old = previous.find((question2) => question2.itemId === itemId);
     const question = { threadId, itemId, questions: runtimeQuestions(item.questions), response: "message", ...old?.resolved ? { resolved: true } : {} };
@@ -191,8 +1300,8 @@ function reconcileHistoryQuestions(threadId, raw, previous) {
 // plugins/provider-codex/src/fileDiffs.ts
 var LINE_MARKERS = " +-\\";
 var HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
-function splitLines(text6) {
-  const lines = text6.split("\n");
+function splitLines(text7) {
+  const lines = text7.split("\n");
   if (lines[lines.length - 1] === "") lines.pop();
   return lines;
 }
@@ -290,7 +1399,7 @@ function toolOutput(value) {
   const parts = Array.isArray(result) ? result : list(object(result).content);
   const mapped = parts.map((part) => {
     const item = object(part);
-    if (item.type === "image") return { type: "image_url", image_url: { url: `data:${item.mimeType};base64,${item.data}` } };
+    if (item.type === "image") return typeof item.data === "string" && item.data.startsWith("[image omitted:") ? { type: "text", text: item.data } : { type: "image_url", image_url: { url: `data:${item.mimeType};base64,${item.data}` } };
     if (item.type === "inputImage") return { type: "image_url", image_url: { url: item.imageUrl } };
     return part;
   });
@@ -301,95 +1410,95 @@ function display(value) {
 }
 function runtimeItem(raw, seq, previous) {
   const item = object(raw);
-  const id = text(item.id);
+  const id = text2(item.id);
   if (!id) return void 0;
-  const row2 = { id, seq: previous?.seq ?? seq, type: "tool_call", content: "" };
-  if (previous?.timestamp) row2.timestamp = previous.timestamp;
+  const row3 = { id, seq: previous?.seq ?? seq, type: "tool_call", content: "" };
+  if (previous?.timestamp) row3.timestamp = previous.timestamp;
   switch (item.type) {
     case "userMessage": {
-      row2.type = "user";
-      row2.content = list(item.content).map(object).filter((p) => p.type === "text").map((p) => p.text).join("\n");
+      row3.type = "user";
+      row3.content = list(item.content).map(object).filter((p) => p.type === "text").map((p) => p.text).join("\n");
       const attachments = list(item.content).map(object).flatMap((p, index) => {
         if (p.type !== "image" && p.type !== "localImage") return [];
-        const url = text(p.url);
+        const url = text2(p.url);
         const data = url?.match(/^data:([^;]+);base64,(.*)$/);
         return [{
           id: `${id}-image-${index}`,
           mimeType: data?.[1] ?? "image/png",
           ...data ? { data: data[2] } : url ? { url } : {},
-          ...text(p.path) ? { path: String(p.path) } : {}
+          ...text2(p.path) ? { path: String(p.path) } : {}
         }];
       });
-      if (attachments.length) row2.attachments = attachments;
-      return row2;
+      if (attachments.length) row3.attachments = attachments;
+      return row3;
     }
     case "toolFlow":
-      return { ...row2, type: "tool_flow", content: String(item.state ?? "") };
+      return { ...row3, type: "tool_flow", content: String(item.state ?? "") };
     case "sessionIntent":
-      return { ...row2, type: "custom", sessionIntent: { ...text(item.title) ? { title: String(item.title) } : {}, ...text(item.objective) ? { goal: String(item.objective) } : {} } };
+      return { ...row3, type: "custom", sessionIntent: { ...text2(item.title) ? { title: String(item.title) } : {}, ...text2(item.objective) ? { goal: String(item.objective) } : {} } };
     case "sleep":
-      row2.toolSummary = `Wait ${item.durationMs} ms`;
+      row3.toolSummary = `Wait ${item.durationMs} ms`;
       break;
     case "agentMessage":
     case "plan":
-      row2.type = "assistant";
-      row2.content = typeof item.text === "string" ? item.text : previous?.content ?? "";
+      row3.type = "assistant";
+      row3.content = typeof item.text === "string" ? item.text : previous?.content ?? "";
       if (item.delivery === "async" && list(item.questions).length) {
-        row2.toolInput = item;
-        row2.interactive = runtimeQuestions(item.questions).map((question) => ({ type: "question", id: question.id, toolUseId: id, prompt: question.text, options: question.options.map((option) => ({ ...option })), multiSelect: question.multiSelect ?? false }));
+        row3.toolInput = item;
+        row3.interactive = runtimeQuestions(item.questions).map((question) => ({ type: "question", id: question.id, toolUseId: id, prompt: question.text, options: question.options.map((option) => ({ ...option })), multiSelect: question.multiSelect ?? false }));
       }
-      return row2;
+      return row3;
     case "reasoning":
-      row2.type = "thinking";
-      row2.collapsed = true;
-      row2.content = list(item.summary).join("\n") || list(item.content).join("\n");
-      return row2;
+      row3.type = "thinking";
+      row3.collapsed = true;
+      row3.content = list(item.summary).join("\n") || list(item.content).join("\n");
+      return row3;
     case "contextCompaction":
-      return { ...row2, type: "system", content: "context compacted", systemSubtype: "contextCompaction", timelineMarker: { kind: "context_compaction" } };
+      return { ...row3, type: "system", content: "context compacted", systemSubtype: "contextCompaction", timelineMarker: { kind: "context_compaction" } };
     case "error":
-      return { ...row2, type: "system", content: String(item.message ?? ""), systemSubtype: "api_error" };
+      return { ...row3, type: "system", content: String(item.message ?? ""), systemSubtype: "api_error" };
     case "hookPrompt":
     case "enteredReviewMode":
     case "exitedReviewMode":
-      return { ...row2, type: "system", systemSubtype: String(item.type), content: item.type === "hookPrompt" ? list(item.fragments).map(object).map((p) => p.text ?? "").join("\n") : String(item.review ?? "") };
+      return { ...row3, type: "system", systemSubtype: String(item.type), content: item.type === "hookPrompt" ? list(item.fragments).map(object).map((p) => p.text ?? "").join("\n") : String(item.review ?? "") };
     case "commandExecution":
-      row2.toolKind = "command";
-      row2.toolSummary = String(item.command ?? "");
-      row2.toolDetail = row2.toolSummary;
-      if (typeof item.aggregatedOutput === "string") row2.toolResult = item.aggregatedOutput;
-      else if (previous?.toolResult !== void 0) row2.toolResult = previous.toolResult;
-      if (typeof item.exitCode === "number") row2.toolExitCode = item.exitCode;
-      if (item.status === "interrupted") row2.toolInterrupted = true;
+      row3.toolKind = "command";
+      row3.toolDetail = activityCommand({ toolInput: item });
+      row3.toolSummary = activityLabel(row3);
+      if (typeof item.aggregatedOutput === "string") row3.toolResult = item.aggregatedOutput;
+      else if (previous?.toolResult !== void 0) row3.toolResult = previous.toolResult;
+      if (typeof item.exitCode === "number") row3.toolExitCode = item.exitCode;
+      if (item.status === "interrupted") row3.toolInterrupted = true;
       break;
     case "fileChange":
-      row2.toolKind = "edit";
-      row2.fileDiffs = runtimeFileDiffs(item.changes);
-      row2.toolEdits = diffEdits(row2.fileDiffs);
-      row2.toolSummary = list(item.changes).map(object).map((p) => p.path).join("\n");
-      row2.toolDetail = row2.toolSummary;
+      row3.toolKind = "edit";
+      row3.fileDiffs = runtimeFileDiffs(item.changes);
+      row3.toolEdits = diffEdits(row3.fileDiffs);
+      row3.toolSummary = list(item.changes).map(object).map((p) => p.path).join("\n");
+      row3.toolDetail = row3.toolSummary;
       break;
     case "mcpToolCall":
     case "dynamicToolCall": {
-      const prefix = text(item.server) ?? text(item.namespace);
-      row2.toolKind = "generic";
-      row2.toolName = [prefix, text(item.tool)].filter(Boolean).join(" \xB7 ");
-      row2.toolInput = item.arguments ?? null;
-      row2.toolSummary = display(item.arguments);
-      row2.toolTitle = row2.toolName;
-      if (item.result != null || item.contentItems != null) row2.toolResult = toolOutput(item.result ?? item.contentItems);
+      const prefix = text2(item.server) ?? text2(item.namespace);
+      row3.toolKind = "generic";
+      row3.toolName = [prefix, text2(item.tool)].filter(Boolean).join(" \xB7 ");
+      row3.toolInput = item.arguments ?? null;
+      row3.toolSummary = display(item.arguments);
+      row3.toolTitle = row3.toolName;
+      if (item.result != null || item.contentItems != null) row3.toolResult = toolOutput(item.result ?? item.contentItems);
       if (item.error != null) {
-        row2.toolResult = display(item.error);
-        row2.toolError = true;
+        row3.toolResult = display(item.error);
+        row3.toolError = true;
       }
-      if (item.success === false || object(item.result).isError === true) row2.toolError = true;
+      if (item.success === false || object(item.result).isError === true) row3.toolError = true;
       break;
     }
     case "functionCallOutput":
-      return { ...row2, type: "tool_result", toolId: id, toolName: String(item.name ?? ""), toolResult: display(item.output) };
+      return { ...row3, type: "tool_result", toolId: id, toolName: String(item.name ?? ""), toolResult: display(item.output) };
     case "webSearch":
-      row2.toolKind = "web";
-      row2.toolSummary = String(item.query ?? "");
-      row2.toolRichResult = json({
+      row3.toolKind = "web";
+      row3.toolSummary = String(item.query ?? "");
+      row3.toolRichResult = json({
         kind: "web",
         query: item.query,
         action: object(item.action).type,
@@ -397,1791 +1506,189 @@ function runtimeItem(raw, seq, previous) {
         pattern: object(item.action).pattern,
         resultCount: Array.isArray(item.results) ? item.results.length : void 0
       });
-      if (item.results != null) row2.toolResult = display(item.results);
+      if (item.results != null) row3.toolResult = display(item.results);
       break;
     case "imageView":
     case "imageGeneration":
-      row2.toolKind = "image";
-      row2.toolSummary = String(item.savedPath ?? item.path ?? item.revisedPrompt ?? "");
-      row2.toolRichResult = json({ kind: "image", origin: item.type === "imageGeneration" ? "generated" : "viewed", path: item.savedPath ?? item.path, prompt: item.revisedPrompt, status: item.status });
-      if (text(item.result)) row2.toolResult = String(item.result).startsWith("data:") || item.type === "imageView" ? String(item.result) : `data:image/png;base64,${item.result}`;
+      row3.toolKind = "image";
+      row3.toolSummary = String(item.savedPath ?? item.path ?? item.revisedPrompt ?? "");
+      row3.toolRichResult = json({ kind: "image", origin: item.type === "imageGeneration" ? "generated" : "viewed", path: item.savedPath ?? item.path, prompt: item.revisedPrompt, status: item.status });
+      if (text2(item.result)) row3.toolResult = String(item.result).startsWith("data:") || String(item.result).startsWith("[image omitted:") || item.type === "imageView" ? String(item.result) : `data:image/png;base64,${item.result}`;
       break;
     case "collabAgentToolCall":
     case "subAgentActivity": {
+      if (item.type === "collabAgentToolCall" && !list(item.receiverThreadIds).length) {
+        if (item.tool === "spawnAgent") return void 0;
+        row3.toolKind = "generic";
+        row3.toolName = text2(item.tool) ?? "collabAgentToolCall";
+        break;
+      }
       const agent = String(item.agentThreadId ?? list(item.receiverThreadIds)[0] ?? id);
       const status = String(item.kind ?? object(object(item.agentsStates)[agent]).status ?? "");
-      row2.toolKind = "agent";
-      row2.toolName = "agent_activity";
-      row2.toolSummary = agent;
-      row2.toolInput = json({
+      row3.toolKind = "agent";
+      row3.toolName = "agent_activity";
+      row3.toolSummary = agent;
+      row3.toolInput = json({
         agent_id: agent,
         agent_path: item.agentPath,
         agent_state: { pendingInit: "started", errored: "failed", shutdown: "closed" }[status] ?? status,
         agent_call_id: id,
-        description: item.prompt,
-        model: item.model,
-        result: object(object(item.agentsStates)[agent]).message
+        agent_description: item.prompt,
+        agent_model: item.model,
+        agent_reasoning_effort: item.reasoningEffort,
+        agent_ordinal: item.ordinal,
+        agent_result: object(object(item.agentsStates)[agent]).message
       });
       break;
     }
     case "planUpdate":
-      row2.toolName = "update_plan";
-      row2.toolSummary = String(item.explanation ?? "");
-      row2.toolResult = display(item.plan);
+      row3.toolName = "update_plan";
+      row3.toolSummary = String(item.explanation ?? "");
+      row3.toolResult = display(item.plan);
       break;
     default:
       return void 0;
   }
-  row2.toolId = id;
-  row2.toolName ?? (row2.toolName = String(item.type));
-  row2.toolInput ?? (row2.toolInput = item);
-  row2.toolArgs = row2.toolSummary;
-  row2.collapsed = true;
-  if (typeof item.durationMs === "number") row2.toolDurationMs = item.durationMs;
-  if (row2.toolError == null) {
-    if (typeof item.exitCode === "number") row2.toolError = item.exitCode !== 0;
-    else if (["failed", "declined", "error"].includes(String(item.status))) row2.toolError = true;
-    else if (item.status === "completed") row2.toolError = false;
+  row3.toolId = id;
+  row3.toolName ?? (row3.toolName = String(item.type));
+  row3.toolInput ?? (row3.toolInput = item);
+  if (row3.toolSummary !== void 0) row3.toolArgs = row3.toolKind === "command" ? row3.toolDetail : row3.toolSummary;
+  row3.collapsed = true;
+  if (typeof item.durationMs === "number") row3.toolDurationMs = item.durationMs;
+  if (row3.toolError == null) {
+    if (typeof item.exitCode === "number") row3.toolError = item.exitCode !== 0;
+    else if (["failed", "declined", "error"].includes(String(item.status))) row3.toolError = true;
+    else if (item.status === "completed") row3.toolError = false;
   }
-  return row2;
+  return row3;
 }
 function runtimeItems(raw, seq) {
   const item = object(raw);
   const receivers = list(item.receiverThreadIds);
   if (item.type === "collabAgentToolCall" && receivers.length) return receivers.flatMap((receiver, index) => {
-    const row3 = runtimeItem({ ...item, id: `${item.id}:${receiver}`, receiverThreadIds: [receiver] }, seq + index);
-    return row3 ? [row3] : [];
+    const row4 = runtimeItem({ ...item, id: `${item.id}:${receiver}`, receiverThreadIds: [receiver], ...item.tool === "spawnAgent" ? { ordinal: index + 1 } : {} }, seq + index);
+    return row4 ? [row4] : [];
   });
-  const row2 = runtimeItem(raw, seq);
-  return row2 ? [row2] : [];
+  const row3 = runtimeItem(raw, seq);
+  return row3 ? [row3] : [];
 }
 
-// plugins/provider-codex/src/runtimeLogin.ts
-function loginPlan(raw) {
-  const value = object(raw);
-  if (value.action === "cancel" && text(value.loginId)) return {
-    action: { kind: "request", call: { method: "account/login/cancel", params: { loginId: String(value.loginId) } } },
-    state: { stage: "loginCancel", loginId: String(value.loginId) }
-  };
-  const types = { browser: "chatgpt", device: "chatgptDeviceCode", apiKey: "apiKey" };
-  const method = String(value.method);
-  if (!["browser", "device", "apiKey"].includes(method) || method === "apiKey" && !text(value.apiKey)) throw { code: "invalid_schema", message: "Invalid login request" };
-  return { action: { kind: "request", call: { method: "account/login/start", params: json({ type: types[method], ...method === "apiKey" ? { apiKey: value.apiKey } : {} }) } }, state: { stage: "loginStart", method } };
+// plugins/provider-codex/src/actionTitle.ts
+var MAX_TITLE_CHARS = 48;
+function clip2(value) {
+  const compact2 = value.replace(/\s+/g, " ").trim();
+  if (compact2.length <= MAX_TITLE_CHARS) return compact2;
+  return compact2.substring(0, MAX_TITLE_CHARS - 3).trimEnd() + "...";
 }
-function loginResponse(state, value) {
-  if (state.stage === "loginCancel") {
-    if (value.status !== "canceled" && value.status !== "notFound") throw { code: "invalid_schema", message: "Invalid cancellation result" };
-    return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "canceled", loginId: String(state.loginId) } }] };
+function text3(value) {
+  return typeof value === "string" ? value : "";
+}
+function baseName(path) {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  return trimmed.split(/[\\/]/).pop() || trimmed;
+}
+function commandHead(command) {
+  const tokens = command.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const width = tokens.length > 1 && tokens[1].charAt(0) !== "-" && tokens[1].charAt(0) !== '"' ? 2 : 1;
+  return tokens.slice(0, width).join(" ");
+}
+function actionTitle(fields) {
+  const summary = text3(fields.tool_summary);
+  const detail = text3(fields.tool_detail);
+  if (fields.tool_kind === "command") {
+    const more = /\(\+(\d+) more\)$/.exec(summary);
+    return clip2(commandHead(detail || summary) + (more ? ` +${more[1]}` : ""));
   }
-  if (state.method === "apiKey" && value.type === "apiKey") return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "completed", method: "apiKey" } }] };
-  const loginId = text(value.loginId);
-  const url = text(value.authUrl) ?? text(value.verificationUrl);
-  if (!loginId || !url || !["chatgpt", "chatgptDeviceCode"].includes(String(value.type))) throw { code: "invalid_schema", message: "Invalid login start result" };
-  const method = state.method === "device" ? "device" : "browser";
-  const userCode = text(value.userCode);
-  if (method === "device" && !userCode) throw { code: "invalid_schema", message: "Missing device code" };
-  return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "pending", method, loginId, url, ...userCode ? { userCode } : {} } }] };
-}
-function loginCompleted(value) {
-  const loginId = text(value.loginId);
-  return { kind: "authLogin", login: { status: value.success === true ? "completed" : "failed", ...loginId ? { loginId } : {}, ...value.success === true ? {} : { error: "Sign-in did not complete. Try again." } } };
+  if (fields.tool_kind === "read" && summary) return clip2(`Read ${baseName(summary)}`);
+  if (fields.tool_kind === "edit") {
+    const edits = Array.isArray(fields.tool_edits) ? fields.tool_edits : [];
+    const paths = edits.map((edit) => text3(edit && edit.path)).filter((path, index, all) => path && all.indexOf(path) === index);
+    if (paths.length > 0) return clip2(`Patched ${baseName(paths[0])}` + (paths.length > 1 ? ` +${paths.length - 1}` : ""));
+  }
+  return clip2(summary || "Tool activity");
 }
 
-// plugins/provider-codex/src/runtimeAuth.ts
-function accountAuth(value) {
-  const response = object(value);
-  if (response.account === null && response.requiresOpenaiAuth === true) return { kind: "auth", state: "signedOut" };
-  const account = object(response.account);
-  if (text(account.type)) return { kind: "auth", state: "signedIn" };
-  return { kind: "auth", state: "unknown" };
+// plugins/provider-codex/src/agentActivity.ts
+var AGENT_STATES = {
+  started: "started",
+  pending_init: "started",
+  running: "running",
+  completed: "completed",
+  errored: "failed",
+  failed: "failed",
+  interrupted: "interrupted",
+  shutdown: "closed",
+  closed: "closed"
+};
+function text4(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
-function notificationAuth(value) {
-  const params = object(value);
-  if (params.authMode === null) return { kind: "auth", state: "signedOut" };
-  if (text(params.authMode)) return { kind: "auth", state: "signedIn" };
-  return { kind: "auth", state: "unknown" };
-}
-
-// plugins/provider-codex/src/runtimeInterrupt.ts
-function interruptTargets(ctx, root) {
-  const turns = [...ctx.activeTurns];
-  const depth = (thread) => {
-    let current = thread;
-    let count = 0;
-    const seen = /* @__PURE__ */ new Set();
-    while (current !== root) {
-      if (seen.has(current)) return -1;
-      seen.add(current);
-      const parent = ctx.threadParents.find((parent2) => parent2.threadId === current)?.parentThreadId;
-      if (!parent) return -1;
-      current = parent;
-      count++;
-    }
-    return count;
-  };
-  return turns.map((turn) => ({ turn, depth: depth(turn.threadId) })).filter((entry) => entry.depth >= 0).sort((a, b) => b.depth - a.depth || a.turn.threadId.localeCompare(b.turn.threadId)).map((entry) => entry.turn);
-}
-
-// plugins/provider-codex/src/runtimePrompts.ts
-function fail(message) {
-  throw { code: "provider_refused", message };
-}
-function decisionOptions(data) {
-  const decisions = list(data.availableDecisions);
-  const supported = decisions.length ? [...decisions] : ["accept", "acceptForSession", "decline", "cancel"];
-  if (!supported.includes("decline")) supported.push("decline");
-  const labels = { accept: "Approve", acceptForSession: "Approve for session", decline: "Decline", cancel: "Cancel" };
-  return supported.map((value) => ({ label: typeof value === "string" ? labels[value] ?? value : "Approve with the proposed rule", value: typeof value === "string" ? value : canonicalJson(value) }));
-}
-function runtimePrompt(method, params, _id) {
-  const data = object(params);
-  if (method === "item/tool/requestUserInput") {
-    const questions = list(data.questions).map(object);
-    if (!questions.length) return void 0;
-    return {
-      question: questions.map((q) => String(q.question ?? "")).join("\n"),
-      options: questions.flatMap((q) => list(q.options).flatMap((o) => {
-        const parsed = nativeOption(o);
-        return parsed ? [parsed] : [];
-      })),
-      sections: questions.map((q) => ({ label: String(q.header ?? q.question ?? "") })),
-      multi_select: questions.length > 1
-    };
-  }
-  switch (method) {
-    case "item/commandExecution/requestApproval":
-    case "item/fileChange/requestApproval":
-      return { question: String(data.command ?? data.reason ?? "Approve this operation?"), options: decisionOptions(data) };
-    case "item/permissions/requestApproval":
-      return { question: `Grant permissions: ${canonicalJson(data.permissions)}`, options: [{ label: "Grant for turn", value: "turn" }, { label: "Grant for session", value: "session" }, { label: "Deny", value: "deny" }] };
-    case "mcpServer/elicitation/request":
-      if (data.mode !== "form" || list(object(data.requestedSchema).required).length)
-        return { question: String(data.message ?? "Unsupported tool request"), options: [{ label: "Decline", value: "decline" }, { label: "Cancel", value: "cancel" }] };
-      return { question: String(data.message ?? "Respond to the tool request"), options: [{ label: "Accept", value: "accept" }, { label: "Decline", value: "decline" }, { label: "Cancel", value: "cancel" }] };
-    default:
-      return void 0;
-  }
-}
-function runtimeAnswer(method, params, id, answer) {
-  const data = object(params);
-  const values = answer.kind === "choice" ? answer.values : [];
-  const prompt = runtimePrompt(method, params, id);
-  if (!prompt) fail("Unsupported server request");
-  if (values.some((value2) => !prompt.options.some((o) => o.value === value2))) fail("Invalid native option value");
-  if (method === "item/tool/requestUserInput") {
-    const questions = list(data.questions).map(object);
-    const answers = {};
-    if (answer.kind === "cancel") fail("Questions cannot be cancelled without an answer");
-    for (const q of questions) {
-      const key = text(q.id);
-      if (!key) fail("Missing question id");
-      const selected = list(q.options).flatMap((o) => {
-        const parsed = nativeOption(o);
-        return parsed && values.includes(parsed.value) ? [parsed.value] : [];
-      });
-      const value2 = answer.kind === "text" && questions.length === 1 ? answer.text : selected.length === 1 ? selected[0] : void 0;
-      if (!value2?.trim()) fail("Each question requires one answer");
-      answers[key] = { answers: [value2] };
-    }
-    return json({ answers });
-  }
-  if (answer.kind === "text" || answer.kind === "choice" && values.length !== 1) fail("Approval requires one declared option");
-  const value = answer.kind === "cancel" ? "cancel" : values[0];
-  switch (method) {
-    case "item/commandExecution/requestApproval":
-    case "item/fileChange/requestApproval":
-      return { decision: value.startsWith("{") ? JSON.parse(value) : value };
-    case "item/permissions/requestApproval":
-      return json({ permissions: value === "turn" || value === "session" ? data.permissions ?? {} : {}, scope: value === "session" ? "session" : "turn" });
-    case "mcpServer/elicitation/request":
-      return json({ action: value, ...value === "accept" ? { content: {} } : {} });
-    default:
-      return fail("Unsupported server request");
-  }
-}
-
-// plugins/provider-codex/src/runtimeContext.ts
-function invalid(message) {
-  throw { code: "invalid_schema", message };
-}
-function exactObject(raw, keys) {
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) invalid("Invalid restoreContext object");
-  const value = object(raw);
-  if (Object.keys(value).length !== keys.length || keys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) invalid("Invalid restoreContext fields");
-  return value;
-}
-function restoreContextItems(raw) {
-  const value = exactObject(raw, ["instructions", "additionalContext"]);
-  if (value.instructions !== null && typeof value.instructions !== "string") invalid("Invalid restoreContext instructions");
-  if (!Array.isArray(value.additionalContext)) invalid("Invalid restoreContext additionalContext");
-  const keys = /* @__PURE__ */ new Set();
-  for (const rawEntry of value.additionalContext) {
-    const entry = exactObject(rawEntry, ["key", "kind", "value"]);
-    if (typeof entry.key !== "string" || typeof entry.value !== "string" || entry.kind !== "application" && entry.kind !== "user") invalid("Invalid restoreContext entry");
-    if (keys.has(entry.key)) invalid("Duplicate restoreContext key");
-    keys.add(entry.key);
-  }
-  const context = value;
-  const item = (role, text6) => ({ type: "message", role, content: [{ type: "input_text", text: text6 }] });
-  const items = context.instructions ? [item("developer", context.instructions)] : [];
-  for (const entry of context.additionalContext) items.push(item(entry.kind === "application" ? "developer" : "user", entry.value));
-  if (!items.length) invalid("Empty restoreContext");
-  return items;
-}
-
-// plugins/provider-codex/src/runtimeSettings.ts
-function codexRuntimePolicy(settings) {
-  const selected = settings.mode ?? "auto-accept-edits";
-  const policies = {
-    "approval-required": ["untrusted", "user", "readOnly"],
-    "auto-accept-edits": ["on-request", "user", "workspaceWrite"],
-    "auto": ["on-request", "auto_review", "workspaceWrite"],
-    "full-access": ["never", "user", "dangerFullAccess"]
-  };
-  const policy = policies[selected];
-  if (!policy) throw { code: "unsupported", message: `Unsupported runtime mode: ${selected}` };
-  return { approvalPolicy: policy[0], approvalsReviewer: policy[1], sandboxPolicy: {
-    type: policy[2],
-    ...policy[2] === "workspaceWrite" && settings.networkAccess !== void 0 ? { networkAccess: settings.networkAccess } : {},
-    ...policy[2] === "workspaceWrite" && settings.additionalDirectories?.length ? { writableRoots: [...settings.additionalDirectories] } : {}
-  } };
-}
-function codexThreadConfig(settings) {
-  const workspaceWrite = codexRuntimePolicy(settings).sandboxPolicy.type === "workspaceWrite";
-  return {
-    check_for_update_on_startup: false,
-    project_doc_max_bytes: 65536,
-    ...workspaceWrite && settings.networkAccess !== void 0 ? { "sandbox_workspace_write.network_access": settings.networkAccess } : {},
-    ...settings.additionalDirectories?.length ? { "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories] } : {},
-    ...settings.effort ? { model_reasoning_effort: settings.effort } : {}
-  };
-}
-function codexReportedSettings(raw) {
-  const root = object(raw);
-  const settings = root.threadSettings ? object(root.threadSettings) : root;
-  const thread = object(settings.thread);
-  const model = text(settings.model) ?? text(thread.model);
-  const effort = text(settings.reasoningEffort) ?? text(settings.effort) ?? text(thread.reasoningEffort) ?? text(thread.effort);
-  const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;
-  const approval = settings.approvalPolicy ?? thread.approvalPolicy;
-  const reviewer = settings.approvalsReviewer ?? thread.approvalsReviewer;
-  const mode = text(settings.mode) ?? text(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
-  return { ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} };
-}
-function codexEffectiveSettings(requested, reply) {
-  return { ...requested, ...codexReportedSettings(reply) };
-}
-
-// plugins/provider-codex/src/runtimeErrors.ts
-function runtimeError(value, willRetry = false) {
-  const error = object(value);
-  const info = error.codexErrorInfo;
-  const code = typeof info === "string" ? info : Object.keys(object(info))[0];
-  const message = text(error.additionalDetails) ?? text(error.message) ?? "Provider request failed";
-  const category = code === "usageLimitExceeded" || code === "rateLimitExceeded" ? "usage_limit" : code?.startsWith("http") || code?.startsWith("responseStream") ? "transport_error" : "provider_error";
-  return { message, metadata: { ...code ? { code } : {}, class: category, retryable: willRetry } };
-}
-
-// plugins/provider-codex/src/runtimeReduce.ts
-function initial(ctx, raw) {
-  const state = object(raw);
-  if (state.epoch === ctx.epoch && state.bindingNonce === ctx.bindingNonce && state.threadId === ctx.threadId) {
-    const restored = JSON.parse(JSON.stringify(state));
-    restored.items = Object.assign(/* @__PURE__ */ Object.create(null), restored.items);
-    if (restored.parents) restored.parents = Object.assign(/* @__PURE__ */ Object.create(null), restored.parents);
-    return restored;
-  }
-  return { epoch: ctx.epoch, bindingNonce: ctx.bindingNonce, threadId: ctx.threadId, seq: 0, items: /* @__PURE__ */ Object.create(null), completed: [], compacted: [], evidenced: [], activeTurnId: ctx.activeTurnId };
-}
-function timing(params) {
-  const turn = object(params.turn);
-  return {
-    ...typeof turn.startedAt === "number" && turn.startedAt >= 0 ? { startedAt: turn.startedAt * 1e3 } : {},
-    ...typeof turn.completedAt === "number" && turn.completedAt >= 0 ? { completedAt: turn.completedAt * 1e3 } : {}
-  };
-}
-function usage(params) {
-  const token = object(params.tokenUsage);
-  const total = object(token.total);
-  if (typeof total.inputTokens !== "number" || typeof total.outputTokens !== "number") return void 0;
-  return {
-    input_tokens: total.inputTokens,
-    output_tokens: total.outputTokens,
-    ...typeof total.cacheWriteInputTokens === "number" ? { cache_write_tokens: total.cacheWriteInputTokens } : {},
-    ...typeof total.cachedInputTokens === "number" ? { cache_read_tokens: total.cachedInputTokens } : {},
-    ...typeof object(token.last).totalTokens === "number" ? { used_tokens: Number(object(token.last).totalTokens) } : {},
-    ...typeof token.modelContextWindow === "number" ? { window_tokens: token.modelContextWindow } : {}
-  };
-}
-function sendEvidence(ctx, item, turnId) {
-  if (item.type !== "userMessage" || !turnId) return void 0;
-  const sendId = text(item.clientId);
-  const claim = ctx.claimedSends.find((c) => c.sendId === sendId && c.threadId === ctx.threadId);
-  if (!claim) return void 0;
-  const parts = list(item.content).map(object);
-  const content = parts.filter((p) => p.type === "text").map((p) => p.text).join("\n");
-  if (content !== claim.input.text) return void 0;
-  const images = parts.filter((p) => p.type === "image" || p.type === "localImage");
-  if (images.length !== claim.input.attachments.length) return void 0;
-  if (!images.every((image, index) => {
-    const expected = claim.input.attachments[index];
-    if (expected.data) return image.type === "image" && image.url === `data:${expected.mimeType};base64,${expected.data}`;
-    if (expected.url) return image.type === "image" && image.url === expected.url;
-    return !!expected.path && image.type === "localImage" && image.path === expected.path;
-  })) return void 0;
-  return { kind: "sendEvidence", threadId: claim.threadId, sendId: claim.sendId, turnId };
-}
-function stamp(state, row2, params) {
-  const previous = state.items[row2.id];
-  row2.seq = previous?.seq ?? ++state.seq;
-  const ms = params.startedAtMs ?? params.completedAtMs;
-  if (previous?.timestamp) row2.timestamp = previous.timestamp;
-  else if (typeof ms === "number" && Number.isFinite(ms)) row2.timestamp = new Date(ms).toISOString();
-  const turnId = text(params.turnId) ?? text(object(params.turn).id);
-  if (turnId) row2.toolFlowId = turnId;
-  state.items[row2.id] = row2;
-  return row2;
-}
-function mapItem(state, method, params) {
-  const raw = object(params.item);
-  const id = text(raw.id) ?? text(params.itemId);
-  if (!id) return void 0;
-  const previous = state.items[id];
-  if (method === "item/started" || method === "item/completed") {
-    const row3 = runtimeItem(raw, state.seq + 1, previous);
-    return row3 ? stamp(state, row3, params) : void 0;
-  }
-  const delta = text(params.delta) ?? text(params.message);
-  if (!delta) return void 0;
-  const row2 = previous ? { ...previous } : { id, seq: state.seq + 1, type: "assistant", content: "" };
-  switch (method) {
-    case "item/agentMessage/delta":
-    case "item/plan/delta":
-      row2.type = "assistant";
-      row2.content += delta;
-      break;
-    case "item/reasoning/textDelta":
-    case "item/reasoning/summaryTextDelta":
-      row2.type = "thinking";
-      row2.collapsed = true;
-      row2.content += delta;
-      break;
-    case "item/commandExecution/outputDelta":
-    case "item/fileChange/outputDelta":
-      row2.type = "tool_call";
-      row2.toolKind = method === "item/commandExecution/outputDelta" ? "command" : "edit";
-      row2.toolId = id;
-      row2.toolResult = (row2.toolResult ?? "") + delta;
-      break;
-    case "item/mcpToolCall/progress":
-      row2.type = "tool_call";
-      row2.toolKind = "generic";
-      row2.toolId = id;
-      row2.toolDetail = delta;
-      break;
-    default:
-      return void 0;
-  }
-  return stamp(state, row2, params);
-}
-function runtimeReduce(ctx, raw, frames) {
-  const state = initial(ctx, raw);
-  const events = [];
-  for (const frame of frames) {
-    const params = object(frame.params);
-    if (frame.kind === "notification" && frame.method === "account/login/completed") {
-      events.push(loginCompleted(params));
-      continue;
-    }
-    if (frame.kind === "notification" && frame.method === "account/updated") {
-      events.push(notificationAuth(params));
-      continue;
-    }
-    state.parents ?? (state.parents = Object.fromEntries(ctx.threadParents.map((parent) => [parent.threadId, parent.parentThreadId])));
-    if (frame.kind === "notification" && frame.method === "thread/started") {
-      const thread = object(params.thread);
-      const id = text(thread.id);
-      const parent = text(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
-      if (id && parent && (parent === ctx.threadId || Object.prototype.hasOwnProperty.call(state.parents, parent))) state.parents[id] = parent;
-      continue;
-    }
-    if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents, params.threadId) && frame.method !== "serverRequest/resolved") {
-      const threadId2 = params.threadId;
-      const turnId2 = text(object(params.turn).id) ?? text(params.turnId);
-      if (!turnId2) continue;
-      state.childActive ?? (state.childActive = {});
-      state.childCompleted ?? (state.childCompleted = []);
-      if (frame.method === "turn/started" && !state.childCompleted.includes(`${threadId2}:${turnId2}`)) {
-        state.childActive[threadId2] = turnId2;
-        events.push({ kind: "turnState", threadId: threadId2, turnId: turnId2, parentThreadId: state.parents[threadId2], state: "working", ...timing(params) });
-      } else if (frame.method === "turn/completed" && !state.childCompleted.includes(`${threadId2}:${turnId2}`)) {
-        state.childCompleted.push(`${threadId2}:${turnId2}`);
-        if (state.childActive[threadId2] && state.childActive[threadId2] !== turnId2) continue;
-        delete state.childActive[threadId2];
-        events.push({ kind: "turnState", threadId: threadId2, turnId: turnId2, parentThreadId: state.parents[threadId2], state: "idle", ...timing(params) });
-      }
-      continue;
-    }
-    if (frame.kind === "notification" && frame.method === "account/rateLimits/updated") {
-      const limits = object(params.rateLimits);
-      if (limits.limitId && limits.limitId !== "codex") continue;
-      state.rateLimitSnapshot = { ...state.rateLimitSnapshot, ...limits };
-      const windows = ["primary", "secondary"].flatMap((window) => {
-        const value = object(state.rateLimitSnapshot?.[window]);
-        if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
-        return [{
-          window,
-          usedPercent: Math.max(0, Math.min(100, value.usedPercent)),
-          ...typeof value.resetsAt === "number" && value.resetsAt >= 0 ? { resetsAt: value.resetsAt * 1e3 } : {},
-          ...typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? { windowMinutes: value.windowDurationMins } : {}
-        }];
-      });
-      if (windows.length) events.push({ kind: "rateLimits", rateLimits: windows });
-      continue;
-    }
-    const descendant = typeof params.threadId === "string" && ctx.threadParents.some((parent) => parent.threadId === params.threadId);
-    if (ctx.threadId && (params.threadId === ctx.threadId || descendant) && frame.kind === "request") {
-      if (!serverRequestMethods.includes(frame.method)) continue;
-      const prompt = runtimePrompt(frame.method, params, frame.requestId);
-      const turnId2 = descendant ? ctx.activeTurnId : text(params.turnId);
-      if (prompt) events.push({ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, prompt }, { kind: "turnState", threadId: ctx.threadId, state: "needs_input", ...turnId2 ? { turnId: turnId2 } : {} });
-      continue;
-    }
-    if (ctx.threadId && descendant && frame.kind === "notification" && frame.method === "serverRequest/resolved") {
-      if (typeof params.requestId === "string" || typeof params.requestId === "number") events.push({ kind: "promptResolved", threadId: ctx.threadId, requestId: params.requestId });
-      continue;
-    }
-    if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
-    const threadId = ctx.threadId;
-    const turnId = text(params.turnId) ?? text(object(params.turn).id);
-    switch (frame.method) {
-      case "turn/started": {
-        if (!turnId || state.completed.includes(turnId)) break;
-        state.activeTurnId = turnId;
-        const settings = codexReportedSettings({ ...params, ...object(params.turn) });
-        if (Object.keys(settings).length) events.push({ kind: "controlsConfirmed", threadId, settings });
-        events.push({ kind: "turnState", threadId, turnId, state: "working", ...timing(params) });
-        break;
-      }
-      case "turn/completed": {
-        if (!turnId || state.completed.includes(turnId)) break;
-        state.completed.push(turnId);
-        if (state.activeTurnId && state.activeTurnId !== turnId) break;
-        delete state.activeTurnId;
-        const failure = object(object(params.turn).error);
-        if (text(failure.message)) {
-          const error = runtimeError(failure);
-          events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: "api_error", toolInput: error.metadata }, params) });
-        }
-        events.push({ kind: "turnState", threadId, turnId, state: "idle", ...timing(params) });
-        break;
-      }
-      case "thread/status/changed": {
-        const status = object(params.status);
-        const type = typeof params.status === "string" ? params.status : status.type;
-        if (type === "idle") events.push({ kind: "turnState", threadId, state: "idle" });
-        else if (type === "active") events.push({ kind: "turnState", threadId, state: list(status.activeFlags).some((f) => f === "waitingOnApproval" || f === "waitingOnUserInput") ? "needs_input" : "working" });
-        break;
-      }
-      case "thread/tokenUsage/updated": {
-        const mapped = usage(params);
-        if (mapped) events.push({ kind: "usage", threadId, usage: mapped });
-        break;
-      }
-      case "thread/settings/updated": {
-        const settings = codexReportedSettings(params);
-        if (Object.keys(settings).length) events.push({ kind: "controlsConfirmed", threadId, settings });
-        break;
-      }
-      case "serverRequest/resolved":
-        if (typeof params.requestId === "string" || typeof params.requestId === "number") events.push({ kind: "promptResolved", threadId, requestId: params.requestId });
-        break;
-      case "model/rerouted": {
-        const model = text(params.toModel);
-        if (model) {
-          events.push({ kind: "controlsConfirmed", threadId, settings: { model } });
-          events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId ?? "thread"}:model-rerouted`, seq: state.seq + 1, type: "system", content: `Model changed to ${model}`, systemSubtype: "model_rerouted", toolInput: params }, params) });
-        }
-        break;
-      }
-      case "thread/goal/cleared":
-        events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: {} }, params) });
-        break;
-      case "turn/diff/updated": {
-        const diff = text(params.diff);
-        if (diff && turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:diff`, seq: state.seq + 1, type: "tool_call", content: "", toolKind: "edit", toolName: "turn_diff", toolResult: diff, collapsed: true }, params) });
-        break;
-      }
-      case "thread/goal/updated": {
-        const goal = text(object(params.goal).objective);
-        if (goal) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: { goal } }, params) });
-        break;
-      }
-      case "turn/plan/updated": {
-        const row2 = runtimeItem({ id: `${turnId}:plan`, type: "planUpdate", plan: params.plan, explanation: params.explanation }, state.seq + 1);
-        if (row2) events.push({ kind: "chatItem", threadId, item: stamp(state, row2, params) });
-        break;
-      }
-      case "error": {
-        const error = runtimeError(params.error, params.willRetry === true);
-        if (turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: params.willRetry === true ? "provider_retry" : "api_error", toolInput: error.metadata }, params) });
-        break;
-      }
-      default: {
-        let row2;
-        const rawItem = object(params.item);
-        if (frame.method === "item/completed" && rawItem.type === "agentMessage" && rawItem.delivery === "async" && list(rawItem.questions).length) {
-          const itemId = text(rawItem.id);
-          state.questions ?? (state.questions = []);
-          if (itemId && !state.questions.includes(itemId)) {
-            state.questions.push(itemId);
-            events.push({ kind: "question", threadId, itemId, questions: runtimeQuestions(rawItem.questions), response: "message" });
-          }
-          continue;
-        }
-        const reasoningId = text(rawItem.id) ?? text(params.itemId);
-        if (reasoningId && (rawItem.type === "reasoning" || frame.method.startsWith("item/reasoning/"))) {
-          state.reasoning ?? (state.reasoning = {});
-          const parts = state.reasoning[reasoningId] ?? { summary: [], content: [] };
-          state.reasoning[reasoningId] = parts;
-          if (rawItem.type === "reasoning") {
-            if (list(rawItem.summary).length) parts.summary = list(rawItem.summary).map(String);
-            if (list(rawItem.content).length) parts.content = list(rawItem.content).map(String);
-          } else {
-            const stream = frame.method === "item/reasoning/summaryTextDelta" ? "summary" : "content";
-            const index = Number(params.summaryIndex ?? params.contentIndex ?? 0);
-            if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts[stream][index] = (parts[stream][index] ?? "") + String(params.delta ?? "");
-          }
-          row2 = stamp(state, { id: reasoningId, seq: state.seq + 1, type: "thinking", content: parts.summary.join("\n") || parts.content.join("\n"), collapsed: true }, params);
-        } else if ((frame.method === "item/started" || frame.method === "item/completed") && rawItem.type === "collabAgentToolCall" && list(rawItem.receiverThreadIds).length) {
-          for (const activity of runtimeItems(rawItem, state.seq + 1)) events.push({ kind: "chatItem", threadId, item: stamp(state, activity, params) });
-        } else row2 = mapItem(state, frame.method, params);
-        if (row2) events.push({ kind: "chatItem", threadId, item: row2 });
-        if (frame.method === "item/started" || frame.method === "item/completed") {
-          const evidence = sendEvidence(ctx, object(params.item), turnId);
-          if (evidence?.kind === "sendEvidence" && !state.evidenced.includes(evidence.sendId)) {
-            state.evidenced.push(evidence.sendId);
-            events.push(evidence);
-          }
-          const item = object(params.item);
-          const id = text(item.id);
-          if (frame.method === "item/completed" && item.type === "contextCompaction" && id && !state.compacted.includes(id)) {
-            state.compacted.push(id);
-            events.push({ kind: "contextCompacted", threadId, itemId: id });
-          }
-        }
-      }
-    }
-  }
-  return { state: json(state), events };
-}
-
-// plugins/provider-codex/src/runtime.ts
-function fail2(code, message) {
-  throw { code, message };
-}
-function request(method, params, state = { stage: method }) {
-  const target = method === "turn/interrupt" ? { threadId: String(object(params).threadId), turnId: String(object(params).turnId) } : void 0;
-  return { action: { kind: "request", call: { method, params: json(params), ...target ? { target } : {} } }, state: json(state) };
-}
-function settingsParams(ctx, settings, instructions) {
-  const policies = codexRuntimePolicy(settings);
-  const sandbox = object(policies.sandboxPolicy).type;
-  return {
-    cwd: ctx.cwd,
-    model: settings.model,
-    threadSource: "user",
-    config: codexThreadConfig(settings),
-    approvalPolicy: policies.approvalPolicy,
-    approvalsReviewer: policies.approvalsReviewer,
-    sandbox: { readOnly: "read-only", workspaceWrite: "workspace-write", dangerFullAccess: "danger-full-access" }[String(sandbox)],
-    ...instructions !== void 0 ? { developerInstructions: instructions } : {}
-  };
-}
-function turnParams(ctx, op) {
-  const input = [{ type: "text", text: op.input.text }];
-  for (const attachment of op.input.attachments) {
-    if (attachment.data) input.push({ type: "image", url: `data:${attachment.mimeType};base64,${attachment.data}` });
-    else if (attachment.url) input.push({ type: "image", url: attachment.url });
-    else if (attachment.path) input.push({ type: "localImage", path: attachment.path });
-    else fail2("invalid_schema", "Attachment has no image source");
-  }
-  return {
-    threadId: op.threadId,
-    clientUserMessageId: op.sendId,
-    input,
-    cwd: ctx.cwd,
-    ...codexRuntimePolicy(op.settings),
-    model: op.settings.model,
-    effort: op.settings.effort
-  };
-}
-function validateBinding(ctx, op) {
-  if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId) fail2("binding_mismatch", "Thread differs from the bound thread");
-  if ("activeTurnId" in op && op.activeTurnId && op.activeTurnId !== ctx.activeTurnId) fail2("binding_mismatch", "Active turn differs from the bound turn");
-}
-function runtimePlan(ctx, op) {
-  validateBinding(ctx, op);
-  switch (op.kind) {
-    case "initialize":
-      return request("initialize", { clientInfo: { name: "domios", version: ctx.hostVersion }, capabilities: { experimentalApi: true, optOutNotificationMethods: [] } });
-    case "openThread":
-      return request("thread/start", settingsParams(ctx, op.settings, op.instructions));
-    case "resumeThread":
-      return request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true });
-    case "readHistory":
-      return request(
-        "thread/turns/list",
-        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: "asc", limit: 100, cursor: op.cursor },
-        { stage: "turns", turns: [], cursors: [], items: [], openItems: [], seq: 0 }
-      );
-    case "submitTurn": {
-      const params = turnParams(ctx, op);
-      if (!op.activeTurnId) return request("turn/start", params);
-      return request("turn/steer", { threadId: op.threadId, clientUserMessageId: op.sendId, input: params.input, expectedTurnId: op.activeTurnId });
-    }
-    case "interrupt": {
-      const turns = interruptTargets(ctx, op.threadId);
-      if (!turns.length) fail2("provider_refused", "No active turn to interrupt");
-      return request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) });
-    }
-    case "answerQuestion":
-      return { action: { kind: "questionAnswer", input: questionAnswerInput(op.itemId, op.answers) }, state: null };
-    case "answer": {
-      const pending = ctx.pendingRequest;
-      if (!pending || pending.requestId !== op.requestId) fail2("binding_mismatch", "Answer has no exact pending request");
-      return { action: { kind: "reply", requestId: op.requestId, result: { kind: "success", value: runtimeAnswer(pending.method, pending.params, op.requestId, op.answer) } }, state: null };
-    }
-    case "control": {
-      if (op.action === "login") return loginPlan(op.value);
-      if (op.action === "auth") return request("account/read", { refreshToken: false }, { stage: "auth" });
-      const thread = op.threadId ?? ctx.threadId;
-      if (!thread) fail2("binding_mismatch", "Control requires the bound thread");
-      if (op.action === "compact") return request("thread/compact/start", { threadId: thread });
-      if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: restoreContextItems(op.value) });
-      if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
-      const settings = op.action === "settings" ? { ...ctx.settings, ...object(op.value) } : { ...ctx.settings, [op.action]: op.value };
-      for (const key of ["model", "effort", "mode"]) if (settings[key] !== void 0 && typeof settings[key] !== "string") fail2("invalid_schema", `Invalid ${key}`);
-      const parsed = settings;
-      return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
-    }
-  }
-}
-function refused(message, beforeAcceptance = false) {
-  return { kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance };
-}
-function continuation(plan, beforeAcceptance) {
-  return { kind: "continue", plan, ...beforeAcceptance ? { beforeAcceptance } : {} };
-}
-function runtimeResponse(ctx, op, raw, reply) {
-  validateBinding(ctx, op);
-  const state = object(raw);
-  if (reply.kind === "error") {
-    if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
-    if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
-    if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
-      return continuation(request("thread/read", { threadId: op.threadId, includeTurns: true }, { stage: "snapshot", items: [], openItems: [], questions: [], seq: 0 }));
-    if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error, op.activeTurnId))
-      return continuation(request("turn/start", turnParams(ctx, op)), true);
-    if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && archivedResume(reply.error.message))
-      return continuation(request("thread/unarchive", { threadId: op.threadId }, { stage: "unarchive" }));
-    return refused(reply.error.message, op.kind === "submitTurn" && state.stage === "turn/steer" && !!op.activeTurnId && steerRefused(reply.error, op.activeTurnId));
-  }
-  const value = object(reply.value);
-  switch (op.kind) {
-    case "initialize":
-      if (state.stage === "initialize") return continuation({ action: { kind: "notification", notification: { method: "initialized", params: {} } }, state: { stage: "initializedNotification" } });
-      if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { stage: "initializeAccount" }));
-      return { kind: "complete", result: { kind: "initialized" }, events: [accountAuth(value)] };
-    case "openThread": {
-      if (state.stage === "materialize") return { kind: "complete", result: { kind: "threadLoaded", threadId: String(state.threadId), settings: state.settings } };
-      const threadId = userThread(value);
-      if (!threadId) return refused("New thread identity unverified");
-      return continuation(request(
-        "thread/inject_items",
-        { threadId, items: [{ type: "message", role: "developer", content: [{ type: "input_text", text: "Domios thread binding marker." }] }] },
-        { stage: "materialize", threadId, settings: codexEffectiveSettings(op.settings, value) }
-      ));
-    }
-    case "resumeThread": {
-      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
-      if (!userThread(value, op.threadId)) return refused("Resumed thread identity unverified");
-      if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify", settings: codexEffectiveSettings(op.settings, value) }));
-      return { kind: "complete", result: { kind: "threadLoaded", threadId: op.threadId, settings: state.settings } };
-    }
-    case "readHistory":
-      return historyResponse(op, state, value);
-    case "submitTurn": {
-      const turnId = text(object(value.turn).id) ?? text(value.turnId);
-      return { kind: "complete", result: { kind: "turnAccepted", threadId: op.threadId, sendId: op.sendId, ...turnId ? { turnId } : {} } };
-    }
-    case "interrupt": {
-      const turns = list(state.remaining).map(object);
-      if (turns.length) return continuation(request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) }));
-      return { kind: "complete", result: { kind: "done" } };
-    }
-    case "control": {
-      if (op.action === "login") return loginResponse(state, value);
-      if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
-      return { kind: "complete", result: { kind: "done" }, ...state.stage === "thread/settings/update" ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
-    }
-    case "answer":
-    case "answerQuestion":
-      return { kind: "complete", result: { kind: "done" } };
-  }
-}
-function historyResponse(op, state, value) {
-  if (state.stage === "snapshot") {
-    if (!userThread(value, op.threadId)) return refused("History snapshot thread identity unverified");
-    const turns2 = object(value.thread).turns;
-    if (!Array.isArray(turns2)) return refused("Missing history snapshot turns");
-    let collected2 = state;
-    for (const raw of turns2) {
-      const turn2 = object(raw);
-      if (!text(turn2.id) || !Array.isArray(turn2.items)) return refused("Missing history snapshot turn items");
-      collected2 = collectHistoryItems(op, collected2, turn2, turn2.items);
-    }
-    return historyGoal(op, collected2);
-  }
-  if (state.stage === "goal") {
-    const objective = text(object(value.goal).objective);
-    if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: { goal: objective } }];
-    return historyComplete(op, state);
-  }
-  if (!Array.isArray(value.data)) return refused("Missing history page data");
-  if (state.stage === "turns") {
-    const turns2 = list(value.data).map(object);
-    const next2 = text(value.nextCursor);
-    if (next2 && next2 === op.cursor) return refused("Repeated history cursor");
-    const collected2 = { ...state, turns: turns2, nextCursor: next2, index: 0, stage: "items" };
-    if (!turns2.length) return historyGoal(op, collected2);
-    return historyItems(op, collected2);
-  }
-  if (state.stage !== "items") return refused("Invalid history state");
-  const turns = list(state.turns).map(object);
-  const turn = turns[Number(state.index)];
-  if (!turn || !text(turn.id)) return refused("Missing history turn id");
-  const mapped = collectHistoryItems(op, state, turn, value.data);
-  const next = text(value.nextCursor);
-  const cursors = list(state.cursors);
-  if (next && cursors.includes(next)) return refused("Repeated history cursor");
-  const collected = { ...mapped };
-  if (next) return historyItems(op, { ...collected, cursors: [...cursors, next] }, next);
-  const index = Number(state.index) + 1;
-  if (index < turns.length) return historyItems(op, { ...collected, index, cursors: [] });
-  return historyGoal(op, collected);
-}
-function collectHistoryItems(op, state, turn, entries) {
-  const items = list(state.items);
-  const openItems = list(state.openItems);
-  let seq = Number(state.seq);
-  let questions = list(state.questions);
-  for (const entry of entries) {
-    const record4 = object(entry);
-    const rawItem = record4.item ?? record4;
-    questions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
-    const rows = runtimeItems(rawItem, seq + 1);
-    seq += rows.length;
-    for (const row2 of rows) {
-      row2.toolFlowId = String(turn.id);
-      const timestamp = record4.startedAtMs ?? record4.completedAtMs;
-      if (typeof timestamp === "number" && Number.isFinite(timestamp)) row2.timestamp = new Date(timestamp).toISOString();
-      items.push(row2);
-      if (turn.status === "inProgress" && turn.startedAt != null && record4.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status))) openItems.push({ turnId: String(turn.id), item: row2 });
-    }
-  }
-  return { ...state, items, openItems, seq, questions };
-}
-function historyItems(op, state, cursor) {
-  const turn = object(list(state.turns)[Number(state.index)]);
-  if (!text(turn.id)) return refused("Missing history turn id");
-  return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: 100, cursor }, state));
-}
-function historyGoal(op, state) {
-  if (text(state.nextCursor)) return historyComplete(op, state);
-  return continuation(request("thread/goal/get", { threadId: op.threadId }, { ...state, stage: "goal" }));
-}
-function historyComplete(op, state) {
-  return { kind: "complete", result: {
-    kind: "historyPage",
-    threadId: op.threadId,
-    items: list(state.items),
-    openItems: list(state.openItems),
-    ...text(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {},
-    ...list(state.questions).length ? { questions: list(state.questions) } : {}
-  } };
-}
-
-// plugins/provider-codex/src/toolOutput.ts
-function codexToolOutputText(output) {
-  if (typeof output === "string") return output;
-  if (output == null) return "";
-  if (Array.isArray(output) && output.every((item) => item && typeof item === "object" && typeof item.text === "string")) {
-    return output.map((item) => item.text).join("");
-  }
-  return typeof output === "object" ? canonicalJson(output) : String(output);
-}
-
-// plugins/provider-shared/accessError.ts
-function object2(value) {
+function record3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
-function classifyAccessError(error, record4) {
-  const detail = object2(error);
-  const info = object2(detail?.codexErrorInfo);
-  const fields = [
-    typeof error === "string" ? error : null,
-    detail?.type,
-    detail?.code,
-    detail?.status,
-    detail?.statusCode,
-    detail?.status_code,
-    detail?.httpStatusCode,
-    detail?.codexErrorInfo,
-    ...Object.keys(info ?? {}),
-    ...Object.values(info ?? {}).map((value) => object2(value)?.httpStatusCode),
-    record4.status,
-    record4.statusCode,
-    record4.status_code,
-    record4.apiErrorStatus,
-    record4.apiErrorCode
-  ];
-  if (fields.some((value) => typeof value === "string" && (value.startsWith("oauth_") || value.startsWith("authentication_")))) return "authentication";
-  if (fields.some((value) => value === 401 || value === 403 || typeof value === "string" && [
-    "401",
-    "403",
-    "authentication_error",
-    "auth",
-    "unauthorized",
-    "permission_error",
-    "permission_denied",
-    "forbidden",
-    "subscription_disabled",
-    "organization_disabled",
-    "oauth_refresh_failed",
-    "token_expired",
-    "token_revoked",
-    "refresh_token_reused",
-    "refresh_token_expired",
-    "refresh_token_invalidated",
-    "logged_out",
-    "signed_out",
-    "unauthenticated",
-    "authError"
-  ].includes(value))) return "authentication";
-  if (fields.some((value) => value === 429 || value === "429" || value === "rate_limit" || value === "rate_limit_error" || value === "usageLimitExceeded")) return "rate_limit";
-  return "other";
+function row2(uuid, blocks, ts, timestamp) {
+  if (blocks.length === 0) return null;
+  return { role: "assistant", ...uuid ? { uuid } : {}, blocks, ts, timestamp };
 }
-
-// plugins/provider-codex/src/signals.ts
-function parseSessionObservations(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record4 = value;
-  if (record4.type !== "event_msg" || !record4.payload || typeof record4.payload !== "object" || Array.isArray(record4.payload)) return null;
-  const payload = record4.payload;
-  if (payload.type === "error") return {
-    api_error: classifyAccessError(payload.error ?? payload, payload),
-    permission_mode: null,
-    clears_api_error: false
-  };
-  if (payload.type === "task_complete") return { api_error: null, permission_mode: null, clears_api_error: true };
-  return null;
+function agentBlock(fields, summary, turnId) {
+  const input = {};
+  for (const key in fields) if (fields[key]) input[key] = fields[key];
+  const flowId = text4(turnId);
+  return { kind: "tool_use", data: {
+    name: "agent_activity",
+    input,
+    tool_kind: "agent",
+    tool_summary: summary,
+    tool_status: "success",
+    ...flowId ? { tool_flow_id: flowId } : {}
+  } };
 }
-
-// plugins/provider-shared/updatePrompt.ts
-function updatePromptSafeChoice(prompt) {
-  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
-    return null;
-  }
-  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
-  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
-  const chosen = safe.length === 1 ? safe : bare;
-  if (chosen.length !== 1) return null;
-  const [label, value] = chosen[0];
-  if (!value || /\bupdate\b/i.test(label)) return null;
-  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
-  return value;
+function thoughtRow(id, summaries, ts, timestamp) {
+  const blocks = summaries.filter((summary) => typeof summary === "string" && summary.trim() !== "").map((summary) => ({ kind: "thinking", data: { text: summary } }));
+  return row2(text4(id) ? `reasoning-${text4(id)}` : "", blocks, ts, timestamp);
 }
-
-// plugins/provider-shared/readHome.ts
-function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
-  if (!inheritedHome) return fallback;
-  if (!subpath) return inheritedHome;
-  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
+function reasoningItemRow(item, ts, timestamp) {
+  return thoughtRow(item.id, Array.isArray(item.summary_text) ? item.summary_text : [], ts, timestamp);
 }
-
-// plugins/provider-codex/src/models.ts
-function discoverCodexModels() {
-  return discoverCodexModelsFromCache();
-}
-function codexModelsCachePath() {
-  const home = host.homeDir();
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" + sep + "models_cache.json" : null, "models_cache.json", sep);
-}
-function discoverCodexModelsFromCache() {
-  const path = codexModelsCachePath();
-  if (!path || !host.fs.fileExists(path)) return null;
-  const cache = host.fs.readJson(path);
-  const raw = cache && cache.models;
-  if (!Array.isArray(raw)) return null;
-  const kept = [];
-  for (let i = 0; i < raw.length; i++) {
-    const item = raw[i];
-    const id = typeof item.slug === "string" ? item.slug.trim() : "";
-    if (!id) continue;
-    if (item.visibility === "hide") continue;
-    if (isNonChatModel(id)) continue;
-    kept.push(item);
-  }
-  kept.sort((a, b) => priorityOf(a) - priorityOf(b));
-  const models = [];
-  for (let i = 0; i < kept.length; i++) {
-    const item = kept[i];
-    const id = item.slug.trim();
-    models.push({
-      id,
-      displayName: typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : displayNameFromId(id),
-      description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0,
-      reasoningEfforts: reasoningEffortsFrom(item.supported_reasoning_levels),
-      defaultReasoningEffort: defaultEffortFrom(item)
-    });
-  }
-  return models.length ? models : null;
-}
-function defaultEffortFrom(model) {
-  const effort = typeof model.default_reasoning_level === "string" ? model.default_reasoning_level.trim() : "";
-  return effort || void 0;
-}
-function reasoningEffortsFrom(levels) {
-  if (!Array.isArray(levels)) return void 0;
-  const efforts = [];
-  const seen = /* @__PURE__ */ new Set();
-  for (const level of levels) {
-    const id = typeof level.effort === "string" ? level.effort.trim() : "";
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    efforts.push({
-      id,
-      displayName: id,
-      description: typeof level.description === "string" && level.description.trim() ? level.description.trim() : void 0
-    });
-  }
-  return efforts.length ? efforts : void 0;
-}
-function priorityOf(m) {
-  return typeof m.priority === "number" ? m.priority : 1e9;
-}
-var NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
-function isNonChatModel(id) {
-  const leaf = (id.split("/").pop() || id).toLowerCase();
-  const toks = leaf.split(/[-_.]/);
-  for (let i = 0; i < toks.length; i++) {
-    if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
-  }
-  return false;
-}
-function displayNameFromId(id) {
-  const parts = id.split("/");
-  const leaf = parts[parts.length - 1] || id;
-  return leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
-}
-function capitalizeToken(token) {
-  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
-}
-
-// plugins/provider-codex/src/sessions.ts
-var sessionStoreOverrides = {
-  root: "CODETERM_CODEX_SESSIONS_ROOT",
-  index: "CODETERM_CODEX_SESSION_INDEX_PATH",
-  state: "CODETERM_CODEX_STATE_DB_PATH"
-};
-var STATE_DB_NAME = /^state_(\d+)\.sqlite$/;
-function foldSessionIndex(contents) {
-  const folded = /* @__PURE__ */ new Map();
-  const lines = String(contents || "").split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    let entry;
-    try {
-      entry = JSON.parse(line);
-    } catch (_) {
-      continue;
-    }
-    if (!entry || typeof entry.id !== "string" || !entry.id.trim()) continue;
-    if (typeof entry.thread_name !== "string" || typeof entry.updated_at !== "string") continue;
-    const current = folded.get(entry.id);
-    if (!current || sessionTimestamp(entry.updated_at) > sessionTimestamp(current.updated_at)) {
-      folded.set(entry.id, {
-        id: entry.id,
-        thread_name: entry.thread_name,
-        updated_at: entry.updated_at
-      });
-    }
-  }
-  return Array.from(folded.values());
-}
-function sessionFilePath(_cwd, sessionId) {
-  const path = trimmedField(threadRow(sessionId), "rollout_path");
-  return path && host.fs.fileExists(path) ? path : null;
-}
-function sessionExists(_cwd, sessionId) {
-  if (!sessionId) return false;
-  if (threadRow(sessionId) !== null) return true;
-  const store = codexSessionStore();
-  return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
-}
-function detectSessionId(cwd, exclude, maxAgeMs) {
-  if (!cwd || !host.fs.fileExists(cwd)) return null;
-  const store = codexSessionStore();
-  if (!store) return null;
-  const entries = readSessionIndex(store.indexPath);
-  if (entries.length === 0) return null;
-  const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
-  const now = host.unixNowMs ? host.unixNowMs() : Date.now();
-  const ageLimit = Number.isFinite(maxAgeMs) && maxAgeMs > 0 ? maxAgeMs : 3e5;
-  const matching = [];
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (excluded.has(entry.id)) continue;
-    const updatedMs = sessionTimestamp(entry.updated_at);
-    if (updatedMs > 0 && now - updatedMs > ageLimit) continue;
-    const project = readThreadCwd(entry.id);
-    if (project && host.path.equal(project, cwd)) matching.push(entry.id);
-  }
-  return matching.length === 1 ? matching[0] : null;
-}
-function enumerateSessions() {
-  const store = codexSessionStore();
-  if (!store) return [];
-  const entries = readSessionIndex(store.indexPath);
-  return entries.map((entry) => ({
-    sessionId: entry.id,
-    provider: "codex",
-    projectPath: readThreadCwd(entry.id),
-    title: entry.thread_name || null,
-    summary: null,
-    filePath: store.indexPath,
-    createdTs: null,
-    modifiedTs: sessionTimestamp(entry.updated_at) > 0 ? Math.floor(sessionTimestamp(entry.updated_at) / 1e3) : null
-  }));
-}
-function findSession(sessionId) {
-  const row2 = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
-  if (!row2) return null;
-  const store = codexSessionStore();
-  return {
-    sessionId,
-    provider: "codex",
-    projectPath: resolveThreadCwd(sessionId, row2),
-    title: trimmedField(row2, "name") || trimmedField(row2, "title"),
-    summary: null,
-    filePath: store ? store.indexPath : codexStateDbPath() || "",
-    createdTs: unixSeconds(row2.created_at),
-    modifiedTs: unixSeconds(row2.updated_at)
-  };
-}
-function detectSessionModel(_cwd, sessionId) {
-  return trimmedField(threadRow(sessionId), "model");
-}
-function detectSessionReasoningEffort(_cwd, sessionId) {
-  const path = sessionFilePath(_cwd, sessionId);
-  if (!path) return null;
-  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
-  if (typeof contents !== "string") return null;
-  const lines = contents.split("\n");
-  for (let index = lines.length - 1; index >= 0; index--) {
-    let entry;
-    try {
-      entry = JSON.parse(lines[index]);
-    } catch (_) {
-      continue;
-    }
-    if (entry.type !== "turn_context" || typeof entry.payload?.effort !== "string") continue;
-    const effort = entry.payload.effort.trim();
-    if (effort) return effort;
-  }
-  return null;
-}
-function threadRow(sessionId) {
-  return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
-}
-function queryThreadRow(sessionId, sql) {
-  if (!sessionId) return null;
-  const db = codexStateDbPath();
-  if (!db || !host.fs.fileExists(db)) return null;
-  try {
-    const rows = host.fs.sqliteQuery(db, sql, [sessionId]);
-    return rows.length > 0 ? rows[0] : null;
-  } catch (_) {
-    return null;
-  }
-}
-function unixSeconds(value) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
-}
-function trimmedField(row2, field) {
-  const value = row2 ? row2[field] : null;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-function codexStateDbPath() {
-  const override = host.envGet(sessionStoreOverrides.state);
-  if (override) return override;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
-  if (!root) return null;
-  let entries;
-  try {
-    entries = host.fs.readDir(root);
-  } catch (_) {
-    return null;
-  }
-  let best = null;
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (!entry || !entry.isFile) continue;
-    const match = STATE_DB_NAME.exec(entry.name);
-    if (!match) continue;
-    const version = parseInt(match[1], 10);
-    if (!best || version > best.version) best = { name: entry.name, version };
-  }
-  return best ? root + sep + best.name : null;
-}
-function extractSessionUuid(stem) {
-  if (typeof stem !== "string") return null;
-  const prefix = "rollout-";
-  if (stem.indexOf(prefix) !== 0) return null;
-  const rest = stem.substring(prefix.length);
-  if (rest.length <= 20 || rest.charAt(19) !== "-") return null;
-  return rest.substring(20);
-}
-function codexSessionStore() {
-  const indexOverride = host.envGet(sessionStoreOverrides.index);
-  if (indexOverride) return { indexPath: indexOverride };
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  const root = codexSessionsRoot(sep);
-  if (!root) return null;
-  return {
-    indexPath: indexOverride || root + sep + "session_index.jsonl"
-  };
-}
-function trimTrailingSeparators(path) {
-  let end = path.length;
-  while (end > 1 && (path.charAt(end - 1) === "/" || path.charAt(end - 1) === "\\")) end--;
-  return path.substring(0, end);
-}
-function codexSessionsRoot(sep) {
-  const override = host.envGet(sessionStoreOverrides.root);
-  if (override) return trimTrailingSeparators(override);
-  const home = host.homeDir();
-  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" : null, "", sep);
-}
-function readSessionIndex(path) {
-  if (!host.fs.fileExists(path)) return [];
-  const contents = host.fs.readFile(path);
-  return typeof contents === "string" ? foldSessionIndex(contents) : [];
-}
-function sessionIndexEntry(path, sessionId) {
-  const entries = readSessionIndex(path);
-  for (let i = 0; i < entries.length; i++) {
-    if (entries[i].id === sessionId) return entries[i];
-  }
-  return null;
-}
-var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
-function readThreadCwd(sessionId) {
-  return resolveThreadCwd(sessionId, threadRow(sessionId));
-}
-function resolveThreadCwd(sessionId, row2) {
-  if (!row2) {
-    logUnresolvedCwd(sessionId, "no_row");
-    return null;
-  }
-  const cwd = trimmedField(row2, "cwd");
-  if (!cwd) {
-    logUnresolvedCwd(sessionId, "no_cwd");
-    return null;
-  }
-  if (!host.fs.fileExists(cwd)) {
-    logUnresolvedCwd(sessionId, "cwd_absent");
-    return null;
-  }
-  return cwd;
-}
-function logUnresolvedCwd(sessionId, cause) {
-  const key = sessionId + "\0" + cause;
-  if (unresolvedCwdDiagnostics.has(key)) return;
-  unresolvedCwdDiagnostics.add(key);
-  host.log("warn", JSON.stringify({
-    provider: "codex",
-    event: "session_cwd_unresolved",
-    sessionId,
-    cause
-  }));
-}
-function sessionTimestamp(value) {
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-// plugins/provider-codex/src/launchSession.ts
-var MARKER_PREFIX = "codeterm-launch-marker:";
-var MIN_MARKER_LENGTH = 16;
-var ROLLOUT_HEAD_BYTES = 262144;
-var EARLY_RECORDS = 24;
-var CANDIDATE_THREADS = 64;
-function withLaunchMarker(instructions, marker) {
-  if (!marker) return instructions;
-  return instructions + "\n\n<!-- " + MARKER_PREFIX + " " + marker + " -->\n";
-}
-function detectCodexLaunchSession(evidence) {
-  const marker = evidence && typeof evidence.launchMarker === "string" ? evidence.launchMarker : "";
-  if (marker.length < MIN_MARKER_LENGTH) return null;
-  const db = codexStateDbPath();
-  if (!db || !host.fs.fileExists(db)) return null;
-  const since = Math.floor(Math.max(0, Number(evidence.launchedAtMs) || 0) / 1e3);
-  const rows = host.fs.sqliteQuery(
-    db,
-    "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT " + CANDIDATE_THREADS,
-    [since]
-  );
-  const matches = [];
-  for (let i = 0; i < rows.length; i++) {
-    const id = typeof rows[i].id === "string" ? rows[i].id : "";
-    const path = typeof rows[i].rollout_path === "string" ? rows[i].rollout_path : "";
-    if (!id || !path || matches.indexOf(id) !== -1) continue;
-    if (rolloutCarriesMarker(path, id, marker)) matches.push(id);
-  }
-  return matches.length === 1 ? { sessionId: matches[0], source: "launch_marker" } : null;
-}
-function rolloutCarriesMarker(path, id, marker) {
-  const head = host.fs.readFileHead(path, ROLLOUT_HEAD_BYTES);
-  if (typeof head !== "string") return false;
-  const lines = head.split("\n");
-  let records = 0;
-  for (let i = 0; i < lines.length && records < EARLY_RECORDS; i++) {
-    if (!lines[i].trim()) continue;
-    records++;
-    let entry;
-    try {
-      entry = JSON.parse(lines[i]);
-    } catch (_) {
-      if (records === 1) return false;
-      continue;
-    }
-    const payload = entry && entry.payload;
-    if (records === 1) {
-      if (entry.type !== "session_meta" || !payload || payload.id !== id) return false;
-      continue;
-    }
-    if (entry.type !== "response_item" || !payload || payload.type !== "message") continue;
-    if (payload.role !== "developer" && payload.role !== "user") continue;
-    const content = Array.isArray(payload.content) ? payload.content : [];
-    for (let j = 0; j < content.length; j++) {
-      const text6 = content[j] && content[j].text;
-      if (typeof text6 === "string" && text6.indexOf(marker) !== -1) return true;
-    }
-  }
-  return false;
-}
-
-// plugins/provider-codex/src/prompt.ts
-var DOWN = "G1tC";
-var UP = "G1tB";
-var ENTER = "DQ==";
-var MENU_OPTION_RE = /^[ \t]*([>❯▶➤›])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
-function parseCodexPrompt(screen) {
-  const choice = parseActiveTerminalChoice(screen);
-  return choice ? {
-    question: choice.question,
-    options: choice.options.map((option) => [option.label, option.value])
-  } : null;
-}
-function parseCodexFolderTrustPrompt(screen) {
-  const trust = classifyCodexFolderTrustPrompt(screen);
-  return trust?.kind === "active" ? trust.prompt : null;
-}
-function classifyCodexFolderTrustPrompt(screen) {
-  const options = activeMenuOptions(screen);
-  if (options.length !== 2) return null;
-  if (!hasDirectoryContextLine(screen, options[0].line)) return null;
-  const affirmativeIndex = options.findIndex((option) => /^(?:yes|trust|allow)\b/i.test(option.label));
-  const negativeIndex = options.findIndex((option) => /^(?:no|quit|cancel|decline|deny)\b/i.test(option.label));
-  if (affirmativeIndex < 0 || negativeIndex < 0) return null;
-  const preamble = cleanPromptText(menuPreamble(screen, options[0].line));
-  if (!hasDirectoryTrustContent(preamble)) return null;
-  const questionEnd = preamble.indexOf("?");
-  const explanation = questionEnd < 0 ? "" : preamble.slice(questionEnd + 1).trim();
-  if (explanation.split(/\s+/).filter(Boolean).length < 8) return null;
-  if (!hasConfirmFooter(screen, options[options.length - 1].line)) return null;
-  const choice = parseActiveTerminalChoice(screen);
-  if (!choice || choice.options.length !== 2 || choice.options.filter((option) => option.highlighted).length !== 1) {
-    return { kind: "not_on_screen" };
-  }
-  return {
-    kind: "active",
-    affirmativeIndex,
-    affirmativeSelected: choice.options[affirmativeIndex].highlighted,
-    prompt: {
-      question: preamble.slice(0, questionEnd + 1).trim(),
-      options: choice.options.map((option) => [option.label, option.value]),
-      multiSelect: false,
-      submitAvailable: false
-    }
-  };
-}
-function hasConfirmFooter(screen, lastOptionLine) {
-  const lines = normalizeLines(screen);
-  let footerLine = -1;
-  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
-    if (/\benter\b.{0,24}\b(?:confirm|continue|select)\b/i.test(lines[i])) {
-      footerLine = i;
-      break;
-    }
-  }
-  return footerLine >= 0 && lastMeaningfulLineIndex(lines) === footerLine;
-}
-function hasDirectoryContextLine(screen, firstOptionLine) {
-  const lines = normalizeLines(screen);
-  const start = Math.max(0, firstOptionLine - 12);
-  const context = lines.slice(start, firstOptionLine).map((line) => line.trim()).filter(Boolean).join(" ");
-  const questionEnds = [];
-  const questionPattern = /\?/g;
-  let questionMatch;
-  while ((questionMatch = questionPattern.exec(context)) !== null) questionEnds.push(questionMatch.index);
-  for (let i = questionEnds.length - 1; i >= 0; i--) {
-    const questionEnd = questionEnds[i];
-    const prefix = context.slice(0, questionEnd + 1);
-    if (!/\b(folder|directory|workspace)\b/i.test(prefix)) continue;
-    if (!/\b(trust|load(?:ed|ing)?)\b/i.test(prefix)) continue;
-    if (prefix.split(/\s+/).some((token) => isAbsolutePathToken(token))) return true;
-  }
-  return false;
-}
-function hasDirectoryTrustContent(preamble) {
-  const content = preamble.toLowerCase();
-  if (/\b(?:bypass|disable|override|without restrictions)\b/.test(content)) return false;
-  const questionEnd = content.indexOf("?");
-  if (questionEnd < 0) return false;
-  const question = content.slice(0, questionEnd);
-  const explanation = content.slice(questionEnd + 1);
-  return /\b(?:folder|directory|workspace)\b/.test(question) && /\b(?:trust(?:ed|ing)?|load(?:ed|ing)?)\b/.test(question) && /\b(?:guidance|rules|config(?:uration)?|settings|policy|policies|instructions|hooks)\b/.test(explanation);
-}
-function isAbsolutePathToken(token) {
-  const path = token.replace(/[),;]+$/, "");
-  return /^(?:[a-z]:[\\/]|\\\\|\/\/|\/)/i.test(path);
-}
-function responseKeysForIndex(optionIndex, screen) {
-  const options = activeMenuOptions(screen);
-  let highlightIdx = 0;
-  for (let i = 0; i < options.length; i++) {
-    if (options[i].highlighted) {
-      highlightIdx = i;
-      break;
-    }
-  }
-  const target = optionIndex > 0 ? optionIndex : 0;
-  const delta = target - highlightIdx;
-  const steps = [];
-  if (delta > 0) for (let i = 0; i < delta; i++) steps.push(DOWN);
-  else if (delta < 0) for (let i = 0; i < -delta; i++) steps.push(UP);
-  steps.push(ENTER);
-  return steps;
-}
-function parseMenuOptions(screen) {
-  const lines = normalizeLines(screen);
-  const options = [];
-  for (let i = 0; i < lines.length; i++) {
-    const m = MENU_OPTION_RE.exec(lines[i]);
-    if (!m) continue;
-    const indent = leadingIndent(lines[i]);
-    const wrapped = [];
-    for (let j = i + 1; j < lines.length; j++) {
-      if (!lines[j].trim() || MENU_OPTION_RE.test(lines[j]) || isPromptFooter(lines[j])) break;
-      if (leadingIndent(lines[j]) <= indent) break;
-      wrapped.push(lines[j]);
-    }
-    options.push({
-      highlighted: !!m[1],
-      label: wrapped.reduce(joinWrappedLabel, m[3].trim()),
-      value: m[2],
-      line: i
-    });
-  }
-  return options;
-}
-function joinWrappedLabel(label, row2) {
-  const continuation2 = row2.trim();
-  const pathBoundary = /[\\/]$/.test(label);
-  return `${label}${pathBoundary ? "" : " "}${continuation2}`;
-}
-function parseActiveTerminalChoice(screen) {
-  const lines = normalizeLines(screen);
-  const options = activeMenuOptions(screen);
-  if (options.length < 2 || options.filter((option) => option.highlighted).length !== 1) return null;
-  const lastOptionLine = options[options.length - 1].line;
-  let footerLine = -1;
-  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
-    if (isActiveChoiceFooter(lines[i])) {
-      footerLine = i;
-      break;
-    }
-  }
-  if (footerLine === -1 || lastMeaningfulLineIndex(lines) > footerLine) return null;
-  return { question: questionForMenu(lines, options[0].line), options };
-}
-function menuPreamble(screen, firstOptionLine) {
-  const lines = normalizeLines(screen);
-  let i = firstOptionLine - 1;
-  while (i >= 0 && !lines[i].trim()) i--;
-  const parts = [];
-  while (i >= 0 && lines[i].trim()) {
-    parts.unshift(lines[i].trim());
-    i--;
-  }
-  return parts.join(" ");
-}
-function activeMenuOptions(screen) {
-  const lines = normalizeLines(screen);
-  const all = parseMenuOptions(screen);
-  if (all.length < 2) return [];
-  const cluster = [];
-  let prev = all[all.length - 1].line;
-  for (let i = all.length - 1; i >= 0; i--) {
-    const between = lines.slice(all[i].line + 1, prev);
-    const wrapsPreviousOption = between.every(
-      (line) => line.trim().length > 0 && leadingIndent(line) > leadingIndent(lines[all[i].line])
-    );
-    if (wrapsPreviousOption || cluster.length === 0) {
-      cluster.unshift(all[i]);
-      prev = all[i].line;
-    } else {
-      break;
-    }
-  }
-  return cluster.length >= 2 ? cluster : [];
-}
-function isPromptFooter(line) {
-  return isActiveChoiceFooter(line);
-}
-function leadingIndent(line) {
-  return /^\s*/.exec(line)?.[0].length ?? 0;
-}
-function isActiveChoiceFooter(line) {
-  if (isActiveChoiceEnterFooter(line)) return true;
-  const bindings = line.trim().split(/\s+[·•]\s+/);
-  if (bindings.length < 2) return false;
-  const keys = bindings.map((binding) => /^(enter|esc|[a-z])\s+\S.*$/i.exec(binding)?.[1]?.toLowerCase());
-  return keys.every((key) => key !== void 0) && keys.includes("enter") && keys.includes("esc");
-}
-function isActiveChoiceEnterFooter(line) {
-  return /^(?:\S+[ \t]+)?enter[ \t]+\S.*$/i.test(line.trim());
-}
-function questionForMenu(lines, firstLine) {
-  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 16; i--) {
-    const t = lines[i].trim();
-    if (t.length > 3 && t.charAt(t.length - 1) === "?") return t;
-  }
-  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 3; i--) {
-    const t = lines[i].trim();
-    if (t.length > 3) return t;
-  }
-  return "Permission required";
-}
-function normalizeLines(text6) {
-  return String(text6 || "").replace(/\r*\n|\r/g, "\n").split("\n");
-}
-function lastMeaningfulLineIndex(lines) {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line || /^[-─━═]{8,}$/.test(line.replace(/\s/g, ""))) continue;
-    return i;
-  }
-  return -1;
-}
-function cleanPromptText(value) {
-  return String(value || "").replace(/^[•⏺]\s*/, "").replace(/─+/g, " ").replace(/\s+/g, " ").trim();
-}
-
-// plugins/provider-codex/src/usage.ts
-var CODEX_USAGE_KIND = "codeterm_usage_v1";
-var CODEX_AUTH_CREDENTIAL = "codexAuth";
-function fetchCodexUsage(host2) {
-  const accountId = stringAt(safeJson(host2.credentialPublic(CODEX_AUTH_CREDENTIAL)), "accountId");
-  if (!accountId) return null;
-  const response = safeJson(host2.fetch(JSON.stringify({
-    url: "https://chatgpt.com/backend-api/wham/usage",
-    method: "GET",
-    timeoutMs: 6e3,
-    headers: {
-      "ChatGPT-Account-Id": accountId,
-      "User-Agent": "codeterm-usage/1.7.8"
-    },
-    credential: {
-      id: CODEX_AUTH_CREDENTIAL,
-      headers: { Authorization: "Bearer {accessToken}" }
-    }
-  })));
-  if (numberAt(response, "status") !== 200) return null;
-  const body = safeJson(stringAt(response, "body"));
-  const rateLimit = objectAt(body, "rate_limit");
-  if (!rateLimit) return null;
-  const windows = [rateLimit.primary_window, rateLimit.secondary_window].filter(Boolean);
-  const session = windows.find((window) => windowDuration(window) !== null && windowDuration(window) < 86400) ?? null;
-  const weekly = windows.find((window) => windowDuration(window) !== null && windowDuration(window) >= 86400) ?? null;
-  if (!session && !weekly) return null;
-  return JSON.stringify({
-    kind: CODEX_USAGE_KIND,
-    account_id: accountId,
-    session_pct: numberAt(session, "used_percent"),
-    session_resets_at_ms: secondsToMs(numberAt(session, "reset_at")),
-    weekly_pct: numberAt(weekly, "used_percent"),
-    weekly_resets_at_ms: secondsToMs(numberAt(weekly, "reset_at"))
+function reasoningResponseRow(payload, ts, timestamp) {
+  const parts = Array.isArray(payload.summary) ? payload.summary : [];
+  const summaries = parts.map((part) => {
+    const entry = record3(part);
+    return entry && entry.type === "summary_text" ? entry.text : void 0;
   });
+  return thoughtRow(payload.id, summaries, ts, timestamp);
 }
-function parseCodexUsage(rawText, nowMs) {
-  const raw = String(rawText || "");
-  if (!raw.trim()) return null;
-  const fetched = safeJson(raw);
-  if (stringAt(fetched, "kind") === CODEX_USAGE_KIND) {
-    return {
-      provider: "codex",
-      account_id: stringAt(fetched, "account_id"),
-      captured_at_ms: nowMs,
-      session_pct: numberAt(fetched, "session_pct"),
-      session_resets_at_ms: numberAt(fetched, "session_resets_at_ms"),
-      weekly_pct: numberAt(fetched, "weekly_pct"),
-      weekly_resets_at_ms: numberAt(fetched, "weekly_resets_at_ms"),
-      raw_text: raw
-    };
+function subAgentRow(item, id, turnId, ts, timestamp) {
+  const agentId = text4(item.agent_thread_id);
+  const agentPath = text4(item.agent_path);
+  if (!agentId && !agentPath) return null;
+  const state = AGENT_STATES[text4(item.kind)] ?? "unknown";
+  const block = agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId);
+  return row2(text4(id) ? `agent-${text4(id)}` : "", [block], ts, timestamp);
+}
+function collabCallRow(item, turnId, ts, timestamp) {
+  const receivers = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids : [];
+  const agents = Array.isArray(item.receiver_agents) ? item.receiver_agents.map(record3) : [];
+  const states = record3(item.agents_states);
+  const seen = [];
+  const blocks = [];
+  for (const receiver of receivers) {
+    const agentId = text4(receiver);
+    if (!agentId || seen.indexOf(agentId) !== -1) continue;
+    seen.push(agentId);
+    const agentPath = text4(agents.find((entry) => entry !== null && text4(entry.thread_id) === agentId)?.agent_path);
+    const state = AGENT_STATES[text4(record3(states?.[agentId])?.status)] ?? "unknown";
+    blocks.push(agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId));
   }
-  const text6 = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
-  const lines = text6.split("\n");
-  const limits = parseCodexLimits(lines, nowMs);
-  const session = limits.find((line) => line.family === "general") ?? limits.find((line) => line.family === "legacy-session");
-  const weekly = limits.find((line) => line.family === "weekly");
-  if (session === void 0 && weekly === void 0) return null;
-  return {
-    provider: "codex",
-    account_id: null,
-    captured_at_ms: nowMs,
-    session_pct: session ? session.pct : null,
-    session_resets_at_ms: session ? session.resetsMs : null,
-    weekly_pct: weekly ? weekly.pct : null,
-    weekly_resets_at_ms: weekly ? weekly.resetsMs : null,
-    raw_text: raw
-  };
+  return row2(text4(item.id) ? `collab-${text4(item.id)}` : "", blocks, ts, timestamp);
 }
-function safeJson(raw) {
-  if (typeof raw !== "string" || !raw.trim()) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-function objectAt(value, key) {
-  if (!value || typeof value !== "object") return null;
-  const nested = value[key];
-  return nested && typeof nested === "object" ? nested : null;
-}
-function stringAt(value, key) {
-  if (!value || typeof value !== "object") return null;
-  const nested = value[key];
-  return typeof nested === "string" && nested ? nested : null;
-}
-function numberAt(value, key) {
-  if (!value || typeof value !== "object") return null;
-  const nested = value[key];
-  return typeof nested === "number" && Number.isFinite(nested) ? nested : null;
-}
-function secondsToMs(value) {
-  return value === null ? null : value * 1e3;
-}
-function windowDuration(window) {
-  return numberAt(window, "limit_window_seconds");
-}
-var CODEX_BORDER_RE = /^[\s─-╿]+|[\s─-╿]+$/g;
-function stripCodexBorder(raw) {
-  return String(raw || "").replace(CODEX_BORDER_RE, "");
-}
-var CODEX_HEADER_RE = /\blimit\s*:?\s*$/i;
-function isCodexSectionHeader(line) {
-  if (!line || line.indexOf("%") !== -1) return false;
-  return CODEX_HEADER_RE.test(line);
-}
-function parseCodexLimits(lines, nowMs) {
-  const out = [];
-  let sectionHeader = null;
-  for (let i = 0; i < lines.length; i++) {
-    const line = stripCodexBorder(lines[i]);
-    if (!line) continue;
-    if (isCodexSectionHeader(line)) {
-      sectionHeader = line;
-      continue;
-    }
-    let context = line;
-    for (let j = i - 1; j >= 0; j--) {
-      const prev = stripCodexBorder(lines[j]);
-      if (prev) {
-        context = `${prev} ${line}`;
-        break;
-      }
-    }
-    const gauge = parseCodexGaugeLine(line, context, nowMs);
-    if (gauge.pct === null && gauge.resetsMs === null) continue;
-    const family = codexLimitFamily(context, sectionHeader);
-    if (family !== "model") {
-      out.push({ family, pct: gauge.pct, resetsMs: gauge.resetsMs });
-    }
-  }
-  return out;
-}
-function parseCodexGaugeLine(line, context, nowMs) {
-  const re = /(\d+(?:\.\d+)?)\s*%\s*(left|remaining|used)\s*\(\s*resets?\s+(?:at\s+)?([^)]+?)\)/i;
-  const caps = re.exec(line);
-  if (!caps) {
-    return { pct: null, resetsMs: null };
-  }
-  const value = parseFloat(caps[1]);
-  const pct = codexPctToUsed(value, (caps[2] || "").toLowerCase());
-  const resetsRaw = (caps[3] || "").trim();
-  const isWeekly = /\bweekly\b/i.test(context);
-  const resetsMs = isWeekly ? codexParseWeeklyResets(resetsRaw, nowMs) : codexParseSessionResets(resetsRaw, nowMs);
-  return { pct, resetsMs };
-}
-function codexPctToUsed(value, mode) {
-  if (isNaN(value)) return null;
-  const rawMode = mode === "used" ? "used" : "left";
-  const pct = rawMode === "used" ? value : 100 - value;
-  return Math.min(100, Math.max(0, pct));
-}
-var CODEX_MODEL_NAME_RE = /\b(?:gpt|opus|haiku|sonnet|claude|codex|o\d|gemini)\b.*\d+\.\d+/i;
-function codexLimitFamily(text6, sectionHeader) {
-  const lower = String(text6 || "").toLowerCase();
-  const hasGeneral = /\bgeneral\b/.test(lower);
-  const hasWeekly = /\bweekly\b/.test(lower);
-  const hasSession = /\b5(?:\s*|-\s*)(?:h|hour|hours)\b/.test(lower);
-  const hasModel = CODEX_MODEL_NAME_RE.test(lower) || sectionHeader !== null && CODEX_MODEL_NAME_RE.test(sectionHeader);
-  if (hasModel) return "model";
-  if (hasGeneral) return hasWeekly ? "weekly" : "general";
-  if (hasWeekly) return "weekly";
-  if (hasSession) return "legacy-session";
-  return "general";
-}
-function codexParseSessionResets(raw, nowMs) {
-  const m = /(\d{1,2}):(\d{2})/.exec(String(raw || "").trim());
-  if (!m) return null;
-  const hh = parseInt(m[1], 10);
-  const mm = parseInt(m[2], 10);
-  const now = new Date(nowMs);
-  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
-  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1e3);
-  return cand.getTime();
-}
-var CODEX_MONTHS = {
-  jan: 0,
-  january: 0,
-  feb: 1,
-  february: 1,
-  mar: 2,
-  march: 2,
-  apr: 3,
-  april: 3,
-  may: 4,
-  jun: 5,
-  june: 5,
-  jul: 6,
-  july: 6,
-  aug: 7,
-  august: 7,
-  sep: 8,
-  sept: 8,
-  september: 8,
-  oct: 9,
-  october: 9,
-  nov: 10,
-  november: 10,
-  dec: 11,
-  december: 11
-};
-function codexParseWeeklyResets(raw, nowMs) {
-  const s = String(raw || "").trim().replace(/^at\s+/i, "");
-  let hh;
-  let mm;
-  let day;
-  let month;
-  let year = null;
-  let m = /(\d{1,2}):(\d{2})\s+on\s+(\d{1,2})\s+([A-Za-z]+)(?:,?\s+(\d{4}))?/i.exec(s);
-  if (m) {
-    hh = parseInt(m[1], 10);
-    mm = parseInt(m[2], 10);
-    day = parseInt(m[3], 10);
-    month = CODEX_MONTHS[m[4].toLowerCase()];
-    year = m[5] ? parseInt(m[5], 10) : null;
-  } else {
-    m = /(\d{1,2}):(\d{2})\s+on\s+([A-Za-z]+)\s+(\d{1,2})(?:,?\s+(\d{4}))?/i.exec(s);
-    if (!m) return null;
-    hh = parseInt(m[1], 10);
-    mm = parseInt(m[2], 10);
-    month = CODEX_MONTHS[m[3].toLowerCase()];
-    day = parseInt(m[4], 10);
-    year = m[5] ? parseInt(m[5], 10) : null;
-  }
-  if (month === void 0) return null;
-  const now = new Date(nowMs);
-  let cand = new Date(year ?? now.getFullYear(), month, day, hh, mm, 0, 0);
-  if (year === null && cand.getTime() <= nowMs) {
-    cand = new Date(now.getFullYear() + 1, month, day, hh, mm, 0, 0);
-  }
-  return cand.getTime();
-}
-
-// plugins/provider-codex/src/update.ts
-function parseVersion(value) {
-  if (typeof value !== "string") return null;
-  const match = value.match(/(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:\s|$)/);
-  if (!match) return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
-}
-function updateAvailable(current, latest) {
-  const installed = parseVersion(current);
-  const offered = parseVersion(latest);
-  if (!installed || !offered) return false;
-  for (let i = 0; i < 3; i += 1) {
-    if (offered[i] !== installed[i]) return offered[i] > installed[i];
-  }
-  return false;
-}
-function record(value) {
-  if (typeof value !== "string") return null;
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-function checkCodexUpdate(host2) {
-  const installed = record(host2.exec(JSON.stringify({
-    bin: "codex",
-    args: ["--version"],
-    timeoutMs: 5e3
-  })));
-  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
-  const current = installed.stdout.match(/\d+\.\d+\.\d+/)?.[0];
-  if (!current) return null;
-  const response = record(host2.fetch(JSON.stringify({
-    url: "https://registry.npmjs.org/@openai%2Fcodex/latest",
-    method: "GET",
-    timeoutMs: 6e3
-  })));
-  if (response?.status !== 200 || typeof response.body !== "string") return null;
-  const metadata = record(response.body);
-  const latest = metadata?.version;
-  return updateAvailable(current, latest) && typeof latest === "string" ? { currentVersion: current, latestVersion: latest } : null;
+function agentMessageRow(payload, ts, timestamp) {
+  const from = text4(payload.author);
+  const to = text4(payload.recipient);
+  if (!from || !to || from === to) return null;
+  const turnId = record3(payload.internal_chat_message_metadata_passthrough)?.turn_id;
+  const block = agentBlock({ message_from: from, message_to: to }, `${from} \u2192 ${to}`, turnId);
+  return row2(text4(payload.id) ? `agent-message-${text4(payload.id)}` : "", [block], ts, timestamp);
 }
 
 // plugins/provider-codex/src/execWrapper.ts
@@ -2316,9 +1823,9 @@ function clipSummary(value, limit = MAX_SUMMARY_CHARS) {
   return value.substring(0, Math.max(1, limit - 3)).trimEnd() + "...";
 }
 function commandSummary(commands) {
-  const compact = commands.map(compactCommand).filter(Boolean);
-  const first = compact[0];
-  const suffix = compact.length > 1 ? ` (+${compact.length - 1} more)` : "";
+  const compact2 = commands.map(compactCommand).filter(Boolean);
+  const first = compact2[0];
+  const suffix = compact2.length > 1 ? ` (+${compact2.length - 1} more)` : "";
   const summary = clipSummary(first, MAX_SUMMARY_CHARS - suffix.length) + suffix;
   return { kind: "command", summary, detail: commands.map((value) => value.trim()).join("\n\n") };
 }
@@ -2350,173 +1857,22 @@ function summarizeExecScript(raw) {
   return fallbackSummary(raw);
 }
 
-// plugins/provider-codex/src/patchEdits.ts
-function patchEdits(patch) {
-  if (typeof patch !== "string" || patch.indexOf("*** Begin Patch") < 0) return [];
-  try {
-    const edits = [];
-    let path = null;
-    let oldLines = [];
-    let newLines = [];
-    const flush = () => {
-      if (path && (oldLines.length > 0 || newLines.length > 0)) edits.push({ path, old: oldLines.join("\n"), new: newLines.join("\n") });
-      oldLines = [];
-      newLines = [];
-    };
-    for (const line of patch.replace(/\r\n/g, "\n").split("\n")) {
-      const header = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/.exec(line);
-      if (header) {
-        flush();
-        path = header[1].trim();
-      } else if (line === "@@" || line.indexOf("@@ ") === 0) {
-        flush();
-      } else if (path && line.indexOf("-") === 0) {
-        oldLines.push(line.substring(1));
-      } else if (path && line.indexOf("+") === 0) {
-        newLines.push(line.substring(1));
-      }
-    }
-    flush();
-    return edits;
-  } catch (_) {
-    return [];
-  }
-}
-
-// plugins/provider-codex/src/actionTitle.ts
-var MAX_TITLE_CHARS = 48;
-function clip(value) {
-  const compact = value.replace(/\s+/g, " ").trim();
-  if (compact.length <= MAX_TITLE_CHARS) return compact;
-  return compact.substring(0, MAX_TITLE_CHARS - 3).trimEnd() + "...";
-}
-function text2(value) {
-  return typeof value === "string" ? value : "";
-}
-function baseName(path) {
-  const trimmed = path.replace(/[\\/]+$/, "");
-  return trimmed.split(/[\\/]/).pop() || trimmed;
-}
-function commandHead(command) {
-  const tokens = command.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
-  const width = tokens.length > 1 && tokens[1].charAt(0) !== "-" && tokens[1].charAt(0) !== '"' ? 2 : 1;
-  return tokens.slice(0, width).join(" ");
-}
-function actionTitle(fields) {
-  const summary = text2(fields.tool_summary);
-  const detail = text2(fields.tool_detail);
-  if (fields.tool_kind === "command") {
-    const more = /\(\+(\d+) more\)$/.exec(summary);
-    return clip(commandHead(detail || summary) + (more ? ` +${more[1]}` : ""));
-  }
-  if (fields.tool_kind === "read" && summary) return clip(`Read ${baseName(summary)}`);
-  if (fields.tool_kind === "edit") {
-    const edits = Array.isArray(fields.tool_edits) ? fields.tool_edits : [];
-    const paths = edits.map((edit) => text2(edit && edit.path)).filter((path, index, all) => path && all.indexOf(path) === index);
-    if (paths.length > 0) return clip(`Patched ${baseName(paths[0])}` + (paths.length > 1 ? ` +${paths.length - 1}` : ""));
-  }
-  return clip(summary || "Tool activity");
-}
-
-// plugins/provider-codex/src/agentActivity.ts
-var AGENT_STATES = {
-  started: "started",
-  pending_init: "started",
-  running: "running",
-  completed: "completed",
-  errored: "failed",
-  failed: "failed",
-  interrupted: "interrupted",
-  shutdown: "closed",
-  closed: "closed"
-};
-function text3(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-function record2(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-function row(uuid, blocks, ts, timestamp) {
-  if (blocks.length === 0) return null;
-  return { role: "assistant", ...uuid ? { uuid } : {}, blocks, ts, timestamp };
-}
-function agentBlock(fields, summary, turnId) {
-  const input = {};
-  for (const key in fields) if (fields[key]) input[key] = fields[key];
-  const flowId = text3(turnId);
-  return { kind: "tool_use", data: {
-    name: "agent_activity",
-    input,
-    tool_kind: "agent",
-    tool_summary: summary,
-    tool_status: "success",
-    ...flowId ? { tool_flow_id: flowId } : {}
-  } };
-}
-function thoughtRow(id, summaries, ts, timestamp) {
-  const blocks = summaries.filter((summary) => typeof summary === "string" && summary.trim() !== "").map((summary) => ({ kind: "thinking", data: { text: summary } }));
-  return row(text3(id) ? `reasoning-${text3(id)}` : "", blocks, ts, timestamp);
-}
-function reasoningItemRow(item, ts, timestamp) {
-  return thoughtRow(item.id, Array.isArray(item.summary_text) ? item.summary_text : [], ts, timestamp);
-}
-function reasoningResponseRow(payload, ts, timestamp) {
-  const parts = Array.isArray(payload.summary) ? payload.summary : [];
-  const summaries = parts.map((part) => {
-    const entry = record2(part);
-    return entry && entry.type === "summary_text" ? entry.text : void 0;
-  });
-  return thoughtRow(payload.id, summaries, ts, timestamp);
-}
-function subAgentRow(item, id, turnId, ts, timestamp) {
-  const agentId = text3(item.agent_thread_id);
-  const agentPath = text3(item.agent_path);
-  if (!agentId && !agentPath) return null;
-  const state = AGENT_STATES[text3(item.kind)] ?? "unknown";
-  const block = agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId);
-  return row(text3(id) ? `agent-${text3(id)}` : "", [block], ts, timestamp);
-}
-function collabCallRow(item, turnId, ts, timestamp) {
-  const receivers = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids : [];
-  const agents = Array.isArray(item.receiver_agents) ? item.receiver_agents.map(record2) : [];
-  const states = record2(item.agents_states);
-  const seen = [];
-  const blocks = [];
-  for (const receiver of receivers) {
-    const agentId = text3(receiver);
-    if (!agentId || seen.indexOf(agentId) !== -1) continue;
-    seen.push(agentId);
-    const agentPath = text3(agents.find((entry) => entry !== null && text3(entry.thread_id) === agentId)?.agent_path);
-    const state = AGENT_STATES[text3(record2(states?.[agentId])?.status)] ?? "unknown";
-    blocks.push(agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId));
-  }
-  return row(text3(item.id) ? `collab-${text3(item.id)}` : "", blocks, ts, timestamp);
-}
-function agentMessageRow(payload, ts, timestamp) {
-  const from = text3(payload.author);
-  const to = text3(payload.recipient);
-  if (!from || !to || from === to) return null;
-  const turnId = record2(payload.internal_chat_message_metadata_passthrough)?.turn_id;
-  const block = agentBlock({ message_from: from, message_to: to }, `${from} \u2192 ${to}`, turnId);
-  return row(text3(payload.id) ? `agent-message-${text3(payload.id)}` : "", [block], ts, timestamp);
-}
-
 // plugins/provider-codex/src/richResults.ts
-function text4(value) {
+function text5(value) {
   return typeof value === "string" ? value : "";
 }
-function record3(value) {
+function record4(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function webFields(source) {
-  const action = record3(source.action);
+  const action = record4(source.action);
   const rich = { kind: "web" };
-  const query = text4(source.query) || text4(action?.query);
+  const query = text5(source.query) || text5(action?.query);
   if (query) rich.query = query;
-  const actionName = text4(source.action) || text4(action?.type);
+  const actionName = text5(source.action) || text5(action?.type);
   if (actionName) rich.action = actionName;
-  if (text4(action?.url)) rich.url = text4(action?.url);
-  if (text4(action?.pattern)) rich.pattern = text4(action?.pattern);
+  if (text5(action?.url)) rich.url = text5(action?.url);
+  if (text5(action?.pattern)) rich.pattern = text5(action?.pattern);
   if (Array.isArray(source.results)) rich.resultCount = source.results.length;
   return rich;
 }
@@ -2534,14 +1890,14 @@ function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts
       tool_title: summary,
       ...detail ? { tool_detail: detail } : {},
       tool_rich_result: rich,
-      ...text4(turnId) ? { tool_flow_id: text4(turnId) } : {},
+      ...text5(turnId) ? { tool_flow_id: text5(turnId) } : {},
       tool_status: failed ? "error" : "success"
     } }]
   };
 }
 function webSearchEndResult(payload, ts, timestamp) {
-  const source = record3(payload);
-  const id = text4(source?.call_id);
+  const source = record4(payload);
+  const id = text5(source?.call_id);
   if (!source || !id) return null;
   const rich = webFields(source);
   const summary = rich.query || rich.url || "";
@@ -2549,13 +1905,13 @@ function webSearchEndResult(payload, ts, timestamp) {
   return resultMessage(`result-${id}`, id, "web_search", rich, summary, summary, false, source.turn_id, ts, timestamp);
 }
 function imageGenerationEndResult(payload, ts, timestamp) {
-  const source = record3(payload);
-  const id = text4(source?.call_id);
+  const source = record4(payload);
+  const id = text5(source?.call_id);
   if (!source || !id) return null;
   const rich = { kind: "image", origin: "generated" };
-  const status = text4(source.status);
-  const path = text4(source.saved_path);
-  const prompt = text4(source.revised_prompt);
+  const status = text5(source.status);
+  const path = text5(source.saved_path);
+  const prompt = text5(source.revised_prompt);
   if (status) rich.status = status;
   if (path) rich.path = path;
   if (prompt) rich.prompt = prompt;
@@ -2563,15 +1919,15 @@ function imageGenerationEndResult(payload, ts, timestamp) {
   return resultMessage(`result-${id}`, id, "image_generation", rich, summary, path || prompt, status === "failed" || status === "error", source.turn_id, ts, timestamp);
 }
 function imageViewResult(item, ts, timestamp, turnId) {
-  const id = text4(item.id);
-  const path = text4(item.path);
+  const id = text5(item.id);
+  const path = text5(item.path);
   if (!id || !path) return null;
   const rich = { kind: "image", origin: "viewed", path };
   return resultMessage(`activity-${id}`, id, "image_view", rich, baseName(path) || path, path, false, turnId, ts, timestamp);
 }
 function extensionResult(item, ts, timestamp, turnId) {
-  const id = text4(item.id);
-  if (!id || !text4(item.kind).startsWith("web.")) return null;
+  const id = text5(item.id);
+  if (!id || !text5(item.kind).startsWith("web.")) return null;
   const rich = webFields(item);
   const summary = rich.query || rich.url || rich.action || "";
   if (!summary) return null;
@@ -2585,13 +1941,13 @@ function parsedReadTitle(value) {
   for (const entry of value) {
     if (!entry || typeof entry !== "object") return "";
     const parsed = entry;
-    const name = text5(parsed.name) || baseName(text5(parsed.path));
+    const name = text6(parsed.name) || baseName(text6(parsed.path));
     if (parsed.type !== "read" || !name) return "";
     if (names.indexOf(name) === -1) names.push(name);
   }
   return actionTitle({ tool_summary: `Read ${names[0]}` + (names.length > 1 ? ` +${names.length - 1}` : "") });
 }
-function text5(value) {
+function text6(value) {
   return typeof value === "string" ? value : "";
 }
 function exactOutcomeNumber(value, nonnegative) {
@@ -2620,16 +1976,16 @@ function commandOutcome(item) {
 function completedActivity(value, ts, timestamp, turnId) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value;
-  const id = text5(item.id);
+  const id = text6(item.id);
   if (!id) return null;
-  const flow = text5(turnId) ? { tool_flow_id: text5(turnId) } : {};
+  const flow = text6(turnId) ? { tool_flow_id: text6(turnId) } : {};
   const message = { role: "assistant", uuid: `activity-${id}`, blocks: [], ts, timestamp };
   if (item.type === "CommandExecution") {
     const command = commandText(item.command);
     if (!command || item.status !== "completed" && item.status !== "failed") return null;
     const exitCode = exactOutcomeNumber(item.exit_code, false);
     const failed = item.status === "failed" || exitCode !== void 0 && exitCode !== 0;
-    const output = text5(item.aggregated_output) || [text5(item.stdout), text5(item.stderr)].filter(Boolean).join("\n");
+    const output = text6(item.aggregated_output) || [text6(item.stdout), text6(item.stderr)].filter(Boolean).join("\n");
     const fields2 = { tool_kind: "command", tool_summary: command, tool_detail: command };
     const outcome2 = commandOutcome(item);
     message.blocks = [
@@ -2670,7 +2026,7 @@ function completedActivity(value, ts, timestamp, turnId) {
         ...diffs.length > 0 ? { file_diffs: diffs } : {},
         tool_status: failed ? "error" : "success"
       } },
-      { kind: "tool_result", data: { tool_use_id: id, content: [text5(item.stdout), text5(item.stderr)].filter(Boolean).join("\n"), is_error: failed } }
+      { kind: "tool_result", data: { tool_use_id: id, content: [text6(item.stdout), text6(item.stderr)].filter(Boolean).join("\n"), is_error: failed } }
     ];
     return message;
   }
@@ -2681,6 +2037,2443 @@ function completedActivity(value, ts, timestamp, turnId) {
   if (item.type === "CollabAgentToolCall") return collabCallRow(fields, turnId, ts, timestamp);
   if (item.type === "Reasoning") return reasoningItemRow(fields, ts, timestamp);
   return null;
+}
+
+// plugins/provider-codex/src/runtimeStoredHistory.ts
+function storedHistoryAvailable(sessionId, head) {
+  if (!sessionId || !head) return false;
+  try {
+    const record6 = object(JSON.parse(head.split("\n", 1)[0]));
+    const payload = object(record6.payload);
+    return record6.type === "session_meta" && payload.id === sessionId && payload.history_base == null;
+  } catch {
+    return false;
+  }
+}
+function projectHistoryItem(raw, seq, turn, timestamp, parent) {
+  const source = object(raw);
+  const rows2 = source.historyTruncated === true ? [{ id: String(source.id), seq, type: "system", content: "[content truncated: history item exceeds display budget]" }] : boundHistoryRows(runtimeItems(historyItem(raw), seq));
+  for (const row3 of rows2) {
+    const spawn = source.type === "collabAgentToolCall" && source.tool === "spawnAgent" && source.senderThreadId === parent;
+    const started = source.type === "subAgentActivity" && source.kind === "started" && (source.senderThreadId == null || source.senderThreadId === parent);
+    if (parent && (spawn || started) && row3.toolKind === "agent") {
+      const input = object(row3.toolInput);
+      row3.toolInput = json({ ...input, agent_parent_thread_id: parent, agent_ordinal: input.agent_ordinal ?? 1 });
+    }
+    row3.toolFlowId = turn;
+    if (typeof timestamp === "number" && Number.isFinite(timestamp)) row3.timestamp = new Date(timestamp).toISOString();
+  }
+  return rows2;
+}
+function recordedItem(raw) {
+  const item = Object.fromEntries(Object.entries(object(raw)).map(([key, value]) => [
+    key.replace(/_([a-z])/g, (_match, letter) => letter.toUpperCase()),
+    value
+  ]));
+  if (typeof item.type === "string") item.type = item.type.replace(/^./, (letter) => letter.toLowerCase());
+  if (item.type === "commandExecution") {
+    item.command = commandText(item.command);
+    item.aggregatedOutput ?? (item.aggregatedOutput = [item.stdout, item.stderr].filter((value) => typeof value === "string" && value).join("\n"));
+    item.durationMs ?? (item.durationMs = durationMilliseconds({ duration: item.duration, duration_ms: item.durationMs }));
+  }
+  if (Array.isArray(item.changes)) item.changes = item.changes.map((change) => {
+    const value = object(change), kind = object(value.kind);
+    return { ...value, kind: { ...kind, ...typeof kind.type === "string" ? { type: kind.type.toLowerCase() } : {} } };
+  });
+  if (Array.isArray(item.content)) item.content = item.content.map((part) => {
+    const value = object(part);
+    return { ...value, ...typeof value.type === "string" ? { type: value.type.replace(/^./, (letter) => letter.toLowerCase()) } : {} };
+  });
+  if (item.type === "agentMessage" && typeof item.text !== "string" && Array.isArray(item.content)) {
+    item.text = item.content.map(object).filter((part) => part.type === "text" && typeof part.text === "string").map((part) => part.text).join("\n");
+  }
+  return item;
+}
+function storedRecordType(line) {
+  const tokens = /"type"\s*:\s*"([^"\\]*)"|"(?:\\.|[^"\\])*"|[\{\[]/g;
+  const opening = tokens.exec(line);
+  if (opening?.[0] !== "{") return void 0;
+  for (let token = tokens.exec(line); token; token = tokens.exec(line)) {
+    if (token[1] !== void 0) return token[1];
+    if (token[0] === "{" || token[0] === "[") return void 0;
+  }
+  return void 0;
+}
+function runtimeStoredHistory(sessionId, records) {
+  return projectStoredRecords(sessionId, textRecords(records));
+}
+function* textRecords(records) {
+  for (const line of records.split("\n")) {
+    if (!line.trim()) continue;
+    const type = storedRecordType(line);
+    if (type !== void 0 && type !== "event_msg" && type !== "session_meta") continue;
+    yield JSON.parse(line);
+  }
+}
+function runtimeStoredRecords(sessionId, records) {
+  return projectStoredRecords(sessionId, records.map((record6) => {
+    if (!record6.oversized) return record6.value;
+    const value = object(record6.value), payload = object(value.payload);
+    return { ...value, payload: { ...payload, item: { ...object(payload.item), historyTruncated: true } } };
+  }));
+}
+function projectStoredRecords(sessionId, records) {
+  const rows2 = /* @__PURE__ */ new Map();
+  for (const raw of records) {
+    const record6 = object(raw);
+    const payload = object(record6.payload);
+    if (record6.type === "session_meta" && text2(payload.id) !== sessionId) throw new Error("Stored session identity differs");
+    if (record6.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
+    const turn = text2(payload.turn_id);
+    if (!turn || !text2(object(payload.item).id)) throw new Error("Stored runtime item identity missing");
+    const projected = projectHistoryItem(recordedItem(payload.item), rows2.size, turn, payload.started_at_ms ?? payload.completed_at_ms, sessionId);
+    for (const row3 of projected) {
+      row3.seq = rows2.get(row3.id)?.seq ?? rows2.size;
+      rows2.set(row3.id, row3);
+    }
+  }
+  return [...rows2.values()];
+}
+
+// plugins/provider-codex/src/runtimeHistoryPager.ts
+var PREFIX = "history:";
+function failure(message) {
+  throw { code: "provider_refused", message };
+}
+function encode(position) {
+  return PREFIX + JSON.stringify(position);
+}
+function decode(op) {
+  if (!op.cursor) return { pager: 1, thread: op.threadId, stage: "turns", cursor: null, historyItemLimit: 16 };
+  if (!op.cursor.startsWith(PREFIX) || op.cursor.length > 128 * 1024) failure("Invalid history checkpoint");
+  const position = JSON.parse(op.cursor.slice(PREFIX.length));
+  if (position.pager !== 1 || position.thread !== op.threadId || !["turns", "items", "goal"].includes(position.stage) || position.cursor !== null && typeof position.cursor !== "string" || position.stage === "items" && !text2(object(position.turn).id)) failure("History checkpoint differs from bound thread");
+  position.historyItemLimit ?? (position.historyItemLimit = 16);
+  if (!Number.isSafeInteger(position.historyItemLimit) || position.historyItemLimit < 1 || position.historyItemLimit > 16) failure("Invalid history item limit");
+  return position;
+}
+function pagedHistoryPlan(op) {
+  const state = decode(op);
+  const params = { threadId: op.threadId, sortDirection: "desc", cursor: state.cursor };
+  const call = state.stage === "items" ? { method: "thread/items/list", params: { ...params, turnId: state.turn.id, limit: state.historyItemLimit } } : state.stage === "goal" ? { method: "thread/goal/get", params: { threadId: op.threadId } } : { method: "thread/turns/list", params: { ...params, itemsView: "notLoaded", limit: 1 } };
+  return { action: { kind: "request", call: { ...call, params: call.params } }, state };
+}
+function nextCursor(value, previous) {
+  const next = text2(value.nextCursor) ?? null;
+  if (next && (next.length > 4096 || next === previous)) failure("History RPC cursor did not advance");
+  return next;
+}
+function finish(op, items, openItems, questions, next) {
+  return { kind: "complete", result: {
+    kind: "historyPage",
+    threadId: op.threadId,
+    order: "desc",
+    items,
+    openItems,
+    ...questions.length ? { questions } : {},
+    ...next ? { nextCursor: encode(next) } : {}
+  } };
+}
+function pagedHistoryResponse(op, raw, reply) {
+  const state = raw;
+  if (state.thread !== op.threadId) failure("History checkpoint differs from bound thread");
+  if (reply.kind === "error") {
+    const smaller = object(reply.error.data).historyPageLimit;
+    if (state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < (state.historyItemLimit ?? 16)) {
+      return { kind: "continue", plan: pagedHistoryPlan({ ...op, cursor: encode({ ...state, historyItemLimit: smaller }) }) };
+    }
+    if (state.stage === "goal") return finish(op, [], [], []);
+    failure(`History ${state.stage} read failed (${reply.error.code}): ${reply.error.message}`);
+  }
+  const value = object(reply.value);
+  if (state.stage === "goal") {
+    const goal = text2(object(value.goal).objective);
+    return finish(op, goal ? [{ id: "thread:goal", seq: 0, type: "custom", content: "", sessionIntent: goalIntent(value.goal) ?? { goal } }] : [], [], []);
+  }
+  if (!Array.isArray(value.data)) failure("History page has no data array");
+  const next = nextCursor(value, state.cursor);
+  if (state.stage === "turns") {
+    if (value.data.length > 1) failure("History turn page exceeds requested limit");
+    const turn = object(value.data[0]);
+    if (!value.data.length) return finish(op, [], [], [], next ? { ...state, cursor: next } : { ...state, stage: "goal", cursor: null });
+    if (!text2(turn.id) || String(turn.id).length > 4096) failure("History turn identity missing or oversized");
+    const position2 = {
+      pager: 1,
+      thread: op.threadId,
+      stage: "items",
+      cursor: null,
+      nextTurn: next,
+      turn: { id: String(turn.id), status: turn.status === "inProgress" ? "inProgress" : "completed", startedAt: typeof turn.startedAt === "number" && Number.isFinite(turn.startedAt) ? turn.startedAt : null }
+    };
+    return { kind: "continue", plan: pagedHistoryPlan({ ...op, cursor: encode(position2) }) };
+  }
+  if (value.data.length > (state.historyItemLimit ?? 16)) failure("History item page exceeds requested limit");
+  const items = [], openItems = [];
+  let questions = [], bytes = 0;
+  const offset = state.offset ?? 0;
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > value.data.length) failure("History item offset is invalid");
+  for (let index = offset; index < value.data.length; index++) {
+    const record6 = object(value.data[index]), item = record6.item ?? record6;
+    const rows2 = projectHistoryItem(item, 0, state.turn.id, record6.startedAtMs ?? record6.completedAtMs, op.threadId);
+    const nextQuestions = reconcileHistoryQuestions(op.threadId, item, questions);
+    const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(item).status));
+    const opened = active ? rows2.map((item2) => ({ turnId: state.turn.id, item: item2 })) : [];
+    const used = serializedBytes({ rows: rows2, opened, questions: nextQuestions });
+    if (bytes + used > HISTORY_CHUNK_BYTES && index > offset) return finish(op, items, openItems, questions, { ...state, offset: index });
+    bytes += used;
+    items.unshift(...rows2);
+    openItems.unshift(...opened);
+    questions = nextQuestions;
+  }
+  const position = next ? { ...state, cursor: next, offset: 0 } : { pager: 1, thread: op.threadId, stage: state.nextTurn ? "turns" : "goal", cursor: state.nextTurn ?? null };
+  return finish(op, items, openItems, questions, position);
+}
+
+// plugins/provider-codex/src/runtimeLogin.ts
+function loginPlan(raw) {
+  const value = object(raw);
+  if (value.action === "cancel" && text2(value.loginId)) return {
+    action: { kind: "request", call: { method: "account/login/cancel", params: { loginId: String(value.loginId) } } },
+    state: { stage: "loginCancel", loginId: String(value.loginId) }
+  };
+  const types = { browser: "chatgpt", device: "chatgptDeviceCode", apiKey: "apiKey" };
+  const method = String(value.method);
+  if (!["browser", "device", "apiKey"].includes(method) || method === "apiKey" && !text2(value.apiKey)) throw { code: "invalid_schema", message: "Invalid login request" };
+  return { action: { kind: "request", call: { method: "account/login/start", params: json({ type: types[method], ...method === "apiKey" ? { apiKey: value.apiKey } : {} }) } }, state: { stage: "loginStart", method } };
+}
+function loginResponse(state, value) {
+  if (state.stage === "loginCancel") {
+    if (value.status !== "canceled" && value.status !== "notFound") throw { code: "invalid_schema", message: "Invalid cancellation result" };
+    return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "canceled", loginId: String(state.loginId) } }] };
+  }
+  if (state.method === "apiKey" && value.type === "apiKey") return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "completed", method: "apiKey" } }] };
+  const loginId = text2(value.loginId);
+  const url = text2(value.authUrl) ?? text2(value.verificationUrl);
+  if (!loginId || !url || !["chatgpt", "chatgptDeviceCode"].includes(String(value.type))) throw { code: "invalid_schema", message: "Invalid login start result" };
+  const method = state.method === "device" ? "device" : "browser";
+  const userCode = text2(value.userCode);
+  if (method === "device" && !userCode) throw { code: "invalid_schema", message: "Missing device code" };
+  return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "pending", method, loginId, url, ...userCode ? { userCode } : {} } }] };
+}
+function loginCompleted(value) {
+  const loginId = text2(value.loginId);
+  return { kind: "authLogin", login: { status: value.success === true ? "completed" : "failed", ...loginId ? { loginId } : {}, ...value.success === true ? {} : { error: "Sign-in did not complete. Try again." } } };
+}
+
+// plugins/provider-codex/src/resetCredits.ts
+function expiry(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 864e10 ? value * 1e3 : null;
+}
+function resetCredits(raw) {
+  const summary = object(raw);
+  const count = summary.availableCount;
+  if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return void 0;
+  const credits = Array.isArray(summary.credits) ? summary.credits.flatMap((rawCredit) => {
+    const credit = object(rawCredit);
+    const id = text2(credit.id);
+    if (!id) return [];
+    const status = credit.status === "available" || credit.status === "redeeming" || credit.status === "redeemed" ? credit.status : "unknown";
+    return [{
+      id,
+      status,
+      expiresAt: expiry(credit.expiresAt),
+      ...text2(credit.title) ? { title: text2(credit.title) } : {},
+      ...text2(credit.description) ? { description: text2(credit.description) } : {}
+    }];
+  }) : null;
+  const expiries = credits?.filter((credit) => credit.status === "available" && credit.expiresAt !== null).map((credit) => credit.expiresAt) ?? [];
+  return { availableCount: count, nextExpiry: expiries.length ? Math.min(...expiries) : null, credits };
+}
+function resetOutcome(raw) {
+  const outcome2 = object(raw).outcome;
+  return outcome2 === "reset" || outcome2 === "nothingToReset" || outcome2 === "noCredit" || outcome2 === "alreadyRedeemed" ? outcome2 : void 0;
+}
+
+// plugins/provider-codex/src/runtimeUsage.ts
+function rateLimitEvents(raw, rawResets) {
+  const limits = object(raw);
+  if (limits.limitId && limits.limitId !== "codex") return [];
+  const windows = ["primary", "secondary"].flatMap((window) => {
+    const value = object(limits[window]);
+    if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
+    return [{
+      window,
+      usedPercent: Math.max(0, Math.min(100, value.usedPercent)),
+      ...typeof value.resetsAt === "number" && value.resetsAt >= 0 ? { resetsAt: value.resetsAt * 1e3 } : {},
+      ...typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? { windowMinutes: value.windowDurationMins } : {}
+    }];
+  });
+  const resets = resetCredits(rawResets);
+  const accountCredits = parseAccountCredits(limits.credits);
+  return windows.length || resets || accountCredits ? [{ kind: "rateLimits", rateLimits: windows, ...resets ? { resets } : {}, ...accountCredits ? { accountCredits } : {} }] : [];
+}
+function parseAccountCredits(raw) {
+  const value = object(raw);
+  if (typeof value.hasCredits !== "boolean" || typeof value.unlimited !== "boolean") return void 0;
+  if (value.unlimited) return { kind: "unlimited" };
+  return typeof value.balance === "string" && /^\d+(?:\.\d+)?$/.test(value.balance) ? { kind: "balance", balance: value.balance } : void 0;
+}
+
+// plugins/provider-codex/src/runtimeAuth.ts
+function accountAuth(value) {
+  const response = object(value);
+  if (response.account === null && response.requiresOpenaiAuth === true) return { kind: "auth", state: "signedOut" };
+  const account = object(response.account);
+  if (text2(account.type)) return { kind: "auth", state: "signedIn", billingMode: account.type === "apiKey" ? "api" : account.type === "chatgpt" || account.type === "chatgptAuthTokens" ? "subscription" : "unknown" };
+  return { kind: "auth", state: "unknown" };
+}
+function notificationAuth(value) {
+  const params = object(value);
+  if (params.authMode === null) return { kind: "auth", state: "signedOut" };
+  if (text2(params.authMode)) return { kind: "auth", state: "signedIn", billingMode: params.authMode === "apiKey" ? "api" : params.authMode === "chatgpt" || params.authMode === "chatgptAuthTokens" ? "subscription" : "unknown" };
+  return { kind: "auth", state: "unknown" };
+}
+
+// plugins/provider-codex/src/runtimeBackground.ts
+var identifier = (value) => typeof value === "string" && value.length > 0 && value.length <= 4096 && !value.includes("\0");
+function invalid(message) {
+  throw { code: "invalid_schema", message };
+}
+function backgroundOwns(ctx, thread) {
+  const seen = /* @__PURE__ */ new Set();
+  while (thread !== ctx.threadId) {
+    if (seen.has(thread)) return false;
+    seen.add(thread);
+    const parent = ctx.threadParents.find((parent2) => parent2.threadId === thread);
+    if (!parent) return false;
+    thread = parent.parentThreadId;
+  }
+  return !!ctx.threadId;
+}
+function backgroundPlan(ctx, op) {
+  if (!backgroundOwns(ctx, op.threadId)) throw { code: "binding_mismatch", message: "Background thread is not owned" };
+  const params = { threadId: op.threadId };
+  if (op.action.kind === "list") {
+    params.cursor = op.action.cursor;
+    params.limit = 256;
+  }
+  if (op.action.kind === "terminate") params.processId = op.action.processId;
+  if (op.action.kind === "terminate" && !identifier(op.action.processId)) invalid("Invalid background process id");
+  if (op.action.kind === "list" && op.action.cursor !== null && !identifier(op.action.cursor)) invalid("Invalid background cursor");
+  return { action: { kind: "request", call: { method: `thread/backgroundTerminals/${op.action.kind}`, params, target: { threadId: op.threadId } } }, state: null };
+}
+function backgroundResponse(op, reply) {
+  if (reply.kind === "error" && reply.error.code === -32600 && reply.error.data == null && reply.error.message === `thread not found: ${op.threadId}`) {
+    if (op.action.kind === "list") return { kind: "complete", result: { kind: "backgroundProcesses", threadId: op.threadId, processes: [], nextCursor: null } };
+    if (op.action.kind === "terminate") return { kind: "complete", result: { kind: "backgroundProcessTermination", threadId: op.threadId, processId: op.action.processId, acknowledged: false } };
+    return { kind: "complete", result: { kind: "done" } };
+  }
+  if (reply.kind === "error") return { kind: "refused", reason: { code: "provider_refused", message: reply.error.message }, beforeAcceptance: false };
+  const value = object(reply.value);
+  if (op.action.kind === "clean") return { kind: "complete", result: { kind: "done" } };
+  if (op.action.kind === "terminate") {
+    if (typeof value.terminated !== "boolean") invalid("Missing termination acknowledgement");
+    return { kind: "complete", result: { kind: "backgroundProcessTermination", threadId: op.threadId, processId: op.action.processId, acknowledged: value.terminated } };
+  }
+  if (!Array.isArray(value.data) || value.data.length > 256) invalid("Invalid background process page");
+  if (value.nextCursor !== null && !identifier(value.nextCursor)) invalid("Missing or invalid background cursor");
+  if (value.nextCursor !== null && value.nextCursor === op.action.cursor) invalid("Repeated background cursor");
+  const seen = /* @__PURE__ */ new Set();
+  const processes = value.data.map((raw) => {
+    const entry = object(raw);
+    if (!identifier(entry.processId) || !identifier(entry.itemId) || !identifier(entry.cwd) || typeof entry.command !== "string" || entry.command.length > 65536 || entry.command.includes("\0") || entry.osPid !== null && (!Number.isInteger(entry.osPid) || Number(entry.osPid) < 1 || Number(entry.osPid) > 4294967295) || seen.has(entry.processId)) invalid("Invalid background process entry");
+    seen.add(entry.processId);
+    return { processId: entry.processId, itemId: entry.itemId, command: entry.command, cwd: entry.cwd, osPid: entry.osPid };
+  });
+  return { kind: "complete", result: { kind: "backgroundProcesses", threadId: op.threadId, processes, nextCursor: value.nextCursor } };
+}
+
+// plugins/provider-codex/src/runtimeInterrupt.ts
+function interruptTargets(ctx, root) {
+  const turns = [...ctx.activeTurns];
+  const depth = (thread) => {
+    let current = thread;
+    let count = 0;
+    const seen = /* @__PURE__ */ new Set();
+    while (current !== root) {
+      if (seen.has(current)) return -1;
+      seen.add(current);
+      const parent = ctx.threadParents.find((parent2) => parent2.threadId === current)?.parentThreadId;
+      if (!parent) return -1;
+      current = parent;
+      count++;
+    }
+    return count;
+  };
+  return turns.map((turn) => ({ turn, depth: depth(turn.threadId) })).filter((entry) => entry.depth >= 0).sort((a, b) => b.depth - a.depth || a.turn.threadId.localeCompare(b.turn.threadId)).map((entry) => entry.turn);
+}
+
+// plugins/provider-codex/src/runtimeBinding.ts
+function descendantThread(ctx, threadId) {
+  if (!ctx.threadId || threadId === ctx.threadId) return false;
+  const seen = /* @__PURE__ */ new Set();
+  let current = threadId;
+  while (current !== ctx.threadId) {
+    if (seen.has(current)) return false;
+    seen.add(current);
+    const parents = ctx.threadParents.filter((parent) => parent.threadId === current);
+    if (parents.length !== 1) return false;
+    current = parents[0].parentThreadId;
+  }
+  return true;
+}
+function historyThread(ctx, value, expected) {
+  if (expected === ctx.threadId) return userThread(value, expected) !== void 0;
+  if (!descendantThread(ctx, expected)) return false;
+  const thread = object(object(value).thread);
+  if (text2(thread.id) !== expected) return false;
+  const parent = ctx.threadParents.find((entry) => entry.threadId === expected)?.parentThreadId;
+  const declared = text2(thread.parentThreadId);
+  const source = text2(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
+  return (declared !== void 0 || source !== void 0) && (declared === void 0 || declared === parent) && (source === void 0 || source === parent);
+}
+
+// plugins/provider-codex/src/runtimePrompts.ts
+function fail(message) {
+  throw { code: "provider_refused", message };
+}
+function decisionOptions(data) {
+  const decisions = list(data.availableDecisions);
+  const supported = decisions.length ? [...decisions] : ["accept", "acceptForSession", "decline", "cancel"];
+  if (!supported.includes("decline")) supported.push("decline");
+  const labels = { accept: "Approve", acceptForSession: "Approve for session", decline: "Decline", cancel: "Cancel" };
+  return supported.map((value) => ({ label: typeof value === "string" ? labels[value] ?? value : "Approve with the proposed rule", value: typeof value === "string" ? value : canonicalJson(value) }));
+}
+function runtimePrompt(method, params, _id) {
+  const data = object(params);
+  if (method === "item/tool/requestUserInput") {
+    const questions = list(data.questions).map(object);
+    if (!questions.length) return void 0;
+    return {
+      question: questions.map((q) => String(q.question ?? "")).join("\n"),
+      options: questions.flatMap((q) => list(q.options).flatMap((o) => {
+        const parsed = nativeOption(o);
+        return parsed ? [parsed] : [];
+      })),
+      sections: questions.map((q) => ({ label: String(q.header ?? q.question ?? "") })),
+      multi_select: questions.length > 1
+    };
+  }
+  switch (method) {
+    case "item/commandExecution/requestApproval":
+    case "item/fileChange/requestApproval":
+      return { question: String(data.command ?? data.reason ?? "Approve this operation?"), options: decisionOptions(data) };
+    case "item/permissions/requestApproval":
+      return { question: `Grant permissions: ${canonicalJson(data.permissions)}`, options: [{ label: "Grant for turn", value: "turn" }, { label: "Grant for session", value: "session" }, { label: "Deny", value: "deny" }] };
+    case "mcpServer/elicitation/request":
+      if (data.mode !== "form" || list(object(data.requestedSchema).required).length)
+        return { question: String(data.message ?? "Unsupported tool request"), options: [{ label: "Decline", value: "decline" }, { label: "Cancel", value: "cancel" }] };
+      return { question: String(data.message ?? "Respond to the tool request"), options: [{ label: "Accept", value: "accept" }, { label: "Decline", value: "decline" }, { label: "Cancel", value: "cancel" }] };
+    default:
+      return void 0;
+  }
+}
+function runtimeAnswer(method, params, id, answer) {
+  const data = object(params);
+  const values = answer.kind === "choice" ? answer.values : [];
+  const prompt = runtimePrompt(method, params, id);
+  if (!prompt) fail("Unsupported server request");
+  if (values.some((value2) => !prompt.options.some((o) => o.value === value2))) fail("Invalid native option value");
+  if (method === "item/tool/requestUserInput") {
+    const questions = list(data.questions).map(object);
+    const answers = {};
+    if (answer.kind === "cancel") fail("Questions cannot be cancelled without an answer");
+    for (const q of questions) {
+      const key = text2(q.id);
+      if (!key) fail("Missing question id");
+      const selected = list(q.options).flatMap((o) => {
+        const parsed = nativeOption(o);
+        return parsed && values.includes(parsed.value) ? [parsed.value] : [];
+      });
+      const value2 = answer.kind === "text" && questions.length === 1 ? answer.text : selected.length === 1 ? selected[0] : void 0;
+      if (!value2?.trim()) fail("Each question requires one answer");
+      answers[key] = { answers: [value2] };
+    }
+    return json({ answers });
+  }
+  if (answer.kind === "text" || answer.kind === "choice" && values.length !== 1) fail("Approval requires one declared option");
+  const value = answer.kind === "cancel" ? "cancel" : values[0];
+  switch (method) {
+    case "item/commandExecution/requestApproval":
+    case "item/fileChange/requestApproval":
+      return { decision: value.startsWith("{") ? JSON.parse(value) : value };
+    case "item/permissions/requestApproval":
+      return json({ permissions: value === "turn" || value === "session" ? data.permissions ?? {} : {}, scope: value === "session" ? "session" : "turn" });
+    case "mcpServer/elicitation/request":
+      return json({ action: value, ...value === "accept" ? { content: {} } : {} });
+    default:
+      return fail("Unsupported server request");
+  }
+}
+
+// plugins/provider-codex/src/runtimeContext.ts
+function invalid2(message) {
+  throw { code: "invalid_schema", message };
+}
+function exactObject(raw, keys) {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) invalid2("Invalid restoreContext object");
+  const value = object(raw);
+  if (Object.keys(value).length !== keys.length || keys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) invalid2("Invalid restoreContext fields");
+  return value;
+}
+function restoreContextItems(raw) {
+  const value = exactObject(raw, ["instructions", "additionalContext"]);
+  if (value.instructions !== null && typeof value.instructions !== "string") invalid2("Invalid restoreContext instructions");
+  if (!Array.isArray(value.additionalContext)) invalid2("Invalid restoreContext additionalContext");
+  const entries = /* @__PURE__ */ new Map();
+  for (const rawEntry of value.additionalContext) {
+    const entry = exactObject(rawEntry, ["key", "kind", "value"]);
+    if (typeof entry.key !== "string" || typeof entry.value !== "string" || entry.kind !== "application" && entry.kind !== "user") invalid2("Invalid restoreContext entry");
+    const previous = entries.get(entry.key);
+    if (previous && (previous.kind !== entry.kind || previous.value !== entry.value)) invalid2("Conflicting restoreContext key");
+    entries.set(entry.key, entry);
+  }
+  const context = value;
+  const item = (role, text7) => ({ type: "message", role, content: [{ type: "input_text", text: text7 }] });
+  const items = context.instructions ? [item("developer", context.instructions)] : [];
+  for (const entry of entries.values()) items.push(item(entry.kind === "application" ? "developer" : "user", entry.value));
+  if (!items.length) invalid2("Empty restoreContext");
+  return items;
+}
+
+// plugins/provider-codex/src/runtimeSettings.ts
+function codexServiceTier(settings) {
+  return settings.serviceTier === void 0 ? {} : { serviceTier: settings.serviceTier.id };
+}
+function codexRuntimePolicy(settings) {
+  const selected = settings.mode ?? "auto-accept-edits";
+  const policies = {
+    "approval-required": ["untrusted", "user", "readOnly"],
+    "auto-accept-edits": ["on-request", "user", "workspaceWrite"],
+    "auto": ["on-request", "auto_review", "workspaceWrite"],
+    "full-access": ["never", "user", "dangerFullAccess"],
+    "read-only": ["never", "user", "readOnly"],
+    "workspace-write": ["never", "user", "workspaceWrite"]
+  };
+  const policy = policies[selected];
+  if (!policy) throw { code: "unsupported", message: `Unsupported runtime mode: ${selected}` };
+  return { approvalPolicy: policy[0], approvalsReviewer: policy[1], sandboxPolicy: {
+    type: policy[2],
+    ...(policy[2] === "workspaceWrite" || selected === "read-only") && settings.networkAccess !== void 0 ? { networkAccess: settings.networkAccess } : {},
+    ...selected === "workspace-write" ? { writableRoots: [...settings.additionalDirectories ?? []], excludeTmpdirEnvVar: true, excludeSlashTmp: true } : {},
+    ...policy[2] === "workspaceWrite" && settings.additionalDirectories?.length ? { writableRoots: [...settings.additionalDirectories] } : {}
+  } };
+}
+function codexThreadConfig(settings, hostOwned) {
+  const workspaceWrite = codexRuntimePolicy(settings).sandboxPolicy.type === "workspaceWrite";
+  return {
+    check_for_update_on_startup: false,
+    project_doc_max_bytes: 65536,
+    ...["read-only", "workspace-write"].includes(settings.mode ?? "") ? {
+      "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories ?? []],
+      "sandbox_workspace_write.exclude_tmpdir_env_var": true,
+      "sandbox_workspace_write.exclude_slash_tmp": true
+    } : {},
+    ...workspaceWrite && settings.networkAccess !== void 0 ? { "sandbox_workspace_write.network_access": settings.networkAccess } : {},
+    ...settings.additionalDirectories?.length ? { "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories] } : {},
+    ...settings.effort ? { model_reasoning_effort: settings.effort } : {},
+    ...hostOwned?.questions ? { "features.default_mode_request_user_input": false } : {}
+  };
+}
+function codexReportedSettings(raw) {
+  const root = object(raw);
+  const settings = root.threadSettings ? object(root.threadSettings) : root;
+  const thread = object(settings.thread);
+  const tier = settings.serviceTier !== void 0 ? settings.serviceTier : thread.serviceTier;
+  const serviceTier = tier === void 0 ? void 0 : tier === null || typeof tier === "string" ? { id: tier === "default" ? null : tier === "fast" ? "priority" : tier } : void 0;
+  const model = text2(settings.model) ?? text2(thread.model);
+  const effort = text2(settings.reasoningEffort) ?? text2(settings.effort) ?? text2(thread.reasoningEffort) ?? text2(thread.effort);
+  const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;
+  const approval = settings.approvalPolicy ?? thread.approvalPolicy;
+  const reviewer = settings.approvalsReviewer ?? thread.approvalsReviewer;
+  const mode = text2(settings.mode) ?? text2(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "never" && sandbox === "readOnly" ? "read-only" : approval === "never" && sandbox === "workspaceWrite" ? "workspace-write" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
+  return { ...serviceTier !== void 0 ? { serviceTier } : {}, ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} };
+}
+function codexEffectiveSettings(requested, reply) {
+  const { serviceTier: _requestedTier, ...other } = requested;
+  return { ...other, ...codexReportedSettings(reply) };
+}
+
+// plugins/provider-codex/src/runtimeServiceTiers.ts
+var codexServiceTiers = [
+  { id: "priority", name: "Fast", description: "", unavailableReason: "Availability not confirmed" },
+  { id: "ultrafast", name: "Ultrafast", description: "", unavailableReason: "Not available on your plan" }
+];
+function serviceTierSelection(value) {
+  const selection = object(value);
+  return value !== null && (selection.id === null || typeof selection.id === "string" && selection.id.length > 0 && selection.id.length <= 128);
+}
+function modelServiceTiers(models, requirements) {
+  const response = object(requirements);
+  const features = object(object(response.requirements).featureRequirements);
+  const fast = features.fast_mode !== false;
+  const ultra = features.ultrafast_mode !== false && (response.supportsIndependentSpeedModes === true || fast);
+  const knownRequirements = requirements !== void 0;
+  const result = /* @__PURE__ */ Object.create(null);
+  for (const raw of list(models)) {
+    const model = object(raw);
+    const id = text2(model.model) ?? text2(model.id);
+    if (!id) continue;
+    const advertised = list(model.serviceTiers).map(object).flatMap((tier) => {
+      const tierId = text2(tier.id), name = text2(tier.name), description = text2(tier.description);
+      if (!tierId || !name || typeof tier.description !== "string") return [];
+      const allowed = knownRequirements && (tierId === "flex" || (tierId === "ultrafast" ? ultra : fast));
+      return [{ id: tierId, name, description: description ?? "", ...!allowed ? { unavailableReason: knownRequirements ? "Disabled by your administrator" : "Availability not confirmed" } : {} }];
+    });
+    const missing = codexServiceTiers.filter((tier) => !advertised.some((item) => item.id === tier.id)).map((tier) => ({
+      ...tier,
+      ...knownRequirements && !(tier.id === "ultrafast" ? ultra : fast) ? { unavailableReason: "Disabled by your administrator" } : {}
+    }));
+    result[id] = [...advertised, ...missing];
+  }
+  return result;
+}
+function tierAvailable(settings, tier) {
+  return tier.id === null || !!settings.serviceTierAvailability?.[settings.model ?? ""]?.some((option) => option.id === tier.id && !option.unavailableReason);
+}
+
+// plugins/provider-codex/src/runtimeErrors.ts
+function statusCode(value) {
+  if (typeof value === "number" && Number.isInteger(value)) return value;
+  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
+  return null;
+}
+function nestedStatus(info) {
+  for (const value of Object.values(info)) {
+    const code = statusCode(object(value).httpStatusCode);
+    if (code != null) return code;
+  }
+  return null;
+}
+function runtimeClass(code, status) {
+  if (code === "token_expired" || code === "refresh_token_expired" || code === "auth_expired" || code === "auth_expiry") return "auth_expiry";
+  if (status === 401 || status === 403 || code === "authError" || code === "unauthorized" || code === "authentication_error") return "authentication";
+  if (code === "usageLimitExceeded" || code === "sessionBudgetExceeded" || code === "usage_limit") return "usage_limit";
+  if (code === "rateLimitExceeded" || code === "rate_limit" || status === 429) return "rate_limit";
+  if (code === "serverOverloaded" || code === "internalServerError" || code === "overloaded" || code === "server_overloaded" || status != null && status >= 500 && status <= 599) return "server_overloaded";
+  if (code?.startsWith("http") || code?.startsWith("responseStream")) return "transport_error";
+  return "provider_error";
+}
+function runtimeError(value, willRetry = false) {
+  const error = object(value);
+  const info = error.codexErrorInfo;
+  const infoObject = object(info);
+  const code = typeof info === "string" ? info : Object.keys(infoObject)[0];
+  const message = text2(error.additionalDetails) ?? text2(error.message) ?? "Provider request failed";
+  const status = statusCode(error.status) ?? statusCode(error.statusCode) ?? statusCode(error.httpStatusCode) ?? statusCode(infoObject.httpStatusCode) ?? nestedStatus(infoObject);
+  return { message, metadata: { ...code ? { code } : {}, class: runtimeClass(code, status), retryable: willRetry } };
+}
+
+// plugins/provider-codex/src/runtimeAbandonedTurns.ts
+function pendingCall(state) {
+  return Object.values(state.items).find((row3) => row3.toolFlowId === state.activeTurnId && row3.toolStatus === "running");
+}
+function runningCallStatus(state) {
+  const row3 = pendingCall(state);
+  return row3 ? activityLabel(row3) : void 0;
+}
+function abandonOpenTurn(state, threadId, nextTurnId) {
+  const previous = state.activeTurnId;
+  if (!previous || previous === nextTurnId || state.completed.includes(previous)) return [];
+  state.completed.push(previous);
+  (state.abandoned ?? (state.abandoned = [])).push(previous);
+  const events = [];
+  for (const row4 of Object.values(state.items)) {
+    if (row4.toolFlowId !== previous || row4.toolStatus !== "running") continue;
+    const abandoned = { ...row4, toolStatus: "abandoned", toolInterrupted: true };
+    state.items[row4.id] = abandoned;
+    events.push({ kind: "chatItem", threadId, item: abandoned });
+  }
+  const row3 = { id: `${previous}:abandoned`, seq: ++state.seq, type: "system", content: "Turn interrupted by a new turn", systemSubtype: "turn_abandoned", toolFlowId: previous };
+  state.items[row3.id] = row3;
+  events.push({ kind: "chatItem", threadId, item: row3 }, { kind: "turnState", threadId, turnId: previous, state: "idle", ...{ detail: "interrupted" } });
+  return events;
+}
+function stampToolLifecycle(row3, previous, method, params) {
+  if (row3.type !== "tool_call") return row3;
+  if (previous?.toolStatus === "abandoned") return previous;
+  const raw = params.item;
+  const suppliedStart = params.startedAtMs;
+  const suppliedEnd = params.completedAtMs;
+  const started = previous?.toolStartedAtMs ?? (typeof suppliedStart === "number" ? suppliedStart : void 0);
+  if (started === void 0) delete row3.toolStartedAtMs;
+  else row3.toolStartedAtMs = started;
+  row3.toolStatus = previous?.toolStatus ?? "running";
+  if (method === "item/completed") {
+    row3.toolStatus = raw?.status === "interrupted" ? "interrupted" : row3.toolError ? "failed" : "completed";
+    if (typeof suppliedEnd === "number") row3.toolCompletedAtMs = suppliedEnd;
+    else delete row3.toolCompletedAtMs;
+  }
+  return row3;
+}
+function interruptPendingCalls(state, threadId, turnId) {
+  return Object.values(state.items).flatMap((row3) => {
+    if (row3.toolFlowId !== turnId || row3.toolStatus !== "running") return [];
+    const interrupted = { ...row3, toolStatus: "interrupted", toolInterrupted: true };
+    state.items[row3.id] = interrupted;
+    return [{ kind: "chatItem", threadId, item: interrupted }];
+  });
+}
+
+// plugins/provider-codex/src/runtimeAgents.ts
+var TERMINAL_STATES = ["completed", "failed", "interrupted", "closed"];
+function update(previous, activity) {
+  const input = object(previous.toolInput);
+  const patch = Object.fromEntries(Object.entries(object(activity.toolInput)).filter(([, value]) => value != null));
+  delete patch.agent_call_id;
+  if (!text2(patch.agent_state)) delete patch.agent_state;
+  if (TERMINAL_STATES.includes(String(input.agent_state)) && !TERMINAL_STATES.includes(String(patch.agent_state))) delete patch.agent_state;
+  return { ...previous, toolInput: { ...input, ...patch } };
+}
+function reduceRuntimeAgents(state, items, parents, parent, raw, seq) {
+  const item = object(raw);
+  if (item.type !== "collabAgentToolCall" && item.type !== "subAgentActivity") return void 0;
+  const spawn = item.type === "collabAgentToolCall" && item.tool === "spawnAgent";
+  if (spawn && !list(item.receiverThreadIds).length) return [];
+  const rows2 = runtimeItems(item, seq);
+  return rows2.flatMap((row3) => {
+    const agent = text2(object(row3.toolInput).agent_id);
+    if (!agent) return [row3];
+    const existing = state.rows[agent];
+    const previous = existing ? items[existing] : void 0;
+    if (previous) return [update(previous, row3)];
+    const started = item.type === "subAgentActivity" && item.kind === "started";
+    if (!spawn && !started) return [row3];
+    state.rows[agent] = row3.id;
+    parents[agent] = parent;
+    state.ordinal += 1;
+    row3.toolInput = { ...object(row3.toolInput), agent_parent_thread_id: parent, agent_ordinal: state.ordinal };
+    return [row3];
+  });
+}
+
+// plugins/provider-codex/src/runtimeStateBudget.ts
+var STATE_TEXT_CAP = 16 * 1024;
+var STATE_TOTAL_BUDGET = 192 * 1024;
+var EVENT_TEXT_CAP = 256 * 1024;
+var RETIRED_ROW_CAP = 256;
+var ID_LIST_CAP = 128;
+var TRUNCATED = "[earlier output truncated]\n";
+var HEAVY = ["content", "toolResult", "toolDetail"];
+function capText(value, cap) {
+  if (value.length <= cap) return value;
+  const body = value.startsWith(TRUNCATED) ? value.slice(TRUNCATED.length) : value;
+  return TRUNCATED + body.slice(body.length - (cap - TRUNCATED.length));
+}
+function capRow(row3, cap) {
+  let capped;
+  for (const key of HEAVY) {
+    const value = row3[key];
+    if (typeof value !== "string" || value.length <= cap) continue;
+    capped ?? (capped = { ...row3 });
+    capped[key] = capText(value, cap);
+  }
+  if (row3.toolInput !== void 0 && JSON.stringify(row3.toolInput).length > cap) {
+    capped ?? (capped = { ...row3 });
+    delete capped.toolInput;
+  }
+  return capped ?? row3;
+}
+function isRetired(state, id) {
+  return !!state.retired?.includes(id);
+}
+function markOpen(state, id) {
+  if (!(state.open ?? (state.open = [])).includes(id)) state.open.push(id);
+}
+function markClosed(state, id) {
+  if (state.open) state.open = state.open.filter((open) => open !== id);
+  if (state.reasoning) delete state.reasoning[id];
+}
+function retire(row3) {
+  const slim = { id: row3.id, seq: row3.seq, type: row3.type, content: "" };
+  if (row3.timestamp) slim.timestamp = row3.timestamp;
+  if (row3.toolFlowId) slim.toolFlowId = row3.toolFlowId;
+  if (row3.toolStatus) slim.toolStatus = row3.toolStatus;
+  return slim;
+}
+function tail(values) {
+  return values && values.length > ID_LIST_CAP ? values.slice(values.length - ID_LIST_CAP) : values;
+}
+function compactState(state) {
+  const agents = new Set(Object.values(state.agents?.rows ?? {}));
+  const done = new Set(state.completed);
+  const open = new Set((state.open ?? []).filter((id) => {
+    const row3 = state.items[id];
+    return row3 && (!row3.toolStatus || row3.toolStatus === "running") && !(row3.toolFlowId && done.has(row3.toolFlowId));
+  }));
+  state.open = [...open];
+  const retired = new Set(state.retired ?? []);
+  for (const [id, row3] of Object.entries(state.items)) {
+    if (agents.has(id)) continue;
+    if (row3.toolStatus === "running" || open.has(id)) {
+      state.items[id] = capRow(row3, STATE_TEXT_CAP);
+      retired.delete(id);
+    } else {
+      state.items[id] = retire(row3);
+      retired.add(id);
+    }
+  }
+  const order = [...retired].filter((id) => state.items[id]).sort((a, b) => state.items[a].seq - state.items[b].seq);
+  for (const id of order.slice(0, Math.max(0, order.length - RETIRED_ROW_CAP))) delete state.items[id];
+  state.retired = order.slice(Math.max(0, order.length - RETIRED_ROW_CAP));
+  for (const parts of Object.values(state.reasoning ?? {})) {
+    parts.summary = parts.summary.map((part) => capText(part, STATE_TEXT_CAP));
+    parts.content = parts.content.map((part) => capText(part, STATE_TEXT_CAP));
+  }
+  state.completed = tail(state.completed);
+  state.compacted = tail(state.compacted);
+  state.evidenced = tail(state.evidenced);
+  state.questions = tail(state.questions);
+  state.abandoned = tail(state.abandoned);
+  state.childCompleted = tail(state.childCompleted);
+  fitTotal(state);
+}
+function utf8Bytes3(value) {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index);
+    if (unit < 128) bytes += 1;
+    else if (unit < 2048) bytes += 2;
+    else if (unit >= 55296 && unit < 56320) {
+      bytes += 4;
+      index++;
+    } else bytes += 3;
+  }
+  return bytes;
+}
+var MIN_RUNNING_CAP = 1024;
+function fitTotal(state) {
+  if (utf8Bytes3(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+  const retiredOrder = () => (state.retired ?? []).filter((id) => state.items[id]);
+  while (retiredOrder().length > 0 && utf8Bytes3(JSON.stringify(state)) > STATE_TOTAL_BUDGET) {
+    const drop = retiredOrder().slice(0, Math.max(1, Math.ceil(retiredOrder().length / 4)));
+    for (const id of drop) delete state.items[id];
+    state.retired = retiredOrder();
+  }
+  for (let cap = STATE_TEXT_CAP / 2; cap >= MIN_RUNNING_CAP; cap = Math.floor(cap / 2)) {
+    if (utf8Bytes3(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+    for (const [id, row3] of Object.entries(state.items)) state.items[id] = capRow(row3, cap);
+    for (const parts of Object.values(state.reasoning ?? {})) {
+      parts.summary = parts.summary.map((part) => capText(part, cap));
+      parts.content = parts.content.map((part) => capText(part, cap));
+    }
+  }
+}
+
+// plugins/provider-codex/src/runtimeBatchBudget.ts
+var REDUCTION_BYTE_BUDGET = 4 * 1024 * 1024;
+var TRUNCATED2 = "[earlier output truncated]\n";
+var CONTINUATION = "[full output available in session history]\n";
+var TEXT_FIELDS = ["content", "toolResult", "toolDetail", "toolSummary", "toolArgs", "toolTitle", "toolName", "toolDescription"];
+var DATA_FIELDS = ["toolInput", "toolRichResult", "fileDiffs", "toolEdits"];
+function serializedBytes2(value) {
+  const serialized = JSON.stringify(value);
+  let size = 0;
+  for (const character of serialized) {
+    const point = character.codePointAt(0);
+    size += point < 128 ? 1 : point < 2048 ? 2 : point < 65536 ? 3 : 4;
+  }
+  return size;
+}
+function coalesce(events) {
+  const last = /* @__PURE__ */ new Map();
+  events.forEach((event, index) => {
+    if (event.kind === "chatItem") last.set(JSON.stringify([event.threadId, event.item.id]), index);
+  });
+  return events.filter((event, index) => event.kind !== "chatItem" || last.get(JSON.stringify([event.threadId, event.item.id])) === index);
+}
+function shrinkRow(row3, cap) {
+  const result = { ...row3 };
+  let shortened = false;
+  for (const field of TEXT_FIELDS) {
+    const value = result[field];
+    if (typeof value === "string" && value.length > cap) {
+      result[field] = capText(value, cap);
+      shortened = true;
+    }
+  }
+  let omitted = false;
+  for (const field of DATA_FIELDS) {
+    if (result[field] !== void 0 && serializedBytes2(result[field]) > cap) {
+      delete result[field];
+      omitted = true;
+    }
+  }
+  if (omitted && !result.content.startsWith(TRUNCATED2)) result.content = TRUNCATED2 + result.content;
+  if ((shortened || omitted) && !result.content.includes(CONTINUATION)) result.content = CONTINUATION + result.content;
+  return result;
+}
+function budgetReduction(state, updates) {
+  let events = coalesce(updates).map((event) => event.kind === "chatItem" ? { ...event, item: capRow(event.item, EVENT_TEXT_CAP) } : event);
+  for (let cap = EVENT_TEXT_CAP / 2; serializedBytes2({ state, events }) > REDUCTION_BYTE_BUDGET && cap >= 64; cap = Math.floor(cap / 2)) {
+    events = events.map((event) => event.kind === "chatItem" ? { ...event, item: shrinkRow(event.item, cap) } : event);
+  }
+  if (serializedBytes2({ state, events }) > REDUCTION_BYTE_BUDGET) throw new Error("runtime batch metadata exceeds output budget");
+  return { state, events };
+}
+
+// plugins/provider-codex/src/runtimeReduce.ts
+function initial(ctx, raw) {
+  const state = object(raw);
+  if (state.epoch === ctx.epoch && state.bindingNonce === ctx.bindingNonce && state.threadId === ctx.threadId) {
+    const restored = JSON.parse(JSON.stringify(state));
+    restored.items = Object.assign(/* @__PURE__ */ Object.create(null), restored.items);
+    if (restored.parents) restored.parents = Object.assign(/* @__PURE__ */ Object.create(null), restored.parents);
+    if (restored.agents) restored.agents.rows = Object.assign(/* @__PURE__ */ Object.create(null), restored.agents.rows);
+    return restored;
+  }
+  return { epoch: ctx.epoch, bindingNonce: ctx.bindingNonce, threadId: ctx.threadId, seq: 0, items: /* @__PURE__ */ Object.create(null), completed: [], compacted: [], evidenced: [], activeTurnId: ctx.activeTurnId };
+}
+function timing(params) {
+  const turn = object(params.turn);
+  return {
+    ...typeof turn.startedAt === "number" && turn.startedAt >= 0 ? { startedAt: turn.startedAt * 1e3 } : {},
+    ...typeof turn.completedAt === "number" && turn.completedAt >= 0 ? { completedAt: turn.completedAt * 1e3 } : {}
+  };
+}
+function usage(params) {
+  const token = object(params.tokenUsage);
+  const total = object(token.total);
+  if (typeof total.inputTokens !== "number" || typeof total.outputTokens !== "number") return void 0;
+  return {
+    ...typeof total.costUsd === "number" && Number.isFinite(total.costUsd) && total.costUsd >= 0 ? { cost_micros: Math.round(total.costUsd * 1e6) } : {},
+    input_tokens: total.inputTokens,
+    output_tokens: total.outputTokens,
+    ...typeof total.cacheWriteInputTokens === "number" ? { cache_write_tokens: total.cacheWriteInputTokens } : {},
+    ...typeof total.cachedInputTokens === "number" ? { cache_read_tokens: total.cachedInputTokens } : {},
+    ...typeof object(token.last).totalTokens === "number" ? { used_tokens: Number(object(token.last).totalTokens) } : {},
+    ...typeof token.modelContextWindow === "number" ? { window_tokens: token.modelContextWindow } : {}
+  };
+}
+function sendEvidence(ctx, item, turnId) {
+  if (item.type !== "userMessage" || !turnId) return void 0;
+  const sendId = text2(item.clientId);
+  const claim = ctx.claimedSends.find((c) => c.sendId === sendId && c.threadId === ctx.threadId);
+  if (!claim) return void 0;
+  const parts = list(item.content).map(object);
+  const content = parts.filter((p) => p.type === "text").map((p) => p.text).join("\n");
+  if (content !== claim.input.text) return void 0;
+  const images = parts.filter((p) => p.type === "image" || p.type === "localImage");
+  if (images.length !== claim.input.attachments.length) return void 0;
+  if (!images.every((image, index) => {
+    const expected = claim.input.attachments[index];
+    if (expected.data) return image.type === "image" && image.url === `data:${expected.mimeType};base64,${expected.data}`;
+    if (expected.url) return image.type === "image" && image.url === expected.url;
+    return !!expected.path && image.type === "localImage" && image.path === expected.path;
+  })) return void 0;
+  return { kind: "sendEvidence", threadId: claim.threadId, sendId: claim.sendId, turnId, ...text2(item.id) ? { itemId: text2(item.id) } : {} };
+}
+function stamp(state, row3, params) {
+  const previous = state.items[row3.id];
+  row3.seq = previous?.seq ?? ++state.seq;
+  const ms = params.startedAtMs ?? params.completedAtMs;
+  if (previous?.timestamp) row3.timestamp = previous.timestamp;
+  else if (typeof ms === "number" && Number.isFinite(ms)) row3.timestamp = new Date(ms).toISOString();
+  const turnId = text2(params.turnId) ?? text2(object(params.turn).id);
+  if (turnId && !row3.toolFlowId) row3.toolFlowId = turnId;
+  if (row3.toolKind === "agent" && row3.toolName === "agent_activity") {
+    row3.toolInput = json({ ...object(row3.toolInput), agent_binding_nonce: state.bindingNonce, agent_runtime_epoch: state.epoch });
+  }
+  state.items[row3.id] = row3;
+  return row3;
+}
+function mapItem(state, method, params) {
+  const raw = object(params.item);
+  const id = text2(raw.id) ?? text2(params.itemId);
+  if (!id) return void 0;
+  const retired = isRetired(state, id);
+  const previous = retired ? void 0 : state.items[id];
+  if (method === "item/started" || method === "item/completed") {
+    if (method === "item/started") markOpen(state, id);
+    else markClosed(state, id);
+    const row4 = runtimeItem(raw, state.seq + 1, previous);
+    return row4 ? stamp(state, stampToolLifecycle(row4, previous, method, params), params) : void 0;
+  }
+  const delta = text2(params.delta) ?? text2(params.message);
+  if (!delta || retired) return void 0;
+  markOpen(state, id);
+  const row3 = previous ? { ...previous } : { id, seq: state.seq + 1, type: "assistant", content: "" };
+  switch (method) {
+    case "item/agentMessage/delta":
+    case "item/plan/delta":
+      row3.type = "assistant";
+      row3.content += delta;
+      break;
+    case "item/reasoning/textDelta":
+    case "item/reasoning/summaryTextDelta":
+      row3.type = "thinking";
+      row3.collapsed = true;
+      row3.content += delta;
+      break;
+    case "item/commandExecution/outputDelta":
+    case "item/fileChange/outputDelta":
+      row3.type = "tool_call";
+      row3.toolKind = method === "item/commandExecution/outputDelta" ? "command" : "edit";
+      row3.toolId = id;
+      row3.toolResult = (row3.toolResult ?? "") + delta;
+      break;
+    case "item/mcpToolCall/progress":
+      row3.type = "tool_call";
+      row3.toolKind = "generic";
+      row3.toolId = id;
+      row3.toolDetail = delta;
+      break;
+    default:
+      return void 0;
+  }
+  return stamp(state, stampToolLifecycle(row3, previous, method, params), params);
+}
+function runtimeReduce(ctx, raw, frames) {
+  var _a;
+  const state = initial(ctx, raw);
+  const events = [];
+  for (const frame of frames) {
+    const params = object(frame.params);
+    if (frame.kind === "notification" && frame.method === "account/login/completed") {
+      events.push(loginCompleted(params));
+      continue;
+    }
+    if (frame.kind === "notification" && frame.method === "account/updated") {
+      if (ctx.threadId) events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { serviceTierAvailability: {} } });
+      events.push(notificationAuth(params));
+      continue;
+    }
+    if (frame.kind === "notification" && frame.method === "thread/reverted") {
+      if (ctx.threadId && params.threadId === ctx.threadId) events.push({ kind: "threadReverted", threadId: ctx.threadId });
+      continue;
+    }
+    state.parents ?? (state.parents = Object.fromEntries(ctx.threadParents.map((parent) => [parent.threadId, parent.parentThreadId])));
+    if (frame.kind === "notification" && frame.method === "thread/started") {
+      const thread = object(params.thread);
+      const id = text2(thread.id);
+      const parent = text2(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
+      if (id && parent && (parent === ctx.threadId || Object.prototype.hasOwnProperty.call(state.parents, parent))) state.parents[id] = parent;
+      continue;
+    }
+    if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents, params.threadId) && frame.method !== "serverRequest/resolved") {
+      if ((frame.method === "item/started" || frame.method === "item/completed") && ctx.threadId) {
+        state.agents ?? (state.agents = { rows: /* @__PURE__ */ Object.create(null), ordinal: 0 });
+        const agents = reduceRuntimeAgents(state.agents, state.items, state.parents, params.threadId, params.item, state.seq + 1);
+        if (agents) for (const activity of agents) events.push({ kind: "chatItem", threadId: ctx.threadId, item: stamp(state, activity, params) });
+      }
+      const threadId2 = params.threadId;
+      const turnId2 = text2(object(params.turn).id) ?? text2(params.turnId);
+      if (!turnId2) continue;
+      state.childActive ?? (state.childActive = {});
+      state.childCompleted ?? (state.childCompleted = []);
+      if (frame.method === "turn/started" && !state.childCompleted.includes(`${threadId2}:${turnId2}`)) {
+        state.childActive[threadId2] = turnId2;
+        events.push({ kind: "turnState", threadId: threadId2, turnId: turnId2, parentThreadId: state.parents[threadId2], state: "working", ...timing(params) });
+      } else if (frame.method === "turn/completed" && !state.childCompleted.includes(`${threadId2}:${turnId2}`)) {
+        state.childCompleted.push(`${threadId2}:${turnId2}`);
+        if (state.childActive[threadId2] && state.childActive[threadId2] !== turnId2) continue;
+        delete state.childActive[threadId2];
+        events.push({ kind: "turnState", threadId: threadId2, turnId: turnId2, parentThreadId: state.parents[threadId2], state: "idle", ...timing(params) });
+      }
+      continue;
+    }
+    if (frame.kind === "notification" && frame.method === "account/rateLimits/updated") {
+      const limits = object(params.rateLimits);
+      if (limits.limitId && limits.limitId !== "codex") continue;
+      state.rateLimitSnapshot = { ...state.rateLimitSnapshot, ...limits };
+      events.push(...rateLimitEvents(state.rateLimitSnapshot, params.rateLimitResetCredits));
+      continue;
+    }
+    const descendant = typeof params.threadId === "string" && ctx.threadParents.some((parent) => parent.threadId === params.threadId);
+    if (ctx.threadId && (params.threadId === ctx.threadId || descendant) && frame.kind === "request") {
+      if (!serverRequestMethods.includes(frame.method)) continue;
+      const prompt = runtimePrompt(frame.method, params, frame.requestId);
+      const turnId2 = descendant ? ctx.activeTurnId : text2(params.turnId);
+      if (prompt) events.push({ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, prompt }, { kind: "turnState", threadId: ctx.threadId, state: "needs_input", detail: requestDetail(frame.method), ...turnId2 ? { turnId: turnId2 } : {} });
+      continue;
+    }
+    if (ctx.threadId && descendant && frame.kind === "notification" && frame.method === "serverRequest/resolved") {
+      if (typeof params.requestId === "string" || typeof params.requestId === "number") events.push({ kind: "promptResolved", threadId: ctx.threadId, requestId: params.requestId });
+      continue;
+    }
+    if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
+    const threadId = ctx.threadId;
+    const turnId = text2(params.turnId) ?? text2(object(params.turn).id);
+    if (turnId && state.abandoned?.includes(turnId)) continue;
+    switch (frame.method) {
+      case "turn/started": {
+        if (!turnId || state.completed.includes(turnId)) break;
+        events.push(...abandonOpenTurn(state, threadId, turnId));
+        state.activeTurnId = turnId;
+        delete state.compacting;
+        const settings = codexReportedSettings({ ...params, ...object(params.turn) });
+        if (Object.keys(settings).length) events.push({ kind: "controlsConfirmed", threadId, settings });
+        events.push({ kind: "turnState", threadId, turnId, state: "working", ...timing(params) });
+        break;
+      }
+      case "turn/completed": {
+        if (!turnId || state.completed.includes(turnId)) break;
+        state.completed.push(turnId);
+        if (state.activeTurnId && state.activeTurnId !== turnId) break;
+        events.push(...interruptPendingCalls(state, threadId, turnId));
+        delete state.activeTurnId;
+        delete state.compacting;
+        const failure2 = object(object(params.turn).error);
+        if (text2(failure2.message)) {
+          const error = runtimeError(failure2);
+          events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: "api_error", toolInput: error.metadata }, params) });
+        }
+        const outcome2 = turnOutcome(params.turn);
+        events.push({ kind: "turnState", threadId, turnId, state: "idle", ...outcome2 ? { detail: outcome2 } : {}, ...timing(params) });
+        break;
+      }
+      case "thread/status/changed": {
+        const status = threadStatus(params.status);
+        if (!status) break;
+        if (status.state === "working" && !state.activeTurnId) break;
+        if (status.state === "idle" && state.activeTurnId && !pendingStatus(state, threadId)) break;
+        if (status.state === "idle") delete state.compacting;
+        events.push(status.state !== "needs_input" && pendingStatus(state, threadId) || { kind: "turnState", threadId, ...withDetail(status, !!state.compacting), ...state.activeTurnId && status.state !== "idle" ? { turnId: state.activeTurnId } : {} });
+        break;
+      }
+      case "item/fileChange/patchUpdated": {
+        const id = text2(params.itemId);
+        if (!id || !Array.isArray(params.changes) || isRetired(state, id)) break;
+        const previous = state.items[id];
+        const row3 = runtimeItem({ id, type: "fileChange", changes: params.changes, status: "inProgress" }, state.seq + 1, previous);
+        if (!row3) break;
+        markOpen(state, id);
+        if (previous?.toolResult !== void 0) row3.toolResult = previous.toolResult;
+        events.push({ kind: "chatItem", threadId, item: stamp(state, row3, params) });
+        break;
+      }
+      case "thread/tokenUsage/updated": {
+        const mapped = usage(params);
+        if (mapped) events.push({ kind: "usage", threadId, usage: mapped });
+        break;
+      }
+      case "thread/settings/updated": {
+        const settings = codexReportedSettings(params);
+        if (Object.keys(settings).length) events.push({ kind: "controlsConfirmed", threadId, settings });
+        break;
+      }
+      case "serverRequest/resolved":
+        if (typeof params.requestId === "string" || typeof params.requestId === "number") events.push({ kind: "promptResolved", threadId, requestId: params.requestId });
+        break;
+      case "model/rerouted": {
+        const model = text2(params.toModel);
+        if (model) {
+          events.push({ kind: "controlsConfirmed", threadId, settings: { model } });
+          events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId ?? "thread"}:model-rerouted`, seq: state.seq + 1, type: "system", content: `Model changed to ${model}`, systemSubtype: "model_rerouted", toolInput: params }, params) });
+        }
+        break;
+      }
+      case "thread/goal/cleared":
+        events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: {} }, params) });
+        break;
+      case "turn/diff/updated": {
+        const diff = text2(params.diff);
+        if (diff && turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:diff`, seq: state.seq + 1, type: "tool_call", content: "", toolKind: "edit", toolName: "turn_diff", toolResult: diff, collapsed: true }, params) });
+        break;
+      }
+      case "thread/goal/updated": {
+        const goal = text2(object(params.goal).objective);
+        if (goal) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: goalIntent(params.goal) ?? { goal } }, params) });
+        break;
+      }
+      case "turn/plan/updated": {
+        const row3 = runtimeItem({ id: `${turnId}:plan`, type: "planUpdate", plan: params.plan, explanation: params.explanation }, state.seq + 1);
+        if (row3) events.push({ kind: "chatItem", threadId, item: stamp(state, row3, params) });
+        break;
+      }
+      case "error": {
+        const error = runtimeError(params.error, params.willRetry === true);
+        if (turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: params.willRetry === true ? "provider_retry" : "api_error", toolInput: error.metadata }, params) });
+        break;
+      }
+      default: {
+        let row3;
+        const rawItem = object(params.item);
+        if (frame.method === "item/started" || frame.method === "item/completed") {
+          state.agents ?? (state.agents = { rows: /* @__PURE__ */ Object.create(null), ordinal: 0 });
+          const agents = reduceRuntimeAgents(state.agents, state.items, state.parents, threadId, rawItem, state.seq + 1);
+          if (agents) {
+            for (const activity of agents) events.push({ kind: "chatItem", threadId, item: stamp(state, activity, params) });
+            continue;
+          }
+        }
+        if (frame.method === "item/completed" && rawItem.type === "agentMessage" && rawItem.delivery === "async" && list(rawItem.questions).length) {
+          const itemId = text2(rawItem.id);
+          state.questions ?? (state.questions = []);
+          if (itemId && !state.questions.includes(itemId)) {
+            state.questions.push(itemId);
+            events.push({ kind: "question", threadId, itemId, questions: runtimeQuestions(rawItem.questions), response: "message" });
+          }
+          continue;
+        }
+        const compactionId = rawItem.type === "contextCompaction" ? text2(rawItem.id) : void 0;
+        if (compactionId && frame.method === "item/started" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) {
+          if (state.compacting === compactionId || state.compacted.includes(compactionId)) continue;
+          state.compacting = compactionId;
+          events.push({ kind: "turnState", threadId, state: "working", detail: "compacting", ...turnId ? { turnId } : {} });
+          continue;
+        }
+        if (compactionId && frame.method === "item/completed" && state.compacting === compactionId) {
+          delete state.compacting;
+          if (turnId && state.activeTurnId === turnId) events.push({ kind: "turnState", threadId, turnId, state: "working" });
+        }
+        const reasoningId = text2(rawItem.id) ?? text2(params.itemId);
+        if (reasoningId && (rawItem.type === "reasoning" || frame.method.startsWith("item/reasoning/"))) {
+          if (frame.method !== "item/completed" && isRetired(state, reasoningId)) continue;
+          state.reasoning ?? (state.reasoning = {});
+          const parts = state.reasoning[reasoningId] ?? { summary: [], content: [] };
+          state.reasoning[reasoningId] = parts;
+          if (rawItem.type === "reasoning") {
+            if (list(rawItem.summary).length) parts.summary = list(rawItem.summary).map(String);
+            if (list(rawItem.content).length) parts.content = list(rawItem.content).map(String);
+          } else if (frame.method === "item/reasoning/summaryPartAdded") {
+            const index = Number(params.summaryIndex);
+            if (Number.isSafeInteger(index) && index >= 0 && index < 1024) (_a = parts.summary)[index] ?? (_a[index] = "");
+            continue;
+          } else {
+            const stream = frame.method === "item/reasoning/summaryTextDelta" ? "summary" : "content";
+            const index = Number(params.summaryIndex ?? params.contentIndex ?? 0);
+            if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts[stream][index] = (parts[stream][index] ?? "") + String(params.delta ?? "");
+          }
+          row3 = stamp(state, { id: reasoningId, seq: state.seq + 1, type: "thinking", content: parts.summary.filter(Boolean).join("\n") || parts.content.join("\n"), collapsed: true }, params);
+          if (frame.method === "item/completed") markClosed(state, reasoningId);
+          else markOpen(state, reasoningId);
+        } else row3 = mapItem(state, frame.method, params);
+        if (row3) {
+          events.push({ kind: "chatItem", threadId, item: row3 });
+          if (row3.type === "tool_call" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) events.push({ kind: "turnState", threadId, ...state.activeTurnId ? { turnId: state.activeTurnId } : {}, state: "working", ...{ statusLine: runningCallStatus(state) ?? "" } });
+        }
+        if (frame.method === "item/started" || frame.method === "item/completed") {
+          const evidence = sendEvidence(ctx, object(params.item), turnId);
+          if (evidence?.kind === "sendEvidence" && !state.evidenced.includes(evidence.sendId)) {
+            state.evidenced.push(evidence.sendId);
+            events.push(evidence);
+          }
+          const item = object(params.item);
+          const id = text2(item.id);
+          if (frame.method === "item/completed" && item.type === "contextCompaction" && id && !state.compacted.includes(id)) {
+            state.compacted.push(id);
+            events.push({ kind: "contextCompacted", threadId, itemId: id });
+          }
+        }
+      }
+    }
+  }
+  compactState(state);
+  return budgetReduction(json(state), events);
+}
+function pendingStatus(state, threadId) {
+  const statusLine = runningCallStatus(state);
+  return statusLine && state.activeTurnId ? { kind: "turnState", threadId, turnId: state.activeTurnId, state: "working", ...{ statusLine } } : void 0;
+}
+
+// plugins/provider-codex/src/runtime.ts
+function fail2(code, message) {
+  throw { code, message };
+}
+function request(method, params, state = { stage: method }) {
+  const target = method === "turn/interrupt" ? { threadId: String(object(params).threadId), turnId: String(object(params).turnId) } : void 0;
+  return { action: { kind: "request", call: { method, params: json(params), ...target ? { target } : {} } }, state: json(state) };
+}
+function settingsParams(ctx, settings, instructions) {
+  const policies = codexRuntimePolicy(settings);
+  const sandbox = object(policies.sandboxPolicy).type;
+  return {
+    cwd: ctx.cwd,
+    model: settings.model,
+    ...codexServiceTier(settings),
+    threadSource: "user",
+    config: codexThreadConfig(settings, ctx.hostOwned),
+    approvalPolicy: policies.approvalPolicy,
+    approvalsReviewer: policies.approvalsReviewer,
+    sandbox: { readOnly: "read-only", workspaceWrite: "workspace-write", dangerFullAccess: "danger-full-access" }[String(sandbox)],
+    ...instructions !== void 0 ? { developerInstructions: instructions } : {}
+  };
+}
+function turnParams(ctx, op) {
+  const input = [{ type: "text", text: op.input.text }];
+  for (const attachment of op.input.attachments) {
+    if (attachment.data) input.push({ type: "image", url: `data:${attachment.mimeType};base64,${attachment.data}` });
+    else if (attachment.url) input.push({ type: "image", url: attachment.url });
+    else if (attachment.path) input.push({ type: "localImage", path: attachment.path });
+    else fail2("invalid_schema", "Attachment has no image source");
+  }
+  return {
+    threadId: op.threadId,
+    clientUserMessageId: op.sendId,
+    input,
+    cwd: ctx.cwd,
+    ...codexRuntimePolicy(op.settings),
+    ...codexServiceTier(op.settings),
+    model: op.settings.model,
+    effort: op.settings.effort
+  };
+}
+function threadHistoryPlan(ctx, thread, value) {
+  const action = text2(object(value).action);
+  const turnId = text2(object(value).turnId);
+  if (action !== "fork" && action !== "revert" || !turnId || turnId.length > 4096) fail2("invalid_schema", "Invalid thread history action");
+  if (ctx.activeTurnId) fail2("provider_refused", "Thread history cannot change during an active turn");
+  return request(
+    "thread/turns/list",
+    { threadId: thread, itemsView: "notLoaded", sortDirection: "asc", limit: 8 },
+    { stage: "threadHistoryTurns", action, turnId, cursor: null, targetFound: false, ...action === "fork" ? { sourceThreadId: thread } : {} }
+  );
+}
+function forkThreadPlan(ctx, op) {
+  if (ctx.threadId || ctx.activeTurnId || ctx.activeTurns.length) fail2("binding_mismatch", "Fork requires an unbound child runtime");
+  return threadHistoryPlan(ctx, op.sourceThreadId, { action: "fork", turnId: op.turnId });
+}
+function threadHistoryTurns(ctx, op, state, value) {
+  const controlThread = op.kind === "control" ? op.threadId : void 0;
+  const thread = text2(state.sourceThreadId) ?? controlThread ?? ctx.threadId;
+  const action = text2(state.action);
+  const turnId = text2(state.turnId);
+  if (!thread || !action || !turnId || !Array.isArray(value.data) || value.data.length > 8) return refused("Invalid thread history page");
+  let targetFound = state.targetFound === true;
+  for (const raw of value.data) {
+    const turn = object(raw);
+    const id = text2(turn.id);
+    if (!id || id.length > 4096) return refused("Thread history turn identity missing");
+    if (targetFound) {
+      if (action === "revert") return continuation(request("thread/revert", { threadId: thread, beforeTurnId: id }, { stage: "thread/revert", turnId }));
+      return refused("Fork boundary resolution failed");
+    }
+    if (id !== turnId) continue;
+    if (turn.status === "inProgress") return refused("Active turns cannot be forked or reverted");
+    if (action === "fork") return continuation(request(
+      "thread/fork",
+      {
+        threadId: thread,
+        lastTurnId: turnId,
+        ...ctx.hostOwned?.questions ? { config: codexThreadConfig(ctx.settings, ctx.hostOwned) } : {}
+      },
+      { stage: "thread/fork", turnId, sourceThreadId: thread }
+    ));
+    targetFound = true;
+  }
+  const next = text2(value.nextCursor);
+  if (next && (next.length > 4096 || next === state.cursor)) return refused("Thread history cursor did not advance");
+  if (next) return continuation(request(
+    "thread/turns/list",
+    { threadId: thread, itemsView: "notLoaded", sortDirection: "asc", limit: 8, cursor: next },
+    { ...state, cursor: next, targetFound }
+  ));
+  return targetFound ? refused("There is no later turn to revert") : refused("Selected turn is not in the bound thread");
+}
+function validateBinding(ctx, op) {
+  if (op.kind === "backgroundProcesses") {
+    if (!backgroundOwns(ctx, op.threadId)) fail2("binding_mismatch", "Background thread is not owned");
+    return;
+  }
+  if (op.kind === "readHistory" && !ctx.threadId) fail2("binding_mismatch", "History requires a bound root thread");
+  if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId && !(op.kind === "readHistory" && descendantThread(ctx, op.threadId))) fail2("binding_mismatch", "Thread differs from the bound thread");
+  if ("activeTurnId" in op && op.activeTurnId && op.activeTurnId !== ctx.activeTurnId) fail2("binding_mismatch", "Active turn differs from the bound turn");
+}
+function historyTarget(ctx, op, plan) {
+  if (op.kind !== "readHistory" || op.threadId === ctx.threadId || plan.action.kind !== "request") return plan;
+  return { ...plan, action: { ...plan.action, call: { ...plan.action.call, target: { threadId: op.threadId } } } };
+}
+function runtimePlan(ctx, op) {
+  return historyTarget(ctx, op, planOperation(ctx, op));
+}
+function planOperation(ctx, op) {
+  validateBinding(ctx, op);
+  switch (op.kind) {
+    case "backgroundProcesses":
+      return backgroundPlan(ctx, op);
+    case "initialize":
+      return request("initialize", { clientInfo: { name: "domios", version: ctx.hostVersion }, capabilities: { experimentalApi: true, optOutNotificationMethods: [] } });
+    case "openThread":
+      return request("thread/start", settingsParams(ctx, op.settings, op.instructions));
+    case "forkThread":
+      return forkThreadPlan(ctx, op);
+    case "resumeThread":
+      return request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true });
+    case "readHistory":
+      if (op.order === "desc") return pagedHistoryPlan(op);
+      return request(
+        "thread/turns/list",
+        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: op.order ?? "asc", limit: 8, cursor: op.cursor },
+        { stage: "turns", turns: [], cursor: null, seq: 0 }
+      );
+    case "submitTurn": {
+      const params = turnParams(ctx, op);
+      if (!op.activeTurnId) return request("turn/start", params);
+      return request("turn/steer", { threadId: op.threadId, clientUserMessageId: op.sendId, input: params.input, expectedTurnId: op.activeTurnId });
+    }
+    case "interrupt": {
+      const turns = interruptTargets(ctx, op.threadId);
+      if (!turns.length) fail2("provider_refused", "No active turn to interrupt");
+      return request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) });
+    }
+    case "answerQuestion":
+      return { action: { kind: "questionAnswer", input: questionAnswerInput(op.itemId, op.answers) }, state: null };
+    case "answer": {
+      const pending = ctx.pendingRequest;
+      if (!pending || pending.requestId !== op.requestId) fail2("binding_mismatch", "Answer has no exact pending request");
+      return { action: { kind: "reply", requestId: op.requestId, result: { kind: "success", value: runtimeAnswer(pending.method, pending.params, op.requestId, op.answer) } }, state: null };
+    }
+    case "control": {
+      if (op.action === "readResetCredits") return request("account/rateLimits/read", { excludeResetCreditDetails: object(op.value).details !== true });
+      if (op.action === "redeemResetCredit") {
+        const key = text2(object(op.value).idempotencyKey);
+        if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) fail2("invalid_schema", "A confirmation UUID is required");
+        const creditId = object(op.value).creditId;
+        if (creditId != null && (typeof creditId !== "string" || !creditId.trim())) fail2("invalid_schema", "Reset credit identifier is invalid");
+        return request("account/rateLimitResetCredit/consume", { idempotencyKey: key, ...creditId ? { creditId } : {} });
+      }
+      if (op.action === "login") return loginPlan(op.value);
+      if (op.action === "auth") return request("account/read", { refreshToken: false }, { stage: "auth" });
+      const thread = op.threadId ?? ctx.threadId;
+      if (!thread) fail2("binding_mismatch", "Control requires the bound thread");
+      if (op.action === "goal") return goalPlan(thread, op.value);
+      if (op.action === "threadHistory") return threadHistoryPlan(ctx, thread, op.value);
+      if (op.action === "compact") return request("thread/compact/start", { threadId: thread });
+      if (op.action === "serviceTiers") return request("model/list", { includeHidden: true, limit: 100 }, { stage: "serviceTiers", models: [], cursors: [] });
+      if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: restoreContextItems(op.value) });
+      if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
+      const settings = op.action === "settings" ? { ...ctx.settings, ...object(op.value) } : { ...ctx.settings, [op.action]: op.value };
+      for (const key of ["model", "effort", "mode"]) if (settings[key] !== void 0 && typeof settings[key] !== "string") fail2("invalid_schema", `Invalid ${key}`);
+      if (settings.serviceTier !== void 0 && !serviceTierSelection(settings.serviceTier)) fail2("invalid_schema", "Invalid service tier");
+      const parsed = settings;
+      if (parsed.serviceTier && !tierAvailable({ ...parsed, serviceTierAvailability: ctx.settings.serviceTierAvailability }, parsed.serviceTier)) fail2("provider_refused", "Service tier is not available for this account and model");
+      return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), ...codexServiceTier(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
+    }
+  }
+}
+function refused(message, beforeAcceptance = false) {
+  return { kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance };
+}
+function continuation(plan, beforeAcceptance) {
+  return { kind: "continue", plan, ...beforeAcceptance ? { beforeAcceptance } : {} };
+}
+function runtimeResponse(ctx, op, raw, reply) {
+  const step = respondOperation(ctx, op, raw, reply);
+  return step.kind === "continue" ? { ...step, plan: historyTarget(ctx, op, step.plan) } : step;
+}
+function respondOperation(ctx, op, raw, reply) {
+  validateBinding(ctx, op);
+  if (op.kind === "backgroundProcesses") return backgroundResponse(op, reply);
+  const state = object(raw);
+  if (op.kind === "control" && op.action === "goal") return goalResponse(op.threadId ?? ctx.threadId, state, reply);
+  if ((op.kind === "forkThread" || op.kind === "control" && op.action === "threadHistory") && state.stage === "threadHistoryTurns") {
+    if (reply.kind === "error") return refused(reply.error.message);
+    return threadHistoryTurns(ctx, op, state, object(reply.value));
+  }
+  if (op.kind === "readHistory" && reply.kind === "error" && state.stage === "turns" && !op.cursor && reply.error.code === -32600 && reply.error.message === `thread ${op.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`)
+    return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "unmaterialized" }));
+  if (op.kind === "readHistory" && state.stage === "unmaterialized" && reply.kind === "success") {
+    const thread = object(object(reply.value).thread);
+    if (!historyThread(ctx, reply.value, op.threadId) || !Array.isArray(thread.turns) || thread.turns.length)
+      return refused("Empty thread identity unverified");
+    return { kind: "complete", result: { kind: "historyPage", threadId: op.threadId, items: [], openItems: [], ...op.order ? { order: op.order } : {} } };
+  }
+  if (op.kind === "readHistory" && state.pager === 1) {
+    if (reply.kind === "error" && reply.error.code === -32601 && ["turns", "items"].includes(String(state.stage)))
+      return historyComplete(op, { items: [], openItems: [] });
+    return pagedHistoryResponse(op, state, reply);
+  }
+  if (reply.kind === "error") {
+    if (op.kind === "control" && op.action === "serviceTiers") return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: { serviceTierAvailability: {} } }] };
+    const smaller = object(reply.error.data).historyPageLimit;
+    if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))
+      return historyItems(op, { ...state, historyItemLimit: smaller }, text2(state.cursor));
+    if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" } };
+    if (op.kind === "initialize" && state.stage === "initializeLimits") return { kind: "complete", result: initializedResult(state), events: [state.auth] };
+    if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
+    if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
+    if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
+      return historyComplete(op, { items: [], openItems: [] });
+    if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error, op.activeTurnId))
+      return continuation(request("turn/start", turnParams(ctx, op)), true);
+    if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && archivedResume(reply.error.message))
+      return continuation(request("thread/unarchive", { threadId: op.threadId }, { stage: "unarchive" }));
+    return refused(reply.error.message, op.kind === "submitTurn" && state.stage === "turn/steer" && !!op.activeTurnId && steerRefused(reply.error, op.activeTurnId));
+  }
+  const value = object(reply.value);
+  switch (op.kind) {
+    case "initialize":
+      if (state.stage === "initialize") return continuation({ action: { kind: "notification", notification: { method: "initialized", params: {} } }, state: json({ stage: "initializedNotification", binaryVersion: runtimeBinaryVersion(value.userAgent) }) });
+      if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { ...state, stage: "initializeAccount" }));
+      if (state.stage === "initializeAccount") {
+        const auth = accountAuth(value);
+        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read", { excludeResetCreditDetails: true }, { ...state, stage: "initializeLimits", auth }));
+        return { kind: "complete", result: initializedResult(state), events: [auth] };
+      }
+      return { kind: "complete", result: initializedResult(state), events: [state.auth, ...rateLimitEvents(value.rateLimits, value.rateLimitResetCredits)] };
+    case "openThread": {
+      const threadId = userThread(value);
+      if (!threadId) return refused("New thread identity unverified");
+      return { kind: "complete", result: { kind: "threadLoaded", threadId, settings: codexEffectiveSettings(op.settings, value) } };
+    }
+    case "resumeThread": {
+      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
+      if (!userThread(value, op.threadId)) return refused("Resumed thread identity unverified");
+      if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify", settings: codexEffectiveSettings(op.settings, value) }));
+      const idle = threadStatus(object(value.thread).status)?.state === "idle";
+      return {
+        kind: "complete",
+        result: { kind: "threadLoaded", threadId: op.threadId, settings: state.settings },
+        ...idle ? { events: [{ kind: "turnState", threadId: op.threadId, state: "idle", ...ctx.activeTurnId ? { turnId: ctx.activeTurnId } : {} }] } : {}
+      };
+    }
+    case "readHistory":
+      return historyResponse(op, state, value);
+    case "submitTurn": {
+      const turnId = text2(object(value.turn).id) ?? text2(value.turnId);
+      return { kind: "complete", result: { kind: "turnAccepted", threadId: op.threadId, sendId: op.sendId, ...turnId ? { turnId } : {} } };
+    }
+    case "interrupt": {
+      const turns = list(state.remaining).map(object);
+      if (turns.length) return continuation(request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) }));
+      return { kind: "complete", result: { kind: "done" } };
+    }
+    case "forkThread": {
+      if (state.stage !== "thread/fork") return refused("Fork did not reach its provider boundary");
+      const threadId = userThread(reply.value);
+      if (!threadId || threadId === op.sourceThreadId || state.sourceThreadId !== op.sourceThreadId || state.turnId !== op.turnId) return refused("Forked thread identity unverified");
+      return { kind: "complete", result: { kind: "threadForked", sourceThreadId: op.sourceThreadId, threadId, turnId: op.turnId } };
+    }
+    case "control": {
+      if (op.action === "serviceTiers") {
+        if (state.stage === "serviceTiers") {
+          const models = [...list(state.models), ...list(value.data)];
+          const cursors = list(state.cursors);
+          const cursor = text2(value.nextCursor);
+          if (models.length > 1e3 || cursor && (cursors.includes(cursor) || cursors.length >= 10)) return refused("Invalid model catalogue pagination");
+          if (cursor) return continuation(request("model/list", { includeHidden: true, limit: 100, cursor }, { stage: "serviceTiers", models, cursors: [...cursors, cursor] }));
+          return continuation(request("configRequirements/read", {}, { stage: "tierRequirements", models }));
+        }
+        return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: { serviceTierAvailability: modelServiceTiers(state.models, value) } }] };
+      }
+      if (op.action === "readResetCredits") {
+        if (!resetCredits(value.rateLimitResetCredits)) return refused("Reset credit allowance was not reported");
+        return { kind: "complete", result: { kind: "done" }, events: rateLimitEvents(value.rateLimits, value.rateLimitResetCredits) };
+      }
+      if (op.action === "redeemResetCredit") {
+        if (state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" }, events: rateLimitEvents(value.rateLimits, value.rateLimitResetCredits) };
+        const outcome2 = resetOutcome(value);
+        if (!outcome2) return refused("Unknown reset credit outcome");
+        if (outcome2 === "reset") return continuation(request("account/rateLimits/read", { excludeResetCreditDetails: false }, { stage: "refreshResetCredits" }));
+        return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: outcome2 } };
+      }
+      if (op.action === "login") return loginResponse(state, value);
+      if (op.action === "threadHistory" && state.stage === "thread/revert") return { kind: "complete", result: { kind: "done" } };
+      if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
+      const awaitingTier = state.stage === "thread/settings/update" && object(state.settings).serviceTier !== void 0;
+      return { kind: "complete", result: { kind: "done" }, ...state.stage === "thread/settings/update" && !awaitingTier ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
+    }
+    case "answer":
+    case "answerQuestion":
+      return { kind: "complete", result: { kind: "done" } };
+  }
+}
+function historyResponse(op, state, value) {
+  if (state.stage === "goal") {
+    const objective = text2(object(sanitizeHistory(object(value.goal))).objective);
+    if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: goalIntent(value.goal) ?? { goal: objective } }];
+    return historyComplete(op, state);
+  }
+  if (!Array.isArray(value.data)) return refused("Missing history page data");
+  if (state.stage === "turns") {
+    const source = list(value.data).map(object);
+    if (source.length > 8 || source.some((turn2) => typeof turn2.id !== "string" || !turn2.id || turn2.id.length > 4096)) return refused("Invalid history turn page");
+    const turns2 = (op.order === "desc" ? [...source].reverse() : source).map((turn2) => ({
+      id: turn2.id,
+      status: turn2.status === "inProgress" ? "inProgress" : "completed",
+      startedAt: typeof turn2.startedAt === "number" && Number.isFinite(turn2.startedAt) ? turn2.startedAt : null
+    }));
+    const next2 = text2(value.nextCursor);
+    if (next2 && (next2.length > 4096 || next2 === op.cursor)) return refused("Repeated history cursor");
+    const collected2 = { ...state, turns: turns2, nextCursor: next2, index: 0, stage: "items" };
+    if (!turns2.length) return historyGoal(op, collected2);
+    return historyItems(op, collected2);
+  }
+  if (state.stage !== "items") return refused("Invalid history state");
+  const turns = list(state.turns).map(object);
+  const turn = turns[Number(state.index)];
+  if (!turn || !text2(turn.id)) return refused("Missing history turn id");
+  const mapped = collectHistoryItems(op, { ...state, items: [], openItems: [], questions: [] }, turn, value.data);
+  if (mapped.offset != null) return streamHistory(op, historyItems(op, mapped, text2(state.cursor)), mapped);
+  const next = text2(value.nextCursor);
+  if (next && (next.length > 4096 || next === state.cursor)) return refused("Repeated history cursor");
+  const collected = { ...mapped };
+  if (next) return streamHistory(op, historyItems(op, { ...collected, cursor: next }, next), collected);
+  const index = Number(state.index) + 1;
+  if (index < turns.length) return streamHistory(op, historyItems(op, { ...collected, index, cursor: null }), collected);
+  return historyGoal(op, collected);
+}
+function collectHistoryItems(op, state, turn, entries) {
+  const items = list(state.items);
+  const openItems = list(state.openItems);
+  let seq = Number(state.seq);
+  let questions = list(state.questions);
+  let bytes = serializedBytes({ items, openItems, questions });
+  for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
+    const record6 = object(entries[index]);
+    const rawItem = historyItem(record6.item ?? record6);
+    const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
+    const timestamp = record6.startedAtMs ?? record6.completedAtMs;
+    const rows2 = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp, op.threadId);
+    const active = turn.status === "inProgress" && turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
+    const opened = active ? rows2.map((item) => ({ turnId: String(turn.id), item })) : [];
+    const rowBytes = serializedBytes(rows2) + serializedBytes(opened) + serializedBytes(nextQuestions);
+    if (bytes + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
+    bytes += rowBytes;
+    questions = nextQuestions;
+    seq += rows2.length;
+    items.push(...rows2);
+    openItems.push(...opened);
+  }
+  return { ...state, items, openItems, seq, questions, offset: null };
+}
+function historyItems(op, state, cursor) {
+  const turn = object(list(state.turns)[Number(state.index)]);
+  if (!text2(turn.id)) return refused("Missing history turn id");
+  return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: Number(state.historyItemLimit ?? 100), cursor }, { ...state, historyItemLimit: Number(state.historyItemLimit ?? 100), cursor: cursor ?? null }));
+}
+function historyGoal(op, state) {
+  if (text2(state.nextCursor)) return historyComplete(op, state);
+  return streamHistory(op, continuation(request("thread/goal/get", { threadId: op.threadId }, { ...state, stage: "goal" })), state);
+}
+function historyComplete(op, state) {
+  return { kind: "complete", result: {
+    kind: "historyPage",
+    threadId: op.threadId,
+    items: list(state.items),
+    openItems: list(state.openItems),
+    ...text2(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {},
+    ...list(state.questions).length ? { questions: list(state.questions) } : {},
+    ...op.order ? { order: op.order } : {}
+  } };
+}
+function streamHistory(op, step, state) {
+  if (step.kind !== "continue") return step;
+  const { items, openItems, questions, ...cursor } = object(step.plan.state);
+  const complete = historyComplete(op, { ...state, nextCursor: void 0 });
+  if (complete.kind !== "complete" || complete.result.kind !== "historyPage") return step;
+  return { ...step, plan: { ...step.plan, state: json(cursor) }, history: complete.result };
+}
+
+// plugins/provider-codex/src/toolOutput.ts
+function codexToolOutputText(output) {
+  if (typeof output === "string") return output;
+  if (output == null) return "";
+  if (Array.isArray(output) && output.every((item) => item && typeof item === "object" && typeof item.text === "string")) {
+    return output.map((item) => item.text).join("");
+  }
+  return typeof output === "object" ? canonicalJson(output) : String(output);
+}
+
+// plugins/provider-shared/accessError.ts
+function object2(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+var authExpiry = ["token_expired", "refresh_token_expired", "auth_expired", "auth_expiry"];
+var authentication = [
+  "401",
+  "403",
+  "authentication_error",
+  "auth",
+  "unauthorized",
+  "permission_error",
+  "permission_denied",
+  "forbidden",
+  "subscription_disabled",
+  "organization_disabled",
+  "oauth_refresh_failed",
+  "token_revoked",
+  "refresh_token_reused",
+  "refresh_token_invalidated",
+  "logged_out",
+  "signed_out",
+  "unauthenticated",
+  "authError"
+];
+var usage2 = ["usageLimitExceeded", "usage_limit", "sessionBudgetExceeded"];
+var rate = ["429", "rate_limit", "rate_limit_error", "rateLimitExceeded"];
+var server = ["overloaded", "overloaded_error", "serverOverloaded", "server_overloaded", "internalServerError", "internal_server_error"];
+function statusCode2(value) {
+  if (typeof value === "number" && Number.isInteger(value)) return value;
+  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
+  return null;
+}
+function classifyAccessError(error, record6) {
+  const detail = object2(error);
+  const info = detail?.codexErrorInfo;
+  const infoObject = object2(info);
+  const fields = [
+    typeof error === "string" ? error : null,
+    detail?.type,
+    detail?.code,
+    detail?.status,
+    detail?.statusCode,
+    detail?.status_code,
+    detail?.httpStatusCode,
+    typeof info === "string" ? info : null,
+    ...Object.keys(infoObject ?? {}),
+    ...Object.values(infoObject ?? {}).map((value) => object2(value)?.httpStatusCode),
+    record6.status,
+    record6.statusCode,
+    record6.status_code,
+    record6.apiErrorStatus,
+    record6.apiErrorCode
+  ];
+  const named = (codes) => fields.some((value) => typeof value === "string" && codes.includes(value));
+  const prefixed = (prefix) => fields.some((value) => typeof value === "string" && value.startsWith(prefix));
+  const status = (match) => fields.some((value) => {
+    const code = statusCode2(value);
+    return code != null && match(code);
+  });
+  if (named(authExpiry)) return "auth_expiry";
+  if (named(["authError"]) || prefixed("oauth_") || prefixed("authentication_") || status((code) => code === 401 || code === 403) || named(authentication)) return "authentication";
+  if (named(usage2)) return "usage_limit";
+  if (status((code) => code === 429) || named(rate)) return "rate_limit";
+  if (status((code) => code >= 500 && code <= 599) || named(server)) return "server_overloaded";
+  return "other";
+}
+function readRetry(value) {
+  if (!value) return null;
+  for (const key of ["retryAfter", "retry_after", "retryAfterSeconds", "retry_after_secs", "retryAfterSecs"]) {
+    const field = value[key];
+    if (typeof field === "number" && Number.isInteger(field) && field >= 0) return field;
+    if (typeof field === "string" && /^\d+$/.test(field)) return Number(field);
+  }
+  return null;
+}
+function retryAfterSecs(error, record6) {
+  return readRetry(object2(error)) ?? readRetry(record6);
+}
+function observationTurnId(record6) {
+  for (const key of ["uuid", "turn_id", "turnId", "requestId"]) {
+    const value = record6[key];
+    if (typeof value === "string" && value) return value;
+  }
+  const payload = object2(record6.payload);
+  if (!payload) return null;
+  for (const key of ["turn_id", "turnId", "uuid", "requestId"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value) return value;
+  }
+  return null;
+}
+function observationRetrying(error, record6) {
+  return record6.willRetry === true || object2(error)?.willRetry === true;
+}
+function observationExtras(error, record6) {
+  const extras = {};
+  const retry = retryAfterSecs(error, record6);
+  if (retry != null) extras.retry_after_secs = retry;
+  const turn = observationTurnId(record6);
+  if (turn) extras.turn_id = turn;
+  if (observationRetrying(error, record6)) extras.retrying = true;
+  return extras;
+}
+
+// plugins/provider-codex/src/signals.ts
+function parseSessionObservations(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record6 = value;
+  if (record6.type !== "event_msg" || !record6.payload || typeof record6.payload !== "object" || Array.isArray(record6.payload)) return null;
+  const payload = record6.payload;
+  if (payload.type === "error") {
+    const error = payload.error ?? payload;
+    return {
+      api_error: classifyAccessError(error, payload),
+      permission_mode: null,
+      clears_api_error: false,
+      ...observationExtras(error, record6)
+    };
+  }
+  if (payload.type === "task_complete") return { api_error: null, permission_mode: null, clears_api_error: true };
+  return null;
+}
+
+// plugins/provider-shared/updatePrompt.ts
+function updatePromptSafeChoice(prompt) {
+  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
+    return null;
+  }
+  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
+  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
+  const chosen = safe.length === 1 ? safe : bare;
+  if (chosen.length !== 1) return null;
+  const [label, value] = chosen[0];
+  if (!value || /\bupdate\b/i.test(label)) return null;
+  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
+  return value;
+}
+
+// plugins/provider-codex/src/models.ts
+function discoverCodexModels() {
+  return discoverCodexModelsFromCache();
+}
+function codexModelsCachePath() {
+  const home = host.homeDir();
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" + sep + "models_cache.json" : null, "models_cache.json", sep);
+}
+function discoverCodexModelsFromCache() {
+  const path = codexModelsCachePath();
+  if (!path || !host.fs.fileExists(path)) return null;
+  const cache = host.fs.readJson(path);
+  const raw = cache && cache.models;
+  if (!Array.isArray(raw)) return null;
+  const kept = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    const id = typeof item.slug === "string" ? item.slug.trim() : "";
+    if (!id) continue;
+    if (item.visibility === "hide") continue;
+    if (isNonChatModel(id)) continue;
+    kept.push(item);
+  }
+  kept.sort((a, b) => priorityOf(a) - priorityOf(b));
+  const models = [];
+  for (let i = 0; i < kept.length; i++) {
+    const item = kept[i];
+    const id = item.slug.trim();
+    models.push({
+      id,
+      displayName: typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : displayNameFromId(id),
+      description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0,
+      reasoningEfforts: reasoningEffortsFrom(item.supported_reasoning_levels),
+      defaultReasoningEffort: defaultEffortFrom(item)
+    });
+  }
+  return models.length ? models : null;
+}
+function defaultEffortFrom(model) {
+  const effort = typeof model.default_reasoning_level === "string" ? model.default_reasoning_level.trim() : "";
+  return effort || void 0;
+}
+function reasoningEffortsFrom(levels) {
+  if (!Array.isArray(levels)) return void 0;
+  const efforts = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const level of levels) {
+    const id = typeof level.effort === "string" ? level.effort.trim() : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    efforts.push({
+      id,
+      displayName: id,
+      description: typeof level.description === "string" && level.description.trim() ? level.description.trim() : void 0
+    });
+  }
+  return efforts.length ? efforts : void 0;
+}
+function priorityOf(m) {
+  return typeof m.priority === "number" ? m.priority : 1e9;
+}
+var NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
+function isNonChatModel(id) {
+  const leaf = (id.split("/").pop() || id).toLowerCase();
+  const toks = leaf.split(/[-_.]/);
+  for (let i = 0; i < toks.length; i++) {
+    if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
+  }
+  return false;
+}
+function displayNameFromId(id) {
+  const parts = id.split("/");
+  const leaf = parts[parts.length - 1] || id;
+  return leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
+}
+function capitalizeToken(token) {
+  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
+}
+
+// plugins/provider-codex/src/prompt.ts
+var DOWN = "G1tC";
+var UP = "G1tB";
+var ENTER = "DQ==";
+var MENU_OPTION_RE = /^[ \t]*([>❯▶➤›])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
+function parseCodexPrompt(screen) {
+  const choice = parseActiveTerminalChoice(screen);
+  return choice ? {
+    question: choice.question,
+    options: choice.options.map((option) => [option.label, option.value])
+  } : null;
+}
+function parseCodexFolderTrustPrompt(screen) {
+  const trust = classifyCodexFolderTrustPrompt(screen);
+  return trust?.kind === "active" ? trust.prompt : null;
+}
+function classifyCodexFolderTrustPrompt(screen) {
+  const options = activeMenuOptions(screen);
+  if (options.length !== 2) return null;
+  if (!hasDirectoryContextLine(screen, options[0].line)) return null;
+  const affirmativeIndex = options.findIndex((option) => /^(?:yes|trust|allow)\b/i.test(option.label));
+  const negativeIndex = options.findIndex((option) => /^(?:no|quit|cancel|decline|deny)\b/i.test(option.label));
+  if (affirmativeIndex < 0 || negativeIndex < 0) return null;
+  const preamble = cleanPromptText(menuPreamble(screen, options[0].line));
+  if (!hasDirectoryTrustContent(preamble)) return null;
+  const questionEnd = preamble.indexOf("?");
+  const explanation = questionEnd < 0 ? "" : preamble.slice(questionEnd + 1).trim();
+  if (explanation.split(/\s+/).filter(Boolean).length < 8) return null;
+  if (!hasConfirmFooter(screen, options[options.length - 1].line)) return null;
+  const choice = parseActiveTerminalChoice(screen);
+  if (!choice || choice.options.length !== 2 || choice.options.filter((option) => option.highlighted).length !== 1) {
+    return { kind: "not_on_screen" };
+  }
+  return {
+    kind: "active",
+    affirmativeIndex,
+    affirmativeSelected: choice.options[affirmativeIndex].highlighted,
+    prompt: {
+      question: preamble.slice(0, questionEnd + 1).trim(),
+      options: choice.options.map((option) => [option.label, option.value]),
+      multiSelect: false,
+      submitAvailable: false
+    }
+  };
+}
+function hasConfirmFooter(screen, lastOptionLine) {
+  const lines = normalizeLines(screen);
+  let footerLine = -1;
+  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
+    if (/\benter\b.{0,24}\b(?:confirm|continue|select)\b/i.test(lines[i])) {
+      footerLine = i;
+      break;
+    }
+  }
+  return footerLine >= 0 && lastMeaningfulLineIndex(lines) === footerLine;
+}
+function hasDirectoryContextLine(screen, firstOptionLine) {
+  const lines = normalizeLines(screen);
+  const start = Math.max(0, firstOptionLine - 12);
+  const context = lines.slice(start, firstOptionLine).map((line) => line.trim()).filter(Boolean).join(" ");
+  const questionEnds = [];
+  const questionPattern = /\?/g;
+  let questionMatch;
+  while ((questionMatch = questionPattern.exec(context)) !== null) questionEnds.push(questionMatch.index);
+  for (let i = questionEnds.length - 1; i >= 0; i--) {
+    const questionEnd = questionEnds[i];
+    const prefix = context.slice(0, questionEnd + 1);
+    if (!/\b(folder|directory|workspace)\b/i.test(prefix)) continue;
+    if (!/\b(trust|load(?:ed|ing)?)\b/i.test(prefix)) continue;
+    if (prefix.split(/\s+/).some((token) => isAbsolutePathToken(token))) return true;
+  }
+  return false;
+}
+function hasDirectoryTrustContent(preamble) {
+  const content = preamble.toLowerCase();
+  if (/\b(?:bypass|disable|override|without restrictions)\b/.test(content)) return false;
+  const questionEnd = content.indexOf("?");
+  if (questionEnd < 0) return false;
+  const question = content.slice(0, questionEnd);
+  const explanation = content.slice(questionEnd + 1);
+  return /\b(?:folder|directory|workspace)\b/.test(question) && /\b(?:trust(?:ed|ing)?|load(?:ed|ing)?)\b/.test(question) && /\b(?:guidance|rules|config(?:uration)?|settings|policy|policies|instructions|hooks)\b/.test(explanation);
+}
+function isAbsolutePathToken(token) {
+  const path = token.replace(/[),;]+$/, "");
+  return /^(?:[a-z]:[\\/]|\\\\|\/\/|\/)/i.test(path);
+}
+function responseKeysForIndex(optionIndex, screen) {
+  const options = activeMenuOptions(screen);
+  let highlightIdx = 0;
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].highlighted) {
+      highlightIdx = i;
+      break;
+    }
+  }
+  const target = optionIndex > 0 ? optionIndex : 0;
+  const delta = target - highlightIdx;
+  const steps = [];
+  if (delta > 0) for (let i = 0; i < delta; i++) steps.push(DOWN);
+  else if (delta < 0) for (let i = 0; i < -delta; i++) steps.push(UP);
+  steps.push(ENTER);
+  return steps;
+}
+function parseMenuOptions(screen) {
+  const lines = normalizeLines(screen);
+  const options = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = MENU_OPTION_RE.exec(lines[i]);
+    if (!m) continue;
+    const indent = leadingIndent(lines[i]);
+    const wrapped = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      if (!lines[j].trim() || MENU_OPTION_RE.test(lines[j]) || isPromptFooter(lines[j])) break;
+      if (leadingIndent(lines[j]) <= indent) break;
+      wrapped.push(lines[j]);
+    }
+    options.push({
+      highlighted: !!m[1],
+      label: wrapped.reduce(joinWrappedLabel, m[3].trim()),
+      value: m[2],
+      line: i
+    });
+  }
+  return options;
+}
+function joinWrappedLabel(label, row3) {
+  const continuation2 = row3.trim();
+  const pathBoundary = /[\\/]$/.test(label);
+  return `${label}${pathBoundary ? "" : " "}${continuation2}`;
+}
+function parseActiveTerminalChoice(screen) {
+  const lines = normalizeLines(screen);
+  const options = activeMenuOptions(screen);
+  if (options.length < 2 || options.filter((option) => option.highlighted).length !== 1) return null;
+  const lastOptionLine = options[options.length - 1].line;
+  let footerLine = -1;
+  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
+    if (isActiveChoiceFooter(lines[i])) {
+      footerLine = i;
+      break;
+    }
+  }
+  if (footerLine === -1 || lastMeaningfulLineIndex(lines) > footerLine) return null;
+  return { question: questionForMenu(lines, options[0].line), options };
+}
+function menuPreamble(screen, firstOptionLine) {
+  const lines = normalizeLines(screen);
+  let i = firstOptionLine - 1;
+  while (i >= 0 && !lines[i].trim()) i--;
+  const parts = [];
+  while (i >= 0 && lines[i].trim()) {
+    parts.unshift(lines[i].trim());
+    i--;
+  }
+  return parts.join(" ");
+}
+function activeMenuOptions(screen) {
+  const lines = normalizeLines(screen);
+  const all = parseMenuOptions(screen);
+  if (all.length < 2) return [];
+  const cluster = [];
+  let prev = all[all.length - 1].line;
+  for (let i = all.length - 1; i >= 0; i--) {
+    const between = lines.slice(all[i].line + 1, prev);
+    const wrapsPreviousOption = between.every(
+      (line) => line.trim().length > 0 && leadingIndent(line) > leadingIndent(lines[all[i].line])
+    );
+    if (wrapsPreviousOption || cluster.length === 0) {
+      cluster.unshift(all[i]);
+      prev = all[i].line;
+    } else {
+      break;
+    }
+  }
+  return cluster.length >= 2 ? cluster : [];
+}
+function isPromptFooter(line) {
+  return isActiveChoiceFooter(line);
+}
+function leadingIndent(line) {
+  return /^\s*/.exec(line)?.[0].length ?? 0;
+}
+function isActiveChoiceFooter(line) {
+  if (isActiveChoiceEnterFooter(line)) return true;
+  const bindings = line.trim().split(/\s+[·•]\s+/);
+  if (bindings.length < 2) return false;
+  const keys = bindings.map((binding) => /^(enter|esc|[a-z])\s+\S.*$/i.exec(binding)?.[1]?.toLowerCase());
+  return keys.every((key) => key !== void 0) && keys.includes("enter") && keys.includes("esc");
+}
+function isActiveChoiceEnterFooter(line) {
+  return /^(?:\S+[ \t]+)?enter[ \t]+\S.*$/i.test(line.trim());
+}
+function questionForMenu(lines, firstLine) {
+  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 16; i--) {
+    const t = lines[i].trim();
+    if (t.length > 3 && t.charAt(t.length - 1) === "?") return t;
+  }
+  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 3; i--) {
+    const t = lines[i].trim();
+    if (t.length > 3) return t;
+  }
+  return "Permission required";
+}
+function normalizeLines(text7) {
+  return String(text7 || "").replace(/\r*\n|\r/g, "\n").split("\n");
+}
+function lastMeaningfulLineIndex(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || /^[-─━═]{8,}$/.test(line.replace(/\s/g, ""))) continue;
+    return i;
+  }
+  return -1;
+}
+function cleanPromptText(value) {
+  return String(value || "").replace(/^[•⏺]\s*/, "").replace(/─+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// plugins/provider-codex/src/usage.ts
+var CODEX_USAGE_KIND = "codeterm_usage_v1";
+var CODEX_AUTH_CREDENTIAL2 = "codexAuth";
+function fetchCodexUsage(host2) {
+  const accountId = stringAt(safeJson(host2.credentialPublic(CODEX_AUTH_CREDENTIAL2)), "accountId");
+  if (!accountId) return null;
+  const response = safeJson(host2.fetch(JSON.stringify({
+    url: "https://chatgpt.com/backend-api/wham/usage",
+    method: "GET",
+    timeoutMs: 6e3,
+    headers: {
+      "ChatGPT-Account-Id": accountId,
+      "User-Agent": "codeterm-usage/1.7.8"
+    },
+    credential: {
+      id: CODEX_AUTH_CREDENTIAL2,
+      headers: { Authorization: "Bearer {accessToken}" }
+    }
+  })));
+  if (numberAt(response, "status") !== 200) return null;
+  const body = safeJson(stringAt(response, "body"));
+  const rateLimit = objectAt(body, "rate_limit");
+  if (!rateLimit) return null;
+  const windows = [rateLimit.primary_window, rateLimit.secondary_window].filter(Boolean);
+  const session = windows.find((window) => windowDuration(window) !== null && windowDuration(window) < 86400) ?? null;
+  const weekly = windows.find((window) => windowDuration(window) !== null && windowDuration(window) >= 86400) ?? null;
+  if (!session && !weekly) return null;
+  return JSON.stringify({
+    kind: CODEX_USAGE_KIND,
+    account_id: accountId,
+    session_pct: numberAt(session, "used_percent"),
+    session_resets_at_ms: secondsToMs(numberAt(session, "reset_at")),
+    weekly_pct: numberAt(weekly, "used_percent"),
+    weekly_resets_at_ms: secondsToMs(numberAt(weekly, "reset_at"))
+  });
+}
+function parseCodexUsage(rawText, nowMs) {
+  const raw = String(rawText || "");
+  if (!raw.trim()) return null;
+  const fetched = safeJson(raw);
+  if (stringAt(fetched, "kind") === CODEX_USAGE_KIND) {
+    return {
+      provider: "codex",
+      account_id: stringAt(fetched, "account_id"),
+      captured_at_ms: nowMs,
+      session_pct: numberAt(fetched, "session_pct"),
+      session_resets_at_ms: numberAt(fetched, "session_resets_at_ms"),
+      weekly_pct: numberAt(fetched, "weekly_pct"),
+      weekly_resets_at_ms: numberAt(fetched, "weekly_resets_at_ms"),
+      raw_text: raw
+    };
+  }
+  const text7 = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
+  const lines = text7.split("\n");
+  const limits = parseCodexLimits(lines, nowMs);
+  const session = limits.find((line) => line.family === "general") ?? limits.find((line) => line.family === "legacy-session");
+  const weekly = limits.find((line) => line.family === "weekly");
+  if (session === void 0 && weekly === void 0) return null;
+  return {
+    provider: "codex",
+    account_id: null,
+    captured_at_ms: nowMs,
+    session_pct: session ? session.pct : null,
+    session_resets_at_ms: session ? session.resetsMs : null,
+    weekly_pct: weekly ? weekly.pct : null,
+    weekly_resets_at_ms: weekly ? weekly.resetsMs : null,
+    raw_text: raw
+  };
+}
+function safeJson(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function objectAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return nested && typeof nested === "object" ? nested : null;
+}
+function stringAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return typeof nested === "string" && nested ? nested : null;
+}
+function numberAt(value, key) {
+  if (!value || typeof value !== "object") return null;
+  const nested = value[key];
+  return typeof nested === "number" && Number.isFinite(nested) ? nested : null;
+}
+function secondsToMs(value) {
+  return value === null ? null : value * 1e3;
+}
+function windowDuration(window) {
+  return numberAt(window, "limit_window_seconds");
+}
+var CODEX_BORDER_RE = /^[\s─-╿]+|[\s─-╿]+$/g;
+function stripCodexBorder(raw) {
+  return String(raw || "").replace(CODEX_BORDER_RE, "");
+}
+var CODEX_HEADER_RE = /\blimit\s*:?\s*$/i;
+function isCodexSectionHeader(line) {
+  if (!line || line.indexOf("%") !== -1) return false;
+  return CODEX_HEADER_RE.test(line);
+}
+function parseCodexLimits(lines, nowMs) {
+  const out = [];
+  let sectionHeader = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = stripCodexBorder(lines[i]);
+    if (!line) continue;
+    if (isCodexSectionHeader(line)) {
+      sectionHeader = line;
+      continue;
+    }
+    let context = line;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = stripCodexBorder(lines[j]);
+      if (prev) {
+        context = `${prev} ${line}`;
+        break;
+      }
+    }
+    const gauge = parseCodexGaugeLine(line, context, nowMs);
+    if (gauge.pct === null && gauge.resetsMs === null) continue;
+    const family = codexLimitFamily(context, sectionHeader);
+    if (family !== "model") {
+      out.push({ family, pct: gauge.pct, resetsMs: gauge.resetsMs });
+    }
+  }
+  return out;
+}
+function parseCodexGaugeLine(line, context, nowMs) {
+  const re = /(\d+(?:\.\d+)?)\s*%\s*(left|remaining|used)\s*\(\s*resets?\s+(?:at\s+)?([^)]+?)\)/i;
+  const caps = re.exec(line);
+  if (!caps) {
+    return { pct: null, resetsMs: null };
+  }
+  const value = parseFloat(caps[1]);
+  const pct = codexPctToUsed(value, (caps[2] || "").toLowerCase());
+  const resetsRaw = (caps[3] || "").trim();
+  const isWeekly = /\bweekly\b/i.test(context);
+  const resetsMs = isWeekly ? codexParseWeeklyResets(resetsRaw, nowMs) : codexParseSessionResets(resetsRaw, nowMs);
+  return { pct, resetsMs };
+}
+function codexPctToUsed(value, mode) {
+  if (isNaN(value)) return null;
+  const rawMode = mode === "used" ? "used" : "left";
+  const pct = rawMode === "used" ? value : 100 - value;
+  return Math.min(100, Math.max(0, pct));
+}
+var CODEX_MODEL_NAME_RE = /\b(?:gpt|opus|haiku|sonnet|claude|codex|o\d|gemini)\b.*\d+\.\d+/i;
+function codexLimitFamily(text7, sectionHeader) {
+  const lower = String(text7 || "").toLowerCase();
+  const hasGeneral = /\bgeneral\b/.test(lower);
+  const hasWeekly = /\bweekly\b/.test(lower);
+  const hasSession = /\b5(?:\s*|-\s*)(?:h|hour|hours)\b/.test(lower);
+  const hasModel = CODEX_MODEL_NAME_RE.test(lower) || sectionHeader !== null && CODEX_MODEL_NAME_RE.test(sectionHeader);
+  if (hasModel) return "model";
+  if (hasGeneral) return hasWeekly ? "weekly" : "general";
+  if (hasWeekly) return "weekly";
+  if (hasSession) return "legacy-session";
+  return "general";
+}
+function codexParseSessionResets(raw, nowMs) {
+  const m = /(\d{1,2}):(\d{2})/.exec(String(raw || "").trim());
+  if (!m) return null;
+  const hh = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  const now = new Date(nowMs);
+  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
+  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1e3);
+  return cand.getTime();
+}
+var CODEX_MONTHS = {
+  jan: 0,
+  january: 0,
+  feb: 1,
+  february: 1,
+  mar: 2,
+  march: 2,
+  apr: 3,
+  april: 3,
+  may: 4,
+  jun: 5,
+  june: 5,
+  jul: 6,
+  july: 6,
+  aug: 7,
+  august: 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  oct: 9,
+  october: 9,
+  nov: 10,
+  november: 10,
+  dec: 11,
+  december: 11
+};
+function codexParseWeeklyResets(raw, nowMs) {
+  const s = String(raw || "").trim().replace(/^at\s+/i, "");
+  let hh;
+  let mm;
+  let day;
+  let month;
+  let year = null;
+  let m = /(\d{1,2}):(\d{2})\s+on\s+(\d{1,2})\s+([A-Za-z]+)(?:,?\s+(\d{4}))?/i.exec(s);
+  if (m) {
+    hh = parseInt(m[1], 10);
+    mm = parseInt(m[2], 10);
+    day = parseInt(m[3], 10);
+    month = CODEX_MONTHS[m[4].toLowerCase()];
+    year = m[5] ? parseInt(m[5], 10) : null;
+  } else {
+    m = /(\d{1,2}):(\d{2})\s+on\s+([A-Za-z]+)\s+(\d{1,2})(?:,?\s+(\d{4}))?/i.exec(s);
+    if (!m) return null;
+    hh = parseInt(m[1], 10);
+    mm = parseInt(m[2], 10);
+    month = CODEX_MONTHS[m[3].toLowerCase()];
+    day = parseInt(m[4], 10);
+    year = m[5] ? parseInt(m[5], 10) : null;
+  }
+  if (month === void 0) return null;
+  const now = new Date(nowMs);
+  let cand = new Date(year ?? now.getFullYear(), month, day, hh, mm, 0, 0);
+  if (year === null && cand.getTime() <= nowMs) {
+    cand = new Date(now.getFullYear() + 1, month, day, hh, mm, 0, 0);
+  }
+  return cand.getTime();
+}
+
+// plugins/provider-shared/updateCheck.ts
+function record5(raw) {
+  if (raw !== null && typeof raw === "object") return raw;
+  if (typeof raw !== "string") return null;
+  try {
+    const value = JSON.parse(raw);
+    return value !== null && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+function versionParts(version) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) return null;
+  const parts = version.split(".").map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+function compare(left, right) {
+  const a = versionParts(left), b = versionParts(right);
+  if (!a || !b) return null;
+  for (let index = 0; index < 3; index++) {
+    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
+  }
+  return 0;
+}
+function matchesRange(version, range) {
+  return range.split(",").every((clause) => {
+    const match = clause.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
+    if (!match) return false;
+    const order = compare(version, match[2]);
+    if (order === null) return false;
+    switch (match[1] ?? "=") {
+      case ">=":
+        return order >= 0;
+      case "<=":
+        return order <= 0;
+      case ">":
+        return order > 0;
+      case "<":
+        return order < 0;
+      default:
+        return order === 0;
+    }
+  });
+}
+function newestSupportedVersion(versions, compatibility) {
+  return versions.reduce((best, version) => {
+    if (!versionParts(version) || !compatibility.supported.some((range) => matchesRange(version, range)) || compatibility.breaking?.some((rule) => matchesRange(version, rule.range))) return best;
+    return best === null || compare(version, best) === 1 ? version : best;
+  }, null);
+}
+function installedVersion(result) {
+  const installed = record5(result);
+  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
+  const version = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
+  return version && versionParts(version) ? version : null;
+}
+function availableUpdate(currentVersion, result, compatibility) {
+  const response = record5(result);
+  if (response?.status !== 200) return null;
+  const metadata = record5(response.body);
+  let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
+  if (!compatibility && !latestVersion) return null;
+  if (compatibility) {
+    if (!metadata?.versions || typeof metadata.versions !== "object") return null;
+    latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
+  }
+  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
+}
+function startedJob(raw) {
+  const job = record5(raw)?.jobId;
+  return typeof job === "string" && job !== "" ? job : null;
+}
+function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
+  const probe = startedJob(host2.execStart(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
+  if (!probe) return null;
+  return host2.awaitJob(probe, (installed) => {
+    const currentVersion = parseInstalled(installed);
+    if (!currentVersion) return null;
+    const metadata = startedJob(host2.fetchStart(JSON.stringify({
+      url: metadataUrl,
+      method: "GET",
+      timeoutMs: 6e3,
+      headers: { Accept: compatibility ? "application/vnd.npm.install-v1+json" : "application/json" }
+    })));
+    if (!metadata) return null;
+    return host2.awaitJob(metadata, (response) => availableUpdate(currentVersion, response, compatibility));
+  });
+}
+
+// plugins/provider-codex/src/update.ts
+var codexSelfUpdateCapability = {
+  npmPackage: "@openai/codex",
+  standaloneDirectory: "packages/standalone",
+  standaloneArgs: ["update"]
+};
+function checkCodexUpdate(host2) {
+  return checkProviderUpdate(
+    host2,
+    "codex",
+    `https://registry.npmjs.org/${encodeURIComponent(codexSelfUpdateCapability.npmPackage)}/latest`,
+    void 0,
+    installedVersion
+  );
+}
+
+// plugins/provider-codex/src/patchEdits.ts
+function patchEdits(patch) {
+  if (typeof patch !== "string" || patch.indexOf("*** Begin Patch") < 0) return [];
+  try {
+    const edits = [];
+    let path = null;
+    let oldLines = [];
+    let newLines = [];
+    const flush = () => {
+      if (path && (oldLines.length > 0 || newLines.length > 0)) edits.push({ path, old: oldLines.join("\n"), new: newLines.join("\n") });
+      oldLines = [];
+      newLines = [];
+    };
+    for (const line of patch.replace(/\r\n/g, "\n").split("\n")) {
+      const header = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/.exec(line);
+      if (header) {
+        flush();
+        path = header[1].trim();
+      } else if (line === "@@" || line.indexOf("@@ ") === 0) {
+        flush();
+      } else if (path && line.indexOf("-") === 0) {
+        oldLines.push(line.substring(1));
+      } else if (path && line.indexOf("+") === 0) {
+        newLines.push(line.substring(1));
+      }
+    }
+    flush();
+    return edits;
+  } catch (_) {
+    return [];
+  }
 }
 
 // plugins/provider-codex/src/fileChangePairing.ts
@@ -2743,23 +4536,23 @@ function withDataUrl(image, url) {
   if (!match) return image;
   return { ...image, mediaType: match[1], data: match[2] };
 }
-function extractInlineImages(text6, images) {
-  return text6.replace(INLINE_IMAGE, (_whole, name, path) => {
+function extractInlineImages(text7, images) {
+  return text7.replace(INLINE_IMAGE, (_whole, name, path) => {
     images.push(imageFromTag(name, path));
     return "";
   });
 }
-function stripPlaceholders(text6, images) {
-  if (images.length === 0) return text6;
+function stripPlaceholders(text7, images) {
+  if (images.length === 0) return text7;
   const names = new Set(images.map((image) => image.name).filter(Boolean));
-  return text6.replace(PLACEHOLDER, (token) => names.has(token) ? "" : token).split("\n").map((line) => line.replace(/[ \t]{2,}/g, " ").trim()).join("\n").trim();
+  return text7.replace(PLACEHOLDER, (token) => names.has(token) ? "" : token).split("\n").map((line) => line.replace(/[ \t]{2,}/g, " ").trim()).join("\n").trim();
 }
 function parseCodexUserContent(content) {
   const images = [];
   if (typeof content === "string") {
     return { text: stripPlaceholders(extractInlineImages(content, images), images), images };
   }
-  let text6 = "";
+  let text7 = "";
   let open = null;
   for (const item of content ?? []) {
     if (!item) continue;
@@ -2784,10 +4577,10 @@ function parseCodexUserContent(content) {
       open = null;
       continue;
     }
-    text6 += extractInlineImages(item.text, images);
+    text7 += extractInlineImages(item.text, images);
   }
   if (open) images.push(open);
-  return { text: stripPlaceholders(text6, images), images };
+  return { text: stripPlaceholders(text7, images), images };
 }
 function codexImageBlock(image) {
   const source = { media_type: image.mediaType };
@@ -3048,24 +4841,24 @@ function collectExistingPaths(config) {
   let currentTable = [];
   let rootInline = null;
   let projectsTableSeen = false;
-  let invalid2 = false;
+  let invalid3 = false;
   for (const line of lines) {
     const parts = headerParts(line);
     if (parts) {
       currentTable = parts;
       if (parts[0] === "projects") {
-        if (rootInline) invalid2 = true;
+        if (rootInline) invalid3 = true;
         if (parts.length === 1) {
-          if (projectsTableSeen) invalid2 = true;
+          if (projectsTableSeen) invalid3 = true;
           projectsTableSeen = true;
         } else {
           const key = normalizedPath(parts[1]);
           const headerKey = JSON.stringify([key, ...parts.slice(2)]);
-          if (projectHeaders.has(headerKey)) invalid2 = true;
+          if (projectHeaders.has(headerKey)) invalid3 = true;
           projectHeaders.add(headerKey);
           paths.add(key);
           if (parts.length === 2) {
-            if (directTables.has(key) || parentKeys.has(key)) invalid2 = true;
+            if (directTables.has(key) || parentKeys.has(key)) invalid3 = true;
             directTables.add(key);
           } else {
             nestedTables.add(key);
@@ -3076,33 +4869,33 @@ function collectExistingPaths(config) {
     }
     const relevantHeader = withoutComment(line).trim();
     if (relevantHeader.startsWith("[")) {
-      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader)) invalid2 = true;
+      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader)) invalid3 = true;
       currentTable = [];
       continue;
     }
     const assignment = assignmentParts(line);
     if (!assignment) {
-      if (currentTable.length === 1 && currentTable[0] === "projects" && relevantHeader.length > 0 && !relevantHeader.startsWith("#")) invalid2 = true;
-      if (currentTable.length === 0 && /^projects\s*=/.test(relevantHeader)) invalid2 = true;
+      if (currentTable.length === 1 && currentTable[0] === "projects" && relevantHeader.length > 0 && !relevantHeader.startsWith("#")) invalid3 = true;
+      if (currentTable.length === 0 && /^projects\s*=/.test(relevantHeader)) invalid3 = true;
       continue;
     }
     if (currentTable.length === 0 && assignment.key[0] === "projects") {
       if (assignment.key.length === 1) {
         const keys = inlineTableKeys(assignment.value);
         if (!keys || rootInline) {
-          invalid2 = true;
+          invalid3 = true;
           continue;
         }
         rootInline = /* @__PURE__ */ new Set();
         for (const key of keys) {
           const normalized = normalizedPath(key);
-          if (rootInline.has(normalized)) invalid2 = true;
+          if (rootInline.has(normalized)) invalid3 = true;
           rootInline.add(normalized);
           paths.add(normalized);
         }
       } else {
         const key = normalizedPath(assignment.key[1]);
-        if (parentKeys.has(key) || directTables.has(key)) invalid2 = true;
+        if (parentKeys.has(key) || directTables.has(key)) invalid3 = true;
         parentKeys.add(key);
         paths.add(key);
       }
@@ -3110,16 +4903,16 @@ function collectExistingPaths(config) {
     }
     if (currentTable.length === 1 && currentTable[0] === "projects") {
       const key = normalizedPath(assignment.key[0]);
-      if (parentKeys.has(key) || directTables.has(key)) invalid2 = true;
+      if (parentKeys.has(key) || directTables.has(key)) invalid3 = true;
       parentKeys.add(key);
       paths.add(key);
     }
   }
   for (const key of parentKeys) {
-    if (nestedTables.has(key)) invalid2 = true;
+    if (nestedTables.has(key)) invalid3 = true;
   }
-  if (rootInline && (projectsTableSeen || directTables.size > 0 || nestedTables.size > 0 || parentKeys.size > 0)) invalid2 = true;
-  return { paths, rootInline, invalid: invalid2 };
+  if (rootInline && (projectsTableSeen || directTables.size > 0 || nestedTables.size > 0 || parentKeys.size > 0)) invalid3 = true;
+  return { paths, rootInline, invalid: invalid3 };
 }
 function mergeTrustedProjectEntries(profile, config) {
   const entries = collectProfileEntries(profile);
@@ -3299,9 +5092,9 @@ function normalizeAbsolutePath(path, windows) {
   const value = windows ? path.replace(/\//g, "\\") : path;
   const prefix = windows ? /^([A-Za-z]:\\|\\\\[^\\]+\\[^\\]+\\)/.exec(value)?.[0] : "/";
   if (!prefix) return null;
-  const tail = value.slice(prefix.length);
+  const tail2 = value.slice(prefix.length);
   const parts = [];
-  for (const part of tail.split(/[\\/]+/)) {
+  for (const part of tail2.split(/[\\/]+/)) {
     if (!part || part === ".") continue;
     if (part === "..") {
       if (parts.length === 0) return null;
@@ -3471,11 +5264,11 @@ function classifyCodexTabState(snapshot, nowMs) {
       action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
     };
   }
-  const update = scoreUpdatePrompt(screen);
-  if (update.confidence >= CLASSIFY_THRESHOLD) {
+  const update2 = scoreUpdatePrompt(screen);
+  if (update2.confidence >= CLASSIFY_THRESHOLD) {
     return {
       state: "update_prompt",
-      confidence: update.confidence
+      confidence: update2.confidence
     };
   }
   const rateLimit = scoreRateLimit(screen, nowMs);
@@ -3512,7 +5305,7 @@ function classifyCodexTabState(snapshot, nowMs) {
       }
     };
   }
-  const partial = rateLimit.confidence > update.confidence ? rateLimit.confidence : update.confidence;
+  const partial = rateLimit.confidence > update2.confidence ? rateLimit.confidence : update2.confidence;
   if (partial > 0) return { state: "unknown", confidence: partial };
   return { state: "working", confidence: 0 };
 }
@@ -3674,31 +5467,31 @@ function hasAdequateCodexHookTimeout(entry) {
     return typeof timeout === "number" && Number.isFinite(timeout) && timeout >= CODEX_HOOK_TIMEOUT_SECS;
   });
 }
-function codexHookContentHash(text6) {
+function codexHookContentHash(text7) {
   let hash = 2166136261;
-  for (let i = 0; i < text6.length; i++) {
-    hash ^= text6.charCodeAt(i);
+  for (let i = 0; i < text7.length; i++) {
+    hash ^= text7.charCodeAt(i);
     hash = hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24)) >>> 0;
   }
   return ("0000000" + hash.toString(16)).slice(-8);
 }
-function isOwnedCodexHookScriptContent(text6) {
-  return text6.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
+function isOwnedCodexHookScriptContent(text7) {
+  return text7.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
 }
-function isCurrentCodexHookScriptContent(text6) {
-  if (!isOwnedCodexHookScriptContent(text6)) return false;
-  if (text6.indexOf("codeterm-profile-cleanup-v1") !== -1) return false;
-  if (text6.indexOf("codeterm-%CODETERM_TAB_ID%.config.toml") !== -1) return false;
-  if (/:\d{2,5}/.test(text6)) return false;
-  if (text6.indexOf("CODETERM_API_PORT") !== -1 || /127\.0\.0\.1|localhost/i.test(text6)) return false;
+function isCurrentCodexHookScriptContent(text7) {
+  if (!isOwnedCodexHookScriptContent(text7)) return false;
+  if (text7.indexOf("codeterm-profile-cleanup-v1") !== -1) return false;
+  if (text7.indexOf("codeterm-%CODETERM_TAB_ID%.config.toml") !== -1) return false;
+  if (/:\d{2,5}/.test(text7)) return false;
+  if (text7.indexOf("CODETERM_API_PORT") !== -1 || /127\.0\.0\.1|localhost/i.test(text7)) return false;
   for (let i = 0; i < CODEX_HOOK_SCRIPT_CONTRACT.length; i++) {
-    if (text6.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
+    if (text7.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
   }
   return true;
 }
 function isOwnedCodexWindowsHookScript(path) {
-  const text6 = host.fs.readFile(path);
-  return typeof text6 === "string" && isOwnedCodexHookScriptContent(text6);
+  const text7 = host.fs.readFile(path);
+  return typeof text7 === "string" && isOwnedCodexHookScriptContent(text7);
 }
 
 // plugins/provider-codex/src/appServer.ts
@@ -4430,8 +6223,8 @@ function restoreIntegrationFiles(snapshots) {
 function codexHookTrustContext(hooksPath) {
   const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return null;
-  const text6 = String(host.fs.readFile(cfg) || "");
-  const block = findCodexHookTrustBlock(text6, hooksPath);
+  const text7 = String(host.fs.readFile(cfg) || "");
+  const block = findCodexHookTrustBlock(text7, hooksPath);
   if (block == null) return null;
   const hooks = host.fs.readJson(hooksPath)?.hooks;
   const labels = [];
@@ -4439,13 +6232,13 @@ function codexHookTrustContext(hooksPath) {
   if ((hooks?.Stop || []).some(isCodetermCodexHook)) labels.push("stop");
   const script = codexWindowsHookScriptPath();
   const scriptText = script && host.fs.fileExists(script) ? String(host.fs.readFile(script) || "") : "";
-  const trustFingerprint = codexHookContentHash(hookTrustConfigSections(text6));
+  const trustFingerprint = codexHookContentHash(hookTrustConfigSections(text7));
   const hookFingerprint = codexHookContentHash([
     ownedContentHash(hooks?.SessionStart, hooks?.Stop, scriptText),
     labels.join(",")
   ].join(String.fromCharCode(0)));
   const fingerprint = codexHookContentHash([trustFingerprint, hookFingerprint].join(String.fromCharCode(0)));
-  return { config: text6, block, labels, fingerprint, hookFingerprint, trustFingerprint };
+  return { config: text7, block, labels, fingerprint, hookFingerprint, trustFingerprint };
 }
 function hookTrustConfigSections(config) {
   const sections = [];
@@ -4535,39 +6328,39 @@ function refreshCodexHookTrustState(hooksPath, then = (verdict) => verdict) {
 function enableExistingCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
-  const text6 = String(host.fs.readFile(cfg) || "");
-  if (!text6) return { state: "missing", changed: false, write_failed: false };
-  const span = findCodexHookTrustBlockSpan(text6, hooksPath);
+  const text7 = String(host.fs.readFile(cfg) || "");
+  if (!text7) return { state: "missing", changed: false, write_failed: false };
+  const span = findCodexHookTrustBlockSpan(text7, hooksPath);
   if (!span) return { state: "missing", changed: false, write_failed: false };
-  const block = text6.substring(span.start, span.end);
+  const block = text7.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
     const current = codexHookTrustState(hooksPath);
     const state = current === "enabled" || current === "trusted" ? current : "unknown";
     return { state, changed: false, write_failed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
-  const next = text6.substring(0, span.start) + nextBlock + text6.substring(span.end);
+  const next = text7.substring(0, span.start) + nextBlock + text7.substring(span.end);
   return host.fs.writeFile(cfg, next) ? { state: "enabled", changed: true, write_failed: false } : { state: "unknown", changed: false, write_failed: true };
 }
 function disableOwnedCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return true;
-  const text6 = host.fs.readFile(cfg);
-  if (typeof text6 !== "string") return false;
-  const span = findCodexHookTrustBlockSpan(text6, hooksPath);
+  const text7 = host.fs.readFile(cfg);
+  if (typeof text7 !== "string") return false;
+  const span = findCodexHookTrustBlockSpan(text7, hooksPath);
   if (!span) return true;
-  const block = text6.substring(span.start, span.end);
+  const block = text7.substring(span.start, span.end);
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)true(\s*(?:\n|$))/, "$1$2false$3");
   if (nextBlock === block) return true;
-  const next = text6.substring(0, span.start) + nextBlock + text6.substring(span.end);
+  const next = text7.substring(0, span.start) + nextBlock + text7.substring(span.end);
   return host.fs.writeFile(cfg, next);
 }
-function findCodexHookTrustBlock(text6, hooksPath) {
-  const span = findCodexHookTrustBlockSpan(text6, hooksPath);
-  return span ? text6.substring(span.start, span.end) : null;
+function findCodexHookTrustBlock(text7, hooksPath) {
+  const span = findCodexHookTrustBlockSpan(text7, hooksPath);
+  return span ? text7.substring(span.start, span.end) : null;
 }
-function findCodexHookTrustBlockSpan(text6, hooksPath) {
-  const lines = text6.split("\n");
+function findCodexHookTrustBlockSpan(text7, hooksPath) {
+  const lines = text7.split("\n");
   const marker = normalizeCodexHookKey(hooksPath + ":session_start:");
   let offset = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -4576,7 +6369,7 @@ function findCodexHookTrustBlockSpan(text6, hooksPath) {
     const rawKey = hookTrustKeyFromHeader(trimmed);
     if (rawKey !== null && normalizeCodexHookKey(rawKey).startsWith(marker)) {
       const start = offset;
-      let end = text6.length;
+      let end = text7.length;
       let scanOffset = offset + line.length + 1;
       for (let j = i + 1; j < lines.length; j++) {
         const t = lines[j].trim();
@@ -4658,7 +6451,6 @@ var OUTPUT_FINGERPRINTS = [
 var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
-var CODEX_LAUNCH_CONFIG = ["-c", "check_for_update_on_startup=false", "-c", "project_doc_max_bytes=65536"];
 function starterPrompt(params) {
   if (params.starterPromptText) return params.starterPromptText;
   if (params.starterPrompt === "no_starter") return void 0;
@@ -4694,6 +6486,14 @@ function hasPromptAndStatusFooter(screen) {
   });
 }
 var plugin = {
+  ...cloudExports(() => host),
+  sessionResume: () => ({ exact: true }),
+  runtimeStoredHistory,
+  runtimeStoredRecords,
+  runtimeStoredHistoryAvailable(cwd, sessionId) {
+    const path = sessionFilePath(cwd, sessionId);
+    return storedHistoryAvailable(sessionId, path ? host.fs.readFileHead(path, 262144) : null);
+  },
   runtimePlan,
   runtimeResponse,
   runtimeReduce,
@@ -4703,23 +6503,23 @@ var plugin = {
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
   },
-  detectFromOutput(text6) {
-    const t = String(text6 || "");
+  detectFromOutput(text7) {
+    const t = String(text7 || "");
     for (let i = 0; i < OUTPUT_FINGERPRINTS.length; i++) {
       if (t.indexOf(OUTPUT_FINGERPRINTS[i]) !== -1) return true;
     }
     return false;
   },
   screenHasTui(screen) {
-    const text6 = String(screen || "");
-    const lower = text6.toLowerCase();
+    const text7 = String(screen || "");
+    const lower = text7.toLowerCase();
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
-    return hasPromptAndStatusFooter(text6);
+    return hasPromptAndStatusFooter(text7);
   },
-  isOutputNoise(text6) {
-    const trimmed = String(text6 || "").trim();
+  isOutputNoise(text7) {
+    const trimmed = String(text7 || "").trim();
     if (!trimmed) return true;
     for (let i = 0; i < trimmed.length; i++) {
       const c = trimmed[i];
@@ -4734,8 +6534,8 @@ var plugin = {
     return c.indexOf("Would you like") !== -1 || c.indexOf("approve") !== -1 || c.indexOf("run the following") !== -1 || c.indexOf("make the following") !== -1 || c.indexOf("grant these permissions") !== -1 || // screen off the auto-approve path; the universal numbered parser then extracts.
     c.indexOf("to confirm") !== -1 || c.indexOf("esc to go back") !== -1 || c.indexOf("Select Model") !== -1 || c.indexOf("Select Reasoning") !== -1 || c.indexOf("\u203A") !== -1 || c.indexOf("\u276F") !== -1;
   },
-  detectEvents(text6) {
-    const t = String(text6 || "");
+  detectEvents(text7) {
+    const t = String(text7 || "");
     const events = [];
     if (t.indexOf("Would you like to run the following command") !== -1 || t.indexOf("Would you like to make the following edits") !== -1 || t.indexOf("Do you want to approve network access") !== -1 || t.indexOf("Would you like to grant these permissions") !== -1) {
       events.push("permission_request");
@@ -4743,11 +6543,11 @@ var plugin = {
     return events;
   },
   updatePromptSafeChoice,
-  parsePrompt(text6) {
-    return parseCodexPrompt(String(text6 || ""));
+  parsePrompt(text7) {
+    return parseCodexPrompt(String(text7 || ""));
   },
-  parseDirectoryTrustPrompt(text6) {
-    return parseCodexFolderTrustPrompt(String(text6 || ""));
+  parseDirectoryTrustPrompt(text7) {
+    return parseCodexFolderTrustPrompt(String(text7 || ""));
   },
   buildPromptResponse(optionIndex, screen) {
     return responseKeysForIndex(optionIndex, String(screen || ""));
@@ -4768,6 +6568,9 @@ var plugin = {
   },
   checkForUpdate() {
     return checkCodexUpdate(host);
+  },
+  providerSelfUpdateCapability() {
+    return codexSelfUpdateCapability;
   },
   releaseTabLaunchArtifacts(tabId, instanceId) {
     return releaseCodexProfile(profileSweepHost(), tabId, instanceId);
@@ -4791,7 +6594,12 @@ var plugin = {
       request2.goneInstanceIds
     );
   },
+  buildLaunchSpec(input) {
+    return buildCodexLaunchSpec(input, starterPrompt);
+  },
   buildLaunchCommand(params) {
+    const spec = buildCodexLaunchSpec(params || {}, starterPrompt);
+    if (spec) return codexCommandFromSpec(spec);
     const p = params || {};
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG];
     if (p.skipPermissions) {
@@ -4826,9 +6634,12 @@ var plugin = {
         return windowsProfileCommand(parts, taskPath, instanceId);
       }
     }
+    parts.push(...hostOwnedCodexLaunchArgs(p.hostOwned));
     return parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
+    const spec = buildCodexLaunchSpec({ resume: { sessionId, skipPermissions } }, starterPrompt);
+    if (spec) return codexCommandFromSpec(spec);
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
@@ -4839,6 +6650,8 @@ var plugin = {
     return requireDirectResume(parts.join(" "));
   },
   buildResumeCommandWithContext(params) {
+    const spec = buildCodexLaunchSpec({ resume: params }, starterPrompt);
+    if (spec) return codexCommandFromSpec(spec);
     const p = params || {};
     const platform = host.platform();
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
@@ -4851,6 +6664,7 @@ var plugin = {
     if (Array.isArray(p.args)) {
       for (const arg of p.args) parts.push(quoteCodexArg(String(arg), platform));
     }
+    parts.push(...hostOwnedCodexLaunchArgs(p.hostOwned));
     if (platform === "windows") {
       const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId) ? p.instanceId : null;
       if (!instanceId) {
@@ -4876,244 +6690,9 @@ var plugin = {
   },
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
   parseSessionObservations,
-  parseSessionDelta(chunk, context) {
-    const out = [];
-    const commandPairing = commandPairingState(context);
-    const activityIds = /* @__PURE__ */ new Set();
-    const pushOnce = (row2) => {
-      if (!row2 || row2.uuid && activityIds.has(row2.uuid)) return;
-      if (row2.uuid) activityIds.add(row2.uuid);
-      out.push(row2);
-    };
-    const lines = String(chunk || "").split("\n");
-    let stamped = 0;
-    const stampRows = (lineIndex) => {
-      for (; stamped < out.length; stamped++) {
-        out[stamped].recordIndex = lineIndex;
-      }
-    };
-    let hadInvalid = false;
-    for (let i = 0; i < lines.length; i++) {
-      stampRows(i - 1);
-      if (!lines[i]) continue;
-      let v;
-      try {
-        v = JSON.parse(lines[i]);
-      } catch (_) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      if (!validateEntry(v)) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      let ts = null;
-      const tsIso = typeof v.timestamp === "string" ? v.timestamp : null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1e3);
-      }
-      const normalizedEventType = v.payload?.type;
-      if (normalizedEventType === "context_compacted") {
-        out.push({
-          role: "system",
-          blocks: [{ kind: "text", data: { text: "context compacted" } }],
-          ts,
-          timestamp: tsIso,
-          timelineMarker: { kind: "context_compaction" }
-        });
-        continue;
-      }
-      if (normalizedEventType === "thread_goal_updated") {
-        const sessionIntent = sessionIntentFromPayload(v.payload);
-        if (!sessionIntent) continue;
-        out.push({
-          role: "custom",
-          blocks: [],
-          ts,
-          timestamp: tsIso,
-          sessionIntent
-        });
-        continue;
-      }
-      if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
-        const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
-        if (!turnId) continue;
-        clearTurnPairings(commandPairing, turnId);
-        out.push({
-          role: "assistant",
-          blocks: [{ kind: "tool_flow", data: { state: v.payload.type === "task_started" ? "start" : "end", flow_id: turnId } }],
-          ts,
-          timestamp: tsIso
-        });
-        continue;
-      }
-      if (v.type === "event_msg" && v.payload?.type === "item_completed") {
-        if (pairCommandExecution(v.payload.item, v.payload.turn_id, commandPairing)) continue;
-        pushOnce(pairFileChange(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id), v.payload.turn_id, commandPairing.fileChanges));
-        continue;
-      }
-      if (v.type === "event_msg" && v.payload?.type === "sub_agent_activity") {
-        pushOnce(subAgentRow(v.payload, v.payload.event_id, void 0, ts, tsIso));
-        continue;
-      }
-      if (v.type === "event_msg" && (v.payload?.type === "web_search_end" || v.payload?.type === "image_generation_end")) {
-        const result = v.payload.type === "web_search_end" ? webSearchEndResult(v.payload, ts, tsIso) : imageGenerationEndResult(v.payload, ts, tsIso);
-        if (result && !activityIds.has(result.uuid)) {
-          activityIds.add(result.uuid);
-          out.push(result);
-        }
-        continue;
-      }
-      if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
-        const p2 = v.payload;
-        const content = typeof p2.stdout === "string" ? p2.stdout : "";
-        const callId = typeof p2.call_id === "string" ? p2.call_id : "";
-        const diffs = codexFileDiffs(p2.changes);
-        out.push({
-          role: "assistant",
-          blocks: [{ kind: "tool_result", data: { content, tool_use_id: callId, ...diffs.length > 0 ? { file_diffs: diffs } : {} } }],
-          ts,
-          timestamp: tsIso
-        });
-        continue;
-      }
-      if (!v || v.type !== "response_item" || !v.payload) continue;
-      const p = v.payload;
-      if (p.type === "message") {
-        const role = p.role === "assistant" ? "assistant" : p.role === "user" ? "user" : null;
-        if (!role) continue;
-        let text6 = "";
-        let images = [];
-        if (role === "user") {
-          ({ text: text6, images } = parseCodexUserContent(p.content));
-        } else if (Array.isArray(p.content)) {
-          for (let j = 0; j < p.content.length; j++) {
-            const c = p.content[j];
-            if (c && typeof c.text === "string") text6 += c.text;
-          }
-        } else if (typeof p.content === "string") {
-          text6 = p.content;
-        }
-        if (images.length > 0) {
-          const textBlocks = text6 ? [{ kind: "text", data: { text: text6 } }] : [];
-          out.push({ role, blocks: [...textBlocks, ...images.map(codexImageBlock)], ts, timestamp: tsIso });
-          continue;
-        }
-        if (!text6) continue;
-        const systemSubtype = classifyCodexSystemText(text6);
-        if (systemSubtype) {
-          out.push({
-            role: "system",
-            blocks: [{ kind: "text", data: { text: text6, subtype: systemSubtype } }],
-            sourceType: v.type,
-            sourceSubtype: systemSubtype,
-            ts,
-            timestamp: tsIso
-          });
-          continue;
-        }
-        out.push({ role, blocks: [{ kind: "text", data: { text: text6 } }], ts, timestamp: tsIso });
-      } else if (p.type === "function_call") {
-        let input = {};
-        try {
-          input = JSON.parse(p.arguments || "{}");
-        } catch (_) {
-          input = { raw: p.arguments };
-        }
-        if (input && input.cmd && !input.command) input.command = input.cmd;
-        const name = typeof p.name === "string" ? p.name.trim() : "";
-        if (isInternalOrchestrationCall(name) || !hasUsefulFunctionCall(name, input, p.arguments)) continue;
-        const callId = typeof p.call_id === "string" ? p.call_id : "";
-        const canonical = canonicalToolFields(name, input);
-        out.push({
-          role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name: name || "tool", id: callId, input, ...canonical } }],
-          ts,
-          timestamp: tsIso
-        });
-      } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
-        const callId = typeof p.call_id === "string" ? p.call_id : "";
-        const pending = p.type === "custom_tool_call_output" ? commandPairing.pending.get(callId) : void 0;
-        commandPairing.fileChanges.delete(callId);
-        if (pending) commandPairing.pending.delete(callId);
-        out.push({
-          role: "assistant",
-          blocks: [{ kind: "tool_result", data: {
-            content: codexToolOutputText(p.output),
-            tool_use_id: callId,
-            ...pending ? commandPairingResult(pending) : {}
-          } }],
-          ts,
-          timestamp: tsIso
-        });
-      } else if (p.type === "reasoning") {
-        pushOnce(reasoningResponseRow(p, ts, tsIso));
-      } else if (p.type === "agent_message") {
-        pushOnce(agentMessageRow(p, ts, tsIso));
-      } else if (p.type === "custom_tool_call") {
-        let name = typeof p.name === "string" ? p.name.trim() : "";
-        if (!name) continue;
-        if (isInternalOrchestrationCall(name)) continue;
-        let input = {};
-        if (name === "apply_patch" && typeof p.input === "string") {
-          input = { patch: p.input };
-        } else if (typeof p.input === "string") {
-          try {
-            input = JSON.parse(p.input);
-          } catch (_) {
-            input = { raw: p.input };
-          }
-        } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
-          input = p.input;
-        }
-        const nestedPatch = name === "exec" && typeof input.raw === "string" ? nestedApplyPatch(input.raw) : null;
-        if (nestedPatch) {
-          name = "apply_patch";
-          input = { patch: nestedPatch };
-        }
-        const callId = typeof p.call_id === "string" ? p.call_id : "";
-        const canonical = canonicalToolFields(name, input);
-        const message = {
-          role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name, id: callId, input, ...canonical } }],
-          ts,
-          timestamp: tsIso
-        };
-        const commands = name === "exec" && callId && typeof input.raw === "string" ? execScriptCommands(input.raw) : [];
-        out.push(message);
-        const patchTurn = callTurnId(p);
-        const fingerprint = typeof input.patch === "string" ? editFingerprint(patchEdits(input.patch)) : "";
-        if (callId && patchTurn && fingerprint) {
-          commandPairing.fileChanges.set(callId, { turnId: patchTurn, fingerprint });
-          trimPendingCalls(commandPairing);
-        }
-        if (commands.length > 0) {
-          const turnId = callTurnId(p);
-          if (!turnId) continue;
-          commandPairing.pending.delete(callId);
-          commandPairing.pending.set(callId, {
-            commandCount: commands.length,
-            commands,
-            completedCommands: /* @__PURE__ */ new Set(),
-            commandResults: [],
-            turnId
-          });
-          trimPendingCalls(commandPairing);
-        }
-      }
-    }
-    if (commandPairing.sessionKey && commandPairing.pending.size === 0 && commandPairing.fileChanges.size === 0) {
-      commandPairingSessions.delete(commandPairing.sessionKey);
-    }
-    stampRows(lines.length - 1);
-    return { messages: out };
+  parseSessionDelta,
+  parseSessionRecords(records, meta) {
+    return { ...parseSessionDelta(records, meta.sourceKey ? { session_key: meta.sourceKey, from_offset: meta.fromOffset } : void 0), new_offset: meta.newOffset };
   },
   detectSessionId(cwd, exclude, maxAgeMs) {
     return detectSessionId(cwd, exclude, maxAgeMs);
@@ -5161,60 +6740,9 @@ var plugin = {
     return detectSessionReasoningEffort(cwd, sessionId);
   },
   // Mirror native parse_session_messages for response_item message blocks.
-  parseSessionMessages(text6) {
-    const out = [];
-    const lines = String(text6 || "").split("\n");
-    let hadInvalid = false;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line) continue;
-      let v;
-      try {
-        v = JSON.parse(line);
-      } catch (e) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      if (!isValidCodexSessionMessage(v)) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      if (!v || v.type !== "response_item") continue;
-      const payload = v.payload;
-      if (!payload || payload.type !== "message") continue;
-      const role = payload.role;
-      if (role !== "user" && role !== "assistant") continue;
-      const content = payload.content;
-      if (!Array.isArray(content)) continue;
-      const chunks = [];
-      for (let j = 0; j < content.length; j++) {
-        const b = content[j];
-        if (!b) continue;
-        if ((b.type === "input_text" || b.type === "output_text" || b.type === "text") && typeof b.text === "string") {
-          chunks.push(b.text);
-        }
-      }
-      const text22 = chunks.join(" ");
-      if (!text22.trim()) continue;
-      let ts = null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1e3);
-      }
-      const systemSubtype = classifyCodexSystemText(text22);
-      if (systemSubtype) {
-        out.push({ role: "system", text: text22, ts, isMeta: true, sourceSubtype: systemSubtype });
-      } else {
-        out.push({ role, text: text22, ts, isMeta: false });
-      }
-    }
-    return out;
+  parseSessionMessages,
+  parseSessionMessageRecords(records) {
+    return parseSessionMessages(records);
   },
   classifyTabState(snapshot) {
     return classifyCodexTabState(snapshot, host.unixNowMs());
@@ -5393,8 +6921,8 @@ function hasUsefulFunctionCall(name, input, args) {
 function isInternalOrchestrationCall(name) {
   return name === "send_message" || name === "spawn_agent" || name === "followup_task" || name === "interrupt_agent" || name === "list_agents";
 }
-function classifyCodexSystemText(text6) {
-  const trimmed = String(text6 || "").trim();
+function classifyCodexSystemText(text7) {
+  const trimmed = String(text7 || "").trim();
   if (!trimmed) return null;
   if (trimmed.indexOf("<turn_aborted>") === 0 && trimmed.indexOf("</turn_aborted>") !== -1) {
     return "turn_aborted";
@@ -5415,5 +6943,274 @@ function isValidCodexSessionMessage(v) {
   if (v.payload.role !== "user" && v.payload.role !== "assistant") return false;
   if (!Array.isArray(v.payload.content)) return false;
   return true;
+}
+function parseSessionDelta(chunk, context) {
+  const out = [];
+  const commandPairing = commandPairingState(context);
+  const activityIds = /* @__PURE__ */ new Set();
+  const pushOnce = (row3) => {
+    if (!row3 || row3.uuid && activityIds.has(row3.uuid)) return;
+    if (row3.uuid) activityIds.add(row3.uuid);
+    out.push(row3);
+  };
+  let stamped = 0;
+  const stampRows = (row3) => {
+    for (; stamped < out.length; stamped++) out[stamped].recordIndex = row3;
+  };
+  let hadInvalid = false;
+  let previousRow = -1;
+  for (const { row: row3, value: v } of sessionRecords(chunk)) {
+    stampRows(previousRow);
+    previousRow = row3;
+    if (!validateEntry(v)) {
+      if (!hadInvalid) {
+        if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionDelta: skipped invalid JSONL entry");
+        hadInvalid = true;
+      }
+      continue;
+    }
+    let ts = null;
+    const tsIso = typeof v.timestamp === "string" ? v.timestamp : null;
+    if (typeof v.timestamp === "string") {
+      const d = Date.parse(v.timestamp);
+      if (!isNaN(d)) ts = Math.floor(d / 1e3);
+    }
+    const normalizedEventType = v.payload?.type;
+    if (normalizedEventType === "context_compacted") {
+      out.push({
+        role: "system",
+        blocks: [{ kind: "text", data: { text: "context compacted" } }],
+        ts,
+        timestamp: tsIso,
+        timelineMarker: { kind: "context_compaction" }
+      });
+      continue;
+    }
+    if (normalizedEventType === "thread_goal_updated") {
+      const sessionIntent = sessionIntentFromPayload(v.payload);
+      if (!sessionIntent) continue;
+      out.push({
+        role: "custom",
+        blocks: [],
+        ts,
+        timestamp: tsIso,
+        sessionIntent
+      });
+      continue;
+    }
+    if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
+      const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
+      if (!turnId) continue;
+      clearTurnPairings(commandPairing, turnId);
+      out.push({
+        role: "assistant",
+        blocks: [{ kind: "tool_flow", data: { state: v.payload.type === "task_started" ? "start" : "end", flow_id: turnId } }],
+        ts,
+        timestamp: tsIso
+      });
+      continue;
+    }
+    if (v.type === "event_msg" && v.payload?.type === "item_completed") {
+      if (pairCommandExecution(v.payload.item, v.payload.turn_id, commandPairing)) continue;
+      pushOnce(pairFileChange(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id), v.payload.turn_id, commandPairing.fileChanges));
+      continue;
+    }
+    if (v.type === "event_msg" && v.payload?.type === "sub_agent_activity") {
+      pushOnce(subAgentRow(v.payload, v.payload.event_id, void 0, ts, tsIso));
+      continue;
+    }
+    if (v.type === "event_msg" && (v.payload?.type === "web_search_end" || v.payload?.type === "image_generation_end")) {
+      const result = v.payload.type === "web_search_end" ? webSearchEndResult(v.payload, ts, tsIso) : imageGenerationEndResult(v.payload, ts, tsIso);
+      if (result && !activityIds.has(result.uuid)) {
+        activityIds.add(result.uuid);
+        out.push(result);
+      }
+      continue;
+    }
+    if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
+      const p2 = v.payload;
+      const content = typeof p2.stdout === "string" ? p2.stdout : "";
+      const callId = typeof p2.call_id === "string" ? p2.call_id : "";
+      const diffs = codexFileDiffs(p2.changes);
+      out.push({
+        role: "assistant",
+        blocks: [{ kind: "tool_result", data: { content, tool_use_id: callId, ...diffs.length > 0 ? { file_diffs: diffs } : {} } }],
+        ts,
+        timestamp: tsIso
+      });
+      continue;
+    }
+    if (!v || v.type !== "response_item" || !v.payload) continue;
+    const p = v.payload;
+    if (p.type === "message") {
+      const role = p.role === "assistant" ? "assistant" : p.role === "user" ? "user" : null;
+      if (!role) continue;
+      let text7 = "";
+      let images = [];
+      if (role === "user") {
+        ({ text: text7, images } = parseCodexUserContent(p.content));
+      } else if (Array.isArray(p.content)) {
+        for (let j = 0; j < p.content.length; j++) {
+          const c = p.content[j];
+          if (c && typeof c.text === "string") text7 += c.text;
+        }
+      } else if (typeof p.content === "string") {
+        text7 = p.content;
+      }
+      if (images.length > 0) {
+        const textBlocks = text7 ? [{ kind: "text", data: { text: text7 } }] : [];
+        out.push({ role, blocks: [...textBlocks, ...images.map(codexImageBlock)], ts, timestamp: tsIso });
+        continue;
+      }
+      if (!text7) continue;
+      const systemSubtype = classifyCodexSystemText(text7);
+      if (systemSubtype) {
+        out.push({
+          role: "system",
+          blocks: [{ kind: "text", data: { text: text7, subtype: systemSubtype } }],
+          sourceType: v.type,
+          sourceSubtype: systemSubtype,
+          ts,
+          timestamp: tsIso
+        });
+        continue;
+      }
+      out.push({ role, blocks: [{ kind: "text", data: { text: text7 } }], ts, timestamp: tsIso });
+    } else if (p.type === "function_call") {
+      let input = {};
+      try {
+        input = JSON.parse(p.arguments || "{}");
+      } catch (_) {
+        input = { raw: p.arguments };
+      }
+      if (input && input.cmd && !input.command) input.command = input.cmd;
+      const name = typeof p.name === "string" ? p.name.trim() : "";
+      if (isInternalOrchestrationCall(name) || !hasUsefulFunctionCall(name, input, p.arguments)) continue;
+      const callId = typeof p.call_id === "string" ? p.call_id : "";
+      const canonical = canonicalToolFields(name, input);
+      out.push({
+        role: "assistant",
+        blocks: [{ kind: "tool_use", data: { name: name || "tool", id: callId, input, ...canonical } }],
+        ts,
+        timestamp: tsIso
+      });
+    } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
+      const callId = typeof p.call_id === "string" ? p.call_id : "";
+      const pending = p.type === "custom_tool_call_output" ? commandPairing.pending.get(callId) : void 0;
+      commandPairing.fileChanges.delete(callId);
+      if (pending) commandPairing.pending.delete(callId);
+      out.push({
+        role: "assistant",
+        blocks: [{ kind: "tool_result", data: {
+          content: codexToolOutputText(p.output),
+          tool_use_id: callId,
+          ...pending ? commandPairingResult(pending) : {}
+        } }],
+        ts,
+        timestamp: tsIso
+      });
+    } else if (p.type === "reasoning") {
+      pushOnce(reasoningResponseRow(p, ts, tsIso));
+    } else if (p.type === "agent_message") {
+      pushOnce(agentMessageRow(p, ts, tsIso));
+    } else if (p.type === "custom_tool_call") {
+      let name = typeof p.name === "string" ? p.name.trim() : "";
+      if (!name) continue;
+      if (isInternalOrchestrationCall(name)) continue;
+      let input = {};
+      if (name === "apply_patch" && typeof p.input === "string") {
+        input = { patch: p.input };
+      } else if (typeof p.input === "string") {
+        try {
+          input = JSON.parse(p.input);
+        } catch (_) {
+          input = { raw: p.input };
+        }
+      } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
+        input = p.input;
+      }
+      const nestedPatch = name === "exec" && typeof input.raw === "string" ? nestedApplyPatch(input.raw) : null;
+      if (nestedPatch) {
+        name = "apply_patch";
+        input = { patch: nestedPatch };
+      }
+      const callId = typeof p.call_id === "string" ? p.call_id : "";
+      const canonical = canonicalToolFields(name, input);
+      const message = {
+        role: "assistant",
+        blocks: [{ kind: "tool_use", data: { name, id: callId, input, ...canonical } }],
+        ts,
+        timestamp: tsIso
+      };
+      const commands = name === "exec" && callId && typeof input.raw === "string" ? execScriptCommands(input.raw) : [];
+      out.push(message);
+      const patchTurn = callTurnId(p);
+      const fingerprint = typeof input.patch === "string" ? editFingerprint(patchEdits(input.patch)) : "";
+      if (callId && patchTurn && fingerprint) {
+        commandPairing.fileChanges.set(callId, { turnId: patchTurn, fingerprint });
+        trimPendingCalls(commandPairing);
+      }
+      if (commands.length > 0) {
+        const turnId = callTurnId(p);
+        if (!turnId) continue;
+        commandPairing.pending.delete(callId);
+        commandPairing.pending.set(callId, {
+          commandCount: commands.length,
+          commands,
+          completedCommands: /* @__PURE__ */ new Set(),
+          commandResults: [],
+          turnId
+        });
+        trimPendingCalls(commandPairing);
+      }
+    }
+  }
+  if (commandPairing.sessionKey && commandPairing.pending.size === 0 && commandPairing.fileChanges.size === 0) {
+    commandPairingSessions.delete(commandPairing.sessionKey);
+  }
+  stampRows(previousRow);
+  return { messages: out };
+}
+function parseSessionMessages(text7) {
+  const out = [];
+  let hadInvalid = false;
+  for (const { value: v } of sessionRecords(text7)) {
+    if (!isValidCodexSessionMessage(v)) {
+      if (!hadInvalid) {
+        if (typeof console !== "undefined") console.warn("[codex-plugin] parseSessionMessages: skipped invalid JSONL entry");
+        hadInvalid = true;
+      }
+      continue;
+    }
+    if (!v || v.type !== "response_item") continue;
+    const payload = v.payload;
+    if (!payload || payload.type !== "message") continue;
+    const role = payload.role;
+    if (role !== "user" && role !== "assistant") continue;
+    const content = payload.content;
+    if (!Array.isArray(content)) continue;
+    const chunks = [];
+    for (let j = 0; j < content.length; j++) {
+      const b = content[j];
+      if (!b) continue;
+      if ((b.type === "input_text" || b.type === "output_text" || b.type === "text") && typeof b.text === "string") {
+        chunks.push(b.text);
+      }
+    }
+    const text22 = chunks.join(" ");
+    if (!text22.trim()) continue;
+    let ts = null;
+    if (typeof v.timestamp === "string") {
+      const d = Date.parse(v.timestamp);
+      if (!isNaN(d)) ts = Math.floor(d / 1e3);
+    }
+    const systemSubtype = classifyCodexSystemText(text22);
+    if (systemSubtype) {
+      out.push({ role: "system", text: text22, ts, isMeta: true, sourceSubtype: systemSubtype });
+    } else {
+      out.push({ role, text: text22, ts, isMeta: false });
+    }
+  }
+  return out;
 }
 var plugin_default = plugin;

@@ -9,33 +9,43 @@ fn write(path: &Path, contents: &str) {
     std::fs::write(path, contents).unwrap();
 }
 
-/// The real `plugins/provider-codex/plugin.json`, so this test fails if the
-/// shipped manifest ever loses the declaration that keeps a confined codex
-/// plugin able to reach its own home.
-fn shipped_codex_manifest() -> PluginManifest {
-    let path = crate::test_support::fixture_manifest_dir()
-        .join("../../../plugins/provider-codex/plugin.json");
-    PluginManifest::load(&path).expect("the shipped codex manifest parses")
+fn shipped_session_manifest() -> PluginManifest {
+    let plugins_root = crate::test_support::fixture_manifest_dir().join("../../../plugins");
+    std::fs::read_dir(plugins_root)
+        .expect("bundled plugins directory")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("plugin.json"))
+        .find_map(|path| {
+            let manifest = PluginManifest::load(&path).ok()?;
+            let sessions = manifest.sessions.as_ref()?;
+            let auth_file = format!("{}/auth.json", sessions.root_dir.trim_end_matches('/'));
+            let declares_secret = manifest.credentials.iter().any(|credential| {
+                credential.file == auth_file
+                    && credential
+                        .secret
+                        .values()
+                        .any(|value| value == "tokens.access_token")
+            });
+            declares_secret.then_some(manifest)
+        })
+        .expect("a bundled session manifest declares a private auth credential")
 }
 
-/// The defect this whole change exists for: a confined codex plugin whose
-/// manifest declared no root could not read `~/.codex`, its usage fetch
-/// returned nothing, and the panel froze. The shipped manifest must keep
-/// declaring that home, and must keep the credential inside it declared so
-/// the host — not the plugin — is what reads the OAuth token.
+/// The manifest must declare the credential's session root so the host reads the OAuth token.
 #[test]
-fn the_shipped_codex_manifest_declares_the_home_and_credential_it_needs() {
-    let manifest = shipped_codex_manifest();
+fn a_shipped_session_manifest_declares_its_credential_home() {
+    let manifest = shipped_session_manifest();
     let sessions = manifest
         .sessions
         .as_ref()
-        .expect("codex must declare the home its provider logic needs");
-    assert_eq!(sessions.root_dir, "~/.codex");
+        .expect("selected manifest declares a session root");
+    assert!(!sessions.root_dir.is_empty());
+    let auth_file = format!("{}/auth.json", sessions.root_dir.trim_end_matches('/'));
     let credential = manifest
         .credentials
         .iter()
-        .find(|c| c.file == "~/.codex/auth.json")
-        .expect("the codex OAuth file must be host-read, not plugin-read");
+        .find(|c| c.file == auth_file)
+        .expect("the session auth file must be host-read, not plugin-read");
     assert!(
         credential
             .secret
@@ -52,31 +62,28 @@ fn the_shipped_codex_manifest_declares_the_home_and_credential_it_needs() {
     );
 }
 
-/// Where the grant comes from, proved on the SHIPPED manifest without
-/// touching a filesystem: the confined read set is exactly bundle + data +
-/// the plugin's OWN scoped temp subdir + the ONE home codex declares —
-/// never the bare `std::env::temp_dir()`, which every process and every
-/// other plugin can also reach. Set equality is what makes "declared root,
-/// never a blanket widening" a real claim — an extra entry appearing here
-/// is a widening, and the codex home disappearing is the original bug.
+/// The confined read set is exactly bundle, data, scoped temp, and its declared session root.
 #[test]
 fn the_confined_read_set_is_exactly_the_base_roots_plus_the_one_declared_home() {
     let bundle = PathBuf::from("/bundle");
     let data = PathBuf::from("/data");
-    let codex_home = dirs::home_dir().expect("home dir").join(".codex");
-    let codex_manifest = shipped_codex_manifest();
-    let scoped_temp = plugin_temp_dir(&codex_manifest.id);
+    let shipped_manifest = shipped_session_manifest();
+    let sessions = shipped_manifest.sessions.as_ref().unwrap();
+    let provider_home = dirs::home_dir()
+        .expect("home dir")
+        .join(sessions.root_dir.strip_prefix("~/").unwrap());
+    let scoped_temp = plugin_temp_dir(&shipped_manifest.id);
 
-    let (with_root, write_roots) = confined_roots(&codex_manifest, &bundle, &data);
+    let (with_root, write_roots) = confined_roots(&shipped_manifest, &bundle, &data);
     assert_eq!(
         with_root,
         vec![
             bundle.clone(),
             data.clone(),
             scoped_temp.clone(),
-            codex_home.clone()
+            provider_home.clone()
         ],
-        "codex gets its declared home and nothing else"
+        "the provider gets its declared home and nothing else"
     );
     assert_eq!(
         write_roots,
@@ -106,7 +113,7 @@ fn the_confined_read_set_is_exactly_the_base_roots_plus_the_one_declared_home() 
         without_root.len() + 1,
         "the declaration adds exactly one root"
     );
-    assert!(!without_root.contains(&codex_home));
+    assert!(!without_root.contains(&provider_home));
 }
 
 /// RED-BEFORE-GREEN companion to the test above: this is the exact bug the
@@ -155,13 +162,13 @@ fn a_declared_root_is_granted_while_outside_and_the_credential_stay_denied() {
     use crate::js_runtime::host_api::PluginSandbox;
 
     let tmp = tempfile::tempdir().unwrap();
-    let home = tmp.path().join("codex-home");
-    let elsewhere = tmp.path().join("not-the-codex-home");
+    let home = tmp.path().join("provider-home");
+    let elsewhere = tmp.path().join("not-the-provider-home");
     for dir in [&home, &elsewhere] {
         std::fs::create_dir_all(dir).unwrap();
     }
 
-    let mut manifest = shipped_codex_manifest();
+    let mut manifest = shipped_session_manifest();
     manifest.sessions.as_mut().unwrap().root_dir = home.to_string_lossy().into_owned();
     for credential in &mut manifest.credentials {
         credential.file_environment = None;
@@ -178,7 +185,7 @@ fn a_declared_root_is_granted_while_outside_and_the_credential_stay_denied() {
     // fixture — only the base roots are left out.
     let declared = PluginManifest::expand_home(&manifest.sessions.as_ref().unwrap().root_dir)
         .expect("declared root expands");
-    assert_eq!(declared, home, "the sandbox is granted what codex declared");
+    assert_eq!(declared, home, "the sandbox is granted the declared root");
     let sandbox =
         PluginSandbox::restricted(vec![declared], vec![]).with_credentials(&manifest.credentials);
 
@@ -277,12 +284,12 @@ fn the_credential_carve_out_survives_a_second_root_that_also_covers_it() {
     use crate::js_runtime::host_api::PluginSandbox;
 
     let tmp = tempfile::tempdir().unwrap();
-    let home = tmp.path().join("codex-home");
+    let home = tmp.path().join("provider-home");
     std::fs::create_dir_all(&home).unwrap();
     let auth = home.join("auth.json");
     std::fs::write(&auth, "{}").unwrap();
 
-    let mut manifest = shipped_codex_manifest();
+    let mut manifest = shipped_session_manifest();
     manifest.sessions.as_mut().unwrap().root_dir = home.to_string_lossy().into_owned();
     for credential in &mut manifest.credentials {
         credential.file_environment = None;
@@ -528,7 +535,7 @@ fn official_channel_record_accepts_provider_and_core_paths_only_for_their_ids() 
         &record("opaque-q7", "provider-opaque-q7", "elsewhere-q7"),
         "core-q7"
     ));
-    if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+    if let Some((sys_id, _)) = crate::system_plugins::hashes().first() {
         assert!(official(sys_id, sys_id));
         assert!(!official(sys_id, "other-q7"));
     }
@@ -651,6 +658,53 @@ fn scan_reports_missing_entry_as_skipped() {
 }
 
 #[test]
+fn system_versions_drive_startup_and_watcher_priority() {
+    let system_id = crate::system_plugins::hashes()[0].0;
+    for (is_system, installed, workspace, expected) in [
+        (true, "1.14.6", "1.14.41", "1.14.41"),
+        (true, "1.14.42", "1.14.41", "1.14.42"),
+        (false, "1.14.42", "1.14.41", "1.14.41"),
+    ] {
+        let id = if is_system { system_id } else { "shared" };
+        let case = format!("{id}: installed={installed}, workspace={workspace}");
+        assert_eq!(crate::system_plugins::is_system_id(id), is_system, "{case}");
+        let root = tempfile::tempdir().unwrap();
+        let installed_root = root.path().join("installed");
+        let workspace_root = root.path().join("workspace");
+        let mut paths = Vec::new();
+        for (directory, version) in [(&installed_root, installed), (&workspace_root, workspace)] {
+            let manifest_path = directory.join(id).join("plugin.json");
+            let mut manifest: serde_json::Value = serde_json::from_str(&min_manifest(id)).unwrap();
+            manifest["version"] = version.into();
+            write(&manifest_path, &manifest.to_string());
+            write(
+                &directory.join(id).join("plugin.js"),
+                &min_plugin_js(version),
+            );
+            assert_eq!(
+                PluginManifest::load(&manifest_path).unwrap().version,
+                version,
+                "{case}"
+            );
+            paths.push(manifest_path);
+        }
+        let (providers, report) = scan_roots(&[installed_root, workspace_root]);
+        assert_eq!(providers.len(), 1, "{case}: {report:?}");
+        assert_eq!(
+            providers[0].manifest().version,
+            expected,
+            "{case}: {report:?}"
+        );
+        order_system_candidates(id, &mut paths);
+        assert_eq!(
+            PluginManifest::load(paths.last().unwrap()).unwrap().version,
+            expected,
+            "{case}"
+        );
+    }
+}
+
+#[test]
 fn later_root_overrides_earlier_with_same_id() {
     let r1 = tempfile::tempdir().unwrap();
     let r2 = tempfile::tempdir().unwrap();
@@ -712,6 +766,23 @@ fn default_roots_includes_user_dir() {
 }
 
 #[test]
+fn runtime_workspace_root_outlives_the_build_mapping_and_is_dev_only() {
+    let physical = PathBuf::from("/physical/checkout");
+    let compiled = Path::new("X:/");
+    let selected = selected_workspace_root(Some(compiled), Some(physical.clone()), true);
+    assert_eq!(selected.as_deref(), Some(physical.as_path()));
+    assert_eq!(
+        ordered_roots(selected.as_deref(), PathBuf::from("/data/plugins"), true),
+        vec![PathBuf::from("/data/plugins"), physical.join("plugins")]
+    );
+    assert_eq!(
+        selected_workspace_root(Some(compiled), Some(physical), false),
+        Some(compiled.to_path_buf())
+    );
+    assert_eq!(selected_workspace_root(None, None, true), None);
+}
+
+#[test]
 fn dev_root_order_keeps_workspace_plugins_authoritative() {
     let user = PathBuf::from("/data/plugins");
     let roots = ordered_roots(Some(Path::new("/repo")), user.clone(), true);
@@ -767,7 +838,7 @@ fn trust_matrix() {
     }
 
     // Case 2: system id with custom content → Unverified. Skipped if the table is empty (cargo-publish edge case).
-    if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+    if let Some((sys_id, _)) = crate::system_plugins::hashes().first() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join(*sys_id);
         write(&dir.join("plugin.json"), &min_manifest(sys_id));
@@ -780,7 +851,7 @@ fn trust_matrix() {
     }
 
     // Case 3: system id with custom content from the official system channel stays trusted.
-    if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+    if let Some((sys_id, _)) = crate::system_plugins::hashes().first() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join(*sys_id);
         write(&dir.join("plugin.json"), &min_manifest(sys_id));
@@ -798,7 +869,7 @@ fn trust_matrix() {
 
     // Case 4: CODETERM_DEV=1 forces ThirdParty even for system id.
     env.set("CODETERM_DEV", "1");
-    if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+    if let Some((sys_id, _)) = crate::system_plugins::hashes().first() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().join(*sys_id);
         write(&dir.join("plugin.json"), &min_manifest(sys_id));

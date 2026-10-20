@@ -8,3 +8,5 @@ self-hosted-runner:
     - linux-build
     - windows-build
     - windows-x64-build
+    - rust-tests
+    - windows-light

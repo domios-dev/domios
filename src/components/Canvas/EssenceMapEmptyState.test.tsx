@@ -127,7 +127,7 @@ describe("Cartographer map entry actions", () => {
     it(`${name} opens the shared dialog and Cancel closes it`, async () => {
       const onStart = vi.fn(async (_draft: CartographerMapDraft) => {});
       const host = await mount(<EssenceMapCanvasInner workspace={workspace} mapFiles={[map]} providers={[CARTOGRAPHER_TEST_PROVIDER]} onStartCartographer={onStart} />);
-      await act(async () => getByRole(host, "button", name).click());
+      await act(async () => getByRole(host, "button", mode === "refresh" ? "Refresh" : name).click());
       expect(getByRole(document.body, "dialog", name)).toBeTruthy();
       await act(async () => getByRole(document.body, "button", "Cancel").click());
       expect(document.body.querySelector('[role="dialog"]')).toBeNull();
@@ -137,7 +137,7 @@ describe("Cartographer map entry actions", () => {
     it(`${name} passes its mode to the shared Start action once`, async () => {
       const onStart = vi.fn(async (_draft: CartographerMapDraft) => {});
       const host = await mount(<EssenceMapCanvasInner workspace={workspace} mapFiles={[map]} providers={[CARTOGRAPHER_TEST_PROVIDER]} onStartCartographer={onStart} />);
-      await act(async () => getByRole(host, "button", name).click());
+      await act(async () => getByRole(host, "button", mode === "refresh" ? "Refresh" : name).click());
       await act(async () => getByRole(document.body, "button", "Start").click());
       expect(onStart).toHaveBeenCalledTimes(1);
       expect(onStart.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ mode }));

@@ -4,9 +4,10 @@
  * preset's bound model via the `switch_model` seam (persist-only without one).
  * Generalized — any chatBackend with presets, no hardcoded provider id.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronUp } from "lucide-react";
 import { getPresetManagerApi, type Preset, type PresetState } from "./presetManagerApi";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 export function ChatPresetBubble({
   pluginId,
@@ -20,6 +21,7 @@ export function ChatPresetBubble({
   const [state, setState] = useState<PresetState>({ presets: [], activePreset: null });
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let alive = true;
@@ -85,6 +87,7 @@ export function ChatPresetBubble({
   return (
     <div className="relative inline-flex" style={{ zIndex: 20 }}>
       <button
+        ref={triggerRef}
         type="button"
         data-testid="chat-preset-bubble"
         className="ct-chat-preset-bubble inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs font-mono hover:brightness-110"
@@ -102,9 +105,9 @@ export function ChatPresetBubble({
         <span>{label ?? "Preset"}</span>
         <ChevronUp size={11} className="opacity-70" />
       </button>
-      {open && (
+      <AnchoredPopover open={open} anchor={triggerRef} placement="top-start" onClose={() => setOpen(false)}>
         <div
-          className="absolute bottom-full left-0 mb-1 grid gap-0.5 rounded-md border p-1 shadow-lg"
+          className="grid gap-0.5 rounded-md border p-1 shadow-lg"
           style={{
             minWidth: 180,
             maxHeight: 260,
@@ -144,7 +147,7 @@ export function ChatPresetBubble({
             );
           })}
         </div>
-      )}
+      </AnchoredPopover>
     </div>
   );
 }

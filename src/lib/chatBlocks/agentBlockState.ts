@@ -1,4 +1,5 @@
 import { tabActivity } from "../tabActivity";
+import { showStopControl } from "../agentInterrupt";
 import type { AgentBlockInfo, AgentBlockState, AgentRunState } from "@codeterm/chat-ui";
 import type { Plan } from "../../components/Canvas/types";
 import { resolveTabCurrentTask } from "../../components/Canvas/tabCurrentTask";
@@ -45,7 +46,7 @@ export function agentBlockInfo(tab: Tab, plans: readonly Plan[], providerName: (
     statusLine: activity.label || tab.description?.trim() || null,
     task: current ? { key: taskDisplayKey(current.task), name: current.task.name, plan: current.plan.title } : null,
     peer: tab.remote_peer_name ?? null,
-    canStop: activity.canStop && Boolean(tab.pty_id),
+    canStop: showStopControl(activity, tab),
   };
 }
 

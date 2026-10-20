@@ -162,8 +162,6 @@
 }
 
 .ct-compact-peek {
-  position: fixed;
-  z-index: 1100;
   width: 15rem;
   padding: 4px;
   border: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
@@ -171,7 +169,6 @@
   background: var(--ct-glass-sheen), var(--ct-glass-bg);
   box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
   backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
-  transform: translateY(-50%);
   transform-origin: left center;
   animation: ct-compact-peek-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
 }
@@ -188,12 +185,12 @@
   from {
     opacity: 0;
     clip-path: inset(0 85% 0 0 round 14px);
-    transform: translate(-10px, -50%) scale(0.92, 0.96);
+    transform: translateX(-10px) scale(0.92, 0.96);
   }
   to {
     opacity: 1;
     clip-path: inset(0 0 0 0 round 14px);
-    transform: translate(0, -50%) scale(1);
+    transform: translateX(0) scale(1);
   }
 }
 

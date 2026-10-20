@@ -16,7 +16,7 @@ const PROBE_EVERY = 50;
 
 interface NewTab {
   tabId: string;
-  tabId: string;
+
 }
 async function createEagerTab(): Promise<NewTab> {
   const r = await fetch(`${API_BASE}/api/tabs`, {
@@ -25,8 +25,8 @@ async function createEagerTab(): Promise<NewTab> {
     body: JSON.stringify({ eager: true }),
   });
   if (!r.ok) throw new Error(`POST /api/tabs -> ${r.status}`);
-  const b = (await r.json()) as { tab_id: string; tab_id: string };
-  return { tabId: b.tab_id, tabId: b.tab_id };
+  const b = (await r.json()) as { tab_id: string; };
+  return { tabId: b.tab_id };
 }
 async function closeTab(id: string): Promise<void> {
   await fetch(`${API_BASE}/api/tabs/${id}/close`, { method: "POST", headers: AUTH_H }).catch(() => {});

@@ -118,7 +118,7 @@ fn exec_cli(cli_path: PathBuf) -> ! {
 fn exec_cli(cli_path: PathBuf) -> ! {
     let mut command = std::process::Command::new(&cli_path);
     command.args(std::env::args().skip(1));
-    crate::process_util::no_window_std(&mut command);
+    codeterm_service_core::process_util::no_window_std(&mut command);
     let status = command.status();
     match status {
         Ok(s) => std::process::exit(s.code().unwrap_or(1)),

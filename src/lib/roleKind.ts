@@ -7,6 +7,9 @@ export const PLANNER_KIND = "planner";
 export const WATCHER_KIND = "watcher";
 export const WORKER_KIND = "worker";
 export const CARTOGRAPHER_KIND = "cartographer";
+export const QA_KIND = "qa";
+export const RELEASE_MANAGER_KIND = "release_manager";
+export const REVIEWER_KIND = "reviewer";
 
 /** Kinds that anchor a Team — the only ones that take no parent and spawn. */
 const ANCHOR_KINDS = new Set([ORCHESTRATOR_KIND, GENERAL_AGENT_KIND]);
@@ -27,6 +30,9 @@ const KIND_LABELS: Record<string, string> = {
   [WATCHER_KIND]: "Watcher",
   [WORKER_KIND]: "Worker",
   [CARTOGRAPHER_KIND]: "Cartographer",
+  [QA_KIND]: "QA",
+  [RELEASE_MANAGER_KIND]: "Release Manager",
+  [REVIEWER_KIND]: "Reviewer",
 };
 
 type RoleCarrier = Pick<Tab, "role" | "role_profile">;

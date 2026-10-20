@@ -1,6 +1,27 @@
 name: Release macOS
 
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Package version (vX.Y.Z)
+        required: true
+        type: string
+      source_ref:
+        description: Exact source commit SHA
+        required: true
+        type: string
+      arch:
+        type: choice
+        required: true
+        options: [arm64, x86_64]
+      dry_run:
+        description: Direct dispatch never publishes
+        type: boolean
+        default: true
+      mirror:
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       tag:
@@ -16,11 +37,20 @@ on:
         required: false
         default: false
         type: boolean
+      arch:
+        description: arm64 or x86_64; each architecture is its own caller job and graph node
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+  CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+  # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
+  CODETERM_BUILD_GATEWAY_MODE: queue
   DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
   DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
   DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
@@ -31,26 +61,26 @@ env:
 
 jobs:
   build:
-    name: build (${{ matrix.arch }})
+    name: build
     runs-on: [self-hosted, "${{ matrix.runner_label }}"]
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: arm64
-            artifact_arch: aarch64
-            runner_label: ${{ vars.RELEASE_MACOS_ARM64_LABEL || 'codeterm-builder' }}
-          - arch: x86_64
-            artifact_arch: x64
-            runner_label: ${{ vars.RELEASE_MACOS_X64_LABEL || 'codeterm-builder' }}
+          - arch: ${{ inputs.arch }}
+            artifact_arch: ${{ inputs.arch == 'arm64' && 'aarch64' || 'x64' }}
+            runner_label: ${{ inputs.arch == 'arm64' && (vars.RELEASE_MACOS_ARM64_LABEL || 'codeterm-builder') || (vars.RELEASE_MACOS_X64_LABEL || 'codeterm-builder') }}
     env:
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
+      RUSTC_WRAPPER: sccache
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CODETERM_RELEASE_FEATURES: embeddings
+      CODETERM_RELEASE_COMMON_STAGE: '1'
       CARGO_INCREMENTAL: '0'
       ART: ${{ github.workspace }}/release-artifacts/macos-${{ matrix.arch }}
       ASSET_SCOPE: ${{ matrix.artifact_arch == 'aarch64' && 'darwin-aarch64' || 'darwin-x86_64' }}
@@ -90,7 +120,7 @@ jobs:
           run_install: false
 
       - name: Clear incomplete release uploads for retry
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release macOS') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
@@ -116,10 +146,14 @@ jobs:
       - name: Preflight macOS signing and notarization
         run: bash scripts/check-release-credentials-mac.sh
 
+      - name: Verify shared compile cache
+        run: bash build.sh cache-verify
+
       - name: Frozen dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Build signed and notarized macOS bundle
+        id: compile
         run: |
           rm -rf "$ART"
           mkdir -p "$ART"
@@ -127,17 +161,41 @@ jobs:
           if [ "${{ matrix.arch }}" = arm64 ]; then root=src-tauri/target/release; else root=src-tauri/target/x86_64-apple-darwin/release; fi
           cp "$root/bundle/dmg/CodeTerm_${{ steps.ver.outputs.ver }}_${{ matrix.artifact_arch }}.dmg" "$ART/"
 
+      - name: Produce shared headless stage and package
+        run: |
+          if [ "${{ matrix.arch }}" = arm64 ]; then target=aarch64-apple-darwin; else target=x86_64-apple-darwin; fi
+          bundle="$ART/CodeTerm_${{ steps.ver.outputs.ver }}_${{ matrix.artifact_arch }}.app.tar.gz"
+          test -f "$bundle"
+          node scripts/release-stage.mjs finalize --target "$target" --tag "${{ inputs.tag }}" \
+            --version "${{ steps.ver.outputs.ver }}" --source-sha "${{ inputs.source_ref }}" \
+            --cargo-log "release-artifacts/build-logs/$target/server.jsonl" \
+            --tree-log "release-artifacts/build-logs/$target/closure.txt" \
+            --bundle "$bundle" --output-dir "$ART"
+
       - name: Smoke built release bundle
         run: node scripts/release-bundle-smoke.mjs macos "$ART" "${{ inputs.source_ref }}"
+
+      - name: Smoke packaged client and isolated server pair
+        run: |
+          if [ "${{ matrix.arch }}" = arm64 ]; then target=aarch64-apple-darwin; else target=x86_64-apple-darwin; fi
+          node scripts/release-pair-smoke.mjs "$target" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "release-artifacts/common-stage/$target" "$ART"
 
       - name: Verify updater signatures (including dry run)
         env:
           RELEASE_VERIFY_ONLY: 'true'
+          SOURCE_SHA: ${{ inputs.source_ref }}
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART"
 
+      - name: Retain private dry-run updater evidence
+        if: ${{ inputs.dry_run }}
+        run: >-
+          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID"
+          "$ASSET_SCOPE" "$ART" "$ART" "$RUNNER_TEMP/dry-run-$ASSET_SCOPE"
+
       - name: Verify and publish platform assets and updater fragment
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release macOS') && !inputs.dry_run }}
         env:
+          SOURCE_SHA: ${{ inputs.source_ref }}
           PUBLISH_PUBLIC_MIRROR: ${{ inputs.mirror }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART"
@@ -154,3 +212,12 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: release-macOS
           target: ${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+
+      # Without a compile step no sccache server ever started, so there is nothing to report.
+      - name: Shared compile cache statistics
+        if: ${{ always() && steps.compile.outcome != 'skipped' }}
+        run: bash build.sh cache-stats
+      - name: Remove this job's Rust targets and archives
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs

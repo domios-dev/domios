@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { headlessAssetNames } from '../headless-release-package.mjs';
 import { ownsReleaseAsset } from '../release-asset-scope.mjs';
 const assets = {
   'darwin-aarch64': ['CodeTerm_aarch64.app.tar.gz', 'CodeTerm_1.14.7_aarch64.dmg', 'updater-darwin-aarch64.json'],
@@ -20,3 +21,16 @@ test('retry cleanup owns only its artifact names, never another active artifact 
   }
 });
 test('unknown platform cleanup is refused', () => assert.throws(() => ownsReleaseAsset('bundle', 'unknown')));
+
+test('headless archive, checksum, and manifest retry cleanup stays platform-scoped', () => {
+  for (const platform of Object.keys(assets).filter(name => name !== 'frontend')) {
+    const names = Object.values(headlessAssetNames('v1.14.7', platform));
+    for (const name of names) {
+      assert.equal(ownsReleaseAsset(name, platform), true, platform + '/' + name);
+      for (const other of Object.keys(assets).filter(candidate => candidate !== 'frontend' && candidate !== platform)) {
+        assert.equal(ownsReleaseAsset(name, other), false, other + '/' + name);
+      }
+    }
+  }
+  assert.equal(ownsReleaseAsset('domios-headless-v1.14.7-linux-x86_64.tar.gz.sig', 'linux-x86_64'), false);
+});

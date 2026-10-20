@@ -16,6 +16,23 @@ use crate::prompts::CODETERM_RULE;
 use crate::provider::{HookEventBinding, HookIngestionRoute, IntegrationInstallOptions};
 use serde_json::Value as Json;
 
+const HOOK_TIMEOUT_SECONDS: u64 = 5;
+
+fn owned_hooks_have_bounded_timeout(json: &Json) -> bool {
+    hook_event_roster().iter().all(|binding| {
+        json.pointer(&format!("/hooks/{}", binding.event))
+            .and_then(Json::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.get("hooks").and_then(Json::as_array))
+            .flatten()
+            .all(|hook| {
+                !is_codeterm_hook(&serde_json::json!({"hooks": [hook]}))
+                    || hook.get("timeout").and_then(Json::as_u64) == Some(HOOK_TIMEOUT_SECONDS)
+            })
+    })
+}
+
 fn claude_settings_path() -> Result<std::path::PathBuf, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
     Ok(home.join(".claude").join("settings.json"))
@@ -236,7 +253,7 @@ pub(crate) fn check_integration_at(path: &std::path::Path) -> Json {
         "settings_exists": true,
         "hooks_installed": hooks_installed,
         "integration_owned": integration_owned(&json),
-        "hook_contract_current": hooks_installed && owned_hooks_carry_marker(&json) && !precompact_hook,
+        "hook_contract_current": hooks_installed && owned_hooks_carry_marker(&json) && owned_hooks_have_bounded_timeout(&json) && !precompact_hook,
         "notification_hook": notification_hook,
         "permission_request_hook": permission_request_hook,
         "stop_hook": stop_hook,
@@ -312,7 +329,7 @@ fn hook_entry(binding: &HookEventBinding) -> Option<Json> {
             "hooks": [{
                 "type": "command",
                 "command": permission_command,
-                "timeout": 5000,
+                "timeout": HOOK_TIMEOUT_SECONDS,
                 "_source": CODETERM_HOOK_MARKER
             }]
         }),
@@ -321,7 +338,7 @@ fn hook_entry(binding: &HookEventBinding) -> Option<Json> {
             "hooks": [{
                 "type": "command",
                 "command": hook_command("/api/tabs/$CODETERM_TAB_ID/hook/stop", "", nonce_h, true),
-                "timeout": 5000,
+                "timeout": HOOK_TIMEOUT_SECONDS,
                 "_source": CODETERM_HOOK_MARKER
             }]
         }),
@@ -331,7 +348,7 @@ fn hook_entry(binding: &HookEventBinding) -> Option<Json> {
                 "type": "command",
                 "command": hook_command(
                     "/api/tabs/$CODETERM_TAB_ID/hook/session_start", "", nonce_h, true),
-                "timeout": 5000,
+                "timeout": HOOK_TIMEOUT_SECONDS,
                 "_source": CODETERM_HOOK_MARKER
             }]
         }),
@@ -567,6 +584,30 @@ mod tests {
             consent: true,
             repair: false,
         }
+    }
+
+    #[test]
+    fn hook_deadlines_use_seconds_and_stale_owned_deadlines_require_repair() {
+        let mut hooks = serde_json::Map::new();
+        for binding in hook_event_roster() {
+            let entry = hook_entry(&binding).unwrap();
+            assert_eq!(entry["hooks"][0]["timeout"], 5);
+            hooks.insert(binding.event, serde_json::json!([entry]));
+        }
+        let mut settings = serde_json::json!({"hooks": hooks});
+        assert!(owned_hooks_have_bounded_timeout(&settings));
+        for timeout in [serde_json::json!(5000), Json::Null] {
+            settings["hooks"]["SessionStart"][0]["hooks"][0]["timeout"] = timeout;
+            assert!(!owned_hooks_have_bounded_timeout(&settings));
+        }
+        settings["hooks"]["SessionStart"][0]["hooks"][0]["timeout"] = 5.into();
+        settings["hooks"]["Stop"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "hooks": [{"type": "command", "command": "foreign-audit", "timeout": 5000}]
+            }));
+        assert!(owned_hooks_have_bounded_timeout(&settings));
     }
 
     #[test]

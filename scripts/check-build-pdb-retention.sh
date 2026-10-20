@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh retain-pdb; scripts qa-gates.lib.sh
 # The dev symbol store keeps the last few linked builds and prunes the rest.
 #
 # Without it a dev PDB survives only until the next link: the 2026-09-05 abort

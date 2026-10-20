@@ -12,7 +12,15 @@ input.on("line",line=>{
     closeSync(process.stdout.fd);
     return;
   }
+  if(frame.method==="fixture/settings"){
+    process.stdout.write(JSON.stringify({id:frame.id,result:{}})+"\n",()=>{
+      if(frame.params.value.model!=="refuse")process.stdout.write(JSON.stringify({method:"fixture/settings/updated",params:{threadId:frame.params.threadId,settings:frame.params.value}})+"\n");
+    });
+    return;
+  }
   let result={method:frame.method,params:frame.params};
+  if(frame.method==="thread/turns/list")result={data:[{id:"turn-one",status:"completed"},{id:"turn-two",status:"completed"}],nextCursor:null};
+  if(frame.method==="thread/fork")result={thread:{id:"fork-thread"}};
   if(frame.method==="fixture/environment"){
     result={environment:JSON.parse(execFileSync(process.execPath,["-e","process.stdout.write(JSON.stringify(Object.fromEntries(JSON.parse(process.argv[1]).map(key=>[key,process.env[key]]))))",JSON.stringify(frame.params.keys)],{encoding:"utf8"}))};
   }

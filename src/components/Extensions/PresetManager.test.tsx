@@ -366,7 +366,7 @@ test("shows an empty state when there are no presets", async () => {
   await act(async () => root.unmount());
 });
 
-test("catalog refresh hides stale preset models through loading and error before publishing new entries", async () => {
+test("catalog refresh retains last good models after errors before publishing new entries", async () => {
   const catalogA = [{ id: "model-a", display_name: "Model A" }];
   const catalogB = [{ id: "model-b", display_name: "Model B" }];
   const failedRefresh = deferred<ProviderDescriptor[]>();
@@ -413,7 +413,7 @@ test("catalog refresh hides stale preset models through loading and error before
     await Promise.resolve();
   });
   await flush();
-  assert(presetModelIds(host).length === 0, "preset selector exposes no retained catalog A entries after error");
+  assert(presetModelIds(host).join(",") === "model-a", "preset selector retains the last good catalogue after error");
 
   await act(async () => modelsUpdated?.());
   await flush();

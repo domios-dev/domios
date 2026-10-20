@@ -1,4 +1,3 @@
-import { streamRecoveryAction } from "./streamRecoveryModel";
 /**
  * Web-mode event delivery for the `listen()` bridge.
  *
@@ -15,9 +14,12 @@ import { streamRecoveryAction } from "./streamRecoveryModel";
 import { apiHost, currentToken, relayTarget } from "./webApi";
 import { createTransportClient, type TransportClient } from "./transportClient";
 import { fireResync } from "./resync";
+import { replayCursorForTarget } from "./resyncModel";
 import { createSeqGapTracker } from "./eventSeqGaps";
-import { RECONNECT_FIRST_MS, nextReconnectBackoff, reconnectDelay, transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
-import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
+import { RECONNECT_FIRST_MS, nextReconnectBackoff, reconnectDelay, shouldResetReconnectBackoff, transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
+import { TERMINAL_VIEWER_DISCONNECTED_EVENT, TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
+import { signalEventStreamReady } from "./eventStreamReady";
+import { WEB_BOOT_CHANGED_EVENT, WEB_EVENTS_READY_EVENT, type BootChangedDetail } from "./buildDriftReload";
 
 let eventClient: TransportClient | undefined;
 export function bindWebEventsTransport(client: TransportClient): void {
@@ -40,13 +42,13 @@ interface OverflowData {
   boot: string;
   next_seq: number;
   oldest?: number;
+  build?: string;
 }
 
 const handlers = new Map<string, Set<Handler>>();
 let streamAbort: AbortController | null = null;
 let started = false;
 let lastFrameAt = 0;
-let forceImmediateRetry = false;
 let hasAttemptedConnection = false;
 let reconnectState: WebReconnectState = "connected";
 let cancelReconnectWait: (() => void) | null = null;
@@ -54,6 +56,7 @@ let wakeReconnectWait: (() => void) | null = null;
 let streamGeneration = 0;
 let wakeRequested = false;
 let receiveDeadline: ReturnType<typeof setTimeout> | null = null;
+let streamRelayed = false;
 
 export function webReconnectEnabled(): boolean {
   try {
@@ -78,22 +81,40 @@ function armReceiveDeadline(abort: AbortController): void {
   (receiveDeadline as unknown as { unref?: () => void }).unref?.();
 }
 
-function waitForReconnectFailure(delay: number, generation: number): Promise<boolean> {
+function waitForReconnectFailure(delay: number, hiddenDelay: number, generation: number): Promise<boolean> {
   reconnectState = transitionWebReconnect(reconnectState, "lost").state;
   return new Promise((resolve) => {
+    const startedAt = Date.now();
+    let deadlineAt = startedAt + delay;
+    let deadline: ReturnType<typeof setTimeout> | null = null;
+    const scheduleDeadline = () => {
+      if (deadline !== null) clearTimeout(deadline);
+      deadline = setTimeout(() => finish("deadline"), Math.max(0, deadlineAt - Date.now()));
+      (deadline as unknown as { unref?: () => void }).unref?.();
+    };
     const finish = (event: "wake" | "deadline" | "stop") => {
-      clearTimeout(deadline);
+      if (deadline !== null) {
+        clearTimeout(deadline);
+        deadline = null;
+      }
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       cancelReconnectWait = null;
       wakeReconnectWait = null;
       const next = transitionWebReconnect(reconnectState, event);
       reconnectState = next.state;
       resolve(generation === streamGeneration && next.action === "probe");
     };
-    const deadline = setTimeout(() => finish("deadline"), delay);
-    (deadline as unknown as { unref?: () => void }).unref?.();
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        deadlineAt = Math.max(deadlineAt, startedAt + hiddenDelay);
+        scheduleDeadline();
+      }
+    };
+    scheduleDeadline();
+    document.addEventListener("visibilitychange", onVisibilityChange);
     wakeReconnectWait = () => finish("wake");
     cancelReconnectWait = () => finish("stop");
-    window.dispatchEvent(new Event("codeterm-event-stream-disconnected"));
+    window.dispatchEvent(new Event(TERMINAL_VIEWER_DISCONNECTED_EVENT));
   });
 }
 
@@ -108,6 +129,14 @@ export const RESYNC_EVENTS = [
   "service-health-changed",
 ];
 
+function readCursorTarget(): string | null {
+  try {
+    return cursorKey();
+  } catch {
+    return null;
+  }
+}
+
 function readCursor(): string | null {
   try {
     return sessionStorage.getItem(cursorKey());
@@ -120,6 +149,7 @@ function cursorKey(): string {
   return `${CURSOR_KEY}:${eventOrigin()}:${relayTarget()?.id ?? "self"}`;
 }
 
+let cursorTarget = readCursorTarget();
 let cursor: string | null = readCursor();
 const seqGaps = createSeqGapTracker();
 
@@ -127,7 +157,8 @@ const seqGaps = createSeqGapTracker();
 function saveCursor(next: string): void {
   cursor = next;
   try {
-    sessionStorage.setItem(cursorKey(), next);
+    cursorTarget = cursorKey();
+    sessionStorage.setItem(cursorTarget, next);
   } catch {
     /* storage unavailable (private mode) — memory-only cursor still works */
   }
@@ -152,12 +183,12 @@ function runFullResync(info: OverflowData): void {
   seqGaps.adopt(info.boot, info.next_seq - 1);
   window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
   for (const ev of RESYNC_EVENTS) dispatch(ev, null);
-  fireResync();
+  fireResync(info.reason === "boot-changed" ? "epoch_changed" : "overflow");
   if (info.reason === "boot-changed") {
     // and needs revalidation after a daemon restart (usePtyConnection.ts).
-    window.dispatchEvent(
-      new CustomEvent("codeterm-web-boot-changed", { detail: { boot: info.boot } }),
-    );
+    const detail: BootChangedDetail = { boot: info.boot, relayed: streamRelayed };
+    if (typeof info.build === "string") detail.build = info.build;
+    window.dispatchEvent(new CustomEvent(WEB_BOOT_CHANGED_EVENT, { detail }));
   }
 }
 
@@ -203,6 +234,7 @@ async function runStream(): Promise<void> {
   let backoffMs = RECONNECT_FIRST_MS;
   for (;;) {
     if (generation !== streamGeneration) return;
+    const attemptStartedAt = Date.now();
     const abort = new AbortController();
     streamAbort = abort;
     lastFrameAt = Date.now();
@@ -211,41 +243,53 @@ async function runStream(): Promise<void> {
     hasAttemptedConnection = true;
     let connected = false;
     const client = eventClient ?? createTransportClient({ origin: apiHost(), token: currentToken });
+    const target = relayTarget();
     await new Promise<void>((resolve) => {
-      client.subscribe(webEventStreamUrl(cursor).slice(client.origin().length), (_name, data) => {
+      client.subscribe(webEventStreamUrl(cursor, target).slice(client.origin().length), (_name, data) => {
         if (abort.signal.aborted || generation !== streamGeneration) return;
+        streamRelayed = target !== null;
         const frame = data as EventFrame;
         if (!frame || typeof frame.event_type !== "string") return;
-        if (!connected) {
+        const firstFrame = !connected;
+        if (firstFrame) {
           connected = true;
           backoffMs = RECONNECT_FIRST_MS;
           reconnectState = transitionWebReconnect(reconnectState, "connected").state;
           if (reconnecting) {
             window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
             window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
-            fireResync();
+            fireResync("reconnected");
           }
         }
         handleFrame(frame);
+        if (!firstFrame && frame.event_type === "overflow") signalEventStreamReady();
       }, {
         signal: abort.signal, raw: true,
+        onReady() {
+          if (abort.signal.aborted || generation !== streamGeneration) return;
+          signalEventStreamReady();
+          if (reconnecting) window.dispatchEvent(new Event(WEB_EVENTS_READY_EVENT));
+        },
         onActivity() { lastFrameAt = Date.now(); armReceiveDeadline(abort); },
-        onEnd(end) {
-          if (streamRecoveryAction(end.reason, generation !== streamGeneration) === "reconnect") forceImmediateRetry = true;
+        onEnd() {
           resolve();
         },
       });
     });
     if (generation !== streamGeneration) return;
+    if (shouldResetReconnectBackoff(connected, Date.now() - attemptStartedAt)) backoffMs = RECONNECT_FIRST_MS;
     abort.abort();
     if (receiveDeadline) { clearTimeout(receiveDeadline); receiveDeadline = null; }
-    if (wakeRequested || forceImmediateRetry) {
+    if (wakeRequested) {
       wakeRequested = false;
-      forceImmediateRetry = false;
       continue;
     }
-    if (!await waitForReconnectFailure(reconnectDelay(backoffMs, Math.random()), generation)) return;
-    backoffMs = nextReconnectBackoff(backoffMs);
+    const hidden = document.hidden;
+    const random = Math.random();
+    const delay = reconnectDelay(backoffMs, random, hidden);
+    const hiddenDelay = reconnectDelay(backoffMs, random, true);
+    if (!await waitForReconnectFailure(delay, hiddenDelay, generation)) return;
+    backoffMs = nextReconnectBackoff(backoffMs, document.hidden);
   }
 }
 
@@ -280,7 +324,9 @@ export function resetWebEvents(): void {
   stopReconnect();
   hasAttemptedConnection = true;
   seqGaps.reset();
-  cursor = readCursor();
+  const nextTarget = cursorKey();
+  cursor = replayCursorForTarget(cursorTarget, cursor, nextTarget, readCursor());
+  cursorTarget = nextTarget;
   started = false;
   streamAbort?.abort();
   streamAbort = null;
@@ -304,8 +350,8 @@ export function __resetWebEventsForTest(): void {
   streamAbort?.abort();
   streamAbort = null;
   handlers.clear();
+  cursorTarget = readCursorTarget();
   cursor = readCursor();
   lastFrameAt = 0;
-  forceImmediateRetry = false;
   hasAttemptedConnection = false;
 }

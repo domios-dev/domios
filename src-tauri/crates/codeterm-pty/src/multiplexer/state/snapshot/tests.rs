@@ -25,7 +25,7 @@ fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNod
         title_level: Some("User".into()),
         agent_type: None,
         agent_type_locked: false,
-        claude_session_id: None,
+        agent_session_id: None,
         agent_identity: None,
         role: None,
         role_profile: None,
@@ -81,6 +81,8 @@ fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
             protected: false,
             sort_order: 0,
             tabs: vec![TabSnapshot {
+                last_active_at_ms: None,
+                last_opened_at_ms: None,
                 id: "tab".into(),
                 title: "tab".into(),
                 description: None,
@@ -413,7 +415,7 @@ fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
         title_level: Some("User".into()),
         agent_type: Some("claude".into()),
         agent_type_locked: true,
-        claude_session_id: Some("c-1".into()),
+        agent_session_id: Some("c-1".into()),
         agent_identity: None,
         role: None,
         role_profile: None,
@@ -508,7 +510,7 @@ fn tab_description_round_trips_through_snapshot() {
         title_level: Some("User".into()),
         agent_type: Some("claude".into()),
         agent_type_locked: true,
-        claude_session_id: None,
+        agent_session_id: None,
         agent_identity: None,
         role: Some("Worker".into()),
         role_profile: Some("planner".into()),
@@ -536,9 +538,15 @@ fn tab_description_round_trips_through_snapshot() {
         watcher: None,
         pending_delivery: None,
     };
-    let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
+    let mut state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
+    state.tabs.get_mut("p-desc").unwrap().description_origin =
+        crate::multiplexer::types::TabDescriptionOrigin::Task;
     let tab = state.tabs.get("p-desc").expect("Tab restored");
     assert_eq!(tab.description.as_deref(), Some("running focused tests"));
+    assert_eq!(
+        tab.description_origin,
+        crate::multiplexer::types::TabDescriptionOrigin::Task
+    );
     assert_eq!(tab.role_profile.as_deref(), Some("planner"));
     assert_eq!(
         state
@@ -550,6 +558,11 @@ fn tab_description_round_trips_through_snapshot() {
     );
 
     let round = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&round);
+    assert_eq!(
+        restored.tabs.get("p-desc").unwrap().description_origin,
+        crate::multiplexer::types::TabDescriptionOrigin::Task
+    );
     assert_eq!(
         round.workspaces[0].tabs[0].description.as_deref(),
         Some("running focused tests")
@@ -577,7 +590,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         title_level: Some("User".into()),
         agent_type: Some("claude".into()),
         agent_type_locked: true,
-        claude_session_id: None,
+        agent_session_id: None,
         agent_identity: None,
         role: Some("Worker".into()),
         role_profile: None,
@@ -635,7 +648,7 @@ fn legacy_tab_title_seeds_default_provider_tab_title() {
         title_level: Some("Default".into()),
         agent_type: Some("claude".into()),
         agent_type_locked: true,
-        claude_session_id: None,
+        agent_session_id: None,
         agent_identity: None,
         role: Some("Worker".into()),
         role_profile: None,
@@ -964,7 +977,7 @@ fn spawned_by_round_trips_through_snapshot() {
         title_level: Some("User".into()),
         agent_type: Some("claude".into()),
         agent_type_locked: true,
-        claude_session_id: None,
+        agent_session_id: None,
         agent_identity: None,
         role: Some("Worker".into()),
         role_profile: None,
@@ -1059,6 +1072,15 @@ fn requested_and_actual_model_identity_round_trips_through_snapshot() {
 fn restorable_launch_parameters_round_trip_in_snapshot() {
     let (mut state, tab_id) = MultiplexerState::new();
     let launch = crate::multiplexer::types::RestorableLaunchParameters {
+        execution_mode: Some("fixture-cloud".into()),
+        execution_sandbox: Some(codeterm_types::plan::ExecutionSandboxPolicy {
+            intent: codeterm_types::plan::ExecutionIntent::ReadOnly,
+            cwd: "/opaque-lane".into(),
+            launch_args: vec!["opaque-read".into()],
+            runtime_mode: Some("opaque-read-mode".into()),
+            writable_roots: Vec::new(),
+            environment: Default::default(),
+        }),
         failed_provider: Some("failed-provider-fixture".into()),
         context_files: None,
         context_skills: None,
@@ -1141,3 +1163,17 @@ fn workspace_provisioned_cwd_round_trips_through_snapshot() {
 // ── Ghost-tab repro harness ───────────────────────────────────────────────
 
 mod visibility;
+
+#[test]
+fn activity_timestamp_survives_snapshot_restore() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().last_active_at_ms = Some(12345);
+    let snapshot = mux.to_session_snapshot();
+    let serialized = serde_json::to_string(&snapshot).unwrap();
+    let decoded = serde_json::from_str(&serialized).unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&decoded);
+    assert_eq!(
+        restored.get_tab(&tab_id).unwrap().last_active_at_ms,
+        Some(12345)
+    );
+}

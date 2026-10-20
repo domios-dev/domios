@@ -8,6 +8,9 @@ pub mod agent_verbs;
 pub mod audit;
 pub mod bubble;
 pub mod bundle_hash;
+#[cfg(any(test, feature = "test-support"))]
+mod bundle_test_support;
+pub mod bundled;
 pub mod capability;
 pub mod chatbackend_provider;
 pub mod chatpreprocessor;
@@ -30,6 +33,7 @@ pub mod model_catalog;
 pub mod model_providers;
 pub mod permission_prompt;
 pub mod plugin_icon;
+pub mod plugin_index;
 pub mod plugin_lifecycle;
 pub mod plugin_manager;
 pub mod prompt;
@@ -38,7 +42,9 @@ pub mod provider;
 pub mod provider_cli;
 pub mod provider_command;
 pub mod provider_compat;
+pub mod provider_self_update;
 pub mod provider_version;
+pub mod remote_tasks;
 pub mod rich_to_chat;
 pub mod session_evidence;
 pub mod structured_prompt;
@@ -70,5 +76,5 @@ pub use webhook::{
     WebhookRegistry, WebhookRegistryHandle,
 };
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 mod test_support;

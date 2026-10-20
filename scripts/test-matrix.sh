@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: skill testing
 # Cross-platform test matrix: runs all lanes concurrently.
 #   macos          — native host (Rust + TS unit tests)
 #   linux          — Docker container (Rust + TS unit tests)

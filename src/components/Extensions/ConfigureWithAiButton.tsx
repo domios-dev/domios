@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Sparkles } from "lucide-react";
 import { useState } from "react";
 import { configureWithAI } from "../../lib/pluginConfigure";
@@ -43,7 +44,7 @@ export function ConfigureWithAiButton({ entry }: { entry: CatalogEntry }) {
         <Sparkles size={13} aria-hidden="true" />
         {busy ? "Starting…" : "Configure with AI"}
       </Button>
-      {error && <div role="alert" className="mt-1 max-w-[260px] text-right text-[10.5px] text-[var(--ct-red)] [overflow-wrap:anywhere]">{error}</div>}
+      {error && <InlineErrorNotice error={error} operation="opening plugin setup" blocking />}
     </div>
   );
 }

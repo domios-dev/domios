@@ -83,6 +83,7 @@ function rejectedModelIds(rows) {
 
 // plugins/provider-shared/updateCheck.ts
 function record(raw) {
+  if (raw !== null && typeof raw === "object") return raw;
   if (typeof raw !== "string") return null;
   try {
     const value = JSON.parse(raw);
@@ -130,25 +131,43 @@ function newestSupportedVersion(versions, compatibility) {
     return best === null || compare(version, best) === 1 ? version : best;
   }, null);
 }
-function checkProviderUpdate(host2, binary, metadataUrl, compatibility) {
-  const installed = record(host2.exec(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
+function installedVersion(result) {
+  const installed = record(result);
   if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
-  const currentVersion = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
-  if (!currentVersion || !versionParts(currentVersion)) return null;
-  const response = record(host2.fetch(JSON.stringify({
-    url: metadataUrl,
-    method: "GET",
-    timeoutMs: 6e3,
-    headers: { Accept: "application/vnd.npm.install-v1+json" }
-  })));
+  const version = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
+  return version && versionParts(version) ? version : null;
+}
+function availableUpdate(currentVersion, result, compatibility) {
+  const response = record(result);
   if (response?.status !== 200) return null;
   const metadata = record(response.body);
   let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
+  if (!compatibility && !latestVersion) return null;
   if (compatibility) {
     if (!metadata?.versions || typeof metadata.versions !== "object") return null;
     latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
   }
-  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : null;
+  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
+}
+function startedJob(raw) {
+  const job = record(raw)?.jobId;
+  return typeof job === "string" && job !== "" ? job : null;
+}
+function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
+  const probe = startedJob(host2.execStart(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
+  if (!probe) return null;
+  return host2.awaitJob(probe, (installed) => {
+    const currentVersion = parseInstalled(installed);
+    if (!currentVersion) return null;
+    const metadata = startedJob(host2.fetchStart(JSON.stringify({
+      url: metadataUrl,
+      method: "GET",
+      timeoutMs: 6e3,
+      headers: { Accept: compatibility ? "application/vnd.npm.install-v1+json" : "application/json" }
+    })));
+    if (!metadata) return null;
+    return host2.awaitJob(metadata, (response) => availableUpdate(currentVersion, response, compatibility));
+  });
 }
 
 // plugins/provider-opencode/src/update.ts
@@ -240,6 +259,11 @@ function providerKeyEnvName(id) {
   const snake = id.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/[^a-zA-Z0-9]+/g, "_").toUpperCase();
   return `DOMIOS_PROVIDER_${snake}_KEY`;
 }
+
+// plugins/provider-opencode/src/modelRejections.json
+var modelRejections_default = {
+  query: "WITH recent AS MATERIALIZED (SELECT id, time_updated FROM message ORDER BY time_updated DESC, id DESC LIMIT 200) SELECT json_object('role', 'assistant', 'providerID', substr(json_extract(data, '$.providerID'), 1, 1024), 'modelID', substr(json_extract(data, '$.modelID'), 1, 1024), 'time', json_object('completed', CASE WHEN json_extract(data, '$.time.completed') IS NOT NULL THEN 1 END), 'error', json_object('name', substr(json_extract(data, '$.error.name'), 1, 64), 'data', json_object('message', substr(json_extract(data, '$.error.data.message'), 1, 4096), 'statusCode', CAST(json_extract(data, '$.error.data.statusCode') AS INTEGER), 'isRetryable', json(CASE json_type(data, '$.error.data.isRetryable') WHEN 'false' THEN 'false' WHEN 'true' THEN 'true' ELSE 'null' END)))) AS data FROM recent CROSS JOIN message ON message.id = recent.id WHERE CASE WHEN octet_length(data) > ?1 THEN 0 WHEN NOT json_valid(data) THEN 0 ELSE json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) END ORDER BY recent.time_updated DESC, recent.id DESC"
+};
 
 // plugins/provider-opencode/src/modelVariants.ts
 function variantLaunch(args) {
@@ -350,6 +374,14 @@ function fileDiffFromEdit(edit) {
     }]
   };
 }
+
+// packages/chat-core/src/domios.ts
+var DOMIOS_PASTED_MARKER = "pasted by Domios";
+var PASTED_MARKER_TAIL = `
+${DOMIOS_PASTED_MARKER}`;
+
+// packages/chat-core/src/attachmentValidation.ts
+var MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 
 // packages/chat-core/src/shellLexer.ts
 var POSIX_ESCAPABLE = /* @__PURE__ */ new Set([..." 	\"'\\$`|&;<>(){}#*?[]~!"]);
@@ -615,22 +647,63 @@ function isQuestionMenuFooter(line) {
   const lc = String(line || "").toLowerCase();
   return lc.indexOf("select") !== -1 && lc.indexOf("submit") !== -1 && lc.indexOf("dismiss") !== -1;
 }
-function discoverOpencodeModels() {
-  const raw = host.exec(JSON.stringify({
+var MODEL_CATALOGUE_TTL_MS = 10 * 60 * 1e3;
+var modelCatalogue = null;
+var lastGoodCatalogue = null;
+function cachedOpencodeModels() {
+  return lastGoodCatalogue;
+}
+function discoverOpencodeModels(inputFingerprint) {
+  return withOpencodeModels(inputFingerprint, (models2) => models2);
+}
+function withOpencodeModels(inputFingerprint, then) {
+  const now = host.unixNowMs();
+  if (inputFingerprint === void 0 && modelCatalogue?.pending) return then(null);
+  const stamp = inputFingerprint ?? "unresolved";
+  if (modelCatalogue && modelCatalogue.stamp === stamp && now >= modelCatalogue.since && now - modelCatalogue.since < MODEL_CATALOGUE_TTL_MS) {
+    return then(modelCatalogue.pending ? null : modelCatalogue.models);
+  }
+  const attempt = { stamp, since: now, pending: true, models: null };
+  modelCatalogue = attempt;
+  const finish = (models2) => {
+    if (modelCatalogue !== attempt) return then(null);
+    attempt.pending = false;
+    attempt.models = models2;
+    attempt.since = host.unixNowMs();
+    if (models2 !== null) lastGoodCatalogue = models2;
+    return then(models2);
+  };
+  return probeModels(false, (result) => {
+    if (modelCatalogue !== attempt) return then(null);
+    if (!completeModelOutput(result)) return finish(null);
+    const identities = parseOpencodeModels(result.stdout);
+    if (identities === null) return finish(null);
+    return probeModels(true, (metadataResult) => {
+      if (modelCatalogue !== attempt) return then(null);
+      const verbose = metadataResult?.code === 0 && !metadataResult.error && typeof metadataResult.stdout === "string" ? metadataResult.stdout : "";
+      const metadata = modelMetadata(verbose);
+      const enriched = new Map((parseOpencodeModels(verbose) ?? []).map((model) => [model.id, model]));
+      const models2 = identities.filter((model) => !modelUnavailable(metadata.get(model.id))).map((model) => enriched.get(model.id) ?? model);
+      return finish(filterRejectedModels(models2));
+    });
+  });
+}
+function completeModelOutput(result) {
+  return result?.code === 0 && !result.error && !result.truncated && typeof result.stdout === "string";
+}
+function probeModels(verbose, then) {
+  const started = safeJson(host.execStart(JSON.stringify({
     bin: "opencode",
-    args: ["models", "--verbose"],
+    args: verbose ? ["models", "--verbose"] : ["models"],
     timeoutMs: 3e3
-  }));
-  const result = safeJson(raw);
-  if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
-  const models2 = parseOpencodeModels(result.stdout);
+  })));
+  return started?.jobId ? host.awaitJob(started.jobId, then) : then(null);
+}
+var MODEL_REJECTION_QUERY = modelRejections_default.query;
+function filterRejectedModels(models2) {
   const db = opencodeDbPath();
-  if (!models2 || !db || !host.fs.fileExists(db)) return models2;
-  const rows = host.fs.sqliteQuery(
-    db,
-    "SELECT data FROM message WHERE octet_length(data) <= ?1 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY time_updated DESC LIMIT 1000",
-    [ASSISTANT_MESSAGE_MAX_BYTES]
-  );
+  if (!db || !host.fs.fileExists(db)) return models2;
+  const rows = host.fs.sqliteQuery(db, MODEL_REJECTION_QUERY, [ASSISTANT_MESSAGE_MAX_BYTES]);
   const rejected = rejectedModelIds(rows.map((row) => {
     const message = safeJson(row.data);
     return { model: sessionModelIdentity(message), message };
@@ -675,14 +748,34 @@ function isNonChatModel(id) {
   for (let i = 0; i < toks.length; i++) if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
   return false;
 }
-function discoverOpencodeGroupUsage() {
+var GROUP_USAGE_SQL = "SELECT json_extract(data,'$.providerID') AS g, COUNT(*) AS messages, SUM(COALESCE(json_extract(data,'$.tokens.input'),0)) AS input, SUM(COALESCE(json_extract(data,'$.tokens.output'),0)) AS output, SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost FROM message WHERE octet_length(data) <= " + ASSISTANT_MESSAGE_MAX_BYTES + " AND json_extract(data,'$.role')='assistant' AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g";
+var GROUP_USAGE_TTL_MS = 6e4;
+var groupUsageCache = null;
+function opencodeDbStamp(db) {
+  const slash = Math.max(db.lastIndexOf("/"), db.lastIndexOf("\\"));
+  if (slash < 0) return null;
+  const name = db.slice(slash + 1);
+  const entries = host.fs.readDir(db.slice(0, slash));
+  const stamps = [name, name + "-wal"].map((file) => {
+    const entry = entries.find((e) => e.name === file);
+    return entry ? entry.size + "@" + entry.modifiedMs : "-";
+  });
+  return stamps[0] === "-" ? null : db + "|" + stamps.join("|");
+}
+function withOpencodeGroupUsage(then) {
   const db = opencodeDbPath();
-  if (!db || !host.fs.fileExists(db)) return [];
-  const rows = host.fs.sqliteQuery(
-    db,
-    "SELECT json_extract(data,'$.providerID') AS g, COUNT(*) AS messages, SUM(COALESCE(json_extract(data,'$.tokens.input'),0)) AS input, SUM(COALESCE(json_extract(data,'$.tokens.output'),0)) AS output, SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost FROM message WHERE octet_length(data) <= " + ASSISTANT_MESSAGE_MAX_BYTES + " AND json_extract(data,'$.role')='assistant' AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g",
-    []
-  );
+  if (!db || !host.fs.fileExists(db)) return then([]);
+  const stamp = opencodeDbStamp(db);
+  const cached = groupUsageCache;
+  if (stamp && cached && cached.stamp === stamp && host.unixNowMs() - cached.atMs < GROUP_USAGE_TTL_MS) {
+    return withGroupBalances(cached.rows, () => then(groupUsageFromRows(cached.rows)));
+  }
+  return host.fs.sqliteQueryAsync(db, GROUP_USAGE_SQL, [], (rows) => {
+    groupUsageCache = stamp ? { stamp, atMs: host.unixNowMs(), rows } : null;
+    return withGroupBalances(rows, () => then(groupUsageFromRows(rows)));
+  });
+}
+function groupUsageFromRows(rows) {
   const out = [];
   for (let i = 0; i < rows.length; i++) {
     const group = rows[i].g;
@@ -698,7 +791,7 @@ function discoverOpencodeGroupUsage() {
       cost_micros: costMicros
     };
     if (costMicros > 0) entry.spend_cents = Math.round(costMicros / 1e4);
-    const remaining = groupBalanceCents(group);
+    const remaining = cachedBalanceCents(group);
     if (remaining != null) entry.spend_remaining_cents = remaining;
     out.push(entry);
   }
@@ -711,33 +804,39 @@ var BALANCE_CREDENTIAL = "opencodeAuth";
 var BALANCE_TTL_MS = 6e4;
 var BALANCE_TIMEOUT_MS = 4e3;
 var balanceCache = null;
-function groupBalanceCents(group) {
-  if (!BALANCE_BY_GROUP[group]) return null;
-  const now = host.unixNowMs();
-  if (balanceCache && balanceCache.group === group && now - balanceCache.atMs < BALANCE_TTL_MS) {
-    return balanceCache.cents;
-  }
-  const cents = fetchBalanceCents(group);
-  balanceCache = { group, atMs: now, cents };
-  return cents;
+function balanceFresh(group, now) {
+  return !!balanceCache && balanceCache.group === group && now - balanceCache.atMs < BALANCE_TTL_MS;
 }
-function fetchBalanceCents(group) {
-  const spec = BALANCE_BY_GROUP[group];
-  if (!spec || typeof host.fetch !== "function") return null;
-  let response = null;
-  try {
-    response = safeJson(host.fetch(JSON.stringify({
-      url: spec.url,
-      method: "GET",
-      timeoutMs: BALANCE_TIMEOUT_MS,
-      credential: {
-        id: BALANCE_CREDENTIAL,
-        headers: { Authorization: "Bearer {" + spec.secret + "}" }
-      }
-    })));
-  } catch (_) {
-    return null;
+function cachedBalanceCents(group) {
+  return BALANCE_BY_GROUP[group] && balanceCache && balanceCache.group === group ? balanceCache.cents : null;
+}
+function withGroupBalances(rows, then) {
+  const now = host.unixNowMs();
+  let stale = null;
+  for (let i = 0; i < rows.length && !stale; i++) {
+    const group2 = rows[i].g;
+    if (typeof group2 === "string" && BALANCE_BY_GROUP[group2] && !balanceFresh(group2, now)) stale = group2;
   }
+  if (!stale || typeof host.fetch !== "function" || typeof host.fetch.async !== "function") return then();
+  const group = stale;
+  return host.fetch.async(balanceRequest(group), (response) => {
+    balanceCache = { group, atMs: host.unixNowMs(), cents: balanceCentsFrom(response) };
+    return then();
+  });
+}
+function balanceRequest(group) {
+  const spec = BALANCE_BY_GROUP[group];
+  return {
+    url: spec.url,
+    method: "GET",
+    timeoutMs: BALANCE_TIMEOUT_MS,
+    credential: {
+      id: BALANCE_CREDENTIAL,
+      headers: { Authorization: "Bearer {" + spec.secret + "}" }
+    }
+  };
+}
+function balanceCentsFrom(response) {
   if (!response || response.status !== 200 || typeof response.body !== "string") return null;
   const body = safeJson(response.body);
   const infos = body && Array.isArray(body.balance_infos) ? body.balance_infos : [];
@@ -939,9 +1038,13 @@ function opencodeSessionRecord(row, db) {
 function opencodeConfigDir() {
   const override = host.envGet("OPENCODE_CONFIG_DIR");
   if (override) return override;
+  const xdg = host.envGet("XDG_CONFIG_HOME");
+  if (xdg) return xdg + (host.platform() === "windows" ? "\\" : "/") + "opencode";
   return host.expandHome("~/.config/opencode");
 }
 function opencodeConfigPath() {
+  const override = host.envGet("OPENCODE_CONFIG");
+  if (override) return override;
   const dir = opencodeConfigDir();
   if (!dir) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
@@ -1404,8 +1507,8 @@ function parseDecisionEvents(stdout, question) {
     return { error: "invalid_response" };
   }
 }
-function models() {
-  const catalogue = new Map((discoverOpencodeModels() ?? []).map((model) => [model.id, { id: model.id, display_name: model.displayName }]));
+function modelsFromCatalogue(models2) {
+  const catalogue = new Map((models2 ?? []).map((model) => [model.id, { id: model.id, display_name: model.displayName }]));
   const path = opencodeConfigPath();
   const raw = path ? host.fs.readFile(path) : null;
   if (raw) {
@@ -1421,6 +1524,10 @@ function models() {
     }
   }
   return Array.from(catalogue.values());
+}
+function models(binaryFingerprint) {
+  const cached = cachedOpencodeModels();
+  return cached !== null ? modelsFromCatalogue(cached) : withOpencodeModels(binaryFingerprint, modelsFromCatalogue);
 }
 var decisionModel = {
   models,
@@ -1529,11 +1636,17 @@ function starterPrompt(params) {
   if (params.starterPrompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return ASSIGNED_TASK_START_PROMPT;
 }
-function withPadPermissionConfig(command, instructions, cleanup, launchConfig = {}, resumeSession) {
+function hostOwnedPermissions(hostOwned) {
+  return {
+    ...hostOwned?.questions ? { question: "deny" } : {},
+    ...hostOwned?.todos ? { todoread: "deny", todowrite: "deny" } : {}
+  };
+}
+function withPadPermissionConfig(command, instructions, cleanup, launchConfig = {}, resumeSession, hostOwned) {
   const platform = host.platform();
   const config = {
     ...launchConfig,
-    permission: { external_directory: { "*": "ask" } },
+    permission: { ...hostOwnedPermissions(hostOwned), external_directory: { "*": "ask" } },
     ...instructions ? { instructions } : {}
   };
   if (platform === "windows") {
@@ -1549,6 +1662,7 @@ function withPadPermissionConfig(command, instructions, cleanup, launchConfig = 
   return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\"$ct_pad_dir/*\\":\\"allow\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; CODETERM_RESUME_SESSION_ID=${q(resumeSession || "")}; export CODETERM_RESUME_SESSION_ID; ${command}${finish}`;
 }
 var plugin = {
+  sessionResume: () => ({ exact: true }),
   checkForUpdate: checkOpencodeUpdate,
   ...modelSwitch,
   ...decisionModel,
@@ -1614,13 +1728,13 @@ var plugin = {
     }
     return events;
   },
-  discoverModels() {
-    return discoverOpencodeModels();
+  discoverModels(binaryFingerprint) {
+    return discoverOpencodeModels(binaryFingerprint);
   },
   // Cumulative usage per upstream company comes from OpenCode's session store.
   // Model-id prefixes match picker groups, keeping vendor knowledge out of core.
   modelGroupUsage() {
-    return discoverOpencodeGroupUsage();
+    return withOpencodeGroupUsage((usage) => usage);
   },
   // because response bytes depend on horizontal vs vertical navigation.
   updatePromptSafeChoice,
@@ -1676,7 +1790,7 @@ var plugin = {
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0, void 0, launch.config, p.sessionId);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0, void 0, launch.config, p.sessionId, p.hostOwned);
   },
   buildResumeCommand(sessionId, skipPermissions) {
     return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "), void 0, void 0, {}, sessionId);
@@ -1700,12 +1814,12 @@ var plugin = {
       }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId);
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned);
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId);
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId, p.hostOwned);
     const project = launch.directory ? host.shell.quoteFor(launch.directory, platform) : null;
     const prologue = project ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&` : "";
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], void 0, variant.config, p.sessionId);
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], void 0, variant.config, p.sessionId, p.hostOwned);
   },
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
@@ -1901,43 +2015,46 @@ var plugin = {
     const parsedCursor = parseStructuredCursor(cursor);
     if (!parsedCursor) return { messages: [], cursor: cursor ?? null };
     const [sinceMs, seenAtSinceMs] = parsedCursor;
-    const rows = host.fs.sqliteQuery(
+    return host.fs.sqliteQueryAsync(
       db,
       "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role  , NULL AS message FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND m.session_id = ?1 AND p.time_updated >= ?2 UNION ALL SELECT 'error:' || id, time_created, time_updated, NULL, 'assistant', data FROM message WHERE session_id = ?1 AND time_updated >= ?2 AND octet_length(data) <= ?3 AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) ORDER BY ts_updated ASC, id ASC",
-      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES]
+      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES],
+      (rows) => structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs)
     );
-    const messages = [];
-    const observations = [];
-    let lastTs = sinceMs;
-    let seenAtLastTs = seenAtSinceMs.slice();
-    for (let i = 0; i < rows.length; i++) {
-      const updated = rows[i].ts_updated || 0;
-      const created = rows[i].ts_created || updated;
-      const id = String(rows[i].id);
-      if (updated > lastTs) {
-        lastTs = updated;
-        seenAtLastTs = [];
-      }
-      if (seenAtLastTs.indexOf(id) !== -1) continue;
-      seenAtLastTs.push(id);
-      const message = safeJson(rows[i].message);
-      const observation = sessionObservations(message);
-      if (observation) observations.push({ role: "assistant", provider_session_id: sessionId, provider_observations: observation });
-      const error = turnError(message);
-      if (error) {
-        messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });
-        continue;
-      }
-      const part = safeJson(rows[i].part);
-      if (!part) continue;
-      const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role : "assistant";
-      const cm = partToChatMsg(part, role, id, created);
-      if (cm) messages.push(cm);
-    }
-    seenAtLastTs.sort();
-    return { messages, observations, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   }
 };
+function structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs) {
+  const messages = [];
+  const observations = [];
+  let lastTs = sinceMs;
+  let seenAtLastTs = seenAtSinceMs.slice();
+  for (let i = 0; i < rows.length; i++) {
+    const updated = rows[i].ts_updated || 0;
+    const created = rows[i].ts_created || updated;
+    const id = String(rows[i].id);
+    if (updated > lastTs) {
+      lastTs = updated;
+      seenAtLastTs = [];
+    }
+    if (seenAtLastTs.indexOf(id) !== -1) continue;
+    seenAtLastTs.push(id);
+    const message = safeJson(rows[i].message);
+    const observation = sessionObservations(message);
+    if (observation) observations.push({ role: "assistant", provider_session_id: sessionId, provider_observations: observation });
+    const error = turnError(message);
+    if (error) {
+      messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });
+      continue;
+    }
+    const part = safeJson(rows[i].part);
+    if (!part) continue;
+    const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role : "assistant";
+    const cm = partToChatMsg(part, role, id, created);
+    if (cm) messages.push(cm);
+  }
+  seenAtLastTs.sort();
+  return { messages, observations, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
+}
 function resumeLaunchArgs(args, sessionId) {
   const db = opencodeDbPath();
   const model = db && host.fs.fileExists(db) ? scanMessagesForQualifiedModel(db, sessionId) : null;

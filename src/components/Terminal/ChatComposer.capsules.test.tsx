@@ -216,3 +216,14 @@ it("a selection copied from a sent bubble pastes back as inline capsules", async
   expect(textarea.value).toBe(`inspect ${capsuleToken("text2")} and ${capsuleToken("text1 · 702 lines")} please`);
   expect(await sendAndRead(textarea, calls)).toEqual([sent]);
 });
+
+it("typing after a chip appends normally over an inert mirror", async () => {
+  const { textarea, sink } = await renderComposer("capsule-typing");
+  await setValue(textarea, "see ");
+  await act(async () => sink.current?.([{ path: SHOT_1, kind: "image" }]));
+  await setValue(textarea, `${textarea.value}вот тут`);
+  expect(textarea.value).toBe(`see ${capsuleToken("image1")} вот тут`);
+  expect(mirror()?.textContent).toBe(textarea.value);
+  expect(mirror()?.getAttribute("aria-hidden")).not.toBeNull();
+  expect(mirror()?.querySelectorAll("button, a, input, [tabindex]")).toHaveLength(0);
+});

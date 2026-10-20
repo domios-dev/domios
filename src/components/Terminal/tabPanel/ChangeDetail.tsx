@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useCallback, useState } from "react";
 import { ClipboardCopy, ExternalLink, FolderOpen, Info, Maximize2 } from "lucide-react";
 import { FileDiffCards } from "@codeterm/chat-ui";
@@ -70,7 +71,7 @@ export function ChangeDetail({ tabId, file, currentFile, turns, path, cwd, displ
       {file.binary && <p className="tab-panel__note"><Info size={13} aria-hidden />Binary file: no text diff. Open the file to inspect it.</p>}
       {file.truncated && <p className="tab-panel__note"><Info size={13} aria-hidden />The recorded diff is truncated. Open the file or jump to its turn for the rest.</p>}
       {!file.binary && !hasHunks && <p className="tab-panel__note"><Info size={13} aria-hidden />No text hunks were recorded for this edit.</p>}
-      {error && <p role="alert" className="tab-panel__note">{error}</p>}
+      {error && <InlineErrorNotice error={error} operation="reading this change" blocking />}
       {missingTurn && <p role="status" className="tab-panel__note"><Info size={13} aria-hidden />This turn is outside the loaded chat history. Load older messages in chat to find it.</p>}
       {hasHunks && <div className="tab-panel__diffs">
         <FileDiffCards event={event} initiallyExpanded rawCommand={false} renderHunkActions={(_diff, hunk) => <ChatAction compact text="Add to chat"
@@ -86,7 +87,7 @@ export function ChangeDetail({ tabId, file, currentFile, turns, path, cwd, displ
     <CopyAction label="Copy diff" icon={ClipboardCopy} disabled={!hasHunks} copy={() => copyText(unifiedDiffText({ ...file, diffs }))} />
     <ChatAction label={`Ask about the change to ${path}`} text="Ask" onClick={() => askAboutChange(tabId, file, path, cwd, currentFile)} />
   </>} />}>
-    {error && view === "file" && <p role="alert" className="tab-panel__note">{error}</p>}
+    {error && view === "file" && <InlineErrorNotice error={error} operation="reading this change" blocking />}
     {fullscreen ? <ChangeFullscreen path={path} onClose={closeFullscreen}>{content}</ChangeFullscreen> : content}
   </PanelPage>;
 }

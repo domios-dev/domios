@@ -1,4 +1,7 @@
 import type { ApiConfig } from "./types";
+import { childHistorySuffix, currentChildAuthority, type ChildTranscriptAuthority } from "./childTranscript";
+import type { MultiplexerState } from "./types";
+import { backgroundProcessesSuffix, type BackgroundProcessAuthority } from "./backgroundProcesses";
 import { daemonAuthToken, daemonHttpBase, isPromptNotOnScreenResponse } from "./webApi";
 
 export interface RemoteTransportCall {
@@ -77,12 +80,20 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     ...identity, method, suffix, body, select,
   });
   switch (command) {
+    case "agent_runtime_child_authority": return call("GET", "/runtime-authority", null, value => currentChildAuthority((value as MultiplexerState).tabs[identity.remoteTabId]));
+    case "agent_runtime_child_history": return call("GET", childHistorySuffix(String(args.threadId), args.request as ChildTranscriptAuthority & {cursor?:string}));
+    case "agent_runtime_background_processes": return call("GET", backgroundProcessesSuffix(args.request as BackgroundProcessAuthority));
+    case "agent_runtime_stop_background_process": return call("POST", "/agent/runtime/background-processes", args.request);
     case "agent_runtime_answer_question": return call("POST", `/agent/runtime/questions/${encodeURIComponent(String(args.itemId))}/answer`, { answers: args.answers });
+    case "agent_runtime_goal": return call("POST", "/agent/runtime/goal", args.request);
+    case "agent_runtime_thread_history": return call("POST", "/agent/runtime/thread-history", args.request);
+    case "agent_runtime_reset_credits": return call("POST", "/agent/runtime/reset-credits", args.request);
     case "agent_runtime_login": return call("POST", "/agent/runtime/login", args.request);
     case "agent_runtime_retry": return call("POST", "/agent/runtime/retry");
     case "read_local_preview_file": return call("POST", "/preview/read", { path: args.path, kind: args.kind });
     case "read_html_preview_file": return call("POST", "/preview/read", { path: args.path, kind: "page" }, (value) => (value as { data: string }).data);
     case "check_local_preview_files": return call("POST", "/preview/check", { paths: args.paths });
+    case "wake_tab": return call("POST", "/wake");
     case "mux_close_tab": return call("POST", "/close");
     case "mux_rename_tab": return call("POST", "/rename", { title: args.title ?? args.name });
     case "mux_set_focused_tab": return call("POST", "/focus");
@@ -113,13 +124,16 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
         return response.data ?? [];
       });
     }
-    case "chat_start": return call("POST", "/chat-raw/start", { subscriptionId: args.subscriptionId });
+    case "chat_start": return call("POST", "/chat-raw/start", { subscriptionId: args.subscriptionId,
+      ...(args.knownWindow != null ? { knownWindow: args.knownWindow } : {}) });
     case "chat_stop": return call("POST", "/chat-raw/stop", { subscriptionId: args.subscriptionId });
-    case "chat_backfill": return call("POST", "/chat-raw/backfill", { before_offset: args.beforeOffset, max_bytes: args.maxBytes });
+    case "chat_backfill": return call("POST", "/chat-raw/backfill", { before_offset: args.beforeOffset, max_bytes: args.maxBytes, offset_kind: args.offsetKind });
     case "chat_send_text": return call("POST", "/chat-send", {
       text: args.text,
       client_token: args.clientToken,
     });
+    case "chat_send_dismissals": return call("GET", "/chat-send/dismissals");
+    case "chat_send_delete": return call("POST", "/chat-send/dismissals", args.dismissal);
     case "chat_send_status": return call("GET", "/chat-send");
     case "shell_command_snapshot": return call("GET", "/shell-commands");
     case "delayed_send_list": return call("GET", "/delayed-messages");
@@ -136,8 +150,11 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
       { enabled: args.enabled === true },
       (value) => (value as { enabled?: boolean })?.enabled === true,
     );
+    case "provider_switch_status": return call("GET", `/agent/switch-provider/${encodeURIComponent(String(args.operationId ?? ""))}?wait=${args.wait === true}`);
+    case "read_provider_history": return call("GET", `/agent/provider-history?file=${encodeURIComponent(String(args.file ?? ""))}`);
+    case "switch_agent_provider": return call("POST", "/agent/switch-provider", { provider: args.providerId, model: args.model, reasoning_effort: args.reasoningEffort, force: args.force === true });
     case "restart_agent_tab": return call("POST", "/agent/restart", { fresh: args.fresh === true });
-    case "switch_agent_model": return call("POST", "/agent/model", { model: args.model, reasoning_effort: args.reasoningEffort, runtime_mode: args.runtimeMode, ...(args.restartResume === true ? { restart_resume: true } : {}), ...(args.cancel === true ? { cancel: true } : {}) });
+    case "switch_agent_model": return call("POST", "/agent/model", { model: args.model, reasoning_effort: args.reasoningEffort, runtime_mode: args.runtimeMode, ...(args.serviceTier !== undefined ? { service_tier: args.serviceTier } : {}), ...(args.restartResume === true ? { restart_resume: true } : {}), ...(args.cancel === true ? { cancel: true } : {}) });
     default: return null;
   }
 }

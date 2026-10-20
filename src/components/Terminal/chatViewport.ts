@@ -1,9 +1,8 @@
-import { chatUserScrollChanged, chatViewportLayoutChanged } from "./chatScrollDecisions";
+import { CHAT_TAIL_TOLERANCE_PX, chatTailGap, chatUserScrollChanged, chatViewportLayoutChanged } from "./chatScrollDecisions";
 import { editFrontendScroll } from "../../lib/frontendUpdate/appState";
 import { ChatScrollMemory, type ChatScrollState } from "./chatScrollMemory";
+import { apiHost, relayTarget } from "../../lib/webApi";
 export type { ChatScrollState } from "./chatScrollMemory";
-
-const VIEWPORT_TOLERANCE_PX = 0.5;
 
 export interface ChatViewportGeometry {
   scrollHeight: number;
@@ -14,7 +13,7 @@ export interface ChatViewportGeometry {
 export type ChatViewportMode = "pinned" | "detached";
 
 export function isChatViewportAtBottom(viewport: ChatViewportGeometry): boolean {
-  return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= VIEWPORT_TOLERANCE_PX;
+  return chatTailGap(viewport) < CHAT_TAIL_TOLERANCE_PX;
 }
 
 export function snapChatViewportToBottom(viewport: ChatViewportGeometry): void {
@@ -42,7 +41,7 @@ export function chatViewportModeAfterScroll(
   if (layoutChanged && (!userScrolling || !chatUserScrollChanged(previous, viewport))) return currentMode;
   if (currentMode === "pinned" && isChatViewportAtBottom(viewport)) return "pinned";
   if (viewport.scrollTop < previous.scrollTop) return "detached";
-  if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 0) return "pinned";
+  if (isChatViewportAtBottom(viewport)) return "pinned";
   return currentMode;
 }
 
@@ -68,17 +67,29 @@ export function shouldRestoreChatViewport(
   return active && !loading && messageCount > 0 && currentKey !== restoredKey;
 }
 
-const persistedChatScrollStates = new ChatScrollMemory();
+let persistedChatScrollStates = new ChatScrollMemory();
+let persistedScope: string | null = null;
+
+function chatScrollMemory(): ChatScrollMemory {
+  try {
+    const key = `codeterm:chat-scroll:${apiHost()}:${relayTarget()?.id ?? "self"}`;
+    if (persistedScope !== key) {
+      persistedChatScrollStates = new ChatScrollMemory(32, { storage: sessionStorage, key });
+      persistedScope = key;
+    }
+  } catch {}
+  return persistedChatScrollStates;
+}
 
 export function getPersistedChatScrollState(key: string): ChatScrollState | null {
-  return persistedChatScrollStates.read(key);
+  return chatScrollMemory().read(key);
 }
 
 export function setPersistedChatScrollState(key: string, state: ChatScrollState): void {
   editFrontendScroll(key, "chat", JSON.stringify(state));
-  persistedChatScrollStates.save(key, state);
+  chatScrollMemory().save(key, state);
 }
 
 export function clearPersistedChatScrollState(key: string): void {
-  persistedChatScrollStates.clear(key);
+  chatScrollMemory().clear(key);
 }

@@ -247,7 +247,6 @@ test("execution plan with drafting default shows Approved chip, not Drafting", a
   const { host } = await render(makeWideHeader(plan));
   const chip = host.querySelector('[data-testid="plan-state-chip"]');
   assert(chip?.textContent === "Approved", `expected Approved, got ${chip?.textContent}`);
-  assert(!chip?.className.includes("plan-state-drafting"), "no drafting class");
 });
 
 test("remote planner binding renders short id label instead of No planner", async () => {

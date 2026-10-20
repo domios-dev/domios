@@ -12,7 +12,7 @@ use codeterm_types::config::RerankRequestMode;
 
 mod shared_state;
 
-use codeterm_types::decision::{
+use codeterm_decision::{
     deadline, DecisionAnswer, DecisionError, DecisionModel, DecisionQuestion, DecisionRequest,
 };
 

@@ -1,43 +1,41 @@
-use crate::multiplexer::commands::MuxState;
-use crate::session::SessionState;
+use crate::host_ports::ServerApiAttachmentSlot;
 use tauri::Manager;
 
-pub(crate) fn handle_window_event(window: &crate::app_runtime::Window, event: &tauri::WindowEvent) {
+pub(crate) fn handle_window_event(
+    window: &codeterm_host_runtime::app_runtime::Window,
+    event: &tauri::WindowEvent,
+) {
     if matches!(event, tauri::WindowEvent::Focused(true)) && window.label() == "main" {
-        if let Some(service) = window
+        if let Some(attachment) = window
             .app_handle()
-            .try_state::<crate::service::ServiceState>()
+            .try_state::<ServerApiAttachmentSlot>()
+            .and_then(|slot| slot.current())
         {
-            let service = service.inner().clone();
             tauri::async_runtime::spawn(async move {
-                let _ = service
-                    .refresh_billing(codeterm_billing::RefreshEvent::Focus)
-                    .await;
+                if let Err(error) = attachment.refresh_plan().await {
+                    log::debug!("[desktop] server focus refresh failed: {error}");
+                }
             });
         }
     }
-    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+    if let tauri::WindowEvent::CloseRequested { .. } = event {
         if window.label() != "main" {
+            return;
+        }
+        if !super::desktop_lifecycle::close_requested(window) {
             return;
         }
 
         let app = window.app_handle();
-        if let (Some(mux), Some(_session)) =
-            (app.try_state::<MuxState>(), app.try_state::<SessionState>())
+        if let Some(attachment) = app
+            .try_state::<ServerApiAttachmentSlot>()
+            .and_then(|slot| slot.current())
         {
-            if let Err(error) = crate::service::session_persist::submit_session_snapshot_with_intent(
-                app,
-                mux.inner(),
-                crate::session::store::SaveIntent::PreserveDesk,
-            ) {
-                log::error!("Failed to submit close-to-tray session snapshot: {error}");
-            } else {
-                log::info!("Session snapshot submitted (close-to-tray)");
-            }
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = attachment.save_session().await {
+                    log::debug!("[desktop] server close snapshot request failed: {error}");
+                }
+            });
         }
-
-        api.prevent_close();
-        let _ = window.hide();
-        log::info!("Window hidden to tray");
     }
 }

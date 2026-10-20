@@ -18,10 +18,12 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 | `agent_type` | `string?` | Agent running in tab, e.g. `"claude"` |
 | `claude_session_id` | `string?` | Linked Claude Code session ID for resume |
 | `role` | `string?` | `"Orchestrator"`, `"Worker"`, or `null` |
-| `parent_tab_id` | `string?` | Parent tab ID in hierarchy, or `null` |
+| `parent_tab_id` | `string?` | Parent tab ID in hierarchy, or `null`; Team utility shells use their creating tab when one is available |
 | `can_spawn` | `bool` | Whether this tab can spawn children. Orchestrator: true (default). Worker: always false. |
 | `connected_services` | `string[]` | External services connected to this tab (e.g. `["telegram"]`), shown as sidebar icons. |
-| `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Orchestrator), 2 (Worker under Orchestrator) |
+| `depth` | `number` | Hierarchy depth: 0 for a root tab, increasing for each child |
+
+Team utility shells keep their `team_id` for Team cleanup. When a caller tab creates one, its `parent_tab_id` points to that caller, so the tab tree and report routing follow the creator. Without a caller tab, the shell stays under the Team anchor. Worker-owned shells receive the Worker's plan, task, and attempt environment values. Closing a Team member closes its owned Team utility shells.
 
 Tab creation accepts `shell` (profile id). `GET /api/shells?refresh=true` refreshes detection; otherwise cached. Socket: `tab.new` (`shell`), `tab.shells` (`refresh`). Unknown ids refuse creation. Shells alone accept profiles; agents remain native.
 
@@ -111,6 +113,8 @@ Chat send and transcript routes: API-CHAT
 #### Session Rebind (POST /api/tabs/{id}/session/rebind)
 
 User-facing recovery is `codeterm tab rebind SESSION_ID --tab ID`: it binds the named existing provider session with `SessionStart` validation, without restarting or interrupting the agent. The response names `found_session_id`, `requested_session_id`, and whether the binding changed. A missing session cannot evict a materialized session and returns a conflict naming both ids.
+
+For an `agentRuntime` Chat tab, follow a rebind with `codeterm agent restart --tab ID`. Restart stops the stale runtime and resumes exactly the newly recorded session with its own history under a new nonce and epoch. A failed load preserves that target; retry the same restart command after resolving the provider failure. Use `--fresh` only when intentionally starting a new conversation.
 
 `GET /api/tabs/{id}/session/binding-state` reads the daemon's tab-scoped fact, never an inference: `healthy`, `deferred_pending`, `refused`, `unbound`, or `stale_pending`, with the current and requested session identities when known. `healthy` is the ordinary answer and carries no registry entry, so an absent entry alone never means trouble. Repair: `codeterm docs API-REPAIR`. Adopt a live foreign PTY as an agent send target: `codeterm docs API-ADOPT`.
 
@@ -206,4 +210,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 59 -->
+<!-- revision: 61 -->

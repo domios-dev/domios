@@ -1,3 +1,4 @@
+import { BoundedMessageContent } from "../BoundedMessageContent";
 import type { ShellScript, ToolEvent } from "@codeterm/chat-core";
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
@@ -21,10 +22,10 @@ interface CommandGroupCardProps extends CodetermNavigationProps {
 function ScriptBody({ script }: { script: ShellScript }) {
   const plain = script.language === "text" || script.lineCount > DIFF_HIGHLIGHT_MAX_LINES;
   return (
-    <div
+    <BoundedMessageContent collapsedHeight={"18rem"}
       data-testid="chat-command-script-body"
       data-language={script.language}
-      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} max-h-72 overflow-auto px-2 py-1 font-mono text-[11.5px]`}
+      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} px-2 py-1 font-mono text-[11.5px]`}
       style={{ background: "var(--ct-surface)" }}
     >
       {plain ? <pre className="m-0 whitespace-pre" style={{ color: "var(--ct-fg)" }}>{script.body}</pre> : (
@@ -39,16 +40,16 @@ function ScriptBody({ script }: { script: ShellScript }) {
           {script.body}
         </SyntaxHighlighter>
       )}
-    </div>
+    </BoundedMessageContent>
   );
 }
 
 function SegmentDetail({ event, row, index, navigation }: { event: ToolEvent; row: CommandRow; index: number; navigation: CodetermNavigationProps }) {
   if (row.role === "script") return <ScriptBody script={row.script} />;
   const text = (
-    <pre data-testid="chat-command-group-segment-text" className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
+    <BoundedMessageContent collapsedHeight={"12rem"} as="pre" data-testid="chat-command-group-segment-text" className="m-0 whitespace-pre-wrap break-words font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
       {row.segment.text}
-    </pre>
+    </BoundedMessageContent>
   );
   if (row.event) return <>
     {text}

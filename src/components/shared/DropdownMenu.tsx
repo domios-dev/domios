@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
-import { createPortal } from "react-dom";
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
-import { clampFloatingPosition } from "./floatingPosition";
+import { AnchoredPopover } from "./AnchoredPopover";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
 
 const DROPDOWN_OPEN_EVENT = "codeterm:dropdown-open";
@@ -9,10 +8,6 @@ const MENU_ITEM_SELECTOR =
   '[role="menuitem"]:not(:disabled), [role="menuitemradio"]:not(:disabled), [role="menuitemcheckbox"]:not(:disabled)';
 const MENU_NAVIGATION_KEYS = new Set(["ArrowDown", "ArrowUp", "Home", "End"]);
 const TRIGGER_FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
-const ROW_HEIGHT = 31;
-const DESCRIPTION_HEIGHT = 16;
-const SEPARATOR_HEIGHT = 9;
-const GROUP_HEADER_HEIGHT = 24;
 
 export interface DropdownMenuItem {
   label: string;
@@ -95,37 +90,6 @@ function leafItems(entries: DropdownMenuEntry[]): DropdownMenuItem[] {
   return out;
 }
 
-function estimateMenuHeight(
-  entries: DropdownMenuEntry[],
-  chrome: number,
-  collapsed: ReadonlySet<string>,
-): number {
-  let rows = 0;
-  for (const entry of entries) {
-    if (isSeparator(entry)) {
-      rows += SEPARATOR_HEIGHT;
-      continue;
-    }
-    if (isGroup(entry)) {
-      if (entry.label) rows += GROUP_HEADER_HEIGHT;
-      if (!collapsed.has(groupKeyOf(entry))) {
-        rows += entry.items.reduce(
-          (total, item) => total + ROW_HEIGHT + (item.description ? DESCRIPTION_HEIGHT : 0),
-          0,
-        );
-      }
-      continue;
-    }
-    rows += ROW_HEIGHT + (entry.description ? DESCRIPTION_HEIGHT : 0);
-  }
-  return rows + 8 + chrome;
-}
-
-function menuOrigin(top: number, trigger: HTMLElement | null, source: "trigger" | "context"): CSSProperties {
-  const above = source === "trigger" && trigger !== null && top < trigger.getBoundingClientRect().top;
-  return { "--ct-menu-origin": above ? "bottom left" : "top left", "--ct-menu-shift": above ? "6px" : "-6px" } as CSSProperties;
-}
-
 type PendingFocus = { kind: "submenu" } | { kind: "parent"; key: string };
 
 interface DropdownMenuProps {
@@ -137,6 +101,7 @@ interface DropdownMenuProps {
   contextMenuTargetRef?: RefObject<HTMLElement | null>;
   menuLabel?: string;
   menuTestId?: string;
+  disabled?: boolean;
   /** Pixel cap on the open menu; content beyond it scrolls internally. */
   maxHeight?: number;
   onOpenChange?: (open: boolean) => void;
@@ -155,12 +120,13 @@ export function DropdownMenu({
   contextMenuTargetRef,
   menuLabel = "Actions",
   menuTestId,
+  disabled,
   maxHeight,
   onOpenChange,
 }: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set<string>());
-  const focusOnOpenRef = useRef(false);
+  const focusOnOpenRef = useRef<"first" | "last" | false>(false);
   const pendingFocusRef = useRef<PendingFocus | null>(null);
   const onOpenChangeRef = useRef(onOpenChange);
   const triggerRef = useRef<HTMLDivElement>(null);
@@ -169,41 +135,14 @@ export function DropdownMenu({
   const [pageDirection, setPageDirection] = useState<"forward" | "back" | null>(null);
   const [pageWidth, setPageWidth] = useState<number | null>(null);
   const ownerRef = useRef(Symbol("dropdown"));
-  const openSourceRef = useRef<"trigger" | "context">("trigger");
-  const contextPointRef = useRef({ x: 0, y: 0 });
+  const [contextPoint, setContextPoint] = useState<{ x: number; y: number } | null>(null);
   const descriptionIdBase = useId();
+  const menuId = useId();
   const activeSubmenu = submenuKey === null
     ? undefined
     : leafItems(items).find((item) => item.submenu !== undefined && itemKey(item) === submenuKey)?.submenu;
   const inSubmenu = activeSubmenu !== undefined;
   const visibleEntries = activeSubmenu?.items ?? items;
-  const contentHeight = estimateMenuHeight(
-    visibleEntries,
-    (inSubmenu ? 38 : header ? 84 : 0) + 10,
-    collapsedGroups,
-  );
-
-  const capHeight = useCallback(
-    (estimated: number) => Math.min(estimated, maxHeight ?? window.innerHeight - 8, window.innerHeight - 8),
-    [maxHeight],
-  );
-
-  const calcPos = useCallback(() => {
-    if (!triggerRef.current) return null;
-    const menuHeight = capHeight(contentHeight);
-    const rect = triggerRef.current.getBoundingClientRect();
-    const menuWidth = Math.min(menuRef.current?.offsetWidth || 160, window.innerWidth - 8);
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const preferredTop = spaceBelow < menuHeight ? rect.top - menuHeight : rect.bottom + 2;
-    return clampFloatingPosition(rect.left, preferredTop, menuWidth, menuHeight, window.innerWidth, window.innerHeight);
-  }, [capHeight, contentHeight]);
-
-  const contextPos = useCallback((x: number, y: number) => {
-    const menuHeight = capHeight(contentHeight);
-    const menuWidth = Math.min(menuRef.current?.offsetWidth || 176, window.innerWidth - 8);
-    return clampFloatingPosition(x, y, menuWidth, menuHeight, window.innerWidth, window.innerHeight);
-  }, [capHeight, contentHeight]);
-
   const announceOpen = useCallback(() => {
     document.dispatchEvent(new window.CustomEvent(DROPDOWN_OPEN_EVENT, { detail: ownerRef.current }));
   }, []);
@@ -224,17 +163,14 @@ export function DropdownMenu({
       return;
     }
     announceOpen();
-    openSourceRef.current = "trigger";
-    focusOnOpenRef.current = focusFirstItem;
+    setContextPoint(null);
+    focusOnOpenRef.current = focusFirstItem ? "first" : false;
     pendingFocusRef.current = null;
     setSubmenuKey(null);
     setPageDirection(null);
     setPageWidth(null);
-    setPos(calcPos());
     setOpen(true);
-  }, [announceOpen, calcPos, open]);
-
-  const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
+  }, [announceOpen, open]);
 
   const closeMenu = useCallback((restoreFocus: boolean) => {
     setOpen(false);
@@ -281,10 +217,11 @@ export function DropdownMenu({
   }, []);
 
   useEffect(() => {
-    if (!open || !pos || !focusOnOpenRef.current) return;
+    if (!open || !focusOnOpenRef.current) return;
+    const focus = focusOnOpenRef.current;
     focusOnOpenRef.current = false;
-    moveFocus("Home");
-  }, [moveFocus, open, pos]);
+    moveFocus(focus === "last" ? "End" : "Home");
+  }, [moveFocus, open]);
 
   useEffect(() => {
     const pending = pendingFocusRef.current;
@@ -297,16 +234,6 @@ export function DropdownMenu({
       : focusable.find((element) => element.getAttribute("data-menu-key") === pending.key);
     target?.focus();
   }, [open, submenuKey]);
-
-  useEffect(() => {
-    if (!open) return;
-    const id = requestAnimationFrame(() => {
-      setPos(openSourceRef.current === "context"
-        ? contextPos(contextPointRef.current.x, contextPointRef.current.y)
-        : calcPos());
-    });
-    return () => cancelAnimationFrame(id);
-  }, [open, calcPos, contextPos]);
 
   useEffect(() => {
     if (!open) return;
@@ -337,19 +264,17 @@ export function DropdownMenu({
       event.preventDefault();
       event.stopPropagation();
       announceOpen();
-      openSourceRef.current = "context";
       focusOnOpenRef.current = false;
       pendingFocusRef.current = null;
-      contextPointRef.current = { x: event.clientX, y: event.clientY };
+      setContextPoint({ x: event.clientX, y: event.clientY });
       setSubmenuKey(null);
       setPageDirection(null);
       setPageWidth(null);
-      setPos(contextPos(event.clientX, event.clientY));
       setOpen(true);
     };
     target.addEventListener("contextmenu", handleContextMenu);
     return () => target.removeEventListener("contextmenu", handleContextMenu);
-  }, [announceOpen, contextMenuTargetRef, contextPos]);
+  }, [announceOpen, contextMenuTargetRef]);
 
   useEffect(() => {
     if (!open) return;
@@ -376,9 +301,17 @@ export function DropdownMenu({
       enterSubmenu(itemKey(item));
       return;
     }
-    if (!item.keepOpen) setOpen(false);
+    if (!item.keepOpen) closeMenu(true);
     item.onClick?.();
   };
+
+  const triggerWithPopup = isValidElement(trigger)
+    ? cloneElement(trigger as ReactElement<Record<string, unknown>>, {
+      "aria-haspopup": "menu",
+      "aria-expanded": open,
+      "aria-controls": menuId,
+    })
+    : trigger;
 
   const submenuParentAt = (element: EventTarget): DropdownMenuItem | undefined => {
     const key = (element as HTMLElement).getAttribute?.("data-menu-key");
@@ -392,12 +325,19 @@ export function DropdownMenu({
     <>
       <div
         ref={triggerRef}
-        onPointerDown={toggle}
+        onPointerDown={disabled ? undefined : toggle}
         onPointerUp={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(event) => {
+          if (disabled) return;
           if ((event.key === "Enter" || event.key === " ") && !event.repeat) {
             toggle(event, true);
+            return;
+          }
+          if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+            event.preventDefault();
+            toggle(event, true);
+            if (event.key === "ArrowUp") focusOnOpenRef.current = "last";
             return;
           }
           if (!open || (event.key !== "Escape" && event.key !== "ArrowDown")) return;
@@ -408,12 +348,13 @@ export function DropdownMenu({
         }}
         className={className}
       >
-        {trigger}
+        {triggerWithPopup}
       </div>
-      {open && pos && createPortal(
-        <>
+      {!open && <div id={menuId} role="menu" aria-label={menuLabel} hidden />}
+      <AnchoredPopover open={open} anchor={contextPoint ?? triggerRef} gap={contextPoint ? 0 : 2}>
           <div
             ref={menuRef}
+            id={menuId}
             role="menu"
             aria-label={menuLabel}
             data-testid={menuTestId}
@@ -446,15 +387,8 @@ export function DropdownMenu({
               moveFocus(event.key);
             }}
             aria-description={activeSubmenu?.description}
-            className="ct-portal-menu ct-menu fixed w-max max-w-[calc(100vw-0.5rem)]"
-            style={{
-              top: pos.top,
-              left: pos.left,
-              width: inSubmenu && pageWidth ? pageWidth : undefined,
-              maxHeight: maxHeight ? Math.min(pos.maxHeight, maxHeight) : pos.maxHeight,
-              overflowY: "auto",
-              ...menuOrigin(pos.top, triggerRef.current, openSourceRef.current),
-            }}
+            className="ct-menu w-max"
+            style={{ width: inSubmenu && pageWidth ? pageWidth : undefined, maxHeight }}
           >
             <div key={submenuKey ?? "root"} className="ct-menu-page" data-direction={pageDirection ?? undefined}>
             {activeSubmenu ? (
@@ -515,9 +449,7 @@ export function DropdownMenu({
             ))}
             </div>
           </div>
-        </>,
-        document.body
-      )}
+      </AnchoredPopover>
     </>
   );
 }
@@ -547,6 +479,11 @@ function DropdownMenuRow({
       disabled={item.disabled}
       onClick={(e) => {
         e.stopPropagation();
+        onActivate();
+      }}
+      onKeyDown={(event) => {
+        if ((event.key !== "Enter" && event.key !== " ") || event.repeat) return;
+        event.preventDefault();
         onActivate();
       }}
       className="ct-menu-row"
@@ -596,8 +533,7 @@ export interface DropdownSelectOption {
  * (escapes transform/overflow-hidden ancestors and layers cleanly above the
  * WebGL xterm canvas), so it replaces native `<select>` without the native
  * popup's compositor flicker over the canvas. The trigger shows the current
- * selection; each option sets its value on click, the selected one carries a
- * check.
+ * selection; each option sets its value on click and exposes its checked state.
  */
 export function DropdownSelect({
   options,
@@ -636,6 +572,7 @@ export function DropdownSelect({
     badge: o.badge,
     disabled: o.disabled,
     icon: o.value === value ? <Check size={14} /> : <span className="w-3.5 h-3.5" />,
+    selected: o.value === value,
     onClick: () => onChange(o.value),
     "data-testid": testId ? `${testId}-option-${o.value}` : undefined,
   });
@@ -654,9 +591,8 @@ export function DropdownSelect({
       data-testid={testId}
       data-value={value}
       disabled={disabled}
-      aria-haspopup="listbox"
-      aria-label={ariaLabel ?? (prefix ? `${prefix}: ${label}` : undefined)}
-      className={`flex items-center gap-1.5 w-full min-w-0 px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40 ${className ?? ""}`}
+      aria-label={ariaLabel ? `${ariaLabel}: ${label}` : prefix ? `${prefix}: ${label}` : undefined}
+      className={`flex items-center gap-2 w-full min-w-0 px-3 py-1.5 rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40 ${className ?? ""}`}
     >
       {leading}
       {prefix && (
@@ -678,13 +614,13 @@ export function DropdownSelect({
     </button>
   );
 
-  if (disabled) return trigger;
   return (
     <DropdownMenu
       items={items}
       trigger={trigger}
       className="w-full min-w-0"
       maxHeight={menuMaxHeight}
+      disabled={disabled}
     />
   );
 }

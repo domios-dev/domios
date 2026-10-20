@@ -123,6 +123,18 @@
         "Names the recorded waiver as the reason it is drafting rather than delegating.",
         "Does NOT claim drafting is the normal Orchestrator default."
       ]
+    },
+    {
+      "id": 17,
+      "name": "orchestrator-closes-integrated-worker-before-parent-qa",
+      "prompt": "You are Orchestrator for plan pl_demo. Worker tab finished-1 reported its exact clean lane tip, which is verified merged into canonical. No known defect or current author correction remains. The task remains in_review because the parent owns a later manual UI check. Another Worker active-1 has unreported dirty unmerged work. Decide what to do with each tab now and what to do if a later concrete defect requires the original author. Do not execute anything; describe your next concrete actions. Supported close command: codeterm tab close --tab ID. When recovery is actually needed, discover the supported restore command through codeterm tab --help; do not invent an agent close/restore verb.",
+      "expected_output": "Closes the integrated finished Worker promptly without accepting unfinished QA, preserves active source work, and restores the closed tab only when later needed.",
+      "expectations": [
+        "Commits to closing finished-1 now rather than retaining it for deferred parent QA or hypothetical future regressions.",
+        "Preserves the task review state and outstanding UI oracle instead of falsely accepting the task because the Worker closes.",
+        "Does not close active-1 or discard dirty/unmerged work.",
+        "Describes recovery of the original closed tab through the supported lifecycle only IF a later concrete defect needs its author; does not restore it now or replay uncertain work. A conditional future recovery plan is sufficient, because no defect exists in this scenario."
+      ]
     }
   ]
 }

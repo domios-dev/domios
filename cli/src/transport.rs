@@ -86,6 +86,7 @@ const fn pre_socket_unsupported(reason: &'static str) -> Transport {
 
 pub(crate) fn transport_for(command: &Commands) -> Transport {
     match command {
+        Commands::App { .. } => pre_socket_unsupported("app lifecycle is local-only; run on the owning machine"),
         Commands::Account { .. } => pre_socket_unsupported("account is local-only; run on the owning machine"),
         Commands::Analytics { .. } => pre_socket_unsupported("analytics is local-only; run on the owning machine"),
         Commands::Trace { .. } => pre_socket_unsupported("trace files are local-only; run on the owning instance"),
@@ -120,6 +121,9 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         ),
         Commands::Workspace { .. } => socket_rest(),
         Commands::Team { action } => team_transport(action),
+        Commands::Todo { .. } => {
+            socket_unsupported("agent todo checklists are local to the owning tab")
+        }
         Commands::Orchestrator { .. } => {
             socket_unsupported("orchestrator handoff is local-only — run it on the target machine")
         }
@@ -128,7 +132,7 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         ),
         Commands::Tab { action: crate::TabAction::Timeout { .. } }
         | Commands::Tab { action: crate::TabAction::New { timeout: Some(_), .. } } =>
-            socket_unsupported("utility shell timeouts require a local owning agent"),
+            socket_unsupported("utility shell timeouts require a local owning agent; ask an agent running on the target peer to create or manage the shell with --timeout"),
         Commands::Tab { .. } => socket_rest(),
         Commands::SendText { .. } => socket_rest(),
         Commands::Delayed { .. } => socket_rest(),

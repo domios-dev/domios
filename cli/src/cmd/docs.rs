@@ -24,6 +24,7 @@ pub(crate) struct EmbeddedDoc {
 }
 
 pub(crate) const DOCS: &[EmbeddedDoc] = &[
+    doc!("API-LIFECYCLE", "Exact local application Quit and cold update shutdown", "../../../prod-docs/API-LIFECYCLE.md"),
     doc!(
         "SPINAL-CORD",
         "Spinal Cord (Supporter Agent): everyday help, connection and verification",
@@ -126,8 +127,18 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
     ),
     doc!(
         "API-AGENTS",
-        "Agent restart, model switch, spawn, report, keep-awake, and batch REST contracts",
+        "Agent restart, model switch, report and batch REST contracts (spawn: API-SPAWN; provider switch: PROVIDER-SWITCH)",
         "../../../prod-docs/API-AGENTS.md"
+    ),
+    doc!(
+        "API-SPAWN",
+        "Agent spawn REST contract: model routing, placement, launch validation and responses",
+        "../../../prod-docs/API-SPAWN.md"
+    ),
+    doc!(
+        "PROVIDER-SWITCH",
+        "Switch a tab's provider in place: handoff, self-switch, General defaults, status and archive",
+        "../../../prod-docs/PROVIDER-SWITCH.md"
     ),
     doc!(
         "API-TEAMS",
@@ -607,9 +618,8 @@ mod tests {
                 "{} exceeds 240 lines",
                 document.name
             );
-            // A Windows checkout may carry CRLF; the reading budget counts the committed LF text.
             assert!(
-                document.body.replace("\r\n", "\n").len() <= 24 * 1024,
+                document.body.len() <= 24 * 1024,
                 "{} exceeds 24 KiB",
                 document.name
             );

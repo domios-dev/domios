@@ -1,4 +1,5 @@
 import type { Tab, TabAgentState, TabStatus } from "./types";
+import { providerErrorReason } from "./providerSignals";
 import { shellStateLabel } from "./shellCommandState";
 
 export interface AgentState extends Omit<TabAgentState, "state"> {
@@ -10,6 +11,10 @@ export type TabActivityInput = Omit<Partial<Tab>, "agent_state"> & { agent_state
 export interface TabActivity {
   kind: "working" | "waiting-on-user" | "idle" | "starting" | "failed";
   label: string;
+  /** The label is the generic work placeholder because the provider sent no status line. */
+  genericWork?: boolean;
+  /** How long the finished turn took, as the provider reported it on screen. */
+  lastTurnMs?: number;
   status: TabStatus;
   state: AgentState["state"];
   subtype?: TabAgentState["subtype"];
@@ -27,23 +32,44 @@ const questionLabels: Record<NonNullable<TabAgentState["subtype"]>, string> = {
   error: "Needs attention", unknown: "Waiting for input",
 };
 
+const idleOutcomeLabels: Record<string, string> = { interrupted: "Interrupted", failed: "Turn failed" };
+
 const startingStages = new Set<Tab["boot_stage"]>([
   "pty_starting", "pty_spawned", "reader_ready", "shell_ready", "agent_launching",
   "launch_written", "provider_ready", "preparing_role_instructions", "delivering_instructions",
   "launch_deadline_elapsed", "launch_binding_unconfirmed",
 ]);
 
+function lazyFirstTurnComposerIsLive(tab: TabActivityInput | null | undefined): boolean {
+  const launch = tab?.provisional_launch;
+  return tab?.boot_stage === "launch_binding_unconfirmed"
+    && launch?.awaiting_binding_ack === true
+    && launch.first_turn_input_ready === true
+    && Boolean(tab.pty_id)
+    && launch.pty_id === tab.pty_id
+    && Boolean(tab.session_binding_nonce)
+    && launch.binding_nonce === tab.session_binding_nonce;
+}
+
 export function tabActivity(tab: TabActivityInput | null | undefined, status?: TabStatus | null): TabActivity {
+  if (tab?.frozen) return {
+    kind: "idle", label: "Sleeping", status: "Idle", state: "idle",
+    active: false, canStop: false, quiet: false, launching: false, phase: "work", shellSucceeded: null,
+  };
   const live = tab?.agent_state;
   const shell = tab?.shell_command_state;
   const declaresAgent = Boolean(tab?.agent_type) || tab?.backing?.kind === "chat_backend";
-  const sessionBound = Boolean(tab?.agent_session_id?.trim())
+  const sessionBound = tab?.session_bound === true || Boolean(tab?.agent_session_id?.trim())
     || (tab?.backing?.kind === "chat_backend" && Boolean(tab.backing.session_id?.trim()));
   const utility = tab?.tab_type === "Terminal" && !tab.agent_type && !tab.role && !tab.roleless_tracked
     && (!tab.backing || tab.backing.kind === "pty");
   const readyShell = utility && shell && tab?.boot_stage === "shell_ready";
-  const launching = tab?.agent_booting === true || (startingStages.has(tab?.boot_stage) && !readyShell)
-    || tab?.boot_stage === "awaiting_owner_prompt" || (declaresAgent && !sessionBound && tab?.boot_stage !== "agent_ready");
+  const lazyComposerReady = lazyFirstTurnComposerIsLive(tab);
+  const launching = ((tab?.boot_stage !== "agent_ready" && tab?.agent_booting === true)
+    || (startingStages.has(tab?.boot_stage) && !readyShell)
+    || tab?.boot_stage === "awaiting_owner_prompt"
+    || (declaresAgent && !sessionBound && tab?.boot_stage !== "agent_ready"))
+    && !lazyComposerReady;
   const authoritativeStatus = status ?? (live?.state === "working" ? "Working"
     : live?.state === "question" ? "Waiting" : "Idle");
   let kind: TabActivity["kind"];
@@ -60,13 +86,20 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const subtype = state === "question" && matchingLive ? live?.subtype : undefined;
   const phase = kind === "working" && matchingLive && (live?.phase === "thinking" || live?.phase === "streaming") ? live.phase : "work";
   const question = kind === "waiting-on-user" ? tab?.pending_prompt?.question?.trim() : null;
-  const label = question || (utility && !launching && kind !== "failed" ? shellStateLabel(shell)
-    : (matchingLive ? live?.status_line?.trim() : null)
+  const providerReason = kind !== "working" && kind !== "starting" && kind !== "failed"
+    ? providerErrorReason(tab?.provider_signals?.api_error) : null;
+  const providerLine = matchingLive ? live?.status_line?.trim() || null : null;
+  const genericWork = kind === "working" && !utility && !providerLine;
+  const lastTurnMs = kind === "idle" && matchingLive && typeof live?.elapsed_ms === "number" ? live.elapsed_ms : undefined;
+  const label = question || providerReason || (utility && !launching && kind !== "failed" ? shellStateLabel(shell)
+    : providerLine
       || (kind === "failed" ? "Launch failed" : kind === "starting" ? "Starting…"
-        : kind === "working" ? "Working" : kind === "waiting-on-user" ? questionLabels[subtype ?? "unknown"]
+        : kind === "working" ? matchingLive && live?.phase === "compacting" ? "Compacting" : "Working"
+          : kind === "idle" && matchingLive && live?.phase && idleOutcomeLabels[live.phase] ? idleOutcomeLabels[live.phase]
+          : kind === "waiting-on-user" ? questionLabels[subtype ?? "unknown"]
           : quiet ? "Session quiet — rebind to continue" : ""));
   return {
-    kind, label, state, subtype, phase, quiet, launching,
+    kind, label, genericWork, lastTurnMs, state, subtype, phase, quiet, launching,
     status: kind === "failed" ? status === "Dead" ? "Dead" : "Error"
       : kind === "waiting-on-user" ? "Waiting" : kind === "working" ? "Working" : "Idle",
     active: kind === "working",

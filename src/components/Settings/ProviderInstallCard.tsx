@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
 import { CodeBlock } from "@codeterm/chat-ui";
 import type { ProviderDescriptor } from "../../lib/types";
@@ -6,6 +7,7 @@ import { Card } from "../shared/Card";
 import { launchProviderInstaller } from "../../lib/providerInstall";
 import { providerCliView, type ProviderCliState } from "../../lib/providerCli";
 import { useProviderCliStatus } from "../../hooks/useProviderCliStatus";
+import { ProviderUpdateBubble } from "../Terminal/ProviderUpdateBubble";
 
 const STATE_DOT: Record<ProviderCliState, string> = {
   checking: "var(--ct-muted)",
@@ -16,10 +18,11 @@ const STATE_DOT: Record<ProviderCliState, string> = {
 };
 
 export function ProviderCliControls({ providerId, compact = false }: { providerId: string; compact?: boolean }) {
-  const { status, error, summary, refresh } = useProviderCliStatus(providerId);
+  const { status, error, probeFailed, summary, refresh } = useProviderCliStatus(providerId);
   const [busy, setBusy] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const view = providerCliView(status, error);
+  const canRecheck = view.canRecheck || probeFailed;
   const install = async () => {
     setBusy(true);
     setLaunchError(null);
@@ -34,15 +37,15 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
         <span aria-hidden className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: STATE_DOT[view.state] }} />
         <span
           role="status"
-          title={view.pathHint ?? (view.state === "unknown" ? error ?? undefined : undefined)}
+          title={view.pathHint ?? undefined}
           className={compact ? "min-w-0 truncate text-[11px] text-[var(--ct-muted-fg)]" : "min-w-0 truncate text-xs font-medium text-[var(--ct-fg)]"}
         >
           {view.label}
           {view.version && <span className="ct-text-mono font-normal text-[var(--ct-muted-fg)]"> · {view.version}</span>}
         </span>
-        {(view.canRecheck || view.canInstall) && (
+        {(canRecheck || view.canInstall) && (
           <div className="ml-auto flex flex-none items-center gap-1.5">
-            {view.canRecheck && (
+            {canRecheck && (
               <Button size="compact" variant="ghost" aria-label={`Re-check CLI for ${providerId}`} onClick={() => void refresh()}>
                 Re-check
               </Button>
@@ -56,6 +59,7 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
         )}
       </div>
       {view.compatibilityHint && <p role="status" aria-label="CLI compatibility" className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{view.compatibilityHint}</p>}
+      {(status?.latest_version || status?.update_job) && <ProviderUpdateBubble providerId={providerId} />}
       {!compact && view.installCommand && (
         <div aria-label="Install command" role="region">
           <CodeBlock text={view.installCommand} language={view.installLanguage} wrapLines />
@@ -66,7 +70,8 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
           Needs {item.binary} first. {item.hint}
         </p>
       ))}
-      {launchError && <p role="alert" className="m-0 text-[11px] text-[var(--ct-red)]">{launchError}</p>}
+      {error && <InlineErrorNotice error={error} operation="detecting the provider program" />}
+      {launchError && <InlineErrorNotice error={launchError} operation="installing this provider" blocking />}
       {summary && <p role="status" className="m-0 text-[11px] text-[var(--ct-muted-fg)]">{summary}</p>}
     </div>
   );

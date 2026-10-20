@@ -88,6 +88,10 @@ function hasNonzeroExit(message: NormalizedChatMessage): boolean {
 }
 
 function eventStatus(message: NormalizedChatMessage, phase: ToolEvent["phase"]): ToolEvent["status"] {
+  if (message.toolStatus === "running") return "pending";
+  if (message.toolStatus === "abandoned" || message.toolStatus === "interrupted") return "interrupted";
+  if (message.toolStatus === "failed") return "error";
+  if (message.toolStatus === "completed") return "success";
   if (message.toolError === true || hasNonzeroExit(message)) return "error";
   if (message.toolInterrupted === true) return "interrupted";
   if (phase === "call") {
@@ -543,7 +547,7 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
   const openFlows = new Set([...openFlowBySession].map(([session, flowId]) => flowKey(session || undefined, flowId)));
   for (const [index, { session, epoch }] of callEpochs) {
     const item = items[index];
-    if (item.kind === "tool" && item.event.status === "pending" && (supersessions.get(session) ?? 0) > epoch) {
+    if (item.kind === "tool" && item.event.status === "pending" && item.event.message.toolStatus !== "running" && (supersessions.get(session) ?? 0) > epoch) {
       items[index] = { kind: "tool", event: { ...item.event, status: "unresolved" } };
     }
   }

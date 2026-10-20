@@ -2,11 +2,26 @@
 
 Immediate `codeterm send` exits 1 with its reason on stderr whenever the result is `ok:false` or `bytes_written:false`, including retained pre-ready input. With `--json`, the error envelope preserves the daemon receipt in `data`. A retained `send_id` or queued delivery requires status or exact own-session transcript inspection; never replay held, written or uncertain input.
 
+Cron JSON exposes `protected: true` for system jobs. System jobs refuse deletion and schedule/task edits; use `codeterm cron enable <id>` or `codeterm cron disable <id>` to control them.
+
+
 CLI identity rules, environment variables, agent integration, and desktop behavior.
 
 ## CLI
 
 Use `codeterm <command> --help` for the installed CLI contract.
+
+### Remote task locations
+
+`agent providers --json` exposes an optional `remote_task` capability on the provider itself. Its `mode` identifies an explicit execution location; `availability` and `environments` determine whether Cloud can start. A declared location does not establish live account access.
+
+```bash
+codeterm agent spawn <provider> --location cloud --environment <environment-id> --description "Remote task"
+```
+
+Choose an environment explicitly; an unambiguous label is also accepted. Local remains the default. Cloud opens a one-task tab, with a branch and prompt chosen there, or `--task` supplies its first task on `master`. Local model controls, roles and Worker bindings are refused for remote tasks. Run this command on the machine that owns the provider; remote task spawning through `--mesh` is unavailable.
+
+The task tab shows the persisted result and diff and offers explicit Refresh. Restoring a tab reads its existing task identity; it never creates another task. Unconfirmed creation must be checked in the provider's task list before another task is submitted. Unsupported follow-up, cancellation and patch application are never substituted with terminal commands or another billed backend. An empty environment list asks you to connect the owning account and refresh providers.
 
 Plugin outbound hosts can be granted per plugin with `codeterm plugin settings <id> --allow-host <host[:port]>`; remove a user grant with `--disallow-host`. A host without a port covers that exact hostname on any port; a host:port grant is scoped to that port. Schemes, paths, credentials, wildcards, and subdomains are not accepted. The manifest's `permissions.network.allow` entries remain unchanged and combine with user grants when the plugin loads.
 
@@ -20,7 +35,27 @@ codeterm agent cli install <provider>
 codeterm agent cli update <provider>
 ```
 
-The `agent cli` verbs are local-only; run them in a tab on the target peer. Status returns `required`, `installed` (true/false/null for unknown), `binary`, `resolved_path`, `availability`, `searched`, `installer`, and `updater`. Status also includes `installer_prerequisites` and `updater_prerequisites`: detected command runners with `binary`, `installed` (true/false/null), and a setup `hint`. Simple command runners and explicit `command -v`, `which`, or `Get-Command` checks are detected from the manifest command. This is diagnostic, not a full shell parser. Missing runners produce warnings and setup guidance; conditional commands may select an available alternative. The host does not install prerequisites or alter manifest commands. Install/update dispatch JSON adds `warnings`, and completion retains prerequisite diagnostics. Install and update refuse if that OS has no manifest command. They open a visible utility tab in the caller's workspace and Team and return `tab_id` with `launch_state: "command_dispatched"`. Shell completion or exit produces a routed report for an agent caller or a kept notification record for a shell caller. Completion prose is never sent as shell input. It also retains the result in the utility tab description and emits a `provider-cli-completed` event with a fresh status. A completion deadline reports uncertainty; dispatch alone never means installation succeeded. Settings > Agents and provider plugin views use the same status and Install action. `agent providers` names missing CLIs; `agent spawn` refuses before creating a tab and names the installer and CLI fix. REST: `GET /api/agents/providers/{id}/cli` returns status; `POST` accepts `{operation: "install"|"update", caller_tab_id?}`. Plugin `--json` responses add `cli_status`, keyed by installed provider id.
+The `agent cli` verbs are local-only; run them in a tab on the target peer. Status returns `required`, `installed` (true/false/null for unknown), `binary`, `resolved_path`, `detected_version`, `latest_version`, `update_job`, `update_refusal`, `availability`, `searched`, `installer`, and `updater`. `latest_version` is the published update availability; status never starts discovery. `update_job` reports the current job state/result. Status also includes `installer_prerequisites` and `updater_prerequisites`: detected command runners with `binary`, `installed` (true/false/null), and a setup `hint`. Runners and `command -v`/`which`/`Get-Command` checks are detected from the manifest command (diagnostic, not a shell parser); missing runners produce warnings and setup guidance. The host never installs prerequisites or alters manifest commands. Dispatch JSON adds `warnings`; completion retains prerequisite diagnostics. Install/update refuse when the OS has no manifest command; otherwise they open a visible utility tab in the caller's workspace and Team and return `tab_id`, `launch_state: "command_dispatched"`. Shell completion or exit produces a routed report for an agent caller or a kept notification record for a shell caller. Completion prose is never sent as shell input; the result also lands in the utility tab description and `provider-cli-completed` carries a fresh status. A completion deadline reports uncertainty; dispatch alone never means installation succeeded. `agent providers` names missing CLIs; `agent spawn` refuses before creating a tab and names the installer and CLI fix. REST: `GET /api/agents/providers/{id}/cli` returns status; `POST` accepts `{operation: "install"|"update", caller_tab_id?}`. Plugin `--json` responses add `cli_status`, keyed by installed provider id.
+
+### Agent usage, reset credits, and child history
+
+```bash
+codeterm agent usage read --tab TAB_ID [--json]
+codeterm agent usage reset --tab TAB_ID --confirm [--json]
+codeterm agent child-history --tab PARENT_TAB --thread CHILD_THREAD --root-thread-id ROOT_THREAD --binding-nonce NONCE --epoch EPOCH [--cursor CURSOR] [--json]
+```
+
+These commands always name the target tab. `usage read` returns session/weekly limits, account credits, reset-credit count and expiry from that tab's cached runtime projection. `usage reset` consumes a reset credit through the existing runtime route; `--confirm` is mandatory and each invocation carries a fresh idempotency UUID. Its JSON includes the provider outcome and observed before/after reset-credit counts. `child-history` passes the current parent binding authority to the existing recorded-child route; stale bindings and unrecorded descendants are refused. The cursor is opaque and may be supplied from `nextCursor` to continue.
+
+Both read `GET /api/tabs/{id}/agent/runtime/usage` (exact-tab, binding-checked projection); a missing post-consume count stays `null`.
+
+`codeterm agent model --tab TAB_ID [MODEL]` switches the model; `--reasoning-effort` and `--runtime-mode` take catalogue values (omit `MODEL` to keep it). Unsupported values exit non-zero listing the choices; `--json` keeps `mode_used`, `model_confirmation`, `evidence`. `--speed TIER|default` and `--list-speeds` manage service tiers. Worker kinds work with or without `--plan-task`:
+
+```bash
+codeterm agent spawn PROVIDER --role Worker --kind qa --parent-tab TAB_ID
+codeterm agent spawn PROVIDER --role Worker --kind release_manager --parent-tab TAB_ID
+codeterm agent spawn PROVIDER --role Worker --kind reviewer --parent-tab TAB_ID --task "exact review scope"
+```
 
 Message and pad file options accept `-` as UTF-8 stdin, including `plan task remote-report --message-file -`, `send --from-file -`, and `--from-pad -`. For `plan create`, an implicit project path from a Team-bound caller is the caller Team workspace cwd; explicit `--project` remains an override.
 
@@ -98,6 +133,8 @@ descriptor array with `--json` in both local and mesh mode.
 
 Choose a model with `codeterm agent models <provider>`, which first refreshes a catalogue that requires live discovery and, when no new snapshot publishes, warns and lists the registered one. Pass the id with `codeterm agent spawn [provider] --model <id>`. Without a provider, a uniquely advertised bare id selects its provider; otherwise spawn uses the configured default provider. Authoritative catalogues refuse unknown ids before creating a tab and list the valid ids in the error. Free-form providers validate ids against a published live model list and pass the id through unchanged when none exists. Provider-qualified ids select their provider; an unqualified id advertised by one provider routes to it. If several advertise it, `plan task dispatch` requires `--agent` and `agent spawn` requires the positional provider. Ambiguous ids and aliases advertised by another provider are refused instead of falling through or crossing providers.
 
+Switch a tab's runtime service tier with `codeterm agent model --tab TAB --speed TIER`; use `--speed default` to clear it or `--list-speeds` to read the exact tab's session-bound, model-scoped catalogue. `GET /api/tabs/{id}/agent/service-tiers` returns available tiers and requested/confirmed selection. Unavailable tiers are refused before the existing model-control endpoint is called.
+
 Task attempt inspection keeps `requested_model`, `provider_resolved_model`, and `session_model` separate. The resolved field stays null until launch resolution identifies the model; the session field stays null until detection reads that attempt's bound session. A different detected model is stored in `model_identity_mismatch` and raises one dispatcher notice.
 
 ### Open agent shells (`chatBackend`)
@@ -130,7 +167,7 @@ Dev builds use identifier `com.codeterm.dev` and are fully isolated from product
 
 ## Role presets
 
-A launch's role text comes from its role preset; task personality, `role_guidance`, and `executor_role` enter as that preset's task overlay.
+A launch's role text comes from its role preset; task personality, `role_guidance` and `executor_role` enter as its task overlay.
 
 ### Role preset inspection
 
@@ -140,7 +177,7 @@ A launch's role text comes from its role preset; task personality, `role_guidanc
 | `codeterm persona show --role <Manager\|Worker> [--kind <id>] [--guidance <text>] [--occasion <id>]` | `persona.show` | The exact text each occasion emits, its fragments, and their provenance |
 | `codeterm persona reload` | `persona.reload` | Re-read `<data-dir>/role-presets/*.toml` without a restart or rebuild |
 
-Overlay files add leaf kinds only. Declaring capability, claiming an anchoring or Team-authority base, overriding a builtin kind, or asking to own a contract without the coordination core is refused with a named reason and skipped.
+Overlay files add leaf kinds only; one that declares capability, claims an anchoring or Team-authority base, overrides a builtin kind, or owns a contract without the coordination core is refused with a reason and skipped.
 
 ## Account
 
@@ -176,4 +213,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 40 -->
+<!-- revision: 52 -->

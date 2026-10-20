@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { invoke } from "../../lib/bridge";
@@ -130,7 +131,7 @@ function ActionField({ action, trailing }: { action: ActionSetting; trailing: bo
         {justDone && <Check size={12} aria-hidden />}
         {justDone ? "Done" : effective.label}
       </Button>
-      {error && <span role="alert" className="basis-full text-[11px] text-[var(--ct-red)]">{error}</span>}
+      {error && <InlineErrorNotice error={error} operation="updating this setting" blocking />}
     </>
   );
 }

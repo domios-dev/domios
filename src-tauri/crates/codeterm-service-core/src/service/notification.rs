@@ -1,0 +1,579 @@
+//! Notification creation with OS toast support.
+
+#[cfg(test)]
+use codeterm_notification_core::contract::NotificationAction;
+use codeterm_notification_core::contract::{adopt_caller_actions, CallerAction};
+
+use super::ServiceContext;
+use crate::notification::{
+    answer::AnswerAdmission,
+    answer_delivery::{self, AnswerDeliveryOutcome},
+    authority::{self, SurfaceOffer},
+    channel_ask,
+    channel_placement::SpentQuestion,
+    channels,
+    dedupe::TabCondition,
+    reach::{self, Unseen},
+    store::{Ask, NotificationProvenance},
+    NotifState,
+};
+
+use codeterm_notifications::notification_create::admission::{
+    destination, NoticeDestination, NoticeSource,
+};
+pub use codeterm_notifications::notification_create::{
+    create_notification_with_delivery, NotificationAdmission, NotificationOrigin, PushDispatch,
+    PushEnvelope, PushIntent, SurfaceDispatch,
+};
+fn announce_notification_resolution(
+    store: &NotifState,
+    ids: &[String],
+    mut spend: impl FnMut(&str, &SpentQuestion),
+    mut emit: impl FnMut(&str, serde_json::Value),
+) {
+    for id in ids {
+        let spent = { store.lock().spent_question(id) };
+        if let Some(spent) = spent {
+            spend(id, &spent);
+        }
+        emit("notification-resolved", serde_json::json!({ "id": id }));
+    }
+}
+
+fn create_notification_announcing_resolution(
+    store: &NotifState,
+    create: impl FnOnce() -> String,
+    announce: impl FnOnce(&[String]),
+) -> String {
+    let id = create();
+    let superseded = { store.lock().take_superseded() };
+    announce(&superseded);
+    id
+}
+
+impl ServiceContext {
+    fn notify_created(&self, payload: serde_json::Value) {
+        self.notify_event("notification-created", payload);
+    }
+
+    /// Live-multiplexer lookup: a tab id only becomes provenance if the tab is
+    /// still open, and its title and workspace come from the tab, not the caller.
+    fn resolve_tab_provenance(&self, tab_id: &str) -> Option<NotificationProvenance> {
+        let mux = self.mux.read();
+        let tab_title = mux.get_tab(tab_id).map(|tab| tab.title.clone())?;
+        Some(NotificationProvenance {
+            tab_id: Some(tab_id.to_string()),
+            tab_title: Some(tab_title),
+            workspace_id: mux.find_workspace_for_tab(tab_id),
+            peer_name: None,
+        })
+    }
+
+    pub fn log_system_notice(
+        &self,
+        title: String,
+        body: Option<String>,
+        severity: Option<&str>,
+    ) -> String {
+        create_notification_with_delivery(
+            NotificationAdmission::Diagnostic,
+            &self.notif,
+            |_, _| {},
+            title,
+            body,
+            severity,
+            Ask::default(),
+            None,
+            NotificationOrigin::default(),
+            |_| None,
+            PushDispatch::inert(),
+            SurfaceDispatch::silent(),
+            |_| {},
+        )
+    }
+
+    /// The same explicit notification, plus the honest answer to "will anyone
+    /// see this". The record is opened either way — the report is information
+    /// for the caller, never a refusal.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_agent_notification_reported(
+        &self,
+        title: String,
+        body: Option<String>,
+        severity: Option<&str>,
+        actions: Option<Vec<CallerAction>>,
+        sticky: Option<bool>,
+        origin: NotificationOrigin,
+        intent: PushIntent,
+        offer: Option<SurfaceOffer>,
+    ) -> Result<(String, Option<Unseen>), String> {
+        let live_agent_caller = origin.peer_name.is_none()
+            && origin.caller_tab_id.as_deref().is_some_and(|id| {
+                self.mux
+                    .read()
+                    .get_tab(id)
+                    .is_some_and(|tab| tab.agent_type.is_some())
+            });
+        if destination(NoticeSource::AgentNotifySend, live_agent_caller) != NoticeDestination::Bell
+        {
+            return Err(
+                "Bell notifications require notify send from a live agent caller tab".into(),
+            );
+        }
+        // The provenance seam: a caller-supplied set becomes stored actions
+        // here, through a conversion with no invoke arm to reach.
+        Ok(self.create_notification_actions_reported(
+            title,
+            body,
+            severity,
+            Ask {
+                actions: actions.map(adopt_caller_actions),
+                offer,
+                condition: None,
+            },
+            sticky,
+            origin,
+            intent,
+        ))
+    }
+
+    /// Tell every surface these records resolved: channels stop offering
+    /// their buttons and the panel drops them from the live set.
+    pub(crate) fn announce_resolved(&self, ids: &[String]) {
+        announce_notification_resolution(
+            &self.notif,
+            ids,
+            |id, spent| self.spend_on_channels(id, spent),
+            |name, payload| self.notify_event(name, payload),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_notification_actions_reported(
+        &self,
+        title: String,
+        body: Option<String>,
+        severity: Option<&str>,
+        ask: Ask,
+        sticky: Option<bool>,
+        origin: NotificationOrigin,
+        intent: PushIntent,
+    ) -> (String, Option<Unseen>) {
+        // The declared level outlives the push policy: an install whose
+        // channels resolve to nobody still has a desktop gate to satisfy.
+        let declared = intent.level;
+        let event_key = intent.event_key.clone();
+        let super::notification_push::PushPlan {
+            mut intent,
+            per_scope_limit,
+            targets,
+            refusals,
+        } = self.resolve_push_plan(intent);
+        intent.event_key = event_key;
+        let surfaces = self.resolve_surface_dispatch(declared);
+        // Judged before the plan is moved into the sink, off the same targets
+        // the sink will use — so the report cannot disagree with the delivery.
+        let unseen = reach::unseen(reach::Reach {
+            show_bell: self.bell_visible(),
+            declared,
+            desktop: &surfaces.desktop,
+            push: reach::PushReach {
+                carrying: targets.len(),
+                refused: refusals
+                    .iter()
+                    .map(|refusal| refusal.service.clone())
+                    .collect(),
+            },
+        });
+        let id = create_notification_announcing_resolution(
+            &self.notif,
+            || {
+                create_notification_with_delivery(
+                    NotificationAdmission::Explicit,
+                    &self.notif,
+                    |title, body| {
+                        let _ = self.shell.os_notify(title, body);
+                    },
+                    title,
+                    body,
+                    severity,
+                    ask,
+                    sticky,
+                    origin,
+                    |candidate| self.resolve_tab_provenance(candidate),
+                    PushDispatch {
+                        intent,
+                        per_scope_limit,
+                        deliver: move |envelope: PushEnvelope| {
+                            super::notification_push::deliver_plan(
+                                &targets, &refusals, self, &envelope,
+                            )
+                        },
+                    },
+                    surfaces,
+                    |payload| self.notify_created(payload),
+                )
+            },
+            |ids| self.announce_resolved(ids),
+        );
+        (id, unseen)
+    }
+
+    /// Record the user's choice. The command carries the record and the chosen
+    /// label only — the tab it answers to was captured when the question was
+    /// sent, so nothing is resolved here.
+    pub fn answer_notification(&self, id: &str, label: &str) -> Result<serde_json::Value, String> {
+        // The guard is dropped before the event fans out: nothing downstream of
+        // an emit may re-enter the store while it is still held.
+        let admission = self.notif.lock().record_answer(id, label);
+        // An offer applies only to the first recording that proved it, so a later tap cannot widen the surface.
+        if let Some(proof) = authority::tap_proof(&admission) {
+            self.apply_surface_offer(id, label, proof);
+        }
+        match admission {
+            // Carrying the answer back is an ordered consequence of recording
+            // it: the send happens before this call returns.
+            AnswerAdmission::Recorded(chosen) => Ok(self.settle_recorded_answer(id, chosen)),
+            // A second tap is not an error to the user: the standing answer is what the question holds, and it is unchanged.
+            AnswerAdmission::AlreadyAnswered(standing) => {
+                let delivered = self
+                    .notif
+                    .lock()
+                    .answer_slot(id)
+                    .is_some_and(|slot| slot.delivered);
+                if delivered {
+                    Ok(serde_json::json!({ "answered": standing, "delivered": true }))
+                } else {
+                    Ok(self.settle_recorded_answer(id, standing))
+                }
+            }
+            AnswerAdmission::Undeliverable => {
+                Err("The tab that asked this question is gone".to_string())
+            }
+            AnswerAdmission::NotOffered => {
+                Err("That choice was not offered by this notification".to_string())
+            }
+        }
+    }
+
+    /// An answer arrived on a push channel. The token names a position on one
+    /// record; the label is resolved off that record and then walks the very
+    /// same answer path an in-app tap walks, so the tapped label returns to the
+    /// tab that asked and no second answer route exists. `false` means this was
+    /// ordinary channel traffic and nothing was claimed.
+    pub fn claim_channel_answer(&self, callback_data: &str) -> bool {
+        let Some(tapped) = channel_ask::decode(callback_data) else {
+            return false;
+        };
+        // The guard is taken and dropped before the answer path runs: that path
+        // takes the same store lock, and parking_lot is not reentrant.
+        let resolved = {
+            self.notif
+                .lock()
+                .offered_choice(&tapped.notification_id, tapped.index)
+        };
+        let Some(label) = resolved else {
+            log::warn!(
+                "[notify-answer] a channel tap named no offered choice on {}",
+                tapped.notification_id
+            );
+            return true;
+        };
+        if let Err(reason) = self.answer_notification(&tapped.notification_id, &label) {
+            log::warn!(
+                "[notify-answer] a channel tap on {} was refused: {reason}",
+                tapped.notification_id
+            );
+        }
+        true
+    }
+
+    /// Apply whatever this record offered, and only when the tapped label is
+    /// the one it named. An untapped or declined offer never reaches here, and
+    /// what changes is the one field `authority::apply` writes.
+    fn apply_surface_offer(&self, id: &str, label: &str, proof: authority::TapProof) {
+        // Read the level from the answered record so a tap cannot grant a notification kind the question did not show.
+        let standing = {
+            let store = self.notif.lock();
+            store.surface_offer(id).zip(store.level(id))
+        };
+        let Some((offer, level)) = standing else {
+            return;
+        };
+        if !offer.accepted_by(label) {
+            return;
+        }
+        let mut cfg = self.configuration();
+        authority::apply(proof, &mut cfg.notifications, &offer.target, level);
+        if let Err(reason) = crate::config::save_config_pub(&cfg) {
+            log::error!("[notify-offer] accepted offer on {id} could not be saved: {reason}");
+            return;
+        }
+
+        *self.ext::<crate::config::ConfigState>().lock() = cfg.clone();
+        self.ui.emit(
+            "config-changed",
+            serde_json::to_value(serde_json::to_value(&cfg).unwrap_or_default())
+                .unwrap_or_default(),
+        );
+    }
+
+    /// A question answered once stops presenting live controls on every channel
+    /// that carried it. Each placement goes back to the channel that reported
+    /// it; a channel that cannot rewrite what it sent says so and is logged,
+    /// because presentation may never cost the user their recorded answer.
+    fn spend_on_channels(&self, id: &str, spent: &SpentQuestion) {
+        let roster = channels::roster();
+        for placement in &spent.placements {
+            let attempt =
+                channels::resolve_in(&roster, &placement.service).and_then(|registered| {
+                    registered.channel.spend(
+                        self,
+                        &placement.locator,
+                        &spent.message_for(registered.channel.bounds()),
+                    )
+                });
+            if let Err(reason) = attempt {
+                log::warn!(
+                    "[notify-answer] {id} is answered but its {} message still shows the question: {reason}",
+                    placement.service
+                );
+            }
+        }
+    }
+
+    /// Carry the standing answer to the tab that asked, as a caller of the
+    /// existing envelope path, and report what actually happened. A refused
+    /// send leaves the record answered-but-undelivered, never delivered.
+    fn settle_answer(&self, id: &str, standing: String) -> serde_json::Value {
+        let outcome = answer_delivery::settle(
+            &self.notif,
+            id,
+            |to_tab, envelope, body| {
+                crate::service::messenger::Messenger::deliver(self, to_tab, envelope, body)
+                    .map(|_| ())
+            },
+            |spent| self.spend_on_channels(id, spent),
+        );
+        if outcome == AnswerDeliveryOutcome::Pending {
+            return serde_json::json!({ "answered": standing, "pending": true });
+        }
+        if let Some(detail) = outcome.failure() {
+            log::warn!("[notify-answer] {id} recorded but not delivered: {detail}");
+        }
+        let delivered = outcome.reached_tab();
+        self.notify_event(
+            "notification-answered",
+            serde_json::json!({ "id": id, "answered": standing, "delivered": delivered, "deliveryError": outcome.failure() }),
+        );
+        match outcome {
+            AnswerDeliveryOutcome::Failed(detail) => serde_json::json!({
+                "answered": standing,
+                "delivered": false,
+                "deliveryError": detail,
+            }),
+            _ => serde_json::json!({ "answered": standing, "delivered": delivered }),
+        }
+    }
+
+    pub fn resolve_prompt_notifications(
+        &self,
+        tab_id: &str,
+        identity: &codeterm_types::pty::PromptIdentity,
+    ) -> Vec<String> {
+        self.resolve_prompt_transition(tab_id, Some(identity.clone()), None)
+    }
+
+    pub(crate) fn resolve_prompt_transition(
+        &self,
+        tab_id: &str,
+        previous: Option<codeterm_types::pty::PromptIdentity>,
+        current: Option<&codeterm_types::pty::PromptIdentity>,
+    ) -> Vec<String> {
+        // A tab holds one prompt at a time, so a displaced or cleared prompt ends the whole condition.
+        let displaced = previous
+            .as_ref()
+            .is_some_and(|previous| Some(previous) != current);
+        let prompt_cleared = displaced
+            && current.is_none()
+            && !self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .is_some_and(|tab| tab.pending_prompt.is_some());
+        let resolved = {
+            let mut store = self.notif.lock();
+            let mut resolved = super::prompt_resolution::resolve_displaced_prompt(
+                &mut store, tab_id, previous, current,
+            );
+            if prompt_cleared {
+                resolved.extend(store.resolve_tab_condition(tab_id, TabCondition::PendingPrompt));
+            }
+            resolved
+        };
+        if prompt_cleared {
+            self.clear_pending_prompt_parent_routes(tab_id);
+            self.set_cron_owner_prompt_waiting(tab_id, false);
+        }
+        self.announce_resolved(&resolved);
+        resolved
+    }
+
+    pub(crate) fn answer_prompt_notifications(
+        &self,
+        tab_id: &str,
+        identity: &codeterm_types::pty::PromptIdentity,
+        option_index: usize,
+        answered_via: &str,
+    ) -> Vec<String> {
+        let answered = self.notif.lock().answer_prompt_notifications(
+            tab_id,
+            identity,
+            option_index,
+            answered_via,
+        );
+        for id in &answered {
+            let spent = { self.notif.lock().spent_question(id) };
+            if let Some(spent) = spent {
+                self.spend_on_channels(id, &spent);
+            }
+            self.notify_event(
+                "notification-answered",
+                serde_json::json!({
+                    "id": id,
+                    "answered_via": answered_via,
+                    "delivered": true,
+                    "resolved": true,
+                }),
+            );
+            self.notify_event("notification-resolved", serde_json::json!({ "id": id }));
+        }
+        answered
+    }
+
+    pub(crate) fn record_channel_placement(&self, id: &str, service: &str, locator: &str) {
+        let spent = {
+            self.notif
+                .lock()
+                .remember_channel_placement_and_spent_question(id, service, locator)
+        };
+        if let Some(spent) = spent {
+            self.spend_on_channels(id, &spent);
+        }
+    }
+
+    fn settle_recorded_answer(&self, id: &str, standing: String) -> serde_json::Value {
+        let prompt_answer = { self.notif.lock().prompt_option_answer(id, &standing) };
+        let prompt_standing = standing.clone();
+        route_prompt_answer(
+            prompt_answer,
+            |answer| self.settle_prompt_option_answer(id, prompt_standing, answer),
+            || self.settle_answer(id, standing),
+        )
+    }
+
+    fn settle_prompt_option_answer(
+        &self,
+        id: &str,
+        standing: String,
+        answer: crate::notification::store::PromptOptionAnswer,
+    ) -> serde_json::Value {
+        if !answer.delivered {
+            let claim = self.notif.lock().claim_answer_delivery(id);
+            match claim {
+                Some(crate::notification::answer_delivery::AnswerDeliveryPlan::Owed(_)) => {}
+                Some(
+                    crate::notification::answer_delivery::AnswerDeliveryPlan::AlreadyDelivered,
+                ) => {
+                    return serde_json::json!({ "answered": standing, "delivered": true });
+                }
+                None => return serde_json::json!({ "answered": standing, "pending": true }),
+                Some(crate::notification::answer_delivery::AnswerDeliveryPlan::Nothing) => {
+                    return serde_json::json!({ "answered": standing, "delivered": false,
+                        "deliveryError": "The notification is no longer available" });
+                }
+            }
+        }
+        let response = if answer.delivered {
+            Ok(crate::service::tab::RespondPromptOutcome::Structured)
+        } else {
+            self.respond_prompt_with_identity(&answer.to_tab, &answer.value, &answer.identity)
+        };
+        let refusal = match response {
+            Ok(crate::service::tab::RespondPromptOutcome::Sent)
+            | Ok(crate::service::tab::RespondPromptOutcome::Structured) => {
+                self.notif.lock().mark_answer_delivered(id);
+                None
+            }
+            Ok(crate::service::tab::RespondPromptOutcome::StalePrompt) => {
+                Some(("stale_prompt", None))
+            }
+            Ok(crate::service::tab::RespondPromptOutcome::PromptNotOnScreen) => {
+                Some(("prompt_not_on_screen", None))
+            }
+            Ok(crate::service::tab::RespondPromptOutcome::NoPty) => Some(("no_pty", None)),
+            Ok(crate::service::tab::RespondPromptOutcome::InvalidOption) => {
+                Some(("invalid_option", None))
+            }
+            Err(detail) => Some(("response_failed", Some(detail))),
+        };
+        if refusal.is_some() {
+            self.notif.lock().release_answer_delivery(id);
+        }
+        let delivered = refusal.is_none();
+        let refusal_payload = refusal.as_ref().map(|(reason, detail)| {
+            serde_json::json!({
+                "reason": reason,
+                "detail": detail,
+            })
+        });
+        let spent = { self.notif.lock().spent_question(id) };
+        if let Some(spent) = spent {
+            self.spend_on_channels(id, &spent);
+        }
+        self.notify_event(
+            "notification-answered",
+            serde_json::json!({
+                "id": id,
+                "answered": standing,
+                "delivered": delivered,
+                "refusal": refusal_payload,
+            }),
+        );
+        match refusal {
+            Some((reason, detail)) => serde_json::json!({
+                "answered": standing,
+                "delivered": false,
+                "refusal": {
+                    "reason": reason,
+                    "detail": detail,
+                },
+            }),
+            None => serde_json::json!({ "answered": standing, "delivered": true }),
+        }
+    }
+}
+
+fn route_prompt_answer<T>(
+    prompt_answer: Option<crate::notification::store::PromptOptionAnswer>,
+    respond_prompt: impl FnOnce(crate::notification::store::PromptOptionAnswer) -> T,
+    deliver_message: impl FnOnce() -> T,
+) -> T {
+    match prompt_answer {
+        Some(answer) => respond_prompt(answer),
+        None => deliver_message(),
+    }
+}
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+use crate::notification::{
+    deep_link::NotificationTarget, desktop::DesktopPolicy, store::NotificationSeverity,
+};
+#[cfg(test)]
+mod bell_choice_tests;
+
+#[cfg(test)]
+use crate::notification::push::NotifyLevel;

@@ -5,6 +5,7 @@
     "instanceId": "peer",
     "action": "trigger",
     "tabId": "tab",
+    "threadId": "child",
     "workspaceId": "workspace",
     "teamId": "team",
     "planId": "plan",
@@ -45,7 +46,7 @@
       "kind": "blueprint"
     },
     "config": {},
-    "request": {},
+    "request": {"rootThreadId":"root","bindingNonce":"nonce","epoch":4,"threadId":"child","processId":"process"},
     "input": {},
     "patch": {},
     "url": "url",
@@ -60,6 +61,7 @@
     "answers": []
   },
   "commands": {
+    "agent_runtime_child_authority": [["GET", "/api/mux/state"]],
     "mux_get_state": [
       [
         "GET",
@@ -196,6 +198,7 @@
         "/api/workspaces/reorder"
       ]
     ],
+    "wake_tab": [["POST", "/api/tabs/tab/wake"]],
     "mux_set_focused_tab": [
       [
         "POST",
@@ -226,6 +229,12 @@
         "/api/tabs/tab/text?formatted=false"
       ]
     ],
+    "tab_todo_list": [
+      [
+        "GET",
+        "/api/tabs/tab/todos"
+      ]
+    ],
     "shell_command_snapshot": [
       [
         "GET",
@@ -244,6 +253,7 @@
         "/api/tabs/tab/chat-raw/stop"
       ]
     ],
+    "chat_resume": [["POST", "/api/tabs/tab/chat-raw/resume"]],
     "chat_backfill": [
       [
         "POST",
@@ -262,6 +272,8 @@
         "/api/tabs/tab/chat-send/admissions"
       ]
     ],
+    "chat_send_dismissals": [["GET", "/api/tabs/tab/chat-send/dismissals"]],
+    "chat_send_delete": [["POST", "/api/tabs/tab/chat-send/dismissals"]],
     "chat_send_status": [
       [
         "GET",
@@ -344,6 +356,9 @@
         "/api/agents/general/sessions"
       ]
     ],
+    "provider_switch_status": [["GET", "/api/tabs/tab/agent/switch-provider/?wait=false"]],
+    "read_provider_history": [["GET", "/api/tabs/tab/agent/provider-history?file="]],
+    "switch_agent_provider": [["POST", "/api/tabs/tab/agent/switch-provider"]],
     "restart_agent_tab": [
       [
         "POST",
@@ -822,12 +837,6 @@
         "/api/attachments/clipboard-image"
       ]
     ],
-    "save_temp_file": [
-      [
-        "POST",
-        "/api/attachments/temp-file"
-      ]
-    ],
     "services_create": [
       [
         "POST",
@@ -1236,16 +1245,43 @@
         "/api/tabs/tab/agent/runtime/retry"
       ]
     ],
+    "agent_runtime_child_history": [
+      ["GET", "/api/tabs/tab/agent/runtime/children/child/history?rootThreadId=root&bindingNonce=nonce&epoch=4"]
+    ],
+    "agent_runtime_background_processes": [
+      ["GET", "/api/tabs/tab/agent/runtime/background-processes?rootThreadId=root&bindingNonce=nonce&epoch=4"]
+    ],
+    "agent_runtime_stop_background_process": [
+      ["POST", "/api/tabs/tab/agent/runtime/background-processes"]
+    ],
     "agent_runtime_answer_question": [
       [
         "POST",
         "/api/tabs/tab/agent/runtime/questions/question/answer"
       ]
     ],
+    "agent_runtime_goal": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/goal"
+      ]
+    ],
+    "agent_runtime_thread_history": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/thread-history"
+      ]
+    ],
     "agent_runtime_login": [
       [
         "POST",
         "/api/tabs/tab/agent/runtime/login"
+      ]
+    ],
+    "agent_runtime_reset_credits": [
+      [
+        "POST",
+        "/api/tabs/tab/agent/runtime/reset-credits"
       ]
     ]
   }

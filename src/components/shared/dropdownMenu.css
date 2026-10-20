@@ -1,3 +1,22 @@
+.ct-anchored-popover {
+  position: fixed;
+  z-index: 1500;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+/* Layered so a popover's own overflow and sizing win; the placement's bounds land on content that
+   sets none, which then scrolls instead of leaving the screen. */
+@layer components {
+  .ct-anchored-popover > * {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-width: 100%;
+    overflow-y: auto;
+  }
+}
+
 .ct-menu {
   --ct-menu-row-radius: 9px;
   min-width: 11rem;
@@ -16,6 +35,10 @@
   min-width: 0;
   flex-direction: column;
   gap: 1px;
+}
+
+.ct-menu .truncate {
+  overflow: clip;
 }
 
 .ct-menu-page[data-direction="forward"] {
@@ -122,7 +145,7 @@
 
 .ct-menu-row__chevron {
   flex: none;
-  color: var(--ct-muted);
+  color: var(--ct-muted-fg);
   transition:
     transform var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
     color var(--ct-duration-fast) var(--ct-ease-liquid-settle);
@@ -146,7 +169,7 @@
 
 .ct-menu-row__shortcut {
   flex: none;
-  color: var(--ct-muted);
+  color: var(--ct-muted-fg);
   font-family: var(--ct-font-mono, ui-monospace, monospace);
   font-size: 10px;
 }
@@ -166,7 +189,7 @@
   border: 0;
   border-radius: var(--ct-menu-row-radius);
   background: transparent;
-  color: var(--ct-muted);
+  color: var(--ct-muted-fg);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -182,7 +205,7 @@
 
 .ct-menu-caption {
   padding: 7px 9px 4px;
-  color: var(--ct-muted);
+  color: var(--ct-muted-fg);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;

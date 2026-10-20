@@ -112,7 +112,8 @@ async function main() {
 
   try {
     const unmount = await mount();
-    assert.equal(state().status, "error");
+    assert.notEqual(state().status, "error");
+    assert.equal(state().error, null);
     assert.equal(state().toastOpen, false);
     restoredPhase = "idle";
     const firstApply = state().applyUpdate();
@@ -153,6 +154,15 @@ async function main() {
       install: async () => { throw new Error("opaque refusal"); },
     };
     const unmountFailure = await mount();
+    await act(async () => events.get("update-status-changed")?.({ ...runtimeStatus("error"), last_error: "automatic check failed" }));
+    assert.equal(state().error, null);
+    assert.notEqual(state().status, "error");
+    nativeBridge.updater.check = async () => { throw new Error("offline"); };
+    await act(async () => { await state().refresh(true, { silent: true }); });
+    assert.equal(state().error, null);
+    await act(async () => { await state().refresh(true); });
+    assert.equal(state().error, "offline");
+    nativeBridge.updater.check = async () => updateInfo;
     await act(async () => { await state().applyUpdate(); });
     assert.equal(state().status, "error");
     assert.equal(state().toastOpen, true);

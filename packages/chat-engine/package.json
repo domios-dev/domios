@@ -1,9 +1,9 @@
 {
   "name": "@codeterm/chat-engine",
-  "version": "1.14.8",
+  "version": "1.14.9",
   "type": "module",
   "description": "Pure context-engine helpers for chatBackend plugins (chat window policy + machine assembly).",
-  "license": "ISC",
+  "license": "PolyForm-Shield-1.0.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/rollacode/codeterm.git",
@@ -22,7 +22,8 @@
   },
   "files": [
     "src",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "publishConfig": {
     "access": "public"

@@ -110,8 +110,6 @@ test("task title is a single-line cell with full name preserved for tooltip", as
   };
   const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const row = host.querySelector('[data-testid="plan-list-task"]') as HTMLElement | null;
-  const title = host.querySelector('[data-testid="plan-list-task"] [data-testid="plan-list-title"]') as HTMLElement | null;
-  assert(title?.className.includes("plan-list-title"), "alignment-grid title cell");
   assert(row?.getAttribute("title")?.includes(longName), "full name available as tooltip");
   assert(host.textContent?.includes(longName), "full task name in DOM");
   await unmount();
@@ -188,7 +186,6 @@ test("paused tasks stay in pending group with paused chip and reason title", asy
   assert(group?.textContent?.includes("Pending"), "paused task grouped under pending");
   const row = host.querySelector('[data-testid="plan-list-task"]') as HTMLElement;
   assert(row?.getAttribute("data-task-id") === "t-paused", "paused task visible");
-  assert(row.className.includes("plan-list-row-paused"), "paused row style");
   assert(row.getAttribute("title") === "Paused: Provider quotas exhausted", "pause reason title");
   assert(row.querySelector('[data-testid="plan-list-paused-chip"]')?.textContent === "paused", "paused chip");
   await unmount();
@@ -276,7 +273,6 @@ test("task row is selectable and suppresses open on drag", async () => {
   const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const row = host.querySelector('[data-testid="plan-list-task"]') as HTMLElement;
   assert(row?.getAttribute("role") === "button", "task row remains activatable");
-  assert(row.className.includes("plan-task-selectable"), "selectable class");
   await act(async () => {
     row.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, bubbles: true }));
     row.dispatchEvent(new PointerEvent("pointermove", { clientX: 24, clientY: 0, bubbles: true }));
@@ -317,7 +313,7 @@ test("list: archive action removes plan from active switcher and switches select
     '[data-testid="plan-switcher-kebab"][data-plan-id="plan-b"]',
   ) as HTMLElement;
   await act(async () => { kebab.click(); });
-  const archiveItem = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+  const archiveItem = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
     (el) => el.textContent?.includes("Archive"),
   ) as HTMLElement;
   await act(async () => { archiveItem.click(); });
@@ -358,13 +354,13 @@ test("list: unarchive brings plan back to active switcher", async () => {
   assert(toggle, "archived toggle present");
   await act(async () => { toggle.click(); });
 
-  const kebab = host.querySelector(
+  const kebab = document.querySelector(
     '[data-testid="plan-switcher-kebab"][data-plan-id="plan-arch"]',
   ) as HTMLElement;
   assert(kebab, "kebab on archived plan");
   await act(async () => { kebab.click(); });
 
-  const unarchive = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+  const unarchive = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
     (el) => el.textContent?.trim() === "Unarchive",
   ) as HTMLElement;
   await act(async () => { unarchive.click(); });

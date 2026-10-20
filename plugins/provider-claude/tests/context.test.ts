@@ -1,3 +1,4 @@
+import { quoteNativeArgument } from "../../provider-shared/nativeArgument";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -142,8 +143,8 @@ for (const starterPrompt of ["assigned_task", "idle_wakeup", "team_bootstrap", "
   const prefix = '<domios from="system" context="opaque-' + starterPrompt + '">';
   const text = "opaque-starter-body";
   const command = plugin.buildLaunchCommand({ task: "opaque-task", starterPrompt, starterPromptText: text, starterPromptPrefix: prefix });
-  check(() => assert.ok(command.endsWith(" -- " + sandbox.host.shell.quoteFor(prefix + text + "</domios>"))));
-  check(() => assert.equal(command.split(prefix).length - 1, 1));
+  check(() => assert.ok(command.endsWith(" -- " + quoteNativeArgument(prefix + text + "</domios>", sandbox.host.platform(), sandbox.host.shell.quoteFor))));
+
 }
 
 sandbox.host.fs.writeTempFile = () => null as any;

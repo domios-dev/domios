@@ -1,5 +1,6 @@
 pub mod account;
 pub mod agent;
+pub mod agent_runtime;
 pub mod analytics;
 pub mod blueprint;
 pub mod cli;
@@ -25,8 +26,14 @@ pub mod spec;
 pub mod supporter;
 pub mod surface;
 pub mod system;
+pub mod tab_todo;
+#[cfg(test)]
+mod tab_todo_tests;
 pub mod task;
 pub mod team;
+pub mod todo;
 pub mod trace;
 pub mod update;
 pub mod usage;
+
+pub mod app;

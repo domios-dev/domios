@@ -11,6 +11,7 @@ import { nativeBridge } from "../../lib/nativeBridge";
  * know which plugin it's rendering for.
  */
 import { useCallback, useEffect, useState } from "react";
+import { DefaultModelPicker } from "./DefaultModelPicker";
 import { invoke } from "../../lib/bridge";
 import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
@@ -212,6 +213,14 @@ function FieldRenderer({
 
     case "select": {
       const value = (providerConfig[field.key] as string | undefined) ?? field.default ?? "";
+      if (agentNamespace && field.key === "default_model") {
+        return <div data-testid="settings-schema-field" data-settings-field={field.key}>
+          <FormRow label={field.label} hint={field.description}>
+            <DefaultModelPicker providerId={providerId} value={value} serviceTier={typeof providerConfig.default_service_tier === "string" ? {id:providerConfig.default_service_tier || null} : undefined}
+              onChange={(model, serviceTier) => onChange(providerId, { [field.key]: model, ...(serviceTier !== undefined ? { default_service_tier: serviceTier.id ?? "" } : {}) })} />
+          </FormRow>
+        </div>;
+      }
       return (
         <div className="flex items-center justify-between" data-testid="settings-schema-field" data-settings-field={field.key}>
           <span className="text-xs text-[var(--ct-fg)]">{field.label}</span>

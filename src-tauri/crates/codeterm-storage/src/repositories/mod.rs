@@ -1,6 +1,7 @@
 pub mod cron;
 pub mod desk;
 pub mod sentinel;
+pub mod tab_todo;
 mod team_teardown;
 pub mod workspaces;
 

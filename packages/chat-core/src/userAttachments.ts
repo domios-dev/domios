@@ -1,3 +1,4 @@
+import { parseMarker } from "./markers";
 import { attachmentMarkerSegments, imageMimeType, parseAttachmentMarkers, splitReplyAttachment, type AttachmentMarker, type AttachmentSegment } from "./attachmentMarker";
 import type { ChatAttachment } from "./types";
 
@@ -33,9 +34,28 @@ function inlineSegments(content: string): AttachmentSegment[] | null {
   return segments.filter((segment) => !("text" in segment) || segment.text);
 }
 
+/** Unlabeled videos read as video1, video2 in message order, the way images read as image1. */
+export function labelVideos(files: AttachmentMarker[]): AttachmentMarker[] {
+  const next = videoLabeler(files.map((file) => file.label));
+  return files.map((file) => file.kind === "video" && !file.label ? { ...file, label: next() } : file);
+}
+
+function videoLabeler(existing: Iterable<string | undefined>): () => string {
+  const used = new Set(existing);
+  let count = 0;
+  return () => {
+    do count += 1; while (used.has(`video${count}`));
+    used.add(`video${count}`);
+    return `video${count}`;
+  };
+}
+
 /** What a user bubble renders: clean text, inline capsules, one image strip from provider-native and marker images, and file chips. */
 export function userMessageAttachments(source: string, attachments: ChatAttachment[] = []): UserMessageAttachments {
   const { reply, text: content } = splitReplyAttachment(source);
+  if (parseMarker(content)?.kind === "voice") {
+    return { text: content, images: attachments, files: [], inline: null, reply };
+  }
   const parsed = parseAttachmentMarkers(content);
   const images = [...attachments];
   const seen = new Set(attachments.flatMap((attachment) => (attachment.path ? [pathKey(attachment.path)] : [])));
@@ -46,7 +66,7 @@ export function userMessageAttachments(source: string, attachments: ChatAttachme
     if (marker.kind !== "image") files.push(marker);
     else images.push({ id: `attachment:${marker.path}`, mimeType: imageMimeType(marker.path), path: marker.path });
   }
-  return { text: userVisibleText(parsed.text, images), images, files, inline: inlineSegments(content), reply };
+  return { text: userVisibleText(parsed.text, images), images, files: labelVideos(files), inline: inlineSegments(content), reply };
 }
 
 export function attachmentFileName(attachment: ChatAttachment): string {
@@ -61,4 +81,30 @@ export function inlineAttachmentSrc(attachment: ChatAttachment): string | null {
   if (attachment.data) return `data:${attachment.mimeType};base64,${attachment.data}`;
   if (attachment.url?.startsWith("data:image/")) return attachment.url;
   return null;
+}
+
+function labelVideoSegments(segments: AttachmentSegment[]): AttachmentSegment[] {
+  const next = videoLabeler(segments.map((segment) => "attachment" in segment ? segment.attachment.label : undefined));
+  return segments.map((segment) => "attachment" in segment && segment.attachment.kind === "video" && !segment.attachment.label
+    ? { attachment: { ...segment.attachment, label: next() } } : segment);
+}
+
+export type PlacedAttachmentSegment = { text: string } | { attachment: AttachmentMarker; image?: ChatAttachment };
+
+export function placedAttachmentSegments(source: string, attachments: ChatAttachment[] = []): PlacedAttachmentSegment[] {
+  const content = userVisibleText(splitReplyAttachment(source).text, attachments);
+  if (parseMarker(content)?.kind === "voice") return [{ text: content }];
+  const segments = labelVideoSegments(attachmentMarkerSegments(content));
+  const paths = new Set(segments.flatMap((segment) => "attachment" in segment ? [pathKey(segment.attachment.path)] : []));
+  const placed: PlacedAttachmentSegment[] = segments.map((segment) => "text" in segment ? segment : {
+    attachment: segment.attachment,
+    image: attachments.find((image) => image.path && pathKey(image.path) === pathKey(segment.attachment.path)),
+  });
+  for (const image of attachments) {
+    if (image.path && paths.has(pathKey(image.path))) continue;
+    if (placed.length) placed.push({ text: " " });
+    placed.push({ attachment: { kind: "image", path: image.path ?? "", label: attachmentFileName(image) }, image });
+    if (image.path) paths.add(pathKey(image.path));
+  }
+  return placed;
 }

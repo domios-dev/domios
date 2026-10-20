@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 // plugin rows (installed + marketplace) with status/update/installed badges.
 import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useState } from "react";
@@ -343,6 +344,7 @@ function PluginRow({
 }) {
   const updates = useOptionalUpdatePanel();
   const updateAvailable = updates ? updates.pluginHasUpdate(entry.id) : entry.updateAvailable;
+  const loadFailure = entry.loadError && !entry.loadError.keptPrevious ? entry.loadError : null;
   return (
     <div>
       <div
@@ -390,25 +392,17 @@ function PluginRow({
               entry.installed && <Badge tone="installed">Installed</Badge>
             )}
             {updateAvailable && <Badge tone="update">Update</Badge>}
-            {entry.loadError && <Badge tone="error">Error</Badge>}
+            {loadFailure && <Badge tone="error">Error</Badge>}
           </div>
           <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10, color: "var(--ct-muted)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {catalogKindLabel(entry)}
             {entry.version ? ` · v${entry.version}` : entry.remoteVersion ? ` · v${entry.remoteVersion}` : ""}
           </div>
-          {entry.loadError && (
-            <div
-              role="alert"
-              data-testid="extensions-plugin-load-error"
-              title={`${entry.loadError.message}\n${entry.loadError.path}`}
-              style={{ fontSize: 10.5, color: "var(--ct-red)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-            >
-              {entry.loadError.message}
-            </div>
-          )}
+
           <PluginActivityInline activity={activity} display={display} compact />
         </div>
       </div>
+      {loadFailure && <div data-testid="extensions-plugin-load-error"><InlineErrorNotice error={{ code: "plugin_load_failed", raw: `${loadFailure.message}\n${loadFailure.path}` }} /></div>}
     </div>
   );
 }

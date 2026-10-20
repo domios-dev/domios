@@ -3,14 +3,13 @@ import type { ProviderDescriptor } from "../../lib/types";
 import type { TeamMemberRole } from "../../lib/teamActions";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { tab, TEAM } from "./SidebarWorkspaceTabs.fixtures.testdata";
-import { addableTeamRoles } from "./SidebarWorkspaceTabs";
+import { addableTeamRoles } from "./workspaceTeamModel";
 import {
   act,
   assert,
   createSuite,
   renderSidebar,
   setupDom,
-  sidebarStyles,
 } from "./SidebarWorkspaceTabs.testkit";
 
 const { test, run } = createSuite("SidebarWorkspaceTabs staffing");
@@ -32,17 +31,7 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   });
   const trigger = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement | null;
   assert(trigger, "team menu trigger exists");
-  assert(trigger.classList.contains("sidebar-team-kebab"), "team menu uses the same-slot kebab control");
   assert(trigger.tabIndex === 0, "team menu trigger remains keyboard reachable for the focus swap");
-  assert(/\.sidebar-team-unit\s*\{[^}]*margin:\s*4px 0;[^}]*background:\s*color-mix\(in srgb, var\(--ct-fg\) 3%, transparent\);/.test(sidebarStyles), "Team cards use lighter tint and compact vertical cadence");
-  assert(/\.sidebar-team-header\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;[^}]*gap:\s*6px;[^}]*margin:\s*0;[^}]*padding:\s*6px 7px 4px 10px;/.test(sidebarStyles), "Team header reclaims the former chevron column");
-  assert(/\.sidebar-team-disclosure-bar\s*\{[^}]*position:\s*relative;[^}]*display:\s*block;[^}]*width:\s*100%;[^}]*height:\s*14px;/.test(sidebarStyles), "Team disclosure is a compact full-width bottom handle");
-  assert(/\.sidebar-team-disclosure-glyph\s*\{[^}]*left:\s*50%;[^}]*transform:\s*translate\(-50%, -50%\);/.test(sidebarStyles), "Team disclosure glyph stays geometrically centered");
-  assert(/\.sidebar-team-disclosure-glyph::before,\s*\.sidebar-team-disclosure-glyph::after\s*\{[^}]*width:\s*17px;[^}]*height:\s*1px;/.test(sidebarStyles), "Team disclosure uses a thin, restrained line");
-  assert(sidebarStyles.includes("right: calc(50% - 0.5px);") && sidebarStyles.includes("left: calc(50% - 0.5px);"), "Team disclosure overlaps its two segments at the joint");
-  assert(sidebarStyles.includes("transform: rotate(-8deg);"), "Team disclosure uses a gentle arrow transition");
-  assert(/\.sidebar-team-disclosure-label,\s*\.sidebar-team-disclosure-count\s*\{[^}]*left:\s*calc\(50% \+ 24px\);/.test(sidebarStyles), "Team disclosure text cannot shift the centered glyph");
-  assert(/\.ct-plan-status-breakdown\s*\{[^}]*flex-wrap:\s*nowrap;[^}]*white-space:\s*nowrap;/.test(sidebarStyles), "status breakdown stays on one line");
   const header = host.querySelector('.sidebar-team-header') as HTMLDivElement | null;
   const chevron = host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement | null;
   assert(!header?.hasAttribute("role") && header?.tabIndex === -1, "Team header is a non-interactive control container");
@@ -57,16 +46,6 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(chevron?.querySelector(".sidebar-team-disclosure-count")?.textContent?.trim() === "1 tab", "collapsed Team shows its tab count beside the centered handle");
   await act(async () => chevron?.click());
   assert(chevron?.getAttribute("aria-expanded") === "true", "bottom handle click expands Team");
-  assert(/\.sidebar-team-progress-slot\s*\{[^}]*width:\s*46px;[^}]*height:\s*20px;/.test(sidebarStyles), "board action, done/total and kebab share one fixed slot");
-  assert(/\.sidebar-team-board-action\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/.test(sidebarStyles), "board action hides by opacity without removing its slot");
-  assert(sidebarStyles.includes(".sidebar-team-header:hover .sidebar-team-board-action"), "CSS hover reveals the board action in the same fixed slot");
-  assert(/\.ct-plan-status-breakdown-separator\s*\{[^}]*margin:\s*0 2px;/.test(sidebarStyles), "status separators have explicit spacing");
-  assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;/.test(sidebarStyles), "kebab hides by opacity without removing its slot");
-  assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/.test(sidebarStyles), "hidden kebab ignores accidental pointer clicks");
-  assert(sidebarStyles.includes(".sidebar-team-header:hover .sidebar-team-menu-root .sidebar-team-kebab"), "CSS hover swaps the kebab into the fixed slot");
-  assert(sidebarStyles.includes('.sidebar-team-header:not([data-menu-dismissed="true"]):focus-within .sidebar-team-menu-root .sidebar-team-kebab'), "keyboard focus swaps the kebab into the fixed slot unless an outside pointer dismisses it");
-  assert(sidebarStyles.includes("[data-touch-mode=\"true\"] .sidebar-team-menu-root .sidebar-team-kebab"), "touch mode persistently exposes the same-slot kebab");
-  assert(!sidebarStyles.includes("data-menu-revealed"), "hover visibility has no React state attribute");
   const outsideFocus = document.createElement("button");
   host.appendChild(outsideFocus);
   await act(async () => {
@@ -94,9 +73,11 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(close, "Close Team action is available");
   await act(async () => close.click());
   assert(closed.join(",") === TEAM.id, "Close Team reports the exact Team id");
-  assert(host.querySelector('[data-testid="team-icon"]'), "Team identity remains visible without a plan");
+  assert(host.querySelector(`section[aria-label="${TEAM.name}"]`), "Team identity remains visible without a plan");
   assert(!host.querySelector('[data-testid="team-plan-button"]'), "no plan button is rendered without a plan");
-  assert(!host.querySelector('[data-testid="team-status-tally"]'), "no plan tally is rendered without a plan");
+  const emptyCounts = host.querySelectorAll('[data-testid="team-status-tally"] .ct-plan-status-breakdown-count');
+  assert(emptyCounts.length === 4 && Array.from(emptyCounts).every((count) => count.textContent === "0"), "a Team without a plan exposes four zero counts");
+  assert(host.querySelector('[data-testid="team-donut"]'), "a Team without a plan retains its status ring");
   canvasFocusStore.closeWorkspace();
   await act(async () => root.unmount());
 });

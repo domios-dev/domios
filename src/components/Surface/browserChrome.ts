@@ -14,4 +14,5 @@ export const BROWSER_SURFACE_CHROME: SurfaceChromeSpec = {
   pointAndAsk: true,
   snip: true,
   openExternal: true,
+  clipboard: true,
 };

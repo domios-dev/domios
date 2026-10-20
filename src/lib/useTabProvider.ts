@@ -5,6 +5,8 @@ import { subscribePluginProviderMeta } from "./pluginProviderMeta";
 import { resolveTabProvider, type ResolvedTabProvider } from "./tabProvider";
 import { fetchShellSessionModel, getCachedShellModel, subscribeShellModel } from "./shellSessionModel";
 import type { Tab } from "./types";
+import { useAgentDescriptor } from "./useAgentDescriptor";
+import { usesPluginSessionModel } from "./shellSessionModelResource";
 
 /** Reactive `resolveTabProvider`: re-resolves when either the descriptor cache
  *  or the plugin-snapshot cache changes, so a tab lights up the moment its
@@ -28,9 +30,10 @@ export function useTabProvider(tab: Tab | null | undefined): ResolvedTabProvider
  *  render, and only the owning tab re-renders when its model resolves. */
 export function useShellSessionModel(tab: Tab | null | undefined): string | null {
   const backing = tab?.backing;
-  const isShell = backing?.kind === "chat_backend";
-  const pluginId = isShell ? backing.plugin_id : null;
-  const sessionId = isShell ? backing.session_id : null;
+  const descriptor = useAgentDescriptor(backing?.kind === "chat_backend" ? backing.plugin_id : null);
+  const isShell = usesPluginSessionModel(backing, descriptor);
+  const pluginId = isShell && backing?.kind === "chat_backend" ? backing.plugin_id : null;
+  const sessionId = isShell && backing?.kind === "chat_backend" ? backing.session_id : null;
 
   const model = useSyncExternalStore(
     subscribeShellModel,

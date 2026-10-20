@@ -1,6 +1,8 @@
 pub mod account;
 pub mod agent;
+pub(crate) mod agent_provider_switch;
 pub(crate) mod agent_restart;
+pub mod agent_runtime;
 mod agent_spawn;
 pub mod analytics;
 pub mod blueprint;
@@ -77,11 +79,13 @@ pub mod surface;
 pub mod system;
 pub mod tab;
 mod tab_restart;
+pub mod tab_todo;
 pub mod task;
 pub mod task_list_render;
 pub mod team;
 pub mod test_plan;
 pub mod theme;
+pub mod todo;
 pub mod trace;
 pub mod update;
 pub mod usage;
@@ -106,3 +110,5 @@ pub(crate) fn render_workspace_map(
         caller_tab_id,
     )
 }
+
+pub mod app;

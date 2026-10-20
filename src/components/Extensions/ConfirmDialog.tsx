@@ -8,6 +8,7 @@
 export function ConfirmDialog({
   title,
   message,
+  icon,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   testId = "confirm-dialog",
@@ -15,7 +16,8 @@ export function ConfirmDialog({
   onCancel,
 }: {
   title: string;
-  message: string;
+  message: import("react").ReactNode;
+  icon?: import("react").ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   testId?: string;
@@ -25,6 +27,7 @@ export function ConfirmDialog({
   return (
     <div
       role="dialog"
+      aria-label={title}
       aria-modal="true"
       data-testid={testId}
       onMouseDown={(e) => e.preventDefault()}
@@ -50,10 +53,13 @@ export function ConfirmDialog({
           padding: "20px 22px",
         }}
       >
-        <div style={{ fontSize: 16, fontWeight: 620, marginBottom: 10 }}>{title}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 16, fontWeight: 620, marginBottom: 10 }}>
+          {icon && <span aria-hidden="true" style={{ display: "inline-flex" }}>{icon}</span>}
+          {title}
+        </div>
         <p
           data-testid={`${testId}-message`}
-          style={{ fontSize: 13, color: "var(--ct-muted)", margin: "0 0 18px", lineHeight: 1.5, whiteSpace: "pre-wrap" }}
+          style={{ fontSize: 13, color: "var(--ct-muted-fg)", margin: "0 0 18px", lineHeight: 1.5, whiteSpace: "pre-wrap" }}
         >
           {message}
         </p>

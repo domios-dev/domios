@@ -203,6 +203,20 @@ fn render_tree_groups_by_workspace_and_nests_children() {
 }
 
 #[test]
+fn render_tree_keeps_remote_workspace_identity_separate_from_local() {
+    let output = super::render::render_tab_tree_with_current(
+        &[
+            json!({"id":"local","title":"Local","workspace_name":"CodeTerm","workspace_id":"994f16ae"}),
+            json!({"id":"mesh:peer-a/remote","title":"Remote","workspace_name":"CodeTerm","workspace_id":"994f16ae","remote_peer":"Peer A","remote_peer_id":"peer-a"}),
+        ],
+        None,
+    );
+
+    assert!(output.contains("CodeTerm  994f16ae\n"));
+    assert!(output.contains("CodeTerm  994f16ae @Peer A\n"));
+}
+
+#[test]
 fn tab_list_uses_ordinary_remote_projection_without_remote_worker_ghosts() {
     let tabs = vec![
         json!({
@@ -278,6 +292,28 @@ fn render_tree_places_team_terminals_after_workers_with_creator_provenance() {
         out.contains("\u{b7}terminal by Ada"),
         "creator provenance missing:\n{out}"
     );
+}
+
+#[test]
+fn render_tree_nests_worker_owned_utility_shell_under_its_worker() {
+    let tabs = vec![
+        json!({"id":"orch","tab_title":"Ada","role":"Orchestrator","team_id":"team","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"worker","tab_title":"Worker","role":"Worker","team_id":"team","parent_tab_id":"orch","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"shell","tab_title":"qa shell","team_id":"team","spawned_by_tab_id":"worker","parent_tab_id":"worker","workspace_name":"W","workspace_id":"w"}),
+    ];
+
+    let lines: Vec<_> = render_tab_tree(&tabs).lines().map(str::to_string).collect();
+    let worker = lines
+        .iter()
+        .position(|line| line.contains("worker Worker"))
+        .unwrap();
+    let shell = lines
+        .iter()
+        .position(|line| line.contains("shell qa shell"))
+        .unwrap();
+    assert_eq!(shell, worker + 1);
+    assert!(lines[shell].starts_with("      "));
+    assert!(lines[shell].contains("terminal by Worker"));
 }
 
 /// One bracket rule across every row the tree renders: the bracket is the
@@ -807,4 +843,28 @@ fn auto_confirm_modes_map_to_the_setting_route() {
         ("POST", Some(serde_json::json!({ "enabled": false })))
     );
     assert_eq!(AutoConfirmMode::Status.request(), ("GET", None));
+}
+
+#[test]
+fn todo_parent_inspection_rejects_remote_tab_selectors_before_rpc() {
+    let action = TabAction::Todo {
+        action: crate::args::tab_todo::TabTodoAction::List {
+            tab: Some("mesh:peer/bad?tab".into()),
+        },
+    };
+
+    assert!(validate_user_tab_selectors(&action).is_err());
+}
+
+#[test]
+fn todo_list_uses_parent_rpc_only_for_a_different_target_tab() {
+    assert_eq!(
+        todo_list_rpc_method("team-child", Some("orchestrator")),
+        "tab.todo.parent_list"
+    );
+    assert_eq!(
+        todo_list_rpc_method("owner", Some("owner")),
+        "tab.todo.list"
+    );
+    assert_eq!(todo_list_rpc_method("selected", None), "tab.todo.list");
 }

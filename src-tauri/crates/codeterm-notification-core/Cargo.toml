@@ -1,10 +1,12 @@
 [package]
+license = "PolyForm-Shield-1.0.0"
 name = "codeterm-notification-core"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
 
 [dependencies]
 codeterm-types = { path = "../codeterm-types" }
+codeterm-notify-types = { path = "../codeterm-notify-types" }
 codeterm-util = { path = "../codeterm-util" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -13,3 +15,6 @@ log = { version = "0.4", features = ["release_max_level_info"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[lints]
+workspace = true

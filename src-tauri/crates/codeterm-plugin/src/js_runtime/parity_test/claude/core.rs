@@ -1,7 +1,6 @@
 //! Claude parity: detection, metadata, slash commands, launch, resume,
 //! session-jsonl path resolution, and settings-json integration hooks.
 
-use super::super::*;
 use super::*;
 
 fn integration_options() -> crate::provider::IntegrationInstallOptions {
@@ -196,6 +195,11 @@ fn parse_session_messages_parity_across_chunk_boundary() {
 
     let nm = n.parse_session_messages(tmp.path());
     let jm = j.parse_session_messages(tmp.path());
+    let text = super::super::parsed_record_fixtures::text_sibling(&j);
+    assert_eq!(
+        serde_json::to_value(&jm).unwrap(),
+        serde_json::to_value(text.parse_session_messages(tmp.path())).unwrap()
+    );
     assert_eq!(nm.len(), 6000, "native must see every line");
     assert_eq!(jm.len(), nm.len(), "chunked JS read must not lose messages");
     for (i, (a, b)) in nm.iter().zip(jm.iter()).enumerate() {
@@ -221,6 +225,11 @@ fn parse_session_messages_parity_on_jsonl_fixture() {
 
     let nm = n.parse_session_messages(tmp.path());
     let jm = j.parse_session_messages(tmp.path());
+    let text = super::super::parsed_record_fixtures::text_sibling(&j);
+    assert_eq!(
+        serde_json::to_value(&jm).unwrap(),
+        serde_json::to_value(text.parse_session_messages(tmp.path())).unwrap()
+    );
 
     assert_eq!(nm.len(), jm.len(), "message count must match");
     for (i, (a, b)) in nm.iter().zip(jm.iter()).enumerate() {
@@ -263,6 +272,7 @@ fn resume_with_context_reapplies_the_prompt_on_both_paths() {
         tool_less_instructions_path: None,
         session_id: "abc-def-123-456".into(),
         skip_permissions: true,
+        host_owned: Default::default(),
         agent_name: None,
         system_prompt: Some(prompt.into()),
         instance_id: None,

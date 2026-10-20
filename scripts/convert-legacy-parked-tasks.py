@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Caller: scripts tests/test_convert_legacy_parked_tasks.py
 """Explicit, auditable conversion of legacy task sidecars from parked to paused."""
 
 import argparse

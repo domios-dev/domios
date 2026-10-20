@@ -6,7 +6,7 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 |---|---|---|---|---|
 | initialize / initialized | Experimental handshake | Yes | Request plus post-success notification | Host owns one guarded initialization and process lifetime |
 | thread/start | New thread with launch settings | Yes | openThread, verified root identity | Host provides composed instructions and exact cwd |
-| thread/inject_items | Materialize thread / restore instructions after compaction | Yes | openThread continuation; restoreContext control | Host routes contextCompacted to restoreContext once with original context |
+| thread/inject_items | Restore owned context after compaction | Yes | restoreContext control only | Binding uses thread/start identity; host restores composed instructions and acknowledged context entries once per compaction item and epoch |
 | thread/resume | Load exact saved thread | Yes | excludeTurns, exact identity, archive recovery | No fresh-thread fallback |
 | thread/unarchive | Recover archived session | Yes | Correlated resume refusal continuation | Bounded host operation |
 | thread/read | Verify identity without history | Yes | resumeThread verification | Account/login status is separate below |
@@ -41,10 +41,10 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | mcpServer/elicitation/request | MCP form/URL elicitation | Limited empty form | Existing empty-form prompt/reply retained | Rich forms and URL launch require UI/contract decision |
 | serverRequest/resolved | Remove live request | Yes | promptResolved with exact ID | String and numeric IDs remain distinct |
 | async agentMessage.questions | Nonblocking questions | Not supported | question event, response message, native values; answerQuestion formatting action; typed historyPage.questions | A9; durable itemId resolution and ordinary send ledger belong core |
-| thread/goal/updated | Provider goal text | Yes | Stable sessionIntent item | Durable goal lifecycle/commands deliberately deferred |
-| thread/goal/cleared | Clear provider goal | Not mapped | Clear stable sessionIntent item | Same thread accepts subsequent goal-native turns |
+| thread/goal/updated | Provider goal text | Yes | Stable sessionIntent item | Status projected; lifecycle controls use provider capability |
+| thread/goal/cleared | Clear provider goal | Yes | Clear stable sessionIntent item | Same thread accepts subsequent goal-native turns |
 | thread/goal/get | Read current goal during history | Yes, optional | Optional final-page history enrichment to sessionIntent | Unsupported optional probe does not fail history |
-| thread/goal/set / clear | Autonomous goal commands | No | Deferred | Owner decision required; goal state/UI/run ownership |
+| thread/goal/set / clear | Confirmed goal lifecycle controls | Set only; clear uses declared runtime contract | Set paused/active/complete; clear then read-back absence | Explicit user origin; fixture tests only |
 | error | Retry/failure notification | Yes | System row with classified metadata | Retry notices never settle turn or replay payload |
 | account/read / account/login/completed | Authentication observation | Yes | initialize/account-read and auth refresh emit auth; account/updated maps directly | A11/A11b maps auth without account identifiers |
 | account/rateLimits/read | Usage refresh | Existing provider fetchUsage surface | Existing provider usage probe unchanged | Runtime account windows arrive through notification |
@@ -55,8 +55,8 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | thread/backgroundTerminals/list / terminate | Background terminal control | No | Deferred | Requires owned-process/task UI and capability |
 | execCommandApproval / applyPatchApproval | Legacy protocol approvals | No | Deferred | CLI compatibility requires current 0.159/0.160 API; do not revive legacy adapters |
 | thread/unsubscribe | Drop subscription | Existing client lifetime only | Host runtime teardown | No provider protocol shutdown hook in frozen API |
-| thread/fork | Fork at native turn boundary | No | Deferred | Needs thread identity/result and UI action |
-| thread/revert | Roll back to boundary | No | Deferred | Reference pages history to beforeTurnId; never send obsolete numTurns |
+| thread/fork | Fork at native turn boundary | Yes | Supported | Resolve the bound turn, use inclusive lastTurnId, verify the returned thread before opening a new host binding |
+| thread/revert | Roll back to boundary | Yes | Supported | Resolve the following turn to beforeTurnId; host truncates only after thread/reverted |
 | feedback/upload | Submit feedback | No | Deferred | Requires explicit user flow |
 
 ## Approach provenance and deliberate differences
@@ -75,14 +75,14 @@ Source audit: the local reference's `apps/server/src/orchestration-v2/Adapters/C
 | JSON display | CodexAdapterV2.ts dynamic tool JSON presentation | Recursively sorted keys make Node and the serde/QuickJS bridge render identically; source string results remain verbatim |
 | Errors | CodexAdapterV2.ts error handler | Retain retryable/class metadata on stable system row; avoid classifying a retry notice as terminal failure |
 | Timing | CodexAdapterV2.ts codexTimestamp / turn handlers | Seconds to ms, host stamps receipt time; plugin never reads a clock |
-| Resume/archive/history | CodexAdapterV2.ts resumeThread; CodexThreadRevert.ts pagination | excludeTurns and archive recovery retained; no rollback/fork action implemented without approved UI/result contract |
+| Resume/archive/history | CodexAdapterV2.ts resumeThread; CodexThreadRevert.ts pagination | excludeTurns and archive recovery retained; fork/revert use native turn boundaries and host-owned binding/evidence |
 | Host process/guarded initialize | effect-codex-app-server client and provider managed runtime | Owned by core/Bridge lanes; no process/FS/env/network access in these hooks |
 
 Canonical must regenerate the shared InteractiveOption generated TypeScript after the Rust value field lands. This lane fills source native values structurally and never edits generated artifacts.
 
-Codex 0.160 experimental history divergence: installed app-server acknowledges experimentalApi=true yet thread/items/list returns -32601 "not supported yet". On that correlated method-not-found response only, history falls back to the exact bound thread/read includeTurns:true snapshot, following T3 CodexAdapterV2.ts readThreadSnapshot. It reuses item/question normalization, validates thread identity and complete turn/item arrays, never emits sendEvidence, and remains subject to host snapshot size bounds. Other RPC errors remain failures. All consumed notifications, including turn/diff/updated, stay subscribed.
+Unsupported history pagination completes the bounded startup window without a full-thread RPC. The stored-history byte-window reader owns older records on demand. Other RPC errors remain failures. Oversized paged replies retry smaller item limits before entering QuickJS; at one item, the host projects oversized content to an identity-preserving truncated row.
 
-Effective settings: start/resume replies report model and reasoningEffort separately from the requested values. Following T3 CodexAdapterV2.ts decodeCodexChildModel/updateSubagentSelection and the old Codex lifecycle effective settings, these replies override the request only for reported model/effort/mode; omitted values retain the request. Continuation state carries them through materialization/identity verification. Controls replies and settings notifications share the same decoder. Host-authorized directories/network settings are retained, never inferred from provider permission output.
+Effective settings: start/resume replies report model and reasoningEffort separately from the requested values. Following T3 CodexAdapterV2.ts decodeCodexChildModel/updateSubagentSelection and the old Codex lifecycle effective settings, these replies override the request only for reported model/effort/mode; omitted values retain the request. Start returns them directly; continuation state carries them through resume identity verification. Controls replies and settings notifications share the same decoder. Host-authorized directories/network settings are retained, never inferred from provider permission output.
 
 Resume/context instruction parity: T3 CodexAdapterV2.ts explicitly refreshes runtime policy on resumed turns rather than relying on sticky persisted values. Domios refreshes its full host-composed developer instructions on thread/resume, including unarchive retry. RestoreContext follows the approved A13 host payload and its exact developer/user role mapping; this deliberately differs from T3's application-context policy because the frozen Domios contract owns these roles. No I/O or additional-context producer is added to pure hooks, and an empty restore is rejected because the host skips it.
 

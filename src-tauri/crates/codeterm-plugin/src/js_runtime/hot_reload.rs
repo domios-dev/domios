@@ -1,10 +1,10 @@
-//! Background poller for plugin root changes. It hot-reloads modified plugins
+//! Filesystem watcher for plugin root changes. It hot-reloads modified plugins
 //! and registers or deregisters plugin folders without restarting the daemon.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use parking_lot::Mutex;
 
@@ -13,7 +13,7 @@ use crate::provider::AgentProvider;
 
 use super::{load_one, PluginManifest};
 
-const POLL_INTERVAL: Duration = Duration::from_secs(2);
+mod fs_events;
 
 #[derive(Clone)]
 struct Tracked {
@@ -46,7 +46,7 @@ pub struct PluginLoadError {
 #[derive(Clone)]
 pub struct CapabilityRegistries {
     pub decision_model:
-        Arc<crate::capability::CapabilityRegistry<dyn codeterm_types::decision::DecisionModel>>,
+        Arc<crate::capability::CapabilityRegistry<dyn codeterm_decision::DecisionModel>>,
     pub transcribe: Arc<crate::transcribe::TranscribeRegistry>,
     pub converter: Arc<crate::converter::ConverterRegistry>,
     pub graph_nodes: Arc<crate::graph_nodes::GraphNodeRegistry>,
@@ -159,17 +159,21 @@ impl CapabilityRegistries {
                 )),
             );
         }
-        if caps.chat_backend.enabled() && caps.agent_runtime.is_none() {
+        if caps.chat_backend.enabled()
+            && (caps.agent_runtime.is_none() || caps.remote_task.is_some())
+        {
             self.chatbackend.register(
                 id.clone(),
                 Arc::new(super::JsChatBackend::from_manifest(vm.clone(), manifest)),
             );
         }
         if caps.chat_preprocessor.enabled() {
-            self.chat_preprocessor.register(
-                id.clone(),
-                Arc::new(super::JsChatPreprocessor::new(vm.clone(), id.clone())),
-            );
+            let mut preprocessor = super::JsChatPreprocessor::new(vm.clone(), id.clone());
+            if caps.agent_provider {
+                preprocessor = preprocessor.scoped_to_provider(id.clone());
+            }
+            self.chat_preprocessor
+                .register(id.clone(), Arc::new(preprocessor));
         }
         if let Some(receiver) = &caps.webhook_receiver {
             self.webhook_receiver.register(
@@ -325,6 +329,17 @@ impl HotReloadRegistry {
             .and_then(std::sync::Weak::upgrade)
         {
             service.event_sources_changed();
+        }
+    }
+
+    fn notify_plugin_index_changed(&self) {
+        if let Some(service) = self
+            .service
+            .lock()
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+        {
+            service.contributions_changed(crate::agent_verbs::PLUGIN_INDEX_CONTRIBUTION_KIND);
         }
     }
 
@@ -542,13 +557,28 @@ impl HotReloadRegistry {
     pub fn start(self: &Arc<Self>) {
         let _ = WATCHER.set(self.clone());
         let me = self.clone();
-        std::thread::Builder::new()
+        let started = std::thread::Builder::new()
             .name("codeterm-plugin-watcher".into())
-            .spawn(move || loop {
+            .spawn(move || {
+                let mut events = match fs_events::FileEvents::new(me.roots.clone()) {
+                    Ok(events) => events,
+                    Err(error) => {
+                        log::error!("[plugin-watcher] cannot watch plugin roots: {error}");
+                        me.tick();
+                        return;
+                    }
+                };
                 me.tick();
-                std::thread::sleep(POLL_INTERVAL);
-            })
-            .ok();
+                while events.wait().is_ok() {
+                    if let Err(error) = events.refresh() {
+                        log::error!("[plugin-watcher] cannot refresh plugin roots: {error}");
+                    }
+                    me.tick();
+                }
+            });
+        if let Err(error) = started {
+            log::error!("[plugin-watcher] cannot start watcher: {error}");
+        }
     }
 
     pub fn tick(&self) {
@@ -565,6 +595,7 @@ impl HotReloadRegistry {
             self.refresh_installed_reconciled(ids)
         };
         self.flush_settings_changed();
+        self.notify_plugin_index_changed();
         result
     }
 
@@ -664,6 +695,7 @@ impl HotReloadRegistry {
         }
         if event_sources_changed {
             self.notify_event_sources_changed();
+            self.notify_plugin_index_changed();
         }
         self.failed.lock().retain(|path, _| path.exists());
         self.load_errors
@@ -716,6 +748,9 @@ impl HotReloadRegistry {
                     .or_default()
                     .push(manifest_path);
             }
+        }
+        for (id, paths) in &mut candidates {
+            super::loader::order_system_candidates(id, paths);
         }
         candidates
     }
@@ -825,6 +860,7 @@ impl HotReloadRegistry {
                     log::info!(
                         "[plugin-watcher] {id} declares requiresReload — pending until daemon reload"
                     );
+                    self.notify_plugin_index_changed();
                     return Some(id);
                 }
                 self.bind_service(provider.vm());
@@ -873,6 +909,7 @@ impl HotReloadRegistry {
                     },
                 );
                 crate::audit::append_daemon_reloaded(&id, &version);
+                self.notify_plugin_index_changed();
                 #[cfg(test)]
                 self.load_count
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -972,25 +1009,24 @@ fn warn_stage_conflicts(
     preprocessors: &dyn crate::chatpreprocessor::ChatPreprocessorPort,
 ) {
     let voice = transcribers.ids();
-    let text = preprocessors.preprocessor_ids();
-    let mut voice_ids: Vec<String> = Vec::new();
-    let mut text_ids: Vec<String> = Vec::new();
-    for id in &voice {
-        voice_ids.push(id.clone());
-    }
-    for id in &text {
-        text_ids.push(id.clone());
-    }
-    if voice_ids.len() > 1 {
+    let text = preprocessors.active_preprocessors();
+    if voice.len() > 1 {
         log::warn!(
             "[chatpipeline] voice slot grabbed by >1 stage ({}); they would run twice — uninstall one",
-            voice_ids.join(", ")
+            voice.join(", ")
         );
     }
-    if text_ids.len() > 1 {
+    let mut scopes: BTreeMap<Option<String>, Vec<String>> = BTreeMap::new();
+    for stage in text {
+        scopes
+            .entry(stage.provider_scope().map(str::to_owned))
+            .or_default()
+            .push(stage.id().to_string());
+    }
+    for ids in scopes.into_values().filter(|ids| ids.len() > 1) {
         log::warn!(
             "[chatpipeline] text slot grabbed by >1 stage ({}); they would run twice — uninstall one",
-            text_ids.join(", ")
+            ids.join(", ")
         );
     }
 }

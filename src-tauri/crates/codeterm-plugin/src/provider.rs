@@ -1,10 +1,23 @@
 mod model_switch_transcript;
+pub enum LaunchSpecParams<'a> {
+    Fresh(&'a AgentLaunchParams),
+    Resume(&'a AgentResumeParams),
+}
 pub mod reply_relay;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StructuredControl {
     pub protocol: String,
     pub min_version: String,
+    #[serde(default)]
+    pub runtime_modes: Vec<StructuredRuntimeMode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StructuredRuntimeMode {
+    pub id: String,
+    pub display_name: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -21,7 +34,7 @@ pub use reply_relay::{
     ReplyRelayUnavailable,
 };
 pub(crate) mod update_prompt;
-pub use codeterm_types::agent::provider_signals::{AuthStatus, SessionObservations};
+pub use codeterm_provider_signals::{AuthStatus, SessionObservations};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -205,6 +218,7 @@ mod agent_provider;
 mod availability;
 mod capabilities;
 mod descriptor;
+mod execution_sandbox;
 mod launch_permissions;
 mod launch_session;
 mod model_group;
@@ -213,9 +227,11 @@ mod session_content;
 mod settings;
 mod spawn_strategy;
 mod usage_snapshot;
+mod worker_lane_setting;
 pub use agent_provider::*;
 pub use availability::*;
 pub use capabilities::*;
+pub use execution_sandbox::*;
 pub use launch_permissions::*;
 pub use launch_session::*;
 pub use model_group::*;
@@ -224,6 +240,7 @@ pub use session_content::*;
 pub use settings::*;
 pub use spawn_strategy::*;
 pub use usage_snapshot::*;
+pub use worker_lane_setting::*;
 
 /// Wire format describing one agent provider to the frontend.
 /// Built from the trait via `AgentProvider::describe()`.
@@ -233,6 +250,8 @@ pub use usage_snapshot::*;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderDescriptor {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_task: Option<crate::remote_tasks::RemoteTaskCapability>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_runtime: Option<crate::agent_runtime::AgentRuntimeCapability>,
     #[serde(default)]
@@ -321,6 +340,8 @@ pub struct ProviderDescriptor {
     /// a Stop button on the tab that POSTs to `/api/tabs/:id/stop`.
     #[serde(default)]
     pub supports_stop: bool,
+    #[serde(default)]
+    pub supports_subagent_visibility: bool,
     /// `true` when the provider can render a tab as chat — either it
     /// stores sessions as tailable JSONL or serves structured chat from
     /// its own store. The UI gates the chat/terminal toggle on this
@@ -384,7 +405,7 @@ pub struct ProviderUpdateAvailability {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 21;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 23;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file

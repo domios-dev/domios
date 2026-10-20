@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { trapDialogTab } from "../../shared/dialogFocusTrap";
@@ -111,9 +112,7 @@ export function MissionControlActionDialog({ request, onClose }: MissionControlA
           </label>
         )}
         {error && (
-          <p role="alert" className="mc-lifecycle-error" data-testid={`${testId}-error`}>
-            {error}
-          </p>
+          <div data-testid={`${testId}-error`}><InlineErrorNotice error={error} operation="updating this plan" blocking /></div>
         )}
         <div className="mc-lifecycle-actions">
           <button

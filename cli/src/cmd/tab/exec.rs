@@ -10,13 +10,13 @@ use crate::cmd::print::{exit_with_cli_error, print_json, write_cli_error, CliErr
 pub(super) const EXEC_TIMEOUT_EXIT: i32 = 124;
 
 #[derive(Debug, PartialEq)]
-pub(super) struct ExecReport {
-    pub(super) stdout: String,
-    pub(super) stderr: Option<String>,
-    pub(super) exit: i32,
+pub(crate) struct ExecReport {
+    pub(crate) stdout: String,
+    pub(crate) stderr: Option<String>,
+    pub(crate) exit: i32,
 }
 
-pub(super) fn exec_report(body: &Value) -> ExecReport {
+pub(crate) fn exec_report(body: &Value) -> ExecReport {
     let stdout = body
         .get("output")
         .and_then(Value::as_str)
@@ -49,8 +49,8 @@ pub(super) fn exec_report(body: &Value) -> ExecReport {
         },
         (None, _) => ExecReport {
             stdout,
-            stderr: None,
-            exit: 0,
+            stderr: Some("the command's exit status is unknown".into()),
+            exit: 1,
         },
     };
     if body.get("output_truncated").and_then(Value::as_bool) == Some(true)
@@ -64,6 +64,10 @@ pub(super) fn exec_report(body: &Value) -> ExecReport {
 
 pub(super) fn finish_exec(json: bool, body: Value) -> ! {
     let report = exec_report(&body);
+    finish_exec_report(json, body, report)
+}
+
+pub(crate) fn finish_exec_report(json: bool, body: Value, report: ExecReport) -> ! {
     if json {
         if let Some(message) = report.stderr {
             let error = CliError {
@@ -140,5 +144,13 @@ mod tests {
             "completion": "shell_exited",
         }));
         assert_eq!(report.exit, 1);
+    }
+    #[test]
+    fn exec_report_never_succeeds_without_an_exit_status() {
+        for completion in ["command_finished", "unknown"] {
+            let report = exec_report(&json!({"exit_code": null, "completion": completion}));
+            assert_eq!(report.exit, 1);
+            assert!(report.stderr.is_some());
+        }
     }
 }

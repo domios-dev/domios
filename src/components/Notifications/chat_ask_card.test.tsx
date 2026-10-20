@@ -278,8 +278,29 @@ async function run() {
   assert(pendingChoices.length > 0 && pendingChoices.every((button) => button.disabled), "chat disables every pending choice");
   assert(pendingView.querySelector('[role="status"]'), "chat announces pending delivery");
   const failedView = await renderCard(ask({ answer_error: "Tab unavailable" }), answerThroughStore);
-  assert(failedView.querySelector('[role="alert"]')?.textContent === "Tab unavailable", "chat exposes delivery failure");
+  assert(failedView.querySelector('[role="alert"] details pre')?.textContent === "Tab unavailable", "chat exposes delivery failure");
   assert(Array.from(failedView.querySelectorAll<HTMLButtonElement>('[data-testid="chat-ask-choice"]')).every((button) => !button.disabled), "chat re-enables failed choices");
+
+  // A tap shows its label and locks every choice at once, before the record moves, and a repeat tap sends nothing.
+  await act(async () => root.render(<div />));
+  const taps: Array<[string, string]> = [];
+  const tapsOnce = (id: string, label: string) => { taps.push([id, label]); };
+  const fresh = await renderCard(ask(), tapsOnce);
+  assert(fresh.querySelector('[data-testid="chat-ask-body"]')?.textContent === ask().body, "the full question shows by default");
+  const [first] = choiceButtons(fresh);
+  await act(async () => first.click());
+  await act(async () => first.click());
+  assert(taps.length === 1 && taps[0][0] === "ask-1" && taps[0][1] === FIRST_CHOICE, `one tap reaches the store once, got ${JSON.stringify(taps)}`);
+  assert(fresh.querySelector('[data-testid="chat-ask-sending"]')?.textContent?.includes(FIRST_CHOICE), "the chosen label shows while sending");
+  assert(choiceButtons(fresh).every((button) => (button as HTMLButtonElement).disabled), "every choice locks after a tap");
+  await renderCard(ask({ answer_error: "Refused" }), tapsOnce);
+  assert(fresh.querySelector('[role="alert"] details pre')?.textContent === "Refused", "a refusal shows on the tapped card");
+  assert(choiceButtons(fresh).every((button) => !(button as HTMLButtonElement).disabled), "a refusal reopens the choices");
+  await renderCard(ask({ answer: { asked_from_tab: ASKING_TAB, answered: FIRST_CHOICE, delivered: true } }), tapsOnce);
+  assert(fresh.querySelector('[data-testid="chat-ask-answered"]')?.textContent?.includes(FIRST_CHOICE), "the recorded answer replaces the sending state");
+  const collapse = fresh.querySelector('[aria-expanded="true"]') as HTMLElement;
+  await act(async () => collapse.click());
+  assert(!fresh.querySelector('[data-testid="chat-ask-body"]'), "the question body still collapses");
 
   await act(async () => root.unmount());
   console.log(`chat_ask_card tests: ${checked} assertions passed`);

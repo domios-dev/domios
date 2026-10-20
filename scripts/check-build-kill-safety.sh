@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: scripts qa-gates.lib.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,7 +34,7 @@ if [ "${#request_lines[@]}" -ne 3 ] || [ "${#watcher_lines[@]}" -ne 2 ] \
 fi
 
 set +e
-named_prod_output="$(CODETERM_INSTANCE=prod CODETERM_API_PORT=7685 ./build.sh kill 2>&1)"
+named_prod_output="$(CODETERM_DEV_INSTANCE=prod CODETERM_DEV_API_PORT=7685 ./build.sh kill 2>&1)"
 named_prod_status=$?
 set -e
 
@@ -42,7 +43,7 @@ if [ "$named_prod_status" -eq 0 ]; then
   echo "$named_prod_output" >&2
   exit 1
 fi
-if ! grep -Eq 'refusing to (target prod CodeTerm port|run kill against prod port) 7685' <<< "$named_prod_output"; then
+if ! grep -Eq 'development refuses production port 7685' <<< "$named_prod_output"; then
   echo "expected explicit prod refusal message" >&2
   echo "$named_prod_output" >&2
   exit 1
@@ -71,7 +72,7 @@ if grep -q "CARGO_TARGET_DIR=.*codeterm-worktrees" <<< "$named_policy"; then
   exit 1
 fi
 
-named_gateway_policy="$(CODETERM_INSTANCE=pw1 CODETERM_API_PORT=7786 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
+named_gateway_policy="$(CODETERM_DEV_INSTANCE=pw1 CODETERM_DEV_API_PORT=7786 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
 canonical_gateway_policy="$(CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
 grep -q "shared_gateway_handoff=skipped" <<< "$named_gateway_policy" || {
   echo "named dev --wait must structurally skip the shared build-gateway handoff" >&2
@@ -81,7 +82,7 @@ grep -q "shared_gateway_handoff=required" <<< "$canonical_gateway_policy" || {
   echo "canonical dev --wait must retain the shared build-gateway handoff" >&2
   exit 1
 }
-if CODETERM_INSTANCE=pw1 CODETERM_API_PORT=7786 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait --release-gateway-after-ready >/dev/null 2>&1; then
+if CODETERM_DEV_INSTANCE=pw1 CODETERM_DEV_API_PORT=7786 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait --release-gateway-after-ready >/dev/null 2>&1; then
   echo "obsolete caller-controlled gateway handoff flag must be rejected" >&2
   exit 1
 fi
@@ -105,8 +106,8 @@ chmod +x "$marker_fixture/bin/curl"
 
 HOME="$marker_fixture/home" \
 PATH="$marker_fixture/bin:$PATH" \
-CODETERM_INSTANCE=marker-test \
-CODETERM_API_PORT=7799 \
+CODETERM_DEV_INSTANCE=marker-test \
+CODETERM_DEV_API_PORT=7799 \
 CODETERM_TEST_KILL_CLEAN_REQUEST_ONLY=1 \
 CODETERM_TEST_CURL_LOG="$marker_fixture/curl.log" \
   ./build.sh kill >/dev/null

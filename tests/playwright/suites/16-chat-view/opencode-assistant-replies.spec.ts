@@ -59,7 +59,7 @@ test(
 
     await ui.reconnect();
 
-    const spawned = await api.post<{ tab_id: string; tab_id?: string }>("/agents/spawn", {
+    const spawned = await api.post<{ tab_id: string; }>("/agents/spawn", {
       agent: "opencode",
       args: ["--session", sessionId],
       title: `pw-opencode-fallback-${nowMs}`,

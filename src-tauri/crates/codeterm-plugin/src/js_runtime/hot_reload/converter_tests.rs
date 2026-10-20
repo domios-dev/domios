@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use codeterm_types::sentinel_input::MediaKind;
+use codeterm_blueprint_types::sentinel_input::MediaKind;
 
 use super::tests::{test_caps, TestRegistrar};
 use super::*;

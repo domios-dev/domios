@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: skill testing
 # WHAT: run one provider row of the submission matrix through bounded focused oracles.
 # WHY: descriptor capabilities, not copied provider assertions, define full versus restricted scope.
 # ORACLE: the Rust matrix and focused UI tests exit green while the real codeterm CLI is callable.

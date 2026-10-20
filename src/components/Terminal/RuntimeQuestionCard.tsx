@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useRef, useState } from "react";
 import { InteractiveQuestion } from "@codeterm/chat-ui";
 import { invoke } from "../../lib/bridge";
@@ -42,6 +43,6 @@ export function RuntimeQuestionCard({ tabId, item, onReceipt }: {
           throw cause;
         } finally { pending.current = false; }
       }} />
-    {error && <div role="alert">{error}</div>}
+    {error && <InlineErrorNotice error={error} operation="answering the agent" blocking />}
   </>;
 }

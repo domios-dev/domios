@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh helpers; scripts qa-report.sh, tests/qa-report-early-alerts.sh, tests/utility-shell-reports.test.mjs
 
 dev_notify_capture_parent() {
   DEV_NOTIFY_PARENT_CLI="$(command -v codeterm 2>/dev/null || true)"
@@ -18,23 +19,19 @@ dev_notify_capture_parent() {
   DEV_NOTIFY_PARENT_CODETERM_SESSION_BINDING_NONCE="${CODETERM_SESSION_BINDING_NONCE-}"
   DEV_NOTIFY_PARENT_CODETERM_WORKER_ID_SET="${CODETERM_WORKER_ID+x}"
   DEV_NOTIFY_PARENT_CODETERM_WORKER_ID="${CODETERM_WORKER_ID-}"
+  DEV_NOTIFY_PARENT_CODETERM_PARENT_TAB_ID_SET="${CODETERM_PARENT_TAB_ID+x}"
+  DEV_NOTIFY_PARENT_CODETERM_PARENT_TAB_ID="${CODETERM_PARENT_TAB_ID-}"
+  DEV_NOTIFY_PARENT_CODETERM_TEAM_ID_SET="${CODETERM_TEAM_ID+x}"
+  DEV_NOTIFY_PARENT_CODETERM_TEAM_ID="${CODETERM_TEAM_ID-}"
 }
 
-dev_notify_send() {
-  local tab_id="$1" body_file="$2" name
-  if [ -n "${REPORT_NOTIFY_FUNCTION:-}" ]; then
-    "$REPORT_NOTIFY_FUNCTION" "$tab_id" "$body_file"
-    return $?
-  fi
+dev_notify_parent_cli() {
   if [ -z "${DEV_NOTIFY_PARENT_CLI:-}" ]; then
     echo "ERROR: parent codeterm CLI was not available when notifications were captured" >&2
     return 127
   fi
-  if [ ! -f "$body_file" ]; then
-    echo "ERROR: notification body file does not exist: $body_file" >&2
-    return 2
-  fi
   (
+    local name
     for name in $(compgen -A variable CODETERM_); do
       unset "$name" 2>/dev/null || true
     done
@@ -46,19 +43,83 @@ dev_notify_send() {
     if [ "${DEV_NOTIFY_PARENT_CODETERM_SESSION_ID_SET:-}" = x ]; then export CODETERM_SESSION_ID="$DEV_NOTIFY_PARENT_CODETERM_SESSION_ID"; fi
     if [ "${DEV_NOTIFY_PARENT_CODETERM_SESSION_BINDING_NONCE_SET:-}" = x ]; then export CODETERM_SESSION_BINDING_NONCE="$DEV_NOTIFY_PARENT_CODETERM_SESSION_BINDING_NONCE"; fi
     if [ "${DEV_NOTIFY_PARENT_CODETERM_WORKER_ID_SET:-}" = x ]; then export CODETERM_WORKER_ID="$DEV_NOTIFY_PARENT_CODETERM_WORKER_ID"; fi
-    "$DEV_NOTIFY_PARENT_CLI" send --tab "$tab_id" --from-file "$body_file"
+    if [ "${DEV_NOTIFY_PARENT_CODETERM_PARENT_TAB_ID_SET:-}" = x ]; then export CODETERM_PARENT_TAB_ID="$DEV_NOTIFY_PARENT_CODETERM_PARENT_TAB_ID"; fi
+    if [ "${DEV_NOTIFY_PARENT_CODETERM_TEAM_ID_SET:-}" = x ]; then export CODETERM_TEAM_ID="$DEV_NOTIFY_PARENT_CODETERM_TEAM_ID"; fi
+    "$DEV_NOTIFY_PARENT_CLI" "$@"
   )
+}
+
+dev_notify_resolve_target() {
+  local explicit_tab="${1:-}" shell_tab="${DEV_NOTIFY_PARENT_CODETERM_TAB_ID:-}"
+  local parent_hint="${DEV_NOTIFY_PARENT_CODETERM_PARENT_TAB_ID:-}" tab_model="" team_id="" team_model="" resolved=""
+  DEV_NOTIFY_TARGET_KIND=none
+  DEV_NOTIFY_TARGET_MESH=""
+  DEV_NOTIFY_TAB=""
+  if [ -n "$shell_tab" ] && [ -n "${DEV_NOTIFY_PARENT_CLI:-}" ]; then
+    tab_model="$(dev_notify_parent_cli tab inspect --json --tab "$shell_tab" 2>/dev/null || true)"
+    if [ -z "$explicit_tab" ]; then
+      team_id="$(printf '%s' "$tab_model" | node scripts/dev-notify-target.mjs --team-id "$shell_tab" 2>/dev/null || true)"
+      if [ -n "$team_id" ]; then
+        team_model="$(dev_notify_parent_cli team show "$team_id" --json 2>/dev/null || true)"
+      fi
+    fi
+  fi
+  resolved="$(printf '%s' "$tab_model" | node scripts/dev-notify-target.mjs "$explicit_tab" "$shell_tab" "$parent_hint" "$team_model" 2>/dev/null || true)"
+  IFS=$'\t' read -r DEV_NOTIFY_TARGET_KIND DEV_NOTIFY_TAB DEV_NOTIFY_TARGET_MESH <<< "$resolved"
+  [ -n "$DEV_NOTIFY_TARGET_KIND" ] || DEV_NOTIFY_TARGET_KIND=none
+}
+
+dev_notify_send() {
+  local tab_id="$1" body_file="$2" level="${3:-failure}" title="${4:-Build failed}" first_line=""
+  if [ "$#" -lt 3 ] && [ -f "$body_file" ]; then
+    IFS= read -r first_line < "$body_file" || true
+    case "$first_line" in
+      OK*|READY*) level=verbose; title="Build complete" ;;
+    esac
+  fi
+  if [ -n "${REPORT_NOTIFY_FUNCTION:-}" ]; then
+    "$REPORT_NOTIFY_FUNCTION" "$tab_id" "$body_file" "${DEV_NOTIFY_TARGET_MESH:-}" "$level" "$title"
+    return $?
+  fi
+  if [ ! -f "$body_file" ]; then
+    echo "ERROR: notification body file does not exist: $body_file" >&2
+    return 2
+  fi
+  if [ "${DEV_NOTIFY_TARGET_KIND:-send}" = notify ]; then
+    local pad_dir pad_file pad_name severity status
+    pad_dir="$(dev_notify_parent_cli pad path)" || return $?
+    case "$pad_dir" in
+      [A-Za-z]:\\*) pad_dir="$(cygpath -u "$pad_dir")" || return $? ;;
+    esac
+    pad_file="$(mktemp "$pad_dir/build-report.XXXXXX")" || return $?
+    if ! cp "$body_file" "$pad_file"; then rm -f "$pad_file"; return 1; fi
+    pad_name="${pad_file##*/}"
+    if [ "$level" = failure ]; then severity=error; else severity=info; fi
+    if dev_notify_parent_cli notify send "$title" --from-pad "$pad_name" --level "$level" --severity "$severity"; then
+      rm -f "$pad_file"
+      return 0
+    else
+      status=$?
+      rm -f "$pad_file"
+      return "$status"
+    fi
+  fi
+  if [ -n "${DEV_NOTIFY_TARGET_MESH:-}" ]; then
+    dev_notify_parent_cli send --mesh "$DEV_NOTIFY_TARGET_MESH" --tab "$tab_id" --from-file "$body_file"
+  else
+    dev_notify_parent_cli send --tab "$tab_id" --from-file "$body_file"
+  fi
 }
 
 dev_notify_write_ready() {
   local body_file="$1" instance="$2" api_port="$3" build_sha="$4" listener_pid="$5" checkout="$6"
   if [ -z "$instance" ]; then instance=default; fi
-  printf 'READY instance=%s api_port=%s build=%s listener_pid=%s checkout=%s\n' \
-    "$instance" "$api_port" "$build_sha" "$listener_pid" "$checkout" > "$body_file"
+  printf 'READY instance=%s api_port=%s build=%s\n' "$instance" "$api_port" "$build_sha" > "$body_file"
 }
 
 dev_notify_write_failed() {
   local body_file="$1" stage="$2" instance="$3" api_port="$4" log_file="$5" rc="${6:-}"
+  local compiler_errors="" first_error=""
   if [ -z "$instance" ]; then instance=default; fi
   if [ -n "$rc" ]; then
     printf 'FAILED stage=%s rc=%s instance=%s api_port=%s\n' "$stage" "$rc" "$instance" "$api_port" > "$body_file"
@@ -70,18 +131,32 @@ dev_notify_write_failed() {
     124) printf 'Reason: timeout cap (exit 124)\n' >> "$body_file" ;;
   esac
   printf 'Log: %s\n' "$log_file" >> "$body_file"
-  if [ -f "$log_file" ]; then tail -n 25 "$log_file" >> "$body_file" 2>/dev/null || true; fi
+  if [ -f "$log_file" ]; then
+    compiler_errors="$(grep -E 'error(\[E[0-9]+\])?:|fatal error|LNK[0-9]{4}|undefined reference' "$log_file" 2>/dev/null | head -n 5 || true)"
+    if [ -n "$compiler_errors" ]; then
+      printf 'Compiler errors:\n%s\n' "$compiler_errors" >> "$body_file"
+    else
+      first_error="$(grep -m 1 -E '^(ERROR:|error:|Diff in |.*could not compile)' "$log_file" 2>/dev/null || true)"
+      if [ -n "$first_error" ]; then printf 'First failure: %s\n' "$first_error" >> "$body_file"; fi
+    fi
+  fi
 }
 
 dev_notify_send_once() {
-  local marker="$1" tab_id="$2" body_file="$3" status
+  local marker="$1" tab_id="$2" body_file="$3" level="${4:-failure}" title="${5:-Build failed}" status first_line=""
+  if [ "$#" -lt 4 ] && [ -f "$body_file" ]; then
+    IFS= read -r first_line < "$body_file" || true
+    case "$first_line" in
+      OK*|READY*) level=verbose; title="Build complete" ;;
+    esac
+  fi
   DEV_NOTIFY_SEND_CLAIMED=0
   if ! mkdir "$marker" 2>/dev/null; then
     rm -f "$body_file"
     return 0
   fi
   DEV_NOTIFY_SEND_CLAIMED=1
-  dev_notify_send "$tab_id" "$body_file"
+  dev_notify_send "$tab_id" "$body_file" "$level" "$title"
   status=$?
   rm -f "$body_file"
   return "$status"
@@ -97,7 +172,7 @@ dev_notify_ready_once() {
   DEV_NOTIFY_SEND_CLAIMED=0
   body_file="$(dev_notify_new_body_file)" || return 1
   dev_notify_write_ready "$body_file" "$instance" "$api_port" "$build_sha" "$listener_pid" "$checkout" || return 1
-  dev_notify_send_once "$marker" "$tab_id" "$body_file"
+  dev_notify_send_once "$marker" "$tab_id" "$body_file" verbose "Dev ready"
 }
 
 dev_notify_failure_once() {
@@ -234,6 +309,7 @@ report_failure_line() {
   local line="$1"
   line="$(printf '%s' "$line" | sed $'s/\\033\\[[0-9;]*[mK]//g')"
   [[ "$line" =~ error\[E[0-9]+\] ]] ||
+    [[ "$line" =~ ^(ERROR|Diff[[:space:]]in)[:[:space:]] ]] ||
     [[ "$line" == *"error: could not compile"* ]] ||
     [[ "$line" =~ (^|[[:space:]])FAIL[[:space:]] ]] ||
     [[ "$line" =~ ^[[:space:]]*not[[:space:]]ok[[:space:]] ]] ||
@@ -241,11 +317,13 @@ report_failure_line() {
 }
 
 report_alert_once() {
-  local marker="$1" tab="$2" label="$3" step="$4" line="$5" log="$6" body
+  local marker="$1" tab="$2" label="$3" step="$4" line="$5" log="$6" body compiler_errors
   [ -n "$tab" ] || return 0
   [ ! -d "$marker" ] || return 0
   body="$(dev_notify_new_body_file)" || return 1
   printf 'EARLY FAILURE label=%s step=%s\nFirst failure: %s\nLog: %s\n' "$label" "$step" "$line" "$log" > "$body"
+  compiler_errors="$(grep -E 'error(\[E[0-9]+\])?:|fatal error|LNK[0-9]{4}|undefined reference' "$log" 2>/dev/null | head -n 5 || true)"
+  if [ -n "$compiler_errors" ]; then printf 'Compiler errors:\n%s\n' "$compiler_errors" >> "$body"; fi
   dev_notify_send_once "$marker" "$tab" "$body"
 }
 
@@ -297,7 +375,7 @@ report_run_stream() {
     0) return 0 ;;
     75) reason="gateway refused (exit 75)" ;;
     124) reason="timeout cap (exit 124)" ;;
-    *) reason="step exited non-zero (exit $rc)" ;;
+    *) reason="step exited non-zero (exit $rc): $(grep -v '^[[:space:]]*$' "$log" 2>/dev/null | tail -n 1)" ;;
   esac
   report_alert_once "$marker" "$tab" "$label" "$step" "$reason" "$log" || true
   return "$rc"

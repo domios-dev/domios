@@ -1,7 +1,6 @@
-import { useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { classify, type UsageSnapshot } from "../../types/usage";
-import { clampPortalCenter } from "./portalPosition";
 import { formatRelative } from "./format";
 
 interface UsageTableProps {
@@ -16,8 +15,17 @@ export function UsageTable({ rows, pageSize = 5 }: UsageTableProps) {
   );
   const [visible, setVisible] = useState(pageSize);
   const recent = sorted.slice(0, visible);
+  const loggedFailures = useRef(new Set<number>());
   const hasMore = visible < sorted.length;
   const now = Date.now();
+  useEffect(() => {
+    if (!DEV_BUILD) return;
+    for (const row of recent) {
+      if (row.parsed_ok || loggedFailures.current.has(row.id)) continue;
+      loggedFailures.current.add(row.id);
+      console.debug("Background provider usage refresh failed", { provider: row.provider, kind: usageFailureKind(row) });
+    }
+  }, [recent]);
   return (
     <div className="ct-usage-table-wrap">
       <table>
@@ -70,9 +78,7 @@ function TableRow({ row, now }: { row: UsageSnapshot; now: number }) {
               <span className="d" />
               ok
             </span>
-          ) : (
-            <ErrorPill row={row} now={now} />
-          )}
+          ) : <span aria-label="No usage sample">—</span>}
         </td>
       </tr>
     </>
@@ -102,70 +108,6 @@ export function usageFailureKind(row: UsageSnapshot): string {
 
 export function usageFailureLabel(row: UsageSnapshot): string {
   return FAILURE_LABELS[usageFailureKind(row)] ?? "failed";
-}
-
-export function usageFailureCopy(row: UsageSnapshot): {
-  providerLabel: string;
-  command: string;
-  reason: string;
-} {
-  const providerLabel =
-    row.provider === "codex"
-      ? "Codex"
-      : row.provider === "claude"
-        ? "Claude"
-        : row.provider || "Provider";
-  const command = row.probe_command || (row.provider === "codex" ? "/status" : "/usage");
-  const reason = row.failure_reason || "output did not reach a parseable state before the probe timed out";
-  return { providerLabel, command, reason };
-}
-
-function ErrorPill({ row, now }: { row: UsageSnapshot; now: number }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const [tip, setTip] = useState<{ x: number; y: number } | null>(null);
-  const copy = usageFailureCopy(row);
-
-  const show = () => {
-    const el = ref.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    setTip({ x: clampPortalCenter(r.left + r.width / 2, 260, window.innerWidth), y: r.top });
-  };
-  const hide = () => setTip(null);
-
-  return (
-    <>
-      <span
-        ref={ref}
-        className="ct-usage-pill err"
-        onMouseEnter={show}
-        onMouseLeave={hide}
-        onFocus={show}
-        onBlur={hide}
-        tabIndex={0}
-      >
-        <span className="d" />
-        {usageFailureLabel(row)}
-      </span>
-      {tip &&
-        createPortal(
-          <div
-            className="ct-usage-tip"
-            style={{ left: tip.x, top: tip.y }}
-            role="tooltip"
-          >
-            <div className="ct-usage-tip-title">Probe failed</div>
-            <div className="ct-usage-tip-body">
-              {copy.providerLabel} <code>{copy.command}</code> probe failed.
-              <br />
-              Reason: {copy.reason}
-            </div>
-            <div className="ct-usage-tip-foot">{formatRelative(now, row.captured_at)}</div>
-          </div>,
-          document.body,
-        )}
-    </>
-  );
 }
 
 function NumCell({ ok, pct, state }: { ok: boolean; pct: number | null; state: "neutral" | "warn" | "danger" }) {

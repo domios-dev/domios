@@ -87,6 +87,29 @@
       html.standalone #root {
         height: var(--vv-height, 100vh);
       }
+      /* Boot cover above the app until it reports a restored workspace (releaseBootCover): one cover, no staged paints.
+         The mark lands once (bright, then a knock down to dim) and sends one dot wave; the knock reuses the fall of
+         beatLevel in src/components/brand/useBrandMotion.ts. */
+      @property --ct-boot-wave { syntax: "<length>"; inherits: false; initial-value: 0px; }
+      .ct-boot { position: fixed; inset: 0; z-index: 2147483000; display: grid; place-items: center;
+        background: var(--ct-bg, #0d1117); transition: opacity .18s ease-out; }
+      .ct-boot[data-released] { opacity: 0; pointer-events: none; }
+      .ct-boot svg { position: relative; width: 4.75rem; height: 4.75rem; color: var(--ct-accent, #58a6ff);
+        animation: ct-boot-knock .7s cubic-bezier(.4, 0, .2, 1) both; }
+      .ct-boot::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+        background: radial-gradient(circle, color-mix(in srgb, var(--ct-accent, #58a6ff) 70%, transparent) 1.2px, transparent 1.7px) 0 0 / 18px 18px;
+        -webkit-mask: radial-gradient(circle at 50% 50%, transparent calc(var(--ct-boot-wave) - 112px), #000 var(--ct-boot-wave), transparent calc(var(--ct-boot-wave) + 112px));
+        mask: radial-gradient(circle at 50% 50%, transparent calc(var(--ct-boot-wave) - 112px), #000 var(--ct-boot-wave), transparent calc(var(--ct-boot-wave) + 112px));
+        opacity: 0; animation: ct-boot-wave 2.6s cubic-bezier(.25, .1, .35, 1) .08s both; }
+      @keyframes ct-boot-knock {
+        0% { opacity: 1; transform: scale(1.04); }
+        100% { opacity: .55; transform: scale(.94); }
+      }
+      @keyframes ct-boot-wave {
+        0% { --ct-boot-wave: 24px; opacity: .35; }
+        100% { --ct-boot-wave: 70vmax; opacity: 0; }
+      }
+      @media (prefers-reduced-motion: reduce) { .ct-boot svg, .ct-boot::before { animation: none; } .ct-boot svg { opacity: .8; } }
     </style>
     <script>
       (function () {
@@ -153,6 +176,7 @@
   </head>
   <body>
     <div id="root"></div>
+    <div id="ct-boot" class="ct-boot" role="status" aria-label="Loading Domios"><svg viewBox="-4 -4 72 72" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M8 8H32C46 8 56 18 56 32S46 56 32 56H24L40 40V24H24V40L8 56Z"/></svg></div>
     <script>
       (function () {
         function messageOf(value) {
@@ -165,6 +189,8 @@
           var root = document.getElementById("root");
           if (!root || root.dataset.bootError === "true") return;
           root.dataset.bootError = "true";
+          var cover = document.getElementById("ct-boot");
+          if (cover) cover.remove();
           root.innerHTML =
             '<div style="display:flex;height:100%;flex-direction:column;background:#0d1117">' +
             '<header data-tauri-drag-region style="box-sizing:border-box;display:flex;height:32px;flex:0 0 32px;align-items:center;justify-content:space-between;padding-left:12px;border-bottom:1px solid #334155;background:#111827;color:#94a3b8;font:12px/1 system-ui,sans-serif;user-select:none">' +

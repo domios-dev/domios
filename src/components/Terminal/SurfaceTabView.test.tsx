@@ -160,7 +160,7 @@ describe("surface tab view", () => {
     await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" isVisible decl={{ status: "failed", error: "HTTP 503" }} />);
     expect(host!.querySelector("iframe")).toBeNull();
     const notice = host!.querySelector("[data-testid='surface-unavailable']")!;
-    expect(notice.querySelector("details code")?.textContent).toBe("HTTP 503");
+    expect(notice.querySelector("details pre")?.textContent).toBe("HTTP 503");
   });
 
   it("retries the surface lookup once from the unavailable control", async () => {

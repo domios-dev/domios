@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: skill dev-testing
 // Screenshot of a running Domios dev window over its CDP port; no Playwright, no deps.
 // Usage: node scripts/dev-screenshot.mjs [out.png] [css-selector] [--api-port 7686]
 import { writeFileSync } from "node:fs";

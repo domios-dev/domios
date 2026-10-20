@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
 import { invoke } from "../../lib/bridge";
 import type { ProviderDescriptor } from "../../lib/types";
@@ -31,9 +32,7 @@ export function FirstRunGeneralPicker({ providers }: { providers: ProviderDescri
         onConfirm={onConfirm}
       />
       {error && (
-        <p className="text-[10px] text-[var(--ct-red)] pb-4" data-testid="first-run-error">
-          {error}
-        </p>
+        <div data-testid="first-run-error"><InlineErrorNotice error={error} operation="starting the General agent" /></div>
       )}
     </div>
   );

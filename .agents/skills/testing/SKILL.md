@@ -3,6 +3,8 @@ name: testing
 description: "Choose, author, and run Domios unit, integration, REST, and cross-platform tests."
 ---
 
+Workers never run or attempt Rust tests, `check-queue`, `nextest`, `test-one` or Clippy; list canonical selectors under GATES REQUESTED. One `./build.sh lane-check <package>... [--tests]` call type-checks all touched library crates; run changed TS/JS test files and `tsc` when TS changes in the lane. Full or reverse-dependency regressions run only in the Orchestrator's single release run. The build guard requires an exact `--authorized-gate "./build.sh <verb> <args>"` dispatch grant in the current persisted attempt, even in canonical. It reads the active plan store beside the host AgentPad, matches task/tab/attempt/session nonce and owner epoch, and refuses missing or unreadable proof. The Orchestrator and its direct utility shells may run these commands in canonical under their bound plan. No environment override exists.
+
 ## Domios — Testing Guide
 
 ## Test-layer taxonomy
@@ -21,10 +23,24 @@ For assertion discipline and layer-specific recipes, see `the Writing Tests sect
 | API e2e | `tests/e2e/test_*.py` | pytest (`./build.sh e2e`) | no | yes (7686) | spike (D7) | <30s |
 | Behaviour bench | `evals/<name>/` | `bash run.sh` via `_lib/lib.sh` | yes | yes (dev-locked) | never | unbounded |
 
+Every runner, its tier (`pr`, `release`, `manual`) and the files or tests it owns
+are indexed in `tests/catalogue.json`, rendered as `tests/README.md`; the table
+above is the layer model, the catalogue is the index of runners. A new test file
+must land where some runner's discovery finds it, or
+`node scripts/test-catalogue.mjs validate` fails. `select --tier pr` lists what a
+pull request runs; `tests/catalogue.overlay.json` carries stale, flaky and
+platform-red markers, which never count as healthy (platform-red is red on the
+listed platforms only and is not safe to delete). Real LLM providers run only in
+curated tests and evals: validate refuses `needs_live_agent` on any runner that
+is not `e2e-curated` or `eval` at tier `manual`, so everything else uses stub or
+recorded providers.
+
 Playwright is suspended and is not part of the test plan, agent workflow, local
-aggregate, QA registry, or CI. Existing specs remain archived for a future
-explicit run requested by Andrey in the current conversation; do not run or
-modify them during normal development.
+aggregate, QA registry, or CI: its catalogue runner `playwright` is `suspended`
+at tier `manual`, and `tests/playwright/README.md`, `QUARANTINE.md` and the
+generated `COVERAGE_MAP.md` open with the same suspended banner. Existing specs
+remain archived for a future explicit run requested by Andrey in the current
+conversation; do not run or modify them during normal development.
 
 ### Which layer do I write?
 
@@ -47,36 +63,40 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 
 | Layer | Exact command | When required |
 |---|---|---|
-| Narrow Rust or TS unit | `scripts/test-capped.sh … <filter>` / `npx tsx <one file>.test.ts` | During work, for the touched area |
-| All implemented layers | `./build.sh test:all` | Before claiming done |
-| PR gate | `./build.sh test:all` | Before opening a PR |
+| Canonical Rust or lane TS unit | `scripts/test-capped.sh … <filter>` / `npx tsx <one file>.test.ts` | During work, for the touched area |
+| All implemented layers | `./build.sh test:all` | Orchestrator release run only |
+| PR gate | Focused selectors | Orchestrator in canonical |
 | CI gate | Rust unit + TS unit + plugin tests (+ pytest spike) | CI on PR — task D7 |
 
 ## Affected-test map
 
 Use `node scripts/affected-tests.mjs` to print exact commands for the current
 diff. Set the base with `--base <ref>` or `AFFECTED_TESTS_BASE`; it defaults to
-`origin/master`. Rust changes currently require an explicit strategy while
-canonical timing compares the options:
+`origin/master`. Use `--rust-mode module-filters` for Rust changes.
+The mapper prints the narrowest module filters for touched crates, marked
+`canonical (Orchestrator)`. Missing module paths require a focused selector
+from the Orchestrator; the mapper never selects reverse dependencies or the
+workspace. `--metadata FILE` accepts saved Cargo metadata for offline mapping.
+Non-Rust commands run in the lane.
 
-```bash
-node scripts/affected-tests.mjs --base origin/master --rust-mode module-filters
-node scripts/affected-tests.mjs --base origin/master --rust-mode whole-crate
-```
-
-The mapper uses Cargo metadata to identify touched packages. Module-filter mode
-uses nextest filtersets for app modules and `rdeps(<package>)` for smaller
-crates. Whole-crate mode runs the complete touched Rust package. The output
-prints one command per crate, the reason for each filter, and a rough compile
-cost. Non-Rust commands are grouped for parallel execution during Rust compile.
-
-`./build.sh nextest <scope> [filterset]` compiles test targets before applying
+Canonical only: `./build.sh nextest <scope> [filterset]` compiles test targets before applying
 the capped execution deadline, and `--no-tests=fail` rejects empty selections.
 TypeScript selections use the existing runner's related-file mode for tsx-runner
 tests and `pnpm exec vitest related <files>` for Vitest-owned tests. Plugin
-selections use `bash scripts/plugin-tests.sh <provider>`.
+selections use `bash scripts/plugin-tests.sh <plugin-dir>`, which runs the
+`plugin-tests` catalogue discovery under `plugins/<plugin-dir>/`. Node and Python
+script tests run through `node scripts/test-catalogue.mjs run --entry <id>`
+(`node-script-tests`, `python-script-tests`); a single file still runs with
+`node --test <file>`.
 
 Mapper fixture coverage is `node --test scripts/affected-tests.test.mjs`.
+
+A change that moves Rust tests between modules or crates proves no test was
+lost without compiling: `node scripts/rust-test-inventory.mjs gate --base <ref>`
+statically scans the merge-base and HEAD from git objects and exits 1 on a lost
+or renamed key; crate moves pass. A deliberate rename is listed in a reviewed map,
+`docs/architecture/test-renames/<task>.txt` (`old_key -> new_key` per line),
+passed with `--renames`; a map line that hides nothing fails too.
 
 Nextest keeps normal suite parallelism. A parallel timing above one second is a
 candidate when new or above its recorded alone allowance. The gate reruns only
@@ -86,10 +106,15 @@ fail; times over 1.0 through 1.25 seconds warn. Existing regressions fail only
 above baseline + max(20%, 0.25 seconds); smaller increases warn.
 `scripts/slow-unit-tests.json` records alone durations;
 its exact identities and recorded times may only shrink against the base ref.
+Release CI skips the serial reruns (they took ~10 minutes, longer than the suite):
+`--policy advisory` without `--alone` prints each candidate's parallel timing against
+its limit as a warning and fails only on baseline-file errors. Local `build.sh nextest`
+defaults to advisory too; CI jobs that enforce pass `--policy enforce` explicitly.
 
 ```bash
 node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --candidates CANDIDATES_JSON [--base REF]
 node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --alone ALONE_LOG [--base REF]
+node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --policy advisory   # parallel-only advice
 node --test scripts/check-slow-unit-tests.test.mjs
 ```
 
@@ -105,6 +130,28 @@ Candidate JSON contains exact validated binary/test IDs and a nextest filter,
 never shell commands. No candidates means no rerun; missing/incomplete timing
 logs or missing candidate confirmations fail closed. A plain log-only guard
 works when no serial confirmations are required.
+
+### QuickJS frame-mapping performance check
+
+`runtime_quickjs_frame_mapping_benchmark` is ignored in ordinary suites because
+its absolute wall-clock throughput varies with host load. Run it alone in a
+canonical Team QA shell under Orchestrator authority, from the repository root:
+
+```bash
+source build.sh env
+scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml \
+  -p codeterm-plugin --lib \
+  js_runtime::parity_test::runtime::replay::runtime_quickjs_frame_mapping_benchmark \
+  -- --exact --ignored --nocapture
+```
+
+On Windows, open Git Bash in that Team shell for this recipe. `test-one` does
+not forward libtest harness arguments, so use the capped runner explicitly.
+The check retains its 2x measured-stream-rate assertion and prints QuickJS and
+native baseline throughput, p99 latency, first-call latency, and peak headroom.
+A failure is performance evidence to investigate on an otherwise idle host;
+it is not an ordinary correctness gate. The native baseline only maps frames
+and counts them, so it does not justify a relative runtime-reducer threshold.
 
 ### Unified entrypoint: `./build.sh test:all`
 
@@ -218,9 +265,8 @@ either deadline; `TEST_CAP_SECS=0` disables it. On expiry the wrapper kills the
 execution process group, exits 124, and repeats libtest's active case names from
 its captured output. Stable Rust cannot use `--ensure-time`: it is nightly-only
 and reports a long test only after it finishes, so the process deadline owns hang
-recovery. In a fresh worktree, the wrapper also creates the ignored, zero-byte
-`bundled-embed` sidecar only when absent. The bundle script rejects empty
-sidecars.
+recovery. Embedding inference runs in-process; the test wrapper does not stage an
+embedding executable.
 
 The TypeScript scheduler still waits for every file and the full suite by
 default. Set `TS_UNIT_TIMEOUT_SECONDS=<positive-seconds>` or
@@ -612,8 +658,9 @@ Example: `tests/e2e/test_inject_verify.py` and `tests/e2e/test_eager_tab.py`.
 The Playwright suite is suspended. Do not run, repair, migrate, or add Playwright
 tests unless Andrey explicitly requests that run in the current conversation.
 The archived suite command remains `pnpm test:pw:smoke`; keep existing specs and
-manual commands intact. Use focused unit or API coverage and manual dev
-inspection for UI changes.
+manual commands intact. The `tests/playwright` docs carry the same suspended
+banner, and specs known to be stale are markers in `tests/catalogue.overlay.json`.
+Use focused unit or API coverage and manual dev inspection for UI changes.
 ### Golden/LLM
 
 1. Mark real-token tests `@golden` or `pytest.mark.llm`.
@@ -654,3 +701,62 @@ If the emulator reports `Unable to locate a Java Runtime`, an installed Homebrew
 JDK may be absent from `PATH`. Discover its installed path before running the
 same focused test with `JAVA_HOME` pointing to its JDK home and that JDK's `bin`
 prepended to `PATH`; no system Java registration or emulator bypass is needed.
+
+Ordinary Rust test operations disable default features to omit embeddings. Product DEV and library Clippy retain embeddings. The dedicated CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once, including the explicit golden-vector oracle after ordinary unit tests. The oracle downloads the MiniLM safetensors into the shared model cache on its first run; its receipt is required alongside the full and platform receipts. Use that verb to verify embedding-specific memory changes.
+
+For each batch, Workers run `./build.sh fmt` once, then one verification pass: one multi-package `./build.sh lane-check <package>... [--tests]` call for all touched crates, changed TS/JS tests and `tsc` when TS changes, then guards once. On failure, fix all reported errors and recheck only what failed; list canonical selectors under GATES REQUESTED. The lane-check subshell selects `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`), and Cargo owns locking. Targets remain per worktree; canonical/gateway build directories remain separate. This check does not acquire the build gateway.
+
+Prompt templates under `src-tauri/prompts/` are embedded by codeterm-service-core. The affected-test mapper selects `./build.sh nextest codeterm-service-core 'test(/^prompts::tests::/)'`; the shell crate has no such tests, and a zero-test shell selection is a failure rather than coverage.
+
+<!-- revision: 3 -->
+
+## Independent server process oracle
+
+Parent canonical Team QA owns all Rust and native execution for this slice:
+
+```bash
+./build.sh test-one domios-server process_split_contract
+./build.sh process-probe --case server-only --instance split-oracle
+./build.sh process-probe --case arbitration --instance split-oracle
+```
+
+On Windows use the same arguments through `build.ps1`. `test-one domios-server`
+selects only the server library, disables default test features, and the existing
+capped runner refuses zero selected tests. Moved startup preservation selectors
+are `./build.sh test-one domios-server startup::` and core path arbitration is
+`./build.sh test-one app instance_lifetime::path_owner::`.
+
+`process-probe` first builds the exact CLI artifact, stages it at
+`resources/cli/codeterm[.exe]`, hashes its bytes, and passes
+`CODETERM_SERVER_CLI_SHA256` to the server build. It then builds only
+`domios-server --bin domios-server` with
+`--no-default-features --features domios-server/embeddings` and the explicit host
+target. Its Cargo artifact receipt pins the actual executable and digest; the
+matching normal/build dependency closure must exclude Tauri, Wry, WebView and
+codeterm-host-runtime. Packaging must record the shipped release artifact's
+own feature/target closure too. Workspace/test feature unions do not establish
+this proof. A server built without the CLI digest refuses actual service startup.
+The resource is copied and reverified into a private lifetime lease before memory
+initialization; process-local CLI selection never falls back to a GUI executable.
+The probe starts a unique disposable named DEV identity beneath split-oracle,
+scrubs inherited connection/display selectors, and never connects to PROD.
+It waits on protected broker replies, listener-ready events and pinned OS exit
+handles, then verifies API/socket and a real disposable PTY after its launcher
+exits. A missing CLI resource must refuse before data initialization. The probe
+also requires the actual existing maintenance spawn, transferred kernel witness
+and separately verified executable/creation provenance; early exit or unavailable
+witness fails that row without spawning a substitute. Focused observer checks:
+`./build.sh test-one mem process_split_contract`.
+The arbitration case races a missing identity and an explicit junction/symlink
+path alias (probe-only DTO, both canonical roots must equal normal roots),
+requires one initialization audit, and rejects identity/build/protocol/epoch/PID
+skew and foreign executable/listener cases. Cleanup requires exact server exit;
+uncertain cleanup retains disposable data and fails.
+
+A Windows breakaway refusal means the launching job forbids server detachment.
+Record the returned infrastructure failure; never disable the PTY kill-on-close
+job or retry behind a deadline. The client launch must originate from a context
+that can create the independent server. Report Windows, Linux and macOS native
+rows separately. An unrun probe, successful source check or fake fixture is never
+a native process PASS. Probe receipts contain no API credential; the credential
+travels only over private inherited pipes or authenticated local IPC.

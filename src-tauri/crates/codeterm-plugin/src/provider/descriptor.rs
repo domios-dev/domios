@@ -19,10 +19,11 @@ pub(super) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
     if provider.usage_parser().is_some() {
         let probe_cmd = provider.usage_probe_command().unwrap_or("/usage");
         settings.push(usage_tracking_section(probe_cmd));
-    } else if provider.reports_group_usage() {
+    } else if provider.reports_group_usage() || runtime.as_ref().is_some_and(|cap| cap.usage) {
         settings.push(usage_store_tracking_section());
     }
     ProviderDescriptor {
+        remote_task: provider.remote_task_capability(),
         agent_runtime: runtime.clone(),
         supports_session_fork: provider.fork_session_args().is_some(),
         structured_control: provider.structured_control(),
@@ -61,6 +62,7 @@ pub(super) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
                 .get("interrupt")
                 .is_some_and(|methods| !methods.is_empty())
         }) || provider.stop_keys().is_some(),
+        supports_subagent_visibility: provider.supports_subagent_visibility(),
         supports_chat_ui: runtime.is_some() || provider.supports_chat_ui(),
         supports_structured_prompts: provider.supports_structured_prompts(),
         supports_prompt_answers: provider.supports_prompt_answers(),

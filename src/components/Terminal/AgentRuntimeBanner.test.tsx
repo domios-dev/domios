@@ -1,46 +1,56 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
-import type { AgentRuntimeState, AgentRuntimeStateEvent } from "../../lib/agentRuntimeState";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
-import { useAgentRuntimeState } from "./useAgentRuntimeState";
 
-const bridge = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
-vi.mock("../../lib/bridge", () => bridge);
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-it("renders a restored fault and wires one Retry to ensure-loaded, retaining it disabled until recovery", async () => {
-  let emit!: (event: { payload: AgentRuntimeStateEvent }) => void;
-  let resolve!: (state: AgentRuntimeState) => void;
-  const unlisten = vi.fn();
-  bridge.listen.mockImplementation(async (_event, handler) => { emit = handler; return unlisten; });
-  bridge.invoke.mockImplementation(() => new Promise<AgentRuntimeState>((done) => { resolve = done; }));
-  const snapshot: AgentRuntimeState = { state: "degraded", epoch: 2, reason: "fixture fault" };
-  function Harness() {
-    const runtime = useAgentRuntimeState("owned", "binding", snapshot);
-    return <AgentRuntimeBanner state={runtime.state} onRetry={() => { void runtime.retry(); }} />;
-  }
+it("opens the accessible runtime badge and wires Retry once, with outside and Escape dismissal", async () => {
+  const retry = vi.fn();
   const host = document.createElement("div");
+  document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<Harness />));
-    expect(bridge.listen).toHaveBeenCalledWith("agent-runtime-state", expect.any(Function));
-    expect(host.querySelectorAll('[role="status"]')).toHaveLength(1);
-    expect(host.querySelector('[role="status"]')?.getAttribute("aria-label")).toBeTruthy();
-    expect(host.textContent).toContain(snapshot.reason);
-    const retry = host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!;
-    expect(retry).not.toBeNull();
-    expect(host.querySelectorAll("button")).toHaveLength(1);
-    await act(async () => { retry.click(); retry.click(); });
-    expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("agent_runtime_retry", { tabId: "owned" });
-    expect(retry.disabled).toBe(true);
-    expect(host.textContent).toContain(snapshot.reason);
-    await act(async () => emit({ payload: { tab_id: "owned", session_binding_nonce: "binding", state: { state: "loaded", epoch: 3 } } }));
-    expect(host.querySelector('[role="status"]')).toBeNull();
-    await act(async () => resolve({ state: "degraded", epoch: 2, reason: "stale receipt" }));
-    expect(host.querySelector('[role="status"]')).toBeNull();
+    await act(async () => root.render(<AgentRuntimeBanner state={{ state: "degraded", epoch: 1, reason: "opaque-fault" }} onRetry={retry} />));
+    const badge = host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!;
+    expect(badge).not.toBeNull();
+    expect(badge.getAttribute("aria-label")).toBeTruthy();
+    await act(async () => badge.click());
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    const control = document.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!;
+    expect(control).not.toBeNull();
+    await act(async () => control.click());
+    expect(retry).toHaveBeenCalledTimes(1);
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(badge);
+    await act(async () => badge.click());
+    await act(async () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => badge.click());
+    await act(async () => root.render(<AgentRuntimeBanner state={{ state: "loaded", epoch: 2 }} onRetry={retry} />));
+    expect(badge.disabled).toBe(true);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => root.render(<AgentRuntimeBanner state={{ state: "degraded", epoch: 3, reason: "another-fault" }} onRetry={retry} />));
+    expect(host.querySelector('button[aria-haspopup="dialog"]')).toBe(badge);
+    expect(badge.disabled).toBe(false);
   } finally {
     await act(async () => root.unmount());
+    host.remove();
   }
-  expect(unlisten).toHaveBeenCalledTimes(1);
+});
+
+
+it("offers history Retry while the conversation runtime is loaded", async () => {
+  const retry=vi.fn(), host=document.createElement("div");document.body.append(host);
+  const root=createRoot(host);
+  try {
+    await act(async()=>root.render(<AgentRuntimeBanner state={{state:"loaded",epoch:2,history:"failed",historyPages:8,historyError:"fixture-page-nine"}} onRetry={retry} />));
+    const badge=host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!;
+    expect(badge.getAttribute("aria-label")).toBeTruthy();
+    await act(async()=>badge.click());
+    const control=document.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!;
+    expect(control.disabled).toBe(false);
+    await act(async()=>control.click());expect(retry).toHaveBeenCalledTimes(1);
+  } finally { await act(async()=>root.unmount());host.remove(); }
 });

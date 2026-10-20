@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useRef, useState, type ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
 import { KebabGlyph } from "../shared/RowMenuButton";
@@ -109,7 +110,7 @@ export function SupporterConnectionRow({ row, controls, stale, unavailableReason
       onClick: () => run(() => setConfirming(true)),
     },
   ];
-  const failureReason = failure?.message || (stale ? "Last-known status; refresh to verify." : unavailableReason || tokenReason);
+  const failureReason = failure?.message || (stale ? null : unavailableReason || tokenReason);
   const tokenSummary = row.token_mode === "none"
     ? "No token needed"
     : !row.token_mode
@@ -153,9 +154,7 @@ export function SupporterConnectionRow({ row, controls, stale, unavailableReason
         </div>
       </div>
       {failureReason && (
-        <p role="alert" className="truncate text-xs text-[var(--ct-muted-fg)]" title={failureReason}>
-          {stale && !failure ? "Last-known status; refresh to verify." : failureReason}
-        </p>
+        <InlineErrorNotice error={stale && !failure ? { code: "supporter_status_unavailable", raw: "" } : failureReason} operation="connecting the Supporter" />
       )}
       {!row.active && (controls.saved[row.adapter] || row.token.present) && (
         <p role="status" className="text-xs text-[var(--ct-muted-fg)]">

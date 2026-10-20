@@ -385,7 +385,7 @@ export function HtmlPreviewBlock({ text, fullscreenRequest = 0, renderError }: {
       );
     }
     return showCode ? (
-      <div className="min-h-0 overflow-auto" style={{ maxHeight: fill ? "100%" : `${HTML_PREVIEW_MAX_HEIGHT}px` }}>
+      <div className="min-h-0">
         <CodeBlock text={normalizedText} language="html" />
       </div>
     ) : (

@@ -21,7 +21,7 @@ Requires dev up: `./build.sh dev --wait`. Uses the bench lib (`dc`, locked to de
    `transcriber registered as transcriber` and `bitwarden registered as secret backend`.
 2. **Transcriber works through the real daemon** — starts a fake transcribe daemon, points
    the daemon's `CODETERM_TRANSCRIBE_URL` at it (set before `build.sh dev`), POSTs a voice
-   attachment to `/api/transcribe-voice`, asserts the returned `-=-codeterm:voice-=-` marker
+   attachment to `/api/transcribe-voice`, asserts the returned `<domios type="attachment" kind="voice" ... />` frame
    carries the transcript.
 
 ## Version-update drill — `./update-drill.sh`

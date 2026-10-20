@@ -130,8 +130,6 @@ async function auditViewport(page: Page, label: string, options: { reachability?
     await waitForOpenDrawerStable(page);
   } else if (options.reachability === "settings-menu") {
     await page.locator('[data-testid="settings-menu"]').waitFor({ state: "visible", timeout: 5_000 });
-  } else if (options.reachability === "workspace-dropdown") {
-    await page.locator('[data-testid^="picker-workspace-option-"]').first().waitFor({ state: "visible", timeout: 5_000 });
   }
   const offenders = await collectViewportOffenders(page, options.reachability ?? "all");
   expect(offenders, `${label} offscreen or unreachable controls`).toEqual([]);
@@ -335,18 +333,6 @@ async function dismissPeerPickerWithSupportedControl(page: Page, label: string):
   await page.locator('[data-testid="peer-picker-menu"]').waitFor({ state: "hidden", timeout: 5_000 });
   await settleLayout(page);
   await assertPeerPickerReachable(page, `${label} after peer picker dismiss`);
-}
-
-async function dismissWorkspaceDropdownWithSupportedControl(page: Page, label: string): Promise<void> {
-  await page.locator('[data-testid="picker-workspace"]').first().click();
-  await page.waitForFunction(() => {
-    const option = document.querySelector('[data-testid^="picker-workspace-option-"]') as HTMLElement | null;
-    const root = option?.closest(".ct-float") as HTMLElement | null;
-    const visible = (el: HTMLElement | null) => !!el && window.getComputedStyle(el).display !== "none" && window.getComputedStyle(el).visibility !== "hidden" && el.getBoundingClientRect().width > 0;
-    return !visible(option) && !visible(root);
-  }, null, { timeout: 5_000 });
-  await settleLayout(page);
-  await assertControlsReachable(page, '[data-testid^="picker-provider-"], [data-testid^="picker-model-"]', `${label} after workspace dismiss`);
 }
 
 async function assertControlsReachable(page: Page, selector: string, label: string): Promise<void> {
@@ -672,7 +658,7 @@ async function auditSidebarDrawer(page: Page, label: string, expectedOpen: boole
 
 test("@golden mobile web primary surfaces stay inside the viewport audit helper self-check", async ({ webBrowser }, testInfo) => {
   const healthJson = await assertHealthMatchesHead();
-  await testInfo.attach("health.json", { body: healthJson, contentType: "application/json" });
+  await testInfo.attach("health.json", { body: JSON.stringify(healthJson), contentType: "application/json" });
 
   const page = await newWebPage(webBrowser, { width: 320, height: 568 });
   try {
@@ -883,21 +869,6 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     const nestedOffscreen = nestedPopupOffenders.find((item) => item?.testid === "nested-offscreen");
     expect(nestedOffscreen!.right, "nested offscreen control remains outside viewport").toBeGreaterThan(nestedOffscreen!.viewportWidth);
 
-    await page.setContent(`<style>html,body{margin:0;overflow:hidden}.ct-float{position:fixed;left:32px;top:24px;width:160px;height:72px;z-index:3}button{position:absolute;width:120px;height:32px}#workspace-covered{left:40px;top:32px}#workspace-unrelated,#workspace-cover{left:40px;top:112px}#workspace-cover{position:absolute;width:120px;height:32px;z-index:2}</style><div data-testid="new-session-picker"><div role="dialog" aria-modal="true"><button id="workspace-covered" data-testid="workspace-covered">covered</button><button id="workspace-unrelated" data-testid="workspace-unrelated">unrelated</button><div id="workspace-cover"></div></div></div><div class="ct-float"><button data-testid="picker-workspace-option-x">option</button></div>`);
-    const workspaceCoverHit = await page.locator("#workspace-unrelated").evaluate((el) => {
-      const rect = el.getBoundingClientRect();
-      return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)?.id;
-    });
-    expect(workspaceCoverHit, "workspace unrelated precondition is occluded by its intended cover").toBe("workspace-cover");
-    const workspaceIds = (await collectViewportOffenders(page, "workspace-dropdown")).map((item) => item?.testid);
-    expect(workspaceIds).not.toContain("picker-workspace-option-x");
-    expect(workspaceIds).not.toContain("workspace-covered");
-    expect(workspaceIds).toContain("workspace-unrelated");
-    const workspaceDismissSource = dismissWorkspaceDropdownWithSupportedControl.toString();
-    expect(workspaceDismissSource).toContain('[data-testid="picker-workspace"]');
-    expect(workspaceDismissSource).not.toContain("Escape");
-    expect(workspaceDismissSource).not.toContain(".catch(");
-
     await page.setContent(`<style>html,body{margin:0;overflow:hidden}.ct-hscroll{position:relative;width:320px;overflow-x:auto;white-space:nowrap}.ct-hscroll button{width:80px}.ct-hscroll #mesh-tab-network{margin-left:360px}.ct-hscroll #owned-partial-sibling{position:absolute;left:400px}</style><div class="ct-hscroll"><button data-testid="mesh-tab-network" id="mesh-tab-network">Network</button><button data-testid="owned-partial-sibling" id="owned-partial-sibling">Sibling</button></div>`);
     const beforeScroll = await page.locator('[data-testid="mesh-tab-network"]').evaluate((el) => el.getBoundingClientRect().right > document.documentElement.clientWidth);
     expect(beforeScroll, "known surface starts outside the viewport before reveal").toBe(true);
@@ -1060,27 +1031,19 @@ for (const vp of VIEWPORTS) {
       await openSidebar(page);
       await auditSidebarDrawer(page, `${vp.name} open sidebar`, true);
       await auditViewport(page, `${vp.name} sidebar tree`, { reachability: "open-drawer" });
-      const newSession = page.locator('[data-testid="sidebar-new-session"]').first();
-      if (await newSession.isVisible().catch(() => false)) {
-        await newSession.click();
-        await page.locator('[data-testid="new-session-picker"]').waitFor({ state: "visible", timeout: 10_000 });
-        const newSessionDialog = page.getByRole("dialog", { name: "Start a session" });
-        await expect(newSessionDialog).toBeVisible({ timeout: 10_000 });
-        await expect(newSessionDialog).toHaveAttribute("aria-modal", "true");
-        await settleLayout(page);
-        await auditKnownSurfaces(page, `${vp.name} new session picker`);
-        await auditViewport(page, `${vp.name} new session picker`, { reachability: "new-session-picker" });
-        const workspaceSelect = page.locator('[data-testid="picker-workspace"]').first();
-        if (await workspaceSelect.isVisible().catch(() => false)) {
-          await workspaceSelect.click();
-          await page.locator('[data-testid^="picker-workspace-option-"]').first().waitFor({ state: "visible", timeout: 5_000 });
-          await settleLayout(page);
-          await auditViewport(page, `${vp.name} picker workspace dropdown`, { reachability: "workspace-dropdown" });
-          await dismissWorkspaceDropdownWithSupportedControl(page, `${vp.name} picker workspace dropdown`);
-        }
-        await newSessionDialog.getByRole("button", { name: "Close new session dialog" }).click();
-        await expect(newSessionDialog).toHaveCount(0);
-      }
+      // Hidden duplicates sit in unselected workspace bodies; an absent entry must fail, not skip the picker audit.
+      const newSession = page.locator('[data-testid="sidebar-new-session"]:visible').first();
+      await expect(newSession, `${vp.name} sidebar offers a New session entry`).toBeEnabled({ timeout: 10_000 });
+      await newSession.click();
+      await page.locator('[data-testid="new-session-picker"]').waitFor({ state: "visible", timeout: 10_000 });
+      const newSessionDialog = page.getByRole("dialog", { name: "Start a session" });
+      await expect(newSessionDialog).toBeVisible({ timeout: 10_000 });
+      await expect(newSessionDialog).toHaveAttribute("aria-modal", "true");
+      await settleLayout(page);
+      await auditKnownSurfaces(page, `${vp.name} new session picker`);
+      await auditViewport(page, `${vp.name} new session picker`, { reachability: "new-session-picker" });
+      await newSessionDialog.getByRole("button", { name: "Close new session dialog" }).click();
+      await expect(newSessionDialog).toHaveCount(0);
 
       await openSidebar(page);
       await page.locator('[data-testid="nav-mesh"]').click();

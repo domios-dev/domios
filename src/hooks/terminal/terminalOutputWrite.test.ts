@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createRequire } from "node:module";
 import type { Terminal as Xterm } from "@xterm/xterm";
-import { SHELL_RESTORE_VIEWPORT_MARKER, writeTerminalOutput } from "./terminalOutputWrite";
+import { SHELL_RESTORE_VIEWPORT_MARKER, shouldAttachTerminalOutput, writeTerminalOutput, writeTerminalOutputAndWait } from "./terminalOutputWrite";
 import { writeTerminalHistory } from "./terminalHistoryWrite";
 
 Object.defineProperty(globalThis, "self", { value: globalThis, configurable: true });
@@ -103,4 +103,26 @@ test("ordinary OSC output and partial non-marker escape sequences pass through u
     writeTerminalOutput(term, Uint8Array.of(byte), resolve);
   });
   assert.deepEqual(writes, Array.from(new TextEncoder().encode(payload)));
+});
+
+test("awaitable output completes only after the terminal parser callback", async () => {
+  let finish!: () => void;
+  const term = { write(_data: string | Uint8Array, done?: () => void) { finish = done!; } };
+  let notified = false;
+  const completion = writeTerminalOutputAndWait(term, Uint8Array.of(65), () => { notified = true; });
+  let completed = false;
+  void completion.then(() => { completed = true; });
+  await Promise.resolve();
+  assert.equal(completed, false);
+  assert.equal(notified, false);
+  finish();
+  assert.equal(notified, true);
+  await completion;
+  assert.equal(completed, true);
+});
+
+test("hidden terminals leave output in the bounded retained tail", () => {
+  assert.equal(shouldAttachTerminalOutput(true, false), false);
+  assert.equal(shouldAttachTerminalOutput(true, true), true);
+  assert.equal(shouldAttachTerminalOutput(false, true), false);
 });

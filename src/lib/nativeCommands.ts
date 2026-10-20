@@ -26,9 +26,9 @@ export const NATIVE_COMMANDS: Record<string, CommandAdapter> = {
   get_autostart_enabled: () => requireCapability(nativeBridge.autostart, "autostart").get(),
   set_autostart_enabled: (a) => requireCapability(nativeBridge.autostart, "autostart").set(a.enabled === true),
   get_windows_build_number: () => nativeBridge.windowsBuildNumber(),
-  check_for_update: (a) => requireCapability(nativeBridge.updater, "app updater").check(a.force === true),
+  check_for_update: (a) => requireCapability(nativeBridge.updater, "app updater").check(a.force === true, typeof a.channel === "string" ? a.channel : undefined),
   get_update_status: () => requireCapability(nativeBridge.updater, "app updater").status(),
-  install_app_update: () => requireCapability(nativeBridge.updater, "app updater").install(),
+  install_app_update: (a) => requireCapability(nativeBridge.updater, "app updater").install(typeof a.channel === "string" ? a.channel : undefined),
 };
 function localRecording(command: LocalRecordingCommand, args: CommandArgs): Promise<unknown> {
   return requireCapability(nativeBridge.localRecording, "local recording")[command](args);

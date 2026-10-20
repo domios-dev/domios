@@ -1,0 +1,1 @@
+service::tests::coalesce_snapshot_reflects_latest_mutation_in_window -> service::mux_emitter::tests::burst_emits_once_with_last_generation_and_identical_published_bytes

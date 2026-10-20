@@ -66,9 +66,9 @@ interface BackendEvidence {
 
 declare global {
   interface Window {
-    __codetermTestChat?: {
-      pushMessages: (tabId: string, messages: TestChatMessage[]) => void;
-    };
+
+
+
     __composerPerf?: {
       inputMarks: Array<{ id: number; at: number; inputType: string }>;
       paintLatencies: number[];
@@ -103,7 +103,7 @@ async function createFixture(api: ApiClient, tabCleanup: TabCleanup): Promise<{ 
       title: `pw-composer-perf-${String(i).padStart(2, "0")}`,
     });
     tabIds.push(tab.id);
-    
+
     await api.post(`/tabs/${tab.id}/agent-type`, { agent_type: "claude" });
     await api.post(`/tabs/${tab.id}/chat-view`, { enabled: true });
     if (i === 0) {
@@ -283,7 +283,7 @@ async function exerciseInput(page: Page, tabId: string): Promise<{ cpuStart: num
 
 async function summarize(page: Page, mode: PerfSummary["mode"], tabIds: string[], cpuStart: number, cpuEnd: number): Promise<PerfSummary> {
   const variant = process.env.CT_PERF_VARIANT ?? "after";
-  const summary = await page.evaluate(
+  const summary: PerfSummary = await page.evaluate(
     ({ targetTabId, openTabCount, start, end, runMode, runVariant }) => {
       const latencies = window.__composerPerf?.paintLatencies ?? [];
       const sorted = [...latencies].sort((a, b) => a - b);

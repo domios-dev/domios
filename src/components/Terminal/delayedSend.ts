@@ -3,6 +3,13 @@ import { invoke } from "../../lib/bridge";
 
 export type DelayedMessageState = "queued" | "stashed" | "sending" | "failed";
 
+export interface DeliveryTickView {
+  atMs: number;
+  outcome: string;
+  spinalVerdict: string;
+  spinalReason: string;
+}
+
 export interface RecurrenceRule {
   everyMs: number;
   untilMs?: number | null;
@@ -27,6 +34,9 @@ export interface DelayedMessage {
   skippedTicks?: number;
   teamId?: string | null;
   lastTickUnconfirmed?: boolean;
+  origin?: "user" | "system";
+  reason?: string | null;
+  ticks?: DeliveryTickView[];
 }
 
 export async function listDelayedMessages(tabId: string): Promise<DelayedMessage[]> {

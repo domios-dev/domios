@@ -28,6 +28,21 @@ test("held queues and exact evidence delivers the same bubble", () => {
   assert.equal(delivered.id, queued.id);
 });
 
+test("same delivered ledger version accepts newly available exact row identity", () => {
+  const delivered = applyDeliveryStatus(send(), status("delivered", 4));
+  const matchedRow = {
+    source: { source_session_id: "own-session", record: {
+      kind: "structured" as const, thread_id: "own-session", item_id: "native-item",
+    } },
+    ordinal: 1,
+  };
+
+  const enriched = applyDeliveryStatus(delivered, { ...status("delivered", 4), matched_row: matchedRow });
+
+  assert.deepEqual(enriched.matchedRow, matchedRow);
+  assert.deepEqual(enriched.status?.matched_row, matchedRow);
+});
+
 test("uncertain writes show uncertainty and stale responses cannot downgrade evidence", () => {
   const uncertain = applyDeliveryStatus(send(), status("submit_unconfirmed", 3));
   assert.equal(deliveryState(uncertain), "uncertain");
@@ -119,6 +134,18 @@ test("interrupted admissions leave sending without turning ambiguous responses i
   }
 });
 
+test("unchanged admission evidence reuses the same delivery record", () => {
+  const unknown = reconcileAdmissionEvidence(send(), "unknown");
+  assert.equal(unknown.requestUncertain, true);
+  assert.equal(reconcileAdmissionEvidence(unknown, "unknown"), unknown);
+
+  const withNoResponse = { ...unknown, requestHadResponse: false };
+  const failed = reconcileAdmissionEvidence(withNoResponse, "absent");
+  assert.equal(deliveryState(failed), "failed");
+  assert.notEqual(failed, withNoResponse);
+  assert.equal(reconcileAdmissionEvidence(failed, "absent"), failed);
+});
+
 test("two failed sends remain visible across reload alongside a similar new session turn", () => {
   const content = (token: string) => `shared alpha beta gamma delta ${token}`;
   const failed = ["first", "second"].map((token, index) => applyDeliveryStatus({
@@ -161,59 +188,41 @@ test("written sends flow above later rows while held and failed sends retain the
   }
 });
 
-
-test("written input with later source output has settled presentation without ledger confirmation", () => {
-  const at = 1_800_000_000_000;
+test("written input queues while working and becomes uncertain only at idle without evidence", () => {
   for (const ledgerState of ["written", "submit_unconfirmed"] as const) {
-    const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(ledgerState, 2));
+    const current = applyDeliveryStatus(send(), status(ledgerState, 2));
     const before = JSON.stringify(current);
-    for (const type of ["assistant", "thinking", "tool_call", "tool_result", "tool_flow"] as const) {
-      const transcript = reduceTranscript(createTranscriptState(), {
-        kind: "delta", authority: { sourceSessionId: "own", sessionBindingNonce: "launch" }, range: null,
-        rows: [{ id: "later", type, content: "output", timestamp: String(at + 1) }],
-      }).state;
-      const projection = projectTranscript(transcript, deliveryProjectionSends([current]));
-      assert.deepEqual(projection.rows.map((row) => row.id), ["bubble", "later"]);
-      assert.equal(deliveryPresentation(current, projection.rows), "settled");
-      assert.equal(projection.pending.length, 1);
-      assert.equal(projection.echoes.size, 0);
-      assert.equal(JSON.stringify(current), before);
+    assert.equal(deliveryPresentation(current, "working"), "queued");
+    for (const activity of ["starting", "waiting-on-user", "failed"] as const) {
+      assert.equal(deliveryPresentation(current, activity), "sending");
     }
+    assert.equal(deliveryPresentation(current, "idle"), "uncertain");
+    assert.equal(JSON.stringify(current), before);
+    const delivered = applyDeliveryStatus(current, status("delivered", 3));
+    assert.equal(deliveryPresentation(delivered, "working"), "delivered");
+    assert.equal(deliveryPresentation(delivered, "idle"), "delivered");
   }
 });
 
-test("written input remains pending until later output is actually below its bubble", () => {
-  const at = 1_800_000_000_000;
-  const bubble = { id: "bubble", type: "user" as const, content: "opaque", timestamp: String(at) };
-  for (const ledgerState of ["written", "submit_unconfirmed"] as const) {
-    const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(ledgerState, 2));
-    const expected = ledgerState === "written" ? "sending" : "uncertain";
-    assert.equal(deliveryPresentation(current, [bubble]), expected);
-    for (const timestamp of [undefined, String(at - 1), String(at)]) {
-      assert.equal(deliveryPresentation(current, [bubble,
-        { id: "old", type: "assistant", content: "output", timestamp }]), expected);
-    }
-    for (const type of ["user", "status", "system"] as const) {
-      assert.equal(deliveryPresentation(current, [bubble,
-        { id: "non-output", type, content: "other", timestamp: String(at + 1) }]), expected);
-    }
-    const later = { id: "later", type: "assistant" as const, content: "output", timestamp: String(at + 1) };
-    assert.equal(deliveryPresentation(current, [later, bubble]), expected);
-    assert.equal(deliveryPresentation(current, [later]), expected);
-  }
-});
-
-test("later output never hides proven non-delivery or turns held input into sent presentation", () => {
-  const at = 1_800_000_000_000;
-  const rows = [
-    { id: "bubble", type: "user" as const, content: "opaque", timestamp: String(at) },
-    { id: "later", type: "assistant" as const, content: "output", timestamp: String(at + 1) },
-  ];
+test("activity never changes held or proven terminal outcomes", () => {
   for (const [ledgerState, expected] of [["failed", "failed"], ["held", "queued"], ["delivered", "delivered"]] as const) {
-    const current = applyDeliveryStatus({ ...send(), sentAtMs: at }, status(ledgerState, 2));
-    assert.equal(deliveryPresentation(current, rows), expected);
-    assert.equal(current.status?.state, ledgerState);
+    const current = applyDeliveryStatus(send(), status(ledgerState, 2));
+    for (const activity of ["working", "idle", "starting", "waiting-on-user", "failed"] as const) {
+      assert.equal(deliveryPresentation(current, activity), expected);
+    }
   }
+});
+
+test("held input remains queued when a later ledger snapshot omits it", () => {
+  const held = applyDeliveryStatus(send(), status("held", 1));
+  const restored = JSON.parse(JSON.stringify(held)) as DeliverySend;
+  const reconciled = reconcileDeliveryStatusesModel([restored], [])[0];
+  assert.equal(reconciled, restored);
+  assert.equal(deliveryState(reconciled), "queued");
+  assert.equal(deliveryPresentation(reconciled, "idle"), "queued");
+  const delivered = reconcileDeliveryStatusesModel([reconciled], [status("delivered", 2)])[0];
+  assert.equal(deliveryPresentation(delivered, "idle"), "delivered");
+  assert.equal(delivered.id, held.id);
 });
 
 test("unclassified and request-failed sends flow before newer output without changing delivery", () => {
@@ -227,7 +236,58 @@ test("unclassified and request-failed sends flow before newer output without cha
     const projection = projectTranscript(transcript, deliveryProjectionSends([current]));
     assert.deepEqual(projection.rows.map((row) => row.id), ["bubble", "new"]);
     assert.equal(deliveryState(current), requestFailed ? "failed" : "sending");
-    assert.equal(deliveryPresentation(current, projection.rows), requestFailed ? "failed" : "sending");
+    assert.equal(deliveryPresentation(current, "idle"), requestFailed ? "failed" : "sending");
     assert.equal(current.status, undefined);
   }
+});
+
+test("a written bubble missing from the restarted ledger settles as uncertain without Retry", () => {
+  const beforeRestart = applyDeliveryStatus(send(), status("written", 1));
+  const persisted = JSON.parse(JSON.stringify(beforeRestart)) as DeliverySend;
+  const reconciled = reconcileDeliveryStatusesModel([persisted], [])[0];
+  assert.equal(deliveryState(reconciled), "uncertain");
+  assert.equal(reconciled.id, persisted.id);
+  assert.equal(reconciled.status?.state, "submit_unconfirmed");
+  assert.equal(reconciled.requestFailed, false);
+});
+
+test("settlement wins over delayed written callbacks and still accepts exact delivery", () => {
+  const written = applyDeliveryStatus(send(), status("written", 1));
+  const settled = applyDeliveryStatus(written, status("submit_unconfirmed", 1));
+  assert.equal(applyDeliveryStatus(settled, status("written", 1)), settled);
+  assert.equal(deliveryState(applyDeliveryStatus(settled, status("delivered", 1))), "delivered");
+});
+
+test("matched row identity and attachments survive reload and keep delivered status on the exact row", () => {
+  const matchedRow = {
+    source: { source_session_id: "own-session", record: {
+      kind: "structured" as const, thread_id: "own-session", item_id: "native-item",
+    } },
+    ordinal: 1,
+  };
+  const delivered = applyDeliveryStatus({
+    ...send(),
+    content: "composer payload",
+    segments: [{ type: "text", text: "composer payload" }],
+    echoBoundary: { sourceSessionId: "own-session", sessionBindingNonce: "binding", lastRowId: null },
+  }, { ...status("delivered", 3), matched_row: matchedRow });
+  const restored = JSON.parse(JSON.stringify(delivered)) as DeliverySend;
+  const attachment = { id: "attachment", mimeType: "image/png", path: "/image.png" };
+  const transcript = reduceTranscript(createTranscriptState(), {
+    kind: "snapshot",
+    authority: { sourceSessionId: "own-session", sessionBindingNonce: "binding" },
+    range: null,
+    rows: [{ id: "native-item", type: "user", content: "provider row", attachments: [attachment] }],
+  }).state;
+  const projection = projectTranscript(transcript, deliveryProjectionSends([restored]));
+  const row = projection.rows[0];
+
+  assert.equal(deliveryState(restored), "delivered");
+  assert.deepEqual(restored.matchedRow, matchedRow);
+  assert.deepEqual(projection.rows.map((message) => message.id), ["native-item"]);
+  assert.deepEqual(row.attachments, [attachment]);
+  assert.equal(sendForRow([restored], row), restored);
+  assert.equal(sendForRow([restored], {
+    id: "same-text-decoy", type: "user", content: "opaque", timestamp: "1000", sourceSessionId: "own-session",
+  }), undefined);
 });

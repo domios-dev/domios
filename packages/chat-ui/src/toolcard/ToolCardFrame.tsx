@@ -1,3 +1,4 @@
+import { BoundedMessageContent } from "../BoundedMessageContent";
 import { toolCommandLabel, type ToolEvent } from "@codeterm/chat-core";
 import { Check, CircleX, Copy, LoaderCircle, ChevronRight, MessageSquarePlus, Minus, SquareTerminal } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
@@ -114,20 +115,20 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={menuItems} />
         <ChevronRight aria-hidden="true" size={14} className={expanded ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
       </div>
-      <div
+      <BoundedMessageContent collapsedHeight={"600px"}
         id={detailsId}
         role="region"
         aria-label={disclosureLabel ?? "Tool details"}
         hidden={!expanded}
         className="pb-2 pl-12 pr-3 pt-0.5"
-        style={{ boxSizing: "border-box", maxHeight: "600px", overflowY: "auto" }}
+        style={{ boxSizing: "border-box" }}
       >
         {expanded ? (
           <RawCommandDisclosure raw={event.detail || event.summary || ""}>
             {children}
           </RawCommandDisclosure>
         ) : null}
-      </div>
+      </BoundedMessageContent>
     </div>
   );
 }

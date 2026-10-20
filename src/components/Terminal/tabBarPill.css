@@ -31,6 +31,10 @@
   opacity: 0.8;
 }
 
+.ct-bar-pill > svg:only-child {
+  margin-left: 0;
+}
+
 .ct-bar-pill:hover,
 .ct-bar-pill:focus-visible {
   background: color-mix(in srgb, var(--ct-fg) 10%, var(--ct-bg));
@@ -38,7 +42,6 @@
     inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 10%, transparent);
   color: var(--ct-fg);
   outline: none;
-  animation: ct-bar-pill-sway var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
 }
 
 @keyframes ct-bar-pill-sway {

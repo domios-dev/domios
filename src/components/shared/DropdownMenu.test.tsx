@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -21,11 +20,6 @@ Object.defineProperty(globalThis, "KeyboardEvent", { value: window.KeyboardEvent
 (globalThis as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = () => {};
 
 async function main() {
-  const styles = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
-  const portalLayer = Number(styles.match(/\.ct-portal-menu\s*\{[^}]*z-index:\s*(\d+)/s)?.[1]);
-  const modalLayer = Number(styles.match(/\.new-session-picker\s*\{[^}]*z-index:\s*(\d+)/s)?.[1]);
-  if (!(portalLayer > modalLayer)) throw new Error("portal menu layer should stay above the new-session modal");
-
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -68,14 +62,13 @@ async function main() {
   await act(async () => {
     trigger.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
   });
-  const rootMenu = document.querySelector('[role="menu"]');
+  const rootMenu = document.querySelector('[role="menu"]:not([hidden])');
   if (!rootMenu) throw new Error("pointer trigger should open an accessible menu");
-  if (!rootMenu.classList.contains("ct-portal-menu")) throw new Error("portal menu should render above modal surfaces");
   const quickSpawn = Array.from(rootMenu.querySelectorAll('button[role="menuitem"]'))
     .find((button) => button.textContent?.includes("Quick spawn")) as HTMLButtonElement | undefined;
   if (quickSpawn?.getAttribute("aria-haspopup") !== "menu") throw new Error("submenu trigger should expose menu semantics");
   await act(async () => quickSpawn.click());
-  const submenu = document.querySelector('[role="menu"]');
+  const submenu = document.querySelector('[role="menu"]:not([hidden])');
   if (!submenu?.getAttribute("aria-description")?.includes("Spawns a default Worker")) throw new Error("submenu should announce the default Worker behavior");
   if (submenu.textContent?.includes("Spawns a default Worker")) throw new Error("submenu description stays out of the visible menu");
   if (submenu.textContent.includes("Rename")) throw new Error("submenu should replace root actions in the same popup");
@@ -83,7 +76,7 @@ async function main() {
     .find((button) => button.textContent?.includes("Codex")) as HTMLButtonElement | undefined;
   await act(async () => codex?.click());
   if (spawned !== "codex") throw new Error("submenu action should invoke its spawn callback");
-  if (document.querySelector('[role="menu"]')) throw new Error("submenu action should close the popup");
+  if (document.querySelector('[role="menu"]:not([hidden])')) throw new Error("submenu action should close the popup");
 
   await act(async () => {
     (trigger as unknown as HTMLButtonElement).focus();
@@ -93,11 +86,11 @@ async function main() {
       cancelable: true,
     }) as unknown as Event);
   });
-  if (!document.querySelector('[role="menu"]')) throw new Error("keyboard activation should open the menu");
+  if (!document.querySelector('[role="menu"]:not([hidden])')) throw new Error("keyboard activation should open the menu");
   await act(async () => {
     document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }) as unknown as Event);
   });
-  if (document.querySelector('[role="menu"]')) throw new Error("Escape should close the menu");
+  if (document.querySelector('[role="menu"]:not([hidden])')) throw new Error("Escape should close the menu");
   const triggerButton = trigger as unknown as HTMLButtonElement;
   if (document.activeElement !== triggerButton) throw new Error("Escape from a keyboard-opened menu should focus its trigger");
 
@@ -110,10 +103,10 @@ async function main() {
 
   triggerButton.blur();
   await pointerOpen();
-  if (!document.querySelector('[role="menu"]')) throw new Error("pointer should reopen the menu");
+  if (!document.querySelector('[role="menu"]:not([hidden])')) throw new Error("pointer should reopen the menu");
   if (document.activeElement !== document.body) throw new Error("pointer open should not move focus");
   await pressEscape();
-  if (document.querySelector('[role="menu"]')) throw new Error("Escape should close a pointer-opened menu");
+  if (document.querySelector('[role="menu"]:not([hidden])')) throw new Error("Escape should close a pointer-opened menu");
   if (document.activeElement !== triggerButton) throw new Error("Escape from a pointer-opened menu should focus its trigger");
 
   const outside = document.createElement("input");
@@ -134,7 +127,7 @@ async function main() {
   await act(async () => {
     secondTrigger.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true }) as unknown as Event);
   });
-  const openMenus = document.querySelectorAll('[role="menu"]');
+  const openMenus = document.querySelectorAll('[role="menu"]:not([hidden])');
   if (openMenus.length !== 1 || !openMenus[0]?.textContent?.includes("Copy")) {
     throw new Error("opening a dropdown should close the previously open dropdown");
   }

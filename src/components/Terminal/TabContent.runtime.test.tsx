@@ -1,19 +1,73 @@
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import type { AgentRuntimeStateEvent } from "../../lib/agentRuntimeState";
-import type { Tab, ThemeConfig } from "../../lib/types";
+import type { ApiConfig, ProviderDescriptor, Tab, ThemeConfig } from "../../lib/types";
+import {setAgentDescriptors} from "../../lib/agentDescriptorCache";
 import { MuxStateStoreContext, MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
+import { tabBootStageEventAction } from "../../store/multiplexer";
+import { reducer } from "../../store/multiplexer/reducer";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { insertIntoComposer } from "./composerInsertion";
+import { RestoreStatePanel } from "./RestoreStatePanel";
+import { restoreStageView } from "../../lib/restoreStageView";
+import { setClientTabUiMode } from "../../lib/clientTabUiMode";
 import { TabContent } from "./TabContent";
 
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
+vi.mock("./TerminalTab", async () => {
+  const { createElement } = await import("react");
+  const { TabSessionChat } = await import("./TabSessionChat");
+  return {
+    TerminalTab: ({ tabId, api, isVisible }: { tabId: string; api?: ApiConfig; isVisible?: boolean }) =>
+      createElement(TabSessionChat, { tabId, api, isVisible }),
+  };
+});
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-it("replaces only the bottom composer during degradation and restores its draft and attachment", async () => {
+it("routes a non-PTY task tab through its backing provider even without a local agent identity", async () => {
+  const tab: Tab = {id: "remote-layout", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null,
+    agent_runtime_config: {executionMode: "cloud"}, backing: {kind: "chat_backend", plugin_id: "remote-fixture", session_id: "remote-session"}};
+  const descriptor: ProviderDescriptor = {
+    schema_version: 1, id: "remote-fixture", display_name: "Remote fixture", transport: "chat_backend", system_prompt_delivery: "external",
+    available_models: [], settings_schema: [], notifications_schema: [], supports_lazy_skills: false, has_hooks: false,
+    remote_task: {backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"}, environments: [], followUp: false, cancel: false, applyDiff: false},
+  };
+  const state: ExtendedState = {workspaces: [], tabs: {[tab.id]: tab}, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: []};
+  const calls: string[] = [];
+  const onPtySpawned = vi.fn();
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command: string) => {
+    calls.push(command);
+    const value = command === "plugin_view_call" ? {phase: "bound", snapshot: {status: "ready", result: "Fixture remote result", diff: null}}
+      : command === "plugin_manager_snapshot" ? {plugins: [], channels: [], diff: [], marketplace: []} : {};
+    return value as T;
+  });
+  setAgentDescriptors([descriptor], false);
+  const host = document.createElement("div"); const root = createRoot(host);
+  const actions = new Proxy({}, {get: () => () => {}}) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={tab} isFocused isVisible onFocusTab={() => {}} onPtySpawned={onPtySpawned}
+          theme={{name: "fixture", background: "#000", foreground: "#fff"} as ThemeConfig} />
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>));
+    expect(host.querySelector('section[aria-label="Remote task"]')).not.toBeNull();
+    expect(host.querySelector("pre")?.textContent).toBe("Fixture remote result");
+    expect(calls).toContain("plugin_view_call");
+    expect(calls).not.toContain("chat_start");
+    expect(onPtySpawned).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount()); setAgentDescriptors([], false);
+    __setInvokeForTest(null); __setListenForTest(null);
+  }
+});
+
+it("keeps the composer draft and attachment through runtime status changes", async () => {
   const tab: Tab = {
     id: "runtime-layout", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null,
     backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "thread" },
@@ -68,21 +122,227 @@ it("replaces only the bottom composer during degradation and restores its draft 
     const attachment = host.querySelector('[data-testid="composer-capsule-mirror"]')?.textContent;
     expect(attachment).toContain("preserved.md");
     await emit({ state: "degraded", epoch: 1, reason: "fixture runtime fault" });
-    const banner = host.querySelector('[role="status"][aria-label="Agent runtime unavailable"]');
-    expect(banner).not.toBeNull();
-    expect(banner?.closest("[data-composer-height-surface]")).not.toBeNull();
-    expect(header?.contains(banner)).toBe(false);
-    expect(host.querySelector('[data-testid="tab-top-bar"]')).toBe(header);
-    expect(host.querySelectorAll('[aria-label="Agent runtime unavailable"]')).toHaveLength(1);
-    expect(host.querySelector("textarea")).toBeNull();
-    expect(banner?.textContent).toContain("fixture runtime fault");
-    expect(banner?.querySelectorAll('button[aria-label="Retry"]')).toHaveLength(1);
-    for (const runtimeState of ["loading", "unloaded", "loaded"] as const) {
+    const badge = host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"][aria-label="Agent runtime unavailable"]');
+    expect(badge).not.toBeNull();
+    expect(host.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(draft);
+    for (const runtimeState of ["loading", "unloaded"] as const) {
       await emit({ state: runtimeState, epoch: 2, reason: runtimeState === "unloaded" ? "pipe ended" : undefined });
       expect(host.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(draft);
-      expect(host.querySelector('[data-testid="composer-capsule-mirror"]')?.textContent).toBe(attachment);
-      expect(host.querySelector('[aria-label="Agent runtime unavailable"]')).toBeNull();
     }
+    await emit({ state: "loaded", epoch: 2 });
+    expect(host.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(draft);
+    expect(host.querySelector('[data-testid="composer-capsule-mirror"]')?.textContent).toBe(attachment);
+    expect(host.querySelector('button[aria-label="Retry"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});
+
+it("keeps chat startup visible through a pending runtime response deadline", async () => {
+  const tab: Tab = {
+    id: "pending-deadline", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null,
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "thread" },
+    agent_type: "fixture", agent_session_id: "thread", session_binding_nonce: "binding",
+    boot_stage: "agent_launching", agent_booting: true,
+    agent_runtime_state: { state: "degraded", epoch: 2, reason: "Deadline: opaque" },
+  };
+  const state: ExtendedState = {
+    workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+  };
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command: string) => {
+    if (command === "chat_start") return new Promise<T>(() => {});
+    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] }
+      : {};
+    return value as T;
+  });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  try {
+    await act(async () => root.render(
+      <MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
+        <MultiplexerActionsContext.Provider value={actions}>
+          <TabContent tab={tab} isFocused isVisible onFocusTab={() => {}} onPtySpawned={() => {}}
+            theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+        </MultiplexerActionsContext.Provider>
+      </MuxStateStoreContext.Provider>,
+    ));
+    expect(host.querySelector('[data-testid="chat-setup-state"]')).not.toBeNull();
+    expect(host.querySelector('[role="progressbar"][aria-valuetext]')).not.toBeNull();
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="chat-launch-failed"]')).toBeNull();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    const recoveryButtons = [...host.querySelectorAll("button")].filter(button =>
+      /retry|wake again/i.test((button.getAttribute("aria-label") ?? "") + " " + (button.textContent ?? "")));
+    expect(recoveryButtons).toHaveLength(0);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});
+
+
+it("requests one wake when a sleeping tab becomes visible without awaiting materialization", async () => {
+  const tab: Tab = {
+    id: "wake-visible-fixture", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null, frozen: true, agent_type: "fixture",
+    slept_at_ms: 1000, agent_session_id: "saved", session_binding_nonce: "sleep-binding",
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "saved" },
+  };
+  const state: ExtendedState = {
+    workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+  };
+  const calls: string[] = [];
+  __setInvokeForTest(<T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "wake_tab") {
+      calls.push(String(args?.tabId));
+      return new Promise<T>(() => {});
+    }
+    if (command === "chat_start") return Promise.resolve({
+      text: "", pending: false, start_offset: 0, offset: 1,
+      source_session_id: "saved", session_binding_nonce: "sleep-binding", subscription_id: args?.subscriptionId,
+      messages: [{ id: "saved-row", type: "assistant", content: "persisted-fixture-content" }],
+    } as T);
+    return Promise.resolve((command === "delayed_send_list" ? [] : {}) as T);
+  });
+  __setListenForTest(async () => () => {});
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const store = createMuxStateStore(() => state);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  const render = (visible: boolean) => act(async () => root.render(
+    <StrictMode><MuxStateStoreContext.Provider value={store}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={tab} isFocused={visible} isVisible={visible} onFocusTab={() => {}} onPtySpawned={() => {}}
+          theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider></StrictMode>,
+  ));
+  try {
+    await render(false);
+    expect(calls).toEqual([]);
+    expect(host.querySelector('[role="status"][aria-label="Sleeping"]')).toBeNull();
+    await render(true);
+    expect(calls).toEqual([tab.id]);
+    expect(host.textContent).toContain("persisted-fixture-content");
+    expect([...host.querySelectorAll('[role="status"]')].some(status => status.textContent === "Waking…")).toBe(true);
+    expect(host.querySelector('[role="progressbar"][aria-label="Restore progress"]')).toBeNull();
+    const composer = host.querySelector("textarea");
+    expect(composer).not.toBeNull();
+    await render(false);
+    await render(true);
+    expect(calls).toEqual([tab.id]);
+    tab.frozen = false;
+    tab.slept_at_ms = null;
+    tab.boot_stage = "agent_ready";
+    await render(true);
+    expect(host.querySelector("textarea")).toBe(composer);
+    expect(host.textContent).toContain("persisted-fixture-content");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});
+
+it("releases a restored PTY Chat on its own agent_ready lifecycle without PTY output", async () => {
+  const tab: Tab = {
+    id: "restored-pty-chat", title: "Grok", tab_type: "Terminal", cwd: null, pty_id: "pty-own",
+    backing: { kind: "pty" }, agent_type: "fixture", agent_session_id: "own-session",
+    session_binding_nonce: "old-binding", frozen: true, slept_at_ms: null, boot_stage: "pty_starting",
+    lifecycle_epoch: 1, lifecycle_operation_id: "prior-launch",
+  };
+  const otherTab: Tab = {
+    ...tab, id: "other-pty-chat", pty_id: "pty-other", agent_session_id: "other-session",
+    session_binding_nonce: "other-binding", boot_stage: "pty_starting",
+  };
+  let state: ExtendedState = {
+    workspaces: [], tabs: { [tab.id]: tab, [otherTab.id]: otherTab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+  };
+  const store = createMuxStateStore(() => state);
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command: string) => {
+    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] }
+      : command === "chat_start" ? { messages: [], pending: false, text: "", start_offset: 0, offset: 0,
+        source_session_id: "own-session", session_binding_nonce: state.tabs[tab.id].session_binding_nonce }
+      : command === "wake_tab" ? { accepted: true }
+      : {};
+    return value as T;
+  });
+  setClientTabUiMode(tab.id, "chat");
+  const render = async () => act(async () => root.render(
+    <MuxStateStoreContext.Provider value={store}>
+      <MultiplexerActionsContext.Provider value={actions}>
+        <TabContent tab={state.tabs[tab.id]} isFocused isVisible onFocusTab={() => {}} onPtySpawned={() => {}}
+          theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />
+      </MultiplexerActionsContext.Provider>
+    </MuxStateStoreContext.Provider>,
+  ));
+  try {
+    await render();
+    expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Message composer"]')).toBeNull();
+
+    state = reducer(state, tabBootStageEventAction({
+      tab_id: tab.id,
+      stage: "agent_ready",
+      agent_booting: false,
+      session_bound: true,
+      launch_generation: { epoch: 2, operation_id: "restored-launch", pty_id: "pty-restored", binding_nonce: "restored-binding" },
+    }));
+    await act(async () => store.notify());
+    await render();
+
+    expect(state.tabs[otherTab.id].frozen).toBe(true);
+    expect(state.tabs[tab.id].pty_id).toBe("pty-restored");
+    expect(state.tabs[tab.id].session_binding_nonce).toBe("restored-binding");
+    expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).toBeNull();
+    const composer = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message composer"]');
+    expect(composer).not.toBeNull();
+    expect(composer?.disabled).toBe(false);
+    expect(composer?.closest("[inert]")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    setClientTabUiMode(tab.id, "terminal");
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});
+
+it("projects sleeping, restoring and failed snapshots without a wake control", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (tab: Partial<Tab>) => act(async () => root.render(
+    <RestoreStatePanel view={restoreStageView(tab)} />,
+  ));
+  try {
+    await render({ frozen: true });
+    expect(host.querySelector('[role="status"][aria-label="Sleeping"]')).not.toBeNull();
+    expect(host.querySelector(".brand-mark")).not.toBeNull();
+    await render({ frozen: false, boot_stage: "pty_starting" });
+    expect(host.querySelector('[role="status"][aria-label="Restoring…"]')).not.toBeNull();
+    await render({ frozen: false, boot_stage: "spawn_failed", boot_failure_reason: "fixture-error" });
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("fixture-error");
+    expect([...host.querySelectorAll("button")].filter(button => /wake/i.test(button.textContent ?? ""))).toHaveLength(0);
   } finally {
     await act(async () => root.unmount());
     host.remove();

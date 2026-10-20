@@ -5,8 +5,8 @@
 //! through.
 
 use super::store::NotificationProvenance;
+pub use crate::contract::NotifyLevel;
 use codeterm_types::config::schema::PushChannelConfig;
-pub use codeterm_types::notification::NotifyLevel;
 
 /// Coalescing scope for a caller the daemon could not attribute to a tab or a
 /// peer. One shared bucket, so the lifetime ceiling still binds.

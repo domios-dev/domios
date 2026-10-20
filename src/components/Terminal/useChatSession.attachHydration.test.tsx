@@ -42,6 +42,9 @@ function message(id: string, content = id): NormalizedChatMessage {
 }
 
 interface StartResult {
+  kind?: "snapshot" | "unchanged" | "delta";
+  cursor?: string;
+  file_length?: number;
   text: string;
   start_offset: number;
   offset: number;
@@ -59,6 +62,7 @@ type ChatHandler = (event: {
     messages: NormalizedChatMessage[];
     start_offset?: number;
     offset?: number;
+    cursor?: string;
     source_session_id: string | null;
     session_binding_nonce: string | null;
   };
@@ -69,6 +73,7 @@ function currentHandler(server: FakeChatServer): ChatHandler | null {
 }
 
 class FakeChatServer {
+  readonly knownWindows: unknown[] = [];
   readonly starts: string[] = [];
   readonly stops: string[] = [];
   readonly subscribers = new Set<string>();
@@ -104,6 +109,7 @@ class FakeChatServer {
     bridge.__setInvokeForTest(async (command: string, args: Record<string, unknown>) => {
       if (command === "chat_send_status") return [];
       if (command === "chat_start") {
+        this.knownWindows.push(args.knownWindow);
         const subscriptionId = String(args.subscriptionId ?? "");
         this.starts.push(subscriptionId);
         const factory = this.startFactories.shift();
@@ -229,6 +235,7 @@ async function mount(server: FakeChatServer): Promise<Mounted> {
 
 async function main(): Promise<void> {
   setupHookDom();
+  await cachedWindowAttach();
   await mountThenBind();
   clearTranscriptWindows();
   const server = new FakeChatServer();
@@ -385,6 +392,47 @@ async function main(): Promise<void> {
   console.log(
     `PASS attach hydration: snapshots=${server.starts.length} stops=${server.stops.length} listeners=${server.listens}/${server.unlistens}`,
   );
+}
+
+async function cachedWindowAttach(): Promise<void> {
+  clearTranscriptWindows();
+  const server = new FakeChatServer();
+  const authority = { source_session_id: "sid-live", session_binding_nonce: "nonce-live" };
+  const cursor = (offset: number) => JSON.stringify({ kind: "bytes", epoch: authority, incarnation: "file", offset });
+  server.queueStart(subscriptionId => ({
+    ...authority, text: "", kind: "snapshot", start_offset: 0, offset: 1,
+    file_length: 1, cursor: cursor(1), pending: false, messages: [message("cached")], subscription_id: subscriptionId,
+  }));
+  let app = await mount(server);
+  await app.render("sid-live", "nonce-live", true);
+  await act(async () => app.root.unmount());
+  server.queueStart(subscriptionId => ({
+    ...authority, text: "", kind: "unchanged", start_offset: 1, offset: 1,
+    file_length: 1, cursor: cursor(1), pending: false, messages: [], subscription_id: subscriptionId,
+  }));
+  app = await mount(server);
+  await app.render("sid-live", "nonce-live", true);
+  assert(app.messageIds().join(",") === "cached", "unchanged attach preserves the cached DOM rows");
+  assert(JSON.stringify(server.knownWindows[1]) === JSON.stringify({
+    ...authority, end_offset: 1, file_length: 1, cursor: cursor(1),
+  }), "remount sends its cached authority, byte end, file length and incarnation cursor");
+  await act(async () => {
+    currentHandler(server)?.({ payload: { ...authority, tab_id: "tab", start_offset: 1, offset: 2,
+      cursor: cursor(2), messages: [message("live-after-unchanged")] } });
+  });
+  await flush();
+  assert(app.messageIds().join(",") === "cached,live-after-unchanged", "unchanged remount re-arms live delta delivery");
+  assert(server.subscribers.size === 1, "unchanged remount owns exactly one subscription");
+  await act(async () => app.root.unmount());
+  server.queueStart(subscriptionId => ({
+    ...authority, text: "", kind: "delta", start_offset: 2, offset: 3,
+    file_length: 3, cursor: cursor(3), pending: false, messages: [message("appended")], subscription_id: subscriptionId,
+  }));
+  app = await mount(server);
+  await app.render("sid-live", "nonce-live", true);
+  assert(app.messageIds().join(",") === "cached,live-after-unchanged,appended", "delta attach appends without replacing the cached window");
+  await act(async () => app.root.unmount());
+  clearTranscriptWindows();
 }
 
 async function mountThenBind(): Promise<void> {

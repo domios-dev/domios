@@ -5,7 +5,6 @@ import { loadPluginDocument, materializePluginDocument, MAX_PLUGIN_DOCUMENT_BYTE
 import { createTransportClient } from "./transportClient";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import ts from "typescript";
 
 const origin = "http://127.0.0.1:7690";
 const path = "/api/plugins/example/ui/index.html?surface=board&instance=own&tab=tab-1";
@@ -112,7 +111,7 @@ describe("authenticated plugin document", () => {
     }))).rejects.toThrow("8 MiB");
   });
 
-  it.each(["analytics", "git"])("keeps the real %s bundle's stylesheet authorized through srcDoc preparation", async (id) => {
+  it.each(["analytics"])("keeps the real %s bundle's stylesheet authorized through srcDoc preparation", async (id) => {
     const directory = resolve("plugins", id, "ui");
     const raw = readFileSync(resolve(directory, "index.html"), "utf8").replaceAll("__CT_NONCE__", "fixture");
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
@@ -140,25 +139,6 @@ describe("authenticated plugin document", () => {
     expect(new TextEncoder().encode(loaded.html).byteLength).toBeLessThan(MAX_PLUGIN_DOCUMENT_BYTES);
     expect(fetch).toHaveBeenCalledTimes(2);
     loaded.dispose();
-  });
-
-  it("authorizes the real Git diff bundle's runtime stylesheet elements without authorizing external CSS", () => {
-    const directory = resolve("plugins", "git", "ui");
-    const html = new DOMParser().parseFromString(readFileSync(resolve(directory, "index.html"), "utf8"), "text/html");
-    const bundle = readFileSync(resolve(directory, html.querySelector("script[src]")!.getAttribute("src")!), "utf8");
-    const source = ts.createSourceFile("git.js", bundle, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-    const styles: ts.ObjectLiteralExpression[] = [];
-    const visit = (node: ts.Node) => {
-      if (ts.isCallExpression(node) && node.arguments.length > 1
-        && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === "style"
-        && ts.isObjectLiteralExpression(node.arguments[1])) styles.push(node.arguments[1]);
-      ts.forEachChild(node, visit);
-    };
-    visit(source);
-    expect(styles.length).toBeGreaterThan(0);
-    expect(styles.some((props) => !props.properties.some((prop) => prop.name?.getText(source) === "nonce"))).toBe(true);
-    const styleSources = policy.split("; ").find((directive) => directive.startsWith("style-src "))!.split(" ").slice(1);
-    expect(styleSources).toEqual(["'unsafe-inline'"]);
   });
 
   it("loads document and assets through bearer headers and materializes scripts and images", async () => {

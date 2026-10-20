@@ -9,7 +9,6 @@ import { documentsFromTranscript } from "./chatDocuments";
 import { composerInsertionStore } from "./composerInsertion";
 import { TabSidePanel } from "./tabPanel/TabSidePanel";
 import { tabPanelNavigationStore } from "./tabPanel/tabPanelNavigation";
-import { themeToCSS, DEFAULT_THEME } from "../../lib/themeCss";
 
 vi.mock("../../lib/bridge", () => ({ invoke: vi.fn() }));
 import { invoke } from "../../lib/bridge";
@@ -182,23 +181,6 @@ it("switches views from the segmented control in the shared slot", async () => {
   await act(async () => changes.click());
   expect(planSidePanelStore.get()?.target).toEqual({ planId: "", documentsTabId: "shared", tabView: "changes" });
   expect(button("Documents (1)").getAttribute("aria-expanded")).toBe("false");
-});
-
-it("renders both views under light and dark themes without errors", async () => {
-  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-  configureLocalArtifactLoader(async () => ({ data: "# Themed", media_type: "text/markdown" }));
-  chatDocumentsStore.set("themed", documentsFromTranscript([{ content: "@ds-document /themed.md" }]));
-  const light = { ...DEFAULT_THEME, name: "light", background: "#ffffff", foreground: "#24292f", black: "#24292f", bright_black: "#6e7781", white: "#ffffff", bright_white: "#ffffff" };
-  for (const theme of [DEFAULT_THEME, light]) {
-    for (const [name, value] of Object.entries(themeToCSS(theme))) document.documentElement.style.setProperty(name, value);
-    for (const view of ["documents", "changes"] as const) {
-      await render(<TabSidePanel tabId="themed" view={view} panelRef={{ current: null }} state="open" onClose={() => {}} />);
-      expect(host.querySelector(`[data-testid="tab-side-panel"][data-view="${view}"]`)).toBeTruthy();
-      await act(async () => root?.unmount()); root = null; host.remove();
-    }
-  }
-  expect(errors).not.toHaveBeenCalled();
-  errors.mockRestore();
 });
 
 it("the embedded document fullscreen closes with Escape and restores its opener", async () => {

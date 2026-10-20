@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import type { Tab } from "../../lib/types";
@@ -19,6 +20,6 @@ export function RestoredShell({ tab }: { tab: Tab }) {
     <button type="button" disabled={busy} onClick={() => { void rerun(); }}>
       {tab.close_restore?.command ? "Rerun command" : "Start shell"}
     </button>
-    {error && <p role="alert">{error}</p>}
+    {error && <InlineErrorNotice error={error} operation="starting this shell" blocking />}
   </section>;
 }

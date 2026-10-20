@@ -1,21 +1,14 @@
-/**
- * Live list of agent providers contributed by active plugins.
- *
- * Single source of truth: the backend's `list_agent_providers` Tauri command,
- * which returns the transport-tagged ProviderRegistry snapshot.
- * Auto-refetches when provider contributions or a versioned model catalogue changes.
- *
- * Adding a new bundled or third-party agent plugin requires ZERO changes here —
- * the descriptor flows through automatically.
- */
-import { useCallback, useEffect, useLayoutEffect } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../lib/bridge";
+import { DEV_BUILD } from "../lib/devBuild";
 
 import type { ModelCatalogueChanged, ProviderDescriptor } from "../lib/types";
-import { acceptModelCatalogueChange, listAgentDescriptors, setAgentDescriptors } from "../lib/agentDescriptorCache";
-import { useContributions } from "./useContributions";
-
-const EMPTY_AGENT_PROVIDERS: ProviderDescriptor[] = [];
+import { acceptModelCatalogueChange, listAgentDescriptors, resetAgentCatalogueVersions, setAgentDescriptors } from "../lib/agentDescriptorCache";
+import { recordProviderCatalogueResponse } from "../lib/eventStreamReady";
+import { shouldRefetch, type ProviderCatalogueRevision } from "../lib/providerCatalogueModel";
+import { persistProviderIcons } from "../lib/providerIconCache";
+import { createProviderCatalogueResource } from "../lib/providerCatalogueResource";
+import { WEB_BOOT_CHANGED_EVENT, type BootChangedDetail } from "../lib/buildDriftReload";
 
 export function shouldRefreshAgentProviders(eventType: string): boolean {
   return eventType === "contributions-changed" || eventType === "model-catalogue-changed";
@@ -24,9 +17,9 @@ export function shouldRefreshAgentProviders(eventType: string): boolean {
 export function visibleAgentProviders(
   items: ProviderDescriptor[],
   _loading: boolean,
-  error: string | null,
+  _error: string | null,
 ): ProviderDescriptor[] {
-  return error ? EMPTY_AGENT_PROVIDERS : items;
+  return items;
 }
 
 export function agentProvidersFromResponse(result: unknown): ProviderDescriptor[] {
@@ -36,8 +29,13 @@ export function agentProvidersFromResponse(result: unknown): ProviderDescriptor[
 
 export async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
   const result = await invoke<unknown>("list_agent_providers");
-  return agentProvidersFromResponse(result);
+  const providers = agentProvidersFromResponse(result);
+  recordProviderCatalogueResponse(providers.length);
+  return providers;
 }
+
+const catalogueResource = createProviderCatalogueResource(fetchAgentProviders);
+export const invalidateAgentProviders = catalogueResource.invalidate;
 
 export function syncAgentDescriptorCache(
   items: ProviderDescriptor[],
@@ -52,14 +50,20 @@ export function attachModelCatalogueChangedRefresh(
   listenImpl: typeof listen = listen,
 ): () => void {
   let active = true;
-  const observed = new Map(listAgentDescriptors().map((provider) => [provider.id, provider.catalogue_version ?? 0]));
+  const observed = new Map<string, ProviderCatalogueRevision>(listAgentDescriptors().map((provider) => [
+    provider.id,
+    { revision: provider.catalogue_version ?? 0 },
+  ]));
   let unlisten: UnlistenFn | undefined;
+  const reset = () => observed.clear();
+  if (typeof window !== "undefined") window.addEventListener("codeterm-peer-switch-reset", reset);
 
   void listenImpl<ModelCatalogueChanged>("model-catalogue-changed", (event) => {
-    if (!active || event.payload.version <= (observed.get(event.payload.provider) ?? 0)) return;
-    observed.set(event.payload.provider, event.payload.version);
-    acceptModelCatalogueChange(event.payload);
-    refetch();
+    if (!active) return;
+    const next: ProviderCatalogueRevision = { revision: event.payload.version };
+    if (!shouldRefetch(observed.get(event.payload.provider), next)) return;
+    observed.set(event.payload.provider, next);
+    if (acceptModelCatalogueChange(event.payload)) refetch();
   }).then((fn) => {
     if (active) {
       unlisten = fn;
@@ -72,6 +76,7 @@ export function attachModelCatalogueChangedRefresh(
 
   return () => {
     active = false;
+    if (typeof window !== "undefined") window.removeEventListener("codeterm-peer-switch-reset", reset);
     unlisten?.();
   };
 }
@@ -82,14 +87,88 @@ export function useAgentProviders(): {
   error: string | null;
   refetch: () => void;
 } {
-  const fetcher = useCallback(fetchAgentProviders, []);
-  const { items, loading, error, refetch } = useContributions<ProviderDescriptor>(
-    "agent_provider",
-    fetcher,
-  );
+  const [items, setItems] = useState<ProviderDescriptor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const hasLoaded = useRef(false);
+  const generation = useRef(0);
+  const queued = useRef(false);
+  const active = useRef(false);
+  const load = useCallback(() => {
+    generation.current++;
+    if (queued.current) return;
+    queued.current = true;
+    queueMicrotask(() => {
+      queued.current = false;
+      if (!active.current) return;
+      const current = generation.current;
+      setLoading(true);
+      void catalogueResource.load().then((next) => {
+        if (!active.current || generation.current !== current) return;
+        persistProviderIcons(next);
+        hasLoaded.current = true;
+        setItems(next);
+        setError(null);
+      }).catch((reason: unknown) => {
+        if (!active.current || generation.current !== current) return;
+        if (DEV_BUILD) console.debug("Background agent provider catalogue refresh failed", reason);
+        if (!hasLoaded.current) setError(String(reason));
+      }).finally(() => {
+        if (active.current && generation.current === current) setLoading(false);
+      });
+    });
+  }, []);
+  const refetch = useCallback(() => {
+    invalidateAgentProviders();
+    load();
+  }, [load]);
   useEffect(() => {
-    return attachModelCatalogueChangedRefresh(refetch);
-  }, [refetch]);
+    active.current = true;
+    let disposed = false;
+    let unlisten: UnlistenFn | undefined;
+    let serverIdentity: ProviderCatalogueRevision | undefined;
+    const reset = () => {
+      invalidateAgentProviders();
+      generation.current++;
+      resetAgentCatalogueVersions();
+      serverIdentity = undefined;
+      hasLoaded.current = false;
+      setItems([]);
+      setError(null);
+      setLoading(true);
+    };
+    const rebind = () => load();
+    const serverChanged = (event: Event) => {
+      const detail = (event as CustomEvent<BootChangedDetail>).detail;
+      const next: ProviderCatalogueRevision = { boot: detail.boot, build: detail.build };
+      if (!shouldRefetch(serverIdentity, next)) return;
+      serverIdentity = next;
+      resetAgentCatalogueVersions();
+      refetch();
+    };
+    window.addEventListener("codeterm-peer-switch-reset", reset);
+    window.addEventListener("codeterm-peer-switch-rebind", rebind);
+    window.addEventListener(WEB_BOOT_CHANGED_EVENT, serverChanged);
+    const cleanupModels = attachModelCatalogueChangedRefresh(refetch);
+    void listen<{ kind: string }>("contributions-changed", ({ payload }) => {
+      if (!disposed && payload.kind === "agent_provider") refetch();
+    }).then((dispose) => {
+      if (disposed) { dispose(); return; }
+      unlisten = dispose;
+      // Establish the baseline after registration so contribution changes are not missed.
+      load();
+    }).catch(() => { if (!disposed) load(); });
+    return () => {
+      disposed = true;
+      active.current = false;
+      generation.current++;
+      unlisten?.();
+      cleanupModels();
+      window.removeEventListener("codeterm-peer-switch-reset", reset);
+      window.removeEventListener("codeterm-peer-switch-rebind", rebind);
+      window.removeEventListener(WEB_BOOT_CHANGED_EVENT, serverChanged);
+    };
+  }, [refetch, load]);
   return { providers: visibleAgentProviders(items, loading, error), loading, error, refetch };
 }
 

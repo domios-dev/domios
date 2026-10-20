@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct UsageSnapshot {
     pub provider: String,
     #[serde(default)]
-    pub billing_mode: codeterm_types::usage::BillingMode,
+    pub billing_mode: codeterm_usage::contract::BillingMode,
     #[serde(default)]
     pub limits_reported: bool,
     pub account_id: Option<String>,
@@ -103,7 +103,7 @@ mod billing_tests {
         let snapshot: UsageSnapshot = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(
             snapshot.billing_mode,
-            codeterm_types::usage::BillingMode::Subscription
+            codeterm_usage::contract::BillingMode::Subscription
         );
         assert!(!snapshot.limits_reported);
         assert_eq!(snapshot.spend_cents, None);
@@ -112,7 +112,7 @@ mod billing_tests {
         let snapshot: UsageSnapshot = serde_json::from_value(value).unwrap();
         assert_eq!(
             snapshot.billing_mode,
-            codeterm_types::usage::BillingMode::Unknown
+            codeterm_usage::contract::BillingMode::Unknown
         );
         assert!(!snapshot.limits_reported);
     }

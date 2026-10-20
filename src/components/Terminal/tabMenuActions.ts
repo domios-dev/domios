@@ -2,9 +2,7 @@ import { makeOrchestrator, makePlanner } from "../../lib/orchestratorOnboard";
 import {invoke} from "../../lib/bridge";
 import { runPluginTabMenuItem } from "../../lib/pluginTabMenu";
 import { replaceOrchestrator } from "../Sidebar/orchestratorRecoveryMenu";
-import { getTabProviderApi } from "../Sidebar/tabProviderApi";
 import { switchTabModel } from "../Sidebar/tabModelMenu";
-import { switchTabProvider } from "../Sidebar/tabProviderMenu";
 import type { TabMenuAction } from "./tabMenuModel";
 import {
   copyTabSessionId,
@@ -16,6 +14,7 @@ import { closeTelegramThread, openTelegramThread } from "./telegramThreadActions
 
 export interface TabMenuSurfaceHandlers {
   sessionBindingNonce?: string | null;
+  switchProvider?: (providerId: string) => void;
   rename?: () => void;
   close?: () => void;
 }
@@ -39,7 +38,9 @@ export async function performTabMenuAction(
     case "switchModel":
       return switchTabModel(action.view, action.modelId);
     case "switchProvider":
-      return switchTabProvider(getTabProviderApi(), tabId, action.providerId);
+      if (!handlers.switchProvider) throw new Error("Provider switching requires the handoff confirmation dialog.");
+      handlers.switchProvider(action.providerId);
+      return;
     case "replaceOrchestrator":
       return replaceOrchestrator(action.view, action.providerId);
     case "reconnect":

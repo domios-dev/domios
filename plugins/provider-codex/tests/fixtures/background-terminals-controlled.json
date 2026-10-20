@@ -1,0 +1,237 @@
+{
+  "captured": {
+    "cliVersion": "codex-cli 0.162.1",
+    "model": "gpt-6-luna",
+    "scenario": "background-terminals"
+  },
+  "captureExit": 0,
+  "cases": [
+    {
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14405-327a-7140-9538-aff77082a761"
+      },
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "01a14405-327a-7140-9538-aff77082a761",
+        "action": {
+          "kind": "list",
+          "cursor": null
+        }
+      },
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/backgroundTerminals/list",
+          "params": {
+            "threadId": "01a14405-327a-7140-9538-aff77082a761",
+            "cursor": null,
+            "limit": 256
+          }
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "data": [
+            {
+              "itemId": "exec-98f58094-9da7-4c57-9143-2cfc561c7323",
+              "processId": "4271",
+              "command": "node -e \"const s=require('net').connect(54289,'127.0.0.1');s.on('close',()=>process.exit(0));s.on('error',()=>process.exit(1))\"",
+              "cwd": "/work/capture",
+              "osPid": null,
+              "cpuPercent": null,
+              "rssKb": null
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14405-327a-7140-9538-aff77082a761"
+      },
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "01a14405-327a-7140-9538-aff77082a761",
+        "action": {
+          "kind": "terminate",
+          "processId": "4271"
+        }
+      },
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/backgroundTerminals/terminate",
+          "params": {
+            "threadId": "01a14405-327a-7140-9538-aff77082a761",
+            "processId": "4271"
+          }
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "terminated": true
+        }
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14405-327a-7140-9538-aff77082a761"
+      },
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "01a14405-327a-7140-9538-aff77082a761",
+        "action": {
+          "kind": "list",
+          "cursor": null
+        }
+      },
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/backgroundTerminals/list",
+          "params": {
+            "threadId": "01a14405-327a-7140-9538-aff77082a761",
+            "cursor": null,
+            "limit": 256
+          }
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "data": [],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14405-327a-7140-9538-aff77082a761"
+      },
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "01a14405-327a-7140-9538-aff77082a761",
+        "action": {
+          "kind": "clean"
+        }
+      },
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/backgroundTerminals/clean",
+          "params": {
+            "threadId": "01a14405-327a-7140-9538-aff77082a761"
+          }
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {}
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "00000000-0000-0000-0000-000000000000"
+      },
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "00000000-0000-0000-0000-000000000000",
+        "action": {
+          "kind": "list",
+          "cursor": null
+        }
+      },
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/backgroundTerminals/list",
+          "params": {
+            "threadId": "00000000-0000-0000-0000-000000000000",
+            "cursor": null,
+            "limit": 256
+          }
+        }
+      },
+      "reply": {
+        "kind": "error",
+        "error": {
+          "code": -32600,
+          "message": "thread not found: 00000000-0000-0000-0000-000000000000"
+        }
+      }
+    }
+  ]
+}

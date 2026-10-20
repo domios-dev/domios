@@ -531,11 +531,11 @@ mod command_tests {
         };
         let (method, params) = request(action, Some("creator".into()), None).unwrap();
         assert_eq!(method, "blueprint.pipeline.validate");
-        let spec: codeterm_types::blueprint_pipeline::BlueprintSpec =
+        let spec: codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec =
             serde_json::from_value(params["spec"].clone()).unwrap();
         assert_eq!(
             spec.owner,
-            codeterm_types::blueprint_pipeline::BlueprintOwner::Team
+            codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Team
         );
 
         let cli = crate::args::cli::Cli::try_parse_from([

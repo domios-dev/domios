@@ -12,6 +12,9 @@ pub trait CommandPort: Send + Sync {
         Ok(())
     }
     fn lifecycle_journal(&self) -> crate::session::lifecycle::JournalLoad;
+    fn utility_deadline(&self, _tab_id: &str) -> Option<serde_json::Value> {
+        None
+    }
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot;
     /// The status-bearing snapshot, waiting for the state locks no later than
     /// `deadline`. `None` means a writer held them past the deadline.
@@ -286,15 +289,46 @@ pub fn dispatch_tab_summary_if_ready(
     let snapshot = ctx
         .mux_snapshot_until(std::time::Instant::now() + TAB_SUMMARY_LOCK_DEADLINE)
         .ok_or_else(|| TAB_SUMMARY_BUSY_ERROR.to_string())?;
+    let resolved_workspace = workspace_id
+        .as_deref()
+        .map(|selector| resolve_workspace_selector(&snapshot, selector))
+        .transpose()?;
     Ok(CommandResult::Json(serde_json::json!(
         build_tab_summary_json(
             &snapshot,
-            workspace_id.as_deref(),
+            resolved_workspace.as_deref(),
             caller_tab_id.as_deref(),
             *focused_workspace,
             *agents_only,
         )
     )))
+}
+
+pub fn resolve_workspace_selector(
+    snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
+    selector: &str,
+) -> Result<String, String> {
+    if selector.is_empty() {
+        return Err("Workspace id cannot be empty".into());
+    }
+    if let Some(workspace) = snapshot
+        .workspaces
+        .iter()
+        .find(|workspace| workspace.id == selector)
+    {
+        return Ok(workspace.id.clone());
+    }
+    let mut matches = snapshot
+        .workspaces
+        .iter()
+        .filter(|workspace| workspace.id.starts_with(selector));
+    let Some(workspace) = matches.next() else {
+        return Err(format!("Workspace not found: {selector}"));
+    };
+    if matches.next().is_some() {
+        return Err(format!("Ambiguous workspace id prefix: {selector}"));
+    }
+    Ok(workspace.id.clone())
 }
 
 /// Runs the summary's bounded lock wait off the async runtime.
@@ -325,7 +359,7 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
             serde_json::to_value(&*crate::pty::shell_profiles::catalog().load_blocking(*refresh))
                 .map_err(|error| error.to_string())?,
         )),
-        Command::Health => cmd_health(),
+        Command::Health => health_result(),
         Command::TabList => cmd_tab_list(ctx),
         Command::TabSummary {
             workspace_id,
@@ -421,11 +455,11 @@ fn is_mutating_user_command(cmd: &Command) -> bool {
     )
 }
 
-fn cmd_health() -> Result<CommandResult, String> {
+pub fn health_result() -> Result<CommandResult, String> {
     Ok(CommandResult::Json(serde_json::json!({
         "status": "ok",
-        "version": env!("CARGO_PKG_VERSION"),
-        "build": option_env!("BUILD_HASH").unwrap_or("dev"),
+        "version": codeterm_build_info::version(),
+        "build": codeterm_build_info::hash(),
         "name": "CodeTerm",
         "platform": std::env::consts::OS,
     })))
@@ -445,10 +479,13 @@ fn cmd_tab_summary(
     agents_only: bool,
 ) -> Result<CommandResult, String> {
     let snapshot = ctx.mux_snapshot();
+    let resolved_workspace = workspace_id
+        .map(|selector| resolve_workspace_selector(&snapshot, selector))
+        .transpose()?;
     Ok(CommandResult::Json(serde_json::json!(
         build_tab_summary_json(
             &snapshot,
-            workspace_id,
+            resolved_workspace.as_deref(),
             caller_tab_id,
             focused_workspace,
             agents_only,
@@ -479,6 +516,13 @@ fn cmd_tab_inspect(
         .collect::<Vec<_>>();
     if tabs.len() != requested.len() {
         return Err("one or more requested Tabs were not found".into());
+    }
+    for tab in &mut tabs {
+        if let Some(id) = tab["id"].as_str() {
+            if let Some(deadline) = ctx.utility_deadline(id) {
+                tab["utility_deadline"] = deadline;
+            }
+        }
     }
     if lifecycle {
         let tab = snapshot

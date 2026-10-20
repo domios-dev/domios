@@ -10,8 +10,12 @@ use super::{graph, store, Entity, MemManager, Relation};
 impl MemManager {
     pub fn graph_create_entity(&self, e: &Entity) -> Result<(), String> {
         self.guard_commit()?;
-        let conn = self.conn.lock();
-        graph::insert_entity(&conn, e)
+        {
+            let conn = self.conn.lock();
+            graph::insert_entity(&conn, e)?;
+        }
+        self.enqueue_entity_embedding(&e.id);
+        Ok(())
     }
 
     pub fn graph_relate(&self, r: &Relation) -> Result<(), String> {
@@ -236,7 +240,28 @@ impl MemManager {
         patch: serde_json::Map<String, serde_json::Value>,
         actor: &str,
     ) -> Result<(), String> {
-        let conn = self.conn.lock();
-        augment_entity(&conn, entity_id, patch, actor)
+        {
+            let conn = self.conn.lock();
+            augment_entity(&conn, entity_id, patch, actor)?;
+        }
+        self.enqueue_entity_embedding(entity_id);
+        Ok(())
+    }
+    fn enqueue_entity_embedding(&self, id: &str) {
+        let text = {
+            let conn = self.conn.lock();
+            conn.query_row(
+                "SELECT entity_type, properties_json FROM entities WHERE id = ?1",
+                [id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .ok()
+            .map(|(kind, properties)| {
+                super::embeddings::embeddable_text_for_entity(id, &kind, &properties)
+            })
+        };
+        if let Some(text) = text {
+            self.embed_queue.enqueue(id, text);
+        }
     }
 }

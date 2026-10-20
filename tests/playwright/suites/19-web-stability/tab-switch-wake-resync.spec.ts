@@ -41,7 +41,7 @@ async function createWorkspace(api: ApiClient, name: string): Promise<{ id: stri
 }
 
 async function createTab(api: ApiClient, workspaceId: string, title: string): Promise<CreatedTab> {
-  const tabInfo = await api.post<{ tab_id: string; tab_id: string }>(`/workspaces/${workspaceId}/tabs`, { eager: true });
+  const tabInfo = await api.post<{ tab_id: string; }>(`/workspaces/${workspaceId}/tabs`, { eager: true });
   await api.post(`/workspaces/${workspaceId}/tabs/${tabInfo.tab_id}/rename`, { title });
   return { id: tabInfo.tab_id, tab_id: tabInfo.tab_id, workspace_id: workspaceId };
 }

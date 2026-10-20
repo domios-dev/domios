@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: scripts cache-policy.sh, check-cache-provenance.sh
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -115,7 +116,6 @@ function generatedState(kind) {
   };
   if (kind === "full-build") {
     state.bundled_cli = hashDir(path.join(repo, "src-tauri", "bundled-cli"));
-    state.bundled_embed = hashDir(path.join(repo, "src-tauri", "bundled-embed"));
   }
   return state;
 }

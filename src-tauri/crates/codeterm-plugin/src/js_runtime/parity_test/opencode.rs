@@ -124,6 +124,7 @@ fn restored_resume_command_preserves_exact_session_model_and_launch_args() {
             tool_less_instructions_path: None,
             session_id: SES_ID.into(),
             skip_permissions: false,
+            host_owned: Default::default(),
             agent_name: None,
             system_prompt: None,
             instance_id: None,
@@ -162,6 +163,7 @@ fn resume_with_context_restages_the_session_config() {
                 tool_less_instructions_path: None,
                 session_id: SES_ID.into(),
                 skip_permissions: false,
+                host_owned: Default::default(),
                 agent_name: None,
                 system_prompt: Some(prompt.into()),
                 instance_id: None,
@@ -559,7 +561,7 @@ fn sqlite_assistant_api_error_is_session_scoped_and_visible() {
     );
     assert_eq!(
         signals.api_error,
-        Some(codeterm_types::agent::provider_signals::ApiErrorKind::Other)
+        Some(codeterm_provider_signals::ApiErrorKind::Other)
     );
     let foreign = provider.read_structured_chat("/work/proj", "ses_foreign", None);
     assert!(foreign.messages.is_empty());

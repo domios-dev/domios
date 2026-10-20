@@ -1,4 +1,32 @@
 use super::*;
+
+#[test]
+fn direct_launch_applies_cwd_and_removes_environment_without_shell_integration() {
+    let launch = super::super::shell_profiles::ShellLaunch {
+        executable: "fixture".into(),
+        args: vec!["raw value; $x 😀".into()],
+        cwd: Some("/fixture/cwd".into()),
+    };
+    let mut command = CommandBuilder::new(&launch.executable);
+    command.args(&launch.args);
+    command.env("REMOVE_ME", "inherited");
+    command.env("KEEP_ME", "raw; $value 😀");
+    apply_launch_overrides(&mut command, launch.cwd.as_deref(), &["REMOVE_ME".into()]);
+    assert_eq!(
+        command.get_cwd().unwrap(),
+        &std::ffi::OsString::from("/fixture/cwd")
+    );
+    assert_eq!(
+        command.get_argv(),
+        &vec![
+            std::ffi::OsString::from("fixture"),
+            std::ffi::OsString::from("raw value; $x 😀")
+        ]
+    );
+    let env: HashMap<_, _> = command.iter_full_env_as_str().collect();
+    assert!(!env.contains_key("REMOVE_ME"));
+    assert_eq!(env["KEEP_ME"], "raw; $value 😀");
+}
 #[cfg(target_os = "windows")]
 use crate::pty::windows_test_support::{
     conpty_host_children_of_current_process, exclusive_conpty_test, legacy_conhost_children,
@@ -10,9 +38,12 @@ fn reported_size_tracks_the_applied_pty_geometry() {
     #[cfg(target_os = "windows")]
     let _guard = exclusive_conpty_test();
     let mut manager = PtyManager::new();
-    let (pty_id, _) = manager
-        .spawn(None, None, 80, 24, HashMap::new())
-        .expect("spawn default shell");
+    let (pty_id, _) = {
+        let gate = manager.spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+            .map(|built| manager.register_session(None, built))
+    }
+    .expect("spawn default shell");
 
     assert_eq!(manager.size(&pty_id), Some((80, 24)));
     manager.resize(&pty_id, 160, 48).expect("resize PTY");
@@ -29,9 +60,12 @@ fn backend_channel_claim_is_visible_and_idempotent() {
     #[cfg(target_os = "windows")]
     let _guard = exclusive_conpty_test();
     let mut manager = PtyManager::new();
-    let (pty_id, session) = manager
-        .spawn(None, None, 80, 24, HashMap::new())
-        .expect("spawn default shell");
+    let (pty_id, session) = {
+        let gate = manager.spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+            .map(|built| manager.register_session(None, built))
+    }
+    .expect("spawn default shell");
 
     assert!(
         !manager.has_backend_reader(&pty_id),
@@ -66,9 +100,12 @@ fn kill_terminates_child_and_removes_session() {
     #[cfg(target_os = "windows")]
     let _guard = exclusive_conpty_test();
     let mut manager = PtyManager::new();
-    let (pty_id, session) = manager
-        .spawn(None, None, 80, 24, HashMap::new())
-        .expect("spawn default shell");
+    let (pty_id, session) = {
+        let gate = manager.spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+            .map(|built| manager.register_session(None, built))
+    }
+    .expect("spawn default shell");
 
     let pid = session.child.lock().expect("child mutex").process_id();
     assert!(pid.is_some(), "spawned child should expose a pid");
@@ -274,26 +311,46 @@ fn conpty_shell_does_not_spawn_legacy_child_conhost() {
         })
         .expect("openpty");
     let mut reader = pair.master.try_clone_reader().expect("clone reader");
-    let child = pair
+    let mut child = pair
         .slave
         .spawn_command(CommandBuilder::new("cmd.exe"))
         .expect("spawn cmd.exe");
     drop(pair.slave);
 
     let (tx, rx) = mpsc::channel();
+    let (drained_tx, drained_rx) = mpsc::channel();
     std::thread::spawn(move || {
         let mut buf = vec![0u8; 4096];
         let n = reader.read(&mut buf).unwrap_or(0);
         buf.truncate(n);
         let _ = tx.send(buf);
+        // ClosePseudoConsole can block until the output pipe has been drained.
+        let _ = std::io::copy(&mut reader, &mut std::io::sink());
+        drop(reader);
+        let _ = drained_tx.send(());
     });
     let got = rx
         .recv_timeout(std::time::Duration::from_secs(8))
         .unwrap_or_default();
-    assert!(!got.is_empty(), "ConPTY child produced no output");
 
     let child_pid = child.process_id().expect("child pid");
-    let legacy = legacy_conhost_children(child_pid).expect("observe legacy conhost children");
+    let legacy = legacy_conhost_children(child_pid);
+    let (closed_tx, closed_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let result = child.kill_tree().and_then(|_| child.wait());
+        drop(child);
+        drop(pair.master);
+        let _ = closed_tx.send(result);
+    });
+    closed_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("ConPTY child exit and console close before cleanup deadline")
+        .expect("terminate and reap ConPTY child");
+    drained_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("ConPTY output drain finishes before cleanup deadline");
+    assert!(!got.is_empty(), "ConPTY child produced no output");
+    let legacy = legacy.expect("observe legacy conhost children");
     assert!(
         legacy.is_empty(),
         "ConPTY child {} spawned legacy conhost children {:?}; only the headless ConPTY host should exist",
@@ -308,9 +365,12 @@ fn kill_reaps_conpty_host_before_next_spawn() {
     let _guard = exclusive_conpty_test();
     let mut manager = PtyManager::new();
     let before = conpty_host_children_of_current_process().expect("observe ConPTY hosts before");
-    let (old_pty, old_session) = manager
-        .spawn(None, None, 80, 24, HashMap::new())
-        .expect("spawn old pty");
+    let (old_pty, old_session) = {
+        let gate = manager.spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+            .map(|built| manager.register_session(None, built))
+    }
+    .expect("spawn old pty");
     let old_child = old_session
         .child
         .lock()
@@ -343,9 +403,12 @@ fn kill_reaps_conpty_host_before_next_spawn() {
 
     let after_old =
         conpty_host_children_of_current_process().expect("observe ConPTY hosts after kill");
-    let (new_pty, new_session) = manager
-        .spawn(None, None, 80, 24, HashMap::new())
-        .expect("spawn new pty");
+    let (new_pty, new_session) = {
+        let gate = manager.spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+            .map(|built| manager.register_session(None, built))
+    }
+    .expect("spawn new pty");
     let new_hosts = new_conpty_hosts(&after_old).expect("observe new ConPTY host");
     assert_eq!(
         new_hosts.len(),
@@ -385,9 +448,12 @@ fn shutdown_reaps_every_owned_pty_and_conpty_host() {
     let mut child_pids = Vec::new();
     let mut first_session = None;
     for _ in 0..2 {
-        let (_, session) = manager
-            .spawn(None, None, 80, 24, HashMap::new())
-            .expect("spawn owned pty");
+        let (_, session) = {
+            let gate = manager.spawn_gate();
+            crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+                .map(|built| manager.register_session(None, built))
+        }
+        .expect("spawn owned pty");
         first_session.get_or_insert_with(|| session.clone());
         child_pids.push(
             session
@@ -411,7 +477,10 @@ fn shutdown_reaps_every_owned_pty_and_conpty_host() {
     let reapers = manager.begin_shutdown().expect("begin PTY shutdown");
     assert_eq!(reapers.len(), 2);
     assert!(manager.sessions.is_empty());
-    let spawn_error = match manager.spawn(None, None, 80, 24, HashMap::new()) {
+    let gate = manager.spawn_gate();
+    let spawn_result = crate::pty::manager::build_session(gate, None, None, 80, 24, HashMap::new())
+        .map(|built| manager.register_session(None, built));
+    let spawn_error = match spawn_result {
         Ok(_) => panic!("shutdown manager accepted a new PTY"),
         Err(error) => error,
     };
@@ -448,9 +517,12 @@ fn shell_exit_ends_the_pty_stream_with_its_exit_code() {
         ("ENV".to_string(), String::new()),
     ]);
     let mut manager = PtyManager::new();
-    let (pty_id, session) = manager
-        .spawn(None, None, 80, 24, env)
-        .expect("spawn default shell");
+    let (pty_id, session) = {
+        let gate = manager.spawn_gate();
+        crate::pty::manager::build_session(gate, None, None, 80, 24, env)
+            .map(|built| manager.register_session(None, built))
+    }
+    .expect("spawn default shell");
     let mut reader = session
         .reader
         .lock()
@@ -815,4 +887,28 @@ fn task_launch_env_survives_gui_and_normal_paths_without_ambient_authority() {
             }
         }
     }
+}
+
+#[test]
+fn shell_job_policy_requires_team_dev_and_excludes_agents() {
+    use crate::multiplexer::types::ShellPurpose;
+    for purpose in ShellPurpose::ALL {
+        for team_member in [false, true] {
+            for agent in [false, true] {
+                let expected = if team_member && !agent && purpose == ShellPurpose::Dev {
+                    WindowsJobPolicy::AllowExplicitServerBreakaway
+                } else {
+                    WindowsJobPolicy::Contained
+                };
+                assert_eq!(shell_job_policy(team_member, agent, purpose), expected);
+            }
+        }
+    }
+    let mut command = CommandBuilder::new("fixture");
+    assert_eq!(command.windows_job_policy(), WindowsJobPolicy::Contained);
+    command.set_windows_job_policy(WindowsJobPolicy::AllowExplicitServerBreakaway);
+    assert_eq!(
+        command.windows_job_policy(),
+        WindowsJobPolicy::AllowExplicitServerBreakaway
+    );
 }

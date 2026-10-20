@@ -1,5 +1,5 @@
-import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { AnchoredPopover } from "../../shared/AnchoredPopover";
 import type { Plan } from "../types";
 import { PLANNING_STATE_LABEL, planDraftState } from "../planView/boardModel";
 import {
@@ -145,28 +145,6 @@ function PreviousPlanList({
   );
 }
 
-const MENU_EDGE_PX = 8;
-const MENU_GAP_PX = 4;
-const MENU_MAX_HEIGHT_PX = 256;
-const MENU_MIN_WIDTH_PX = 224;
-
-/** Anchors the menu to its trigger in the window: above it when there is room, else below, never past an edge. */
-function menuLayerStyle(anchor: DOMRect): CSSProperties {
-  const left = Math.max(MENU_EDGE_PX, Math.min(anchor.left, window.innerWidth - MENU_EDGE_PX - MENU_MIN_WIDTH_PX));
-  const maxWidth = Math.max(0, window.innerWidth - left - MENU_EDGE_PX);
-  const roomAbove = anchor.top - MENU_GAP_PX - MENU_EDGE_PX;
-  const roomBelow = window.innerHeight - anchor.bottom - MENU_GAP_PX - MENU_EDGE_PX;
-  return roomAbove >= MENU_MAX_HEIGHT_PX || roomAbove >= roomBelow
-    ? {
-      left,
-      maxWidth,
-      bottom: window.innerHeight - anchor.top + MENU_GAP_PX,
-      maxHeight: Math.min(MENU_MAX_HEIGHT_PX, roomAbove),
-      ...({ "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties),
-    }
-    : { left, maxWidth, top: anchor.bottom + MENU_GAP_PX, maxHeight: Math.min(MENU_MAX_HEIGHT_PX, roomBelow) };
-}
-
 /** A quiet footer trigger whose menu of previous plans floats above the Board; choosing one opens its detail. */
 function PreviousPlansMenu({
   plans,
@@ -175,33 +153,19 @@ function PreviousPlansMenu({
   plans: readonly Plan[];
   onOpenPlan?: (planId: string) => void;
 }) {
-  const [anchor, setAnchor] = useState<DOMRect | null>(null);
-  const open = anchor != null;
+  const [open, setOpen] = useState(false);
   const menuId = useId();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
+  const dismiss = useCallback(() => setOpen(false), []);
   const itemsRef = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
     if (!open) return;
-    itemsRef.current[0]?.focus();
-    const owns = (target: EventTarget | null) =>
-      target instanceof Node && Boolean(menuRef.current?.contains(target) || triggerRef.current?.contains(target));
-    const dismiss = (event: Event) => {
-      if (!owns(event.target)) setAnchor(null);
-    };
-    document.addEventListener("mousedown", dismiss);
-    window.addEventListener("scroll", dismiss, true);
-    window.addEventListener("resize", dismiss);
-    return () => {
-      document.removeEventListener("mousedown", dismiss);
-      window.removeEventListener("scroll", dismiss, true);
-      window.removeEventListener("resize", dismiss);
-    };
+    if (open) itemsRef.current[0]?.focus();
   }, [open]);
 
   const close = () => {
-    setAnchor(null);
+    setOpen(false);
     triggerRef.current?.focus();
   };
 
@@ -217,7 +181,7 @@ function PreviousPlansMenu({
       return;
     }
     if (event.key === "Tab") {
-      setAnchor(null);
+      setOpen(false);
       return;
     }
     const items = itemsRef.current.filter((item): item is HTMLButtonElement => item != null);
@@ -245,20 +209,17 @@ function PreviousPlansMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        onClick={() => setAnchor((current) => (current ? null : triggerRef.current?.getBoundingClientRect() ?? null))}
+        onClick={() => setOpen((current) => !current)}
       >
         Previous plans <span className="mc-board-plan-count">{formatCount(plans.length)}</span>
       </button>
-      {anchor &&
-        createPortal(
+      <AnchoredPopover open={open} anchor={triggerRef} placement="top-start" onClose={dismiss}>
           <div
-            ref={menuRef}
             id={menuId}
             role="menu"
             aria-label="Previous plans"
             data-testid="mc-board-previous-plans-menu"
             className="mc-board-layer ct-menu mc-board-plan-menu"
-            style={menuLayerStyle(anchor)}
             onKeyDown={onMenuKeyDown}
           >
             {plans.map((previous, index) => (
@@ -280,9 +241,8 @@ function PreviousPlansMenu({
                 </span>
               </button>
             ))}
-          </div>,
-          document.body,
-        )}
+          </div>
+      </AnchoredPopover>
     </div>
   );
 }

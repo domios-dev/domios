@@ -15,14 +15,14 @@
 use std::path::Path;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use codeterm_lib::agent::attributed_screen::detect_picker;
-use codeterm_lib::agent::classify_input::{ClassifyInputBuilder, StatusBarRows};
-use codeterm_lib::agent::motion_decoder::{MotionDecoder, MotionFrame};
-use codeterm_lib::agent::offline_state_classifier::{
+use codeterm_service_core::agent::attributed_screen::detect_picker;
+use codeterm_service_core::agent::classify_input::{ClassifyInputBuilder, StatusBarRows};
+use codeterm_service_core::agent::motion_decoder::{MotionDecoder, MotionFrame};
+use codeterm_service_core::agent::offline_state_classifier::{
     classify_signals, extract_completion_summary, extract_status_line, StatusElapsedTracker,
     TabVerdict, TimelineState,
 };
-use codeterm_lib::agent::signal_extractor::{SignalExtractor, StreamSignals};
+use codeterm_service_core::agent::signal_extractor::{SignalExtractor, StreamSignals};
 use serde_json::{json, Value};
 
 const DEFAULT_SAMPLE_MS: u64 = 75; // ~13.3 fps

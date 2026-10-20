@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { createTransportClient, decodeTransportResponse, parseSseFrame, TransportError, InvalidJsonResponseError } from "./transportClient";
+import { writeTerminalOutputAndWait } from "../hooks/terminal/terminalOutputWrite";
+import { TerminalOutputReplay } from "./outputReplay";
+import {
+  createTransportClient,
+  decodeTransportResponse,
+  InvalidJsonResponseError,
+  MAX_SSE_FRAME_BYTES,
+  parseSseFrame,
+  TransportError,
+} from "./transportClient";
 
 const origin = "http://127.0.0.1:7686";
 function clientWith(response: Response) {
@@ -8,6 +17,20 @@ function clientWith(response: Response) {
 }
 
 describe("transportClient", () => {
+  it("uses one page client identity for JSON, local JSON, uploads and streams", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json({}));
+    const client = createTransportClient({ origin, token: "fixture-token", fetch });
+    await client.json("GET", "/api/tabs");
+    await client.localJson("GET", "/api/config");
+    await client.upload("/api/attachments/upload", new FormData());
+    await new Promise<void>((resolve) => {
+      client.subscribe("/api/events/stream", () => {}, { onEnd: () => resolve() });
+    });
+    const identities = fetch.mock.calls.map(([, init]) => new Headers(init?.headers).get("X-CodeTerm-Client-Id"));
+    expect(identities).toHaveLength(4);
+    expect(identities[0]).toBeTruthy();
+    expect(new Set(identities).size).toBe(1);
+  });
   it("requires an explicit HTTP origin and confines credentials to it", async () => {
     expect(() => createTransportClient({ origin: "tauri://localhost", token: () => "x" })).toThrow();
     const { client, fetch } = clientWith(Response.json({}));
@@ -78,7 +101,7 @@ describe("transportClient", () => {
     const { client, fetch } = clientWith(Response.json({ path: "/saved", size: 3 }));
     const form = new FormData();
     form.append("file", new Blob(["abc"]), "a.txt");
-    expect(await client.upload("/api/upload", form)).toEqual({ path: "/saved", size: 3 });
+    expect(await client.upload("/api/attachments/upload", form)).toEqual({ path: "/saved", size: 3 });
     expect(fetch.mock.calls[0][1]?.body).toBe(form);
     expect(new Headers(fetch.mock.calls[0][1]?.headers).has("Content-Type")).toBe(false);
   });
@@ -87,6 +110,17 @@ describe("transportClient", () => {
     const client = createTransportClient({ origin, token: () => null, fetch });
     await expect(client.json("GET", "/api/config")).rejects.toThrow("Daemon bearer token required");
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it("signals readiness for an accepted quiet stream before any event arrives", async () => {
+    let connected!: () => void;
+    const ready = new Promise<void>((resolve) => { connected = resolve; });
+    const { client } = clientWith(new Response(new ReadableStream<Uint8Array>()));
+    const handler = vi.fn();
+    const stop = client.subscribe("/api/events/stream", handler, { onReady: connected });
+    try {
+      await ready;
+      expect(handler).not.toHaveBeenCalled();
+    } finally { stop(); }
   });
   it("reads fragmented CRLF SSE and unsubscribe cancels the reader", async () => {
     let controller!: ReadableStreamDefaultController<Uint8Array>;
@@ -106,6 +140,87 @@ describe("transportClient", () => {
     unsubscribe();
     expect((fetch.mock.calls[0][1]?.signal as AbortSignal).aborted).toBe(true);
     expect(cancel).toHaveBeenCalledOnce();
+  });
+  it("bounds retained bytes and preserves order across 10,000 slow terminal writes", async () => {
+    const frameCount = 10_000;
+    const payloadSize = 64;
+    const encoder = new TextEncoder();
+    let produced = 0;
+    let retainedBytes = 0;
+    let maxRetainedBytes = 0;
+    let terminalBytes = 0;
+    let maxQueuedBytes = 0;
+    const written: number[] = [];
+    let releaseWrite!: () => void;
+    let nextFrame = deferred<number>();
+    let resolveEnd!: () => void;
+    const ended = new Promise<void>((resolve) => { resolveEnd = resolve; });
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (produced === frameCount) {
+          controller.close();
+          return;
+        }
+        const sequence = produced++;
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ sequence, payload: "x".repeat(payloadSize) })}\n\n`));
+      },
+    }, { highWaterMark: 0 });
+    const { client } = clientWith(new Response(stream));
+    const replay = new TerminalOutputReplay();
+    const terminalIdentity = {};
+    const terminal = {
+      write(data: string | Uint8Array, done?: () => void) {
+        const bytes = typeof data === "string" ? encoder.encode(data) : data;
+        terminalBytes += bytes.byteLength;
+        maxQueuedBytes = Math.max(maxQueuedBytes, retainedBytes + terminalBytes);
+        written.push(bytes[0] ?? 0);
+        releaseWrite = () => {
+          terminalBytes -= bytes.byteLength;
+          done?.();
+        };
+      },
+    };
+    const firstFrame = nextFrame.promise;
+    const stop = client.subscribe("/api/output/stream", (_name, data) => {
+      const payload = (data as { payload: string }).payload;
+      const sequence = (data as { sequence: number }).sequence;
+      const payloadByte = sequence % 255;
+      const bytes = new Uint8Array(payload.length).fill(payloadByte < 27 ? payloadByte : payloadByte + 1);
+      retainedBytes += bytes.byteLength;
+      maxRetainedBytes = Math.max(maxRetainedBytes, retainedBytes);
+      const current = nextFrame;
+      nextFrame = deferred<number>();
+      current.resolve(sequence);
+      const completion = replay.deliver(terminalIdentity, "tab", {
+        boot: "boot", ptyId: "pty", offset: (sequence + 1) * bytes.byteLength, bytes,
+      }, (chunk) => writeTerminalOutputAndWait(terminal, chunk));
+      return Promise.resolve(completion).finally(() => { retainedBytes -= bytes.byteLength; });
+    }, { raw: true, onEnd: () => resolveEnd() });
+    try {
+      expect(await firstFrame).toBe(0);
+      expect(produced).toBe(1);
+      expect(retainedBytes).toBe(payloadSize);
+      expect(terminalBytes).toBe(payloadSize);
+      for (let sequence = 0; sequence < frameCount; sequence++) {
+        releaseWrite();
+        if (sequence + 1 < frameCount) {
+          expect(await nextFrame.promise).toBe(sequence + 1);
+          expect(produced).toBe(sequence + 2);
+          expect(retainedBytes).toBe(payloadSize);
+          expect(terminalBytes).toBe(payloadSize);
+        }
+      }
+      await ended;
+      expect(produced).toBe(frameCount);
+      expect(maxRetainedBytes).toBe(payloadSize);
+      expect(maxQueuedBytes).toBe(payloadSize * 2);
+      expect(written).toEqual(Array.from({ length: frameCount }, (_, index) => {
+        const payloadByte = index % 255;
+        return payloadByte < 27 ? payloadByte : payloadByte + 1;
+      }));
+      expect(retainedBytes).toBe(0);
+      expect(terminalBytes).toBe(0);
+    } finally { stop(); }
   });
   it("identifies all streams from a page with the same client header", async () => {
     const requests: string[] = [];
@@ -129,6 +244,12 @@ describe("transportClient", () => {
     expect(parseSseFrame("event: output\nid: b:2\ndata: first\ndata: second")).toEqual({ event: "output", id: "b:2", data: "first\nsecond" });
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 
 describe("SSE lifecycle", () => {
@@ -196,4 +317,94 @@ describe("SSE raw envelope and activity options", () => {
     expect(new Headers(fetch.mock.calls[0][1]?.headers).get("Authorization")).toBe("Bearer secret");
     stop();
   });
+});
+
+
+describe("SSE capacity", () => {
+  // Output: 128 KiB * 4/3 + header; K2 page: 1 MiB. Q3 evicts replay events above 2 MiB.
+  it("allows twice the largest bounded producer and refuses one byte beyond it", async () => {
+    expect(MAX_SSE_FRAME_BYTES).toBe(2 * 1024 * 1024);
+    const frame = 'data: "' + "x".repeat(MAX_SSE_FRAME_BYTES - 8) + '"';
+    expect(new TextEncoder().encode(frame)).toHaveLength(MAX_SSE_FRAME_BYTES);
+    expect(parseSseFrame(frame)?.data.length).toBe(MAX_SSE_FRAME_BYTES - 6);
+    for (const ending of ["\n\n", "\r\n\r\n", ""]) {
+      const handler = vi.fn();
+      const onEnd = vi.fn();
+      const response = new Response(new ReadableStream<Uint8Array>({ start(controller) {
+        controller.enqueue(new TextEncoder().encode(frame + "x" + ending));
+        controller.close();
+      } }));
+      const { client } = clientWith(response);
+      const end = await new Promise<import("./transportClient").StreamEnd>((resolve) => {
+        client.subscribe("/api/events/stream", handler, { onEnd(value) { onEnd(value); resolve(value); } });
+      });
+      expect(end).toEqual({ reason: "capacity", bytes: MAX_SSE_FRAME_BYTES + 1 });
+      expect(onEnd).toHaveBeenCalledOnce();
+      expect(handler).not.toHaveBeenCalled();
+    }
+  });
+
+  it("counts UTF-8 wire bytes across chunks and preserves an at-limit frame", async () => {
+    const prefix = 'data: "';
+    const frame = prefix + "é".repeat((MAX_SSE_FRAME_BYTES - 8) / 2) + '"';
+    const wire = new TextEncoder().encode(frame + "\r\n\r\n");
+    const handler = vi.fn();
+    const { client } = clientWith(new Response(new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(wire.slice(0, 8));
+      controller.enqueue(wire.slice(8, -1));
+      controller.enqueue(wire.slice(-1));
+      controller.close();
+    } })));
+    const end = await new Promise<unknown>((resolve) => { client.subscribe("/api/events/stream", handler, { onEnd: resolve }); });
+    expect(end).toEqual({ reason: "eof" });
+    expect(handler).toHaveBeenCalledExactlyOnceWith("message", "é".repeat((MAX_SSE_FRAME_BYTES - 8) / 2));
+  });
+
+  it("checks depth and structural tokens before JSON.parse, ignoring escaped string contents", async () => {
+    const nested = 'data: ' + "[".repeat(33) + "0" + "]".repeat(33);
+    const dense = 'data: [' + "0,".repeat(256 * 1024) + '0]';
+    for (const frame of [nested, dense]) {
+      const parse = vi.spyOn(JSON, "parse");
+      const handler = vi.fn();
+      const { client } = clientWith(new Response(frame + "\n\n"));
+      const end = await new Promise<unknown>((resolve) => { client.subscribe("/api/events/stream", handler, { onEnd: resolve }); });
+      expect(end).toEqual({ reason: "capacity", bytes: new TextEncoder().encode(frame).length });
+      expect(parse).not.toHaveBeenCalled();
+      expect(handler).not.toHaveBeenCalled();
+      parse.mockRestore();
+    }
+    const payload = { value: '[{,\\"' .repeat(40) };
+    expect(parseSseFrame(`data: ${JSON.stringify(payload)}`)?.data).toBe(JSON.stringify(payload));
+    expect(parseSseFrame('data: ' + '['.repeat(32) + '0' + ']'.repeat(32))).not.toBeNull();
+  });
+
+  it("ends capacity once and lets the next generation resync after replay eviction", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response("data: " + "x".repeat(MAX_SSE_FRAME_BYTES)))
+      .mockResolvedValueOnce(new Response('event: overflow\ndata: {"reason":"evicted"}\n\ndata: {"event_type":"ready","data":7}\n\n'));
+    const client = createTransportClient({ origin, token: "token", fetch });
+    const handler = vi.fn();
+    const ends: unknown[] = [];
+    for (let generation = 0; generation < 2; generation++) {
+      await new Promise<void>((resolve) => {
+        client.subscribe("/api/events/stream?since=boot:1", handler, { onEnd(end) { ends.push(end); resolve(); } });
+      });
+    }
+    expect(ends).toEqual([{ reason: "capacity", bytes: MAX_SSE_FRAME_BYTES + 1 }, { reason: "eof" }]);
+    expect(handler.mock.calls).toEqual([["overflow", { reason: "evicted" }], ["ready", 7]]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+
+it.each(["\n\n", "\r\n\r\n", "\n\r\n", "\r\n\n"])("preserves fragmented SSE delimiters %j", async (separator) => {
+  const wire = new TextEncoder().encode('data: {"value":"é"}' + separator + 'data: 7' + separator);
+  const { client } = clientWith(new Response(new ReadableStream<Uint8Array>({ start(controller) {
+    for (const byte of wire) controller.enqueue(Uint8Array.of(byte));
+    controller.close();
+  } })));
+  const handler = vi.fn();
+  const end = await new Promise<unknown>((resolve) => { client.subscribe("/api/events/stream", handler, { onEnd: resolve }); });
+  expect(end).toEqual({ reason: "eof" });
+  expect(handler.mock.calls).toEqual([["message", { value: "é" }], ["message", 7]]);
 });

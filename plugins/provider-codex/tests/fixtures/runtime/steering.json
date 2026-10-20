@@ -318,7 +318,27 @@
         "kind": "sendEvidence",
         "threadId": "thread-fixture",
         "sendId": "steer",
-        "turnId": "turn-a"
+        "turnId": "turn-a",
+        "itemId": "steer-user"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "thread-fixture",
+        "item": {
+          "id": "turn-a:abandoned",
+          "seq": 2,
+          "type": "system",
+          "content": "Turn interrupted by a new turn",
+          "systemSubtype": "turn_abandoned",
+          "toolFlowId": "turn-a"
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "thread-fixture",
+        "turnId": "turn-a",
+        "state": "idle",
+        "detail": "interrupted"
       },
       {
         "kind": "turnState",
@@ -331,7 +351,7 @@
         "threadId": "thread-fixture",
         "item": {
           "id": "fallback-user",
-          "seq": 2,
+          "seq": 3,
           "type": "user",
           "content": "Next request",
           "toolFlowId": "turn-b"
@@ -341,7 +361,8 @@
         "kind": "sendEvidence",
         "threadId": "thread-fixture",
         "sendId": "fallback",
-        "turnId": "turn-b"
+        "turnId": "turn-b",
+        "itemId": "fallback-user"
       },
       {
         "kind": "turnState",

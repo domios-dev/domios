@@ -56,6 +56,8 @@ src/components/Canvas/_realPlan.json
 .codeterm/plan-index.sqlite
 /.codeterm/plans/
 .codeterm-rem-tmp/
+.codeterm-tmp/
+.codeterm-pnpm-store/
 src-tauri/bundled-cli
 src-tauri/bundled-embed
 
@@ -73,3 +75,7 @@ design/global-analytics.html
 .pty.txt
 essences/map-history/
 .aider*
+
+# Build outputs that release and install packaging write beside the source.
+ci-rust-warnings/
+release-artifacts/

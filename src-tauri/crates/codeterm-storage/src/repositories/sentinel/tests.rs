@@ -5,10 +5,10 @@ use super::*;
 use crate::assets::{self, Layout};
 use crate::schema::open_existing;
 use crate::{Storage, StorageConfig};
-use codeterm_types::blueprint_pipeline::{
+use codeterm_blueprint_types::blueprint_pipeline::{
     BlueprintOwner, BlueprintResult, BlueprintSpec, IoType, ResultTarget, Step, StepKind, Trigger,
 };
-use codeterm_types::sentinel_input::{DataRef, InputSpec, MediaKind};
+use codeterm_blueprint_types::sentinel_input::{DataRef, InputSpec, MediaKind};
 use rusqlite::{params, Connection, OpenFlags};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -454,7 +454,7 @@ fn blueprint_stage_source_storage_codec_round_trips_all_variants() {
                 kind: ObserveKind::Tab,
                 reference: "tab".into(),
             },
-            config: codeterm_types::blueprint_terminal::Config {
+            config: codeterm_blueprint_types::blueprint_terminal::Config {
                 pattern: Some("ready".into()),
                 idle_ms: None,
             },

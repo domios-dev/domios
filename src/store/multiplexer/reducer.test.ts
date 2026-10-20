@@ -1,7 +1,9 @@
+import { tabActivity } from "../../lib/tabActivity";
 // Run: npx tsx src/store/multiplexer/reducer.test.ts
 // SET_STATE monotonic generation guard (T3 Fix B): a snapshot whose generation
 
 import { reducer } from "./reducer";
+import { snapWithProviderTab, snapWithTabs, tabIds } from "./reducer.test.fixtures";
 import type { ExtendedState } from "./tree";
 import type { MultiplexerState, Notification, Workspace, Tab, Team } from "../../lib/types";
 import { TitleLevel } from "../../lib/types";
@@ -60,6 +62,109 @@ function snapWithTeams(generation: number, teams: Team[]): MultiplexerState {
     teams,
   };
 }
+
+test("AgentReady event clears launching with no snapshot", () => {
+  const state = base();
+  state.tabs.ready = { ...tab("ready"), agent_type: "fixture", agent_booting: true, frozen: true, slept_at_ms: 1000,
+    pty_id: "pty-ready", session_binding_nonce: "binding-ready", boot_stage: "agent_launching",
+    lifecycle_epoch: 3, lifecycle_operation_id: "launch-3",
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "" } };
+  const other = { ...tab("other"), frozen: true, boot_stage: "pty_starting" as const };
+  state.tabs.other = other;
+  const next = reducer(state, {
+    type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", agent_booting: false, session_bound: true,
+    launchGeneration: { epoch: 3, operation_id: "launch-3", pty_id: "pty-ready", binding_nonce: "binding-ready" },
+  });
+  assert(next.tabs.ready.agent_booting === false, "event clears booting");
+  assert(next.tabs.ready.session_bound === true, "event binds session");
+  assert(next.tabs.ready.frozen === false, "ready event releases the target tab from frozen state");
+  assert(next.tabs.ready.slept_at_ms === null, "ready event clears the sleep timestamp");
+  assert(next.tabs.ready.lifecycle_epoch === 3 && next.tabs.ready.lifecycle_operation_id === "launch-3", "ready event records launch identity");
+  assert(next.tabs.other === other && next.tabs.other.frozen === true, "event leaves other tabs untouched");
+  assert(!tabActivity(next.tabs.ready).launching, "event releases launch");
+});
+
+test("same-attempt lazy composer event releases Starting until the binding event", () => {
+  const state = base();
+  state.tabs.lazy = {
+    ...tab("lazy"),
+    agent_type: "fixture",
+    pty_id: "own-pty",
+    session_binding_nonce: "own-nonce",
+    lifecycle_epoch: 4,
+    lifecycle_operation_id: "lazy-attempt",
+    boot_stage: "launch_written",
+  };
+  const provisional = {
+    pty_id: "own-pty",
+    binding_nonce: "own-nonce",
+    reason: "composer-ready",
+    awaiting_binding_ack: true,
+    first_turn_input_ready: true,
+  };
+  const composing = reducer(state, {
+    type: "UPDATE_BOOT_STAGE",
+    tabId: "lazy",
+    stage: "launch_binding_unconfirmed",
+    provisional_launch: provisional,
+    launchGeneration: { epoch: 4, operation_id: "lazy-attempt", pty_id: "own-pty", binding_nonce: "own-nonce" },
+  });
+  assert(composing.tabs.lazy.provisional_launch === provisional, "event records own-launch evidence");
+  assert(!tabActivity(composing.tabs.lazy).launching, "live composer ends Starting before session binding");
+  const ready = reducer(composing, {
+    type: "UPDATE_BOOT_STAGE",
+    tabId: "lazy",
+    stage: "agent_ready",
+    session_bound: true,
+    provisional_launch: null,
+    launchGeneration: { epoch: 4, operation_id: "lazy-attempt", pty_id: "own-pty", binding_nonce: "own-nonce" },
+  });
+  assert(ready.tabs.lazy.provisional_launch === null, "AgentReady retires provisional composer evidence");
+  assert(!tabActivity(ready.tabs.lazy).launching, "bound session remains ready");
+});
+
+test("a restored lifecycle can replace stale PTY and binding identity for the same session", () => {
+  const state = base();
+  state.tabs.ready = { ...tab("ready"), agent_type: "fixture", agent_session_id: "same-session", frozen: true,
+    pty_id: "pty-before-restore", session_binding_nonce: "binding-before-restore", lifecycle_epoch: 7,
+    lifecycle_operation_id: "prior-launch", boot_stage: "pty_starting" };
+  const next = reducer(state, {
+    type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", agent_booting: false, session_bound: true,
+    launchGeneration: { epoch: 8, operation_id: "restored-launch", pty_id: "pty-after-restore", binding_nonce: "binding-after-restore" },
+  });
+  assert(next.tabs.ready.frozen === false, "new restored lifecycle releases the same tab");
+  assert(next.tabs.ready.agent_session_id === "same-session", "restore retains its bound session");
+  assert(next.tabs.ready.pty_id === "pty-after-restore", "restore installs its PTY identity");
+  assert(next.tabs.ready.session_binding_nonce === "binding-after-restore", "restore installs its session binding");
+  assert(next.tabs.ready.lifecycle_epoch === 8 && next.tabs.ready.lifecycle_operation_id === "restored-launch", "restore records the current lifecycle");
+});
+
+test("boot-stage events from an older lifecycle cannot release the current tab", () => {
+  const state = base();
+  state.tabs.ready = { ...tab("ready"), agent_type: "fixture", frozen: true, pty_id: "pty-current",
+    session_binding_nonce: "binding-current", lifecycle_epoch: 3, lifecycle_operation_id: "current-launch", boot_stage: "agent_launching" };
+  const older = reducer(state, {
+    type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", session_bound: true,
+    launchGeneration: { epoch: 2, operation_id: "old-launch", pty_id: "pty-old", binding_nonce: "binding-old" },
+  });
+  const sameEpochMismatch = reducer(state, {
+    type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_ready", session_bound: true,
+    launchGeneration: { epoch: 3, operation_id: "foreign-launch", pty_id: "pty-old", binding_nonce: "binding-old" },
+  });
+  assert(older === state, "stale lifecycle is ignored");
+  assert(sameEpochMismatch === state, "mismatched identity within the current lifecycle is ignored");
+  assert(state.tabs.ready.frozen === true, "stale events do not wake the current tab");
+
+  const identityless = reducer(state, {
+    type: "UPDATE_BOOT_STAGE", tabId: "ready", stage: "agent_launching",
+    launchGeneration: { epoch: null, operation_id: null, pty_id: null, binding_nonce: null },
+  });
+  assert(identityless.tabs.ready.pty_id === "pty-current", "identity-less events preserve the current PTY");
+  assert(identityless.tabs.ready.session_binding_nonce === "binding-current", "identity-less events preserve the current binding");
+  assert(identityless.tabs.ready.lifecycle_epoch === 3 && identityless.tabs.ready.lifecycle_operation_id === "current-launch",
+    "identity-less events preserve the current lifecycle");
+  assert(identityless.tabs.ready.frozen === true, "non-ready events do not clear frozen state");
+});
 
 test("SET_STATE copies the exact incoming teams array", () => {
   const teams: Team[] = [{
@@ -874,33 +979,6 @@ test("CLOSE_TAB removes a manager-root subtree", () => {
   assert(Object.keys(after.tabStatuses).length === 0, "manager subtree statuses removed");
 });
 
-function snapWithTabs(
-  generation: number,
-  pairs: Array<[string, string]>,
-): MultiplexerState {
-  const tabs: Record<string, Tab> = {};
-  for (const [, tabId] of pairs) tabs[tabId] = { id: tabId, title: tabId } as unknown as Tab;
-  return {
-    workspaces: [
-      {
-        id: "w1",
-        name: "W",
-        tabs: pairs.map(([, tabId]) => tabId),
-        active_tab_id: pairs[0]?.[1] ?? null,
-        cwd: null,
-      } as unknown as Workspace,
-    ],
-    tabs,
-    active_workspace_id: "w1",
-    focused_tab_id: null,
-    generation,
-  };
-}
-
-function tabIds(state: ExtendedState): string {
-  return state.workspaces[0]?.tabs.join(",") ?? "";
-}
-
 test("SET_STATE masks a tombstoned Tab from an accepted snapshot", () => {
   const start = { ...base(), generation: 5, pendingCloses: ["tab-B"] };
   const next = reducer(start, {
@@ -1021,30 +1099,6 @@ test("SET_STATE preserves remote tab, selection, and focus across an authoritati
   assert(next.activeTabIds.w1 === remote.id, "remote selection is not reverted by the local snapshot");
   assert(next.focused_tab_id === remote.id, "remote focus survives the local snapshot");
 });
-
-function snapWithProviderTab(
-  generation: number,
-  agentType: string | null,
-  model: string | null,
-): MultiplexerState {
-  return {
-    workspaces: [
-      { id: "w1", name: "W", tabs: ["ga"], active_tab_id: "ga", cwd: null } as unknown as Workspace,
-    ],
-    tabs: {
-      ga: {
-        id: "ga",
-        pty_id: "pty-1",
-        title: "Main",
-        agent_type: agentType,
-        agent_session_model: model,
-      } as unknown as Tab,
-    },
-    active_workspace_id: "w1",
-    focused_tab_id: "ga",
-    generation,
-  };
-}
 
 test("SET_STATE adopts a switched backend agent_type (provider switch codex→claude)", () => {
   const asCodex = reducer(base(), {

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: CI release-macos.yml, release-manifest-validate.yml; scripts tests/updater-manifest.test.mjs
 // Merge per-platform `latest.json` fragments emitted by each release workflow
 // into a single channel manifest. Each fragment looks like:
 //   { "version": "1.0.2", "notes": "...", "pub_date": "...",

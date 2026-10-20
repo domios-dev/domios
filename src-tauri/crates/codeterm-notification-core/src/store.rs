@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-use codeterm_types::notification::{AnswerSlot, NotificationAction};
+use crate::contract::{AnswerSlot, NotificationAction};
 use codeterm_types::pty::PromptIdentity;
 
 use super::answer::{self, AnswerAdmission};

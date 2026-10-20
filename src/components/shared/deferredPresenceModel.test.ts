@@ -1,0 +1,14 @@
+import assert from "node:assert/strict";
+import { deferredPresence, type DeferredPresenceState } from "./deferredPresenceModel";
+const waiting: DeferredPresenceState = { phase: "waiting", requested: true };
+assert.equal(deferredPresence(waiting, { type: "request", present: false }).phase, "hidden");
+const entering = deferredPresence(waiting, { type: "entry-start" });
+const readyDuringEntry = deferredPresence(entering, { type: "request", present: false });
+assert.equal(readyDuringEntry.phase, "entering");
+const exiting = deferredPresence(readyDuringEntry, { type: "entry-end" });
+assert.equal(exiting.phase, "exiting");
+assert.equal(deferredPresence(exiting, { type: "exit-end" }).phase, "hidden");
+const visible = deferredPresence(entering, { type: "entry-end" });
+assert.equal(visible.phase, "visible");
+assert.equal(deferredPresence(visible, { type: "request", present: false }).phase, "exiting");
+assert.equal(deferredPresence(waiting, { type: "exit-end" }).phase, "waiting");

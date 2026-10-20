@@ -6,8 +6,8 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+pub use crate::contract::UsageSnapshotRow;
 use crate::UsageSample;
-pub use codeterm_types::usage::UsageSnapshotRow;
 
 use super::suspicious::{
     bounded_raw_excerpt, rejected_debug_json, suspicious_codex_reason, AcceptedUsageSnapshot,
@@ -352,9 +352,9 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
         raw_excerpt: r.get(15)?,
         debug_json: r.get(16)?,
         billing_mode: match r.get::<_, String>(17)?.as_str() {
-            "subscription" => codeterm_types::usage::BillingMode::Subscription,
-            "api" => codeterm_types::usage::BillingMode::Api,
-            _ => codeterm_types::usage::BillingMode::Unknown,
+            "subscription" => crate::contract::BillingMode::Subscription,
+            "api" => crate::contract::BillingMode::Api,
+            _ => crate::contract::BillingMode::Unknown,
         },
         limits_reported: r.get(18)?,
     })
@@ -929,13 +929,10 @@ mod tests {
     fn subscription_billing_without_limits_roundtrips() {
         let store = UsageStore::open_in_memory().unwrap();
         let mut snapshot = UsageSample::empty("fixture", "{}", 1000);
-        snapshot.billing_mode = codeterm_types::usage::BillingMode::Subscription;
+        snapshot.billing_mode = crate::contract::BillingMode::Subscription;
         store.insert_snapshot(&snapshot).unwrap();
         let row = store.get_latest("fixture", None).unwrap().unwrap();
-        assert_eq!(
-            row.billing_mode,
-            codeterm_types::usage::BillingMode::Subscription
-        );
+        assert_eq!(row.billing_mode, crate::contract::BillingMode::Subscription);
         assert!(!row.limits_reported);
         assert_eq!(row.spend_cents, None);
         snapshot.limits_reported = true;

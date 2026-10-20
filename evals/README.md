@@ -10,10 +10,11 @@ portable across mac, linux, and Windows-bash.
 | Folder | What it tests | Runner |
 |--------|---------------|--------|
 | `cli-agent/` | real-daemon LLM benchmark: drives claude/codex/opencode in the dev console through every CLI command; model-judged (see its `SKILL.md`). Replaces the old headless `-p` general-agent / mem-protocol prompt evals. | `bash cli-agent/run-suite.sh` + model judge |
-| `mem-recall/` | mem search engine quality (Recall@K / MRR / latency) | `cargo run --bin mem-bench` |
+| `mem-recall/` | mem search engine quality (Recall@K / MRR / latency) | `cargo run --features dev-tools --bin mem-bench` |
 | `dreaming/` | REM-phase prompt — Stage A.1 hub decomposition (RED ZONE rule), Stage A.2 island bridging (5 cases) | `prompt-evaluator` skill |
 | `browser-discovery/` | a fresh agent with a plain web task picks the built-in browser plugin, not a provider browser extension | `bash browser-discovery/run.sh [provider[:model]...]` |
 | `session-restore/` | kill+restart preserves workspaces / tabs / agent_type / titles | `bash session-restore/run.sh` |
+| `core-journeys/` | release blocker: per-provider spawn/send/reply/stop, Team start from the dialog with agent tabs selected, chat_backend dispatch/ACK/report/review, DEV restart restore, upgrade | `bash core-journeys/run.sh all` |
 
 ### mem-recall baseline protocol
 

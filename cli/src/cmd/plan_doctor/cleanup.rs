@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use super::{plan_id, Finding};
 
-#[path = "../../../../src-tauri/src/plan/cleanup_debt.rs"]
+#[path = "../../../../src-tauri/crates/codeterm-service-core/src/plan/cleanup_debt.rs"]
 mod cleanup_debt;
 
 pub(super) fn cleanup_debt_findings(path: &Path, plan: &Value, task: &Value) -> Vec<Finding> {

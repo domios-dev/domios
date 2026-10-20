@@ -32,7 +32,6 @@ fn item(title: &str, importance: f64) -> NewMemItem {
     }
 }
 
-/// Raw insert: `graph::insert_entity` also embeds, which would spawn the embedder.
 fn entity(conn: &Connection, id: &str) {
     conn.execute(
         "INSERT INTO entities (id, entity_type, scope, properties_json, created_at, updated_at)

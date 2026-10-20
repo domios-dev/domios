@@ -1,26 +1,25 @@
 # Domios Memory Protocol
 
-`codeterm mem` is your persistent vector and keyword memory, and it is how facts outlive a session or a provider:
+`codeterm mem` is persistent vector + keyword storage; every query fuses FTS5 and embeddings.
 
-1. Write memory in English (titles, bodies, summaries, queries), because the embedder is English-dominant and cross-lingual recall fails. Reply to the user in their language.
-2. Before answering about a person, project, or past event, run `codeterm mem search` instead of trusting a vague recollection. When unsure of a name, date, decision, or config, say you will check, then search.
-3. For identity questions (who am I, who is the user, what is this machine), `codeterm mem wake-up` returns the L0 identity and L1 critical facts.
-4. Use ids a search returned; `codeterm mem get` on a guessed id finds nothing useful.
-5. When the user says remember (in any language), save it now with `codeterm mem save`, in English. A background worker handles area, entities, graph links, and dedup.
-6. When a fact changes, save the new one; history keeps the old. Archive outdated facts that may still be useful; use `codeterm mem delete` only for an explicitly permanent removal.
-7. Leave dates out of bodies: `created_at` and `updated_at` are tracked, and duplicates pollute vector search.
-8. Before calling a skill missing, run `codeterm mem search "<capability> skill"` (and `codeterm mem skill list` if needed), since the provider's injected skill list is only a subset; read the returned source `SKILL.md` before acting.
+1. Write titles, bodies, summaries and queries in English; translate before saving and reply to the user in their language.
+2. Before answering about a person, project or past event, search `mem search` instead of relying on vague recollection. If unsure of a name, date, decision or config, say you will check, then search.
+3. For identity questions (you, the user, this machine), run `codeterm mem wake-up` for the L0 identity and L1 critical facts.
+4. Use only IDs returned by search; never guess an ID for `codeterm mem get`.
+5. Save durable facts only. Keep session/task instructions (current model or worker choice, temporary priorities, “this time,” “for this release”) in the conversation or plan. If durability is unclear, do not save; ask only when the user says “remember.” Even then, save a session-scoped instruction only after the user says it is permanent. When the user says “remember” for a durable fact, in any language, save it now in English with `codeterm mem save`; a background worker handles area, entities, graph links and dedup.
+6. When facts change, save the new fact; history keeps the old. Archive outdated useful facts; use `mem delete` only for explicitly permanent removal.
+7. Leave dates out of bodies (`created_at`/`updated_at` are tracked); duplicates pollute vector search.
+8. Before calling a skill missing, run `codeterm mem search "<capability> skill"` (`codeterm mem skill list` if needed); read the returned `SKILL.md` before acting.
 
 ## Where memory lives
 
-- Durable memory lives only in mem. Provider auto-memory and side stores such as `~/.claude/projects/*/memory/` vanish on a provider switch.
-- Domios regenerates the `CLAUDE.md` / `AGENTS.md` / `AGENT.md` copies it writes into a project root on every start, so edits there are lost. A repository's own tracked `AGENTS.md` is an ordinary source file.
-- Skills are registered with `codeterm mem skill new <slug>` (folder workflow) or `codeterm mem save --kind skill ...` (single body), not written into `~/.claude/skills/` or `~/.agents/skills/`.
-- Specific saves are searchable ("Fixed JWT refresh 401 by adding kid header from JWKS endpoint, Auth0 requires it"); "did some work" is noise.
-- Past conversations are in `codeterm sessions search`; durable facts are in `codeterm mem search`.
+- Durable facts live only in `mem`; provider auto-memory and side stores such as `~/.claude/projects/*/memory/` vanish when switching providers.
+- Domios regenerates the `CLAUDE.md`/`AGENTS.md`/`AGENT.md` copies it writes into a project root on every start, so edits are lost. A tracked repo `AGENTS.md` is ordinary source.
+- Register skills with `codeterm mem skill new <slug>` (folder) or `codeterm mem save --kind skill ...` (single body), never by writing to `~/.claude/skills` or `~/.agents/skills`.
+- Specific saves are searchable; “did some work” is noise. Past conversations are in `codeterm sessions search`; durable facts are in `codeterm mem search`.
 
 ## Where to find more
 
-The provider skill named `codeterm` from the synced skills directory is the full command reference (kinds, filters, graph queries, search-strategy fallbacks, sessions API, skill-folder workflow, keepawake, dreaming). The short mem seed item named "codeterm skill" is only a stub.
+- Provider skill `codeterm` has the full command catalog for kinds, filters, graph queries, search fallbacks, pin/learn, calibration, keepawake, dreaming, sessions and skill folders. The short “codeterm skill” mem item is only a stub.
 
-<!-- revision: 14 -->
+<!-- revision: 16 -->

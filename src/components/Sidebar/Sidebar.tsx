@@ -1,5 +1,6 @@
+import { useTeamClose } from "./useTeamClose";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { nativeFolderDialog as open } from "../../lib/nativeBridge";
 import { IS_WEB } from "../../lib/webApi";
@@ -7,14 +8,15 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { isPhoneViewport } from "../../hooks/useSidebarViewport";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { shareRecord } from "../../lib/sameJson";
 import { selectSidebarState, sidebarStateEqual } from "./sidebarState";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig, CronJob, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
 import { ExtensionsIcon } from "../Icons";
+import { MemoryGraphIcon, MeshIcon, SidebarNavButton } from "./SidebarNavButton";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
-import { WorkspaceItem } from "./WorkspaceItem";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RecentlyClosed } from "./RecentlyClosed";
 import {
@@ -28,17 +30,17 @@ import type { MeshPresence } from "./meshPresenceHeader";
 import { flattenSidebarTabs, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
 import { aggregateTabStatuses } from "./tabStatuses";
 import { usePlanIndexOptional, useSidebarPlansOptional } from "../Canvas/PlansProvider";
-import { selectActiveWork } from "../Canvas/planView/activeWork";
+import { renamePlan } from "../Canvas/plansApi";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
-import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
-import { GeneralWorkspaceTabs } from "./GeneralWorkspaceTabs";
+import { SidebarWorkspaceDetail, type SidebarWorkspaceDetailActions, type SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
+import { SidebarGeneralSection } from "./SidebarGeneralSection";
+import { SidebarSkeleton } from "./SidebarSkeleton";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
 import { SidebarCompactRail, type CompactRailGroup } from "./SidebarCompactRail";
-import { SpinalCordButton } from "./SpinalCord";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
@@ -54,33 +56,14 @@ import { tabAttentionByTab } from "./tabAttention";
 import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
 import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
 import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
+import {
+  loadWorkspacesSectionExpanded,
+  persistWorkspacesSectionExpanded,
+  toggleWorkspacesSectionExpanded,
+  workspaceSectionBodyVisible,
+} from "./workspacesSectionModel";
 
-
-export const SIDEBAR_WORKSPACES_SECTION_EXPANDED_KEY = "codeterm.sidebar.workspaces-section-expanded";
-
-export function loadWorkspacesSectionExpanded(): boolean {
-  try {
-    return window.localStorage.getItem(SIDEBAR_WORKSPACES_SECTION_EXPANDED_KEY) !== "0";
-  } catch {
-    return true;
-  }
-}
-
-export function persistWorkspacesSectionExpanded(expanded: boolean) {
-  try {
-    window.localStorage.setItem(SIDEBAR_WORKSPACES_SECTION_EXPANDED_KEY, expanded ? "1" : "0");
-  } catch {}
-}
-
-export function workspaceSectionBodyVisible(isCompact: boolean, expanded: boolean): boolean {
-  return isCompact || expanded;
-}
-
-export function toggleWorkspacesSectionExpanded(expanded: boolean): boolean {
-  return !expanded;
-}
-
-export const SIDEBAR_REGION_ID = "codeterm-sidebar";
+const SIDEBAR_REGION_ID = "codeterm-sidebar";
 const SIDEBAR_COLLAPSED_WIDTH = 0;
 const SIDEBAR_COMPACT_WIDTH = 64;
 const SIDEBAR_COMPACT_SNAP = 150;
@@ -105,9 +88,11 @@ interface SidebarProps {
   onCollapsedChange?: (collapsed: boolean) => void;
   /** Bumped by the titlebar burger to bring a collapsed sidebar back. */
   expandRequest?: number;
+  restoring?: boolean;
 }
 
-export function Sidebar({
+// Memoized: App re-renders on every store change; the sidebar has its own selector.
+export const Sidebar = memo(function Sidebar({
   onCollapse,
   onOpenMemory,
   onOpenMesh,
@@ -122,6 +107,7 @@ export function Sidebar({
   teamActions,
   onCollapsedChange,
   expandRequest = 0,
+  restoring = false,
 }: SidebarProps) {
   const {
     createWorkspace,
@@ -146,10 +132,16 @@ export function Sidebar({
     upsertToast,
   } = useMultiplexer();
   const state = useMuxSelector(selectSidebarState, sidebarStateEqual);
-  const attention = useMemo(
-    () => tabAttentionByTab(state.tabs, state.tabStatuses, state.notifications),
-    [state.tabs, state.tabStatuses, state.notifications],
-  );
+  const reopenRecentlyClosed = useCallback((workspaceId: string, index: number, orphaned: boolean, tabId: string) => {
+    if (orphaned) restoreOrphaned(tabId);
+    else reopenClosed(workspaceId, index);
+  }, [restoreOrphaned, reopenClosed]);
+  // Rows compare attention by identity, so a tab whose attention did not change keeps its previous entry.
+  const attentionRef = useRef<ReturnType<typeof tabAttentionByTab>>({});
+  const attention = useMemo(() => {
+    attentionRef.current = shareRecord(attentionRef.current, tabAttentionByTab(state.tabs, state.tabStatuses, state.notifications));
+    return attentionRef.current;
+  }, [state.tabs, state.tabStatuses, state.notifications]);
   const isWorkspaceMode = mainView === "workspace";
   const [folderPicker, setFolderPicker] = useState<{
     title: string;
@@ -167,12 +159,14 @@ export function Sidebar({
   const [sessionPicker, setSessionPicker] = useState<OpenNewSessionDetail | null>(null);
   const [remotePickerWorkspaceId, setRemotePickerWorkspaceId] = useState<string | null>(null);
   const { providers, loading: providersLoading } = useAgentProviders();
-  const { index: planIndex } = usePlanIndexOptional();
+  const { index: planIndex, refetch: refetchPlanIndex } = usePlanIndexOptional();
   const fullPlans = useSidebarPlansOptional();
-  const activeWork = useMemo(
-    () => selectActiveWork(fullPlans.plans, state.tabs),
-    [fullPlans.plans, state.tabs],
-  );
+  const planApi = config?.api;
+  const refetchFullPlans = fullPlans.refetch;
+  const handleRenamePlan = useMemo(() => planApi ? async (planId: string, title: string) => {
+    await renamePlan(planApi, planId, title);
+    await Promise.all([refetchPlanIndex(), refetchFullPlans()]);
+  } : undefined, [planApi, refetchPlanIndex, refetchFullPlans]);
   const agentsConfig = config?.agents;
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
@@ -480,6 +474,7 @@ export function Sidebar({
   const sidebarActionText = pickUiFontScaleValue(uiFontScale, ["text-[10px]", "text-[11px]", "text-[12px]", "text-[13px]"]);
   const sidebarNavText = pickUiFontScaleValue(uiFontScale, ["text-[10px]", "text-[11px]", "text-[12px]", "text-[13px]"]);
   const sidebarNavTouchText = pickUiFontScaleValue(uiFontScale, ["text-[12px]", "text-[13px]", "text-[14px]", "text-[15px]"]);
+  const navIconSize = touchMode ? 18 : 14;
   const scaledTouchSidebarWidth = Math.round(sidebarWidth * 1.3);
   const visibleSidebarWidth = isSidebarCollapsed
     ? SIDEBAR_COLLAPSED_WIDTH
@@ -487,6 +482,7 @@ export function Sidebar({
       ? `min(85vw, ${scaledTouchSidebarWidth}px)`
       : sidebarWidth;
   const isCompact = !touchMode && !isSidebarCollapsed && sidebarWidth < SIDEBAR_COMPACT_SNAP;
+  const navButtonLayout = { compact: isCompact, touchMode, labelClassName: touchMode ? sidebarNavTouchText : sidebarNavText };
   const isPeeking = isSidebarCollapsed && peeking && !touchMode;
   const peekWidth = sidebarWidth >= SIDEBAR_COMPACT_SNAP ? sidebarWidth : 240;
   const prevTabIdsRef = useRef<Set<string>>(new Set());
@@ -611,31 +607,17 @@ export function Sidebar({
     });
   }, [addNotification, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
 
-  const confirmTeamClose = useCallback(async () => {
+  const { closingTeamIds, closeTeam: finishTeamClose } = useTeamClose(teamActions?.onCloseTeam, addNotification);
+  const confirmTeamClose = useCallback(() => {
     const pending = pendingTeamClose;
-    const closeTeam = teamActions?.onCloseTeam;
-    if (!pending || !closeTeam) return;
-    try {
-      await closeTeam(pending.teamId);
-    } catch (error) {
-      addNotification({
-        tab_id: null,
-        workspace_id: pending.workspaceId,
-        title: "Team close failed",
-        body: error instanceof Error ? error.message : String(error),
-        severity: "Error",
-        level: "failure",
-        sticky: true,
-      });
-    } finally {
-      setPendingTeamClose(null);
-    }
-  }, [addNotification, pendingTeamClose, teamActions?.onCloseTeam]);
+    if (!pending) return;
+    void finishTeamClose(pending.teamId, pending.workspaceId, () => setPendingTeamClose(null));
+  }, [pendingTeamClose, finishTeamClose]);
   useEffect(() => {
-    const kb = config?.keybindings ?? {};
+    const kb = config?.keybindings;
     const handleKeyDown = (e: KeyboardEvent) => {
-      const forward = matchesBinding(e, kb.next_tab ?? "Ctrl+Tab");
-      const backward = !forward && matchesBinding(e, kb.prev_tab ?? "Ctrl+Shift+Tab");
+      const forward = matchesBinding(e, kb?.next_tab ?? "Ctrl+Tab");
+      const backward = !forward && matchesBinding(e, kb?.prev_tab ?? "Ctrl+Shift+Tab");
       if (!forward && !backward) return;
 
       const ws = state.workspaces.find((w) => w.id === state.active_workspace_id);
@@ -671,7 +653,6 @@ export function Sidebar({
     const active = ordinaryWorkspaces.find((workspace) => workspace.id === state.active_workspace_id);
     if (active) {
       setSelectedWorkspaceId(active.id);
-      persistSelectedWorkspaceId(active.id);
       return;
     }
     if (!ordinaryWorkspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
@@ -692,6 +673,54 @@ export function Sidebar({
     () => ordinaryWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
     [ordinaryWorkspaces],
   );
+  const selectedWorkspace = ordinaryWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null;
+  const orchestratorTabs = useMemo(() => Object.values(state.tabs).filter((tab) => anchorsTeam(tab)), [state.tabs]);
+  const closingTabIds = useMemo(() => new Set(closingTabs.keys()), [closingTabs]);
+  const workspaceDetailData = useMemo<SidebarWorkspaceDetailData>(() => ({
+    tabs: state.tabs,
+    tabStatuses: state.tabStatuses,
+    attention,
+    teams: state.teams,
+    planIndex,
+    plans: fullPlans.plans,
+    providers: visibleProviders,
+    providersLoading,
+    closingTabIds,
+    appearingTabIds: appearingTabs,
+    closingTeamIds,
+    activeTabIds: state.activeTabIds,
+    activeWorkspaceId: state.active_workspace_id,
+    isWorkspaceMode,
+    workspaceCanvasActive,
+    touchMode,
+    uiFontScale,
+    compact: isCompact,
+    sidebarActionText,
+    orchestrators: orchestratorTabs,
+    newSessionDisabled: firstRunActive,
+  }), [state.tabs, state.tabStatuses, attention, state.teams, planIndex, fullPlans.plans, visibleProviders,
+    providersLoading, closingTabIds, appearingTabs, closingTeamIds, state.activeTabIds, state.active_workspace_id,
+    isWorkspaceMode, workspaceCanvasActive, touchMode, uiFontScale, isCompact, sidebarActionText, orchestratorTabs, firstRunActive]);
+  const workspaceDetailActions = useMemo<SidebarWorkspaceDetailActions>(() => ({
+    activateWorkspace: (workspaceId) => { setActiveWorkspace(workspaceId); onNavigateToTab?.(); },
+    activateTab: (workspaceId, tabId) => { setActiveTab(workspaceId, tabId); onNavigateToTab?.(); },
+    closeTab: animatedCloseTab,
+    renameTab: setTabTitle,
+    renameWorkspace,
+    closeWorkspace: requestWorkspaceClose,
+    newTerminal: (workspaceId, shell) => createTab(workspaceId, undefined, shell),
+    newSession: handleNewSession,
+    newAgent: handleAgentSpawn,
+    openRemoteTab: setRemotePickerWorkspaceId,
+    openMap: onOpenWorkspaceMap,
+    openAutomation: onOpenWorkspaceAutomation,
+    renamePlan: handleRenamePlan,
+    renameTeam: teamActions?.onRenameTeam,
+    addTeamMember: teamActions?.onAddTeamMember,
+    closeTeam: teamActions?.onCloseTeam ? requestTeamClose : undefined,
+  }), [setActiveWorkspace, onNavigateToTab, setActiveTab, animatedCloseTab, setTabTitle, renameWorkspace, requestWorkspaceClose,
+    createTab, handleNewSession, handleAgentSpawn, onOpenWorkspaceMap, onOpenWorkspaceAutomation, handleRenamePlan,
+    teamActions?.onRenameTeam, teamActions?.onAddTeamMember, teamActions?.onCloseTeam, requestTeamClose]);
   const dndHandlers = useMemo(
     () => ({ reorderTabs, reorderDisplay, reorderWorkspaces }),
     [reorderTabs, reorderDisplay, reorderWorkspaces],
@@ -736,7 +765,8 @@ export function Sidebar({
           {(!isSidebarCollapsed || isPeeking) && (
             <>
             <div className="ct-sidebar-content flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
-              {isCompact && (
+              {restoring && <SidebarSkeleton compact={isCompact} />}
+              {isCompact && !restoring && (
                 <SidebarCompactRail
                   groups={compactGroups}
                   attentionByTab={attention}
@@ -747,70 +777,22 @@ export function Sidebar({
                   }}
                 />
               )}
-              {!isCompact && generalWorkspace && (() => {
-                const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
-                const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
-                const generalTabs = tabsInWorkspace(generalWorkspace.tabs, state.tabs);
-                const generalOrchestrators = Object.values(state.tabs).filter((tab) => anchorsTeam(tab));
-                return (
-                  <section
-                    data-testid="general-section"
-                    className="sidebar-general-section"
-                    role="region"
-                    aria-label={`${generalWorkspace.name} workspace contents`}
-                  >
-                    <div className="sidebar-structural-header sidebar-general-header w-full">
-                      <SidebarDisclosure
-                        data-testid="general-section-toggle"
-                        className="sidebar-structural-toggle min-w-0"
-                        expanded={generalExpanded}
-                        onClick={() => toggleExpanded(generalWorkspace.id)}
-                      >
-                        <span className="sidebar-structural-label">GENERAL</span>
-                      </SidebarDisclosure>
-                      <SpinalCordButton api={config?.api} />
-                    </div>
-                    {generalExpanded && <GeneralWorkspaceTabs
-                      workspace={generalWorkspace}
-                      providerId={config?.general_agent.agent_provider}
-                      generalCwd={generalWorkspace.cwd ?? generalTabs.find((tab) => tab.protected)?.cwd ?? null}
-                      activeTabId={state.activeTabIds[generalWorkspace.id] ?? null}
-                      sortedTabs={generalTabs}
-                      tabs={state.tabs}
-                      tabStatuses={state.tabStatuses}
-                      tabAttentionByTab={attention}
-                      teams={state.teams}
-                      planIndex={planIndex}
-                      plans={fullPlans.plans}
-                      activeWork={activeWork}
-                      providers={visibleProviders}
-                      providersLoading={providersLoading}
-                      closingTabIds={new Set(closingTabs.keys())}
-                      appearingTabIds={appearingTabs}
-                      isActiveVisual={generalActive}
-                      workspaceCanvasActive={workspaceCanvasActive}
-                      touchMode={touchMode}
-                      uiFontScale={uiFontScale}
-                      compact={false}
-                      sidebarActionText={sidebarActionText}
-                      orchestrators={generalOrchestrators}
-                      onBeforeOpenPlan={() => { setActiveWorkspace(generalWorkspace.id); onNavigateToTab?.(); }}
-                      onActivateTab={(tabId) => { setActiveTab(generalWorkspace.id, tabId); onNavigateToTab?.(); }}
-                      onCloseTab={(tabId) => animatedCloseTab(generalWorkspace.id, tabId)}
-                      onRenameTab={(tabId, title) => setTabTitle(generalWorkspace.id, tabId, title)}
-                      onOpenRemoteTab={() => setRemotePickerWorkspaceId(generalWorkspace.id)}
-                      newSessionDisabled={firstRunActive}
-                      onRenameTeam={teamActions?.onRenameTeam}
-                      onAddTeamMember={teamActions?.onAddTeamMember}
-                      onCloseTeam={teamActions?.onCloseTeam
-                        ? (teamId) => requestTeamClose(generalWorkspace.id, teamId)
-                        : undefined}
-                      onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(generalWorkspace.id, target) : undefined}
-                    />}
-                  </section>
-                );
-              })()}
-              {!isCompact && <div className="sidebar-structural-section">
+              {/* One drag context for the whole sidebar; groups keep every drop inside its own list. */}
+              <SidebarDnd handlers={dndHandlers}>
+              {!isCompact && !restoring && generalWorkspace && (
+                <SidebarGeneralSection
+                  workspace={generalWorkspace}
+                  expanded={expandedWorkspaces.has(generalWorkspace.id)}
+                  onToggle={() => toggleExpanded(generalWorkspace.id)}
+                  providerId={config?.general_agent.agent_provider}
+                  api={config?.api}
+                  data={workspaceDetailData}
+                  actions={workspaceDetailActions}
+                  workspaces={state.workspaces}
+                  onOpenJobs={onOpenWorkspaceAutomation}
+                />
+              )}
+              {!isCompact && !restoring && <div className="sidebar-structural-section">
                 <div className="sidebar-structural-header">
                   <SidebarDisclosure
                     data-testid="workspaces-section-toggle"
@@ -823,7 +805,7 @@ export function Sidebar({
                   <div className="sidebar-structural-action" />
                 </div>
                 {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (
-                  <SidebarDnd handlers={dndHandlers}>
+                  <>
                     <WorkspaceCardGrid
                       workspaces={ordinaryWorkspaces}
                       selectedWorkspaceId={selectedWorkspaceId}
@@ -836,90 +818,19 @@ export function Sidebar({
                       }}
                       onCreate={handleNewWorkspace}
                     />
-                    {ordinaryWorkspaces.map((ws) => {
-                      const sortedTabs = tabsInWorkspace(ws.tabs, state.tabs);
-                      const selected = ws.id === selectedWorkspaceId;
-                      const isActiveVisual = ws.id === state.active_workspace_id && isWorkspaceMode;
-                      const wsOrchestrators = Object.values(state.tabs).filter((tab) => anchorsTeam(tab));
-                      return (
-                        <div
-                          key={ws.id}
-                          data-testid="workspace-detail"
-                          data-workspace-id={ws.id}
-                          role="region"
-                          aria-label={`${ws.name} workspace contents`}
-                          hidden={!selected}
-                        >
-                      <WorkspaceItem
-                        workspace={ws}
-                        isActive={isActiveVisual}
-                        isExpanded
-                        onClick={() => { setActiveWorkspace(ws.id); onNavigateToTab?.(); }}
-                        onToggleExpand={() => {}}
-                        onClose={() => requestWorkspaceClose(ws.id)}
-                        onRename={(name) => renameWorkspace(ws.id, name)}
-                        onNewTerminal={(shell) => createTab(ws.id, undefined, shell)}
-                        onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
-                        onOpenMap={() => onOpenWorkspaceMap?.(ws.id)}
-                        onOpenAutomation={() => onOpenWorkspaceAutomation?.(ws.id)}
-                        newSessionDisabled={firstRunActive}
-                        onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
-                        canClose={true}
-                        status={workspaceStatuses[ws.id]}
-                        showDisclosure={false}
-                        detailHeader
-                        touchMode={touchMode}
-                        countActiveJobs={selected}
-                        uiFontScale={uiFontScale}
+                    {selectedWorkspace && (
+                      <SidebarWorkspaceDetail
+                        key={selectedWorkspace.id}
+                        workspace={selectedWorkspace}
+                        status={workspaceStatuses[selectedWorkspace.id] ?? null}
+                        data={workspaceDetailData}
+                        actions={workspaceDetailActions}
                       />
-                      <SidebarWorkspaceTabs
-                            workspace={ws}
-                            activeTabId={state.activeTabIds[ws.id] ?? null}
-                            sortedTabs={sortedTabs}
-                            tabs={state.tabs}
-                            tabStatuses={state.tabStatuses}
-                            tabAttentionByTab={attention}
-                            teams={state.teams}
-                            planIndex={planIndex}
-                            plans={fullPlans.plans}
-                            activeWork={activeWork}
-                            providers={visibleProviders}
-                            providersLoading={providersLoading}
-                            closingTabIds={new Set(closingTabs.keys())}
-                            appearingTabIds={appearingTabs}
-                            isActiveVisual={isActiveVisual}
-                            workspaceCanvasActive={workspaceCanvasActive}
-                            touchMode={touchMode}
-                            uiFontScale={uiFontScale}
-                            compact={isCompact}
-                            sidebarActionText={sidebarActionText}
-                            orchestrators={wsOrchestrators}
-                            onBeforeOpenPlan={() => {
-                              setActiveWorkspace(ws.id);
-                              onNavigateToTab?.();
-                            }}
-                            onActivateTab={(tabId) => {
-                              setActiveTab(ws.id, tabId);
-                              onNavigateToTab?.();
-                            }}
-                            onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
-                            onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
-                            onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
-                            onOpenRemoteTab={() => setRemotePickerWorkspaceId(ws.id)}
-                            newSessionDisabled={firstRunActive}
-                            onRenameTeam={teamActions?.onRenameTeam}
-                            onAddTeamMember={teamActions?.onAddTeamMember}
-                            onCloseTeam={teamActions?.onCloseTeam
-                              ? (teamId) => requestTeamClose(ws.id, teamId)
-                              : undefined}
-                            onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(ws.id, target) : undefined}
-                          />
-                        </div>
-                      );
-                    })}
-                  </SidebarDnd>
+                    )}
+                  </>
                 )}
               </div>}
+              </SidebarDnd>
             </div>
             {remotePickerWorkspaceId && (
               <RemoteTabPicker
@@ -935,10 +846,7 @@ export function Sidebar({
                   structures={state.closed_structures ?? []}
                   views={views}
                   showWorkspace={state.workspaces.length > 1 || hasOrphaned}
-                  onReopen={(wsId, idx, orphaned, tabId) => {
-                    if (orphaned) { restoreOrphaned(tabId); }
-                    else { reopenClosed(wsId, idx); }
-                  }}
+                  onReopen={reopenRecentlyClosed}
                   onReopenGroup={reopenGroup}
                   touchMode={touchMode}
                   uiFontScale={uiFontScale}
@@ -950,67 +858,33 @@ export function Sidebar({
               aria-label="Sidebar views"
               className={`sidebar-footer ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}
             >
-              <button
-                data-testid="nav-extensions"
-                aria-current={mainView === "extensions" ? "page" : undefined}
+              <SidebarNavButton
+                testId="nav-extensions"
+                label="Plugins"
+                icon={<ExtensionsIcon size={navIconSize} className="shrink-0" />}
+                current={mainView === "extensions"}
                 onClick={onOpenExtensions}
-                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
-                  mainView === "extensions"
-                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                    : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                }`}
-                title="Plugins"
-              >
-                <ExtensionsIcon size={touchMode ? 18 : 14} className="shrink-0" />
-                {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Plugins</span>}
-              </button>
-              <button
-                data-testid="nav-memory"
-                aria-current={mainView === "memory" ? "page" : undefined}
-                onClick={onOpenMemory}
-                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
-                  mainView === "memory"
-                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                    : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                }`}
+                {...navButtonLayout}
+              />
+              <SidebarNavButton
+                testId="nav-memory"
+                label="Memory"
                 title="Memory Graph (Ctrl+Shift+M)"
-              >
-                <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                  <circle cx="12" cy="5" r="2" />
-                  <circle cx="5" cy="19" r="2" />
-                  <circle cx="19" cy="19" r="2" />
-                  <circle cx="12" cy="13" r="2" />
-                  <line x1="12" y1="7" x2="12" y2="11" />
-                  <line x1="10.5" y1="14.5" x2="6.5" y2="17.5" />
-                  <line x1="13.5" y1="14.5" x2="17.5" y2="17.5" />
-                </svg>
-                {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Memory</span>}
-              </button>
+                icon={<MemoryGraphIcon size={navIconSize} />}
+                current={mainView === "memory"}
+                onClick={onOpenMemory}
+                {...navButtonLayout}
+              />
               <div className={`flex items-center ${isCompact ? "justify-center" : "gap-1 w-full"}`}>
-                <button
-                  data-testid="nav-mesh"
-                  aria-current={mainView === "mesh" ? "page" : undefined}
+                <SidebarNavButton
+                  testId="nav-mesh"
+                  label="Mesh"
+                  icon={<MeshIcon size={navIconSize} />}
+                  current={mainView === "mesh"}
                   onClick={onOpenMesh}
-                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 flex-1 min-w-0 px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
-                    mainView === "mesh"
-                      ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                      : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                  }`}
-                  title="Mesh"
-                >
-                  <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                    <circle cx="12" cy="12" r="2" />
-                    <circle cx="4" cy="6" r="2" />
-                    <circle cx="20" cy="6" r="2" />
-                    <circle cx="4" cy="18" r="2" />
-                    <circle cx="20" cy="18" r="2" />
-                    <line x1="6" y1="6" x2="10.5" y2="11" />
-                    <line x1="18" y1="6" x2="13.5" y2="11" />
-                    <line x1="6" y1="18" x2="10.5" y2="13" />
-                    <line x1="18" y1="18" x2="13.5" y2="13" />
-                  </svg>
-                  {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Mesh</span>}
-                </button>
+                  grow
+                  {...navButtonLayout}
+                />
                 {!isCompact && (
                   <LiquidFlip
                     data-testid="mesh-presence-toggle"
@@ -1097,8 +971,9 @@ export function Sidebar({
           teams={pendingWorkspaceClose.teams}
           onCancel={() => setPendingWorkspaceClose(null)}
           onConfirm={() => {
-            closeWorkspace(pendingWorkspaceClose.id, true);
+            const pending = pendingWorkspaceClose;
             setPendingWorkspaceClose(null);
+            closeWorkspace(pending.id, true);
           }}
         />
       )}
@@ -1116,4 +991,4 @@ export function Sidebar({
       )}
     </>
   );
-}
+});

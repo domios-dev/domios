@@ -73,7 +73,7 @@ fn parity_claude_transcript_observations() {
         native
             .parse_session_observations(&json!({"permissionMode":"auto"}))
             .and_then(|observations| observations.permission_mode),
-        Some(codeterm_types::agent::provider_signals::PermissionMode::Auto)
+        Some(codeterm_provider_signals::PermissionMode::Auto)
     );
     for record in [
         json!({"isApiErrorMessage":true,"error":"rate_limit"}),

@@ -1,0 +1,2 @@
+service::execution_sandbox::tests::task_intents_suppress_authorized_global_bypass -> service::execution_sandbox::tests::task_intents_preserve_authorized_full_access_unless_sandbox_is_explicit
+service::execution_sandbox::tests::restore_reapplies_saved_intent_and_cwd_above_requested_bypass -> service::execution_sandbox::tests::restore_reapplies_saved_sandbox_without_overwriting_execution_authority

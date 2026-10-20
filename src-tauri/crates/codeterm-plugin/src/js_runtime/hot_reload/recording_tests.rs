@@ -1,9 +1,9 @@
 use super::tests::{set_mtime, test_caps, write, TestRegistrar};
 use super::*;
-use crate::local_recording::{
-    LocalInputSubscription, LocalRecordingTrigger, SelectedDevices, SubscriptionTeardown,
-};
+use crate::local_recording::{LocalInputSubscription, SelectedDevices, SubscriptionTeardown};
+use codeterm_local_recording::LocalRecordingTrigger;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 fn manifest(id: &str) -> String {
     serde_json::json!({

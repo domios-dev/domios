@@ -75,11 +75,11 @@ test("@perf @tab-switch-latency sidebar tab switch reaches paint under budget", 
   });
   const wsId = ws.id;
 
-  const tabs: { tab_id: string; tab_id: string }[] = [];
+  const tabs: { tab_id: string; }[] = [];
   let plan: { plan_id: string } | undefined;
   try {
     for (let i = 0; i < TAB_COUNT; i++) {
-      const t = await api.post<{ tab_id: string; tab_id: string }>(`/workspaces/${wsId}/tabs`, { eager: true });
+      const t = await api.post<{ tab_id: string; }>(`/workspaces/${wsId}/tabs`, { eager: true });
       tabs.push(t);
       tabCleanup.track(t.tab_id);
     }

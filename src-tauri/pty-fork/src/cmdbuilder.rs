@@ -242,6 +242,13 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
     env
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WindowsJobPolicy {
+    #[default]
+    Contained,
+    AllowExplicitServerBreakaway,
+}
+
 /// `CommandBuilder` is used to prepare a command to be spawned into a pty.
 /// The interface is intentionally similar to that of `std::process::Command`.
 #[derive(Clone, Debug, PartialEq)]
@@ -253,6 +260,8 @@ pub struct CommandBuilder {
     #[cfg(unix)]
     pub(crate) umask: Option<libc::mode_t>,
     controlling_tty: bool,
+    #[cfg_attr(feature = "serde_support", serde(skip))]
+    windows_job_policy: WindowsJobPolicy,
 }
 
 impl CommandBuilder {
@@ -266,6 +275,7 @@ impl CommandBuilder {
             #[cfg(unix)]
             umask: None,
             controlling_tty: true,
+            windows_job_policy: WindowsJobPolicy::Contained,
         }
     }
 
@@ -278,7 +288,16 @@ impl CommandBuilder {
             #[cfg(unix)]
             umask: None,
             controlling_tty: true,
+            windows_job_policy: WindowsJobPolicy::Contained,
         }
+    }
+
+    pub fn set_windows_job_policy(&mut self, policy: WindowsJobPolicy) {
+        self.windows_job_policy = policy;
+    }
+
+    pub fn windows_job_policy(&self) -> WindowsJobPolicy {
+        self.windows_job_policy
     }
 
     /// Set whether we should set the pty as the controlling terminal.
@@ -305,6 +324,7 @@ impl CommandBuilder {
             #[cfg(unix)]
             umask: None,
             controlling_tty: true,
+            windows_job_policy: WindowsJobPolicy::Contained,
         }
     }
 

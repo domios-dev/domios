@@ -28,7 +28,7 @@ export type ManagedUiSession = UiSession & {
 
 export type TabCleanup = {
   track: (tabId: string | undefined | null) => void;
-  createTab: <T extends { id?: string } = { id: string }>(body?: Record<string, unknown>) => Promise<T>;
+  createTab: <T extends { id?: string; tab_id?: string } = { id: string }>(body?: Record<string, unknown>) => Promise<T>;
   closeUnprotectedTabs: () => Promise<void>;
 };
 
@@ -233,7 +233,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       track: (tabId) => {
         if (tabId) tabIds.add(tabId);
       },
-      createTab: async <T extends { id?: string } = { id: string }>(body?: Record<string, unknown>) => {
+      createTab: async <T extends { id?: string; tab_id?: string } = { id: string }>(body?: Record<string, unknown>) => {
         const tab = await api.createTab(body) as T;
         cleanup.track(tab.id);
         return tab;

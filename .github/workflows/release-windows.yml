@@ -5,14 +5,8 @@ name: Release Windows platforms
 # bundles and updater fragments to the releases. The caller's final job assembles
 # and verifies the channel manifests after both architecture builds succeed.
 #
-# Runs on the always-on ROG (self-hosted runner, labels include
-# [self-hosted, Windows, X64, windows-build]). The ROG already has node 22 /
-# pnpm 10.32.1 / Rust 1.95.0 (rust-toolchain.toml-pinned, both windows-msvc
-# targets installed) / VS2022 (x64 + ARM64) / LLVM. The setup-node/pnpm actions
-# still run on the self-hosted runner; node/pnpm versions are pinned to what
-# the ROG has so they no-op instead of conflicting, and the Rust
-# toolchain is left to rust-toolchain.toml (NOT dtolnay@stable, which would
-# mismatch the targets installed on 1.95.0).
+# The self-hosted ROG supplies Node 22, pnpm 10.32.1, VS2022 (x64 + ARM64), and LLVM.
+# The job installs pinned Rust and both MSVC targets without changing the runner default.
 #
 # Disable: set repo Variable RELEASE_WINDOWS_ENABLED=false in
 # Settings -> Secrets and variables -> Actions -> Variables.
@@ -24,6 +18,27 @@ name: Release Windows platforms
 # encrypted — it evaluates to empty when unset).
 
 "on":
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Package version (vX.Y.Z)
+        required: true
+        type: string
+      source_ref:
+        description: Exact source commit SHA
+        required: true
+        type: string
+      arch:
+        type: choice
+        required: true
+        options: [x64, arm64]
+      dry_run:
+        description: Direct dispatch never publishes
+        type: boolean
+        default: true
+      mirror:
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       tag:
@@ -39,11 +54,20 @@ name: Release Windows platforms
         required: false
         default: false
         type: boolean
+      arch:
+        description: x64 or arm64; each architecture is its own caller job and graph node
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+  CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+  # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
+  CODETERM_BUILD_GATEWAY_MODE: queue
   DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
   DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
   DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
@@ -62,21 +86,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-pc-windows-msvc
-            platform_key: windows-x86_64
-            vsarch: x64
-            sdkarch: x64
-            label: x64
-            runner_label: ${{ vars.RELEASE_WINDOWS_X64_LABEL || 'windows-x64-build' }}
-          - target: aarch64-pc-windows-msvc
-            platform_key: windows-aarch64
-            vsarch: x64_arm64
-            sdkarch: arm64
-            label: arm64
-            runner_label: ${{ vars.RELEASE_WINDOWS_ARM64_LABEL || 'windows-build' }}
+          - target: ${{ inputs.arch == 'x64' && 'x86_64-pc-windows-msvc' || 'aarch64-pc-windows-msvc' }}
+            platform_key: ${{ inputs.arch == 'x64' && 'windows-x86_64' || 'windows-aarch64' }}
+            vsarch: ${{ inputs.arch == 'x64' && 'x64' || 'x64_arm64' }}
+            sdkarch: ${{ inputs.arch }}
+            label: ${{ inputs.arch }}
+            runner_label: ${{ inputs.arch == 'x64' && (vars.RELEASE_WINDOWS_X64_LABEL || 'windows-x64-build') || (vars.RELEASE_WINDOWS_ARM64_LABEL || 'windows-build') }}
     timeout-minutes: 120
     env:
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
+      RUSTUP_TOOLCHAIN: 1.99.1
+      RUSTC_WRAPPER: sccache
       TARGET: ${{ matrix.target }}
       # Drive every cargo invocation in tauri's beforeBuildCommand at the matrix
       # target so the bundled CLI/embed sidecars match the installer arch (this is
@@ -86,6 +106,7 @@ jobs:
       # cargo from src-tauri, so a relative path lands in src-tauri/src-tauri/target.
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CODETERM_RELEASE_FEATURES: embeddings
+      CODETERM_RELEASE_COMMON_STAGE: '1'
       CARGO_INCREMENTAL: '0'
       # Some repo paths exceed Windows' 260-char limit (.codeterm/plans/**). git's
       # core.longpaths must be on for checkout to write them. Set it via GIT_CONFIG_*
@@ -139,12 +160,14 @@ jobs:
           $hit | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           Write-Host "Prepended Rust bin to PATH: $hit"
 
-      # Repo-pinned toolchain (rust-toolchain.toml = 1.95.0) drives rustc; the
-      # ROG already has both windows-msvc targets installed on 1.95.0. We do NOT
-      # install dtolnay@stable — that would float off the pin and miss the targets.
-      - name: Show pinned Rust toolchain
+      # Install both MSVC targets on the repository pin, preserving the runner default.
+      - name: Prepare pinned Rust toolchain
         shell: pwsh
         run: |
+          rustup toolchain install 1.99.1 --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup target add --toolchain 1.99.1 x86_64-pc-windows-msvc aarch64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup show
           rustc -vV
           rustup target list --installed | Select-String 'pc-windows-msvc'
@@ -170,7 +193,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Clear incomplete release uploads for retry
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows platforms') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
@@ -283,26 +306,22 @@ jobs:
           # Prepend new dirs to PATH for later steps (preserves gh/git/node).
           foreach ($d in $newPathDirs) { $d | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append }
 
-      # Pre-create the target-triple sidecar stubs so tauri_build's externalBin/
-      # resource glob validation passes on the FIRST cargo build of a cross target
-      # (prepare-embed-stub.js only stubs the HOST triple). bundle-cli.js /
-      # bundle-embed.js overwrite these with the real arm64/x64 binaries during
-      # beforeBuildCommand, so the shipped installer carries the correct sidecars.
-      - name: Pre-create cross-build sidecar stubs
+      - name: Pre-create cross-build CLI stubs
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force src-tauri\bundled-embed | Out-Null
           New-Item -ItemType Directory -Force src-tauri\bundled-cli | Out-Null
-          New-Item -ItemType File -Force "src-tauri\bundled-embed\codeterm-embed-${{ matrix.target }}.exe" | Out-Null
           New-Item -ItemType File -Force "src-tauri\bundled-cli\codeterm-${{ matrix.target }}.exe" | Out-Null
 
-      - name: Build release bundle inputs
+      - name: Verify shared compile cache
         shell: pwsh
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pwsh -NoProfile -File build.ps1 release-inputs
+        run: |
+          & .\build.ps1 cache-verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # A dropped upload leaves a starter asset that holds the name and makes every
       # later upload of it fail opaquely, including tauri-action's own.
       - name: Build and sign release assets
+        id: compile
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -310,9 +329,33 @@ jobs:
           # repo secrets — this evaluates to an empty string otherwise.
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # Windows release runners have no bash on PATH.
         run: |
-          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pwsh -NoProfile -Command 'pnpm tauri build --target $env:TARGET --features $env:CODETERM_RELEASE_FEATURES; exit $LASTEXITCODE'
+          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pwsh -NoProfile -File build.ps1 release-bundle
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Produce shared headless stage and package
+        shell: pwsh
+        run: |
+          $bundles = @(Get-ChildItem -File "src-tauri/target/$env:TARGET/release/bundle/nsis" -Filter '*-setup.exe')
+          if ($bundles.Count -ne 1) { Write-Error "Expected one full NSIS installer; found $($bundles.Count)"; exit 1 }
+          $version = "${{ inputs.tag }}".Substring(1)
+          & .\build.ps1 release-finalize --target "$env:TARGET" --tag "${{ inputs.tag }}" `
+            --version $version --source-sha "${{ inputs.source_ref }}" `
+            --cargo-log "release-artifacts/build-logs/$env:TARGET/server.jsonl" `
+            --tree-log "release-artifacts/build-logs/$env:TARGET/closure.txt" `
+            --bundle $bundles[0].FullName --output-dir release-artifacts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify independent headless assets and checksum
+        shell: pwsh
+        run: |
+          node scripts/release-headless-assets.mjs verify "${{ inputs.tag }}" "${{ matrix.platform_key }}" release-artifacts "${{ inputs.source_ref }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Smoke packaged client and isolated server pair
+        shell: pwsh
+        run: |
+          node scripts/release-pair-smoke.mjs "$env:TARGET" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "release-artifacts/common-stage/$env:TARGET" release-artifacts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Smoke built release bundle
@@ -331,8 +374,16 @@ jobs:
           node scripts/release-verify-windows.mjs "src-tauri/target/$env:TARGET/release/bundle/nsis" "$env:TAG" "$env:PLATFORM_KEY"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Retain private dry-run updater evidence
+        if: ${{ inputs.dry_run }}
+        shell: pwsh
+        run: |
+          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$env:GITHUB_RUN_ID" `
+            "${{ matrix.platform_key }}" "src-tauri/target/$env:TARGET/release/bundle" release-artifacts "$env:RUNNER_TEMP/dry-run-${{ matrix.platform_key }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Publish per-platform updater fragment
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows platforms') && !inputs.dry_run }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -381,7 +432,7 @@ jobs:
 
       # Mirror the updater bundle so the caller can publish the manifest after all builds pass.
       - name: Mirror to public release repo
-        if: ${{ inputs.mirror && !inputs.dry_run }}
+        if: ${{ inputs.mirror && !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows platforms') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -400,6 +451,24 @@ jobs:
 
           gh release upload "$env:TAG" "$bundle" --clobber --repo "$env:MIRROR_REPO"
 
+      - name: Publish and read back headless source assets
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows platforms') && !inputs.dry_run }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/release-headless-assets.mjs publish "${{ inputs.tag }}" "${{ matrix.platform_key }}" release-artifacts "${{ inputs.source_ref }}" "${{ github.repository }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Publish and read back headless mirror assets
+        if: ${{ inputs.mirror && !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Windows platforms') && !inputs.dry_run }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+        run: |
+          node scripts/release-headless-assets.mjs publish "${{ inputs.tag }}" "${{ matrix.platform_key }}" release-artifacts "${{ inputs.source_ref }}" rollacode/codeterm-releases
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - uses: ./.github/actions/rust-warnings
         if: always()
         continue-on-error: true
@@ -407,3 +476,15 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: release-Windows
           target: ${{ matrix.target }}
+
+      # Without a compile step no sccache server ever started, so there is nothing to report.
+      - name: Shared compile cache statistics
+        if: ${{ always() && steps.compile.outcome != 'skipped' }}
+        shell: pwsh
+        run: |
+          & .\build.ps1 cache-stats
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Remove this job's Rust targets and archives
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs

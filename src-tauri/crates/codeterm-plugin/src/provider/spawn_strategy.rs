@@ -25,8 +25,8 @@ impl TurnEvidenceNormalization {
             .then(|| unwrap_pasted_content_wrapper(text))
             .flatten();
         let text = unwrapped.as_deref().unwrap_or(text);
-        let text = if codeterm_types::domios::parse_message(text).is_some() {
-            text.strip_suffix(codeterm_types::domios::DOMIOS_CLOSE_TAG)
+        let text = if codeterm_wire::domios::parse_message(text).is_some() {
+            text.strip_suffix(codeterm_wire::domios::DOMIOS_CLOSE_TAG)
                 .unwrap_or(text)
         } else {
             text
@@ -60,8 +60,8 @@ mod tests {
 
     #[test]
     fn codex_complete_pasted_frame_preserves_opening_tag_in_exact_evidence() {
-        let frame = codeterm_types::domios::DomiosFrame {
-            opening_tag: codeterm_types::domios::build_opening_tag(&[
+        let frame = codeterm_wire::domios::DomiosFrame {
+            opening_tag: codeterm_wire::domios::build_opening_tag(&[
                 ("from", "tab"),
                 ("label", "sender"),
                 ("tab", "abc12345"),
@@ -74,7 +74,7 @@ mod tests {
             "{}{}{}",
             frame.body,
             frame.suffix,
-            codeterm_types::domios::DOMIOS_CLOSE_TAG
+            codeterm_wire::domios::DOMIOS_CLOSE_TAG
         );
         for unwrap in [false, true] {
             let normalization = TurnEvidenceNormalization {
@@ -95,6 +95,22 @@ mod tests {
     }
 
     #[test]
+    fn pasted_wrapper_framing_newline_does_not_change_follow_up_evidence() {
+        let normalization = TurnEvidenceNormalization {
+            unwrap_pasted_content_wrapper: true,
+            ..Default::default()
+        };
+        let body = "opaque-a\nopaque-b";
+        for suffix in ["opaque-c", "\nopaque-c", "\n\nopaque-c"] {
+            let expected = format!("{body}{suffix}");
+            let observed = format!(
+                "<pasted_content id=\"opaque\">\n{body}\n</pasted_content id=\"opaque\">\n{suffix}"
+            );
+            assert_eq!(normalization.normalize(&observed), expected);
+        }
+    }
+
+    #[test]
     fn pasted_content_wrapper_between_typed_route_tags_keeps_exact_turn_evidence() {
         let normalization = TurnEvidenceNormalization {
             unwrap_pasted_content_wrapper: true,
@@ -104,11 +120,7 @@ mod tests {
         };
         let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
         let body = "routed body";
-        let suffix = format!(
-            " [reply] {}{}",
-            codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION,
-            codeterm_types::domios::DOMIOS_CLOSE_TAG
-        );
+        let suffix = format!(" [reply]{}", codeterm_wire::domios::DOMIOS_CLOSE_TAG);
         let expected = format!("{open}{body}{suffix}");
         let observed = format!(
             "{open}<pasted_content id=\"opaque\">\n{body}\n</pasted_content id=\"opaque\">{suffix}"
@@ -116,7 +128,7 @@ mod tests {
 
         let normalized = normalization.normalize(&observed);
         assert_eq!(normalized, normalization.normalize(&expected));
-        assert!(!normalized.contains(codeterm_types::domios::DOMIOS_CLOSE_TAG));
+        assert!(!normalized.contains(codeterm_wire::domios::DOMIOS_CLOSE_TAG));
     }
 }
 
@@ -135,11 +147,9 @@ fn unwrap_pasted_content_wrapper(text: &str) -> Option<String> {
     let close_at = text[body_start..].find(&closing)? + body_start;
     let pasted = text[body_start..close_at].trim();
     let suffix_start = close_at + closing.len();
-    Some(format!(
-        "{}{pasted}{}",
-        &text[..opening_start],
-        &text[suffix_start..]
-    ))
+    let suffix = &text[suffix_start..];
+    let suffix = suffix.strip_prefix('\n').unwrap_or(suffix);
+    Some(format!("{}{pasted}{}", &text[..opening_start], suffix))
 }
 
 /// How to wait for agent readiness after PTY spawn.
@@ -290,7 +300,7 @@ impl StarterPrompt {
             Self::StartupHandshake => "startup-handshake",
             Self::NoStarter => return None,
         };
-        Some(codeterm_types::domios::build_opening_tag(&[
+        Some(codeterm_wire::domios::build_opening_tag(&[
             ("from", "system"),
             ("context", context),
         ]))
@@ -303,6 +313,13 @@ impl OnboardingAutoAnswer {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct HostOwnedCapabilities {
+    pub questions: bool,
+    pub todos: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AgentLaunchParams {
     pub context_files: Option<codeterm_types::plan::TaskFiles>,
@@ -312,6 +329,7 @@ pub struct AgentLaunchParams {
     pub starter_prompt: StarterPrompt,
     pub args: Option<Vec<String>>,
     pub skip_permissions: bool,
+    pub host_owned: HostOwnedCapabilities,
     // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
     pub session_id: Option<String>,
     /// Fixed local server the host wants the agent's structured-prompt handle to
@@ -354,6 +372,8 @@ pub struct AgentResumeParams {
     pub tool_less_instructions_path: Option<String>,
     pub session_id: String,
     pub skip_permissions: bool,
+    #[serde(default)]
+    pub host_owned: HostOwnedCapabilities,
     pub agent_name: Option<String>,
     pub system_prompt: Option<String>,
     #[serde(default)]

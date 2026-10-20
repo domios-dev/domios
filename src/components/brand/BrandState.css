@@ -1,0 +1,107 @@
+.brand-mark {
+  display: block;
+  flex: 0 0 auto;
+  overflow: visible;
+  color: var(--ct-accent);
+}
+
+.brand-state {
+  position: relative;
+  isolation: isolate;
+  color: var(--ct-fg);
+}
+
+.brand-state--loading,
+.brand-state--error {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow: auto;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  background: var(--ct-bg);
+}
+
+.brand-state--loading .brand-state-copy,
+.brand-state--error .brand-state-error-copy {
+  width: min(100%, 32rem);
+}
+
+.brand-state-matrix {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--ct-accent);
+  pointer-events: none;
+}
+
+.brand-state--loading > :not(canvas),
+.brand-state--error > :not(canvas) {
+  position: relative;
+  z-index: 1;
+}
+
+.brand-state-copy h2 {
+  margin: 0;
+  color: var(--ct-fg);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.brand-state-copy p {
+  margin: 0.35rem 0 0;
+  color: var(--ct-muted-fg);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.brand-connection-layer {
+  position: relative;
+  min-width: 0;
+}
+
+.brand-connection-scrim {
+  position: absolute;
+  z-index: 70;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 18%);
+}
+
+.brand-connection-card,
+.brand-reconnected {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-lg);
+  background: var(--ct-surface);
+  color: var(--ct-fg);
+  box-shadow: var(--ct-shadow-lg);
+}
+
+.brand-connection-card {
+  padding: 0.8rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.brand-reconnected {
+  position: absolute;
+  z-index: 70;
+  top: 1rem;
+  left: 50%;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  pointer-events: none;
+  transform: translateX(-50%);
+}

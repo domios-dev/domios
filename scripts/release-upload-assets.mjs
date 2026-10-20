@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: CI release-linux.yml
 // Upload release assets and say exactly what happened. tauri-action's uploader
 // reports a bare "Error saving asset" with no status, body or asset name, which
 // cost 1.11.3 four runs before the failing asset was even identified.

@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import {
@@ -84,13 +85,8 @@ function RestApiListenerStatus() {
 
   if (!status || status.phase === "listening") return null;
   return (
-    <div role="alert" className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-      <div className="font-medium">REST API listener {status.phase}</div>
-      {status.message && <div className="mt-1 text-muted-foreground">{status.message}</div>}
-      <button className="mt-2 rounded bg-amber-600 px-3 py-1 text-white disabled:opacity-60" disabled={restarting} onClick={() => void restart()}>
-        {restarting ? "Restarting…" : "Restart REST API"}
-      </button>
-    </div>
+    <InlineErrorNotice error={status.message} operation="starting the REST API listener" blocking
+      actions={[{ label: restarting ? "Restarting…" : "Restart REST API", disabled: restarting, onClick: () => { void restart(); } }]} />
   );
 }
 
@@ -110,6 +106,7 @@ function WebAccessSection() {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [resultMsg, setResultMsg] = useState<string | null>(null);
+  const [resultError, setResultError] = useState<unknown>(null);
 
   async function refresh(fallbackPort: number) {
     const status = await invoke<WebAccessNetworkInfo>("get_network_info").catch(
@@ -143,6 +140,7 @@ function WebAccessSection() {
   async function runEnable() {
     setBusy(true);
     setResultMsg(null);
+    setResultError(null);
     try {
       const res = await invoke<ServeResult>("enable_web_access", {});
       setConfirming(false);
@@ -151,11 +149,11 @@ function WebAccessSection() {
           res.warning ?? `Web Access enabled${res.https_url ? ` — ${res.https_url}/` : ""}`,
         );
       } else {
-        setResultMsg(`Could not enable Web Access (${res.code}).`);
+        setResultError(res.code);
       }
       await refresh(port);
     } catch (e) {
-      setResultMsg(`Enable failed: ${String(e)}`);
+      setResultError(e);
     } finally {
       setBusy(false);
     }
@@ -164,12 +162,14 @@ function WebAccessSection() {
   async function runDisable() {
     setBusy(true);
     setResultMsg(null);
+    setResultError(null);
     try {
       const res = await invoke<ServeResult>("disable_web_access", {});
-      setResultMsg(res.ok ? "Web Access disabled." : `Could not disable (${res.code}).`);
+      if (res.ok) setResultMsg("Web Access disabled.");
+      else setResultError(res.code);
       await refresh(port);
     } catch (e) {
-      setResultMsg(`Disable failed: ${String(e)}`);
+      setResultError(e);
     } finally {
       setBusy(false);
     }
@@ -201,6 +201,7 @@ function WebAccessSection() {
           busy={busy}
           onStart={() => {
             setResultMsg(null);
+    setResultError(null);
             setConfirming(true);
           }}
           onCancel={() => setConfirming(false)}
@@ -224,6 +225,7 @@ function WebAccessSection() {
           </button>
         </div>
       )}
+      {resultError != null && <div data-testid="web-access-result"><InlineErrorNotice error={resultError} operation="updating web access" blocking /></div>}
       {resultMsg && (
         <p data-testid="web-access-result" className="text-xs text-[var(--ct-muted)] leading-snug">
           {resultMsg}

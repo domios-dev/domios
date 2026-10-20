@@ -1,5 +1,13 @@
 export const DOMIOS_CLOSE_TAG = "</domios>";
-export const DOMIOS_TYPED_INSTRUCTION = "Handle the message above.";
+export const DOMIOS_LEGACY_TYPED_INSTRUCTION = "Handle the message above.";
+export const DOMIOS_PASTED_MARKER = "pasted by Domios";
+export const PASTED_MARKER_TAIL = `\n${DOMIOS_PASTED_MARKER}`;
+export const LEGACY_CHAT_FOLLOW_UPS = [" Handle the paste as my request.", " Handle the pasted message above as my request."];
+
+export function stripPlainTypedTail(content: string): string {
+  const tail = [...LEGACY_CHAT_FOLLOW_UPS, PASTED_MARKER_TAIL].find((candidate) => content.endsWith(candidate));
+  return tail ? content.slice(0, -tail.length) : content;
+}
 
 export interface ParsedDomiosMessage {
   attrs: Record<string, string>;
@@ -22,7 +30,14 @@ export function buildDomiosMessage(
   return `${buildDomiosOpeningTag(attrs)}${body}${suffix}${DOMIOS_CLOSE_TAG}`;
 }
 
-export function parseDomiosMessage(text: string): ParsedDomiosMessage | null {
+function stripLeadingMarker(text: string): string {
+  if (!text.startsWith(DOMIOS_PASTED_MARKER)) return text;
+  const rest = text.slice(DOMIOS_PASTED_MARKER.length).replace(/^\n/, "");
+  return rest.startsWith("<domios") ? rest : text;
+}
+
+export function parseDomiosMessage(input: string): ParsedDomiosMessage | null {
+  const text = stripLeadingMarker(input);
   if (!text.startsWith("<domios")) return null;
   const openEnd = text.indexOf(">");
   if (openEnd < 0) return null;
@@ -37,11 +52,12 @@ export function parseDomiosMessage(text: string): ParsedDomiosMessage | null {
 function parseAttributes(source: string): Record<string, string> | null {
   const attrs: Record<string, string> = {};
   let rest = source;
-  const attribute = /^\s+([A-Za-z][A-Za-z0-9_]*)="([^"]*)"/;
+  const attribute = /^\s+([A-Za-z][A-Za-z0-9_]*)=(?:"([^"]*)"|([^\s"'<>`=]+))/;
   while (rest.length > 0) {
     const match = attribute.exec(rest);
     if (!match) return null;
-    const [, name, raw] = match;
+    const [, name, quoted, unquoted] = match;
+    const raw = quoted ?? unquoted;
     if (Object.prototype.hasOwnProperty.call(attrs, name)) return null;
     const decoded = decodeAttribute(raw);
     if (decoded === null) return null;
@@ -81,13 +97,14 @@ function decodeAttribute(value: string): string | null {
 }
 
 function stripTypedSuffix(content: string): string {
-  let body = content;
-  const instruction = ` ${DOMIOS_TYPED_INSTRUCTION}`;
+  let body = stripPlainTypedTail(content.replace(/ ?<tip>[\s\S]*?<\/tip>/g, ""));
+  const instruction = ` ${DOMIOS_LEGACY_TYPED_INSTRUCTION}`;
   if (body.endsWith(instruction)) body = body.slice(0, -instruction.length);
+  body = stripPlainTypedTail(body);
   const replyStarts = [" [to reply, run: codeterm send ", " [sender is a shell; reply here]"];
   const start = replyStarts
     .map((token) => body.lastIndexOf(token))
     .filter((index) => index >= 0)
     .sort((left, right) => right - left)[0];
-  return start === undefined ? body : body.slice(0, start);
+  return stripPlainTypedTail(start === undefined ? body : body.slice(0, start));
 }

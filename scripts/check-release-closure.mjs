@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: CI release-manifest-validate.yml; scripts tests/release-closure-authority.test.mjs, tests/test_release_workflow_contract.py; skill github-release
 // Gate on closing a public rollacode/codeterm-releases issue.
 //
 // Merging is not shipping, and being the release owner is not evidence. The only

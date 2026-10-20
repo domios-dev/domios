@@ -1,0 +1,483 @@
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock};
+
+use codeterm_plugin::provider::{AgentProvider, ProviderUpdateAvailability};
+use parking_lot::Mutex;
+
+use codeterm_plugin::tab_state::TabStateSnapshot;
+
+pub trait ProviderUpdateHost: Clone + Send + Sync + 'static {
+    fn providers(&self) -> Vec<Arc<dyn AgentProvider>>;
+    fn provider(&self, id: &str) -> Option<Arc<dyn AgentProvider>>;
+    fn auto_update_enabled(&self) -> bool;
+    fn matches_own_session(&self, snapshot: &TabStateSnapshot) -> bool;
+    fn provider_busy(&self, provider: &str) -> bool;
+    fn completed(&self, provider: &str, summary: &str);
+    fn availability_changed(&self, _provider: &str) {}
+}
+use state::Admission;
+
+mod boot;
+mod command;
+mod discovery;
+pub use discovery::refresh_available;
+mod idle;
+mod policy;
+use policy::command_for_target;
+pub use policy::compatible_command_for_target;
+mod state;
+mod storage;
+mod watch;
+
+struct Update {
+    provider: Arc<dyn AgentProvider>,
+    version: ProviderUpdateAvailability,
+    command: String,
+}
+
+static ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub fn revision() -> u64 {
+    storage::revision().wrapping_add(AVAILABILITY_REVISION.load(Ordering::Acquire))
+}
+static AVAILABILITY: LazyLock<Mutex<HashMap<String, ProviderUpdateAvailability>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static AVAILABILITY_REVISION: AtomicU64 = AtomicU64::new(0);
+
+pub fn available_version(provider: &str) -> Option<ProviderUpdateAvailability> {
+    AVAILABILITY.lock().get(provider).cloned()
+}
+
+pub fn publish_available(
+    service: &impl ProviderUpdateHost,
+    provider: &str,
+    version: Option<ProviderUpdateAvailability>,
+) {
+    if let Some(version) = version {
+        AVAILABILITY.lock().insert(provider.to_owned(), version);
+    } else {
+        AVAILABILITY.lock().remove(provider);
+    }
+    AVAILABILITY_REVISION.fetch_add(1, Ordering::Release);
+    service.availability_changed(provider);
+}
+static WAITING: LazyLock<Mutex<HashMap<String, Update>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub fn check_available(service: Arc<impl ProviderUpdateHost>, api_port: u16, allow_non_prod: bool) {
+    let instance_override = std::env::var("CODETERM_INSTANCE").ok();
+    let allowed =
+        update_instance_name(instance_override.as_deref(), api_port, allow_non_prod).is_some();
+    ENABLED.store(allowed, Ordering::Release);
+    if allowed {
+        watch::start(service.as_ref());
+        idle::schedule_async(service.as_ref(), None);
+    }
+    schedule_checks(service, allowed, &boot::RESTORE_GATE);
+    if codeterm_agent_model::restore_report::wave_is_settled() {
+        restore_completed();
+    }
+}
+
+fn schedule_checks(service: Arc<impl ProviderUpdateHost>, allowed: bool, gate: &boot::RestoreGate) {
+    for provider in service.providers() {
+        refresh_available(service.as_ref(), provider.id());
+    }
+    gate.defer(Box::new(move || {
+        spawn_utility("provider-update-check", move || {
+            check_providers(service.as_ref(), allowed)
+        });
+    }));
+}
+
+/// The restore wave settled; the deferred startup availability check may run now.
+pub fn restore_completed() {
+    boot::RESTORE_GATE.open();
+}
+
+fn check_providers(service: &impl ProviderUpdateHost, allowed: bool) {
+    for provider in service.providers() {
+        if !provider.supports_update_check() {
+            continue;
+        }
+        if provider.provider_self_update_capability().is_some() {
+            continue;
+        }
+        let Some(command) = provider.update_command(command::platform_key()) else {
+            continue;
+        };
+        let claim = if allowed {
+            let Some(claimed_at) = claim_check(provider.id()) else {
+                log::debug!(
+                    "[provider-update] {}: availability checked within the last day",
+                    provider.id()
+                );
+                continue;
+            };
+            Some(claimed_at)
+        } else {
+            None
+        };
+        let started = std::time::Instant::now();
+        let answer = classify(provider.check_for_update());
+        log::debug!(
+            "[provider-update] {}: availability check elapsed_ms={} answer={answer:?}",
+            provider.id(),
+            started.elapsed().as_millis()
+        );
+        let version = match answer {
+            CheckAnswer::Update(version) => version,
+            CheckAnswer::Current => continue,
+            CheckAnswer::Unanswered => {
+                if let Some(claimed_at) = claim {
+                    release_check(provider.id(), claimed_at);
+                }
+                continue;
+            }
+        };
+        if allowed {
+            start_update(
+                service,
+                Update {
+                    provider,
+                    version,
+                    command,
+                },
+            );
+        } else {
+            log::info!(
+                "[provider-update] {} {} -> {} available; instance updates are disabled",
+                provider.display_name(),
+                version.current_version,
+                version.latest_version
+            );
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CheckAnswer {
+    Update(ProviderUpdateAvailability),
+    Current,
+    Unanswered,
+}
+
+/// A provider answers "no newer target" with latest equal to current; `None` means it could not answer.
+fn classify(available: Option<ProviderUpdateAvailability>) -> CheckAnswer {
+    match available {
+        Some(version) if version.latest_version != version.current_version => {
+            CheckAnswer::Update(version)
+        }
+        Some(_) => CheckAnswer::Current,
+        None => CheckAnswer::Unanswered,
+    }
+}
+
+/// The provider's update target, if it offers one newer than what is installed.
+pub fn newer_target(
+    available: Option<ProviderUpdateAvailability>,
+) -> Option<ProviderUpdateAvailability> {
+    match classify(available) {
+        CheckAnswer::Update(version) => Some(version),
+        CheckAnswer::Current | CheckAnswer::Unanswered => None,
+    }
+}
+
+fn claim_check(provider: &str) -> Option<u64> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    match storage::transact(|state| state.claim_check(provider, now_ms)) {
+        Ok(claimed) => claimed.then_some(now_ms),
+        Err(error) => {
+            log::warn!("[provider-update] {provider}: check stamp unavailable: {error}");
+            Some(now_ms)
+        }
+    }
+}
+
+fn release_check(provider: &str, claimed_at: u64) {
+    if let Err(error) = storage::transact(|state| state.release_check(provider, claimed_at)) {
+        log::warn!("[provider-update] {provider}: check stamp release failed: {error}");
+    }
+}
+
+pub fn coordinates_prompt(service: &impl ProviderUpdateHost, provider: &str) -> bool {
+    updates_enabled(service)
+        && service
+            .provider(provider)
+            .is_some_and(|provider| provider.update_command(command::platform_key()).is_some())
+}
+
+pub fn manual_prompt_observed(
+    service: &impl ProviderUpdateHost,
+    snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
+) {
+    if !updates_enabled(service) {
+        return;
+    }
+    if !service.matches_own_session(snapshot) {
+        return;
+    }
+    let Some(provider) = service.provider(&snapshot.agent_type) else {
+        return;
+    };
+    let Some(command) = provider.update_command(command::platform_key()) else {
+        return;
+    };
+    let screen = snapshot.screen_text.clone();
+    let service = service.clone();
+    spawn_utility("provider-update-prompt", move || {
+        if provider.provider_self_update_capability().is_some() {
+            publish_available(&service, provider.id(), provider.check_for_update());
+            return;
+        }
+        if let Some(version) = newer_target(provider.check_for_update())
+            .or_else(|| provider.update_prompt_availability(&screen))
+        {
+            start_update(
+                &service,
+                Update {
+                    provider,
+                    version,
+                    command,
+                },
+            );
+        } else {
+            log::warn!(
+                "[provider-update] classified prompt has no provider-declared target version"
+            );
+        }
+    });
+}
+
+fn update_instance_name(instance: Option<&str>, port: u16, allow_non_prod: bool) -> Option<String> {
+    if let Some(name) = instance.map(str::trim).filter(|name| !name.is_empty()) {
+        return allow_non_prod.then(|| name.into());
+    }
+    if port == 7685 {
+        return Some("production".into());
+    }
+    allow_non_prod.then(|| format!("instance on port {port}"))
+}
+
+fn updates_enabled(service: &impl ProviderUpdateHost) -> bool {
+    ENABLED.load(Ordering::Acquire) && service.auto_update_enabled()
+}
+
+fn start_update(service: &impl ProviderUpdateHost, mut update: Update) {
+    let provider_id = update.provider.id().to_string();
+    let key = format!("{provider_id}:{}", update.version.latest_version);
+    let manifest = update.provider.cli_compatibility();
+    let busy = service.provider_busy(&provider_id);
+    match policy::may_update_now(
+        updates_enabled(service),
+        busy,
+        manifest.as_ref(),
+        &update.version.latest_version,
+        &update.command,
+    ) {
+        policy::UpdateDecision::Deferred => {
+            log::debug!("[provider-update] {provider_id}: deferred until provider turns finish");
+            WAITING.lock().insert(provider_id, update);
+            return;
+        }
+        decision @ (policy::UpdateDecision::Disabled
+        | policy::UpdateDecision::Incompatible
+        | policy::UpdateDecision::UnboundedUpdater) => {
+            log::info!("[provider-update] {provider_id}: update withheld ({decision:?})");
+            return;
+        }
+        policy::UpdateDecision::Ready => {}
+    }
+    let resolved_command = match command_for_target(&update.command, &update.version.latest_version)
+    {
+        Ok(command) => command,
+        Err(error) => {
+            log::warn!("[provider-update] {provider_id}: {error}");
+            return;
+        }
+    };
+    let admission = storage::transact(|state| {
+        state.begin(
+            &provider_id,
+            &update.version.current_version,
+            &update.version.latest_version,
+        )
+    });
+    match admission {
+        Ok(Admission::Duplicate) => return,
+        Ok(Admission::ProviderBusy) => {
+            WAITING.lock().insert(provider_id, update);
+            return;
+        }
+        Err(error) => {
+            log::error!("[provider-update] durable admission failed: {error}");
+            return;
+        }
+        Ok(Admission::Started) => {}
+    }
+    update.command = resolved_command;
+    let service = service.clone();
+    let failure_service = service.clone();
+    let failure_key = key.clone();
+    let builder = std::thread::Builder::new().name("provider-update-install".into());
+    let spawned = builder.spawn(move || install(service, key, provider_id, update));
+    if let Err(error) = spawned {
+        let _ = storage::transact(|state| {
+            state.finish(
+                &failure_key,
+                Err(format!("installer utility thread failed: {error}")),
+            )
+        });
+        idle::schedule(&failure_service, None);
+    }
+}
+
+fn install(service: impl ProviderUpdateHost, key: String, provider_id: String, update: Update) {
+    let mut child_stopped = true;
+    let mut result = if journal(
+        &provider_id,
+        Some(&update.version.latest_version),
+        None,
+        "update_started",
+        "provider_update_command",
+    ) {
+        command::run_update_command(&update.command).map_err(|failure| {
+            child_stopped = failure.child_stopped;
+            failure.reason
+        })
+    } else {
+        Err("update withheld because the Supporter journal is unavailable".into())
+    };
+    if !journal(
+        &provider_id,
+        Some(&update.version.latest_version),
+        None,
+        if result.is_ok() {
+            "update_succeeded"
+        } else {
+            "update_failed"
+        },
+        "provider_update_command",
+    ) && result.is_ok()
+    {
+        result = Err(
+            "update command succeeded but its journal write failed; update result unconfirmed"
+                .into(),
+        );
+    }
+    let summary = match &result {
+        Ok(()) => format!(
+            "{provider_id} CLI updater completed for target {}; applies at next launch",
+            update.version.latest_version
+        ),
+        Err(error) => format!("{provider_id} CLI update failed: {error}"),
+    };
+    log::info!("[provider-update] {summary}");
+    if let Err(error) = storage::transact(|state| {
+        state.finish(&key, result);
+        if !child_stopped {
+            state.block_unstopped(&key);
+        }
+    }) {
+        log::error!(
+            "[provider-update] completion persistence failed; update result unconfirmed: {error}"
+        );
+    }
+    service.completed(&provider_id, &summary);
+    process_waiting(&service);
+}
+
+fn process_waiting(service: &impl ProviderUpdateHost) {
+    let updates = std::mem::take(&mut *WAITING.lock());
+    for (_, update) in updates {
+        start_update(service, update);
+    }
+}
+
+pub fn task_state_changed(service: &impl ProviderUpdateHost) {
+    if updates_enabled(service) {
+        idle::schedule_async(service, None);
+    }
+}
+
+pub fn tab_became_idle(service: &impl ProviderUpdateHost, tab_id: &str) {
+    if updates_enabled(service) {
+        idle::schedule_async(service, Some(tab_id.to_string()));
+    }
+}
+
+pub fn background_work_changed(service: &impl ProviderUpdateHost, tab_id: &str) {
+    tab_became_idle(service, tab_id);
+}
+
+pub fn status_summary(provider: &str) -> Option<String> {
+    let state = storage::read().ok()?;
+    let run = state
+        .runs
+        .values()
+        .filter(|run| run.provider == provider)
+        .max_by_key(|run| run.started_at)?;
+    Some(match &run.outcome {
+        state::RunOutcome::Running => format!("Updating CLI to {}", run.target),
+        state::RunOutcome::Succeeded => {
+            format!(
+                "CLI updater completed for target {}; applies at next launch",
+                run.target
+            )
+        }
+        state::RunOutcome::Failed(error) | state::RunOutcome::UnstoppedFailure(error) => {
+            format!("CLI update failed: {error}")
+        }
+    })
+}
+
+fn spawn_utility(name: &str, work: impl FnOnce() + Send + 'static) {
+    if let Err(error) = std::thread::Builder::new().name(name.into()).spawn(work) {
+        log::error!("[provider-update] utility thread failed: {error}");
+    }
+}
+
+pub fn record_safe_prompt_answer(provider: &str, tab: &str) {
+    journal(
+        provider,
+        None,
+        Some(tab),
+        "safe_choice_answered",
+        "provider_declared_update_safe_choice",
+    );
+}
+
+fn journal(
+    provider: &str,
+    target: Option<&str>,
+    tab: Option<&str>,
+    label: &str,
+    reason: &'static str,
+) -> bool {
+    codeterm_supporter::runtime()
+        .provider_update_action(
+            provider,
+            target,
+            codeterm_supporter::ActionRecord {
+                kind: codeterm_supporter::VerdictKind::TabState,
+                tab,
+                label,
+                confidence: 1.0,
+                action: codeterm_supporter::Action::Recovery,
+                reason,
+                asked: Some(codeterm_supporter::update_questions(label)),
+            },
+        )
+        .is_ok()
+}
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(windows)]
+pub use command::process::ProcessChild;
+pub use command::process::ProcessTree;

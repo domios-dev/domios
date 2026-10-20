@@ -1,6 +1,82 @@
 use super::*;
 
 impl JsProvider {
+    pub(super) fn js_runtime_stored_history_available(&self, cwd: &str, session_id: &str) -> bool {
+        self.agent_runtime()
+            .is_some_and(|runtime| runtime.stored_history)
+            && (!self.has_js("runtimeStoredHistoryAvailable")
+                || self
+                    .try_call(
+                        "runtimeStoredHistoryAvailable",
+                        &[json!(cwd), json!(session_id)],
+                    )
+                    .unwrap_or(false))
+    }
+
+    pub(super) fn js_session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
+        // Hook-reported evidence wins over any reconstruction; absence falls through.
+        let path = crate::session_evidence::stored_transcript_path(session_id)
+            .or_else(|| self.owned_session_file_path(cwd, session_id))?;
+        if self
+            .manifest
+            .commands
+            .model_switch_commands
+            .as_ref()
+            .is_some_and(|commands| commands.turn_completion.is_some())
+        {
+            self.permitted_session_path(path)
+        } else {
+            Some(path)
+        }
+    }
+
+    pub(super) fn js_runtime_stored_history(
+        &self,
+        session_id: &str,
+        records: &str,
+    ) -> Result<Vec<codeterm_types::agent::chat_types::ChatMsg>, String> {
+        if !self
+            .agent_runtime()
+            .is_some_and(|capability| capability.stored_history)
+        {
+            return Err("Provider has no native stored runtime history projection".into());
+        }
+        if let Some(source) = self
+            .manifest
+            .capabilities
+            .record_sources
+            .get("storedHistory")
+            .filter(|_| self.has_js("runtimeStoredRecords"))
+        {
+            let window = crate::jsonl_window::records::parse_records_with_limit(
+                records.as_bytes(),
+                0,
+                source,
+                Some(session_id),
+                1024 * 1024,
+            );
+            return self.js_runtime_stored_records(session_id, &window);
+        }
+        self.try_call("runtimeStoredHistory", &[json!(session_id), json!(records)])
+            .ok_or_else(|| "Stored runtime history projection failed".into())
+    }
+
+    pub(super) fn js_runtime_stored_records(
+        &self,
+        session_id: &str,
+        window: &crate::jsonl_window::records::RecordWindow,
+    ) -> Result<Vec<codeterm_types::agent::chat_types::ChatMsg>, String> {
+        if let Some(error) = &window.projection_error {
+            return Err(error.clone());
+        }
+        self.try_call_records(
+            "runtimeStoredRecords",
+            &[json!(session_id), json!(window.records), json!(window.meta)],
+            window,
+        )
+        .ok_or_else(|| "Stored runtime record projection failed".into())
+    }
+
     pub(super) fn js_structured_tool_file_diffs(
         &self,
         part: &serde_json::Value,

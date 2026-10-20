@@ -1,0 +1,29 @@
+{
+  "balance": {
+    "rateLimits": {
+      "limitId": "codex",
+      "primary": {"usedPercent": 25, "windowDurationMins": 300, "resetsAt": 1792472484},
+      "credits": {"hasCredits": true, "unlimited": false, "balance": "123.4500"}
+    }
+  },
+  "unlimited": {
+    "rateLimits": {
+      "limitId": "codex",
+      "primary": {"usedPercent": 25, "windowDurationMins": 300, "resetsAt": 1792472484},
+      "credits": {"hasCredits": true, "unlimited": true, "balance": null}
+    }
+  },
+  "noCredits": {
+    "rateLimits": {
+      "limitId": "codex",
+      "primary": {"usedPercent": 25, "windowDurationMins": 300, "resetsAt": 1792472484},
+      "credits": {"hasCredits": false, "unlimited": false, "balance": "0"}
+    }
+  },
+  "absent": {
+    "rateLimits": {
+      "limitId": "codex",
+      "primary": {"usedPercent": 25, "windowDurationMins": 300, "resetsAt": 1792472484}
+    }
+  }
+}

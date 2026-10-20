@@ -43,6 +43,7 @@ export {
 } from "./codeterm/reportOutcome";
 export type { ReportOutcomeClass, ReportTaskOutcome } from "./codeterm/reportOutcome";
 export { LocalArtifactScope } from "./LocalArtifactScope";
+export { AgentInspectionProvider, useAgentInspection } from "./AgentInspection";
 export { AttachmentCapsule, CAPSULE_DETAIL_STYLE, CAPSULE_ICONS, CapsuleDecor, CapsulePreview, capsuleLabelParts } from "./AttachmentCapsule";
 export { capsuleSelectionText, writeClipboardFlavours } from "./capsuleClipboard";
 export { formatMessageTime } from "./MessageTime";
@@ -86,3 +87,6 @@ export { MessagePartsContext } from "./MessagePartsContext";
 export { MessageTimeFrame } from "./MessageTimeFrame";
 
 export { ChatHighlightBudgetProvider, ChatHighlightRow } from "./ChatHighlightBudget";
+export { ChatDaySeparator } from "./ChatDaySeparator";
+export { chatLocalDay, chatDaySeparators, messageTimeLabels, showChatTimeGutter, chatHorizontalInsets } from "./chatTimeModel";
+export { messageRowTime } from "./messageRowTime";

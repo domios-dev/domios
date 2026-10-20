@@ -21,6 +21,9 @@ permissions:
   contents: read
 
 env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+  CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
   DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
   DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
   DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
@@ -36,6 +39,8 @@ jobs:
     timeout-minutes: 120
     env:
       GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
       ASSET_SCOPE: linux-aarch64
@@ -90,23 +95,25 @@ jobs:
           fi
 
       - name: Verify native Docker builder
-        run: |
-          docker info >/dev/null
-          docker image inspect codeterm-build-linux-arm64 >/dev/null
-          test "$(docker image inspect --format '{{.Architecture}}' codeterm-build-linux-arm64)" = arm64
+        run: bash scripts/check-linux-arm64-builder.sh
 
       - name: Build and smoke Linux arm64 in native container
         run: |
           rm -rf "$ART"
           mkdir -p "$ART"
           git bundle create "$ART/source.bundle" HEAD
+          source scripts/cache-policy.sh
+          ct_sccache_storage
+          test "$CT_SCCACHE_STORAGE" = shared
           node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- docker run --rm --pull=never --platform linux/arm64 \
             -v "$ART:/work" -v "$PWD/.codeterm/build-machine/scripts/build-linux.sh:/build-linux.sh:ro" \
             -e DOMIOS_FIREBASE_API_KEY -e DOMIOS_FIREBASE_PROJECT_ID -e DOMIOS_FIREBASE_APP_ID \
             -e DOMIOS_ACCOUNT_REDEEM_URL -e DOMIOS_BILLING_FUNCTIONS_URL \
             -e DOMIOS_AMPLITUDE_API_KEY_TEST -e DOMIOS_AMPLITUDE_API_KEY_PROD \
-            -e CODETERM_SCCACHE_VERIFY_ONLY=1 -e CARGO_INCREMENTAL=0 \
+            -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner \
+            -e CODETERM_SCCACHE_VERIFY_ONLY=1 -e CARGO_INCREMENTAL=0 -e CARGO_BUILD_JOBS="$(getconf _NPROCESSORS_ONLN)" \
             -e CARGO_TARGET_DIR=/src/src-tauri/target -e CODETERM_RELEASE_FEATURES=embeddings \
+            -e RELEASE_TAG="${{ inputs.tag }}" \
             codeterm-build-linux-arm64 bash /build-linux.sh source deb,appimage
 
       - name: Frozen signer dependencies
@@ -125,17 +132,25 @@ jobs:
       - name: Sign Linux updater bundles
         run: |
           for bundle in "$ART"/out/*.AppImage "$ART"/out/*.deb; do
-            pnpm tauri signer sign "$bundle"
+            env -u TAURI_SIGNING_PRIVATE_KEY pnpm tauri signer sign "$bundle"
           done
 
       - name: Verify updater signatures (including dry run)
         env:
           RELEASE_VERIFY_ONLY: 'true'
+          SOURCE_SHA: ${{ inputs.source_ref }}
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART/out"
+
+      - name: Retain private dry-run updater evidence
+        if: ${{ inputs.dry_run }}
+        run: >-
+          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID"
+          "$ASSET_SCOPE" "$ART/out" "$ART/out" "$RUNNER_TEMP/dry-run-$ASSET_SCOPE"
 
       - name: Verify and publish platform assets and updater fragment
         if: ${{ !inputs.dry_run }}
         env:
+          SOURCE_SHA: ${{ inputs.source_ref }}
           PUBLISH_PUBLIC_MIRROR: ${{ inputs.mirror }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
         run: node scripts/release-publish-platform.mjs "${{ inputs.tag }}" "$ASSET_SCOPE" "$ART/out"
@@ -151,3 +166,7 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: release-Linux
           target: aarch64-unknown-linux-gnu
+      - name: Remove this job's Rust targets and archives
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs

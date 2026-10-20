@@ -93,6 +93,25 @@ mod worker {
     }
 
     #[test]
+    fn graph_embedding_is_queued_without_holding_the_database_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let (gate, embedder) = Gate::new();
+        let mem = MemManager::open_with_embedder(dir.path(), embedder).unwrap();
+        mem.graph_create_entity(&crate::Entity {
+            id: "queued-person".into(),
+            entity_type: "person".into(),
+            scope: "global".into(),
+            properties: serde_json::json!({"name": "Ada"}),
+        })
+        .unwrap();
+        assert!(gate.next_started().contains("ada"));
+        assert!(mem.conn.try_lock().is_some());
+        gate.release();
+        assert!(mem.embed_queue.wait_idle(DEADLINE));
+        assert_eq!(vector_count(&mem, "queued-person"), 1);
+    }
+
+    #[test]
     fn embed_queue_fair_small_item_not_starved() {
         let dir = tempfile::tempdir().unwrap();
         let (gate, embedder) = Gate::new();

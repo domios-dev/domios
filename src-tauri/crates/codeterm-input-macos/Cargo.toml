@@ -1,0 +1,8 @@
+[package]
+license = "PolyForm-Shield-1.0.0"
+name = "codeterm-input-macos"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true

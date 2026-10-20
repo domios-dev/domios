@@ -14,7 +14,7 @@ use chrono::Utc;
 use codeterm_bridge::bridge::supervisor::BridgeSupervisor;
 use codeterm_bridge::bridge::telegram::TelegramService;
 use codeterm_bridge::bridge::traits::MessagingService;
-use codeterm_lib::bridge_host::attachment_store;
+use codeterm_service_core::bridge_host::attachment_store;
 use serde_json::{json, Value};
 
 async fn start_telegram_bridge_for_test(token: String, api_base: String) -> Arc<BridgeSupervisor> {

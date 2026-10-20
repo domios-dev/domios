@@ -7,7 +7,7 @@
  * click; without one, it opens the plugin's glance popover.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GlancePopover, type GlanceAnchor } from "./GlancePopover";
+import { GlancePopover } from "./GlancePopover";
 import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 import type { Tone } from "./ViewNodeRenderer";
 import { ensurePluginSnapshot, usePluginSnapshotStore } from "../../lib/pluginSnapshotStore";
@@ -61,7 +61,8 @@ export function PluginBubbles({
   const snapshotState = usePluginSnapshotStore();
   const receiverMenu = usePluginTabMenu();
   const [pills, setPills] = useState<Record<string, BubbleData | null>>({});
-  const [open, setOpen] = useState<{ id: string; name: string; configHelp?: string; anchor: GlanceAnchor } | null>(null);
+  const [open, setOpen] = useState<{ id: string; name: string; configHelp?: string } | null>(null);
+  const glanceAnchor = useRef<HTMLElement | null>(null);
   const [watch, setWatch] = useState<RepoWatchState | null>(null);
   const plugins = useMemo(
     () =>
@@ -117,18 +118,17 @@ export function PluginBubbles({
   // Only a proven watch reads as live; pending and unwatched say so.
   const watchState = watchReason ? "unavailable" : (watch?.status ?? "idle");
 
-  const onClick = useCallback((p: BubblePlugin, e: React.MouseEvent) => {
+  const onClick = useCallback((p: BubblePlugin, e: React.MouseEvent<HTMLElement>) => {
     const pill = pills[p.id];
     if (pill?.action) {
       openPanel(pill.action, cwd);
       return;
     }
-    const r = e.currentTarget.getBoundingClientRect();
+    glanceAnchor.current = e.currentTarget;
     setOpen({
       id: p.id,
       name: p.display_name || p.id,
       configHelp: p.config_help ?? undefined,
-      anchor: { right: window.innerWidth - r.right, top: r.bottom + 6 },
     });
   }, [pills, cwd]);
 
@@ -139,7 +139,7 @@ export function PluginBubbles({
       {visible.map((p) => {
         const b = pills[p.id] as BubbleData;
         const base = b.tooltip || p.display_name || p.id;
-        const c = watchReason ? TONE.muted : TONE[b.tone ?? "default"];
+        const c = TONE[b.tone ?? "default"];
         const tooltip = watchReason
           ? `${base} — repository watch unavailable (${watchReason})`
           : watchState === "watching"
@@ -165,7 +165,7 @@ export function PluginBubbles({
           pluginId={open.id}
           displayName={open.name}
           configHelp={open.configHelp}
-          anchor={open.anchor}
+          anchor={glanceAnchor}
           ctx={{ cwd, tabId }}
           onClose={() => setOpen(null)}
           onOpenSettings={(id) => {

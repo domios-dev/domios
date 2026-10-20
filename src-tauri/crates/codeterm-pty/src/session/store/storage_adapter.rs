@@ -324,7 +324,7 @@ fn to_desk_snapshot(
                         title: tab.title.clone(),
                         description: tab.description.clone(),
                         sort_order: tab.sort_order,
-                        layout: to_layout(&tab.split_tree)?,
+                        layout: to_tab_layout(tab)?,
                     })
                 })
                 .collect::<Result<Vec<_>, String>>()?;
@@ -443,6 +443,8 @@ fn from_desk_snapshot(snapshot: DeskSnapshot) -> Result<SessionSnapshot, String>
                     .into_iter()
                     .map(|tab| {
                         Ok(TabSnapshot {
+                            last_active_at_ms: layout_activity(&tab.layout),
+                            last_opened_at_ms: layout_opened(&tab.layout),
                             id: tab.id,
                             title: tab.title,
                             description: tab.description,
@@ -494,6 +496,7 @@ fn from_layout(node: DeskLayoutNode) -> Result<SplitNodeSnapshot, String> {
             fields,
         } => {
             let mut value = fields.values;
+            codeterm_storage::normalize_legacy_session_id(&mut value);
             let object = value
                 .as_object_mut()
                 .ok_or_else(|| "stored leaf fields are not an object".to_string())?;
@@ -520,5 +523,64 @@ fn from_layout(node: DeskLayoutNode) -> Result<SplitNodeSnapshot, String> {
                 .collect::<Result<Vec<_>, _>>()?,
             extra_fields: fields,
         }),
+    }
+}
+
+fn to_tab_layout(tab: &TabSnapshot) -> Result<DeskLayoutNode, String> {
+    let mut layout = to_layout(&tab.split_tree)?;
+    fn set(node: &mut DeskLayoutNode, activity: Option<u64>, opened: Option<u64>) {
+        match node {
+            DeskLayoutNode::Leaf { fields, .. } => {
+                if let Some(object) = fields.values.as_object_mut() {
+                    object.insert("last_active_at_ms".into(), serde_json::json!(activity));
+                    object.insert("last_opened_at_ms".into(), serde_json::json!(opened));
+                }
+            }
+            DeskLayoutNode::Split { children, .. } => {
+                for child in children {
+                    set(child, activity, opened);
+                }
+            }
+        }
+    }
+    set(&mut layout, tab.last_active_at_ms, tab.last_opened_at_ms);
+    Ok(layout)
+}
+
+fn layout_activity(node: &DeskLayoutNode) -> Option<u64> {
+    match node {
+        DeskLayoutNode::Leaf { fields, .. } => fields
+            .values
+            .get("last_active_at_ms")
+            .and_then(serde_json::Value::as_u64),
+        DeskLayoutNode::Split { children, .. } => children.iter().find_map(layout_activity),
+    }
+}
+
+fn layout_opened(node: &DeskLayoutNode) -> Option<u64> {
+    match node {
+        DeskLayoutNode::Leaf { fields, .. } => fields
+            .values
+            .get("last_opened_at_ms")
+            .and_then(serde_json::Value::as_u64),
+        DeskLayoutNode::Split { children, .. } => children.iter().filter_map(layout_opened).max(),
+    }
+}
+
+#[cfg(test)]
+mod activity_tests {
+    use super::*;
+    use crate::multiplexer::state::MultiplexerState;
+
+    #[test]
+    fn activity_survives_storage_desk_conversion() {
+        let (mut mux, id) = MultiplexerState::new();
+        mux.get_tab_mut(&id).unwrap().last_active_at_ms = Some(98765);
+        mux.get_tab_mut(&id).unwrap().last_opened_at_ms = Some(12345);
+        let saved = to_desk_snapshot(&mux.to_session_snapshot(), vec![]).unwrap();
+        let restored = from_desk_snapshot(saved).unwrap();
+        let mux = MultiplexerState::from_session_snapshot(&restored);
+        assert_eq!(mux.get_tab(&id).unwrap().last_active_at_ms, Some(98765));
+        assert_eq!(mux.get_tab(&id).unwrap().last_opened_at_ms, Some(12345));
     }
 }

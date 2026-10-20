@@ -25,3 +25,7 @@ export function usageTrackingOverrides(
   }
   return out;
 }
+
+export function tabUsageProvider(provider:string | null | undefined, chatBackend:boolean, runtimeUsage:boolean | undefined): string | null {
+  return !chatBackend || runtimeUsage ? provider ?? null : null;
+}

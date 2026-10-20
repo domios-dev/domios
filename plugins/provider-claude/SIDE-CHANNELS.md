@@ -29,7 +29,8 @@ Resolving or cancelling one request leaves the others pending.
 Read-only inspection on Claude Code 2.1.292 found an installed CodeTerm-owned
 `codeterm-hook-v3` PermissionRequest command using `curl -s -o /dev/null`.
 It forwards stdin with `--data-binary @-`, but discards the daemon response.
-Its timeout is 5000 and curl has no `--max-time`. URL, token and tab id come
+That installed hook used a timeout of 5000 seconds; installers now use 5 seconds.
+Curl has no `--max-time`. URL, token and tab id come
 from environment variables; no instance address or credential is embedded.
 Native and JS installer source in this lane already preserve curl stdout.
 

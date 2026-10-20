@@ -1,3 +1,4 @@
+// Caller: scripts windows-sccache-session.ps1
 using System;
 using System.Collections;
 using System.Collections.Generic;

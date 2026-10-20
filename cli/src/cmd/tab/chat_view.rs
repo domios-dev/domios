@@ -1,7 +1,7 @@
 /// `<domios from="tab" label="X" ...>body</domios>` → (Some("X"), "body").
 /// Plain text or an embedded tag remains unchanged.
 fn strip_origin_marker(s: &str) -> (Option<String>, String) {
-    if let Some(parsed) = codeterm_types::domios::parse_message(s) {
+    if let Some(parsed) = codeterm_wire::domios::parse_message(s) {
         let label = parsed
             .attr("label")
             .or_else(|| parsed.attr("source"))

@@ -1,4 +1,8 @@
+import { PaneState } from "./shared/PaneState";
+import { Button } from "./shared/Button";
+import { Minus, Square, X } from "lucide-react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { releaseBootCover } from "../lib/bootCover";
 import { nativeBridge } from "../lib/nativeBridge";
 import { clearStateSnapshot } from "../lib/stateCache";
 import { clearRelayTarget } from "../lib/webApi";
@@ -65,9 +69,9 @@ function CrashWindowChrome() {
       <span data-tauri-drag-region>Domios</span>
       {appWindow && (
         <nav aria-label="Window controls">
-          <button type="button" aria-label="Minimize" onClick={() => void appWindow.minimize()}>—</button>
-          <button type="button" aria-label="Maximize" onClick={() => void appWindow.toggleMaximize()}>□</button>
-          <button type="button" aria-label="Close" onClick={() => void appWindow.close()}>×</button>
+          <button type="button" aria-label="Minimize" onClick={() => void appWindow.minimize()}><Minus size={14} aria-hidden="true" /></button>
+          <button type="button" aria-label="Maximize" onClick={() => void appWindow.toggleMaximize()}><Square size={12} aria-hidden="true" /></button>
+          <button type="button" aria-label="Close" onClick={() => void appWindow.close()}><X size={14} aria-hidden="true" /></button>
         </nav>
       )}
     </header>
@@ -83,6 +87,7 @@ export class FrontendCrashBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error("[frontend-crash] React render failed", error, info.componentStack);
+    releaseBootCover();
   }
 
   // The snapshot cache is keyed by relay target, so it must be dropped before the target is.
@@ -103,18 +108,10 @@ export class FrontendCrashBoundary extends Component<Props, State> {
         <div className="frontend-crash__shell">
           <CrashWindowChrome />
           <main className="frontend-crash" role="status" aria-labelledby="frontend-safe-start-title">
-            <section className="frontend-crash__panel">
-              <p className="frontend-crash__eyebrow">Safe start</p>
+            <section className="frontend-crash__note">
               <h1 id="frontend-safe-start-title">Left the location that crashed</h1>
-              <p>
-                The restored workspace snapshot and the remote machine target were cleared, so Domios opens on this
-                machine instead of re-entering the view that failed.
-              </p>
-              <div className="frontend-crash__actions">
-                <button type="button" onClick={this.openAfterSafeStart}>
-                  Open Domios
-                </button>
-              </div>
+              <p>Domios opens on this machine with a fresh layout instead of returning to the view that failed.</p>
+              <Button variant="primary" onClick={this.openAfterSafeStart}>Open Domios</Button>
             </section>
           </main>
         </div>
@@ -128,32 +125,11 @@ export class FrontendCrashBoundary extends Component<Props, State> {
     return (
       <div className="frontend-crash__shell">
         <CrashWindowChrome />
-        <main className="frontend-crash" role="alert" aria-labelledby="frontend-crash-title">
-          <section className="frontend-crash__panel">
-            <p className="frontend-crash__eyebrow">Domios UI error</p>
-            <h1 id="frontend-crash-title">The interface could not render</h1>
-            <p>The daemon and terminals may still be running. Reload the interface after reviewing the error.</p>
-            <section className="frontend-crash__detail" aria-labelledby="frontend-crash-message-label">
-              <h2 id="frontend-crash-message-label">Error message</h2>
-              <p className="frontend-crash__message" id="frontend-crash-message" data-testid="frontend-crash-message">
-                {details.message}
-              </p>
-            </section>
-            <section className="frontend-crash__detail" aria-labelledby="frontend-crash-stack-label">
-              <h2 id="frontend-crash-stack-label">Stack trace</h2>
-              <pre className="frontend-crash__stack" id="frontend-crash-stack" data-testid="frontend-crash-stack">
-                {details.stack}
-              </pre>
-            </section>
-            <div className="frontend-crash__actions">
-              <button type="button" onClick={this.leaveCrashedLocation}>
-                Leave this location
-              </button>
-              <button type="button" className="frontend-crash__secondary" onClick={() => window.location.reload()}>
-                Reload interface
-              </button>
-            </div>
-          </section>
+        <main className="frontend-crash" aria-label="The interface could not render">
+          <PaneState error={{ code: "frontend_crash", raw: `${details.message}\n${details.stack}` }} actions={[
+            { label: "Reload interface", onClick: () => window.location.reload() },
+            { label: "Leave this location", onClick: this.leaveCrashedLocation },
+          ]} />
         </main>
       </div>
     );
