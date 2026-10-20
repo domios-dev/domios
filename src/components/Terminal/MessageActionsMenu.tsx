@@ -3,13 +3,10 @@ import { Trash2, Check, Copy, Hash, ListChecks, MessageSquarePlus, GitBranch, Ro
 import { messageClipboard, messageMarkdownClipboard, sourceDiffersFromVisible, type ClipMessage } from "@codeterm/chat-core";
 import { writeClipboardFlavours } from "@codeterm/chat-ui";
 import { createPortal } from "react-dom";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 export type DotSide = "start" | "end";
 type OpenedBy = "hover" | "focus" | "click";
-type Placement = "below" | "above";
-
-/** Room the menu needs under its dot before it opens upward instead. */
-const MENU_ROOM_PX = 200;
 
 export interface MessageMenuActions {
   quote: (clip: ClipMessage) => void;
@@ -18,12 +15,6 @@ export interface MessageMenuActions {
   delete?: () => void;
   fork?: () => void;
   revert?: () => void;
-}
-
-function menuPlacement(anchor: HTMLElement): Placement {
-  const surface = anchor.closest<HTMLElement>("[role='log']");
-  const bottom = surface ? surface.getBoundingClientRect().bottom : window.innerHeight;
-  return anchor.getBoundingClientRect().bottom + MENU_ROOM_PX > bottom ? "above" : "below";
 }
 
 function MenuItem({ label, icon: Icon, hint, done, onSelect }: {
@@ -70,12 +61,10 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
   const menuRef = useRef<HTMLDivElement>(null);
   const openedBy = useRef<OpenedBy | null>(null);
   const focusItem = useRef<"first" | "last" | null>(null);
-  const [placement, setPlacement] = useState<Placement>("below");
   const [copied, setCopied] = useState<"copy" | "markdown" | null>(null);
 
   const show = (by: OpenedBy, item: "first" | "last" | null = null) => {
     if (!open) {
-      if (wrapRef.current) setPlacement(menuPlacement(wrapRef.current));
       openedBy.current = by;
       onOpenChange(true);
     } else if (by !== "hover") {
@@ -154,8 +143,7 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
     } else if (event.code === "Tab") hide();
   };
 
-  const menu = open && (
-        <div className={touch ? "ct-msg-sheet-wrap" : "ct-msg-menu-wrap"} data-side={side} data-placement={placement}>
+  const menu = (
           <div ref={menuRef} role="menu" aria-label="Message actions" className="ct-menu ct-msg-menu" onKeyDown={onMenuKey}>
             {metadata && <div role="note" aria-label={[metadata.time, metadata.date].join(" · ")} className="border-b px-3 py-2 text-xs" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>
               <time dateTime={metadata.dateTime} title={metadata.date} className="block truncate">{metadata.time} · {metadata.shortDate}</time>
@@ -177,7 +165,6 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
             {actions.delete && <MenuItem label="Delete" icon={Trash2} hint="Delete" onSelect={() => { hide(); actions.delete?.(); }} />}
             {touch && <button type="button" role="menuitem" className="ct-menu-row" onClick={() => hide(true)}>Close actions</button>}
           </div>
-        </div>
   );
 
   return (
@@ -188,7 +175,10 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
       data-open={open || undefined}
       data-hint={hint || undefined}
       onPointerEnter={(event) => { if (event.pointerType === "mouse") show("hover"); }}
-      onPointerLeave={(event) => { if (event.pointerType === "mouse" && openedBy.current === "hover") hide(); }}
+      onPointerLeave={(event) => {
+        if (event.pointerType === "mouse" && openedBy.current === "hover"
+          && !menuRef.current?.contains(event.relatedTarget as Node | null)) hide();
+      }}
       onBlur={(event) => {
         if (touch) return;
         if (openedBy.current !== "hover" && !wrapRef.current?.contains(event.relatedTarget as Node | null) && !menuRef.current?.contains(event.relatedTarget as Node | null)) hide();
@@ -207,7 +197,13 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
       >
         <span aria-hidden="true" className="ct-msg-dot__more" onAnimationEnd={onHintEnd}><i /><i /><i /></span>
       </button>
-      {touch ? createPortal(menu, document.body) : menu}
+      {touch
+        ? open && createPortal(<div className="ct-msg-sheet-wrap">{menu}</div>, document.body)
+        : (
+          <AnchoredPopover open={open} anchor={buttonRef} gap={0} placement={side === "end" ? "bottom-end" : "bottom-start"}>
+            <div className="ct-msg-menu-wrap">{menu}</div>
+          </AnchoredPopover>
+        )}
     </div>
   );
 }

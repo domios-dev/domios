@@ -38,10 +38,6 @@
 }
 
 .ct-dev-dot__label {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 60;
   padding: 4px 8px;
   white-space: nowrap;
   font-family: var(--ct-font-mono);

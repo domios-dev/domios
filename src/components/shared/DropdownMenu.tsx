@@ -1,7 +1,6 @@
-import { cloneElement, isValidElement, useCallback, useEffect, useId, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
-import { createPortal } from "react-dom";
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
-import { clampFloatingPosition } from "./floatingPosition";
+import { AnchoredPopover } from "./AnchoredPopover";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
 
 const DROPDOWN_OPEN_EVENT = "codeterm:dropdown-open";
@@ -9,10 +8,6 @@ const MENU_ITEM_SELECTOR =
   '[role="menuitem"]:not(:disabled), [role="menuitemradio"]:not(:disabled), [role="menuitemcheckbox"]:not(:disabled)';
 const MENU_NAVIGATION_KEYS = new Set(["ArrowDown", "ArrowUp", "Home", "End"]);
 const TRIGGER_FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
-const ROW_HEIGHT = 31;
-const DESCRIPTION_HEIGHT = 16;
-const SEPARATOR_HEIGHT = 9;
-const GROUP_HEADER_HEIGHT = 24;
 
 export interface DropdownMenuItem {
   label: string;
@@ -95,37 +90,6 @@ function leafItems(entries: DropdownMenuEntry[]): DropdownMenuItem[] {
   return out;
 }
 
-function estimateMenuHeight(
-  entries: DropdownMenuEntry[],
-  chrome: number,
-  collapsed: ReadonlySet<string>,
-): number {
-  let rows = 0;
-  for (const entry of entries) {
-    if (isSeparator(entry)) {
-      rows += SEPARATOR_HEIGHT;
-      continue;
-    }
-    if (isGroup(entry)) {
-      if (entry.label) rows += GROUP_HEADER_HEIGHT;
-      if (!collapsed.has(groupKeyOf(entry))) {
-        rows += entry.items.reduce(
-          (total, item) => total + ROW_HEIGHT + (item.description ? DESCRIPTION_HEIGHT : 0),
-          0,
-        );
-      }
-      continue;
-    }
-    rows += ROW_HEIGHT + (entry.description ? DESCRIPTION_HEIGHT : 0);
-  }
-  return rows + 8 + chrome;
-}
-
-function menuOrigin(top: number, trigger: HTMLElement | null, source: "trigger" | "context"): CSSProperties {
-  const above = source === "trigger" && trigger !== null && top < trigger.getBoundingClientRect().top;
-  return { "--ct-menu-origin": above ? "bottom left" : "top left", "--ct-menu-shift": above ? "6px" : "-6px" } as CSSProperties;
-}
-
 type PendingFocus = { kind: "submenu" } | { kind: "parent"; key: string };
 
 interface DropdownMenuProps {
@@ -171,8 +135,7 @@ export function DropdownMenu({
   const [pageDirection, setPageDirection] = useState<"forward" | "back" | null>(null);
   const [pageWidth, setPageWidth] = useState<number | null>(null);
   const ownerRef = useRef(Symbol("dropdown"));
-  const openSourceRef = useRef<"trigger" | "context">("trigger");
-  const contextPointRef = useRef({ x: 0, y: 0 });
+  const [contextPoint, setContextPoint] = useState<{ x: number; y: number } | null>(null);
   const descriptionIdBase = useId();
   const menuId = useId();
   const activeSubmenu = submenuKey === null
@@ -180,33 +143,6 @@ export function DropdownMenu({
     : leafItems(items).find((item) => item.submenu !== undefined && itemKey(item) === submenuKey)?.submenu;
   const inSubmenu = activeSubmenu !== undefined;
   const visibleEntries = activeSubmenu?.items ?? items;
-  const contentHeight = estimateMenuHeight(
-    visibleEntries,
-    (inSubmenu ? 38 : header ? 84 : 0) + 10,
-    collapsedGroups,
-  );
-
-  const capHeight = useCallback(
-    (estimated: number) => Math.min(estimated, maxHeight ?? window.innerHeight - 8, window.innerHeight - 8),
-    [maxHeight],
-  );
-
-  const calcPos = useCallback(() => {
-    if (!triggerRef.current) return null;
-    const menuHeight = capHeight(contentHeight);
-    const rect = triggerRef.current.getBoundingClientRect();
-    const menuWidth = Math.min(menuRef.current?.offsetWidth || 160, window.innerWidth - 8);
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const preferredTop = spaceBelow < menuHeight ? rect.top - menuHeight : rect.bottom + 2;
-    return clampFloatingPosition(rect.left, preferredTop, menuWidth, menuHeight, window.innerWidth, window.innerHeight);
-  }, [capHeight, contentHeight]);
-
-  const contextPos = useCallback((x: number, y: number) => {
-    const menuHeight = capHeight(contentHeight);
-    const menuWidth = Math.min(menuRef.current?.offsetWidth || 176, window.innerWidth - 8);
-    return clampFloatingPosition(x, y, menuWidth, menuHeight, window.innerWidth, window.innerHeight);
-  }, [capHeight, contentHeight]);
-
   const announceOpen = useCallback(() => {
     document.dispatchEvent(new window.CustomEvent(DROPDOWN_OPEN_EVENT, { detail: ownerRef.current }));
   }, []);
@@ -227,17 +163,14 @@ export function DropdownMenu({
       return;
     }
     announceOpen();
-    openSourceRef.current = "trigger";
+    setContextPoint(null);
     focusOnOpenRef.current = focusFirstItem ? "first" : false;
     pendingFocusRef.current = null;
     setSubmenuKey(null);
     setPageDirection(null);
     setPageWidth(null);
-    setPos(calcPos());
     setOpen(true);
-  }, [announceOpen, calcPos, open]);
-
-  const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
+  }, [announceOpen, open]);
 
   const closeMenu = useCallback((restoreFocus: boolean) => {
     setOpen(false);
@@ -284,11 +217,11 @@ export function DropdownMenu({
   }, []);
 
   useEffect(() => {
-    if (!open || !pos || !focusOnOpenRef.current) return;
+    if (!open || !focusOnOpenRef.current) return;
     const focus = focusOnOpenRef.current;
     focusOnOpenRef.current = false;
     moveFocus(focus === "last" ? "End" : "Home");
-  }, [moveFocus, open, pos]);
+  }, [moveFocus, open]);
 
   useEffect(() => {
     const pending = pendingFocusRef.current;
@@ -301,16 +234,6 @@ export function DropdownMenu({
       : focusable.find((element) => element.getAttribute("data-menu-key") === pending.key);
     target?.focus();
   }, [open, submenuKey]);
-
-  useEffect(() => {
-    if (!open) return;
-    const id = requestAnimationFrame(() => {
-      setPos(openSourceRef.current === "context"
-        ? contextPos(contextPointRef.current.x, contextPointRef.current.y)
-        : calcPos());
-    });
-    return () => cancelAnimationFrame(id);
-  }, [open, calcPos, contextPos]);
 
   useEffect(() => {
     if (!open) return;
@@ -341,19 +264,17 @@ export function DropdownMenu({
       event.preventDefault();
       event.stopPropagation();
       announceOpen();
-      openSourceRef.current = "context";
       focusOnOpenRef.current = false;
       pendingFocusRef.current = null;
-      contextPointRef.current = { x: event.clientX, y: event.clientY };
+      setContextPoint({ x: event.clientX, y: event.clientY });
       setSubmenuKey(null);
       setPageDirection(null);
       setPageWidth(null);
-      setPos(contextPos(event.clientX, event.clientY));
       setOpen(true);
     };
     target.addEventListener("contextmenu", handleContextMenu);
     return () => target.removeEventListener("contextmenu", handleContextMenu);
-  }, [announceOpen, contextMenuTargetRef, contextPos]);
+  }, [announceOpen, contextMenuTargetRef]);
 
   useEffect(() => {
     if (!open) return;
@@ -429,9 +350,8 @@ export function DropdownMenu({
       >
         {triggerWithPopup}
       </div>
-      {(!open || !pos) && <div id={menuId} role="menu" aria-label={menuLabel} hidden />}
-      {open && pos && createPortal(
-        <>
+      {!open && <div id={menuId} role="menu" aria-label={menuLabel} hidden />}
+      <AnchoredPopover open={open} anchor={contextPoint ?? triggerRef} gap={contextPoint ? 0 : 2}>
           <div
             ref={menuRef}
             id={menuId}
@@ -467,15 +387,8 @@ export function DropdownMenu({
               moveFocus(event.key);
             }}
             aria-description={activeSubmenu?.description}
-            className="ct-portal-menu ct-menu fixed w-max max-w-[calc(100vw-0.5rem)]"
-            style={{
-              top: pos.top,
-              left: pos.left,
-              width: inSubmenu && pageWidth ? pageWidth : undefined,
-              maxHeight: maxHeight ? Math.min(pos.maxHeight, maxHeight) : pos.maxHeight,
-              overflowY: "auto",
-              ...menuOrigin(pos.top, triggerRef.current, openSourceRef.current),
-            }}
+            className="ct-menu w-max"
+            style={{ width: inSubmenu && pageWidth ? pageWidth : undefined, maxHeight }}
           >
             <div key={submenuKey ?? "root"} className="ct-menu-page" data-direction={pageDirection ?? undefined}>
             {activeSubmenu ? (
@@ -536,9 +449,7 @@ export function DropdownMenu({
             ))}
             </div>
           </div>
-        </>,
-        document.body
-      )}
+      </AnchoredPopover>
     </>
   );
 }

@@ -23,6 +23,7 @@ import { goalVisible } from "./goalModel";
 import { ComposerBackgroundWorkPanel, SubagentCapsules } from "./ComposerBackgroundWorkPanel";
 import { useComposerBackgroundWorkStatus } from "./ComposerBackgroundWorkContext";
 import { composerBackgroundWorkBubble } from "./composerBackgroundWorkModel";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 export type ContextKind = "blueprints" | "crons" | "delayed" | "goal" | "background";
 
@@ -80,11 +81,13 @@ function ContextPopoverBubble({ label, tone, title, children, details }: {
   children: ReactNode;
   details: ReactNode;
 }) {
-  const { open, triggerRef, popoverRef, toggle } = useRuntimeStatusPopover();
+  const { open, triggerRef, popoverRef, toggle, close } = useRuntimeStatusPopover();
   return <div className="inline-flex min-w-0 max-w-full">
     <ComposerContextChip kind={tone} open={open} ref={triggerRef} aria-label={label} title={title} aria-expanded={open} aria-haspopup="dialog" onClick={toggle}>{children}</ComposerContextChip>
-    {open && <div ref={popoverRef} role="dialog" aria-label={label} tabIndex={-1}
-      className="ct-menu absolute bottom-full right-0 z-40 mb-2 w-64 max-w-[calc(100vw-2rem)] whitespace-pre-wrap break-words p-3 text-xs text-[var(--ct-fg)]">{details}</div>}
+    <AnchoredPopover open={open} anchor={triggerRef} placement="top-end" onClose={close}>
+      <div ref={popoverRef} role="dialog" aria-label={label} tabIndex={-1}
+        className="ct-menu w-64 max-w-full whitespace-pre-wrap break-words p-3 text-xs text-[var(--ct-fg)]">{details}</div>
+    </AnchoredPopover>
   </div>;
 }
 

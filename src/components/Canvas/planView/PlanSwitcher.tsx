@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KebabGlyph } from "../../shared/RowMenuButton";
+import { AnchoredPopover } from "../../shared/AnchoredPopover";
 
 const SEGMENTED_MAX = 3;
 
@@ -41,20 +42,12 @@ function KebabMenu({
   triggerEl: HTMLButtonElement | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<HTMLButtonElement | null>(triggerEl);
+  anchorRef.current = triggerEl;
 
   useEffect(() => {
     ref.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
   }, []);
-
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node) && !triggerEl?.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [onClose, triggerEl]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -95,6 +88,7 @@ function KebabMenu({
   };
 
   return (
+    <AnchoredPopover open anchor={anchorRef} placement="bottom-end" onClose={onClose}>
     <div
       ref={ref}
       role="menu"
@@ -152,6 +146,7 @@ function KebabMenu({
         </button>
       )}
     </div>
+    </AnchoredPopover>
   );
 }
 
@@ -306,20 +301,6 @@ function ArchivedPlansDropdown({
     setOpenMenu(null);
   }, []);
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (
-        !listboxRef.current?.contains(e.target as Node) &&
-        !triggerRef.current?.contains(e.target as Node)
-      ) {
-        close();
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open, close]);
-
   if (plans.length === 0) return null;
 
   const onListboxKeyDown = (e: React.KeyboardEvent) => {
@@ -374,7 +355,7 @@ function ArchivedPlansDropdown({
           {open ? " ▴" : " ▾"}
         </span>
       </button>
-      {open && (
+      <AnchoredPopover open={open} anchor={triggerRef} placement="bottom-end" onClose={close}>
         <div
           ref={listboxRef}
           role="listbox"
@@ -424,7 +405,7 @@ function ArchivedPlansDropdown({
             );
           })}
         </div>
-      )}
+      </AnchoredPopover>
     </div>
   );
 }
@@ -455,20 +436,6 @@ function OverflowSwitcher({
     setListboxOpen(false);
     setOpenMenu(null);
   }, []);
-
-  useEffect(() => {
-    if (!listboxOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (
-        !listboxRef.current?.contains(e.target as Node) &&
-        !triggerRef.current?.contains(e.target as Node)
-      ) {
-        close();
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [listboxOpen, close]);
 
   const onListboxKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -567,7 +534,7 @@ function OverflowSwitcher({
           {listboxOpen ? " ▴" : " ▾"}
         </span>
       </button>
-      {listboxOpen && (
+      <AnchoredPopover open={listboxOpen} anchor={triggerRef} placement="bottom-start" onClose={close}>
         <div
           ref={listboxRef}
           role="listbox"
@@ -587,7 +554,7 @@ function OverflowSwitcher({
             </>
           )}
         </div>
-      )}
+      </AnchoredPopover>
     </div>
   );
 }

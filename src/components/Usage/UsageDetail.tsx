@@ -25,7 +25,6 @@ interface UsageDetailProps {
   snapshot: UsageSnapshot;
   accountCreditsLabel?: string|null;
   resetSection?: import("react").ReactNode;
-  flipUp: boolean;
   onRefresh: () => Promise<void>;
   onOpenHistory: () => void;
 }
@@ -48,7 +47,7 @@ function StaleBanner({ snapshot, now }: { snapshot: UsageSnapshot; now: number }
   );
 }
 
-export function UsageDetail({ snapshot, accountCreditsLabel, flipUp, onRefresh, onOpenHistory, resetSection }: UsageDetailProps) {
+export function UsageDetail({ snapshot, accountCreditsLabel, onRefresh, onOpenHistory, resetSection }: UsageDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   // Open-count gating is centralized in config (bounded writes: stops at MAX)
@@ -122,7 +121,7 @@ export function UsageDetail({ snapshot, accountCreditsLabel, flipUp, onRefresh, 
   const billingLabel = unreportedBillingLabel(snapshot);
 
   return (
-    <div className={`ct-usage-popover ${flipUp ? "up" : "down"}`} role="dialog" aria-label="usage details">
+    <div className="ct-usage-popover" role="dialog" aria-label="usage details">
       <div className="head">
         <span className="title">{snapshot.provider} usage</span>
         <button
@@ -175,7 +174,7 @@ export function UsageDetail({ snapshot, accountCreditsLabel, flipUp, onRefresh, 
 }
 
 // the cycle spend and reset instead of the gauge/projection machinery.
-export function UsageSpendDetail({ snapshot, accountCreditsLabel, flipUp, onRefresh, resetSection }: UsageDetailProps) {
+export function UsageSpendDetail({ snapshot, accountCreditsLabel, onRefresh, resetSection }: UsageDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   const now = Date.now();
@@ -206,7 +205,7 @@ export function UsageSpendDetail({ snapshot, accountCreditsLabel, flipUp, onRefr
   };
 
   return (
-    <div className={`ct-usage-popover ${flipUp ? "up" : "down"}`} role="dialog" aria-label="usage details">
+    <div className="ct-usage-popover" role="dialog" aria-label="usage details">
       <div className="head">
         <span className="title">{snapshot.provider} usage</span>
         <button

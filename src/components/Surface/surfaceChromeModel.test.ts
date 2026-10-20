@@ -176,7 +176,7 @@ assert.equal(withTranscripts("", ["only voice"]), "only voice");
 
 const popoverCases: Array<[string, { x: number; y: number; width: number; height: number }, { left: number; top: number }]> = [
   ["opens beside the click", { x: 100, y: 50, width: 1000, height: 800 }, { left: 112, top: 62 }],
-  ["stays inside the right and bottom edges", { x: 990, y: 790, width: 1000, height: 800 }, { left: 652, top: 592 }],
+  ["flips above a click near the bottom and stays inside the right edge", { x: 990, y: 790, width: 1000, height: 800 }, { left: 652, top: 578 }],
   ["keeps a margin in a tiny stage", { x: 0, y: 0, width: 100, height: 100 }, { left: 8, top: 8 }],
 ];
 for (const [name, anchor, expected] of popoverCases) assert.deepEqual(askPopoverPosition(anchor), expected, name);

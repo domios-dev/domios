@@ -135,14 +135,9 @@ button.ct-status-identity:focus-visible {
 }
 
 .ct-menu.ct-model-picker {
-  --ct-menu-origin: bottom left;
-  --ct-menu-shift: 6px;
-  position: fixed;
-  z-index: 1100;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: min(440px, calc(100vh - 96px));
   padding: 8px;
   color: var(--ct-fg);
   font-family: var(--ct-font-ui);

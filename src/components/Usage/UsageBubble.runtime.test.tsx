@@ -73,8 +73,8 @@ failResetRead = true;
 await act(async()=>failedRefreshRoot.render(<UsageBubble provider="fixture" tabId="own" threadId="thread" trackingEnabled/>));
 await act(async()=>failedRefreshContainer.querySelector("button")!.click());
 assert.deepEqual(resetRequests,[{action:"read"}]);
-assert.equal(failedRefreshContainer.querySelector('[role="alert"]'),null);
-assert.equal(failedRefreshContainer.querySelector('section[role="status"][aria-label]'),null);
+assert.equal(document.querySelector('[role="alert"]'),null);
+assert.equal(document.querySelector('section[role="status"][aria-label]'),null);
 assert.equal(failedRefreshContainer.querySelector("button")?.getAttribute("aria-label"),"usage session 2% weekly 0%");
 await act(async()=>failedRefreshRoot.unmount());failedRefreshContainer.remove();
 failResetRead = false;
@@ -94,7 +94,7 @@ const confirmation:Record<string,unknown> = resetRequests[1];
 assert.equal(confirmation.action,"redeem");
 assert.equal(confirmation.confirmed,true);
 assert.match(String(confirmation.idempotencyKey),/^[0-9a-f-]{36}$/);
-assert.ok(container.querySelector('[role="status"]'));
+assert.ok(document.querySelector('[role="status"]'));
 snapshot = {...snapshot,runtime_usage:[{...reading,resets:{availableCount:2,nextExpiry:null,credits:[
   {id:"wire-first",status:"available",expiresAt:null},
   {id:"wire-second",status:"available",expiresAt:null},
@@ -112,7 +112,7 @@ await render({...reading,billing_mode:"api",token_usage:{captured_at:Date.now(),
 const button=container.querySelector("button")!;
 assert.equal(button.getAttribute("aria-label"),"usage 120 tokens · $0.02");
 await act(async()=>button.dispatchEvent(new MouseEvent("click",{bubbles:true})));
-assert.match(container.querySelector('[role="status"]')?.textContent ?? "",/cached input: 30/);
+assert.match(document.querySelector('[role="status"]')?.textContent ?? "",/cached input: 30/);
 const {useProviderModelUsageState} = await import("../../hooks/useProviderModelUsage");
 function GroupProbe() { const {usage} = useProviderModelUsageState("fixture"); return <output>{JSON.stringify(usage)}</output>; }
 await act(async()=>root.render(<GroupProbe/>));
