@@ -26,6 +26,7 @@ fn pairing_routes_refuse_a_missing_peer_version_without_hanging() {
 
 #[test]
 fn current_pairing_responses_advertise_the_mesh_peer_version() {
+    crate::test_support::install_app_version();
     let headers = current_peer_version_header();
     let version = headers
         .get(codeterm_service_core::mesh::version::VERSION_HEADER)

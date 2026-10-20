@@ -35,6 +35,7 @@ fn manager(name: &str, port: u16) -> MeshManager {
 
 #[tokio::test]
 async fn mesh_manual_connect_router_records_pending_owner_request() {
+    crate::test_support::install_app_version();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let mut remote = manager("Windows [dev]", address.port());

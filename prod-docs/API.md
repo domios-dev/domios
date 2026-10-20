@@ -69,7 +69,7 @@ Recovery ids and the mesh resync each recovery triggers: MESH, *Local REST avail
 |--------|------|------|-------------|
 | * | `/api/workspaces/...` | *(per route)* | Workspace and workspace-scoped tab routes: list, create, focus, relocate cwd, rename, close, recently-closed, reopen, and tab create/rename/move — all in API-TABS |
 
-POST routes whose fields only refine a complete action (agent restart, hooks, serve enable, keepawake start, session resume, reopen-closed, workspace tab create) accept no body and apply documented defaults. Workspace close has a caller-sensitive confirmation body; see [API-TABS](API-TABS.md). `POST /api/workspaces` requires `name` (`400`).
+POST routes whose fields only refine a complete action (agent restart, hooks, serve enable, keepawake start, session resume, reopen-closed, workspace tab create) accept no body and apply documented defaults. Workspace close has a caller-sensitive confirmation body (API-TABS). `POST /api/workspaces` requires `name` (`400`).
 
 #### Closed History & Restore
 
@@ -123,8 +123,6 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | POST | `/api/tabs/{id}/agent/model` | `{model: string, reasoning_effort?: string, runtime_mode?: string}` | Switch through declared `model_switch`; `next_turn` records per-thread controls without restarting; advertised Live routes are tab-bound, otherwise idle RestartResume reports the mode used. Never changes the provider's global default. See [Agent Model Switch](#agent-model-switch-post-apitabsidagentmodel). |
 | GET | `/api/tabs/{id}/agent/service-tiers` | none | Reads the exact tab's session-bound model tier catalogue and requested/confirmed service tier selections. Returns typed `no_runtime`, `no_tiers`, or `not_found` refusals. |
 
-Chat send and transcript routes: API-CHAT
-
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -147,8 +145,6 @@ Chat send and transcript routes: API-CHAT
 Configure-with-AI, provider install, auto-confirm, the Pebble webhook and plugin receiver targets: `codeterm docs API-INTEGRATIONS`.
 
 Plugin surface routes (`/api/surfaces/*`): `codeterm docs SURFACES`.
-
-Chat send and transcript routes: API-CHAT
 
 #### Batch
 | Method | Path | Body | Description |
@@ -176,8 +172,6 @@ Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reach
 
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 
-Related docs: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`. Local analytics: `/api/analytics/{status,consent,event}` (see ACCOUNT).
+Related docs: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`. Local analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-Account and plan routes: see `ACCOUNT`.
-
-<!-- revision: 210 -->
+<!-- revision: 211 -->
