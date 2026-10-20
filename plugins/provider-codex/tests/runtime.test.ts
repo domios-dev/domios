@@ -22,7 +22,7 @@ interface Fixture {
   expected: {results:{operation:number;step:RuntimeStep}[];events:AgentEvent[]};
 }
 const root = new URL("./fixtures/runtime/",import.meta.url);
-const hostOwnedConfigFixture = JSON.parse(fs.readFileSync(new URL("../../../tests/fixtures/codex-app-server-host-owned-config.json",import.meta.url),"utf8")) as Record<string,boolean>;
+const hostOwnedConfigFixture = JSON.parse(fs.readFileSync(new URL("../../../tests/fixtures/app-server-host-owned-config.json",import.meta.url),"utf8")) as Record<string,boolean>;
 const descriptor = JSON.parse(fs.readFileSync(new URL("./runtime-manifest.json",import.meta.url),"utf8")) as {agentRuntime:StdioAgentRuntimeCapability};
 const sandbox = vm.createContext({module:{exports:{}},exports:{},host:new Proxy({}, {get:()=>{throw new Error("Runtime hooks accessed host");}})});
 sandbox.exports = sandbox.module.exports;

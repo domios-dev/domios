@@ -269,7 +269,7 @@ fn runtime_config_survives_closed_history_database_reopen() {
     });
     {
         let store = ClosedTabsStore::open_at(&db).unwrap();
-        let mut closed = tab("runtime", "w", "Codex", 1);
+        let mut closed = tab("runtime", "w", "Agent", 1);
         closed.agent_runtime_config = Some(runtime_config.clone());
         store
             .insert_group(&group("g1", GroupKind::Single, "w", 1), &[closed])

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { codexEffectiveSettings, codexServiceTier, codexThreadConfig } from "../src/runtimeSettings";
 import { modelServiceTiers, tierAvailable, serviceTierSelection } from "../src/runtimeServiceTiers";
 
-const hostOwnedConfigFixture = JSON.parse(fs.readFileSync(new URL("../../../tests/fixtures/codex-app-server-host-owned-config.json",import.meta.url),"utf8")) as Record<string,boolean>;
+const hostOwnedConfigFixture = JSON.parse(fs.readFileSync(new URL("../../../tests/fixtures/app-server-host-owned-config.json",import.meta.url),"utf8")) as Record<string,boolean>;
 
 for (const id of [null,"priority","ultrafast"]) {
   assert.deepEqual(codexServiceTier({serviceTier:{id}}),{serviceTier:id});

@@ -23,7 +23,7 @@ fn opencode_model_switch_uses_the_declared_next_turn_transport() {
 }
 
 #[test]
-fn parity_codex_live_model_switch() {
+fn parity_live_model_switch() {
     let Some(_) = require_plugins() else {
         return;
     };
