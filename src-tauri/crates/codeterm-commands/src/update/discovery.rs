@@ -287,12 +287,12 @@ pub fn frontend_installed(
         let Some(latest) = item.latest.as_deref() else {
             return;
         };
-        let next = AvailabilityItem::release(
-            "frontend",
-            UpdateKind::Frontend,
+        let next = codeterm_frontend_bundle::selection::offer_availability(
             installed,
-            latest,
-            item.compatible,
+            Some(codeterm_frontend_bundle::selection::Offer {
+                version: latest,
+                compatible: item.compatible,
+            }),
         );
         if *item == next {
             None
