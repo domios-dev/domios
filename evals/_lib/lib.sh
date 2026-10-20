@@ -66,7 +66,7 @@ EVAL_LIB_TARGET_SOCKET_PATH=""
 EVAL_LIB_TARGET_INSTANCE=""
 
 dev_default_data_dir() {
-  printf '%s\n' "$HOME/.codeterm-dev"
+  printf '%s\n' "$HOME/.domios-dev"
 }
 
 dev_requested_data_dir() {
@@ -77,7 +77,7 @@ dev_requested_data_dir() {
     return
   fi
   slug="$(dev_instance_slug "$instance")"
-  printf '%s\n' "$HOME/.codeterm-dev-$slug"
+  printf '%s\n' "$HOME/.domios-dev-$slug"
 }
 
 dev_instance_slug() {
@@ -87,11 +87,11 @@ dev_instance_slug() {
 dev_expected_socket_name() {
   local instance="${EVAL_LIB_REQUESTED_INSTANCE:-}" slug
   if [ -z "$instance" ]; then
-    printf 'codeterm-dev.sock\n'
+    printf 'domios-dev.sock\n'
     return
   fi
   slug="$(dev_instance_slug "$instance")"
-  printf 'codeterm-dev-%s.sock\n' "$slug"
+  printf 'domios-dev-%s.sock\n' "$slug"
 }
 
 dev_instance_port_offset() {
@@ -264,9 +264,9 @@ dev_socket_path() {
     return
   fi
   if is_windows; then
-    echo '\\.\pipe\codeterm-dev.sock'
+    echo '\\.\pipe\domios-dev.sock'
   else
-    echo 'codeterm-dev.sock'
+    echo 'domios-dev.sock'
   fi
 }
 
@@ -466,7 +466,7 @@ dev_post_as_tab() {
 # routes to port 7685 + the prod socket.
 #
 # Assert dev is alive BEFORE every call. Otherwise the CLI's socket
-# auto-discovery falls back to prod's pipe when codeterm-dev.sock
+# auto-discovery falls back to prod's pipe when domios-dev.sock
 # doesn't exist — which is exactly how Andrey lost prod state on
 # 2026-05-07. Fail loud with non-zero exit instead of silently
 # dispatching to the wrong daemon.

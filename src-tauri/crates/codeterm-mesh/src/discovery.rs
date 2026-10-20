@@ -9,7 +9,7 @@ use super::MeshManager;
 #[cfg(test)]
 mod reachability_tests;
 
-const SERVICE_TYPE: &str = "_codeterm._tcp.local.";
+const SERVICE_TYPE: &str = "_domios._tcp.local.";
 const PEER_TTL_SECS: u64 = 300;
 /// How often the background loop actively pulls gossip from each paired
 /// peer to refresh discovered_peers' last_seen. Must stay strictly below
@@ -146,9 +146,9 @@ pub fn register_mdns_service(mesh: &Arc<Mutex<MeshManager>>) -> Result<(), Strin
         .collect::<Vec<_>>()
         .join(",");
 
-    let service_name = format!("codeterm-{}", &instance_id[..8]);
+    let service_name = format!("domios-{}", &instance_id[..8]);
     // Separate instance hostnames prevent another local daemon's A records leaking into this service.
-    let host_fqdn = format!("codeterm-{instance_id}.local.");
+    let host_fqdn = format!("domios-{instance_id}.local.");
     let properties = mdns_properties(instance_id, instance_name, api_port, cfg!(debug_assertions));
 
     log::info!(

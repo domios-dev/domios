@@ -326,7 +326,7 @@ fn scanning_an_empty_project_does_not_create_a_specs_sidecar() {
 
     store.scan_project(project.path()).unwrap();
 
-    assert!(!project.path().join(".codeterm").join("specs").exists());
+    assert!(!project.path().join(".domios").join("specs").exists());
 }
 
 #[test]

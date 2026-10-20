@@ -98,11 +98,14 @@ fn envelope(kind: &str, id: Option<&str>, data: Value) -> Value {
 }
 
 fn theme_dir() -> String {
-    dirs::config_dir()
-        .map(|dir| dir.join("codeterm").join("themes"))
+    theme_dir_path(dirs::config_dir())
         .unwrap_or_default()
         .display()
         .to_string()
+}
+
+fn theme_dir_path(config_dir: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
+    config_dir.map(|dir| dir.join("domios").join("themes"))
 }
 
 fn list_output(json: bool, outcome: ThemeOutcome) -> LeafOutput {
@@ -365,16 +368,25 @@ mod tests {
     #[test]
     fn dir_prints_the_path_in_human_mode_and_wraps_it_under_json() {
         assert_eq!(
-            dir_output(false, "/cfg/codeterm/themes"),
-            LeafOutput::Human(vec!["/cfg/codeterm/themes".to_string()])
+            dir_output(false, "/cfg/domios/themes"),
+            LeafOutput::Human(vec!["/cfg/domios/themes".to_string()])
         );
-        let LeafOutput::Json(envelope) = dir_output(true, "/cfg/codeterm/themes") else {
+        let LeafOutput::Json(envelope) = dir_output(true, "/cfg/domios/themes") else {
             panic!("--json must emit a document");
         };
         assert_eq!(envelope["ok"], Value::Bool(true));
         assert_eq!(envelope["kind"], json!("theme_dir"));
         assert_eq!(envelope["id"], Value::Null);
-        assert_eq!(envelope["data"]["path"], json!("/cfg/codeterm/themes"));
+        assert_eq!(envelope["data"]["path"], json!("/cfg/domios/themes"));
+    }
+
+    #[test]
+    fn theme_directory_uses_the_domios_config_namespace() {
+        assert_eq!(
+            theme_dir_path(Some(std::path::PathBuf::from("/cfg"))),
+            Some(std::path::PathBuf::from("/cfg/domios/themes"))
+        );
+        assert_eq!(theme_dir_path(None), None);
     }
 
     #[test]

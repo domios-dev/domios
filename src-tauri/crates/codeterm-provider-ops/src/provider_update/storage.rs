@@ -77,7 +77,7 @@ fn acquire_machine_update_lock(dir: &Path) -> Result<MachineUpdateLock, String> 
 }
 
 pub(super) fn provider_update_state_dir() -> Option<PathBuf> {
-    let path = dirs::home_dir()?.join(".codeterm");
+    let path = dirs::home_dir()?.join(".domios");
     std::fs::create_dir_all(&path).ok()?;
     Some(path)
 }

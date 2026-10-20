@@ -13,7 +13,7 @@ fn isolated_plan_store() -> (
 ) {
     let dir = tempfile::tempdir().unwrap();
     let plan_store = PlanStore::new_for_test(dir.path());
-    assert!(dir.path().join(".codeterm").join("plans.db").is_file());
+    assert!(dir.path().join(".domios").join("plans.db").is_file());
     (dir, plan_store)
 }
 

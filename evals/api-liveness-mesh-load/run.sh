@@ -50,7 +50,7 @@ except socket.timeout:
 except OSError as error:
     print(f"DIAGNOSTIC: listener exit or bind ownership failure: {error}", flush=True)
 PY
-  local log="$HOME/.codeterm-dev/logs/codeterm.log"
+  local log="$HOME/.domios-dev/logs/domios.log"
   if [ -f "$log" ]; then
     grep -E '\[chat_start\.bounded\]|\[liveness\]|\[LOCK-HOLD\]|\[SLOW-IPC\]|REST API' "$log" \
       | tail -20 >&2 || true

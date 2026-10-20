@@ -1,15 +1,24 @@
 use super::{connect_peer_at, ConnectPeerError, ConnectPeerResult};
 use crate::routes::AppState;
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    Json,
+};
 use codeterm_service_core::mesh::manual::{IdentityChallenge, IdentityProof};
 
 pub async fn mesh_pair_identity(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(challenge): Json<IdentityChallenge>,
-) -> Result<Json<IdentityProof>, (StatusCode, String)> {
-    IdentityProof::from_manager(&state.mesh.lock(), challenge)
-        .map(Json)
-        .map_err(|error| (StatusCode::CONFLICT, error))
+) -> Result<(HeaderMap, Json<IdentityProof>), (StatusCode, String)> {
+    crate::mesh_routes::require_current_peer_version(&headers)?;
+    let proof = IdentityProof::from_manager(&state.mesh.lock(), challenge)
+        .map_err(|error| (StatusCode::CONFLICT, error))?;
+    Ok((
+        crate::mesh_routes::current_peer_version_header(),
+        Json(proof),
+    ))
 }
 
 pub(super) async fn connect_from_body(

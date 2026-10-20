@@ -240,7 +240,7 @@ fn data_root_uses_named_dev_instance() {
     std::env::remove_var("CODETERM_DATA_DIR");
     std::env::set_var("CODETERM_INSTANCE", "handoff");
     std::env::set_var("CODETERM_API_PORT", "7691");
-    assert!(data_root().ends_with(".codeterm-dev-handoff"));
+    assert!(data_root().ends_with(".domios-dev-handoff"));
     restore_env("CODETERM_DATA_DIR", prev_data);
     restore_env("CODETERM_INSTANCE", prev_instance);
     restore_env("CODETERM_API_PORT", prev_port);

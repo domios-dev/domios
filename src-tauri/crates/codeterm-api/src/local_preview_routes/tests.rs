@@ -132,7 +132,7 @@ async fn secret_directories_credentials_and_configured_paths_are_refused() {
     let fixture = Fixture::new();
     for name in [
         ".ssh/key.txt",
-        ".codeterm/local.md",
+        ".domios/local.md",
         "credentials.json",
         "api-token.txt",
         "private/report.md",

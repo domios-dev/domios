@@ -92,11 +92,11 @@ export function AgentsOverview({
         icon={<FolderTree size={16} />}
         title="Skills"
         headerRight={<SettingsPill tone="green">auto-synced</SettingsPill>}
-        description={<>Drop skill folders into <code className="ct-detail__mono">~/.codeterm/skills/</code>; every provider sees them.</>}
+        description={<>Drop skill folders into <code className="ct-detail__mono">~/.domios/skills/</code>; every provider sees them.</>}
       >
         <button
           type="button"
-          onClick={() => nativeBridge.openFolder("~/.codeterm/skills").catch(() => {})}
+          onClick={() => nativeBridge.openFolder("~/.domios/skills").catch(() => {})}
           className="ct-bar-pill ct-settings-link"
         >
           Open skills folder

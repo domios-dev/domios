@@ -45,45 +45,58 @@ async fn mesh_manual_connect_router_records_pending_owner_request() {
     let peer_router = Router::new()
         .route(
             "/api/mesh/pair/identity",
-            post(move |Json(challenge): Json<IdentityChallenge>| {
-                let mesh = identity_mesh.clone();
-                async move {
-                    let mesh = mesh.lock();
-                    let identity = PeerIdentity {
-                        challenge,
-                        instance_id: REMOTE_ID.into(),
-                        instance_name: mesh.ident.instance_name.clone(),
-                        public_key: mesh.ident.identity.public_key.clone().unwrap(),
-                        dev: true,
-                        addresses: vec![codeterm_service_core::mesh::types::PeerAddress::from_ip(
-                            "127.0.0.1",
-                        )],
-                        api_port: address.port(),
-                        mesh_id: None,
-                    };
-                    Json(
-                        IdentityProof::sign(
-                            identity,
-                            mesh.ident.identity.private_key.as_deref().unwrap(),
+            post(
+                move |_headers: axum::http::HeaderMap, Json(challenge): Json<IdentityChallenge>| {
+                    let mesh = identity_mesh.clone();
+                    async move {
+                        let mesh = mesh.lock();
+                        let identity = PeerIdentity {
+                            challenge,
+                            instance_id: REMOTE_ID.into(),
+                            instance_name: mesh.ident.instance_name.clone(),
+                            public_key: mesh.ident.identity.public_key.clone().unwrap(),
+                            dev: true,
+                            addresses: vec![
+                                codeterm_service_core::mesh::types::PeerAddress::from_ip(
+                                    "127.0.0.1",
+                                ),
+                            ],
+                            api_port: address.port(),
+                            mesh_id: None,
+                        };
+                        (
+                            crate::mesh_routes::current_peer_version_header(),
+                            Json(
+                                IdentityProof::sign(
+                                    identity,
+                                    mesh.ident.identity.private_key.as_deref().unwrap(),
+                                )
+                                .unwrap(),
+                            ),
                         )
-                        .unwrap(),
-                    )
-                }
-            }),
+                    }
+                },
+            ),
         )
         .route(
             "/api/mesh/pair/request",
-            post(move |Json(request): Json<PairingRequest>| {
-                let mesh = incoming_mesh.clone();
-                async move {
-                    let (_, _, id) = crate::mesh_routes::pairing::record_incoming_pairing_request(
-                        &mut mesh.lock(),
-                        request,
-                    )
-                    .unwrap();
-                    Json(serde_json::json!({"ok": true, "instance_id": id}))
-                }
-            }),
+            post(
+                move |_headers: axum::http::HeaderMap, Json(request): Json<PairingRequest>| {
+                    let mesh = incoming_mesh.clone();
+                    async move {
+                        let (_, _, id) =
+                            crate::mesh_routes::pairing::record_incoming_pairing_request(
+                                &mut mesh.lock(),
+                                request,
+                            )
+                            .unwrap();
+                        (
+                            crate::mesh_routes::current_peer_version_header(),
+                            Json(serde_json::json!({"ok": true, "instance_id": id})),
+                        )
+                    }
+                },
+            ),
         );
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
     let server = tokio::spawn(async move {

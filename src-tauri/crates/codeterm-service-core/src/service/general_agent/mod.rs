@@ -63,7 +63,7 @@ pub const GENERAL_WORKSPACE_NAME: &str = "General";
 pub const GENERAL_TAB_TITLE: &str = "Main";
 
 /// Get the General Agent workspace directory.
-/// `~/.codeterm/general/` (or `~/.codeterm-dev/general/` for dev builds).
+/// `~/.domios/general/` (or `~/.domios-dev/general/` for dev builds).
 pub fn general_dir() -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     home.join(crate::paths::dir_name()).join("general")

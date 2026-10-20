@@ -53,9 +53,9 @@ fn temp_root() -> PathBuf {
 
 fn real_bin() -> PathBuf {
     if cfg!(windows) {
-        PathBuf::from(r"C:\Users\u\.codeterm\bin")
+        PathBuf::from(r"C:\Users\u\.domios\bin")
     } else {
-        PathBuf::from("/home/u/.codeterm/bin")
+        PathBuf::from("/home/u/.domios/bin")
     }
 }
 
@@ -71,7 +71,7 @@ fn system_bin() -> PathBuf {
 fn dead(tag: &str) -> PathBuf {
     temp_root()
         .join(format!(".tmp{tag}"))
-        .join(".codeterm")
+        .join(".domios")
         .join("bin")
 }
 
@@ -161,14 +161,14 @@ fn repair_removes_only_the_dead_temp_shape() {
         // Under temp, wrong leaf.
         temp.join(".tmpzz").join("other").join("bin"),
         // Under temp, right leaf, but not a tempdir name.
-        temp.join("keep").join(".codeterm").join("bin"),
+        temp.join("keep").join(".domios").join("bin"),
         // Under temp, right prefix, but one component short.
-        temp.join(".tmpyy").join(".codeterm"),
+        temp.join(".tmpyy").join(".domios"),
         // Our exact shape, but not under temp.
         PathBuf::from(if cfg!(windows) {
-            r"C:\tools\.tmpq\.codeterm\bin"
+            r"C:\tools\.tmpq\.domios\bin"
         } else {
-            "/tools/.tmpq/.codeterm/bin"
+            "/tools/.tmpq/.domios/bin"
         }),
     ];
     let current = format!(

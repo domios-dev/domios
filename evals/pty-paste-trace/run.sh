@@ -15,7 +15,7 @@ shift
 SIZES=("${@:-4000 16000 36000 64000}")
 OUT="$EVAL_LIB_OUT_BASE/pty-paste-trace"
 mkdir -p "$OUT"
-LOG="$HOME/.codeterm-dev/logs/codeterm.log"
+LOG="$HOME/.domios-dev/logs/domios.log"
 
 payload() { # $1 = bytes; multiline so the paste is bracketed
   python3 -c "

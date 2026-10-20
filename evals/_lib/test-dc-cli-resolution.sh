@@ -11,56 +11,56 @@ FIXTURE="$(mktemp -d)"
 trap 'status=$?; rm -rf "$FIXTURE"; exit "$status"' EXIT
 
 mkdir -p \
-  "$FIXTURE/home/.codeterm-dev/bin" \
-  "$FIXTURE/home/.codeterm-dev-named-instance/bin" \
-  "$FIXTURE/home/.codeterm-dev-default-named/bin" \
-  "$FIXTURE/home/.codeterm-dev-missing/bin" \
+  "$FIXTURE/home/.domios-dev/bin" \
+  "$FIXTURE/home/.domios-dev-named-instance/bin" \
+  "$FIXTURE/home/.domios-dev-default-named/bin" \
+  "$FIXTURE/home/.domios-dev-missing/bin" \
   "$FIXTURE/hostile"
 
-printf '%s\n' 'token = "canonical-token"' > "$FIXTURE/home/.codeterm-dev/config.toml"
-printf '%s\n' 'token = "named-token"' > "$FIXTURE/home/.codeterm-dev-named-instance/config.toml"
+printf '%s\n' 'token = "canonical-token"' > "$FIXTURE/home/.domios-dev/config.toml"
+printf '%s\n' 'token = "named-token"' > "$FIXTURE/home/.domios-dev-named-instance/config.toml"
 
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'if [ "${1:-}" = identify ] && [ "${2:-}" = --json ] && [ -z "${CODETERM_API_TOKEN:-}" ]; then' \
   '  case "${CODETERM_INSTANCE:-}" in' \
-  '    "") data_dir="$HOME/.codeterm-dev"; port=7686; socket=codeterm-dev.sock; instance=null;;' \
-  '    default-named) data_dir="$HOME/.codeterm-dev-default-named"; port=7686; socket=codeterm-dev-default-named.sock; instance='\''"default-named"'\'';;' \
-  '    missing) data_dir="$HOME/.codeterm-dev-missing"; port=7799; socket=codeterm-dev-missing.sock; instance='\''"missing"'\'';;' \
-  '    *) data_dir="$HOME/.codeterm-dev-named-instance"; port=7788; socket=codeterm-dev-named-instance.sock; instance='\''"  Named_Instance  "'\'';;' \
+  '    "") data_dir="$HOME/.domios-dev"; port=7686; socket=domios-dev.sock; instance=null;;' \
+  '    default-named) data_dir="$HOME/.domios-dev-default-named"; port=7686; socket=domios-dev-default-named.sock; instance='\''"default-named"'\'';;' \
+  '    missing) data_dir="$HOME/.domios-dev-missing"; port=7799; socket=domios-dev-missing.sock; instance='\''"missing"'\'';;' \
+  '    *) data_dir="$HOME/.domios-dev-named-instance"; port=7788; socket=domios-dev-named-instance.sock; instance='\''"  Named_Instance  "'\'';;' \
   '  esac' \
   '  printf '\''{"connection":{"data_dir":"%s","host":"127.0.0.1","port":%s,"socket_path":"%s","instance":%s}}\n'\'' "$data_dir" "$port" "$socket" "$instance"' \
   '  exit 0' \
   'fi' \
   'if [ "${1:-}" = config ] && [ "${2:-}" = get ] && [ "${3:-}" = api.token ]; then' \
   '  case "${CODETERM_INSTANCE:-}" in' \
-  '    *missing*) echo "Error: CodeTerm socket '\''codeterm-dev-missing.sock'\'' is not live" >&2; exit 1;;' \
+  '    *missing*) echo "Error: CodeTerm socket '\''domios-dev-missing.sock'\'' is not live" >&2; exit 1;;' \
   '    *) printf '\''{"key":"api.token","value":"named-token"}\n'\''; exit 0;;' \
   '  esac' \
   'fi' \
   'printf "DEV_CLI_WON token=%s port=%s api_url=%s data_dir=%s vite=%s cdp=%s socket=%s instance=%s\n" "$CODETERM_API_TOKEN" "$CODETERM_API_PORT" "$CODETERM_API_URL" "$CODETERM_DATA_DIR" "$CODETERM_VITE_PORT" "$CODETERM_CDP_PORT" "$CODETERM_SOCKET_PATH" "$CODETERM_INSTANCE"' \
-  > "$FIXTURE/home/.codeterm-dev/bin/codeterm"
+  > "$FIXTURE/home/.domios-dev/bin/codeterm"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'if [ "${1:-}" = identify ] && [ "${2:-}" = --json ]; then' \
-  '  printf '\''{"connection":{"data_dir":"%s","host":"127.0.0.1","port":7788,"socket_path":"codeterm-dev-named-instance.sock","instance":"  Named_Instance  "}}\n'\'' "$HOME/.codeterm-dev-named-instance"' \
+  '  printf '\''{"connection":{"data_dir":"%s","host":"127.0.0.1","port":7788,"socket_path":"domios-dev-named-instance.sock","instance":"  Named_Instance  "}}\n'\'' "$HOME/.domios-dev-named-instance"' \
   '  exit 0' \
   'fi' \
   'if [ "${1:-}" = config ] && [ "${2:-}" = get ] && [ "${3:-}" = api.token ]; then' \
   '  case "${CODETERM_INSTANCE:-}" in' \
-  '    *missing*) echo "Error: CodeTerm socket '\''codeterm-dev-missing.sock'\'' is not live" >&2; exit 1;;' \
+  '    *missing*) echo "Error: CodeTerm socket '\''domios-dev-missing.sock'\'' is not live" >&2; exit 1;;' \
   '    *) printf '\''{"key":"api.token","value":"named-token"}\n'\''; exit 0;;' \
   '  esac' \
   'fi' \
   'printf "NAMED_DEV_CLI_WON token=%s port=%s api_url=%s data_dir=%s vite=%s cdp=%s socket=%s instance=%s\n" "$CODETERM_API_TOKEN" "$CODETERM_API_PORT" "$CODETERM_API_URL" "$CODETERM_DATA_DIR" "$CODETERM_VITE_PORT" "$CODETERM_CDP_PORT" "$CODETERM_SOCKET_PATH" "$CODETERM_INSTANCE"' \
-  > "$FIXTURE/home/.codeterm-dev-named-instance/bin/codeterm"
-cp "$FIXTURE/home/.codeterm-dev/bin/codeterm" \
-  "$FIXTURE/home/.codeterm-dev-missing/bin/codeterm"
-mkdir -p "$FIXTURE/home/.codeterm-dev-wrong/bin"
-cp "$FIXTURE/home/.codeterm-dev/bin/codeterm" \
-  "$FIXTURE/home/.codeterm-dev-wrong/bin/codeterm"
-cp "$FIXTURE/home/.codeterm-dev/bin/codeterm" \
-  "$FIXTURE/home/.codeterm-dev-default-named/bin/codeterm"
+  > "$FIXTURE/home/.domios-dev-named-instance/bin/codeterm"
+cp "$FIXTURE/home/.domios-dev/bin/codeterm" \
+  "$FIXTURE/home/.domios-dev-missing/bin/codeterm"
+mkdir -p "$FIXTURE/home/.domios-dev-wrong/bin"
+cp "$FIXTURE/home/.domios-dev/bin/codeterm" \
+  "$FIXTURE/home/.domios-dev-wrong/bin/codeterm"
+cp "$FIXTURE/home/.domios-dev/bin/codeterm" \
+  "$FIXTURE/home/.domios-dev-default-named/bin/codeterm"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'echo FAKE_PROD_CLI_WON' \
@@ -75,11 +75,11 @@ printf '%s\n' \
   'esac' \
   > "$FIXTURE/hostile/curl"
 chmod +x \
-  "$FIXTURE/home/.codeterm-dev/bin/codeterm" \
-  "$FIXTURE/home/.codeterm-dev-named-instance/bin/codeterm" \
-  "$FIXTURE/home/.codeterm-dev-default-named/bin/codeterm" \
-  "$FIXTURE/home/.codeterm-dev-missing/bin/codeterm" \
-  "$FIXTURE/home/.codeterm-dev-wrong/bin/codeterm" \
+  "$FIXTURE/home/.domios-dev/bin/codeterm" \
+  "$FIXTURE/home/.domios-dev-named-instance/bin/codeterm" \
+  "$FIXTURE/home/.domios-dev-default-named/bin/codeterm" \
+  "$FIXTURE/home/.domios-dev-missing/bin/codeterm" \
+  "$FIXTURE/home/.domios-dev-wrong/bin/codeterm" \
   "$FIXTURE/hostile/codeterm" \
   "$FIXTURE/hostile/curl"
 
@@ -87,7 +87,7 @@ canonical_output="$(
   HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" CODETERM_CLI_PATH="$FIXTURE/hostile/codeterm" \
     bash -c 'source "$1"; dc identify' _ "$LIB"
 )"
-if ! grep -Fqx "DEV_CLI_WON token=canonical-token port=7686 api_url=http://127.0.0.1:7686 data_dir=$FIXTURE/home/.codeterm-dev vite=1420 cdp=9223 socket=codeterm-dev.sock instance=" <<<"$canonical_output"; then
+if ! grep -Fqx "DEV_CLI_WON token=canonical-token port=7686 api_url=http://127.0.0.1:7686 data_dir=$FIXTURE/home/.domios-dev vite=1420 cdp=9223 socket=domios-dev.sock instance=" <<<"$canonical_output"; then
   echo "canonical dev CLI did not run: $canonical_output" >&2
   exit 1
 fi
@@ -110,7 +110,7 @@ fi
 
 HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" \
   bash -c 'source "$1"; dev_assert_restart_target 1' _ "$LIB"
-chmod -x "$FIXTURE/home/.codeterm-dev/bin/codeterm"
+chmod -x "$FIXTURE/home/.domios-dev/bin/codeterm"
 named_cdp="$(
   HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" \
     CODETERM_INSTANCE='  Named_Instance  ' \
@@ -129,7 +129,7 @@ named_output="$(
     HEALTH_INSTANCE=Named_Instance HEALTH_API_PORT=7788 HEALTH_VITE_PORT="$named_vite" HEALTH_CDP_PORT="$named_cdp" \
     bash -c 'source "$1"; dev_assert_restart_target; dc identify' _ "$LIB"
 )"
-if ! grep -Fqx "NAMED_DEV_CLI_WON token=named-token port=7788 api_url=http://127.0.0.1:7788 data_dir=$FIXTURE/home/.codeterm-dev-named-instance vite=$named_vite cdp=$named_cdp socket=codeterm-dev-named-instance.sock instance=Named_Instance" <<<"$named_output"; then
+if ! grep -Fqx "NAMED_DEV_CLI_WON token=named-token port=7788 api_url=http://127.0.0.1:7788 data_dir=$FIXTURE/home/.domios-dev-named-instance vite=$named_vite cdp=$named_cdp socket=domios-dev-named-instance.sock instance=Named_Instance" <<<"$named_output"; then
   echo "named dev CLI or token selection failed: $named_output" >&2
   exit 1
 fi
@@ -171,11 +171,11 @@ if ! grep -q "instance='missing'" <<<"$missing_output"; then
   echo "resolution error did not name the requested instance: $missing_output" >&2
   exit 1
 fi
-if ! grep -Fq "resolved_path='$FIXTURE/home/.codeterm-dev-missing/config.toml'" <<<"$missing_output"; then
+if ! grep -Fq "resolved_path='$FIXTURE/home/.domios-dev-missing/config.toml'" <<<"$missing_output"; then
   echo "resolution error did not name the missing config path: $missing_output" >&2
   exit 1
 fi
-if ! grep -Fq "expected_data_dir='$FIXTURE/home/.codeterm-dev-missing'" <<<"$missing_output"; then
+if ! grep -Fq "expected_data_dir='$FIXTURE/home/.domios-dev-missing'" <<<"$missing_output"; then
   echo "resolution error did not name the CLI-expected data directory: $missing_output" >&2
   exit 1
 fi

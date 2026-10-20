@@ -49,6 +49,19 @@ fn server_bootstrap_isolated_verification_refuses_user_codeterm_directories() {
         home.path()
     )
     .is_err());
+
+    let new_data = home.path().join(".domios-ci-copy");
+    let new_config = home.path().join(".domios-dev").join("config");
+    std::fs::create_dir_all(&new_data).unwrap();
+    std::fs::create_dir_all(&new_config).unwrap();
+    assert!(
+        super::validate_isolated_verification(&new_data, external.path(), bind, home.path())
+            .is_err()
+    );
+    assert!(
+        super::validate_isolated_verification(external.path(), &new_config, bind, home.path())
+            .is_err()
+    );
 }
 
 #[cfg(unix)]

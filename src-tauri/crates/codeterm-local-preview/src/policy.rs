@@ -132,7 +132,9 @@ fn denial_key(path: &Path) -> String {
 
 fn secret_component(component: &str) -> bool {
     let name = component.to_ascii_lowercase();
-    if name.starts_with(".codeterm")
+    // Tracked legacy directories stay private until the owner moves them.
+    if name.starts_with(".domios")
+        || name.starts_with(".codeterm")
         || name == ".env"
         || name.starts_with(".env.")
         || matches!(

@@ -31,7 +31,7 @@ fn sanitize(component: &str) -> String {
         .collect()
 }
 
-/// `~/.codeterm[-dev]/chatbackend-sessions/<plugin_id>/`.
+/// `~/.domios[-dev]/chatbackend-sessions/<plugin_id>/`.
 pub fn session_dir(plugin_id: &str) -> PathBuf {
     crate::paths::data_dir()
         .join(SESSIONS_SUBDIR)

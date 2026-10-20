@@ -70,7 +70,7 @@ pub(crate) fn is_ephemeral_install_dir(dir: &Path, temp_dir: &Path) -> bool {
     !temp.is_empty() && dir.len() >= temp.len() && dir[..temp.len()] == temp[..]
 }
 
-/// `<system temp>\.tmp<random>\.codeterm\bin` — the shape a test run's tempdir
+/// `<system temp>\.tmp<random>\.domios\bin` — the shape a test run's tempdir
 /// home leaves behind. Nothing else may be removed by the repair.
 pub(crate) fn is_dead_temp_cli_entry(entry: &str, temp_dir: &Path) -> bool {
     let entry = trimmed(entry);
@@ -78,7 +78,7 @@ pub(crate) fn is_dead_temp_cli_entry(entry: &str, temp_dir: &Path) -> bool {
         return false;
     }
     match components_below(Path::new(entry), temp_dir).as_deref() {
-        Some([tmp, data, bin]) => tmp.starts_with(".tmp") && data == ".codeterm" && bin == "bin",
+        Some([tmp, data, bin]) => tmp.starts_with(".tmp") && data == ".domios" && bin == "bin",
         _ => false,
     }
 }

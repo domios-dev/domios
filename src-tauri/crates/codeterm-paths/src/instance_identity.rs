@@ -17,7 +17,7 @@ impl ResolvedInstancePaths {
 
     pub fn current() -> io::Result<Self> {
         let config = crate::config_path().map_err(io::Error::other)?;
-        let data = crate::data_dir();
+        let data = crate::data_dir_path();
         Self::resolve(&data, &config)
     }
 

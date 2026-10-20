@@ -63,7 +63,7 @@ function projectPathBelongsToWorkspace(projectPath: string, workspacePath: strin
 
 function legacyPlanProjectPath(entry: PlanIndexEntry): string | null {
   const file = normalizePath(entry.file_path);
-  const marker = "/.codeterm/plans/";
+  const marker = "/.domios/plans/";
   const markerIndex = file.lastIndexOf(marker);
   if (markerIndex < 0) return null;
   const parts = file.slice(markerIndex + marker.length).split("/");

@@ -235,7 +235,7 @@ fn idle_composer_with_trailing_blank_padding_returns_idle() {
     let screen = lines(&[
         "• Да, удобно для быстрых развилок.",
         "› Implement {feature}",
-        "  gpt-5.5 medium · ~/.codeterm-dev/general",
+        "  gpt-5.5 medium · ~/.domios-dev/general",
         "",
         "",
         "",

@@ -29,7 +29,7 @@ fn rotterdom_open_session_persists_history_in_a_missing_private_state_root() {
     let home = tempfile::tempdir().unwrap();
     let bundle = home.path().join("bundle");
     std::fs::create_dir_all(&bundle).unwrap();
-    let data = home.path().join(".codeterm-dev/rotterdom");
+    let data = home.path().join(".domios-dev/rotterdom");
     let project = home.path().join("project");
     std::fs::create_dir_all(&project).unwrap();
     let project_root = project.to_string_lossy().into_owned();
@@ -53,7 +53,7 @@ fn rotterdom_open_session_persists_history_in_a_missing_private_state_root() {
     assert!(!data.exists());
     assert!(sandbox.can_write(data.to_str().unwrap()));
     let setup = format!(
-        "host.fs.expandHome = function(path) {{ return path === '~/.codeterm/rotterdom' ? {} : null; }};",
+        "host.fs.expandHome = function(path) {{ return path === '~/.domios/rotterdom' ? {} : null; }};",
         serde_json::to_string(&data).unwrap()
     );
     let vm = PluginVm::from_source_sandboxed(
