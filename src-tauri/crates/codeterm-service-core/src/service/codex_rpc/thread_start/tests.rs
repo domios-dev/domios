@@ -79,7 +79,7 @@ fn codex_rpc_instant_start_carries_resolved_model_effort_and_reviewer_explicitly
 #[test]
 fn native_thread_start_host_owned_config_matches_runtime_fixture() {
     const FIXTURE: &str =
-        include_str!("../../../../../../../tests/fixtures/codex-app-server-host-owned-config.json");
+        include_str!("../../../../../../../tests/fixtures/app-server-host-owned-config.json");
     let expected: Value = serde_json::from_str(FIXTURE).unwrap();
     let spawn = Spawn {
         provider: "opaque-provider".into(),

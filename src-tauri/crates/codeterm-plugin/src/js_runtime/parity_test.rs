@@ -127,7 +127,7 @@ fn provider_fixture(id: &str, relative: &str) -> String {
 }
 
 #[test]
-fn claude_host_owned_capabilities_native_js_parity() {
+fn host_owned_capabilities_native_js_parity() {
     let Some(_) = require_plugins() else {
         return;
     };
@@ -135,7 +135,7 @@ fn claude_host_owned_capabilities_native_js_parity() {
     let js = load_js("claude");
     // A private task-file root keeps parallel tests that sweep the shared one away from these files.
     let root = tempfile::tempdir().unwrap();
-    codeterm_util::task_files::capture_in(root.path(), "claude-launch-parity", || {
+    codeterm_util::task_files::capture_in(root.path(), "launch-parity", || {
         launch_spec::assert_native_js_parity(&native, &js)
     });
     assert_eq!(
