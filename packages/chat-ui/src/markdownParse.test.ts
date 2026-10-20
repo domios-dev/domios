@@ -3,7 +3,7 @@ import test from "node:test";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
-import { createMarkdownParser, parsedMarkdown, remarkCachedParse } from "./markdownParse";
+import { createIncrementalMarkdownParser, createMarkdownParser, parsedMarkdown, remarkCachedParse } from "./markdownParse";
 import { remarkBareDomains } from "./remarkBareDomains";
 
 test("unchanged content shares parsing across rows and remounts; revisions invalidate", () => {
@@ -49,4 +49,63 @@ test("streaming revisions preserve full GFM semantics including late reference d
     assert.deepEqual(parsedMarkdown(revision), uncached.parse(revision));
   }
   assert.deepEqual(parsedMarkdown(source), uncached.parse(source));
+});
+
+const STREAM_CORPUS = [
+  "# Plan\n\nIntro paragraph with **bold**, _em_, ~~gone~~ and `code`.\nSecond line\n===\n\nSetext two\n---\n",
+  "- one\n- two\n\n- loose three\n  continued\n\n  second para\n- [ ] task\n- [x] done\n\n1. first\n2. second\n\n10) other\n\n+ plus list\n* star list\n-\n\nafter list\n",
+  "1. Step\n   ```bash\n   cmd --flag\n\n   more\n   ```\n2. Next\n\n```ts\nconst a = 1;\n\nconst b = 2;\n```\n\n~~~\ntilde\n```\nstill code\n~~~\n\n    indented\n\n    code\n\ntext\n",
+  "> quote\nlazy\n\n> ```\n> fenced in quote\n>\n> x\n> ```\n\n> second\n\n| A | B |\n| - | :-: |\n| 1 | 2 |\nrow without pipe\n\nparagraph\n| h |\n| - |\n| c |\n",
+  "<div>\nhtml\n</div>\n\n<pre>\n\nkept\n\n</pre>\n\n<!--\n\ncomment\n\n-->\n\n<custom-tag>\ninline\n\n***\n\n\tTabbed\n\n  - indented list\n\n   ```\n   indented fence\n```\n",
+  "para\n#x\n\n1. a\n\n2. b\n\n- c\n\nd\n- e\n\n> q\n>\n> r\n\n# h\n\n#\n\n| t |\n\n| u |\n| - |\n",
+  "Line one\r\nline two\r\n\r\n- crlf item\r\n\r\n```\r\ncode\r\n```\r\n\r\nhttps://example.com and www.example.org\n\nEnd *open emphasis\n\n```\nunclosed fence\n\nstill inside",
+];
+
+test("streamed revisions parse only the open tail and stay identical to a full parse", () => {
+  const full = unified().use(remarkParse).use(remarkGfm);
+  for (const document of [...STREAM_CORPUS, STREAM_CORPUS.join("\n")]) {
+    const parse = createIncrementalMarkdownParser((source) => full.parse(source));
+    for (let end = 0; end <= document.length; end++) {
+      const revision = document.slice(0, end);
+      assert.deepEqual(parse(revision), full.parse(revision), JSON.stringify(revision));
+    }
+  }
+});
+
+test("random stream chunks keep full-parse semantics and reuse finished blocks", () => {
+  const full = unified().use(remarkParse).use(remarkGfm);
+  const document = STREAM_CORPUS.join("\n\n");
+  let seed = 7;
+  const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let run = 0; run < 20; run++) {
+    const parsed: number[] = [];
+    const parse = createIncrementalMarkdownParser((source) => { parsed.push(source.length); return full.parse(source); });
+    let previous: ReturnType<typeof parse> | null = null;
+    for (let end = 0; end < document.length;) {
+      end = Math.min(document.length, end + 1 + Math.floor(random() * 40));
+      const tree = parse(document.slice(0, end));
+      assert.deepEqual(tree, full.parse(document.slice(0, end)));
+      if (previous && tree.children.length > 2 && previous.children.length > 2) assert.equal(tree.children[0], previous.children[0]);
+      previous = tree;
+    }
+    assert.ok(parsed.at(-1)! < document.length / 4, `last delta parsed ${parsed.at(-1)} of ${document.length} chars`);
+  }
+});
+
+test("reference definitions anywhere force a full parse so earlier references resolve", () => {
+  const full = unified().use(remarkParse).use(remarkGfm);
+  const parse = createIncrementalMarkdownParser((source) => full.parse(source));
+  const document = "See [guide][g] and note[^n].\n\nMore text.\n\n[g]: https://example.com\n\n[^n]: Footnote.";
+  for (let end = 0; end <= document.length; end++) assert.deepEqual(parse(document.slice(0, end)), full.parse(document.slice(0, end)));
+});
+
+test("an unchanged source returns the same tree and separate streams stay independent", () => {
+  const full = unified().use(remarkParse).use(remarkGfm);
+  const parse = createIncrementalMarkdownParser((source) => full.parse(source), 2);
+  const a = parse("alpha\n\nbeta");
+  assert.equal(parse("alpha\n\nbeta"), a);
+  const b = parse("other\n\nstream");
+  assert.deepEqual(parse("alpha\n\nbeta gamma"), full.parse("alpha\n\nbeta gamma"));
+  assert.deepEqual(parse("other\n\nstream two"), full.parse("other\n\nstream two"));
+  assert.notEqual(parse("other\n\nstream two"), b);
 });
