@@ -24,6 +24,11 @@ export CODETERM_RELEASE_FEATURES="${CODETERM_RELEASE_FEATURES:-embeddings}"
 echo "HEAD=$(git rev-parse HEAD)  bundles=$BUNDLES  target=${CARGO_BUILD_TARGET:-native}"
 source scripts/cache-policy.sh
 export CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner
+# The container's server dies with it, so a local cache here is already job-local.
+if ! ct_ci_store_reachable; then
+  echo "WARNING: private store $CT_CI_STORE_ENDPOINT is unreachable; this container compiles with its own local sccache"
+  export CODETERM_SCCACHE_STORAGE=local CODETERM_SCCACHE_JOB_LOCAL=1
+fi
 CODETERM_SCCACHE_VERIFY_ONLY=0 ct_configure_sccache
 ct_sccache_verify
 export CODETERM_SCCACHE_VERIFY_ONLY=1

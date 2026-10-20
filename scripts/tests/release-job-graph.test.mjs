@@ -15,7 +15,7 @@ test('dry-run consolidated manifests depend on all six builds and use only priva
     assert.ok(caller.needs.includes(job));
   }
   const local = workflow('release-manifest-dry-run');
-  assert.deepEqual(local.permissions, { contents: 'read' });
+  assert.deepEqual(local.permissions, { contents: 'read', actions: 'read' });
   const text = readFileSync(new URL('../../.github/workflows/release-manifest-dry-run.yml', import.meta.url), 'utf8');
   assert.doesNotMatch(text, /gh release|git (?:push|tag)|PACKAGE_REPOS_TOKEN|GH_RELEASE_TOKEN/);
   assert.match(text, /release-dry-run-manifest\.mjs aggregate/);
@@ -220,10 +220,13 @@ test('native release processes share a job wrapper and verify before compiling',
     const verify = commands.findIndex(command => /build\.(?:sh|ps1) cache-verify/.test(command));
     const compile = commands.findIndex(command => /mac-bundle|build\.(?:sh|ps1) release-(?:inputs|bundle)/.test(command));
     assert.ok(verify >= 0 && compile > verify, name);
-    const stats = job.steps.at(-2);
+    const stats = job.steps.at(-3);
     assert.equal(stats.if, "${{ always() && steps.compile.outcome != 'skipped' }}");
     assert.equal(job.steps[compile].id, 'compile', name);
     assert.match(stats.run, /build\.(?:sh|ps1) cache-stats/);
+    const release = job.steps.at(-2);
+    assert.equal(release.if, 'always()', name);
+    assert.match(release.run, /build\.(?:sh|ps1) cache-release/);
     if (name === 'release-windows') {
       assert.equal(stats.shell, 'pwsh');
       assert.ok(job.steps.every(step => step.shell !== 'bash'));

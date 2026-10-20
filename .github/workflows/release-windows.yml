@@ -476,6 +476,9 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: release-Windows
           target: ${{ matrix.target }}
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
 
       # Without a compile step no sccache server ever started, so there is nothing to report.
       - name: Shared compile cache statistics
@@ -483,6 +486,12 @@ jobs:
         shell: pwsh
         run: |
           & .\build.ps1 cache-stats
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stop this job's local compile cache
+        if: always()
+        shell: pwsh
+        run: |
+          & .\build.ps1 cache-release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Remove this job's Rust targets and archives
         if: always()

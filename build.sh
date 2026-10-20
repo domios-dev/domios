@@ -568,7 +568,7 @@ run_release_rust_tests() {
 }
 
 case "$CMD" in
-  gateway-*|help|gc|cache-status|cache-verify|cache-stats|build-history|frontend-build) ;;
+  gateway-*|help|gc|cache-status|cache-verify|cache-release|cache-stats|build-history|frontend-build) ;;
   *) setup_env ;;
 esac
 
@@ -2571,7 +2571,8 @@ install-local, release-preflight, release-rust) send one success or failure rece
 inside Domios. --notify-tab <tab> or BUILD_NOTIFY_TAB overrides the recipient.
   build                       Build production artifacts
   cache-status                Show configured/server cache locations and endpoint health
-  cache-verify                Verify shared S3 storage; start the S3 server only when none is live
+  cache-verify                Verify shared S3 storage; in CI with the store down, start a job-local cache
+  cache-release               Stop and remove a job-local cache started by cache-verify
   cache-stats                 Show gateway cache deltas by job kind and live server counters
   gateway-status              Show the machine build owner
   build-history [--last N] [--verb V] [--json]  Build durations, cache hits and rebuild reasons
@@ -2604,6 +2605,9 @@ EOF
 
   cache-verify)
     ct_sccache_verify
+    ;;
+  cache-release)
+    ct_sccache_release_job_local
     ;;
   cache-stats)
     node scripts/cache-stats.mjs --dir "$(ct_gateway_dir)"

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { aggregate, capture, PLATFORMS, store, storeTimeoutMs } from '../release-dry-run-manifest.mjs';
+import { aggregate, capture, parseSources, PLATFORMS, retention, store, storeTimeoutMs } from '../release-dry-run-manifest.mjs';
 import { HEADLESS_TARGETS, headlessAssetNames } from '../headless-release-package.mjs';
 
 const tag = 'v9.9.9';
@@ -183,4 +183,21 @@ test('store sizes its transfer deadline and retries a timed-out transfer once wi
   const storeError = () => { refused++; throw Object.assign(new Error('curl: (22) 403'), { status: 22 }); };
   assert.throws(() => store('put', 'k', 'f', { run: storeError, now, log: () => {} }), /403/);
   assert.equal(refused, 1);
+});
+
+test('the local manifest names where every evidence file was retained', () => {
+  const locations = parseSources([
+    '41/release-dry-run/linux-x86_64/a.deb\tprivate-store:ci-artifacts/41/release-dry-run/linux-x86_64/a.deb',
+    '41/release-dry-run/windows-x86_64/b.exe\trun-artifact:ci-artifact-spool-build-1/41/release-dry-run/windows-x86_64/b.exe',
+    '41/rust-receipt/ignored.json\tprivate-store:ci-artifacts/41/rust-receipt/ignored.json',
+    '42/release-dry-run/linux-x86_64/a.deb\tprivate-store:foreign',
+  ].join('\n') + '\n', '41');
+  assert.deepEqual([...locations.keys()], ['linux-x86_64/a.deb', 'windows-x86_64/b.exe']);
+  const store = retention(locations, 'linux-x86_64', [{ name: 'a.deb', size: 1 }]);
+  assert.equal(store.retained_via, 'private-store');
+  assert.equal(store.files[0].location, 'private-store:ci-artifacts/41/release-dry-run/linux-x86_64/a.deb');
+  const artifact = retention(locations, 'windows-x86_64', [{ name: 'b.exe' }, { name: 'missing.json' }]);
+  assert.equal(artifact.retained_via, 'ci-artifact');
+  assert.equal(artifact.files[0].location, 'run-artifact:ci-artifact-spool-build-1/41/release-dry-run/windows-x86_64/b.exe');
+  assert.equal(artifact.files[1].location, null);
 });

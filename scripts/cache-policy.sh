@@ -3,6 +3,7 @@
 
 CT_CACHE_POLICY_SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 CT_SCCACHE_LOCK_OWNER=""
+source "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/ci-store.sh"
 
 ct_repo_root() {
   git rev-parse --show-toplevel 2>/dev/null || pwd
@@ -142,7 +143,7 @@ ct_sccache_storage() {
   if [ -n "$access_key" ] && [ -n "$secret_key" ]; then
     export AWS_ACCESS_KEY_ID="$access_key" AWS_SECRET_ACCESS_KEY="$secret_key"
     unset AWS_SESSION_TOKEN
-    export SCCACHE_ENDPOINT=http://100.88.47.88:9000 SCCACHE_BUCKET=sccache
+    export SCCACHE_ENDPOINT="$CT_CI_STORE_ENDPOINT" SCCACHE_BUCKET=sccache
     export SCCACHE_REGION=us-east-1 SCCACHE_S3_USE_SSL=false
     export CT_SCCACHE_STORAGE=shared CT_SCCACHE_REASON=""
   else
@@ -206,7 +207,7 @@ ct_sccache_status_locked() {
     printf 'running server: cache location unavailable\n'
   fi
   http_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 \
-    http://100.88.47.88:9000/minio/health/live 2>/dev/null)" || http_status="unreachable"
+    "${CT_CI_STORE_ENDPOINT%/}/minio/health/live" 2>/dev/null)" || http_status="unreachable"
   printf 'shared endpoint health: %s\n' "$http_status"
   if [ "${1:-}" = verify ]; then
     if [ "$CT_SCCACHE_STORAGE" != shared ] ||
@@ -218,8 +219,56 @@ ct_sccache_status_locked() {
 }
 
 ct_sccache_verify() {
+  if [ "${CODETERM_SCCACHE_JOB_LOCAL:-0}" = 1 ]; then
+    ct_sccache_job_local_verify
+    return $?
+  fi
+  # A CI job degrades only when the store itself is down; a live misconfigured cache still refuses.
+  if [ -n "${GITHUB_ENV:-}" ] && ! ct_ci_store_reachable; then
+    ct_sccache_start_job_local
+    return $?
+  fi
   ct_sccache_start_shared_if_absent
   ct_sccache_status verify
+}
+
+# The job-local server listens on its own port so it never serves or stops another job's server.
+ct_sccache_start_job_local() {
+  local port dir
+  port="$(node -e "const s=require('net').createServer().listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})")" || return 2
+  dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/sccache-job-${GITHUB_RUN_ID:-0}-${GITHUB_JOB:-job}-$$"
+  mkdir -p "$dir" || return 2
+  export SCCACHE_SERVER_PORT="$port" SCCACHE_DIR="$dir" CODETERM_SCCACHE_STORAGE=local CODETERM_SCCACHE_JOB_LOCAL=1
+  ct_sccache_storage
+  echo "::warning::private store $CT_CI_STORE_ENDPOINT is unreachable; this job compiles with a job-local sccache at $dir"
+  if ! SCCACHE_IDLE_TIMEOUT=0 sccache --start-server >/dev/null 2>&1; then
+    echo "[cache-policy] ERROR: job-local sccache did not start" >&2
+    return 2
+  fi
+  printf '%s\n' "SCCACHE_SERVER_PORT=$port" "SCCACHE_DIR=$dir" CODETERM_SCCACHE_STORAGE=local CODETERM_SCCACHE_JOB_LOCAL=1 >> "$GITHUB_ENV"
+  ct_sccache_job_local_verify
+}
+
+ct_sccache_job_local_verify() {
+  ct_sccache_storage
+  if ct_sccache_server_live &&
+      ct_sccache_storage_matches "$(sccache --show-stats 2>/dev/null | sed -n 's/^Cache location[[:space:]]*//p')"; then
+    echo "[cache-policy] job-local sccache at $SCCACHE_DIR (private store unreachable)"
+    return 0
+  fi
+  echo "[cache-policy] ERROR: job-local sccache is not running" >&2
+  return 2
+}
+
+ct_sccache_release_job_local() {
+  [ "${CODETERM_SCCACHE_JOB_LOCAL:-0}" = 1 ] || return 0
+  sccache --stop-server >/dev/null 2>&1 || true
+  if ct_sccache_server_live; then
+    echo "[cache-policy] ERROR: job-local sccache survived its stop" >&2
+    return 2
+  fi
+  rm -rf "$SCCACHE_DIR"
+  echo "[cache-policy] job-local sccache stopped and removed"
 }
 
 # Servers exit after sccache's idle timeout, so runners have none between jobs.
@@ -349,7 +398,7 @@ ct_configure_sccache_locked() {
   if [ "$CT_SCCACHE_STORAGE" = local ] && [ "${CODETERM_SCCACHE_STORAGE:-}" != local ] && [[ "$location" == 's3, name: '* ]]; then
     local running_bucket="${location#s3, name: }"
     running_bucket="${running_bucket%%, prefix:*}"
-    printf 'sccache: shared S3 cache at http://100.88.47.88:9000/%s (using running server credentials)\n' "$running_bucket"
+    printf 'sccache: shared S3 cache at %s/%s (using running server credentials)\n' "$CT_CI_STORE_ENDPOINT" "$running_bucket"
   else
     ct_sccache_print_location
   fi
