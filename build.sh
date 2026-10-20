@@ -2454,22 +2454,91 @@ enter_cargo_gateway() {
   ct_configure_sccache
 }
 
-# Compiles the client once, replaces the compile stage with the final pair resources, then bundles NSIS.
-# Arguments, when given, prefix each Tauri command (the local install adds its build config).
-bundle_windows_common_stage() {
+package_platform() {
+  case "$1" in
+    *-pc-windows-*) echo windows ;;
+    *-apple-darwin) echo macos ;;
+    *-linux-*) echo linux ;;
+    *) echo "Unsupported package target: $1" >&2; return 2 ;;
+  esac
+}
+
+# Compiles the client once, replaces the compile stage with the final pair resources, then bundles from it.
+# Arguments, when given, prefix each Tauri command (local builds add their build config).
+bundle_common_stage() {
   local target="${CARGO_BUILD_TARGET:-$(ct_host_triple)}" client_dir="${CARGO_TARGET_DIR:-src-tauri/target}"
-  local target_args=() run=("$@")
+  local platform client=domios target_args=() compile_config=() run=("$@")
+  platform="$(package_platform "$target")" || return
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     target_args=(--target "$CARGO_BUILD_TARGET")
     client_dir="$client_dir/$CARGO_BUILD_TARGET"
   fi
-  "${run[@]}" pnpm tauri build --no-bundle "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"}
+  # The raw Cargo server and sidecar stub would occupy the staged pair paths during compilation.
+  case "$platform" in
+    windows) client=domios.exe ;;
+    macos) compile_config=(--config '{"bundle":{"externalBin":[]}}') ;;
+    linux) compile_config=(--config '{"bundle":{"resources":[],"externalBin":[]}}') ;;
+  esac
+  "${run[@]}" pnpm tauri build --no-bundle "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} "${compile_config[@]}"
   node scripts/release-stage.mjs stage-full --target "$target" \
     --source-sha "$(git rev-parse HEAD)" \
     --cargo-log "release-artifacts/build-logs/$target/server.jsonl" \
     --tree-log "release-artifacts/build-logs/$target/closure.txt" \
-    --client-file "$client_dir/release/domios.exe"
-  "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles nsis
+    --client-file "$client_dir/release/$client"
+  case "$platform" in
+    windows) "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles nsis ;;
+    linux) "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles deb,appimage ;;
+    macos) "${run[@]}" node scripts/release-macos-bundle.mjs "$target" ;;
+  esac
+}
+
+# Local macOS packages sign from the login keychain unless the caller supplies its own identity.
+prepare_local_macos_signing() {
+  local notarize="$1" identities count
+  if [ -z "${RELEASE_KEYCHAIN:-}" ]; then
+    RELEASE_KEYCHAIN="$(security login-keychain | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//')"
+    [ -n "$RELEASE_KEYCHAIN" ] || { echo "ERROR: no login keychain found for local macOS signing" >&2; return 2; }
+    export RELEASE_KEYCHAIN
+  fi
+  if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+    identities="$(security find-identity -v -p codesigning "$RELEASE_KEYCHAIN" |
+      sed -n 's/^.*"\(Developer ID Application: .*\)"$/\1/p' | sort -u)"
+    count="$(printf '%s' "$identities" | grep -c . || true)"
+    if [ "$count" != 1 ]; then
+      echo "ERROR: expected one Developer ID Application identity in $RELEASE_KEYCHAIN, found $count; set APPLE_SIGNING_IDENTITY" >&2
+      return 2
+    fi
+    export APPLE_SIGNING_IDENTITY="$identities"
+  fi
+  if [ -z "${APPLE_TEAM_ID:-}" ]; then
+    APPLE_TEAM_ID="$(printf '%s' "$APPLE_SIGNING_IDENTITY" | sed -n 's/^.*(\([A-Z0-9]\{10\}\))$/\1/p')"
+    [ -n "$APPLE_TEAM_ID" ] || { echo "ERROR: signing identity names no team; set APPLE_TEAM_ID" >&2; return 2; }
+    export APPLE_TEAM_ID
+  fi
+  echo "macOS signing: $APPLE_SIGNING_IDENTITY ($RELEASE_KEYCHAIN)"
+  if [ "$notarize" = 0 ]; then
+    echo "macOS notarization: skipped by --no-notarize"
+    return 0
+  fi
+  export APPLE_KEYCHAIN_PROFILE="${APPLE_KEYCHAIN_PROFILE:-codeterm}"
+  if ! xcrun notarytool history --keychain-profile "$APPLE_KEYCHAIN_PROFILE" --keychain "$RELEASE_KEYCHAIN" >/dev/null 2>&1; then
+    echo "ERROR: notarytool keychain profile '$APPLE_KEYCHAIN_PROFILE' is unavailable in $RELEASE_KEYCHAIN" >&2
+    echo "Store it with 'xcrun notarytool store-credentials $APPLE_KEYCHAIN_PROFILE', or pass --no-notarize." >&2
+    return 2
+  fi
+  echo "macOS notarization: keychain profile $APPLE_KEYCHAIN_PROFILE"
+}
+
+notarize_local_macos_package() {
+  local bundle_root="$1" dmgs=()
+  [ -d "$bundle_root/dmg" ] && dmgs=("$bundle_root"/dmg/*.dmg)
+  if [ "${#dmgs[@]}" -ne 1 ] || [ ! -f "${dmgs[0]}" ]; then
+    echo "ERROR: expected one disk image under $bundle_root/dmg" >&2
+    return 1
+  fi
+  bash .agents/skills/github-release/scripts/notarize-dmg.sh "${dmgs[0]}"
+  xcrun stapler staple "$bundle_root/macos/CodeTerm.app"
+  spctl --assess --type execute "$bundle_root/macos/CodeTerm.app"
 }
 
 case "$CMD" in
@@ -2853,7 +2922,7 @@ EOF
     [ -z "${CARGO_BUILD_TARGET:-}" ] || bundle_target_args=(--target "$CARGO_BUILD_TARGET")
     if [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" = 1 ]; then
       [ "${#bundle_args[@]}" -eq 0 ] || { echo "Shared-stage release-bundle takes no extra Tauri flags" >&2; exit 2; }
-      bundle_windows_common_stage
+      bundle_common_stage
     else
       pnpm tauri build "${bundle_target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} "${bundle_args[@]}"
     fi
@@ -3067,26 +3136,44 @@ EOF
     cargo check --manifest-path src-tauri/Cargo.toml --all-targets "${@:2}"
     ;;
   build)
+    build_notarize=1
+    for arg in "${@:2}"; do
+      case "$arg" in
+        --no-notarize) build_notarize=0 ;;
+        *) echo "Usage: ./build.sh build [--no-notarize]" >&2; exit 2 ;;
+      esac
+    done
     node scripts/check-release-locks.mjs
     require_release_source
-    ct_load_release_signing_key
+    build_platform="$(package_platform "$(ct_host_triple)")"
+    # The macOS app bundle never carries updater artifacts, so only the other bundlers need the updater key.
+    if [ "$build_platform" = macos ]; then
+      prepare_local_macos_signing "$build_notarize"
+    else
+      ct_load_release_signing_key
+    fi
     prepare_release_target
     ensure_deps
+    # Local packages stage the client/server pair exactly as release CI does.
+    export CODETERM_RELEASE_COMMON_STAGE=1
     prepare_release_bundle_inputs bundle
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
     ct_snapshot_provenance "full-build-input" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
-    pnpm tauri build
+    bundle_common_stage ct_with_firebase_build_config
     ct_check_provenance "full-build-input" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
-    # Release gate: /web is served from the exe-adjacent dist/ bundle that
-    # tauri.conf bundle.resources maps in (../dist -> dist). If Tauri's
-    # The release input step produced no dist/index.html, so /web would ship broken.
-    if [ ! -f dist/index.html ]; then
-      echo "❌ RELEASE GATE: dist/index.html missing after build — /web would 404. Run 'pnpm build'." >&2
-      exit 1
+    bundle_root="$CARGO_TARGET_DIR/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}release/bundle"
+    if [ "$build_platform" = macos ] && [ "$build_notarize" = 1 ]; then
+      notarize_local_macos_package "$bundle_root"
     fi
-    echo "✅ web bundle present (dist/index.html) — packaged into installer via bundle.resources"
+    packages="$(find "$bundle_root" -maxdepth 2 -type f \( -name '*.dmg' -o -name '*-setup.exe' -o -name '*.deb' -o -name '*.AppImage' \))"
+    [ -n "$packages" ] || { echo "ERROR: no local package under $bundle_root" >&2; exit 1; }
+    while IFS= read -r package; do
+      command -v cygpath >/dev/null 2>&1 && package="$(cygpath -w "$package")"
+      echo "Local package ready: $package"
+    done <<< "$packages"
+    echo "Install with: codeterm update install --from-file <package>"
     ;;
   install-local)
     parse_local_install_continuation "${@:2}"
@@ -3119,7 +3206,7 @@ EOF
     ct_snapshot_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
     rm -rf "$CARGO_TARGET_DIR/release/bundle/nsis"
-    bundle_windows_common_stage ct_with_firebase_build_config
+    bundle_common_stage ct_with_firebase_build_config
     ct_check_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
     VERSION="$(node -p "require('./package.json').version")"
