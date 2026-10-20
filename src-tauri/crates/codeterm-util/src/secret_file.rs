@@ -1,7 +1,7 @@
 //! File-backed secret persistence. Kept behind the historical `SecretFile` type
 //! name so callers do not know whether the bytes are stored in an OS vault or
-//! in CodeTerm's own local file. The production backend is intentionally a
-//! single `~/.codeterm/.secrets` JSON file with 0600 permissions; OS keychains
+//! in Domios's own local file. The production backend is intentionally a
+//! single `~/.domios/.secrets` JSON file with 0600 permissions; OS keychains
 //! are avoided because signed macOS app updates can re-prompt on startup.
 
 use std::path::Path;

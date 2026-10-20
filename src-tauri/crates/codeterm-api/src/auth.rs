@@ -63,9 +63,13 @@ fn bearer_exempt(method: &Method, path: &str) -> bool {
     !path.starts_with("/api/") || PUBLIC_PATHS.contains(&path) || is_custom_auth(method, path)
 }
 
-fn peer_protocol_allowed(version: u16, path: &str) -> bool {
+fn peer_protocol_allowed(version: u16, _path: &str) -> bool {
     codeterm_service_core::mesh::types::is_supported_relay_protocol(version)
-        || matches!(path, "/api/mesh/announce" | "/api/mesh/sync")
+}
+
+fn peer_protocol_refusal(version: u16) -> Option<String> {
+    (!peer_protocol_allowed(version, ""))
+        .then(codeterm_service_core::mesh::version::peer_upgrade_message)
 }
 
 fn requires_mesh_network(method: &Method, path: &str) -> bool {
@@ -428,7 +432,7 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
                     .into_response()
                     .into();
             }
-            if !peer_protocol_allowed(relay_protocol_version, &path) {
+            if let Some(message) = peer_protocol_refusal(relay_protocol_version) {
                 log::warn!(
                     "[auth] Rejecting peer {} with relay protocol {} on {} {}",
                     instance_id,
@@ -436,10 +440,7 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
                     method,
                     path
                 );
-                return (
-                    StatusCode::UPGRADE_REQUIRED,
-                    "Incompatible Mesh relay protocol; update Domios",
-                )
+                return (StatusCode::UPGRADE_REQUIRED, message)
                     .into_response()
                     .into();
             }
@@ -614,13 +615,14 @@ mod tests {
     }
 
     #[test]
-    fn ancient_peer_protocol_can_only_bootstrap_compatibility_state() {
+    fn v1_14_9_peer_protocol_is_refused_with_a_version_upgrade_message() {
         let ancient_protocol = codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION - 1;
-        assert!(peer_protocol_allowed(
-            ancient_protocol,
-            "/api/mesh/announce"
-        ));
-        assert!(peer_protocol_allowed(ancient_protocol, "/api/mesh/sync"));
+        let refusal = peer_protocol_refusal(ancient_protocol).unwrap();
+        assert!(refusal.contains("both peers on Domios 1.15.0"));
+        assert!(refusal.contains("upgrade both peers through the updater"));
+        for path in ["/api/mesh/announce", "/api/mesh/sync"] {
+            assert!(!peer_protocol_allowed(ancient_protocol, path));
+        }
         assert!(!peer_protocol_allowed(
             ancient_protocol,
             "/api/events/stream"

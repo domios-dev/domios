@@ -22,7 +22,7 @@ import { ChatComposer } from "./ChatComposer";
 import { prepareBrowserUpload } from "./browserImageUpload";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const path = "/home/owner/.codeterm-dev/uploads/id-photo.png";
+const path = "/home/owner/.domios-dev/uploads/id-photo.png";
 const pixels = "data:image/png;base64,iVBORw0KGgo=";
 
 it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError"])("web picker sends immediately and omits failed images without a popup: %s", async (failure) => {

@@ -57,7 +57,7 @@ fn changed_settings_keys<T: serde::Serialize>(
 /// Generate the default config TOML with helpful comments.
 fn default_config_toml() -> String {
     r##"# Domios Configuration
-# Location: ~/.codeterm/config.toml
+# Location: ~/.domios/config.toml
 
 [theme]
 name = "github-dark"
@@ -112,7 +112,7 @@ close_tab = "Ctrl+Shift+W"
 
 [socket]
 # Socket path is auto-generated, override if needed:
-# path = "\\\\.\\pipe\\codeterm-custom"
+# path = "\\\\.\\pipe\\domios-custom"
 
 [agent]
 poll_interval_ms = 500
@@ -138,7 +138,7 @@ enabled = false
 [kpi]
 # Local orchestration-economics ledger behind Mission Control's token and turn
 # figures. It stores plan/task/tab ids, counts and timestamps in
-# ~/.codeterm/kpi_ledger.db - never message text, and nothing leaves the machine.
+# ~/.domios/kpi_ledger.db - never message text, and nothing leaves the machine.
 # Set false to opt out; the Board then shows an explicit not-recording state
 # instead of a figure. Takes effect on the next Domios start.
 enabled = true
@@ -291,7 +291,7 @@ fn default_mesh_instance_name() -> String {
         .map(|h| h.to_string_lossy().trim_end_matches(".local").to_string())
         .ok()
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "CodeTerm".to_string())
+        .unwrap_or_else(|| "Domios".to_string())
 }
 
 /// Resolve theme: if config has a named theme, load its colors as a base,
@@ -840,7 +840,7 @@ enabled = true
         let path = config_path();
         assert!(path.is_ok());
         let p = path.unwrap();
-        assert!(p.to_string_lossy().contains("codeterm"));
+        assert!(p.to_string_lossy().contains("domios"));
         assert!(p.to_string_lossy().contains("config.toml"));
     }
 

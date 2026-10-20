@@ -165,7 +165,7 @@ async function runCli(binary, env, signal, execution) {
 
 // The supervised server discards its own stderr and the scratch directory is deleted, so its log is the only cause left.
 export async function reportServerLogTail(data, { lines = 40, write = text => process.stderr.write(text) } = {}) {
-  const log = await readFile(path.join(data, 'logs', 'codeterm.log'), 'utf8').catch(() => null);
+  const log = await readFile(path.join(data, 'logs', 'domios.log'), 'utf8').catch(() => null);
   if (log === null) {
     write('isolated server wrote no log before the failure\n');
     return;
@@ -223,7 +223,7 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
     const nonce = randomUUID();
     const env = { ...process.env, CODETERM_DATA_DIR: data, CODETERM_API_URL: `http://127.0.0.1:${port}`,
       CODETERM_API_TOKEN: token, CODETERM_INSTANCE: `verify-smoke-${nonce}`,
-      CODETERM_SOCKET_PATH: `codeterm-dev-verify-smoke-${nonce}.sock` };
+      CODETERM_SOCKET_PATH: `domios-dev-verify-smoke-${nonce}.sock` };
     delete env.CODETERM_API_PORT;
     const identity = await runCli(cli, env, deadline, execution);
     if (identity.cli?.build_sha !== sourceSha || identity.connection?.instance !== `verify-smoke-${nonce}`) {

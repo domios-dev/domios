@@ -120,7 +120,7 @@ if is_windows; then
   RELAUNCH_CWD_NATIVE="$(cygpath -w "$RELAUNCH_CWD")"
 fi
 JOURNAL="$DEV_DATA_NATIVE/sessions/tab-lifecycle.jsonl"
-DEV_LOG="$DEV_DATA/logs/codeterm.log"
+DEV_LOG="$DEV_DATA/logs/domios.log"
 LOG_OFFSET=0
 [ ! -f "$DEV_LOG" ] || LOG_OFFSET="$(( $(wc -c <"$DEV_LOG") ))"
 

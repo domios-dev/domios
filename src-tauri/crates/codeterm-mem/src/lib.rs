@@ -80,7 +80,7 @@ pub fn model_cache_dir() -> PathBuf {
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
-        .join(".codeterm")
+        .join(codeterm_paths::dir_name())
         .join("fastembed_cache")
 }
 

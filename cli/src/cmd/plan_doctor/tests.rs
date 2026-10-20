@@ -297,8 +297,8 @@ fn storage_warns_about_stray_linked_worktree_sidecar_copy() {
         "updated_at": 2,
         "tasks": []
     });
-    let canonical_dir = main.join(".codeterm/plans/active/pl_1");
-    let stray_dir = linked.join(".codeterm/plans/active/pl_1");
+    let canonical_dir = main.join(".domios/plans/active/pl_1");
+    let stray_dir = linked.join(".domios/plans/active/pl_1");
     write_v2_plan(&canonical_dir, &plan);
     write_v2_plan(&stray_dir, &plan);
 

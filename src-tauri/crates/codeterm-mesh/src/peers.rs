@@ -1,5 +1,5 @@
 //! Peer storage — load/save paired peers, identity, and revocation list.
-//! Data stored in `~/.codeterm/mesh/`.
+//! Data stored in `~/.domios/mesh/`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ use super::types::{MeshIdentity, PairedPeer, RevocationList};
 
 // ── Directory helpers ───────────────────────────────────────────────
 
-/// `~/.codeterm/mesh/` (or `~/.codeterm-dev/mesh/` in dev builds).
+/// `~/.domios/mesh/` (or `~/.domios-dev/mesh/` in dev builds).
 pub fn mesh_dir() -> PathBuf {
     let dir = codeterm_paths::data_dir().join("mesh");
     let _ = std::fs::create_dir_all(&dir);

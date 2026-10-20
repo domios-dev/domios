@@ -265,9 +265,10 @@ fn is_user_codeterm_directory(path: &Path, home: &Path) -> bool {
     relative.components().any(|component| {
         let name = component.as_os_str().to_string_lossy();
         if cfg!(windows) {
-            name.to_ascii_lowercase().starts_with(".codeterm")
+            let name = name.to_ascii_lowercase();
+            name.starts_with(".domios") || name.starts_with(".codeterm")
         } else {
-            name.starts_with(".codeterm")
+            name.starts_with(".domios") || name.starts_with(".codeterm")
         }
     })
 }

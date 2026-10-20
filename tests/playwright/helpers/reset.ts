@@ -11,8 +11,8 @@
  *   `ensureDevConsole()` afterwards.
  *
  * HARD GUARD: every filesystem path this module touches must live under
- * a directory named `.codeterm-dev-*`. Prod (`~/.codeterm/`) and interactive
- * dev (`~/.codeterm-dev/`) are never touched — the harness throws instead.
+ * a directory named `.domios-dev-*`. Prod (`~/.domios/`) and interactive
+ * dev (`~/.domios-dev/`) are never touched — the harness throws instead.
  */
 import { rmSync } from "node:fs";
 import os from "node:os";
@@ -27,7 +27,7 @@ export function devDataDir(): string {
 
 function assertDevPath(p: string): void {
   const normalized = p.replace(/\\/g, "/");
-  if (!/\/\.codeterm-dev-[^/]+(?:\/|$)/.test(normalized)) {
+  if (!/\/\.domios-dev-[^/]+(?:\/|$)/.test(normalized)) {
     throw new Error(`prod-contamination guard: refusing to touch non-dev path: ${p}`);
   }
 }

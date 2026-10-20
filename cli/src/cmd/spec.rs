@@ -311,7 +311,7 @@ mod tests {
                     "status": "active",
                     "title": "First Spec",
                     "project_path": "/repo/one",
-                    "file_path": "/repo/one/.codeterm/specs/spec_a1.md",
+                    "file_path": "/repo/one/.domios/specs/spec_a1.md",
                     "updated_at": 1,
                 },
                 {
@@ -319,7 +319,7 @@ mod tests {
                     "status": "archived",
                     "title": "Second Spec",
                     "project_path": "/repo/two",
-                    "file_path": "/repo/two/.codeterm/specs/spec_b2.md",
+                    "file_path": "/repo/two/.domios/specs/spec_b2.md",
                     "updated_at": 2,
                 },
             ]

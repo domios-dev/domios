@@ -38,7 +38,7 @@ class Matrix:
         self.results = []
         self.phase = 1
         self.serial = 0
-        self.log_path = pathlib.Path(os.environ["CODETERM_DEV_DATA_DIR"]) / "logs/codeterm.log"
+        self.log_path = pathlib.Path(os.environ["CODETERM_DEV_DATA_DIR"]) / "logs/domios.log"
         self.log_offset = self.log_path.stat().st_size if self.log_path.exists() else 0
 
     def write(self, label, value):

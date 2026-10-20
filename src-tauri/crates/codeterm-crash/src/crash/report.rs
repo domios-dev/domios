@@ -68,7 +68,7 @@ fn hostname() -> String {
 }
 
 pub fn log_tail(n_lines: usize) -> String {
-    let path = crate::paths::data_dir().join("logs").join("codeterm.log");
+    let path = crate::paths::data_dir().join("logs").join("domios.log");
     let Ok(content) = std::fs::read_to_string(&path) else {
         return format!("(log file not found at {})", path.display());
     };

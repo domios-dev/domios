@@ -6,7 +6,7 @@ Instance management:
     endpoint until it responds (up to 120 s for compilation).
 
 Token:
-  - Read from ~/.codeterm-dev/config.toml after the instance is ready.
+  - Read from ~/.domios-dev/config.toml after the instance is ready.
 """
 
 import os
@@ -30,7 +30,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEV_PORT = 7686
 DEV_URL = f"http://127.0.0.1:{DEV_PORT}"
 HEALTH_ENDPOINT = f"{DEV_URL}/api/health"
-DEV_CONFIG_PATH = Path.home() / ".codeterm-dev" / "config.toml"
+DEV_CONFIG_PATH = Path.home() / ".domios-dev" / "config.toml"
 GIT_BASH = Path("C:/Program Files/Git/bin/bash.exe")
 STARTUP_TIMEOUT = 120  # seconds — includes cargo build time
 
@@ -40,7 +40,7 @@ STARTUP_TIMEOUT = 120  # seconds — includes cargo build time
 # ---------------------------------------------------------------------------
 
 def _read_token() -> str | None:
-    """Parse token from ~/.codeterm-dev/config.toml [api] section."""
+    """Parse token from ~/.domios-dev/config.toml [api] section."""
     if not DEV_CONFIG_PATH.exists():
         return None
     text = DEV_CONFIG_PATH.read_text()

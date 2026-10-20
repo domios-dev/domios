@@ -300,8 +300,8 @@ mod tests {
 
     #[test]
     fn browser_sweep_matches_windows_renderer_with_quoted_value() {
-        let root = Path::new(r"C:\Users\User\.codeterm-dev\browsers");
-        let line = r#""C:\Program Files\Google\Chrome\Application\chrome.exe" --type=renderer --user-data-dir="C:\Users\User\.codeterm-dev\browsers\sessions\5c1a3b9e" --lang=en-US"#;
+        let root = Path::new(r"C:\Users\User\.domios-dev\browsers");
+        let line = r#""C:\Program Files\Google\Chrome\Application\chrome.exe" --type=renderer --user-data-dir="C:\Users\User\.domios-dev\browsers\sessions\5c1a3b9e" --lang=en-US"#;
         assert_eq!(
             profile_dir_in_command_line(line, root, true),
             Some(root.join("sessions").join("5c1a3b9e"))
@@ -310,8 +310,8 @@ mod tests {
 
     #[test]
     fn browser_sweep_matches_whole_arg_quoted_path_with_spaces() {
-        let root = Path::new(r"C:\Users\User Name\.codeterm\browsers");
-        let line = r#""C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new "--user-data-dir=c:\users\user name\.codeterm\browsers\profiles\Work" about:blank"#;
+        let root = Path::new(r"C:\Users\User Name\.domios\browsers");
+        let line = r#""C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new "--user-data-dir=c:\users\user name\.domios\browsers\profiles\Work" about:blank"#;
         assert_eq!(
             profile_dir_in_command_line(line, root, true),
             Some(root.join("profiles").join("Work"))
@@ -320,8 +320,8 @@ mod tests {
 
     #[test]
     fn browser_sweep_matches_unquoted_posix_command_line() {
-        let root = Path::new("/home/u/.codeterm/browsers");
-        let line = "/opt/google/chrome/chrome --type=gpu-process --user-data-dir=/home/u/.codeterm/browsers/sessions/abc123 --enable-crash-reporter";
+        let root = Path::new("/home/u/.domios/browsers");
+        let line = "/opt/google/chrome/chrome --type=gpu-process --user-data-dir=/home/u/.domios/browsers/sessions/abc123 --enable-crash-reporter";
         assert_eq!(
             profile_dir_in_command_line(line, root, false),
             Some(root.join("sessions").join("abc123"))
@@ -330,14 +330,14 @@ mod tests {
 
     #[test]
     fn browser_sweep_ignores_foreign_and_lookalike_profiles() {
-        let root = Path::new("/home/u/.codeterm/browsers");
+        let root = Path::new("/home/u/.domios/browsers");
         for line in [
             "/usr/bin/google-chrome --user-data-dir=/home/u/.config/google-chrome",
-            "/usr/bin/google-chrome --user-data-dir=/home/u/.codeterm/browsers-old/sessions/x",
-            "/usr/bin/google-chrome --user-data-dir=/home/u/.codeterm/browsers/other/x",
-            "/usr/bin/google-chrome --user-data-dir=/home/u/.codeterm/browsers/sessions/",
-            "/usr/bin/google-chrome /home/u/.codeterm/browsers/sessions/x",
-            "/usr/bin/google-chrome --user-data-dir=/HOME/U/.codeterm/browsers/sessions/x",
+            "/usr/bin/google-chrome --user-data-dir=/home/u/.domios/browsers-old/sessions/x",
+            "/usr/bin/google-chrome --user-data-dir=/home/u/.domios/browsers/other/x",
+            "/usr/bin/google-chrome --user-data-dir=/home/u/.domios/browsers/sessions/",
+            "/usr/bin/google-chrome /home/u/.domios/browsers/sessions/x",
+            "/usr/bin/google-chrome --user-data-dir=/HOME/U/.domios/browsers/sessions/x",
         ] {
             assert_eq!(
                 profile_dir_in_command_line(line, root, false),
