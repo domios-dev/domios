@@ -151,6 +151,31 @@ test("a remote checklist read relays to the peer's own todo route", async () => 
   assert(call?.method === "GET" && call.suffix === "/todos" && call.remoteTabId === "remote-agent", "remote read targets GET /todos on the peer");
 });
 
+test("a row keeps its DOM node when its checklist appears or clears", async () => {
+  const store = checklistStore(checklistRecord("worker", 1, 1, [["Step", "open"]]));
+  const withChecklist = (present: boolean): Record<string, Tab> => {
+    const tabs = checklistTeam();
+    return {
+      ...tabs,
+      worker: { ...tabs.worker, has_checklist: present },
+      solo: tab({ id: "solo", title: "Solo", has_checklist: present, ...boundAgent("solo") }),
+    };
+  };
+  const sortedTabs = ["orchestrator", "worker", "solo"];
+  const { host, root, rerenderTabs } = await renderSidebar({ tabs: withChecklist(false), sortedTabs });
+  const rowNode = (id: string) => host.querySelector(`[data-tab-id="${id}"]`);
+  const before = { worker: rowNode("worker"), solo: rowNode("solo") };
+  assert(before.worker && before.solo && !toggleFor(host, "Mica"), "rows render without a checklist toggle");
+  for (const present of [true, false]) {
+    await rerenderTabs(withChecklist(present));
+    assert(Boolean(toggleFor(host, "Mica")) === present && Boolean(toggleFor(host, "Solo")) === present, `toggle follows has_checklist=${present}`);
+    assert(rowNode("worker") === before.worker, "the team member row is not remounted");
+    assert(rowNode("solo") === before.solo, "the loose agent row is not remounted");
+  }
+  await act(async () => root.unmount());
+  store.restore();
+});
+
 test("a checklist rereads on its own change event and never shows a stale generation", async () => {
   const store = checklistStore(checklistRecord("worker", 1, 2, [["Old step", "in_progress"]]));
   const { host, root } = await renderSidebar({ tabs: checklistTeam(), sortedTabs: [tab("o", "orchestrator", 0), tab("w", "worker", 1)] });

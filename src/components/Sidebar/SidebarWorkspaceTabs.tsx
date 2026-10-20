@@ -255,11 +255,12 @@ export function SidebarWorkspaceTabs({
     />
   );
 
-  const renderMemberRow = (member: TeamTabMember, section: TeamSection, shell = false): ReactNode => showsChecklist(member.tab)
-    ? <AgentChecklistDisclosure key={member.tab.id} tabId={member.tab.id} title={member.tab.title}>
-      {(toggle, detail) => renderMemberShellRow(member, section, shell, { toggle, detail })}
+  // One element shape whether or not a checklist exists, so its first todo never remounts the row.
+  const renderMemberRow = (member: TeamTabMember, section: TeamSection, shell = false): ReactNode => (
+    <AgentChecklistDisclosure key={member.tab.id} tabId={member.tab.id} title={member.tab.title}>
+      {(toggle, detail) => renderMemberShellRow(member, section, shell, showsChecklist(member.tab) ? { toggle, detail } : undefined)}
     </AgentChecklistDisclosure>
-    : renderMemberShellRow(member, section, shell);
+  );
 
   const renderTerminalRow = (member: TeamTabMember, section: TeamSection): ReactNode => renderMemberRow(member, section, true);
 
@@ -316,11 +317,9 @@ export function SidebarWorkspaceTabs({
     return (
       <SidebarSortableBlock key={tab.id} tab={tab} group={group} groupKey={groupKey} pinnedIds={pinnedIds}
         toWorkspaceOrder={toWorkspaceOrder} className="sidebar-tab-tree-row">
-        {showsChecklist(tab)
-          ? <AgentChecklistDisclosure tabId={tab.id} title={tab.title}>
-            {(toggle, detail) => <>{renderOwner(toggle)}{detail}</>}
-          </AgentChecklistDisclosure>
-          : renderOwner()}
+        <AgentChecklistDisclosure tabId={tab.id} title={tab.title}>
+          {(toggle, detail) => <>{renderOwner(showsChecklist(tab) ? toggle : undefined)}{showsChecklist(tab) && detail}</>}
+        </AgentChecklistDisclosure>
         {children.length > 0 && (
           <SortableContext items={childItems} strategy={verticalListSortingStrategy}>
             {children.map((child, childIndex) =>

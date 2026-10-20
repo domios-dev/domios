@@ -2022,9 +2022,11 @@ button,
   }
 }
 
+/* macOS WebKit rubber-bands this list on a trackpad press and leaves composited rows behind. */
 .ct-sidebar-content {
   scrollbar-gutter: stable both-edges;
   padding-bottom: 4px;
+  overscroll-behavior: none;
 }
 
 /* The dragged block is opaque and slightly lifted, so rows it passes never show through it. */
