@@ -228,3 +228,23 @@ test('only Herald bridge additions and Closer bridge removals are admitted', (t)
     assert.equal(result.bridgeFailures.length, failures);
   }
 });
+
+test('lane checker filters large unrelated hunks while checking bridge lines', (t) => {
+  const root = fixture(t);
+  write(root, 'build.sh', 'baseline\n');
+  write(root, 'large.txt', 'x'.repeat(1_500_000) + '\n');
+  commit(root, 'large lane base');
+  const baseRef = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  execFileSync('git', ['checkout', '-b', 'worker'], { cwd: root, stdio: 'ignore' });
+  write(root, 'build.sh', 'baseline\nrename-bridge\n');
+  write(root, 'large.txt', 'y'.repeat(1_500_000) + '\n');
+  commit(root, 'large unrelated edit plus bridge');
+  const manifest = path.join(root, 'ownership.json');
+  writeFileSync(manifest, JSON.stringify({ phases: { '2': [
+    { phase: '2', key: 'COD-LARGE', id: 'owner', handle: 'backend-1-15-0-4', paths: ['build.sh', 'large.txt'] },
+  ] } }));
+  const result = checkLane({ root, ownership: manifest, taskKey: 'COD-LARGE', baseRef });
+  assert.deepEqual(result.pathFailures, []);
+  assert.equal(result.bridgeLines.length, 1);
+  assert.deepEqual(result.bridgeFailures, []);
+});
