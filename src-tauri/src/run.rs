@@ -111,7 +111,9 @@ pub fn run(
                         )
                         .await
                     }
-                    Ok(Err(error)) => Err(format!("Installed client resources refused: {error}")),
+                    Ok(Err(error)) => {
+                        Err(format!("Installed client resources refused: {error}").into())
+                    }
                     Err(_) => Err("Installed client resource verification was interrupted".into()),
                 };
                 match result {
@@ -164,9 +166,17 @@ pub fn run(
                         log::error!("[client] server attachment refused: {error}");
                         let handle = app_handle.clone();
                         if let Err(error) = app_handle.run_on_main_thread(move || {
-                            if let Err(error) = startup::desktop_lifecycle::show_or_create(&handle)
+                            if let Err(refusal) =
+                                startup::desktop_lifecycle::show_or_create(&handle)
                             {
-                                log::error!("[client] unavailable frontend refused: {error}");
+                                log::error!("[client] unavailable frontend refused: {refusal}");
+                            }
+                            // Nothing else replaces the starting page, so the first failure must name its cause.
+                            if let Some(window) = handle.get_webview_window("main") {
+                                startup::frontend_shell::show_start_failure(
+                                    &window,
+                                    error.message(),
+                                );
                             }
                         }) {
                             log::error!(

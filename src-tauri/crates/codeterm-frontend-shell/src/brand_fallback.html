@@ -22,6 +22,8 @@
     main[data-pulse] svg { animation: pulse 2.6s ease-in-out infinite; }
     h1 { margin: .5rem 0 0; font-size: 1.2rem; font-weight: 600; }
     p { max-width: 28rem; margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.6; }
+    .detail { max-width: 100%; padding: .6rem .8rem; border: 1px solid var(--border); border-radius: 8px; color: inherit; font: .8rem/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; text-align: left; overflow-wrap: anywhere; user-select: text; }
+    .detail[hidden] { display: none; }
     .retry { margin-top: .5rem; display: inline-flex; align-items: center; gap: .5rem; padding: .45rem .9rem; border: 1px solid var(--border); border-radius: 8px; color: #f0f6fc; text-decoration: none; font-size: .85rem; }
     /* Like the app's DeferredLoader: a fast hand-off only ever shows the matching background. */
     header, .stage > * { animation: appear .25s ease-out .4s both; }
