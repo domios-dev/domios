@@ -6,7 +6,7 @@ import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { SidebarDnd } from "./sortable";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import { forwardTerminalFallback } from "../../lib/terminalFallbackInput";
-import { __setInvokeForTest } from "../../lib/bridge";
+import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { setAgentDescriptors } from "../../lib/agentDescriptorCache";
 import {
   boundAgent,
@@ -957,6 +957,125 @@ test("team manager close control calls onCloseTab", async () => {
   await act(async () => close.click());
   assert(JSON.stringify(closed) === JSON.stringify(["manager"]), "manager close receives the tab id exactly once");
   await act(async () => root.unmount());
+});
+
+function checklistTeam(): Record<string, Tab> {
+  return {
+    orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
+    worker: tab({ id: "worker", title: "Mica", role: "Worker", team_id: TEAM.id, parent_tab_id: "orchestrator", ...boundAgent("worker") }),
+  };
+}
+
+function checklistRecord(generation: number, revision: number, items: Array<[string, string]>) {
+  return {
+    tab_id: "worker", generation, revision, started_at: 1, status: "active",
+    items: items.map(([title, state], position) => ({ id: `${generation}-${position}`, position, title, state, revision: 1 })),
+  };
+}
+
+function checklistStore(initial: unknown) {
+  let current = initial;
+  const reads: unknown[] = [];
+  const handlers = new Set<(event: { payload: unknown }) => void>();
+  __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
+    if (command !== "tab_todo_list") return {};
+    reads.push(args?.tabId);
+    return structuredClone(current);
+  }) as never);
+  __setListenForTest((async (event: string, handler: (event: { payload: unknown }) => void) => {
+    if (event !== "tab-todo-changed") return () => {};
+    handlers.add(handler);
+    return () => handlers.delete(handler);
+  }) as never);
+  return {
+    reads,
+    readCount: () => reads.length,
+    handlers,
+    set: (next: unknown) => { current = next; },
+    emit: async (payload: unknown) => {
+      await act(async () => {
+        for (const handler of [...handlers]) handler({ payload });
+        await Promise.resolve();
+      });
+    },
+    restore: () => {
+      __setInvokeForTest(null);
+      __setListenForTest(async () => () => {});
+    },
+  };
+}
+
+function checklistRows(region: Element): string[] {
+  return [...region.querySelectorAll("li")].map((item) => item.textContent ?? "");
+}
+
+test("Worker checklist disclosure reads the store only when opened and shows titles with states", async () => {
+  const store = checklistStore(checklistRecord(1, 3, [["Ship the route", "done"], ["Wire the row", "in_progress"], ["Record evidence", "open"]]));
+  const tabs = checklistTeam();
+  const { host, root } = await renderSidebar({ tabs, sortedTabs: [tab("o", "orchestrator", 0), tab("w", "worker", 1)] });
+  const toggle = host.querySelector('button[aria-label="Checklist for Mica"]') as HTMLButtonElement | null;
+  assert(toggle, "Worker row exposes a named checklist disclosure");
+  assert(toggle.getAttribute("aria-expanded") === "false", "disclosure starts collapsed");
+  assert(!host.querySelector('button[aria-label="Checklist for Orchestrator"]'), "only Worker rows carry the disclosure");
+  assert(store.reads.length === 0 && store.handlers.size === 0, "collapsed rows neither fetch nor subscribe");
+
+  await act(async () => toggle.click());
+  await act(async () => { await Promise.resolve(); });
+  const region = host.querySelector('[role="region"][aria-label="Worker checklist"]');
+  assert(region, "opening reveals the Worker checklist region");
+  assert(toggle.getAttribute("aria-expanded") === "true" && toggle.getAttribute("aria-controls") === region.id, "disclosure controls the region");
+  assert(JSON.stringify(store.reads) === JSON.stringify(["worker"]), "opening reads the Worker's checklist once");
+  assert(
+    JSON.stringify(checklistRows(region)) === JSON.stringify(["Ship the routeDone", "Wire the rowIn progress", "Record evidenceOpen"]),
+    "region lists every item title with its current state in order",
+  );
+
+  await act(async () => toggle.click());
+  assert(!host.querySelector('[aria-label="Worker checklist"]'), "collapsing hides the detail");
+  assert(store.handlers.size === 0, "collapsing drops the change subscription");
+
+  store.set(null);
+  await act(async () => toggle.click());
+  await act(async () => { await Promise.resolve(); });
+  assert(host.querySelector('[aria-label="Worker checklist"]')?.textContent === "No checklist", "a Worker without a checklist shows the empty state");
+  const stored = Object.keys(window.localStorage).map((key) => window.localStorage.getItem(key) ?? "").join("\n");
+  assert(!stored.includes("Ship the route"), "checklist rows never reach localStorage");
+  await act(async () => root.unmount());
+  store.restore();
+});
+
+test("Worker checklist rereads on its own change event and never shows a stale generation", async () => {
+  const store = checklistStore(checklistRecord(1, 2, [["Old step", "in_progress"]]));
+  const tabs = checklistTeam();
+  const { host, root } = await renderSidebar({ tabs, sortedTabs: [tab("o", "orchestrator", 0), tab("w", "worker", 1)] });
+  const toggle = host.querySelector('button[aria-label="Checklist for Mica"]') as HTMLButtonElement;
+  await act(async () => toggle.click());
+  await act(async () => { await Promise.resolve(); });
+  const region = () => host.querySelector('[aria-label="Worker checklist"]')!;
+  assert(JSON.stringify(checklistRows(region())) === JSON.stringify(["Old stepIn progress"]), "initial read is shown");
+
+  store.set(checklistRecord(2, 1, [["Fresh step", "open"], ["Second step", "done"]]));
+  await store.emit({ tab_id: "other-worker", generation: 9, revision: 9 });
+  await store.emit({ tab_id: "worker", generation: 1, revision: 2 });
+  assert(store.readCount() === 1, "foreign and already-shown events do not reread");
+  assert(JSON.stringify(checklistRows(region())) === JSON.stringify(["Old stepIn progress"]), "detail is unchanged until a matching event");
+
+  await store.emit({ tab_id: "worker", generation: 2, revision: 1 });
+  assert(store.readCount() === 2, "a newer generation event rereads the authorized list once");
+  assert(
+    JSON.stringify(checklistRows(region())) === JSON.stringify(["Fresh stepOpen", "Second stepDone"]),
+    "reset generation replaces the rows and the stale rows disappear without reload",
+  );
+
+  store.set({ ...checklistRecord(2, 2, []), status: "cleared" });
+  await store.emit({ tab_id: "worker", generation: 2, revision: 2 });
+  assert(region().textContent === "No checklist", "a cleared generation leaves no stale rows");
+
+  await act(async () => toggle.click());
+  await store.emit({ tab_id: "worker", generation: 3, revision: 1 });
+  assert(store.readCount() === 3, "a collapsed disclosure ignores later events");
+  await act(async () => root.unmount());
+  store.restore();
 });
 
 void run();
