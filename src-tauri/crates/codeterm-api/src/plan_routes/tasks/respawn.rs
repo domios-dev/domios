@@ -231,6 +231,23 @@ pub async fn task_respawn(
         .or(created.attempt.parent_tab_id.as_deref())
         .unwrap_or(&parent_tab_id)
         .to_string();
+    let todo_carry_over = state
+        .svc
+        .tab_todo_inherit_or_seed(
+            &spawn.tab_id,
+            &parent_tab_id,
+            std::slice::from_ref(&draft.source_attempt.executor_tab_id),
+            &original_task.acceptance_criteria,
+        )
+        .await
+        .map_err(|error| {
+            log::warn!(
+                "[task-respawn] checklist carry-over failed plan={id} task={tid} tab={}: {error}",
+                spawn.tab_id
+            );
+            error
+        })
+        .err();
     let startup = codeterm_service_core::ports::socket::DispatchStartup {
         svc: state.svc.clone(),
         plan_id: id.clone(),
@@ -265,6 +282,7 @@ pub async fn task_respawn(
             "ready": false,
             "awaiting_event": "dispatch_ready",
         },
+        "todo_carry_over_error": todo_carry_over,
         "draft": draft
     })))
 }

@@ -233,6 +233,7 @@ fn review_bounce_forwards_trusted_binding_and_keeps_from_as_attribution() {
                     note_from_pad: None,
                     changed_executable_surfaces: true,
                     distinct_oracle: false,
+                    todo_item: Some("todo-item-1".into()),
                 },
             },
         )
@@ -241,6 +242,7 @@ fn review_bounce_forwards_trusted_binding_and_keeps_from_as_attribution() {
         assert_eq!(recorder.calls.len(), 1);
         let (method, params) = &recorder.calls[0];
         assert_eq!(method, "plan.review.bounce");
+        assert_eq!(params["todo_item"], "todo-item-1");
         assert_eq!(params["caller_tab_id"], "owner-tab");
         assert_eq!(
             params.get("session_id"),

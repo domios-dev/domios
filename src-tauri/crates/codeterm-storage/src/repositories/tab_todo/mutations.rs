@@ -1,7 +1,7 @@
 use super::queries;
 use super::records::{
     validate_item_id, validate_items, validate_tab_id, validate_team_id, validate_workspace_id,
-    TabTodoAmendmentRecord, TabTodoChecklistRecord, TabTodoNewItemRecord,
+    TabTodoAmendmentRecord, TabTodoChecklistRecord, TabTodoNewItemRecord, MAX_TAB_TODO_ITEMS,
 };
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
@@ -57,7 +57,7 @@ pub(crate) fn create(
         [&tab_id],
     )?;
     for (position, item) in items.iter().enumerate() {
-        insert_item(cx, &tab_id, 1, position, item)?;
+        insert_item(cx, &tab_id, 1, position, item, true)?;
         audit(
             cx,
             &tab_id,
@@ -99,14 +99,14 @@ pub(crate) fn append(
     let at = to_sql_u64("todo audit time", at)?;
     require_mutable_generation(cx.conn, &tab_id, generation)?;
     let (count, next) = live_item_count(cx.conn, &tab_id, generation)?;
-    if count + items.len() > 16 || next + items.len() > 16 {
+    if count + items.len() > MAX_TAB_TODO_ITEMS || next + items.len() > MAX_TAB_TODO_ITEMS {
         return Err(StorageError::invalid(
             "todo items",
-            "would exceed the 16-item ordered list bound",
+            "would exceed the 12-item ordered list bound",
         ));
     }
     for (offset, item) in items.iter().enumerate() {
-        insert_item(cx, &tab_id, generation as u64, next + offset, item)?;
+        insert_item(cx, &tab_id, generation as u64, next + offset, item, true)?;
         audit(
             cx,
             &tab_id,
@@ -121,48 +121,6 @@ pub(crate) fn append(
     update_lifecycle(cx, &tab_id, generation)?;
     touch_generation(cx, &tab_id, generation)?;
     queries::load(cx.conn, &tab_id)?.ok_or_else(|| corrupt("appended tab todo missing"))
-}
-
-pub(crate) fn set_state(
-    cx: &mut WriteCx<'_>,
-    tab_id: String,
-    generation: u64,
-    item_id: String,
-    expected_revision: u64,
-    state: String,
-    actor_tab_id: Option<String>,
-    at: u64,
-) -> Result<TabTodoChecklistRecord, StorageError> {
-    validate_tab_id(&tab_id)?;
-    validate_item_id(&item_id)?;
-    validate_actor(actor_tab_id.as_deref())?;
-    validate_state(&state)?;
-    let generation = to_sql_u64("todo generation", generation)?;
-    let expected_revision = to_sql_u64("todo item revision", expected_revision)?;
-    let at = to_sql_u64("todo audit time", at)?;
-    require_mutable_generation(cx.conn, &tab_id, generation)?;
-    let changed = cx.write("UPDATE tab_todo_items SET state = ?5, revision = revision + 1 WHERE tab_id = ?1 AND generation = ?2 AND item_id = ?3 AND revision = ?4 AND deleted = 0", params![tab_id, generation, item_id, expected_revision, state])?;
-    check_item_write(
-        cx.conn,
-        &tab_id,
-        generation,
-        &item_id,
-        expected_revision,
-        changed,
-    )?;
-    update_lifecycle(cx, &tab_id, generation)?;
-    touch_generation(cx, &tab_id, generation)?;
-    audit(
-        cx,
-        &tab_id,
-        generation,
-        Some(&item_id),
-        actor_tab_id.as_deref(),
-        "state_change",
-        Some(expected_revision as u64 + 1),
-        at,
-    )?;
-    queries::load(cx.conn, &tab_id)?.ok_or_else(|| corrupt("updated tab todo missing"))
 }
 
 pub(crate) fn amend(
@@ -222,7 +180,13 @@ pub(crate) fn clear_one(
     let expected_revision = to_sql_u64("todo item revision", expected_revision)?;
     let at = to_sql_u64("todo audit time", at)?;
     require_mutable_generation(cx.conn, &tab_id, generation)?;
-    let changed = cx.write("UPDATE tab_todo_items SET deleted = 1, revision = revision + 1 WHERE tab_id = ?1 AND generation = ?2 AND item_id = ?3 AND revision = ?4 AND deleted = 0", params![tab_id, generation, item_id, expected_revision])?;
+    let locked: Option<bool> = cx.conn.prepare_cached("SELECT locked FROM tab_todo_items WHERE tab_id = ?1 AND generation = ?2 AND item_id = ?3 AND deleted = 0")
+        .and_then(|mut statement| statement.query_row(params![tab_id, generation, item_id], |row| row.get(0)).optional())
+        .map_err(|error| sqlite_error("read tab todo item lock", error))?;
+    if locked == Some(true) {
+        return Err(locked_refusal());
+    }
+    let changed = cx.write("UPDATE tab_todo_items SET deleted = 1, revision = revision + 1 WHERE tab_id = ?1 AND generation = ?2 AND item_id = ?3 AND revision = ?4 AND deleted = 0 AND locked = 0", params![tab_id, generation, item_id, expected_revision])?;
     check_item_write(
         cx.conn,
         &tab_id,
@@ -259,6 +223,7 @@ pub(crate) fn clear_all(
     let generation = to_sql_u64("todo generation", generation)?;
     let at = to_sql_u64("todo audit time", at)?;
     require_mutable_generation(cx.conn, &tab_id, generation)?;
+    require_no_locked_items(cx.conn, &tab_id, generation)?;
     cx.write("UPDATE tab_todo_items SET deleted = 1, revision = revision + 1 WHERE tab_id = ?1 AND generation = ?2 AND deleted = 0", params![tab_id, generation])?;
     set_status(cx, &tab_id, generation, "cleared")?;
     audit(
@@ -291,7 +256,36 @@ pub(crate) fn reset(
     validate_items(&items)?;
     let expected_generation = to_sql_u64("todo generation", expected_generation)?;
     let started_at = to_sql_u64("todo start", started_at)?;
+    if expected_generation == 0 && current_generation(cx.conn, &tab_id)?.is_none() {
+        insert_generation(
+            cx,
+            &tab_id,
+            1,
+            &workspace_id,
+            team_id.as_deref(),
+            started_at,
+        )?;
+        cx.write(
+            "INSERT INTO tab_todo_heads (tab_id, generation) VALUES (?1, 1)",
+            [&tab_id],
+        )?;
+        for (position, item) in items.iter().enumerate() {
+            insert_item(cx, &tab_id, 1, position, item, false)?;
+        }
+        audit(
+            cx,
+            &tab_id,
+            1,
+            None,
+            actor_tab_id.as_deref(),
+            "reset",
+            None,
+            started_at,
+        )?;
+        return queries::load(cx.conn, &tab_id)?.ok_or_else(|| corrupt("reset tab todo missing"));
+    }
     require_current_generation(cx.conn, &tab_id, expected_generation)?;
+    require_no_locked_items(cx.conn, &tab_id, expected_generation)?;
     let next = expected_generation
         .checked_add(1)
         .ok_or_else(|| StorageError::invalid("todo generation", "overflows"))?;
@@ -305,6 +299,10 @@ pub(crate) fn reset(
         "reset",
         None,
         started_at,
+    )?;
+    cx.write(
+        "DELETE FROM tab_todo_item_events WHERE tab_id = ?1 AND generation = ?2",
+        params![tab_id, expected_generation],
     )?;
     cx.write(
         "DELETE FROM tab_todo_items WHERE tab_id = ?1 AND generation = ?2",
@@ -330,7 +328,7 @@ pub(crate) fn reset(
         ));
     }
     for (position, item) in items.iter().enumerate() {
-        insert_item(cx, &tab_id, next as u64, position, item)?;
+        insert_item(cx, &tab_id, next as u64, position, item, false)?;
     }
     audit(
         cx,
@@ -347,6 +345,10 @@ pub(crate) fn reset(
 
 pub(crate) fn forget_tab(cx: &mut WriteCx<'_>, tab_id: String) -> Result<(), StorageError> {
     validate_tab_id(&tab_id)?;
+    cx.write(
+        "DELETE FROM tab_todo_item_events WHERE tab_id = ?1",
+        [&tab_id],
+    )?;
     cx.write("DELETE FROM tab_todo_items WHERE tab_id = ?1", [&tab_id])?;
     cx.write(
         "DELETE FROM tab_todo_generations WHERE tab_id = ?1",
@@ -413,6 +415,10 @@ fn forget_generation(
     generation: i64,
 ) -> Result<(), StorageError> {
     cx.write(
+        "DELETE FROM tab_todo_item_events WHERE tab_id = ?1 AND generation = ?2",
+        params![tab_id, generation],
+    )?;
+    cx.write(
         "DELETE FROM tab_todo_items WHERE tab_id = ?1 AND generation = ?2",
         params![tab_id, generation],
     )?;
@@ -449,9 +455,32 @@ fn insert_item(
     generation: u64,
     position: usize,
     item: &TabTodoNewItemRecord,
+    locked: bool,
 ) -> Result<(), StorageError> {
-    cx.write("INSERT INTO tab_todo_items (tab_id, generation, item_id, position, title, description, state, revision, deleted, link_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'open', 1, 0, ?7)", params![tab_id, to_sql_u64("todo generation", generation)?, item.id, position as i64, item.title, item.description, item.link_json])?;
+    cx.write("INSERT INTO tab_todo_items (tab_id, generation, item_id, position, title, description, state, revision, deleted, link_json, locked, reason, attempt, attempt_closed, started_count, completed_count, reopened_count, blocked_count, skipped_count, folded_events) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'open', 1, 0, ?7, ?8, NULL, 0, 0, 0, 0, 0, 0, 0, 0)", params![tab_id, to_sql_u64("todo generation", generation)?, item.id, position as i64, item.title, item.description, item.link_json, locked])?;
     Ok(())
+}
+
+fn require_no_locked_items(
+    conn: &Connection,
+    tab_id: &str,
+    generation: i64,
+) -> Result<(), StorageError> {
+    let locked: i64 = conn.prepare_cached("SELECT COUNT(*) FROM tab_todo_items WHERE tab_id = ?1 AND generation = ?2 AND deleted = 0 AND locked = 1")
+        .and_then(|mut statement| statement.query_row(params![tab_id, generation], |row| row.get(0)))
+        .map_err(|error| sqlite_error("count locked tab todo items", error))?;
+    if locked == 0 {
+        Ok(())
+    } else {
+        Err(locked_refusal())
+    }
+}
+
+fn locked_refusal() -> StorageError {
+    StorageError::invalid(
+        "locked todo item",
+        "cannot be deleted; mark it skipped with a reason instead",
+    )
 }
 
 fn check_item_write(
@@ -499,7 +528,7 @@ fn require_current_generation(
     }
 }
 
-fn require_mutable_generation(
+pub(super) fn require_mutable_generation(
     conn: &Connection,
     tab_id: &str,
     generation: i64,
@@ -570,12 +599,12 @@ fn compact_live_positions(
     Ok(())
 }
 
-fn update_lifecycle(
+pub(super) fn update_lifecycle(
     cx: &mut WriteCx<'_>,
     tab_id: &str,
     generation: i64,
 ) -> Result<(), StorageError> {
-    let (items, unfinished): (i64, i64) = cx.conn.prepare_cached("SELECT COUNT(*), SUM(CASE WHEN state != 'done' THEN 1 ELSE 0 END) FROM tab_todo_items WHERE tab_id = ?1 AND generation = ?2 AND deleted = 0")
+    let (items, unfinished): (i64, i64) = cx.conn.prepare_cached("SELECT COUNT(*), SUM(CASE WHEN state NOT IN ('done', 'skipped') THEN 1 ELSE 0 END) FROM tab_todo_items WHERE tab_id = ?1 AND generation = ?2 AND deleted = 0")
         .and_then(|mut statement| statement.query_row(params![tab_id, generation], |row| Ok((row.get(0)?, row.get::<_, Option<i64>>(1)?.unwrap_or(0)))) )
         .map_err(|error| sqlite_error("read tab todo completion", error))?;
     let status = if items == 0 {
@@ -598,7 +627,7 @@ fn set_status(
     Ok(())
 }
 
-fn touch_generation(
+pub(super) fn touch_generation(
     cx: &mut WriteCx<'_>,
     tab_id: &str,
     generation: i64,
@@ -607,7 +636,7 @@ fn touch_generation(
     Ok(())
 }
 
-fn audit(
+pub(super) fn audit(
     cx: &mut WriteCx<'_>,
     tab_id: &str,
     generation: i64,
@@ -622,17 +651,10 @@ fn audit(
     Ok(())
 }
 
-fn validate_actor(actor: Option<&str>) -> Result<(), StorageError> {
+pub(super) fn validate_actor(actor: Option<&str>) -> Result<(), StorageError> {
     actor.map(validate_tab_id).unwrap_or(Ok(()))
 }
-fn validate_state(state: &str) -> Result<(), StorageError> {
-    if matches!(state, "open" | "in_progress" | "done") {
-        Ok(())
-    } else {
-        Err(StorageError::invalid("todo state", "unknown state"))
-    }
-}
-fn corrupt(detail: &'static str) -> StorageError {
+pub(super) fn corrupt(detail: &'static str) -> StorageError {
     StorageError::Corrupt {
         detail: detail.into(),
     }

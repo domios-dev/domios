@@ -139,6 +139,7 @@ pub(super) fn handle(
             note_from_pad,
             changed_executable_surfaces,
             distinct_oracle,
+            todo_item,
         } => {
             let mut params = json!({
                 "task_id": task_id,
@@ -149,6 +150,9 @@ pub(super) fn handle(
             });
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
+            }
+            if let Some(todo_item) = todo_item {
+                params["todo_item"] = json!(todo_item);
             }
             inject_trusted_session(&mut params);
             call_plan_rpc(client, "plan.review.bounce", params).map(Some)

@@ -182,6 +182,9 @@ pub enum PlanReviewAction {
         changed_executable_surfaces: bool,
         #[arg(long)]
         distinct_oracle: bool,
+        /// Reopen this Worker checklist item with the bounce note as its reason
+        #[arg(long, value_name = "ITEM_ID")]
+        todo_item: Option<String>,
     },
     /// HOLD: records a review hold without releasing the task assignment or lane
     #[command(allow_missing_positional = true)]

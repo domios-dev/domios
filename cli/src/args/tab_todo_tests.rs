@@ -18,6 +18,30 @@ fn agent_todo_write_uses_the_provider_native_json_pad_contract() {
 }
 
 #[test]
+fn tab_todo_reopen_names_the_item_child_and_reason() {
+    let cli = Cli::try_parse_from([
+        "codeterm",
+        "tab",
+        "todo",
+        "reopen",
+        "item-1",
+        "--tab",
+        "team-child",
+        "--reason",
+        "QA rejected the check",
+    ])
+    .unwrap();
+    assert!(matches!(
+        cli.command,
+        Commands::Tab {
+            action: super::misc::TabAction::Todo {
+                action: TabTodoAction::Reopen { item_id, tab, reason }
+            }
+        } if item_id == "item-1" && tab == "team-child" && reason == "QA rejected the check"
+    ));
+}
+
+#[test]
 fn tab_todo_commands_expose_parent_inspection_and_qa_generation_fence() {
     let inspect =
         Cli::try_parse_from(["codeterm", "tab", "todo", "list", "--tab", "team-child"]).unwrap();

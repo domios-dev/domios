@@ -1,6 +1,6 @@
 use super::{dispatch_failed, emit_plan_changed, roll_back_dispatch_attempt, JsonRpcError};
 use codeterm_service_core::multiplexer::types::AgentRole;
-use codeterm_service_core::plan::{PlanMode, Task};
+use codeterm_service_core::plan::{PlanMode, Task, TaskExecutionAttempt};
 use codeterm_service_core::service::plan::PlanStore;
 use codeterm_service_core::service::{ProvisionedWorkerLane, ServiceState};
 
@@ -34,7 +34,8 @@ pub(super) fn seed_acceptance_or_rollback(
         provisioned_lane,
         now,
     } = seed;
-    if original_task.acceptance_criteria.is_empty() {
+    let predecessors = predecessor_tab_ids(&original_task.execution_attempts, tab_id);
+    if original_task.acceptance_criteria.is_empty() && predecessors.is_empty() {
         return Ok(provisioned_lane);
     }
     let placement = {
@@ -42,9 +43,10 @@ pub(super) fn seed_acceptance_or_rollback(
         mux.set_tab_role_kind(tab_id, AgentRole::Worker, None, Some(parent_tab_id))
     };
     let seeded = placement.and_then(|()| {
-        codeterm_service_core::async_runtime::block_on(svc.tab_todo_seed_from_acceptance(
+        codeterm_service_core::async_runtime::block_on(svc.tab_todo_inherit_or_seed(
             tab_id,
             parent_tab_id,
+            &predecessors,
             &original_task.acceptance_criteria,
         ))
         .map(|_| ())
@@ -75,3 +77,24 @@ pub(super) fn seed_acceptance_or_rollback(
     }
     Ok(provisioned_lane)
 }
+
+/// Finished local executors of the same task, newest first; their checklist
+/// carries over. Live and competition attempts keep their own lists.
+fn predecessor_tab_ids(attempts: &[TaskExecutionAttempt], new_tab_id: &str) -> Vec<String> {
+    let mut tab_ids: Vec<String> = Vec::new();
+    for attempt in attempts.iter().rev().filter(|attempt| {
+        (attempt.closed_at.is_some() || attempt.retired_at.is_some())
+            && attempt.competition_group_id.is_none()
+            && attempt.mesh_peer.is_none()
+    }) {
+        let tab_id = attempt.executor_tab_id.trim();
+        if tab_id.is_empty() || tab_id == new_tab_id || tab_ids.iter().any(|id| id == tab_id) {
+            continue;
+        }
+        tab_ids.push(tab_id.to_owned());
+    }
+    tab_ids
+}
+
+#[cfg(test)]
+mod tests;

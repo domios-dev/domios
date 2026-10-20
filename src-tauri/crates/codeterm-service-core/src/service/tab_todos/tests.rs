@@ -1,4 +1,6 @@
+use super::recitation::step_line;
 use super::*;
+use codeterm_types::agent::{MAX_TAB_TODO_SUMMARY_BYTES, MAX_TAB_TODO_SUMMARY_TITLES};
 
 #[test]
 fn acceptance_seed_titles_count_unicode_and_record_truncation() {
@@ -19,7 +21,9 @@ fn recitation_payload_is_bounded_and_contains_no_more_than_three_titles() {
             .map(|index| TabTodoRecitedItem {
                 id: format!("item-{index}"),
                 title: "🦀".repeat(120),
-                state: TabTodoState::Open,
+                state: TabTodoState::Blocked,
+                reason: Some("я".repeat(200)),
+                attempt: 1,
             })
             .collect(),
     };
@@ -80,6 +84,7 @@ fn parent_list_returns_owner_ids_and_states_and_refuses_unrelated_tab() {
         item_id.clone(),
         amended.items[0].revision,
         TabTodoState::Done,
+        None,
     ))
     .unwrap();
 
@@ -107,3 +112,5 @@ fn parent_list_returns_owner_ids_and_states_and_refuses_unrelated_tab() {
     )
     .is_err());
 }
+
+mod lifecycle;
