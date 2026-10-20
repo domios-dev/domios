@@ -64,9 +64,10 @@ export async function reloadWithScript(page, source, readyExpression) {
   throw new Error("DEV page did not become ready after reload");
 }
 
-/** The DEV API token from the DEV config; never print it. */
+/** The DEV API token from the DEV config (`CODETERM_DEV_INSTANCE` selects a named one); never print it. */
 export function devApiToken() {
-  const config = readFileSync(join(homedir(), ".codeterm-dev", "config.toml"), "utf8");
+  const instance = process.env.CODETERM_DEV_INSTANCE?.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  const config = readFileSync(join(homedir(), instance ? `.codeterm-dev-${instance}` : ".codeterm-dev", "config.toml"), "utf8");
   const token = config.slice(config.indexOf("[api]")).match(/^token = "([^"]+)"/m)?.[1];
   if (!token) throw new Error("DEV config has no [api] token");
   return token;
