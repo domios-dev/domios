@@ -3,8 +3,8 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $targetDebug = Join-Path $repo "src-tauri\target\debug"
 $defaultTargetDebug = Join-Path $repo ".codeterm-targets\default\debug"
-$namedDataDir = Join-Path $env:USERPROFILE ".codeterm-dev-provider-model-oracle"
-$defaultDataDir = Join-Path $env:USERPROFILE ".codeterm-dev"
+$namedDataDir = Join-Path $env:USERPROFILE ".domios-dev-provider-model-oracle"
+$defaultDataDir = Join-Path $env:USERPROFILE ".domios-dev"
 $nodeModules = Join-Path $repo "node_modules"
 $fixturePath = Join-Path $env:TEMP "codeterm-cleanup-selection-$PID.json"
 

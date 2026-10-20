@@ -576,7 +576,7 @@ esac
 # --- Per-worktree dev instance isolation ---
 # CODETERM_DEV_INSTANCE names a dev instance so multiple worktrees can
 # run ./build.sh dev concurrently without colliding. Unset = canonical defaults
-# (.codeterm-dev / 7686 / 1420). See AGENTS.md "Process safety".
+# (.domios-dev / 7686 / 1420). See AGENTS.md "Process safety".
 CT_INSTANCE="${CODETERM_INSTANCE:-}"
 CT_PORT="${CODETERM_API_PORT:-7686}"
 CT_VITE_PORT="${CODETERM_VITE_PORT:-}"
@@ -618,7 +618,7 @@ else
   CT_VITE_PORT="${CT_VITE_PORT:-1420}"
   CT_CDP_PORT="${CT_CDP_PORT:-9223}"
 fi
-CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
+CT_DATA_DIR="$HOME/.domios-dev${CT_SUFFIX}"
 DEV_NOTIFY_LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
 # Export so the spawned daemon + its child PTYs inherit the instance identity.
 export CODETERM_INSTANCE="$CT_INSTANCE"
