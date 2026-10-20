@@ -9,8 +9,10 @@ use codeterm_types::server_bootstrap::{AttachRequest, BootstrapOperation, Server
 pub use codeterm_types::server_bootstrap::{InstanceSelector, LaunchOptions};
 
 mod detached;
+#[cfg(windows)]
+use detached::retry_without_breakaway;
 pub use detached::{ensure_detached, release_launch_stderr, JobMembership};
-use detached::{retry_without_breakaway, with_stderr_detail, StderrTail};
+use detached::{with_stderr_detail, StderrTail};
 
 const STDERR_CLOSE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
 
