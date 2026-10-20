@@ -810,9 +810,8 @@ fn write_json_map_atomically(path: &Path, values: &HashMap<String, String>) -> i
         let _ = std::fs::remove_file(&temp);
         return Err(error);
     }
-    std::fs::rename(&temp, path).map_err(|error| {
+    std::fs::rename(&temp, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&temp);
-        error
     })
 }
 
