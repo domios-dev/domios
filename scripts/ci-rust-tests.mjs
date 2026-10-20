@@ -4,17 +4,26 @@ import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { classifyInventory } from './ci-rust-classification.mjs';
-import { archiveTargets, loadReleaseRust } from './ci-rust-archives.mjs';
+import { archiveTargets, loadReleaseRust, overlayExclusions } from './ci-rust-archives.mjs';
 import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
 
 // The catalogue's release tier names every package and target, including path dependencies outside the workspace.
-const { runners: RELEASE_RUST } = loadReleaseRust(path.resolve(import.meta.dirname, '..'));
+const { runners: RELEASE_RUST, overlay: OVERLAY } = loadReleaseRust(path.resolve(import.meta.dirname, '..'));
 const WORKSPACE = { lane: 'workspace', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', ...archiveTargets('workspace', RELEASE_RUST)] };
 const CLI = { lane: 'cli', manifest: 'cli/Cargo.toml', targets: archiveTargets('cli', RELEASE_RUST) };
 const INPUT = { lane: 'input', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--lib', '-p', 'codeterm-input-macos', '-p', 'codeterm-input-windows'], whole: true };
 const EMBEDDINGS = { lane: 'embeddings', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--features', 'codeterm-service-core/embeddings,codeterm-mem/embeddings', '-p', 'codeterm-service-core', '-p', 'codeterm-mem', '--lib'] };
 // The full suite runs once on one runner; each OS runs only its cfg-gated tests and the native input crates.
 export const MODES = { full: [WORKSPACE, CLI], platform: [WORKSPACE, CLI, INPUT], embeddings: [EMBEDDINGS] };
+const CI_PLATFORM = { Linux: 'linux', macOS: 'macos', Windows: 'windows' };
+
+// The catalogue overlay's stale and platform-red binary markers apply to CI exactly as to release-rust.
+export function withOverlayExclusions(scope, overlay, os) {
+  const platform = CI_PLATFORM[os];
+  if (!platform) throw new Error(`Unknown runner OS ${os}`);
+  const exclusions = overlayExclusions(overlay, platform);
+  return exclusions ? `(${scope}) & ${exclusions}` : scope;
+}
 const regexEscape = (value) => value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 
 export function platformFilter(rows) {
@@ -196,8 +205,9 @@ async function run(mode) {
         for (const row of rows.filter((r) => r.ignored)) console.log(`[explicit ignore on ${receipt.runner}] ${row.id}: ${row.reason}`);
         scope = platformFilter(rows);
         if (scope === 'none()') continue;
-        fs.writeFileSync(config, tomlConfig(scope, false));
       }
+      scope = withOverlayExclusions(scope, OVERLAY, os);
+      fs.writeFileSync(config, tomlConfig(scope, false));
       const listed = jsonCommand(['nextest', 'list', '--manifest-path', lane.manifest, ...lane.targets, '--locked', '--config-file', config, '--message-format', 'json']);
       const selected = Object.values(listed['rust-suites']).flatMap((suite) => Object.entries(suite.testcases)
         .filter(([, test]) => test['filter-match'].status === 'matches')
