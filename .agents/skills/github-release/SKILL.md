@@ -94,6 +94,10 @@ gh workflow run release.yml --repo rollacode/codeterm --ref <reviewed-ref> \
   -f tag=<version-tag> -f dry_run=true -f mirror=false -f dry_run_tests=true
 ```
 
+Until repository variable `RELEASE_PUBLISH_ENABLED` is `true`, a `release/X.Y.Z` push runs as a
+full dry run of that branch (tests included, no drafts or uploads) in its own concurrency group, so
+it never cancels another version's run; its branch must carry version X.Y.Z.
+
 Verify the remote ref resolves to the reviewed SHA before dispatch. Capture the returned/new run
 ID and its workflow/source identity. Do not identify a run merely as the latest result in a list.
 `dry_run_tests=false` is an explicitly limited packaging diagnostic: skipped tests remain unverified.

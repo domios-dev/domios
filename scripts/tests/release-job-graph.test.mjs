@@ -118,6 +118,31 @@ test('every platform checks its own built bundle before any upload, with indepen
   }
   assert.equal(workflow('release-windows').jobs.build.strategy['fail-fast'], false);
 });
+const expression = text => new Function('github', 'inputs', 'vars', 'format',
+  `return (${text.replace(/^\$\{\{\s*|\s*\}\}$/g, '')});`);
+const format = (template, ...values) => template.replace(/\{(\d+)\}/g, (_, i) => values[i]);
+test('a release-branch push stays a dry run of its own branch until publication is enabled', () => {
+  const env = release.jobs.prepare.steps.find(step => step.id === 'release').env;
+  const dryRun = expression(env.DRY_RUN);
+  const runTests = expression(env.RUN_TESTS);
+  const group = expression(release.concurrency.group);
+  const push = { event_name: 'push', ref_name: 'release/1.15.0' };
+  const dispatch = { event_name: 'workflow_dispatch', ref_name: 'release/1.15.0' };
+  const off = {};
+  const on = { RELEASE_PUBLISH_ENABLED: 'true' };
+  assert.equal(dryRun(push, {}, off, format), 'true');
+  assert.equal(runTests(push, {}, off, format), 'true');
+  assert.equal(group(push, {}, off, format), 'release-dry-run-release/1.15.0');
+  assert.equal(dryRun(push, {}, on, format), 'false');
+  assert.equal(group(push, {}, on, format), 'release-publication');
+  const dry = { dry_run: true, tag: 'v1.15.0', dry_run_tests: false };
+  assert.equal(dryRun(dispatch, dry, on, format), 'true');
+  assert.equal(runTests(dispatch, dry, on, format), 'false');
+  assert.equal(runTests(dispatch, { ...dry, dry_run_tests: true }, on, format), 'true');
+  assert.equal(group(dispatch, dry, on, format), 'release-dry-run-v1.15.0');
+  assert.equal(runTests(dispatch, { dry_run: false, tag: 'v1.15.0' }, on, format), 'true');
+  for (const [id, job] of Object.entries(release.jobs)) assert.doesNotMatch(job.if || '', /inputs\.dry_run_tests/, id);
+});
 test('production publications serialize and verify draft bytes before becoming public', () => {
   assert.equal(release.concurrency['cancel-in-progress'], "${{ inputs.dry_run == true || vars.RELEASE_PUBLISH_ENABLED != 'true' }}");
   assert.match(release.concurrency.group, /release-publication/);

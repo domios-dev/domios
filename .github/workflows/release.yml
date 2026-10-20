@@ -35,9 +35,9 @@ permissions:
   issues: write
   pull-requests: write
 
-# Until publication is enabled a newer push supersedes the older validation run; publishing runs queue.
+# Until publication is enabled a push is a dry run of its own branch and a newer push supersedes it; publishing runs queue.
 concurrency:
-  group: ${{ inputs.dry_run == true && format('release-dry-run-{0}', inputs.tag || github.ref_name) || 'release-publication' }}
+  group: ${{ inputs.dry_run == true && format('release-dry-run-{0}', inputs.tag || github.ref_name) || (vars.RELEASE_PUBLISH_ENABLED == 'true' && 'release-publication' || format('release-dry-run-{0}', github.ref_name)) }}
   cancel-in-progress: ${{ inputs.dry_run == true || vars.RELEASE_PUBLISH_ENABLED != 'true' }}
 
 jobs:
@@ -52,6 +52,7 @@ jobs:
       source_sha: ${{ steps.release.outputs.source_sha }}
       mirror: ${{ steps.release.outputs.mirror }}
       dry_run: ${{ steps.release.outputs.dry_run }}
+      run_tests: ${{ steps.release.outputs.run_tests }}
       published: ${{ steps.release.outputs.published }}
       branch: ${{ steps.release.outputs.branch }}
       kind: ${{ steps.release.outputs.kind }}
@@ -73,7 +74,8 @@ jobs:
         env:
           REQUESTED_REF: ${{ inputs.tag || github.ref_name }}
           MIRROR_INPUT: ${{ inputs.mirror }}
-          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+          DRY_RUN: ${{ (inputs.dry_run || (github.event_name == 'push' && vars.RELEASE_PUBLISH_ENABLED != 'true')) && 'true' || 'false' }}
+          RUN_TESTS: ${{ (github.event_name == 'push' || !inputs.dry_run || inputs.dry_run_tests) && 'true' || 'false' }}
           EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           SOURCE_REPO: ${{ github.repository }}
@@ -86,9 +88,14 @@ jobs:
             echo "source_sha=$sha"
             echo "source_ref=$sha"
             echo "published=false"
+            echo "run_tests=$RUN_TESTS"
           } >> "$GITHUB_OUTPUT"
           if [ "$DRY_RUN" = true ]; then
             version=$(node -p "require('./package.json').version")
+            if [ "$EVENT_NAME" = push ] && [ "$REQUESTED_REF" != "release/$version" ]; then
+              echo "::error::$REQUESTED_REF carries version $version; set the branch version"
+              exit 1
+            fi
             node scripts/check-release-locks.mjs
             node scripts/sync-plugin-versions.mjs --check
             {
@@ -179,7 +186,7 @@ jobs:
   quick-checks:
     name: Fast checks
     needs: prepare
-    if: (needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'
+    if: needs.prepare.outputs.run_tests == 'true' && needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/tests.yml
     with:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
@@ -199,7 +206,7 @@ jobs:
     needs: [prepare, quick-checks]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.quick-checks.result == 'success'
-      && (needs.prepare.outputs.dry_run != 'true' || inputs.dry_run_tests) && needs.prepare.outputs.published != 'true'
+      && needs.prepare.outputs.run_tests == 'true' && needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/tests.yml
     with:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
@@ -262,7 +269,7 @@ jobs:
     needs: [prepare, quick-checks]
     if: >-
       !cancelled() && needs.prepare.result == 'success'
-      && (needs.quick-checks.result == 'success' || (needs.prepare.outputs.dry_run == 'true' && !inputs.dry_run_tests))
+      && (needs.quick-checks.result == 'success' || needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app'
     uses: ./.github/workflows/release-linux.yml
     with:
