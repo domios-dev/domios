@@ -2,6 +2,7 @@ import { invoke } from "./bridge";
 
 export interface ProviderInstallLaunch {
   tab_id: string;
+  workspace_id?: string;
   launch_state: string;
 }
 

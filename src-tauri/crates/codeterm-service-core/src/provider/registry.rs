@@ -69,7 +69,13 @@ impl ProviderRegistry {
     ) -> Result<codeterm_plugin::provider_cli::ProviderCliStatus, String> {
         let revision = self.cli_revision(id);
         let key = format!("{id}:{platform}");
-        if let Some(status) = self.cli_status_cache.lock().get(&key, &revision) {
+        let cached = self.cli_status_cache.lock().get(&key, &revision);
+        if let Some(status) = cached.filter(|status| {
+            super::catalogue_cache::misses_still_hold(
+                super::catalogue_cache::unresolved_cli(status),
+                super::catalogue_cache::binary_found,
+            )
+        }) {
             return Ok(status);
         }
         let status = self.compute_cli_status(id, platform)?;
