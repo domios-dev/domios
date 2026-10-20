@@ -2,6 +2,7 @@
 // `--profile FILE` also records a CPU profile of the switches and prints the heaviest functions.
 // Never point it at prod.
 //   node scripts/dev-perf/tabSwitch.mjs <frontend-url> --workspace NAME [--switches 10] [--profile out.cpuprofile] [--json]
+//     [--renders] [--renders-per-switch] [--idle] [--block-service-workers]
 import { writeFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 import { devApiToken } from "./cdp.mjs";
@@ -16,7 +17,9 @@ const switchCount = Number(option("--switches", 10));
 const profilePath = option("--profile");
 
 const browser = await chromium.launch();
-const page = await (await browser.newContext({ viewport: { width: 1280, height: 860 } })).newPage();
+// A built bundle installs its service worker on a fresh profile and reloads mid-run; blocking it keeps one document.
+const serviceWorkers = args.includes("--block-service-workers") ? "block" : "allow";
+const page = await (await browser.newContext({ viewport: { width: 1280, height: 860 }, serviceWorkers })).newPage();
 const countRenders = args.includes("--renders");
 if (countRenders) await page.addInitScript(RENDER_HOOK_SOURCE);
 await page.goto(`${target.replace(/#.*$/, "")}#token=${encodeURIComponent(devApiToken())}`);
@@ -28,11 +31,17 @@ await page.locator(`[aria-label="Select workspace ${workspace}"]`).first().click
 const fewer = page.locator('[aria-label="Show fewer workspaces"]');
 if (await fewer.count()) await fewer.click();
 await page.waitForTimeout(1500);
-await page.evaluate(() => {
+const observeLongTasks = () => {
+  if (window.__longTasks) return;
   window.__longTasks = [];
   new PerformanceObserver((list) => { for (const entry of list.getEntries()) window.__longTasks.push(Math.round(entry.duration)); })
     .observe({ type: "longtask" });
-});
+};
+// A reload during the run (an interface update, say) keeps counting instead of losing the observer.
+await page.addInitScript(observeLongTasks);
+await page.evaluate(observeLongTasks);
+const reloads = [];
+page.on("framenavigated", (frame) => { if (frame === page.mainFrame()) reloads.push(frame.url().replace(/#.*$/, "")); });
 
 const ids = await page.$$eval(".ct-sidebar-content [data-tab-id]", (rows) => rows.map((row) => row.dataset.tabId));
 const cdp = profilePath ? await page.context().newCDPSession(page) : null;
@@ -70,6 +79,8 @@ const result = {
   longTasksOver50: longTasks.filter((duration) => duration > 50).length,
   longest: Math.max(0, ...longTasks),
   perSwitch: perSwitch.map((entry) => `${entry.id}:${entry.longTasks.join("/") || "-"}`),
+  bundle: await page.evaluate(() => [...document.scripts].map((script) => script.src).find((src) => /\/assets\/index-|\/src\/main/.test(src)) ?? location.href),
+  reloads,
 };
 if (countRenders) {
   const renders = await page.evaluate(READ_RENDERS);
@@ -86,6 +97,7 @@ if (args.includes("--json")) console.log(JSON.stringify(result));
 else {
   console.log(`activation=${activationMs.join(",")}ms longTasks>50=${result.longTasksOver50} longest=${result.longest}ms`);
   console.log(`per switch: ${result.perSwitch.join(" ")}`);
+  console.log(`bundle: ${result.bundle}${reloads.length ? ` reloads: ${reloads.join(", ")}` : ""}`);
   if (result.renders) console.log(`renders=${result.renders.total} commits=${result.renders.commits}\ntriggers:\n  ${result.renders.triggers.join("\n  ")}\nrendered:\n  ${result.renders.top.join("\n  ")}`);
   if (result.heaviest) console.log("self ms / total ms  function:\n  " + result.heaviest.join("\n  "));
 }
