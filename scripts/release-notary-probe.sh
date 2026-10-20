@@ -5,11 +5,11 @@ set -euo pipefail
 : "${RELEASE_KEYCHAIN:?Import the job signing keychain first}"
 : "${APPLE_SIGNING_IDENTITY:?Provide APPLE_SIGNING_IDENTITY}"
 : "${APPLE_KEYCHAIN_PROFILE:?Import the job notary profile first}"
-: "${RELEASE_SIGNING_DIR:?Prepare job signing material first}"
 arch="${1:-$(uname -m)}"
-work="$RELEASE_SIGNING_DIR/notary-probe"
+# Outside RELEASE_SIGNING_DIR: the signing cleanup removes that directory and refuses unknown contents.
+work="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/notary-probe.XXXXXX")"
+trap 'rm -rf "$work"' EXIT
 app="$work/NotaryProbe.app"
-rm -rf "$work"
 mkdir -p "$app/Contents/MacOS"
 printf '#include <stdio.h>\nint main(void) { puts("notary probe"); return 0; }\n' > "$work/probe.c"
 clang -arch "$arch" -mmacosx-version-min=11.0 -o "$app/Contents/MacOS/NotaryProbe" "$work/probe.c"
