@@ -192,7 +192,7 @@ fn run_registered_git(mut command: Command) -> Result<(), String> {
         .stderr(std::process::Stdio::piped());
     let mut child = command
         .spawn()
-        .map_err(|e| git_non_interactive_error(&format!("failed to start git: {e}")))?;
+        .map_err(|e| git_failure(&format!("failed to start git: {e}")))?;
     let mut stderr = child.stderr.take().expect("git stderr is piped");
     let child: LiveGitChild = std::sync::Arc::new(std::sync::Mutex::new(child));
     if let Ok(mut live) = LIVE_GIT_CHILDREN.lock() {
@@ -202,19 +202,15 @@ fn run_registered_git(mut command: Command) -> Result<(), String> {
     let _ = std::io::Read::read_to_end(&mut stderr, &mut captured);
     let status = child
         .lock()
-        .map_err(|_| git_non_interactive_error("git child lock poisoned"))?
+        .map_err(|_| git_failure("git child lock poisoned"))?
         .wait();
     if let Ok(mut live) = LIVE_GIT_CHILDREN.lock() {
         live.retain(|tracked| !std::sync::Arc::ptr_eq(tracked, &child));
     }
     match status {
         Ok(status) if status.success() => Ok(()),
-        Ok(_) => Err(git_non_interactive_error(&String::from_utf8_lossy(
-            &captured,
-        ))),
-        Err(e) => Err(git_non_interactive_error(&format!(
-            "failed to wait for git: {e}"
-        ))),
+        Ok(_) => Err(git_failure(&String::from_utf8_lossy(&captured))),
+        Err(e) => Err(git_failure(&format!("failed to wait for git: {e}"))),
     }
 }
 
@@ -255,9 +251,9 @@ pub(super) fn git_command() -> Command {
     command
 }
 
-pub(super) fn git_non_interactive_error(stderr: &str) -> String {
+pub(super) fn git_failure(stderr: &str) -> String {
     log::warn!("plugin channel git operation failed: {}", stderr.trim());
-    "Plugin updates are unavailable right now. Domios will retry.".to_string()
+    super::channel_failure::git_failure_cause(stderr)
 }
 
 #[cfg(windows)]
