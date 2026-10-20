@@ -239,10 +239,10 @@ test("removed plugin details are reachable from the composer status bubble", asy
     assert(status.textContent === "", "plugin status trigger is icon-only");
     assert(host.querySelectorAll('[aria-label="Plugin removed"]').length === 1, "no persistent removed plugin notice exists outside the bubble");
     await act(async () => { status.click(); });
-    const details = composer?.querySelector('[role="dialog"][aria-label="Plugin removed"]');
+    const details = document.querySelector('[role="dialog"][aria-label="Plugin removed"]');
     assert(details?.querySelector('[aria-label="Plugin removed"]'), "status opens the existing error notice with its details and actions");
     await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
-    assert(!host.querySelector('[role="dialog"][aria-label="Plugin removed"]'), "Escape dismisses plugin details");
+    assert(!document.querySelector('[role="dialog"][aria-label="Plugin removed"]'), "Escape dismisses plugin details");
   } finally {
     await act(async () => { root.unmount(); });
     host.remove();
@@ -263,7 +263,7 @@ for (const touch of [false, true]) {
         const badge = host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]');
         assert(badge, "runtime status badge is mounted");
         await act(async () => badge.click());
-        const retry = host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]');
+        const retry = document.querySelector<HTMLButtonElement>('button[aria-label="Retry"]');
         assert(retry, "runtime recovery action is mounted");
         assert(host.querySelector('textarea'), "composer remains available during runtime recovery");
         assert(retry.disabled === (state === "loading"), "only pending recovery disables Retry");
@@ -276,7 +276,7 @@ for (const touch of [false, true]) {
           }));
         }
         assert(!host.querySelector('button[aria-haspopup="dialog"]'), "loaded runtime removes recovery badge");
-        assert(!host.querySelector('[role="dialog"]'), "loaded runtime removes open popover");
+        assert(!document.querySelector('[role="dialog"]'), "loaded runtime removes open popover");
         assert(host.querySelector('textarea'), "loaded runtime restores the shared composer");
       } finally {
         await act(async () => root.unmount()); host.remove();

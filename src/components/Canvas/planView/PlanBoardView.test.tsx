@@ -31,12 +31,16 @@ function setupDom() {
 
 setupDom();
 
+// Popovers portal to the document body, so each test starts from an empty document.
+const mounted: Root[] = [];
+
 async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
   host.style.width = "1200px";
   host.style.height = "800px";
   document.body.appendChild(host);
   const root = createRoot(host);
+  mounted.push(root);
   await act(async () => {
     root.render(ui);
   });
@@ -424,7 +428,7 @@ test("board: archive action removes plan from active switcher and switches selec
     '[data-testid="plan-switcher-kebab"][data-plan-id="plan-b"]',
   ) as HTMLElement;
   await act(async () => { kebab.click(); });
-  const archiveItem = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+  const archiveItem = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
     (el) => el.textContent?.includes("Archive"),
   ) as HTMLElement;
   await act(async () => { archiveItem.click(); });
@@ -445,7 +449,7 @@ test("board: archive action removes plan from active switcher and switches selec
   const archivedToggle = host.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
   assert(archivedToggle, "archived toggle present after archive");
   await act(async () => { archivedToggle.click(); });
-  const archivedRow = host.querySelector(
+  const archivedRow = document.querySelector(
     '[data-testid="plan-switcher-archived-list"] [data-plan-id="plan-b"]',
   );
   assert(archivedRow, "plan-b appears in archived footer");
@@ -476,13 +480,13 @@ test("board: unarchive brings plan back to active switcher", async () => {
   assert(archivedToggle, "archived toggle present");
   await act(async () => { archivedToggle.click(); });
 
-  const kebab = host.querySelector(
+  const kebab = document.querySelector(
     '[data-testid="plan-switcher-kebab"][data-plan-id="plan-arch"]',
   ) as HTMLElement;
   assert(kebab, "kebab on archived plan");
   await act(async () => { kebab.click(); });
 
-  const unarchive = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+  const unarchive = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
     (el) => el.textContent?.trim() === "Unarchive",
   ) as HTMLElement;
   assert(unarchive, "Unarchive menu item");
@@ -530,7 +534,7 @@ test("board: selecting an archived plan from dropdown shows it for inspection", 
   const toggle = host.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
   assert(toggle, "archived dropdown present");
   await act(async () => { toggle.click(); });
-  const archivedSelect = host.querySelector(
+  const archivedSelect = document.querySelector(
     '[data-testid="plan-switcher-archived-list"] [data-plan-id="plan-arch"] .plan-switcher-opt-select',
   ) as HTMLElement;
   assert(archivedSelect, "archived plan is selectable");
@@ -548,6 +552,8 @@ let passed = 0;
   for (const [name, fn] of tests) {
     try {
       await fn();
+      await act(async () => mounted.splice(0).forEach((root) => root.unmount()));
+      document.body.innerHTML = "";
       passed++;
       console.log(`  ✓ ${name}`);
     } catch (e) {
