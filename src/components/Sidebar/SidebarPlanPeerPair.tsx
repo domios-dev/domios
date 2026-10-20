@@ -1,7 +1,6 @@
 import { invoke } from "../../lib/bridge";
 import type { Tab, TabStatus } from "../../lib/types";
 import type { Plan } from "../Canvas/types";
-import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX, type SortableGroupData } from "./sortable";
@@ -35,7 +34,6 @@ export interface SidebarTabItemRowProps {
   tab: Tab;
   index: number;
   activity: TabTabActivity | null;
-  activeWork?: ActiveWorkSnapshot | null;
   reportCount?: number;
   isClosing: boolean;
   isAppearing: boolean;
@@ -67,7 +65,6 @@ function SidebarTabItemRow({
   tab,
   index,
   activity,
-  activeWork = null,
   reportCount = 0,
   isClosing,
   isAppearing,
@@ -118,7 +115,6 @@ function SidebarTabItemRow({
       touchMode={touchMode}
       uiFontScale={uiFontScale}
       activity={activity}
-      activeWork={activeWork}
       reportCount={reportCount}
       groupCollapsible={groupCollapsible}
       collapsed={collapsed}

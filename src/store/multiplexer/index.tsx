@@ -195,11 +195,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const { generation, workspaces, tabs, teams, activeTabIds, active_workspace_id,
     focused_tab_id, recently_closed, closed_structures, tabStatuses } = state;
+  // A reload paints the cache at HYDRATED_GENERATION, so a snapshot that changed only the generation is not rewritten.
+  const cacheReady = generation > 0;
   useEffect(() => {
-    if (!IS_WEB || generation <= 0) return;
-    void saveStateSnapshot({ generation, tabs, teams, active_workspace_id, focused_tab_id,
+    if (!IS_WEB || !cacheReady) return;
+    void saveStateSnapshot({ generation: stateRef.current.generation, tabs, teams, active_workspace_id, focused_tab_id,
       recently_closed, closed_structures, workspaces, activeTabIds, tab_statuses: tabStatuses });
-  }, [generation, workspaces, tabs, teams, activeTabIds, active_workspace_id,
+  }, [cacheReady, workspaces, tabs, teams, activeTabIds, active_workspace_id,
     focused_tab_id, recently_closed, closed_structures, tabStatuses]);
 
   const cachedBackendGenerationRef = useRef<number | undefined>(undefined);

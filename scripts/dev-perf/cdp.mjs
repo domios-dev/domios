@@ -1,10 +1,12 @@
 // Minimal CDP client for the live DEV webview (never prod): one page, request/response and events.
 const DEFAULT_PORT = Number(process.env.CODETERM_DEV_CDP_PORT || 9223);
 
-export async function connectPage(port = DEFAULT_PORT) {
+/** `urlMatch` picks one page of a multi-page browser, such as a Domios Browser tab serving a lane frontend. */
+export async function connectPage(port = DEFAULT_PORT, urlMatch = process.env.CODETERM_DEV_CDP_URL) {
   const pages = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-  const page = pages.find((entry) => entry.type === "page");
-  if (!page) throw new Error(`No DEV page on CDP port ${port}`);
+  const page = pages.find((entry) => entry.type === "page" && (!urlMatch || entry.url.includes(urlMatch)))
+    ?? (urlMatch ? undefined : pages.find((entry) => entry.type === "page"));
+  if (!page) throw new Error(`No DEV page${urlMatch ? ` matching ${urlMatch}` : ""} on CDP port ${port}`);
   const socket = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
     socket.addEventListener("open", resolve, { once: true });

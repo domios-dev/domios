@@ -4,8 +4,8 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
-import { useMultiplexer, useMuxSelector, useMuxState } from "../../store/multiplexer";
-import { tabFieldsEqual, selectTab } from "../../store/multiplexer/selectors";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { tabFieldsEqual, selectTab, selectActiveWorkspaceId } from "../../store/multiplexer/selectors";
 import {
   useXterm,
   useTerminalResize,
@@ -89,7 +89,9 @@ export const TerminalTab = memo(function TerminalTab({
   const connectedPtyRef = useRef<string | null>(null);
 
   const { updateTabStatus } = useMultiplexer();
-  const muxState = useMuxState();
+  const activeWorkspaceId = useMuxSelector(selectActiveWorkspaceId);
+  const workspaceSelector = useCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId)), [tabId]);
+  const tabWorkspace = useMuxSelector(workspaceSelector);
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
   const viewerLocalGeometry = terminalViewerLocalGeometry(tab, relayTarget()?.id ?? null);
@@ -432,10 +434,10 @@ export const TerminalTab = memo(function TerminalTab({
     );
   }, [tabId]);
   const startFreshAgent = useCallback(() => {
-    const workspaceId = tab?.workspace_id ?? muxState.active_workspace_id;
+    const workspaceId = tab?.workspace_id ?? activeWorkspaceId;
     if (!workspaceId) return;
     openNewSessionPicker({ workspaceId, workspaceCwd: tab?.cwd ?? null });
-  }, [muxState.active_workspace_id, tab?.cwd, tab?.workspace_id]);
+  }, [activeWorkspaceId, tab?.cwd, tab?.workspace_id]);
   const keepShell = useCallback(() => setKeptFailureKey(failureKey), [failureKey]);
 
   return (
@@ -757,7 +759,7 @@ export const TerminalTab = memo(function TerminalTab({
       {terminalVisible && <TabBootOverlay
         tabId={tabId}
         view={bootOverlay}
-        workspace={muxState.workspaces.find(workspace => workspace.tabs.includes(tabId))}
+        workspace={tabWorkspace}
         cwd={tab?.cwd}
         shellReady={shell.shellReady}
         overlayVisible={shell.overlayVisible}

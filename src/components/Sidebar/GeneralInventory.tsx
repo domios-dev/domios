@@ -57,7 +57,7 @@ export interface GeneralInventoryProps {
   touchMode?: boolean;
   onCloseTab: (workspaceId: string, tabId: string) => void;
   onRenameTab: (workspaceId: string, tabId: string, title: string) => void;
-  rowState?: Pick<SidebarOwnerTabRowProps, "tabStatuses" | "tabAttentionByTab" | "planIndex" | "activeWork" | "closingTabIds" | "appearingTabIds" | "orchestrators" | "uiFontScale">;
+  rowState?: Pick<SidebarOwnerTabRowProps, "tabStatuses" | "tabAttentionByTab" | "planIndex" | "closingTabIds" | "appearingTabIds" | "orchestrators" | "uiFontScale">;
 }
 
 export function GeneralInventorySections({ generalWorkspaceId, onShowAllJobs, workspaces, teams, tabs, onNavigate, touchMode = false, onCloseTab, onRenameTab, rowState, inventory, jobs, onOpenJob = openTabJob, onJobsChanged = () => {} }: GeneralInventoryProps & {
@@ -95,7 +95,7 @@ export function GeneralInventorySections({ generalWorkspaceId, onShowAllJobs, wo
       {shells.map((shell, index) => <li key={shell.tab.id}>
         <SidebarShellRow tab={shell.tab} index={index} tabs={tabs}
           attachments={attachmentsByOwner.get(shell.tab.id) ?? []}
-          planIndex={rowState?.planIndex ?? []} activeWork={rowState?.activeWork}
+          planIndex={rowState?.planIndex ?? []}
           closingTabIds={rowState?.closingTabIds ?? new Set()} appearingTabIds={rowState?.appearingTabIds ?? new Set()}
           compact={false} sortable={false} group="team" groupKey={shell.tab.team_id ?? shell.workspace.id} pinnedIds={[]}
           workspaceId={shell.workspace.id} activeTabId={null} isActiveVisual={false} workspaceCanvasActive={false}

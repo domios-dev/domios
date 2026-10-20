@@ -124,6 +124,10 @@ export function SortableRow({
   );
 }
 
+// Sensor options are compared by identity; fresh objects would hand every sortable row a new context each render.
+const MOUSE_SENSOR = sortableSensorConfiguration("mouse");
+const TOUCH_SENSOR = sortableSensorConfiguration("touch");
+
 /** Wraps the sidebar's sortable region in one DndContext. A drag is committed
  *  only within its own group (see SortableGroupData). */
 export function SidebarDnd({
@@ -133,12 +137,10 @@ export function SidebarDnd({
   handlers: ReorderHandlers;
   children: ReactNode;
 }) {
-  const mouse = sortableSensorConfiguration("mouse");
-  const touch = sortableSensorConfiguration("touch");
   const sensors = useSensors(
-    useSensor(mouse.sensor, mouse.options),
-    useSensor(touch.sensor, touch.options),
-    useSensor(mouse.keyboard.sensor, mouse.keyboard.options),
+    useSensor(MOUSE_SENSOR.sensor, MOUSE_SENSOR.options),
+    useSensor(TOUCH_SENSOR.sensor, TOUCH_SENSOR.options),
+    useSensor(MOUSE_SENSOR.keyboard.sensor, MOUSE_SENSOR.keyboard.options),
   );
 
   const onDragEnd = useMemo(

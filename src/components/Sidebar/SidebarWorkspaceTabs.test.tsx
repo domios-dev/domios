@@ -502,7 +502,6 @@ test("clicking a team worker activates it", async () => {
           teams={[TEAM]}
           planIndex={[]}
           plans={[]}
-          activeWork={null}
           providers={[]}
           closingTabIds={new Set()}
           appearingTabIds={new Set()}
