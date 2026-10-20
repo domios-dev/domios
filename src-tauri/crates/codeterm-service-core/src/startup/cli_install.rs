@@ -123,7 +123,7 @@ struct SystemUserPath;
 
 impl UserPathWriter for SystemUserPath {
     fn add_dir(&self, dir: &std::path::Path) {
-        super::user_path::add_to_user_path(dir);
+        codeterm_util::user_path::add_to_user_path(dir);
     }
 }
 

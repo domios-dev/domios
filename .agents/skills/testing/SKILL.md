@@ -733,7 +733,7 @@ are `./build.sh test-one domios-server startup::` and core path arbitration is
 `--no-default-features --features domios-server/embeddings` and the explicit host
 target. Its Cargo artifact receipt pins the actual executable and digest; the
 matching normal/build dependency closure must exclude Tauri, Wry, WebView and
-codeterm-host-runtime. Packaging must record the shipped release artifact's
+codeterm-client-shell. Packaging must record the shipped release artifact's
 own feature/target closure too. Workspace/test feature unions do not establish
 this proof. A server built without the CLI digest refuses actual service startup.
 The resource is copied and reverified into a private lifetime lease before memory

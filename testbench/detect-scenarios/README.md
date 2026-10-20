@@ -62,7 +62,7 @@ The renderer shares production detection code. If Rust changed, the old binary
 is stale.
 
 ```bash
-cd src-tauri && cargo build --example render_timeline
+cd src-tauri && cargo build -p codeterm-devtools --example render_timeline
 cd ..
 ```
 

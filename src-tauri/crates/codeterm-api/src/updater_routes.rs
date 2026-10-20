@@ -6,12 +6,12 @@ use axum::{
 use serde::Deserialize;
 
 use crate::routes::{check_auth, AppState};
-use codeterm_commands::update::apply::{
+use codeterm_update::apply::{
     gate_staged_deb_async, ApplyOptions, ApplyResult, DebianElevationStatus, DebianStageGate,
 };
-use codeterm_commands::update::single_flight;
-use codeterm_commands::update::InstallMethod;
-use codeterm_commands::update::UpdatePhase;
+use codeterm_update::single_flight;
+use codeterm_update::InstallMethod;
+use codeterm_update::UpdatePhase;
 
 #[derive(Deserialize)]
 pub struct CheckUpdateQuery {
@@ -49,7 +49,7 @@ pub async fn check_update(
         us.clear_error();
     }
 
-    let info = match codeterm_commands::update::checker::check_for_update(&method).await {
+    let info = match codeterm_update::checker::check_for_update(&method).await {
         Ok(i) => i,
         Err(e) => {
             log::debug!("[updater] check failed: {}", e);
@@ -191,7 +191,7 @@ pub async fn install_update(
         let manifest_url = q.manifest_url.clone();
         let continue_tab = q.continue_tab.clone();
         let update_state = state.update_state.clone();
-        codeterm_commands::update::apply::begin_apply(&update_state);
+        codeterm_update::apply::begin_apply(&update_state);
         if install_method == InstallMethod::Deb {
             let opts = ApplyOptions {
                 channel,
@@ -374,7 +374,7 @@ pub async fn install_update(
         }))),
         None => {
             let url = info.download_url.as_deref().unwrap_or(&info.release_url);
-            let _ = codeterm_service_core::service::open_url_open_url(url.to_string());
+            let _ = codeterm_util::open_url::open_url(url.to_string());
             Ok(Json(serde_json::json!({
                 "status": "browser_opened",
                 "url": url,
@@ -436,7 +436,7 @@ pub async fn availability(
     query: Result<Query<CheckUpdateQuery>, axum::extract::rejection::QueryRejection>,
     bundles: Option<axum::Extension<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>>,
 ) -> Result<
-    Json<codeterm_service_core::update_state::AvailabilitySnapshot>,
+    Json<codeterm_update::update_state::AvailabilitySnapshot>,
     (StatusCode, Json<serde_json::Value>),
 > {
     check_auth(&state, &headers)
@@ -455,9 +455,9 @@ pub async fn availability(
 }
 
 fn availability_response(
-    result: Result<codeterm_service_core::update_state::AvailabilitySnapshot, String>,
+    result: Result<codeterm_update::update_state::AvailabilitySnapshot, String>,
 ) -> Result<
-    Json<codeterm_service_core::update_state::AvailabilitySnapshot>,
+    Json<codeterm_update::update_state::AvailabilitySnapshot>,
     (StatusCode, Json<serde_json::Value>),
 > {
     result

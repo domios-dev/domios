@@ -16,7 +16,7 @@ test('launch environment discards inherited connection and display selectors', (
 });
 test('production closure refuses each GUI edge and an absent server root', () => {
   assertServerClosure(['domios-server v1.14.9', 'tokio v1.0']);
-  for (const name of ['tauri', 'tauri-runtime-wry', 'wry', 'web-view', 'webview2-com', 'webkit2gtk', 'codeterm-host-runtime']) assert.throws(() => assertServerClosure(['domios-server v1.14.9', `${name} v2.0`]));
+  for (const name of ['tauri', 'tauri-runtime-wry', 'wry', 'web-view', 'webview2-com', 'webkit2gtk', 'codeterm-client-shell']) assert.throws(() => assertServerClosure(['domios-server v1.14.9', `${name} v2.0`]));
   assert.throws(() => assertServerClosure(['tokio v1.0']));
 });
 test('worker resource binds the CLI source artifact rather than a same-named GUI binary', () => {

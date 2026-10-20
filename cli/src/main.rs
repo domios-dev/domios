@@ -118,7 +118,7 @@ pub use args::team::TeamAction;
 pub use args::update::UpdateAction;
 pub use args::usage::UsageAction;
 
-#[path = "../../src-tauri/src/plugin_bundle.rs"]
+#[path = "../../src-tauri/crates/domios-server/src/bundle.rs"]
 mod plugin_bundle;
 
 fn main() {

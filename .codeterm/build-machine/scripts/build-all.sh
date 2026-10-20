@@ -96,11 +96,10 @@ run_wave() {
   return "$rc"
 }
 
-DOCKER="docker run --rm -v $LWORK:/work -v /tmp/ct-cargo-registry:/usr/local/cargo/registry -v $BM/scripts/build-linux.sh:/build-linux.sh -e CARGO_BUILD_JOBS=2 -e CARGO_TARGET_DIR=/src/src-tauri/target -e CARGO_INCREMENTAL=0 -e CODETERM_RELEASE_FEATURES=embeddings -w /work"
+DOCKER="docker run --rm -v $LWORK:/work -v /tmp/ct-cargo-registry:/usr/local/cargo/registry -v $BM/scripts/build-linux.sh:/build-linux.sh -e CARGO_BUILD_JOBS=2 -e CARGO_TARGET_DIR=/src/src-tauri/target -e CARGO_INCREMENTAL=0 -w /work"
 
 export CARGO_TARGET_DIR="$REPO/src-tauri/target"
 export CARGO_INCREMENTAL=0
-export CODETERM_RELEASE_FEATURES=embeddings
 
 # The mac engine builds the GUI/CLI from THIS checkout; a fresh CI checkout has no
 # node_modules, so install once up front (linux/windows engines install inside themselves).

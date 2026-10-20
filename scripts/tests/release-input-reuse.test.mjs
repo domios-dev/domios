@@ -92,7 +92,7 @@ test("release preparation builds the packaging feature graph without an embeddin
     "pnpm <build>",
     "cargo <build> <--release> <--timings> <--manifest-path> <cli/Cargo.toml>",
     "node <scripts/bundle-cli.js>",
-    "cargo <build> <--release> <--timings> <--manifest-path> <src-tauri/Cargo.toml> <--features> <embeddings,tauri/custom-protocol> <--bin> <codeterm>",
+    "cargo <build> <--release> <--timings> <--manifest-path> <src-tauri/Cargo.toml> <--features> <tauri/custom-protocol> <--bin> <codeterm>",
   ]);
 });
 
@@ -133,7 +133,7 @@ test("cross compilation and explicit release features reach both preparation bui
   const builds = calls.filter(call => call.startsWith("cargo"));
   assert.equal(builds.length, 2);
   for (const call of builds) assert.ok(call.includes("<--target> <x86_64-unknown-linux-gnu>"));
-  assert.ok(builds[1].includes("<--features> <feature-fixture,tauri/custom-protocol>"));
+  assert.ok(builds[1].includes("<--features> <tauri/custom-protocol,feature-fixture>"));
 });
 
 test("CLI build entrypoints leave source timestamps under Cargo ownership", () => {
@@ -153,7 +153,7 @@ pnpm() { printf 'pnpm'; printf ' <%s>' "$@"; }
 set -- release-bundle --bundles deb --config '/tmp/local bundle.json' --ci
 ${entrypoint}
 `], { encoding: 'utf8', env: { ...process.env, CARGO_BUILD_TARGET: '', CODETERM_RELEASE_FEATURES: '' } });
-  assert.equal(calls, 'pnpm <tauri> <build> <--features> <embeddings> <--bundles> <deb> <--config> </tmp/local bundle.json> <--ci>');
+  assert.equal(calls, 'pnpm <tauri> <build> <--bundles> <deb> <--config> </tmp/local bundle.json> <--ci>');
 });
 
 test('fresh packaging checks source and selects the existing release target before preparing inputs', () => {
@@ -168,7 +168,7 @@ pnpm() { printf 'pnpm'; printf ' <%s>' "$@"; }
 set -- release-bundle --fresh-target --bundles deb --config '/tmp/local bundle.json' --ci
 ${entrypoint}
 `], { encoding: 'utf8', env: { ...process.env, CARGO_BUILD_TARGET: '', CODETERM_RELEASE_FEATURES: '' } });
-  assert.equal(calls, 'source-check\nfresh-target\nprepare <bundle> <fixture-fresh-target>\npnpm <tauri> <build> <--features> <embeddings> <--bundles> <deb> <--config> </tmp/local bundle.json> <--ci>');
+  assert.equal(calls, 'source-check\nfresh-target\nprepare <bundle> <fixture-fresh-target>\npnpm <tauri> <build> <--bundles> <deb> <--config> </tmp/local bundle.json> <--ci>');
 });
 
 test('fresh packaging refuses dirty source before allocating a target or compiling', () => {

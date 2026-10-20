@@ -25,6 +25,16 @@ Agents are users of the CLI, not clients of their own. Bridges, webhook senders,
 
 The tab side panel offers Documents and Changes. Changes shows recorded edits from the tab's own loaded transcript, cumulatively or per turn, and follows file renames. Counts sum recorded additions and deletions; the diff history does not claim to be a net working-tree diff. Changed-file details switch between recorded Diff and the full current File, with that choice kept per tab; either view opens fullscreen. Current-file previews use the tab-scoped reader with bounded text, document, page and image rendering; deleted, moved, binary, oversized and unreadable files keep the recorded diff available. Files can be opened or revealed and their source turns reached in chat. Missing text diffs, binary files, truncation and recorded deletion are explained. Shell-made changes are outside this view's recorded coverage. Both views share one panel with a list-to-detail navigation kept per tab, where Escape or Backspace returns to the list. A document, selected document text, a changed file or a single hunk can be added to the tab's composer as attachment chips or quoted references; adding never sends.
 
+## Layers: one window, one server
+
+Domios runs as two processes: a headless server that owns every core part, and a native window that attaches to it as a thin client. The code follows the same split in three layers:
+
+- **Client**: the native window and its shell: window and tray lifecycle, the webview, operating-system integrations such as clipboard, notification permission, autostart and file reveal, and the app updater, which stops the attached server before it installs the pair.
+- **Shared**: plain contracts both processes speak: wire and bootstrap types, instance paths, process and build identity, the update model, and the frontend shell contract of navigation origins and branded fallback pages.
+- **Server**: everything else. It never links the window.
+
+Invariants: the client links only client and shared code and reaches server state only through its attach and native-host protocol; shared code never reaches the server layer; nothing outside the client depends on it; restarting or closing the window leaves the server, terminals and agent sessions running; a repository guard fails any dependency that breaks this layer rule.
+
 The CLI command groups and their accepted inputs and behavior form a product contract. Its generated reference, chat actions, and agent prompts stay aligned with the command tree. Breaking CLI-to-service requests are rejected with a clear version-mismatch response and recovery guidance; additive optional operations and fields remain compatible. Command feedback distinguishes errors that require action, advisory hints, and nonfatal warnings.
 
 ## Core parts

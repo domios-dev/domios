@@ -75,7 +75,7 @@ fn print_usage() {
         "convert-plan-storage — legacy plan.json sidecars → store_v2 yaml (one-off)\n\
          \n\
          Usage:\n\
-           cargo run -p codeterm --bin convert-plan-storage -- [options]\n\
+           cargo run -p codeterm-devtools --features dev-tools --bin convert-plan-storage -- [options]\n\
          \n\
          Options:\n\
            --project <path>   project root (default: cwd)\n\
