@@ -22,6 +22,8 @@ codeterm-plugins = { path = "../codeterm-plugins" }
 codeterm-events = { path = "../codeterm-events" }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-util = { path = "../codeterm-util" }
+codeterm-update = { path = "../codeterm-update" }
+codeterm-frontend-shell = { path = "../codeterm-frontend-shell" }
 codeterm-billing = { path = "../codeterm-billing" }
 codeterm-frontend-bundle = { path = "../codeterm-frontend-bundle" }
 tokio = { version = "1", features = ["full"] }

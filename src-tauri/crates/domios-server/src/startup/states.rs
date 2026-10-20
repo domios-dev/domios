@@ -17,8 +17,9 @@ use codeterm_service_core::session::SessionState;
 use codeterm_service_core::startup::StorageAuthority;
 use codeterm_service_core::{
     agent, keepawake, mesh, service, AgentTrackerState, MeshStateHandle, OutputBufferState,
-    PtyState, ReportStoreState, ResizeOwnerState, ScreenStateHandle, UpdateStateHandle,
+    PtyState, ReportStoreState, ResizeOwnerState, ScreenStateHandle,
 };
+use codeterm_update::UpdateStateHandle;
 
 use codeterm_service_core::startup::AppStates;
 
@@ -285,22 +286,21 @@ pub fn init_states() -> AppStates {
         api_port,
     )));
 
-    let install_method = codeterm_service_core::update_state::detect_install_method();
+    let install_method = codeterm_update::update_state::detect_install_method();
     log::info!("Install method detected: {}", install_method);
     let channel = config_state.lock().updater.channel;
-    let update_state: UpdateStateHandle = Arc::new(Mutex::new(
-        codeterm_service_core::update_state::UpdateState {
+    let update_state: UpdateStateHandle =
+        Arc::new(Mutex::new(codeterm_update::update_state::UpdateState {
             install_method,
             last_check: None,
             last_check_time: None,
             channel,
-            phase: codeterm_service_core::update_state::UpdatePhase::Idle,
+            phase: codeterm_update::update_state::UpdatePhase::Idle,
             last_error: None,
             phase_changed_at: None,
             downloaded_bytes: 0,
             download_total_bytes: None,
-        },
-    ));
+        }));
 
     let ga_enabled = storage.storage().is_some() && config_state.lock().general_agent.enabled;
     let mut bound_at_shutdown = Vec::new();

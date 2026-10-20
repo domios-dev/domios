@@ -64,7 +64,7 @@ export async function bundleMacPair({ repo = root, target, env = process.env,
       manifest.server_sha256 !== hash(expected.server)) throw new Error('macOS staged component identity differs from final signed server');
   const invoke = async (program, args) => run(program, args, repo);
   await invoke('pnpm', ['tauri', 'bundle', '--no-sign', '--no-binary-patching', ...targetArgs,
-    '--features', env.CODETERM_RELEASE_FEATURES || 'embeddings', '--bundles', 'app',
+    ...(env.CODETERM_RELEASE_FEATURES ? ['--features', env.CODETERM_RELEASE_FEATURES] : []), '--bundles', 'app',
     '--config', '{"bundle":{"createUpdaterArtifacts":false}}']);
   await verifyMacPayload({ app, stage, expected });
   // Signing the outer app without --deep preserves the pre-signed CLI/server bytes.

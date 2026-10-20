@@ -4,20 +4,16 @@
 //! Layout matches the order the entry-point in `lib.rs` calls them in.
 
 pub mod boot_timing;
-mod brand_fallback;
-pub use brand_fallback::{brand_fallback_page, BrandFallback};
 mod bridge;
 mod cli_install;
 pub(crate) mod conpty_cleanup;
 pub(crate) mod frontend_bundles;
 pub use frontend_bundles::check as frontend_bundles_check;
+mod frontend_origins;
 mod frontend_ready;
-pub(crate) mod frontend_shell;
-pub use frontend_shell::declared_frontend_origins as frontend_shell_declared_frontend_origins;
+pub use frontend_origins::declared_frontend_origins as frontend_shell_declared_frontend_origins;
 mod progress;
 pub mod rest_api;
-pub(crate) mod restart_stdio;
-pub use restart_stdio::detach_for_restart as restart_stdio_detach_for_restart;
 mod storage;
 
 pub use bridge::{spawn_telegram_bridge, start_telegram_bridge, unmark_tab_connected_service};
@@ -46,9 +42,6 @@ pub use storage::STORAGE_UNAVAILABLE_MESSAGE;
 pub use conpty_cleanup::reap_orphaned_hosts_in_background;
 pub use frontend_ready::FRONTEND_READINESS_DEADLINE_ELAPSED;
 
-mod user_path;
-pub use user_path::{repair_user_path_with, user_path_repair_report, SystemUserPathStore};
-
 pub use frontend_bundles::open as frontend_bundles_open;
 
 pub use progress::Boundary;
@@ -59,10 +52,5 @@ pub use storage::open_instance_storage;
 pub mod runtime_diagnostics;
 
 pub use frontend_bundles::navigation_index as frontend_bundles_navigation_index;
-pub use frontend_shell::development_frontend as frontend_shell_development_frontend;
 
 pub use cli_install::resolve_bundled_cli_src;
-pub use frontend_shell::{
-    fallback_origin as frontend_shell_fallback_origin,
-    loopback_origin as frontend_shell_loopback_origin,
-};

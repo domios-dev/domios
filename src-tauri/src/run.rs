@@ -5,10 +5,10 @@ use std::{io, io::Read, path::PathBuf};
 use tauri::Manager;
 
 pub fn run(
-    context: tauri::Context<codeterm_host_runtime::app_runtime::Runtime>,
+    context: tauri::Context<codeterm_client_shell::app_runtime::Runtime>,
     register_commands: fn(
-        tauri::Builder<codeterm_host_runtime::app_runtime::Runtime>,
-    ) -> tauri::Builder<codeterm_host_runtime::app_runtime::Runtime>,
+        tauri::Builder<codeterm_client_shell::app_runtime::Runtime>,
+    ) -> tauri::Builder<codeterm_client_shell::app_runtime::Runtime>,
 ) {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
     let startup_options = match crate::preflight_client_arguments(&arguments) {
@@ -31,7 +31,7 @@ pub fn run(
         }
     };
     install_client_selector(&selector);
-    let mut builder = codeterm_host_runtime::app_runtime::builder();
+    let mut builder = codeterm_client_shell::app_runtime::builder();
     if startup::desktop_lifecycle::single_instance_enabled(
         cfg!(debug_assertions),
         &context.config().identifier,
@@ -216,12 +216,12 @@ fn client_exit_confirmed() -> bool {
         .is_some_and(|status| status.phase == crash::exit::ClientExitPhase::Confirmed)
 }
 
-fn request_client_quit(app: &codeterm_host_runtime::app_runtime::AppHandle) {
+fn request_client_quit(app: &codeterm_client_shell::app_runtime::AppHandle) {
     let _ = request_client_quit_exact(app, None);
 }
 
 pub(crate) fn request_client_quit_exact(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
     expected: Option<codeterm_types::app_quit::QuitSnapshot>,
 ) -> Result<(), codeterm_types::app_quit::QuitRefusal> {
     use crate::host_ports::{
@@ -328,7 +328,7 @@ fn complete_quit_dialog(generation: u64) {
     finish_quit_feedback(&mut state, generation);
 }
 
-fn show_quit_feedback(app: &codeterm_host_runtime::app_runtime::AppHandle, feedback: QuitFeedback) {
+fn show_quit_feedback(app: &codeterm_client_shell::app_runtime::AppHandle, feedback: QuitFeedback) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
     let generation = {
         let mut previous = LAST_QUIT_FEEDBACK
@@ -359,7 +359,7 @@ fn show_quit_feedback(app: &codeterm_host_runtime::app_runtime::AppHandle, feedb
 }
 
 #[cfg(target_os = "macos")]
-static MAC_CLIENT_APP: std::sync::OnceLock<codeterm_host_runtime::app_runtime::AppHandle> =
+static MAC_CLIENT_APP: std::sync::OnceLock<codeterm_client_shell::app_runtime::AppHandle> =
     std::sync::OnceLock::new();
 
 #[cfg(target_os = "macos")]
@@ -376,7 +376,7 @@ fn mac_client_quit() -> codeterm_crash::crash::macos_quit::QuitDecision {
 }
 
 #[cfg(unix)]
-fn install_client_signal_handlers(app: codeterm_host_runtime::app_runtime::AppHandle) {
+fn install_client_signal_handlers(app: codeterm_client_shell::app_runtime::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let result = async {
             let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
@@ -400,7 +400,7 @@ fn install_client_signal_handlers(app: codeterm_host_runtime::app_runtime::AppHa
 }
 
 fn start_attached_frontend(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
 ) -> Result<(), Box<dyn std::error::Error>> {
     crate::deep_links::register_deep_links(app)?;
     startup::desktop_lifecycle::show_or_create(app)?;
@@ -409,7 +409,7 @@ fn start_attached_frontend(
 }
 
 fn client_resource_root(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
 ) -> io::Result<PathBuf> {
     app.path().resource_dir().map_err(io::Error::other)
 }

@@ -29,8 +29,8 @@ fn missing_response() -> Response {
     let mut response = (
         StatusCode::NOT_FOUND,
         [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
-        codeterm_service_core::startup::brand_fallback_page(
-            codeterm_service_core::startup::BrandFallback::InterfaceMissing,
+        codeterm_frontend_shell::brand_fallback_page(
+            codeterm_frontend_shell::BrandFallback::InterfaceMissing,
         ),
     )
         .into_response();

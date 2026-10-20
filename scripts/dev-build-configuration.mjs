@@ -13,19 +13,19 @@ export function devBuildConfiguration(manifest) {
   return { profile: 'dev', features, defaultFeatures: false };
 }
 
-export function assertAppFeatureConfiguration(root, core) {
-  const dev = devBuildConfiguration(root).features.sort();
-  const rootDefaults = defaultFeatureSet(root).sort();
+export function assertServerFeatureConfiguration(server, core) {
+  const dev = devBuildConfiguration(server).features.sort();
+  const serverDefaults = defaultFeatureSet(server).sort();
   const coreDefaults = defaultFeatureSet(core).sort();
-  if (JSON.stringify(dev) !== JSON.stringify(rootDefaults) || JSON.stringify(dev) !== JSON.stringify(coreDefaults)) {
-    throw new Error(`App feature configuration diverged: dev=${dev} root-default=${rootDefaults} core-default/test=${coreDefaults}; refusing a second core configuration`);
+  if (JSON.stringify(dev) !== JSON.stringify(serverDefaults) || JSON.stringify(dev) !== JSON.stringify(coreDefaults)) {
+    throw new Error(`Server feature configuration diverged: dev=${dev} server-default=${serverDefaults} core-default/test=${coreDefaults}; refusing a second core configuration`);
   }
   return dev;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv[2] === '--guard') {
-    process.stdout.write(assertAppFeatureConfiguration(fs.readFileSync(process.argv[3], 'utf8'), fs.readFileSync(process.argv[4], 'utf8')).join(','));
+    process.stdout.write(assertServerFeatureConfiguration(fs.readFileSync(process.argv[3], 'utf8'), fs.readFileSync(process.argv[4], 'utf8')).join(','));
   } else {
     process.stdout.write(devBuildConfiguration(fs.readFileSync(process.argv[2], 'utf8')).features.join(','));
   }

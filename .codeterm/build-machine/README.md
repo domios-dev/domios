@@ -259,7 +259,7 @@ claim cross-machine reuse.
   The build scripts and `release-windows.yml` stage the target-correct CLI.
 - **Release compilation uses one target contract.** Each platform job sets `CARGO_TARGET_DIR` to the
   checkout's `src-tauri/target`; cross-target lanes carry their target in `CARGO_BUILD_TARGET`,
-  and all jobs pin the `embeddings` features with `CARGO_INCREMENTAL=0`. `release-inputs` builds the application bin
+  and all jobs build with `CARGO_INCREMENTAL=0`; the server carries its `embeddings` feature and the client has none. `release-inputs` builds the application bin
   before Tauri bundles it, so the dependency graph is not compiled a second time. The three
   platform workflows intentionally have no Rust target-cache action or target upload.
 - **macOS architectures rerun independently.** Matrix siblings each build, notarize, staple and

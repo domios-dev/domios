@@ -80,8 +80,6 @@ pub mod model_providers;
 pub mod notification;
 mod notification_desktop;
 pub(crate) mod notification_push;
-pub(crate) mod open_url;
-pub use open_url::open_url as open_url_open_url;
 mod paired_planner;
 pub use paired_planner::{bind_pending_paired_planner, tab_has_pending_paired_planner};
 pub(crate) mod orchestrator;

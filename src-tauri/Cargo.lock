@@ -1071,34 +1071,17 @@ name = "codeterm"
 version = "1.14.9"
 dependencies = [
  "async-trait",
- "axum",
- "base64 0.22.1",
- "chrono",
- "codeterm-api",
- "codeterm-billing",
- "codeterm-bridge",
  "codeterm-build-info",
- "codeterm-commands",
+ "codeterm-client-shell",
  "codeterm-crash",
- "codeterm-decision",
- "codeterm-events",
- "codeterm-frontend-bundle",
- "codeterm-host-runtime",
- "codeterm-orchestration",
+ "codeterm-frontend-shell",
  "codeterm-paths",
- "codeterm-plan",
- "codeterm-plugin",
  "codeterm-process-identity",
- "codeterm-sentinel-host",
- "codeterm-service-core",
- "codeterm-socket",
  "codeterm-types",
+ "codeterm-update",
  "codeterm-util",
  "core-foundation",
  "dirs 6.0.0",
- "domios-server",
- "fern",
- "include_dir",
  "interprocess",
  "log",
  "objc2",
@@ -1122,7 +1105,6 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
- "vt100",
  "windows-sys 0.61.2",
 ]
 
@@ -1227,6 +1209,7 @@ dependencies = [
  "codeterm-decision",
  "codeterm-events",
  "codeterm-frontend-bundle",
+ "codeterm-frontend-shell",
  "codeterm-mem",
  "codeterm-mesh",
  "codeterm-notification-core",
@@ -1240,6 +1223,7 @@ dependencies = [
  "codeterm-service-core",
  "codeterm-storage",
  "codeterm-types",
+ "codeterm-update",
  "codeterm-usage",
  "codeterm-util",
  "codeterm-wire",
@@ -1343,39 +1327,57 @@ name = "codeterm-build-info"
 version = "0.0.0"
 
 [[package]]
+name = "codeterm-client-shell"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "clipboard-win",
+ "codeterm-build-info",
+ "codeterm-crash",
+ "codeterm-paths",
+ "codeterm-update",
+ "codeterm-util",
+ "dirs 6.0.0",
+ "log",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "serde_json",
+ "tauri",
+ "tauri-plugin-updater",
+ "tempfile",
+ "tokio",
+ "url",
+ "which",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "codeterm-commands"
 version = "0.0.0"
 dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
- "clipboard-win",
  "codeterm-analytics",
  "codeterm-build-info",
  "codeterm-events",
  "codeterm-frontend-bundle",
- "codeterm-host-runtime",
  "codeterm-mesh",
  "codeterm-orchestration",
  "codeterm-plugin",
  "codeterm-plugins",
  "codeterm-service-core",
  "codeterm-types",
+ "codeterm-update",
  "codeterm-util",
  "dirs 6.0.0",
  "libc",
  "log",
- "objc2-app-kit",
- "objc2-foundation",
  "parking_lot",
  "reqwest 0.12.28",
  "semver",
  "serde",
  "serde_json",
- "tauri",
- "tauri-plugin-dialog",
- "tauri-plugin-shell",
- "tauri-plugin-updater",
  "tempfile",
  "tokio",
  "url",
@@ -1449,6 +1451,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-devtools"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "codeterm-bridge",
+ "codeterm-decision",
+ "codeterm-service-core",
+ "codeterm-types",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "codeterm-entitlements"
 version = "0.0.0"
 dependencies = [
@@ -1495,14 +1513,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "codeterm-host-runtime"
+name = "codeterm-frontend-shell"
 version = "0.0.0"
 dependencies = [
- "codeterm-events",
- "codeterm-service-core",
- "serde",
- "serde_json",
- "tauri",
+ "url",
 ]
 
 [[package]]
@@ -2042,6 +2056,7 @@ dependencies = [
  "codeterm-decision",
  "codeterm-events",
  "codeterm-frontend-bundle",
+ "codeterm-frontend-shell",
  "codeterm-input-macos",
  "codeterm-input-windows",
  "codeterm-keepawake",
@@ -2070,6 +2085,7 @@ dependencies = [
  "codeterm-supporter",
  "codeterm-surface",
  "codeterm-types",
+ "codeterm-update",
  "codeterm-usage",
  "codeterm-util",
  "codeterm-wire",
@@ -2256,6 +2272,27 @@ dependencies = [
  "tempfile",
  "toml 0.8.2",
  "ts-rs",
+ "uuid",
+]
+
+[[package]]
+name = "codeterm-update"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "codeterm-build-info",
+ "codeterm-paths",
+ "codeterm-plugins",
+ "codeterm-types",
+ "libc",
+ "log",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
  "uuid",
 ]
 
@@ -3053,6 +3090,7 @@ dependencies = [
  "codeterm-commands",
  "codeterm-events",
  "codeterm-frontend-bundle",
+ "codeterm-frontend-shell",
  "codeterm-orchestration",
  "codeterm-plan",
  "codeterm-plugin",
@@ -3062,6 +3100,7 @@ dependencies = [
  "codeterm-service-core",
  "codeterm-socket",
  "codeterm-types",
+ "codeterm-update",
  "codeterm-util",
  "dirs 6.0.0",
  "fern",

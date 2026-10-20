@@ -8,7 +8,7 @@ path, and scores Recall@K / MRR / latency.
 
 ```bash
 cd src-tauri
-cargo run --features dev-tools --bin mem-bench --release -- \
+cargo run -p codeterm-devtools --features dev-tools --bin mem-bench --release -- \
   --fixture ../evals/mem-recall/benchmark.json \
   --output-dir ../evals/mem-recall/results \
   --report-dir ../evals/mem-recall/reports
@@ -20,14 +20,14 @@ A tempdir under the OS temp is used for the store by default. Pass
 ### Compare against a saved baseline
 
 ```bash
-cargo run --features dev-tools --bin mem-bench --release -- \
+cargo run -p codeterm-devtools --features dev-tools --bin mem-bench --release -- \
   --baseline ../evals/mem-recall/baselines/baseline-805aaea1.json
 ```
 
 ### Save the current run as a baseline
 
 ```bash
-cargo run --features dev-tools --bin mem-bench --release -- --save-baseline
+cargo run -p codeterm-devtools --features dev-tools --bin mem-bench --release -- --save-baseline
 ```
 
 Writes `baseline-<shortcommit>.json` into `baselines/`.
@@ -116,7 +116,7 @@ field is free-form and only used for grouping in reports.
 The `codeterm` CLI (in `cli/`) does **not** yet expose a `mem bench run`
 subcommand — the cli crate is HTTP-only and wouldn't gain anything from
 wrapping a direct binary invocation. Run the bench via
-`cargo run --features dev-tools --bin mem-bench` for now. If we ever want it behind
+`cargo run -p codeterm-devtools --features dev-tools --bin mem-bench` for now. If we ever want it behind
 `codeterm mem bench`, the subcommand would just shell out to the built
 binary at `target/release/mem-bench`.
 
