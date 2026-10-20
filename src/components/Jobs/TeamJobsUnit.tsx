@@ -15,8 +15,8 @@ interface SentinelSource {
   sentinelAdapter?: AutomationGraphAdapter;
 }
 
-function TeamUnitWithSentinels({ scope, generation, onOpenSentinel, adapter, ...props }: TeamUnitProps & { scope: AutomationScope; generation: number; onOpenSentinel: (scenarioId: string) => void; adapter: AutomationGraphAdapter }) {
-  const state = useAutomationGraph(adapter, { ...scope, connection_id: `host:${generation}` });
+function TeamUnitWithSentinels({ scope, onOpenSentinel, adapter, ...props }: TeamUnitProps & { scope: AutomationScope; onOpenSentinel: (scenarioId: string) => void; adapter: AutomationGraphAdapter }) {
+  const state = useAutomationGraph(adapter, { ...scope, connection_id: "sidebar" });
   const jobs = state.graph ? blueprintScenarioJobs(state.graph, scope) : [];
   const rows = jobs.map((job) => {
     const Icon = Network;
@@ -48,5 +48,5 @@ function TeamUnitWithSentinels({ scope, generation, onOpenSentinel, adapter, ...
 export function TeamJobsUnit({ sentinelScope, onOpenSentinel, sentinelAdapter = hostAutomationAdapter, ...props }: TeamUnitProps & SentinelSource) {
   const context = usePlanPeerContext();
   if (!sentinelScope || !onOpenSentinel || !context.ready) return <TeamUnit {...props} />;
-  return <TeamUnitWithSentinels {...props} scope={sentinelScope} generation={context.generation} onOpenSentinel={onOpenSentinel} adapter={sentinelAdapter} />;
+  return <TeamUnitWithSentinels {...props} scope={sentinelScope} onOpenSentinel={onOpenSentinel} adapter={sentinelAdapter} />;
 }

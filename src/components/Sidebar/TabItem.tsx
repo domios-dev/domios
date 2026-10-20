@@ -544,7 +544,10 @@ function backingPluginId(p: Tab | null | undefined): string | undefined {
   return p?.backing?.kind === "chat_backend" ? p.backing.plugin_id : undefined;
 }
 
-function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
+/** What a row shows; its click, close and rename handlers stay out because their identity never changes the row. */
+export type TabItemState = Omit<TabItemProps, "onClick" | "onClose" | "onRename">;
+
+export function tabItemPropsEqual(prev: TabItemState, next: TabItemState): boolean {
   if (
     prev.isActive !== next.isActive ||
     prev.status !== next.status ||

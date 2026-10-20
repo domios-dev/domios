@@ -16,15 +16,26 @@ export function selectActiveWorkspaceId(state: ExtendedState): string | null {
 }
 
 const APP_SHELL_FIELDS = [
-  "workspaces", "tabs", "teams", "activeTabIds", "active_workspace_id", "focused_tab_id",
+  "workspaces", "teams", "activeTabIds", "active_workspace_id", "focused_tab_id",
   "notifications", "notificationsLoaded", "toasts", "storageUnavailable",
 ] as const satisfies ReadonlyArray<keyof ExtendedState>;
+
+/** Live agent telemetry; each mounted tab and sidebar row selects it for itself. */
+const TAB_TELEMETRY_FIELDS: ReadonlySet<keyof Tab> = new Set(["last_active_at_ms", "agent_state"]);
+
+/** The tab structure the app shell reads: ids and every field except live telemetry. */
+export function shellTabsEqual(a: Record<string, Tab>, b: Record<string, Tab>): boolean {
+  if (a === b) return true;
+  const ids = Object.keys(a);
+  if (ids.length !== Object.keys(b).length) return false;
+  return ids.every((id) => id in b && tabFieldsEqual(a[id], b[id], TAB_TELEMETRY_FIELDS));
+}
 
 /** The app shell reads the generation only as route readiness, so a snapshot that changed nothing else keeps it still. */
 export function appShellStateEqual(a: ExtendedState, b: ExtendedState): boolean {
   if (a === b) return true;
   if (Math.min(a.generation, 1) !== Math.min(b.generation, 1)) return false;
-  return APP_SHELL_FIELDS.every((field) => a[field] === b[field]);
+  return APP_SHELL_FIELDS.every((field) => a[field] === b[field]) && shellTabsEqual(a.tabs, b.tabs);
 }
 
 export function selectTeams(state: ExtendedState): Team[] {
@@ -44,14 +55,14 @@ export function teamsEqual(a: Team[], b: Team[]): boolean {
   });
 }
 
-export function tabFieldsEqual(a: Tab | undefined, b: Tab | undefined): boolean {
+export function tabFieldsEqual(a: Tab | undefined, b: Tab | undefined, ignored?: ReadonlySet<keyof Tab>): boolean {
   if (a === b) return true;
   if (!a || !b) return !a && !b;
   const keys = new Set([...Object.keys(a), ...Object.keys(b)] as (keyof Tab)[]);
   for (const key of keys) {
     const av = a[key];
     const bv = b[key];
-    if (av === bv) continue;
+    if (av === bv || ignored?.has(key)) continue;
     if (key === "managed" || key === "agent_state") {
       if (!shallowRecordEqual(av as Record<string, unknown> | null | undefined, bv as Record<string, unknown> | null | undefined)) {
         return false;
