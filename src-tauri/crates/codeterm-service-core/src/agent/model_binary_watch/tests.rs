@@ -3,6 +3,9 @@ use notify::event::{AccessKind, CreateKind, DataChange, RemoveKind};
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+// Bounds a missing event only; macOS FSEvents coalesces for about a second and lags further under load.
+const WATCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
+
 #[test]
 fn scoped_data_events_trigger_once_with_preserved_size_and_mtime() {
     let dir = tempfile::tempdir().unwrap();
@@ -119,7 +122,7 @@ async fn native_config_and_auth_events_refresh_the_warm_authoritative_catalogue(
             Some(data) => std::fs::write(path, data).unwrap(),
             None => std::fs::remove_file(path).unwrap(),
         }
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        tokio::time::timeout(WATCH_DEADLINE, async {
             loop {
                 let change = changes.recv().await.unwrap();
                 if change.provider == id {
@@ -180,7 +183,7 @@ async fn a_provider_cli_update_republishes_the_catalogue_probed_against_it() {
     install(provider.clone());
     let mut changes = model_catalog::subscribe_changes();
     std::fs::write(&cli, b"v2-updated-cli").unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+    tokio::time::timeout(WATCH_DEADLINE, async {
         loop {
             let change = changes.recv().await.unwrap();
             if change.provider == id
@@ -226,7 +229,7 @@ fn a_declared_input_created_under_a_new_directory_is_observed() {
     );
     std::fs::create_dir(target.parent().unwrap()).unwrap();
     std::fs::write(&target, b"fixture").unwrap();
-    rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+    rx.recv_timeout(WATCH_DEADLINE).unwrap();
 }
 
 #[test]
