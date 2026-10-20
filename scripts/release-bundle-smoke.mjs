@@ -42,12 +42,14 @@ export function packagedExecutables(extracted) {
   return {
     app: one(extracted, file => /[/\\]domios(?:\.exe)?$/.test(file) && !/[/\\]cli[/\\]/.test(file), 'app executable'),
     cli: one(extracted, file => /[/\\]cli[/\\]codeterm(?:-[^.]+)?(?:\.exe)?$/.test(file), 'embedded CLI'),
+    server: one(extracted, file => /[/\\](?:MacOS|domios-server)[/\\]domios-server(?:\.exe)?$/.test(file), 'packaged server'),
   };
 }
 function run(command, args, cwd) {
   return execFileSync(command, args, { cwd, encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024 });
 }
-export function checkContents(appBytes, sha) {
+// The native client carries the source SHA; system plugins are embedded in the server it starts.
+export function checkContents(appBytes, serverBytes, sha) {
   if (!/^[a-f0-9]{40}$/.test(sha) || !appBytes.includes(Buffer.from(sha))) throw new Error('App does not contain exact source SHA');
   const plugins = readdirSync(path.join(root, 'plugins'))
     .filter(name => name.startsWith('provider-') || ['analytics', 'browser'].includes(name))
@@ -55,7 +57,7 @@ export function checkContents(appBytes, sha) {
   for (const name of plugins) {
     for (const filename of ['plugin.json', 'plugin.js']) {
       const content = readFileSync(path.join(root, 'plugins', name, filename));
-      if (!content.length || !appBytes.includes(content)) throw new Error(`Missing embedded plugin bytes: ${name}/${filename}`);
+      if (!content.length || !serverBytes.includes(content)) throw new Error(`Missing embedded plugin bytes: ${name}/${filename}`);
     }
   }
 }
@@ -89,9 +91,9 @@ export function smoke(kind, directory, sha, expectedArch) {
       if (!['x64', 'arm64'].includes(expectedArch)) throw new Error('Windows target architecture required');
     } else throw new Error(`Unknown platform ${kind}`);
     const extracted = files(scratch);
-    const { app, cli } = packagedExecutables(extracted);
-    for (const executable of [app, cli]) assertMachine(readFileSync(executable), expectedArch, format);
-    checkContents(readFileSync(app), sha);
+    const { app, cli, server } = packagedExecutables(extracted);
+    for (const executable of [app, cli, server]) assertMachine(readFileSync(executable), expectedArch, format);
+    checkContents(readFileSync(app), readFileSync(server), sha);
     one(extracted, file => file.endsWith(`${path.sep}dist${path.sep}index.html`), 'frontend entry point');
     if (kind === 'linux') {
       const deb = one(artifacts, file => file.endsWith('.deb'), 'Debian package');
@@ -100,14 +102,9 @@ export function smoke(kind, directory, sha, expectedArch) {
       const debRoot = path.join(scratch, 'deb');
       run('dpkg-deb', ['--extract', deb, debRoot]);
       const debFiles = files(debRoot);
-      for (const executable of [app, cli]) {
-        const basename = path.basename(executable);
-        const inCli = /[/\\]cli[/\\]/.test(executable);
-        const packaged = one(debFiles, file => path.basename(file) === basename && /[/\\]cli[/\\]/.test(file) === inCli, `Debian ${basename}`);
-        const content = readFileSync(packaged);
-        assertMachine(content, expectedArch, format);
-        if (executable === app) checkContents(content, sha);
-      }
+      const packaged = packagedExecutables(debFiles);
+      for (const executable of Object.values(packaged)) assertMachine(readFileSync(executable), expectedArch, format);
+      checkContents(readFileSync(packaged.app), readFileSync(packaged.server), sha);
       one(debFiles, file => file.endsWith(`${path.sep}dist${path.sep}index.html`), 'Debian frontend entry point');
     }
     if (kind === 'windows') {
