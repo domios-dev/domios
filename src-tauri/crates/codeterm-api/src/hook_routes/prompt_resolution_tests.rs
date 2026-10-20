@@ -18,12 +18,12 @@ fn app_state(fixture: &codeterm_service_core::service::test_fixture::ServiceFixt
         cron_wake: Arc::new(std::sync::Condvar::new()),
         api_port: 0,
         update_state: Arc::new(parking_lot::Mutex::new(
-            codeterm_service_core::update_state::UpdateState {
-                install_method: codeterm_service_core::update_state::InstallMethod::Unknown,
+            codeterm_update::update_state::UpdateState {
+                install_method: codeterm_update::update_state::InstallMethod::Unknown,
                 last_check: None,
                 last_check_time: None,
                 channel: config.updater.channel,
-                phase: codeterm_service_core::update_state::UpdatePhase::Idle,
+                phase: codeterm_update::update_state::UpdatePhase::Idle,
                 last_error: None,
                 phase_changed_at: None,
                 downloaded_bytes: 0,

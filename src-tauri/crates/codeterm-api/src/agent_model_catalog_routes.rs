@@ -19,7 +19,7 @@ pub async fn refresh_agent_provider_models(
     Json(body): Json<RefreshProviderModelsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    let (discovery_required, refreshed) = if let Some(provider) =
+    let (discovery_required, refreshed, reason) = if let Some(provider) =
         state.svc.agent_registry.provider_arc(&body.provider_id)
     {
         let discovery_required = provider
@@ -29,7 +29,13 @@ pub async fn refresh_agent_provider_models(
         let refreshed = codeterm_service_core::agent::model_catalog::refresh_models(provider, true)
             .await
             .is_some();
-        (discovery_required, refreshed)
+        let reason = (!refreshed)
+            .then(|| {
+                codeterm_service_core::agent::model_catalog::last_refresh_failure(&body.provider_id)
+            })
+            .flatten()
+            .map(|failure| failure.to_string());
+        (discovery_required, refreshed, reason)
     } else if let Some(provider) = state.svc.chatbackend_registry.get(&body.provider_id) {
         let discovery_required = provider
             .model_catalogue_capability()
@@ -37,7 +43,7 @@ pub async fn refresh_agent_provider_models(
         codeterm_service_core::agent::model_catalog::invalidate(&body.provider_id);
         let registry = state.svc.chatbackend_registry.clone();
         let provider_id = body.provider_id.clone();
-        let refreshed =
+        let completed =
             tokio::task::spawn_blocking(move || registry.refresh_and_wait(&provider_id))
                 .await
                 .map_err(|error| {
@@ -46,7 +52,15 @@ pub async fn refresh_agent_provider_models(
                         format!("chatBackend catalogue refresh failed: {error}"),
                     )
                 })?;
-        (discovery_required, refreshed)
+        let reason = if completed {
+            state
+                .svc
+                .chatbackend_registry
+                .model_capability_error(&body.provider_id)
+        } else {
+            Some("the catalogue refresh did not complete".to_string())
+        };
+        (discovery_required, reason.is_none(), reason)
     } else {
         return Err((
             StatusCode::NOT_FOUND,
@@ -58,5 +72,6 @@ pub async fn refresh_agent_provider_models(
         "version": codeterm_service_core::agent::model_catalog::current_version(&body.provider_id),
         "discovery_required": discovery_required,
         "refreshed": refreshed,
+        "reason": reason,
     })))
 }

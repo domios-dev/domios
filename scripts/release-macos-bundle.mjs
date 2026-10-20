@@ -48,7 +48,8 @@ export async function bundleMacPair({ repo = root, target, env = process.env,
   const version = JSON.parse(await readFile(path.join(repo, 'package.json'), 'utf8')).version;
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('invalid macOS package version');
   const targetArgs = target === 'x86_64-apple-darwin' ? ['--target', target] : [];
-  const release = path.join(repo, 'src-tauri', 'target', ...targetArgs.slice(1), 'release');
+  const cargoTarget = env.CARGO_TARGET_DIR ? path.resolve(repo, env.CARGO_TARGET_DIR) : path.join(repo, 'src-tauri', 'target');
+  const release = path.join(cargoTarget, ...targetArgs.slice(1), 'release');
   const bundleRoot = path.join(release, 'bundle');
   const app = path.join(bundleRoot, 'macos', 'CodeTerm.app');
   const stage = path.join(repo, 'target', 'domios-package');
@@ -64,7 +65,7 @@ export async function bundleMacPair({ repo = root, target, env = process.env,
       manifest.server_sha256 !== hash(expected.server)) throw new Error('macOS staged component identity differs from final signed server');
   const invoke = async (program, args) => run(program, args, repo);
   await invoke('pnpm', ['tauri', 'bundle', '--no-sign', '--no-binary-patching', ...targetArgs,
-    '--features', env.CODETERM_RELEASE_FEATURES || 'embeddings', '--bundles', 'app',
+    ...(env.CODETERM_RELEASE_FEATURES ? ['--features', env.CODETERM_RELEASE_FEATURES] : []), '--bundles', 'app',
     '--config', '{"bundle":{"createUpdaterArtifacts":false}}']);
   await verifyMacPayload({ app, stage, expected });
   // Signing the outer app without --deep preserves the pre-signed CLI/server bytes.

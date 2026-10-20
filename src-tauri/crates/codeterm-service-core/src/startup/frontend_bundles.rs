@@ -1,6 +1,4 @@
-use crate::frontend_bundle_api_version::{
-    API_VERSION, BUNDLED_FRONTEND_VERSION, FRONTEND_PUBLIC_KEY,
-};
+use crate::frontend_bundle_api_version::{API_VERSION, FRONTEND_PUBLIC_KEY};
 use codeterm_frontend_bundle::FrontendBundles;
 use std::sync::Arc;
 
@@ -8,6 +6,10 @@ const DISCOVERY_URL: &str = "https://github.com/rollacode/codeterm-releases/rele
 pub(crate) const BUNDLED_INDEX: &str = "/bundled/index.html";
 
 pub fn open(events: &codeterm_events::EventBroadcasterState) -> Option<Arc<FrontendBundles>> {
+    let Some(app_version) = codeterm_build_info::installed_version() else {
+        log::error!("[frontend-bundle] app version not installed; serving the embedded frontend");
+        return None;
+    };
     let events = events.clone();
     let (discovery, public_key, loopback) = dev_discovery_override().unwrap_or_else(|| {
         (
@@ -19,7 +21,7 @@ pub fn open(events: &codeterm_events::EventBroadcasterState) -> Option<Arc<Front
     match FrontendBundles::open(
         &crate::paths::data_dir().join("frontend-bundles"),
         API_VERSION,
-        BUNDLED_FRONTEND_VERSION,
+        app_version,
         public_key,
         discovery,
         loopback,

@@ -18,7 +18,7 @@ fn burst_emits_once_with_last_generation_and_identical_published_bytes() {
         |generation, snapshot_requested, focuses, _| {
             assert!(snapshot_requested);
             assert!(focuses.is_empty());
-            let snapshot = serde_json::json!({"generation": generation});
+            let snapshot = serde_json::json!({"generation": generation, "title": "changed"});
             assert!(published.publish(generation, &snapshot).unwrap());
             assert_eq!(
                 published.read().as_ref(),
@@ -98,6 +98,61 @@ fn focus_is_emitted_after_snapshot_of_committed_focus() {
         serde_json::from_slice::<serde_json::Value>(&service.published_mux_state()).unwrap(),
         events[structural].1,
     );
+}
+
+#[test]
+fn unchanged_snapshot_emits_nothing_and_a_change_emits_once() {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+
+    let (state, tab_id) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(state);
+    let service = &fixture.service;
+    let status = MuxEmitCause::TabStatus.bit();
+    emit(service.clone(), true, Vec::new(), status);
+    let mut bus = service.events.subscribe();
+    let ui_signals = || {
+        fixture
+            .ui
+            .0
+            .lock()
+            .iter()
+            .filter(|(name, _)| name == "mux-state-changed")
+            .count()
+    };
+    let settled = ui_signals();
+    let unchanged = || {
+        service
+            .ext::<Arc<MuxEmitStats>>()
+            .unchanged
+            .load(Ordering::Relaxed)
+    };
+    let unchanged_before = unchanged();
+    for _ in 0..5 {
+        emit(service.clone(), true, Vec::new(), status);
+    }
+    assert_eq!(ui_signals(), settled);
+    service.mux.write().rename_tab(&tab_id, "Renamed").unwrap();
+    emit(service.clone(), true, Vec::new(), MuxEmitCause::Title.bit());
+    emit(service.clone(), true, Vec::new(), status);
+    assert_eq!(ui_signals(), settled + 1);
+    let mut bus_signals = Vec::new();
+    while let Ok(event) = bus.try_recv() {
+        if event.frame.event_type == "mux-state-changed" {
+            bus_signals.push(event.event);
+        }
+    }
+    assert!(matches!(
+        bus_signals.as_slice(),
+        [codeterm_events::SystemEvent::Generic { data, .. }]
+            if data["generation"] == service.published_mux_state_versioned().0
+    ));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&service.published_mux_state()).unwrap()
+            ["tabs"][&tab_id]["title"],
+        "Renamed"
+    );
+    assert_eq!(unchanged(), unchanged_before + 6);
 }
 
 #[test]

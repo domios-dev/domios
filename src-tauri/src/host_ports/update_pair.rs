@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use codeterm_commands::application_host::{ServerStop, ServerStopError, ServerStopState};
+use codeterm_client_shell::application_host::{ServerStop, ServerStopError, ServerStopState};
+use codeterm_update::update_state::{detect_install_method, UpdatePhase, UpdateState};
 use tauri::Manager;
 
 use super::native_client::{ExactServerShutdownResult, NativeHostClientSlot};
@@ -8,20 +9,19 @@ use super::ServerApiAttachmentSlot;
 use crate::crash;
 
 /// The native client owns the in-app updater; its state lives here, not in the attached server.
-pub(crate) fn install(app: &codeterm_host_runtime::app_runtime::AppHandle) {
-    let update_state: codeterm_service_core::UpdateStateHandle = Arc::new(parking_lot::Mutex::new(
-        codeterm_service_core::update_state::UpdateState {
-            install_method: codeterm_service_core::update_state::detect_install_method(),
+pub(crate) fn install(app: &codeterm_client_shell::app_runtime::AppHandle) {
+    let update_state: codeterm_update::UpdateStateHandle =
+        Arc::new(parking_lot::Mutex::new(UpdateState {
+            install_method: detect_install_method(),
             last_check: None,
             last_check_time: None,
             channel: Default::default(),
-            phase: codeterm_service_core::update_state::UpdatePhase::Idle,
+            phase: UpdatePhase::Idle,
             last_error: None,
             phase_changed_at: None,
             downloaded_bytes: 0,
             download_total_bytes: None,
-        },
-    ));
+        }));
     app.manage(update_state);
     app.manage(ServerStopState(Arc::new(AttachedServerStop {
         app: app.clone(),
@@ -29,7 +29,7 @@ pub(crate) fn install(app: &codeterm_host_runtime::app_runtime::AppHandle) {
 }
 
 struct AttachedServerStop {
-    app: codeterm_host_runtime::app_runtime::AppHandle,
+    app: codeterm_client_shell::app_runtime::AppHandle,
 }
 
 #[async_trait::async_trait]

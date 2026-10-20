@@ -2,7 +2,7 @@ use crate::host_ports::ServerApiAttachmentSlot;
 use tauri::Manager;
 
 pub fn register_deep_links(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use tauri_plugin_deep_link::DeepLinkExt;
     if !production_instance(
@@ -171,7 +171,7 @@ mod tests {
 
 #[cfg(target_os = "linux")]
 fn linux_registration_matches(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     use tauri::Manager;
     let output = std::process::Command::new("xdg-mime")

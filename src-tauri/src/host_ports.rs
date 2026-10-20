@@ -130,7 +130,7 @@ impl ClientRootRenderLatch {
 
 #[tauri::command]
 pub(crate) async fn frontend_view_root_ready(
-    window: codeterm_host_runtime::app_runtime::WebviewWindow,
+    window: codeterm_client_shell::app_runtime::WebviewWindow,
     view_generation: u64,
     navigation_generation: u64,
 ) -> Result<bool, String> {
@@ -162,7 +162,7 @@ pub(crate) async fn frontend_view_root_ready(
 
 #[tauri::command]
 pub(crate) fn native_webview_diagnostics_snapshot(
-    window: codeterm_host_runtime::app_runtime::WebviewWindow,
+    window: codeterm_client_shell::app_runtime::WebviewWindow,
 ) -> Option<codeterm_types::native_host::NativeWebviewDiagnosticsSnapshot> {
     if window.label() != "main" {
         return None;

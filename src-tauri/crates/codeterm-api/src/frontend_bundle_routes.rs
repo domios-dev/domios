@@ -37,12 +37,10 @@ pub fn router(app: AppState, bundles: Arc<FrontendBundles>) -> Router<AppState> 
             kind: codeterm_analytics::UpdateKind::Frontend,
         });
         if let Some(bundles) = weak_bundles.upgrade() {
-            if let Some(version) = bundles.status()["active"]["version"].as_str() {
-                codeterm_commands::update::discovery::frontend_installed(
-                    &installation_app,
-                    version,
-                );
-            }
+            codeterm_commands::update::discovery::frontend_installed(
+                &installation_app,
+                &bundles.rendered().version,
+            );
         }
     }));
     routes(FrontendRouteState {

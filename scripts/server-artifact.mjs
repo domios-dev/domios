@@ -9,7 +9,7 @@ const { bundledCliName } = createRequire(import.meta.url)('./bundle-cli.js');
 export const SERVER_FEATURES = ['domios-server/embeddings'];
 export function assertServerClosure(packages) {
   if (!packages.some(row => row.startsWith('domios-server '))) throw new Error('Server dependency root missing');
-  const forbidden = packages.filter(row => /^(?:tauri(?:-| )|wry(?: |$)|webview(?:2)?(?:-| )|web-view(?:-| )|webkit2gtk(?:-| )|codeterm-host-runtime(?: |$))/.test(row));
+  const forbidden = packages.filter(row => /^(?:tauri(?:-| )|wry(?: |$)|webview(?:2)?(?:-| )|web-view(?:-| )|webkit2gtk(?:-| )|codeterm-client-shell(?: |$))/.test(row));
   if (forbidden.length) throw new Error(`Server production closure includes forbidden packages: ${forbidden.map(row => row.split(' ')[0]).join(', ')}`);
 }
 export function serverArtifact(messages) {

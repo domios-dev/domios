@@ -1,0 +1,22 @@
+# Thin native client. Moved tests keep their bodies under the owning crate's module path.
+plugin_bundle::tests::generated_bundle_hashes_match_extracted_bytes -> bundle::tests::generated_bundle_hashes_match_extracted_bytes
+startup::frontend_shell::model::tests::external_link_decision_table -> startup::frontend_shell::tests::external_link_decision_table
+startup::frontend_shell::model::tests::frontend_shell_contract_debug_selects_configured_loopback_development_url -> origins::tests::frontend_shell_contract_debug_selects_configured_loopback_development_url
+startup::frontend_shell::model::tests::frontend_shell_contract_refuses_untrusted_development_url -> origins::tests::frontend_shell_contract_refuses_untrusted_development_url
+startup::frontend_shell::model::tests::frontend_shell_contract_release_ignores_development_url -> origins::tests::frontend_shell_contract_release_ignores_development_url
+startup::frontend_shell::tests::frontend_shell_contract_uses_only_loopback_http_origins -> origins::tests::frontend_shell_contract_uses_only_loopback_http_origins
+startup::frontend_shell::tests::frontend_shell_contract_cors_origins_match_declared_navigation_origins -> startup::frontend_origins::tests::frontend_shell_contract_cors_origins_match_declared_navigation_origins
+startup::stall_tests::startup_no_global_stall_step_records_both_boundaries -> startup::progress::tests::startup_no_global_stall_step_records_both_boundaries
+# The client's test-only model and config bootstrap duplicated server listener logic the window never runs;
+# the client attaches through ServerApiAttachment and the listener contract is the shared origin model.
+startup::frontend_shell::model::tests::frontend_shell_contract_boot_failure_selects_fallback_then_unavailable -> startup::frontend_shell::tests::frontend_shell_contract_confines_navigation_and_remote_capabilities
+startup::frontend_shell::model::tests::frontend_shell_contract_stale_boot_observers_cannot_replace_a_recovered_page -> startup::frontend_shell::tests::frontend_shell_contract_binds_root_acknowledgement_to_document_generation
+startup::frontend_shell::tests::frontend_shell_contract_requires_health_proven_bind_acknowledgement -> origins::tests::frontend_shell_contract_declared_origins_follow_the_listener
+startup::frontend_shell::tests::frontend_shell_contract_refuses_missing_credentials_or_disabled_listener -> startup::frontend_shell::tests::frontend_shell_contract_limits_native_permissions_to_the_exact_frontend_origin
+# The host fixture over ServiceFixture had no users; the process split keeps native absence typed on the server.
+test_fixture::tests::host_managed_config_shares_core_state_and_preserves_recording -> application_host::tests::process_split_contract_native_absence_is_typed
+# The split client always stops its attached server before installing; the in-process PTY teardown path is gone.
+update::shutdown::tests::any_pty_termination_failure_aborts_update -> update::apply::server_stop_tests::refusal_before_dispatch_keeps_the_running_pair_without_relaunch
+update::shutdown::tests::terminated_ptys_do_not_abort_update -> update::apply::server_stop_tests::confirmed_server_stop_owes_a_relaunch_after_a_failed_install
+update::shutdown::tests::update_teardown_reports_every_owned_pty_tab -> update::apply::server_stop_tests::unconfirmed_exit_after_dispatch_still_owes_a_relaunch
+update::shutdown::tests::recorded_desk_keeps_tabs_removed_during_teardown -> update::shutdown::tests::reducing_snapshot_at_shutdown_does_not_abort_update

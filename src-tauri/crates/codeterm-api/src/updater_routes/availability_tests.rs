@@ -22,7 +22,7 @@ async fn availability_json_contract_preserves_prerelease_and_escaped_errors() {
         );
         assert_eq!(item.reason, "local_ahead");
         assert_eq!(item.state, codeterm_plugins::AvailabilityState::UpToDate);
-        let mut snapshot: codeterm_service_core::update_state::AvailabilitySnapshot =
+        let mut snapshot: codeterm_update::update_state::AvailabilitySnapshot =
             serde_json::from_str(SNAPSHOT).unwrap();
         snapshot.items = vec![item];
         let expected = serde_json::to_value(&snapshot).unwrap();

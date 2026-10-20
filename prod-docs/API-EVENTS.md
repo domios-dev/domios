@@ -10,7 +10,7 @@ Genuine storage unavailability still returns `503` with the preservation reason.
 
 ### Snapshot refetch
 
-`mux-state-changed` is a bare signal, not a snapshot. Publication sends a refresh signal after the new snapshot becomes readable. Keep one snapshot fetch in flight; a request arriving mid-fetch waits for the next one, so a burst of any size costs at most two round trips. There is no timer or polling retry.
+`mux-state-changed` is a bare signal, not a snapshot. Publication sends a refresh signal after the new snapshot becomes readable, and only when its content differs from the published one; a rebuild with identical content keeps the published body and its generation and sends nothing. Keep one snapshot fetch in flight; a request arriving mid-fetch waits for the next one, so a burst of any size costs at most two round trips. There is no timer or polling retry.
 
 ### Known gap: event order under concurrent publishers
 
@@ -20,7 +20,7 @@ Concurrent publication can omit an event without an `overflow` frame (`rollacode
 
 Authenticated `GET /api/debug/events/stats` includes `streams` alongside the mux emit counters. The census is always enabled, independently of `diagnostics.terminal_transport`.
 
-`emit_causes` reports `requests` and `fires` for each closed cause label (including zero counts). A coalesced fire is attributed once to every cause in its batch, so per-cause fires can sum above `emit_fires`. These counters describe the native mux snapshot emitter, like the existing totals; they do not count SSE publications separately.
+`emit_causes` reports `requests` and `fires` for each closed cause label (including zero counts). A coalesced fire is attributed once to every cause in its batch, so per-cause fires can sum above `emit_fires`. These counters describe the native mux snapshot emitter, like the existing totals; they do not count SSE publications separately. `emit_unchanged` counts rebuilds whose content matched the published snapshot and therefore sent no signal.
 
 ```json
 {"streams":{"live":1,"opened":3,"closed":2,"entries":[{"kind":"events","scope":"local","live":1,"opened":3,"closed":2}]}}
@@ -30,4 +30,4 @@ Authenticated `GET /api/debug/events/stats` includes `streams` alongside the mux
 
 `live` counts open response streams, including bodies that have not yet been polled. Completion, client disconnect, cancellation and panic unwind release the count. `opened` and `closed` are monotonic within the daemon process and reset on restart. A snapshot reads atomic counters independently; concurrent opens/closes can briefly make `opened - closed` differ from `live`. After stream owners finish, `live` returns to the baseline and opened/closed deltas balance. Finite JSON and asset responses are outside the SSE census.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

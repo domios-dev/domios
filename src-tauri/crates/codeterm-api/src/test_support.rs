@@ -17,19 +17,17 @@ pub fn app_state(fixture: &ServiceFixture) -> AppState {
         )),
         cron_wake: Arc::new(std::sync::Condvar::new()),
         api_port: 0,
-        update_state: Arc::new(parking_lot::Mutex::new(
-            codeterm_commands::update::UpdateState {
-                install_method: codeterm_commands::update::InstallMethod::Unknown,
-                last_check: None,
-                last_check_time: None,
-                channel: config.updater.channel,
-                phase: codeterm_commands::update::UpdatePhase::Idle,
-                last_error: None,
-                phase_changed_at: None,
-                downloaded_bytes: 0,
-                download_total_bytes: None,
-            },
-        )),
+        update_state: Arc::new(parking_lot::Mutex::new(codeterm_update::UpdateState {
+            install_method: codeterm_update::InstallMethod::Unknown,
+            last_check: None,
+            last_check_time: None,
+            channel: config.updater.channel,
+            phase: codeterm_update::UpdatePhase::Idle,
+            last_error: None,
+            phase_changed_at: None,
+            downloaded_bytes: 0,
+            download_total_bytes: None,
+        })),
         config: fixture
             .service
             .ext::<codeterm_service_core::config::ConfigState>()

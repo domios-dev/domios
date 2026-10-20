@@ -345,8 +345,7 @@ fn development_frontend_origin(
         return Ok(None);
     }
     let url = url::Url::parse(origin).map_err(io::Error::other)?;
-    codeterm_service_core::startup::frontend_shell_development_frontend(true, Some(&url))
-        .map_err(io::Error::other)
+    codeterm_frontend_shell::development_frontend(true, Some(&url)).map_err(io::Error::other)
 }
 
 fn optional_native_listener<T>(

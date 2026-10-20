@@ -2,7 +2,7 @@ use crate::host_ports::ServerApiAttachmentSlot;
 use tauri::Manager;
 
 pub(crate) fn handle_window_event(
-    window: &codeterm_host_runtime::app_runtime::Window,
+    window: &codeterm_client_shell::app_runtime::Window,
     event: &tauri::WindowEvent,
 ) {
     if matches!(event, tauri::WindowEvent::Focused(true)) && window.label() == "main" {

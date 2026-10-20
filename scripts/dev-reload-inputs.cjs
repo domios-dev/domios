@@ -6,9 +6,15 @@ const fullDev = 'Client/build inputs changed; run ./build.sh dev instead.';
 const serverToolInputs = new Set(['build.sh', 'scripts/dev-server.mjs', 'scripts/dev-server-bootstrap.ps1',
   'scripts/dev-reload-inputs.cjs', 'scripts/server-artifact.mjs']);
 
+// A client or shared crate is linked into the native window, so editing one needs a client rebuild.
+const layers = JSON.parse(readFileSync(path.join(__dirname, 'crate-layers.json'), 'utf8'));
+const clientLinked = new Set([...layers.client, ...layers.shared]);
+
 function changeKind(file) {
   if (serverToolInputs.has(file)) return 'server';
-  if (/^src-tauri\/crates\/(codeterm-host-runtime|codeterm-process-identity|codeterm-paths|codeterm-types|codeterm-build-info|codeterm-frontend-bundle)\//.test(file)) return 'client';
+  if (file === 'scripts/crate-layers.json') return 'client';
+  const crate = /^src-tauri\/crates\/([^/]+)\//.exec(file)?.[1];
+  if (crate && clientLinked.has(crate)) return 'client';
   if (/^(src\/|public\/)/.test(file)) return 'frontend';
   if (/^(src-tauri\/crates\/|cli\/|crates\/|plugins\/|skills\/)/.test(file)) return 'server';
   return 'client';
