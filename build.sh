@@ -2551,7 +2551,7 @@ CodeTerm build commands
   worktree-check              Isolated lane-safe Rust compile check
   test-one <input-macos|input-windows|billing|account|analytics|app|shell|root|api|socket|commands|sentinel-host|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage|codeterm-*> NAME
                               Run one focused Rust test
-  process-probe --case server-only|arbitration --instance split-oracle  Build and prove isolated server ownership
+  process-probe --case server-only|arbitration|pair-journey --instance split-oracle  Build and prove isolated process ownership
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
   nextest-archive [sha] [--measure selector...] Build/reuse one archive and optionally time selectors
   release-rust [runner-id...]  Run every release-tier Rust runner of tests/catalogue.json (or the named ones)
@@ -2912,6 +2912,15 @@ EOF
   process-probe)
     [ -z "$(git status --porcelain)" ] || { echo 'ERROR: process-probe requires the exact committed clean source' >&2; exit 2; }
     node scripts/process-separation-probe.mjs --validate "${@:2}"
+    process_probe_case=""
+    process_probe_args=("${@:2}")
+    for ((process_probe_arg=0; process_probe_arg<${#process_probe_args[@]}; process_probe_arg++)); do
+      if [ "${process_probe_args[$process_probe_arg]}" = --case ]; then
+        process_probe_value=$((process_probe_arg + 1))
+        process_probe_case="${process_probe_args[$process_probe_value]:-}"
+        break
+      fi
+    done
     process_probe_dir="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID-process-probe"
     mkdir -p "$process_probe_dir"
     process_probe_target="$(ct_host_triple)"
@@ -2928,7 +2937,17 @@ EOF
       --format '{p}' > "$process_probe_dir/closure.txt"
     node scripts/server-artifact.mjs "$process_probe_dir/cargo.jsonl" "$process_probe_dir/closure.txt" \
       "$(git rev-parse HEAD)" "$process_probe_target" "$process_probe_dir/resources" "$process_probe_dir/artifact.json"
-    node scripts/process-separation-probe.mjs "${@:2}" --artifact-receipt "$process_probe_dir/artifact.json"
+    client_receipt_args=()
+    if [ "$process_probe_case" = pair-journey ]; then
+      IFS=$'\t' read -r process_probe_client_package process_probe_client_binary \
+        < <(node scripts/process-separation-probe.mjs --client-build-target)
+      cargo build --manifest-path src-tauri/Cargo.toml -p "$process_probe_client_package" --bin "$process_probe_client_binary" \
+        --target "$process_probe_target" --message-format=json > "$process_probe_dir/client.jsonl"
+      node scripts/process-separation-probe.mjs --write-client-receipt "$process_probe_dir/client.jsonl" \
+        "$process_probe_dir/client-artifact.json" "$(git rev-parse HEAD)" "$process_probe_target"
+      client_receipt_args=(--client-receipt "$process_probe_dir/client-artifact.json")
+    fi
+    node scripts/process-separation-probe.mjs "${@:2}" --artifact-receipt "$process_probe_dir/artifact.json" "${client_receipt_args[@]}"
     ;;
   test-one)
     test_scope="${2:?test-one requires domios-server, billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
@@ -3149,6 +3168,7 @@ EOF
     sg_failed=0
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
     sg_run node scripts/test-catalogue.mjs validate
+    sg_run node scripts/rename-guard.mjs --scope all --report
     sg_run bash scripts/check-crate-layering.sh
     sg_run node --test scripts/tests/crate-layering.test.mjs
     sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-serial

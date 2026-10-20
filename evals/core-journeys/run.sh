@@ -11,10 +11,10 @@ Usage: bash evals/core-journeys/run.sh MODE [--out DIR] [driver flags]
   setup     J1-J3 and the pre-restart snapshot; leaves fixtures for verify
   verify    J4 (+ J3 after restart) against the state in --out; run after an operator restart
   cleanup   remove the fixtures recorded in --out
-  upgrade   J5: --from-checkout N-1_CHECKOUT on a named disposable CODETERM_INSTANCE
+  upgrade   J5: --from-checkout N-1_CHECKOUT on a named disposable instance
 Driver flags: --providers a,b  --history-kb N  --deadline-secs N  --all-tabs  --keep
 --plan prints the journeys, steps and evidence paths without contacting an instance.
-Needs CODETERM_INSTANCE (a named instance) and its own CODETERM_API_PORT; ports 7685 and 7686 are refused.
+Needs a named instance and its own API port; ports 7685 and 7686 are refused.
 Check a finished run: node evals/core-journeys/lib/evidence-contract.mjs OUT
 Spends real provider tokens. See evals/core-journeys/README.md.
 EOF
@@ -22,8 +22,8 @@ EOF
 
 if [ "${1:-}" = --dc ]; then
   shift
-  unset CODETERM_CLI_PATH
   source "$ROOT/evals/_lib/lib.sh"
+  source "$HERE/lib/instance-identity.sh"
   if dc "$@"; then exit 0; else exit "$?"; fi
 fi
 case "${1:-}" in
@@ -32,7 +32,7 @@ case "${1:-}" in
   *) echo "Unknown mode: $1" >&2; usage >&2; exit 2 ;;
 esac
 
-OUT="" FROM="" PLAN=0 PASS=() VERIFY_EXTRA=()
+OUT="" FROM="" PLAN=0 PASS=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --plan) PLAN=1; shift ;;
@@ -42,10 +42,17 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-unset CODETERM_CLI_PATH
 source "$ROOT/evals/_lib/lib.sh"
+source "$HERE/lib/instance-identity.sh"
 REQUESTED_INSTANCE="$(printf '%s' "$EVAL_LIB_REQUESTED_INSTANCE" | tr -d '[:space:]')"
-[ -n "$REQUESTED_INSTANCE" ] || { echo "FAIL CODETERM_INSTANCE is unset: core journeys run only on a named isolated instance" >&2; exit 7; }
+export CORE_JOURNEY_REQUESTED_INSTANCE="$REQUESTED_INSTANCE"
+export CORE_JOURNEY_REQUESTED_API_PORT="$EVAL_LIB_REQUESTED_API_PORT"
+build_identity_field() { core_journey_build_field "$1" "$2"; }
+select_build_identity() {
+  core_journey_select_build_identity "$1"
+}
+select_build_identity "$ROOT" || { echo 'FAIL could not read the build-under-test CLI identity and environment contract' >&2; exit 7; }
+[ -n "$REQUESTED_INSTANCE" ] || { echo "FAIL named instance is unset: core journeys run only on a named isolated instance" >&2; exit 7; }
 case "$EVAL_LIB_REQUESTED_API_PORT" in
   7685) echo "FAIL refusing production port 7685" >&2; exit 7 ;;
   7686) echo "FAIL refusing the shared DEV port 7686; use the named instance's own port" >&2; exit 7 ;;
@@ -62,14 +69,26 @@ for prerequisite in node python3 git; do
   command -v "$prerequisite" >/dev/null || { echo "FAIL missing prerequisite: $prerequisite" >&2; exit 7; }
 done
 if [ "$MODE" = upgrade ]; then
-  case "${CODETERM_INSTANCE:-}:${CODETERM_API_PORT:-}" in
-    *:) echo "FAIL upgrade needs the named instance's own CODETERM_API_PORT" >&2; exit 2 ;;
-  esac
+  [ -n "$REQUESTED_INSTANCE" ] && [ -n "$EVAL_LIB_REQUESTED_API_PORT" ] || { echo "FAIL upgrade needs the named instance's own API port" >&2; exit 2; }
   [ -n "$FROM" ] && [ -x "$FROM/build.sh" ] || { echo "FAIL --from-checkout must name the build N-1 checkout" >&2; exit 2; }
   FROM="$(cd "$FROM" && pwd)"
-  # The disposable instance has no CLI before its first build, so build N-1 starts before the lib resolves it.
-  (cd "$FROM" && CODETERM_DEV_INSTANCE="$REQUESTED_INSTANCE" CODETERM_DEV_API_PORT="$EVAL_LIB_REQUESTED_API_PORT" \
+  PREVIOUS_CLI_NAME="$(build_identity_field "$FROM" binaryName)"
+  PREVIOUS_INSTANCE_ENV="$(build_identity_field "$FROM" request.instance)"
+  PREVIOUS_PORT_ENV="$(build_identity_field "$FROM" request.port)"
+  CORE_JOURNEY_PREVIOUS_CLI_INSTANCE_ENV="$(build_identity_field "$FROM" cli.instance)"
+  export CORE_JOURNEY_PREVIOUS_CLI_INSTANCE_ENV
+  [[ "$PREVIOUS_INSTANCE_ENV" == *_INSTANCE ]] && [[ "$PREVIOUS_PORT_ENV" == *_API_PORT ]] || {
+      echo 'FAIL --from-checkout does not expose its own launcher and CLI contract' >&2; exit 2;
+    }
+  select_build_identity "$FROM" || { echo 'FAIL could not read the v1.14.9 build identity' >&2; exit 7; }
+  # The named disposable instance has no CLI yet; use N-1's own build contract and binary.
+  (cd "$FROM" && env "$PREVIOUS_INSTANCE_ENV=$REQUESTED_INSTANCE" "$PREVIOUS_PORT_ENV=$EVAL_LIB_REQUESTED_API_PORT" \
     bash ./build.sh dev --wait --wait-build) || { echo "FAIL build N-1 did not start" >&2; exit 1; }
+  PREVIOUS_BINARY_NAME="$PREVIOUS_CLI_NAME"
+  [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* || "$OSTYPE" == win32 ]] && PREVIOUS_BINARY_NAME="$PREVIOUS_BINARY_NAME.exe"
+  [ -x "$CORE_JOURNEY_CLI_PATH" ] && [ "$(basename "$CORE_JOURNEY_CLI_PATH")" = "$PREVIOUS_BINARY_NAME" ] || {
+    echo 'FAIL N-1 build did not produce its declared CLI binary at the selected instance target' >&2; exit 1;
+  }
 fi
 dev_resolve || { echo "FAIL dev connection unresolved" >&2; exit 7; }
 case "$EVAL_LIB_DEV_API_PORT" in
@@ -100,9 +119,16 @@ case "$MODE" in
   all) cycle "$OUT"; STATUS=$? ;;
   upgrade)
     STATUS=0
-    VERIFY_EXTRA=(--expect-build-change)
-    cycle "$OUT/n-1-to-n" --stop-in "$FROM" --start-in "$ROOT" --start dev --label upgrade || STATUS=1
-    VERIFY_EXTRA=()
+    UPGRADE_OUT="$OUT/n-1-to-n"
+    UPGRADE_BASELINE="$UPGRADE_OUT/upgrade-baseline.json"
+    mkdir -p "$UPGRADE_OUT"
+    driver setup "$UPGRADE_OUT" --upgrade-baseline-out "$UPGRADE_BASELINE" || STATUS=1
+    restart "$UPGRADE_OUT" --stop-in "$FROM" --start-in "$ROOT" --start dev --label upgrade || STATUS=1
+    select_build_identity "$ROOT" || STATUS=1
+    driver verify "$UPGRADE_OUT" --expect-build-change --upgrade-baseline "$UPGRADE_BASELINE" || STATUS=1
+    restart "$UPGRADE_OUT" --stop-in "$ROOT" --start-in "$ROOT" --start dev --label upgrade-second-start || STATUS=1
+    driver verify "$UPGRADE_OUT" --upgrade-baseline "$UPGRADE_BASELINE" --second-start || STATUS=1
+    driver cleanup "$UPGRADE_OUT" || STATUS=1
     cycle "$OUT/n" || STATUS=1
     ;;
 esac
