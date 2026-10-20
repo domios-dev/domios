@@ -1,9 +1,9 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import type { Tab } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
-import { isTabDragDisabled, SidebarSingleTabRow, type SidebarSingleTabRowProps } from "./SidebarPlanPeerPair";
+import { isTabDragDisabled, sameIds, sameTabItemRow, SidebarSingleTabRow, type SidebarSingleTabRowProps, type SidebarTabItemRowProps } from "./SidebarPlanPeerPair";
 import { SurfaceOwnerBlock } from "./SurfaceAttachments";
 import { attachmentInset, ownerRowInset, type OwnerRowContext } from "./surfaceAttachmentModel";
 import { SortableContext, SortableRow, TAB_PREFIX, verticalListSortingStrategy } from "./sortable";
@@ -34,7 +34,34 @@ export function SidebarSortableBlock({ tab, group, groupKey, pinnedIds, toWorksp
   );
 }
 
-export function SidebarOwnerTabRow({ tabs, planIndex, attachments, closingTabIds, appearingTabIds, compact, context, renderOwner, ownerSortable = true, ...row }: SidebarOwnerTabRowProps) {
+type OwnerRowsProps = Omit<SidebarOwnerTabRowProps, "context">;
+
+function rowAt(props: OwnerRowsProps, tab: Tab, index: number): SidebarTabItemRowProps {
+  return {
+    ...props,
+    tab,
+    index,
+    ownerTitle: surfaceOwnerTitle(tab, props.tabs),
+    activity: resolveTabTabActivity(props.planIndex, tab.id, props.tabs),
+    isClosing: props.closingTabIds.has(tab.id),
+    isAppearing: props.appearingTabIds.has(tab.id),
+  };
+}
+
+/** Same placement and the same rendered row for the owner and each of its attachments. */
+function sameOwnerRows(prev: OwnerRowsProps, next: OwnerRowsProps): boolean {
+  if (prev.compact !== next.compact || prev.renderOwner !== next.renderOwner || prev.ownerSortable !== next.ownerSortable
+    || prev.sortable !== next.sortable || prev.group !== next.group || prev.groupKey !== next.groupKey
+    || prev.toWorkspaceOrder !== next.toWorkspaceOrder || !sameIds(prev.pinnedIds, next.pinnedIds)
+    || prev.attachments.length !== next.attachments.length) return false;
+  const prevTabs = [prev.tab, ...prev.attachments];
+  const nextTabs = [next.tab, ...next.attachments];
+  return prevTabs.every((tab, index) => tab.id === nextTabs[index].id
+    && sameTabItemRow(rowAt(prev, tab, index === 0 ? prev.index : index - 1), rowAt(next, nextTabs[index], index === 0 ? next.index : index - 1)));
+}
+
+/** An owner row with its attached surfaces; renders only when one of those rows changes. */
+export const SidebarOwnerTabRow = memo(function SidebarOwnerTabRow({ tabs, planIndex, attachments, closingTabIds, appearingTabIds, compact, context, renderOwner, ownerSortable = true, ...row }: SidebarOwnerTabRowProps) {
   const renderRow = (tab: Tab, index: number, extra: Partial<SidebarSingleTabRowProps> = {}) => (
     <SidebarSingleTabRow {...row} tab={tab} index={index}
       ownerTitle={surfaceOwnerTitle(tab, tabs)}
@@ -52,13 +79,28 @@ export function SidebarOwnerTabRow({ tabs, planIndex, attachments, closingTabIds
       insetPx: attachmentInset(ownerRowInset(context, row.touchMode)), ownerBadgeTab: compact ? row.tab : null,
       startedBy: null, checklistToggle: null,
     })} />;
-}
+}, (prev, next) => prev.context === next.context && sameOwnerRows(prev, next));
 
-export function SidebarShellRow({ showStartedBy = true, detail = null, ...props }: Omit<SidebarOwnerTabRowProps, "context"> & {
+type SidebarShellRowProps = OwnerRowsProps & {
   showStartedBy?: boolean;
   /** Row detail that stays inside the member block, below its row. */
   detail?: ReactNode;
-}) {
+};
+
+function creatorLabel({ tab, tabs }: SidebarShellRowProps): [string | null, string | null, boolean] {
+  const creator = tab.spawned_by_tab_id ? tabs[tab.spawned_by_tab_id] : undefined;
+  return [tab.spawned_by_tab_id ?? null, creator?.title ?? null, Boolean(creator)];
+}
+
+/** Same member block: its detail, its creator, and the same owner rows. */
+function sameShellRow(prev: SidebarShellRowProps, next: SidebarShellRowProps): boolean {
+  if (prev.showStartedBy !== next.showStartedBy || prev.detail !== next.detail) return false;
+  if (creatorLabel(prev).some((value, index) => value !== creatorLabel(next)[index])) return false;
+  return sameOwnerRows(prev, next);
+}
+
+/** A team member block that renders only when one of its own rows changes. */
+export const SidebarShellRow = memo(function SidebarShellRow({ showStartedBy = true, detail = null, ...props }: SidebarShellRowProps) {
   const creatorId = props.tab.spawned_by_tab_id ?? null;
   const creator = creatorId ? props.tabs[creatorId] : null;
   const origin = terminalOrigin(creatorId, creator?.title, Boolean(creator));
@@ -75,4 +117,4 @@ export function SidebarShellRow({ showStartedBy = true, detail = null, ...props 
     <SidebarOwnerTabRow {...props} context="team" ownerSortable={false} startedBy={showStartedBy ? startedBy : undefined} />
     {detail}
   </SidebarSortableBlock>;
-}
+}, sameShellRow);

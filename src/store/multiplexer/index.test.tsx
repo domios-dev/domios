@@ -122,6 +122,7 @@ async function mountProvider(options: {
   storageUnavailableInitialMux?: boolean;
   pairedPeerCount?: number;
   selectedLeaf?: boolean;
+  ordinaryTabs?: () => unknown[];
 } = {}) {
   (globalThis as unknown as { localStorage: FakeStorage }).localStorage.clear();
   (globalThis as unknown as { sessionStorage: FakeStorage }).sessionStorage.clear();
@@ -132,9 +133,11 @@ async function mountProvider(options: {
 
   let actions!: ReturnType<typeof useMultiplexer>;
   const pairCalls: Record<string, unknown>[] = [];
+  let latestState!: ReturnType<typeof useMuxState>;
   function StorageStatusProbe() {
     actions = useMultiplexer();
     const state = useMuxState();
+    latestState = state;
     return React.createElement(
       "div",
       { "data-testid": "storage-unavailable-probe" },
@@ -178,7 +181,7 @@ async function mountProvider(options: {
         refusedInitialOrdinary = true;
         return Promise.reject(new Error("tab summary unavailable while tab state is initializing or changing"));
       }
-      return [] as unknown as T;
+      return (options.ordinaryTabs?.() ?? []) as unknown as T;
     }
     return undefined as unknown as T;
   });
@@ -244,6 +247,9 @@ async function mountProvider(options: {
     },
     get intervalCalls() {
       return intervalCalls;
+    },
+    get tabIds() {
+      return Object.keys(latestState.tabs);
     },
     settleMuxGetState,
     rejectMuxGetState(error: unknown) {
@@ -421,12 +427,34 @@ test("local-only mux pushes skip the ordinary tab list", async () => {
   await harness.unmount();
 });
 
-test("mux pushes retain remote discovery for paired peers", async () => {
+test("telemetry-only mux pushes skip the ordinary tab list for paired peers", async () => {
   const harness = await mountProvider({ pairedPeerCount: 1 });
+  Object.defineProperty(globalThis, "requestAnimationFrame", { configurable: true, value: () => 1 });
   const baseline = harness.ordinaryTabsCalls;
-  await harness.act(async () => { harness.emit("mux-state-changed"); });
-  await waitUntil(() => harness.ordinaryTabsCalls === baseline + 1, harness.act);
-  await harness.settleMuxGetState();
+  for (let generation = 2; generation <= 26; generation++) {
+    await harness.act(async () => {
+      harness.emit("mux-state-changed", { ...sampleState("ws-renewal"), generation });
+    });
+  }
+  const calls = harness.ordinaryTabsCalls - baseline;
+  assert(calls === 0, `telemetry-only pushes must not fetch the ordinary tab list, got ${calls}`);
+  await harness.unmount();
+});
+
+test("a remote peer tab appears on remote-workers-changed and leaves on mesh-state-changed", async () => {
+  const remoteId = "mesh:peer/worker";
+  let peerTabs: unknown[] = [];
+  const harness = await mountProvider({ pairedPeerCount: 1, ordinaryTabs: () => peerTabs });
+  assert(!harness.tabIds.includes(remoteId), "no remote tab before the peer registers one");
+
+  peerTabs = [{ id: remoteId, title: "Worker", pty_id: null, tab_type: "Terminal", cwd: null,
+    workspace_id: "ws-renewal", remote_peer_id: "peer", remote_tab_id: "worker", parent_tab_id: "lead" }];
+  await harness.act(async () => { harness.emit("remote-workers-changed", { orchestrator_tab_id: "lead", workers: {} }); });
+  await waitUntil(() => harness.tabIds.includes(remoteId), harness.act);
+
+  peerTabs = [];
+  await harness.act(async () => { harness.emit("mesh-state-changed"); });
+  await waitUntil(() => !harness.tabIds.includes(remoteId), harness.act);
   await harness.unmount();
 });
 
