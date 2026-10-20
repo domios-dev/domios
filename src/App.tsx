@@ -58,7 +58,7 @@ import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useSidebarViewport } from "./hooks/useSidebarViewport";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
-import { workspacePrewarmInput } from "./hooks/terminal/workspacePrewarmModel";
+import { needsBackendPrewarm, workspacePrewarmInput } from "./hooks/terminal/workspacePrewarmModel";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
 import { useAgentProviderCachePublisher } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
@@ -472,7 +472,7 @@ function AppInner() {
   const prewarmBackendTab = useCallback(async (tabId: string) => {
     const current = stateRef.current;
     const tab = current.tabs[tabId];
-    if (!tab || tab.backing?.kind === "chat_backend" || !tab.agent_type) return;
+    if (!needsBackendPrewarm(tab)) return;
     await invoke("spawn_pty", {
       tabId: tab.id,
       cwd: tab.cwd ?? undefined,

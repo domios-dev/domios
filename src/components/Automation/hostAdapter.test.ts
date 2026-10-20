@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
 import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
-import { hostAutomationAdapter, AUTOMATION_GRAPH_EVENT } from "./hostAdapter";
+import { hostAutomationAdapter, AUTOMATION_GRAPH_EVENT, BLUEPRINT_CHAT_CONNECTION, startPageGraphCache } from "./hostAdapter";
 import { attachment, deferred, fixtureGraph, sentinelIdentity } from "./fixtures.testdata";
 import { ALL_JOBS_SCOPE, type AutomationGraph, type AutomationScope } from "./types";
 
@@ -59,7 +59,34 @@ async function main() {
     held.resolve(fixtureGraph());
     await assert.rejects(pending);
     console.log("✓ aborted attachment rejects a late HTTP snapshot");
-    console.log("5 hostAutomationAdapter cases passed");
+
+    const reads: string[] = [];
+    let cacheEvent!: (payload: AutomationScope & { revision: string }) => void;
+    configureOrchestrationTransport(orchestrationTestClient(async <T,>(_method: string, path: string) => {
+      reads.push(path);
+      return fixtureGraph() as T;
+    }, (_stream, handler) => {
+      cacheEvent = (payload) => handler(AUTOMATION_GRAPH_EVENT, payload);
+      return () => {};
+    }));
+    (globalThis as { window?: EventTarget }).window ??= new EventTarget();
+    const stopCache = startPageGraphCache();
+    const workspace = { ...attachment, team_id: ALL_JOBS_SCOPE };
+    for (const connection_id of ["composer", BLUEPRINT_CHAT_CONNECTION, "sidebar", "composer"]) {
+      await hostAutomationAdapter.read({ ...workspace, connection_id }, new AbortController().signal);
+    }
+    assert.equal(reads.length, 1);
+    await hostAutomationAdapter.read({ ...workspace, connection_id: "jobs" }, new AbortController().signal);
+    assert.equal(reads.length, 2);
+    let changedAfterEvent = 0;
+    await hostAutomationAdapter.subscribe({ ...workspace, connection_id: "composer" }, () => { changedAfterEvent++; });
+    cacheEvent({ ...attachment, revision: "next" });
+    await hostAutomationAdapter.read({ ...workspace, connection_id: BLUEPRINT_CHAT_CONNECTION }, new AbortController().signal);
+    assert.equal(changedAfterEvent, 1);
+    assert.equal(reads.length, 3);
+    stopCache();
+    console.log("✓ remounting tab surfaces share one event-refreshed workspace read; the Jobs view reads fresh");
+    console.log("6 hostAutomationAdapter cases passed");
   }
 }
 void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });
