@@ -56,6 +56,16 @@ node scripts/check-archive-portable-test-paths.mjs   # Rust test paths survive a
 
 Run these from the PowerShell tool directly. They are short enough to read.
 
+`test-one app` runs only the server library `codeterm-service-core`. After the
+thin-client split, the client package `codeterm` (`src-tauri/src`, for example
+`run.rs` and `startup/`) runs through `test-one shell`, and each client crate
+through its package scope: `test-one codeterm-client-shell <filter>`,
+`test-one codeterm-frontend-shell <filter>`. A filtered `test-one` whose run
+passes no test (no match, every match ignored, or no summary) exits 97 in every
+scope, archived or compiled; rerun with the owning scope, never accept the zero.
+The app scope runs a cached test archive only when the checkout is clean and
+its tree equals the archive's `.source-tree` receipt; otherwise it compiles.
+
 In a Worker lane, run `./build.sh fmt` once per batch, then one verification pass: one multi-package `./build.sh lane-check <package>... [--tests]` call, changed TS/JS tests and `tsc` when TS changes, plus guards. On failure, fix all reported errors and recheck only what failed. The formatter scopes rustfmt and Biome safe fixes to changed files. The lane-check helper selects the shared cache only inside its subshell: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`); Cargo's lock serializes checks without a gateway slot. Canonical/gateway build directories and per-worktree targets remain separate. List canonical selectors under GATES REQUESTED.
 
 ## Check before tests
