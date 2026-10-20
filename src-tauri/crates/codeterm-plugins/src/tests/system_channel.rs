@@ -301,3 +301,26 @@ fn git_diff_uses_validated_cache_without_a_second_fetch() {
         assert_eq!(rows[0].id, "demo");
     });
 }
+
+#[test]
+fn relocated_registry_refreshes_inside_the_active_root() {
+    with_data_root(|root| {
+        let source = root.join("source");
+        write_channel(&source, "moved", &[("demo", "demo")]);
+        let legacy_root = root.join("legacy-root");
+        let active_root = root.join("active-root");
+        std::env::set_var("CODETERM_DATA_DIR", &legacy_root);
+        add_channel(
+            &format!("file://{}", source.display()),
+            Some("moved".into()),
+        )
+        .expect("register under the legacy root");
+        std::fs::rename(&legacy_root, &active_root).expect("relocate the data root");
+        std::env::set_var("CODETERM_DATA_DIR", &active_root);
+
+        refresh_channel(Some("moved")).expect("refresh after relocation");
+
+        assert!(!legacy_root.exists());
+        assert!(active_root.join("channels/moved/channel.json").is_file());
+    });
+}
