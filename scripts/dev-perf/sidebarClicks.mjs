@@ -2,7 +2,8 @@
 // whether the clicked row is the one that activates, sidebar scroll jumps, row displacement, drag starts
 // and long tasks. Keep agents streaming for load; never point it at prod.
 //   node scripts/dev-perf/sidebarClicks.mjs [--port 9223] [--url-match ORIGIN] [--clicks 12] [--jitter 0]
-//     [--hold 90] [--json]
+//     [--hold 90] [--idle SECONDS] [--json]
+// --idle only counts /api/mux/state fetches for that many seconds without input.
 // --jitter moves the pointer that many pixels between press and release, as a trackpad click does.
 import { connectPage, sleep } from "./cdp.mjs";
 
@@ -12,6 +13,18 @@ const clicks = Number(option("--clicks", 12));
 const jitter = Number(option("--jitter", 0));
 const hold = Number(option("--hold", 90));
 const page = await connectPage(option("--port") ? Number(option("--port")) : undefined, option("--url-match"));
+
+let stateFetches = 0;
+page.on("Network.requestWillBeSent", ({ request }) => { if (request.url.includes("/api/mux/state")) stateFetches++; });
+await page.call("Network.enable");
+const runStarted = performance.now();
+const idle = Number(option("--idle", 0));
+if (idle) {
+  await sleep(idle * 1000);
+  console.log(JSON.stringify({ idleSeconds: idle, stateFetches, statePerFiveSeconds: Math.round((stateFetches / idle) * 5 * 10) / 10 }));
+  page.close();
+  process.exit(0);
+}
 
 const mouse = (type, x, y, extra = {}) => page.call("Input.dispatchMouseEvent", { type, x, y, button: "none", ...extra });
 const frame = () => page.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
@@ -119,6 +132,8 @@ const summary = {
   longTasks: results.reduce((sum, result) => sum + result.longTasks, 0),
   longestTask: Math.max(0, ...results.map((result) => result.longestTask)),
   medianActivationMs: results.map((result) => result.activationMs).sort((a, b) => a - b)[results.length >> 1],
+  stateFetches,
+  statePerFiveSeconds: Math.round((stateFetches / ((performance.now() - runStarted) / 1000)) * 5 * 10) / 10,
 };
 console.log(JSON.stringify(args.includes("--json") ? { summary, results } : summary));
 page.close();
