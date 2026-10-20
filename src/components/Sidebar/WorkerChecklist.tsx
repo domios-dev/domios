@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { Circle, CircleCheck, CircleDot, ListChecks } from "lucide-react";
+import { Circle, CircleAlert, CircleCheck, CircleDot, CircleMinus, ListChecks } from "lucide-react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
   boundedChecklist,
@@ -61,7 +61,11 @@ function useWorkerChecklist(tabId: string): ChecklistView {
 }
 
 function StateGlyph({ state }: { state: WorkerChecklistState }) {
-  const Icon = state === "done" ? CircleCheck : state === "in_progress" ? CircleDot : Circle;
+  const Icon = state === "done" ? CircleCheck
+    : state === "in_progress" ? CircleDot
+    : state === "blocked" ? CircleAlert
+    : state === "skipped" ? CircleMinus
+    : Circle;
   return <Icon size={10} strokeWidth={1.75} aria-hidden="true" className="sidebar-worker-checklist__glyph" />;
 }
 
@@ -81,7 +85,7 @@ function WorkerChecklistRegion({ id, tabId }: { id: string; tabId: string }) {
           {items.map((item) => (
             <li key={item.id} data-state={item.state} className="sidebar-worker-checklist__item">
               <StateGlyph state={item.state} />
-              <span className="sidebar-worker-checklist__title" title={item.title}>{item.title}</span>
+              <span className="sidebar-worker-checklist__title" title={item.reason ? `${item.title} — ${item.reason}` : item.title}>{item.title}</span>
               <span className="sidebar-worker-checklist__state">{checklistStateLabel(item.state)}</span>
             </li>
           ))}

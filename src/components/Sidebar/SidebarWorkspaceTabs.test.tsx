@@ -965,10 +965,10 @@ function checklistTeam(): Record<string, Tab> {
   };
 }
 
-function checklistRecord(generation: number, revision: number, items: Array<[string, string]>) {
+function checklistRecord(generation: number, revision: number, items: Array<[string, string, string?]>) {
   return {
     tab_id: "worker", generation, revision, started_at: 1, status: "active",
-    items: items.map(([title, state], position) => ({ id: `${generation}-${position}`, position, title, state, revision: 1 })),
+    items: items.map(([title, state, reason], position) => ({ id: `${generation}-${position}`, position, title, state, reason: reason ?? null, revision: 1 })),
   };
 }
 
@@ -1009,7 +1009,10 @@ function checklistRows(region: Element): string[] {
 }
 
 test("Worker checklist disclosure reads the store only when opened and shows titles with states", async () => {
-  const store = checklistStore(checklistRecord(1, 3, [["Ship the route", "done"], ["Wire the row", "in_progress"], ["Record evidence", "open"]]));
+  const store = checklistStore(checklistRecord(1, 3, [
+    ["Ship the route", "done"], ["Wire the row", "in_progress"], ["Record evidence", "open"],
+    ["Wait for the API", "blocked", "route owner undecided"], ["Polish copy", "skipped", "out of scope"],
+  ]));
   const tabs = checklistTeam();
   const { host, root } = await renderSidebar({ tabs, sortedTabs: [tab("o", "orchestrator", 0), tab("w", "worker", 1)] });
   const toggle = host.querySelector('button[aria-label="Checklist for Mica"]') as HTMLButtonElement | null;
@@ -1025,9 +1028,13 @@ test("Worker checklist disclosure reads the store only when opened and shows tit
   assert(toggle.getAttribute("aria-expanded") === "true" && toggle.getAttribute("aria-controls") === region.id, "disclosure controls the region");
   assert(JSON.stringify(store.reads) === JSON.stringify(["worker"]), "opening reads the Worker's checklist once");
   assert(
-    JSON.stringify(checklistRows(region)) === JSON.stringify(["Ship the routeDone", "Wire the rowIn progress", "Record evidenceOpen"]),
-    "region lists every item title with its current state in order",
+    JSON.stringify(checklistRows(region)) === JSON.stringify([
+      "Ship the routeDone", "Wire the rowIn progress", "Record evidenceOpen", "Wait for the APIBlocked", "Polish copySkipped",
+    ]),
+    "region lists every item title with its current state in order, blocked and skipped included",
   );
+  const blockedTitle = region.querySelector('li[data-state="blocked"] .sidebar-worker-checklist__title');
+  assert(blockedTitle?.getAttribute("title") === "Wait for the API — route owner undecided", "a blocked item carries its reason");
 
   await act(async () => toggle.click());
   assert(!host.querySelector('[aria-label="Worker checklist"]'), "collapsing hides the detail");
