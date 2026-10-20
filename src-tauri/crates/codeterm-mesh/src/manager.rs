@@ -219,14 +219,14 @@ impl MeshManager {
             ));
         }
         if remote_instance_id == self.ident.identity.instance_id {
-            return Err("Cannot pair with this CodeTerm instance".to_string());
+            return Err("Cannot pair with this Domios instance".to_string());
         }
         self.reject_untrusted_pairing_identity(remote_instance_id)
     }
 
     fn reject_untrusted_pairing_identity(&self, remote_instance_id: &str) -> Result<(), String> {
         if remote_instance_id == self.ident.identity.instance_id {
-            return Err("Cannot pair with this CodeTerm instance".to_string());
+            return Err("Cannot pair with this Domios instance".to_string());
         }
         if self.paired_peers.contains_key(remote_instance_id) {
             return Err("Peer is already paired".to_string());

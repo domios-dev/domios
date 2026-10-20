@@ -11,7 +11,7 @@ fn default_true() -> bool {
 
 // ── Identity ────────────────────────────────────────────────────────
 
-/// Persistent identity for this CodeTerm instance.
+/// Persistent identity for this Domios instance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshIdentity {
     pub instance_id: String,
