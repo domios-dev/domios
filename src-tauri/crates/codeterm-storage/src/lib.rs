@@ -53,7 +53,8 @@ pub use repositories::sentinel::{
 };
 pub use repositories::tab_todo::{
     TabTodoAmendmentRecord, TabTodoChecklistRecord, TabTodoCountersRecord, TabTodoItemEventRecord,
-    TabTodoItemRecord, TabTodoNewItemRecord, TabTodoRepository, MAX_TAB_TODO_AUDIT_EVENTS,
+    TabTodoItemRecord, TabTodoItemRefRecord, TabTodoNewItemRecord, TabTodoOwnWriteBase,
+    TabTodoOwnWriteRecord, TabTodoRepository, TabTodoStateChangeRecord, MAX_TAB_TODO_AUDIT_EVENTS,
     MAX_TAB_TODO_ITEMS, MAX_TAB_TODO_ITEM_EVENTS,
 };
 pub use repositories::workspaces::{

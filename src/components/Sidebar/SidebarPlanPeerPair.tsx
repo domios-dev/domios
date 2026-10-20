@@ -5,7 +5,7 @@ import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX, type SortableGroupData } from "./sortable";
 import { TabItem, type AttachmentToggle, type TabStartedBy } from "./TabItem";
-import type { ChecklistToggle } from "./WorkerChecklist";
+import type { ChecklistToggle } from "./AgentChecklist";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import type { TabAttention } from "./tabAttention";
 

@@ -18,6 +18,7 @@ pub fn notify(
 
 fn sweep(service: &codeterm_service_core::service::ServiceContext) {
     codeterm_service_core::service::restore_utility_deadlines(service);
+    codeterm_service_core::service::tab_todos::restore_checklist_presence(service);
     codeterm_service_core::service::launch_artifacts::sweep_after_restore(service);
 }
 

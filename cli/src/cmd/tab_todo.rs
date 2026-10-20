@@ -1,8 +1,7 @@
-use std::collections::HashSet;
-
 use codeterm_types::agent::{
     tab_todo_bound_refusal, validate_tab_todo_reason, TabTodoChecklist, TabTodoDraft, TabTodoItem,
-    TabTodoLink, TabTodoRecitedItem, TabTodoState, MAX_TAB_TODO_ITEMS, MAX_TAB_TODO_TITLE_CHARS,
+    TabTodoLink, TabTodoRecitedItem, TabTodoState, TabTodoWriteEntry, MAX_TAB_TODO_ITEMS,
+    MAX_TAB_TODO_TITLE_CHARS,
 };
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -45,12 +44,6 @@ struct AgentTodoWriteItem {
     #[serde(default)]
     link: Option<String>,
     #[serde(default)]
-    reason: Option<String>,
-}
-
-struct StateChange {
-    item_id: String,
-    state: TabTodoState,
     reason: Option<String>,
 }
 
@@ -250,135 +243,60 @@ fn list_agent_todos(client: &mut dyn RpcClient) -> Result<Value, String> {
 fn write_agent_todos(client: &mut dyn RpcClient, from_pad: &str) -> Result<Value, String> {
     let tab_id = required_current_tab()?;
     let input: Vec<AgentTodoWriteItem> = parse_source(Some(from_pad), None)?;
+    write_declared_todos(client, &tab_id, input)
+}
+
+/// The daemon creates the checklist on first write and reconciles it afterwards.
+fn write_declared_todos(
+    client: &mut dyn RpcClient,
+    tab_id: &str,
+    input: Vec<AgentTodoWriteItem>,
+) -> Result<Value, String> {
     if input.len() > MAX_TAB_TODO_ITEMS {
         return Err(tab_todo_bound_refusal());
     }
-    let in_progress = input
-        .iter()
-        .filter(|item| matches!(&item.status, AgentTodoStatus::InProgress))
-        .count();
-    if in_progress > 1 {
-        return Err("todo write accepts at most one in_progress item".into());
-    }
-    let mut submitted_content = HashSet::new();
-    for item in &input {
-        validate_write_item(item)?;
-        if !submitted_content.insert(item.content.clone()) {
-            return Err(format!("todo write repeats content: {}", item.content));
-        }
-    }
-
-    let mut checklist = required_checklist(client, &tab_id, Some(&tab_id))?;
-    let mut changes = Vec::new();
-    let mut matched_ids: HashSet<String> = HashSet::new();
-    let mut final_in_progress = checklist
-        .items
-        .iter()
-        .filter(|item| item.state == TabTodoState::InProgress)
-        .count();
-    for requested in input {
-        let matches: Vec<_> = checklist
-            .items
-            .iter()
-            .filter(|item| item.title == requested.content)
-            .collect();
-        if matches.len() != 1 {
-            return Err(if matches.is_empty() {
-                format!(
-                    "todo write cannot add an unlocked item: {}",
-                    requested.content
-                )
-            } else {
-                format!("todo write content is ambiguous: {}", requested.content)
-            });
-        }
-        let item = matches[0];
-        if !matched_ids.insert(item.id.clone()) {
-            return Err(format!("todo write repeats item: {}", item.id));
-        }
-        if requested
-            .link
-            .as_deref()
-            .is_some_and(|link| !link_matches(item, link))
-        {
-            return Err(format!(
-                "todo write cannot change the link for locked item {}",
-                item.id
-            ));
-        }
-        let next = requested.status.state();
-        let reason_changed = next.requires_reason() && item.reason != requested.reason;
-        if item.state != next || reason_changed {
-            if item.state == TabTodoState::InProgress {
-                final_in_progress = final_in_progress.saturating_sub(1);
-            }
-            if next == TabTodoState::InProgress {
-                final_in_progress += 1;
-            }
-            changes.push(StateChange {
-                item_id: item.id.clone(),
-                state: next,
-                reason: requested.reason,
-            });
-        }
-    }
-    if final_in_progress > 1 {
-        return Err("todo write would leave more than one in_progress item".into());
-    }
-
-    prioritize_state_changes(&mut changes);
-    for change in changes {
-        let item = checklist
-            .items
-            .iter()
-            .find(|item| item.id == change.item_id)
-            .ok_or_else(|| {
-                format!(
-                    "checklist item disappeared during write: {}",
-                    change.item_id
-                )
-            })?;
-        let value = call_state(
-            client,
-            &tab_id,
-            Some(&tab_id),
-            &checklist,
-            item,
-            change.state,
-            change.reason,
-        )?;
-        checklist = parse_checklist(value)?
-            .ok_or_else(|| "tab.todo.state returned no checklist".to_string())?;
-    }
-    let omitted_locked_items = checklist.items.len().saturating_sub(matched_ids.len());
+    let entries = input
+        .into_iter()
+        .map(write_entry)
+        .collect::<Result<Vec<_>, String>>()?;
+    let value = client.call(
+        "tab.todo.write",
+        Some(json!({
+            "tab_id": tab_id,
+            "caller_tab_id": tab_id,
+            "items": entries,
+        })),
+    )?;
+    let omitted_locked_items = value
+        .get("omitted_locked_items")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let checklist = parse_checklist(value.get("checklist").cloned().unwrap_or(Value::Null))?
+        .ok_or_else(|| "tab.todo.write returned no checklist".to_string())?;
     let message = format!("{omitted_locked_items} omitted locked item(s) remain unchanged");
     let mut reply = with_remaining(checklist, Some(message));
     reply["omitted_locked_items"] = json!(omitted_locked_items);
     Ok(reply)
 }
 
-fn validate_write_item(item: &AgentTodoWriteItem) -> Result<(), String> {
-    for (field, value) in [
-        ("todo content", &item.content),
-        ("activeForm", &item.active_form),
-    ] {
-        if value.trim().is_empty()
-            || value.chars().count() > MAX_TAB_TODO_TITLE_CHARS
-            || value.chars().any(char::is_control)
-        {
-            return Err(format!(
-                "{field} must contain 1..={MAX_TAB_TODO_TITLE_CHARS} characters without controls"
-            ));
-        }
+fn write_entry(item: AgentTodoWriteItem) -> Result<TabTodoWriteEntry, String> {
+    let active_form = &item.active_form;
+    if active_form.trim().is_empty()
+        || active_form.chars().count() > MAX_TAB_TODO_TITLE_CHARS
+        || active_form.chars().any(char::is_control)
+    {
+        return Err(format!(
+            "activeForm must contain 1..={MAX_TAB_TODO_TITLE_CHARS} characters without controls"
+        ));
     }
-    match item.reason.as_deref() {
-        Some(reason) => validate_tab_todo_reason(reason),
-        None if item.status.state().requires_reason() => Err(format!(
-            "todo write needs a reason for {}: blocked and skipped items explain why",
-            item.content
-        )),
-        None => Ok(()),
-    }
+    let entry = TabTodoWriteEntry {
+        content: item.content,
+        state: item.status.state(),
+        link: item.link,
+        reason: item.reason,
+    };
+    entry.validate()?;
+    Ok(entry)
 }
 
 /// The reply names what is left, so every completion shows the remaining steps.
@@ -392,11 +310,6 @@ fn with_remaining(checklist: TabTodoChecklist, message: Option<String>) -> Value
         reply["message"] = json!(message);
     }
     reply
-}
-
-/// Demote the old in-progress item before promoting the new one.
-fn prioritize_state_changes(changes: &mut [StateChange]) {
-    changes.sort_by_key(|change| matches!(change.state, TabTodoState::InProgress));
 }
 
 fn call_state(
@@ -491,16 +404,6 @@ fn parse_source<T: DeserializeOwned>(
         return Err(format!("todo input exceeds {MAX_TODO_INPUT_BYTES} bytes"));
     }
     serde_json::from_str(&body).map_err(|error| format!("todo input is not valid JSON: {error}"))
-}
-
-fn link_matches(item: &TabTodoItem, requested: &str) -> bool {
-    match item.link.as_ref() {
-        Some(TabTodoLink::DomiosTask { task_id, label, .. }) => {
-            requested == task_id || requested == label
-        }
-        Some(TabTodoLink::Url { url, label }) => requested == url || requested == label,
-        None => false,
-    }
 }
 
 fn print_value(value: &Value, json_output: bool) {

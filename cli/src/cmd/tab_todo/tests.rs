@@ -22,51 +22,99 @@ fn item(id: &str, state: TabTodoState) -> TabTodoItem {
     }
 }
 
-#[test]
-fn todo_write_demotes_before_promoting_the_in_progress_item() {
-    let change = |id: &str, state| StateChange {
-        item_id: id.into(),
-        state,
-        reason: None,
-    };
-    let mut changes = vec![
-        change("new-active", TabTodoState::InProgress),
-        change("completed", TabTodoState::Done),
-        change("old-active", TabTodoState::Open),
-    ];
-    prioritize_state_changes(&mut changes);
-    let order: Vec<_> = changes
-        .iter()
-        .map(|change| change.item_id.as_str())
-        .collect();
-    assert_eq!(order, ["completed", "old-active", "new-active"]);
+struct FakeRpc {
+    calls: Vec<(String, Option<Value>)>,
+    reply: Value,
+}
+
+impl RpcClient for FakeRpc {
+    fn call_detailed(
+        &mut self,
+        method: &str,
+        params: Option<Value>,
+    ) -> Result<Value, crate::client::SocketCallError> {
+        self.calls.push((method.to_string(), params));
+        Ok(self.reply.clone())
+    }
+}
+
+fn written(items: Vec<TabTodoItem>) -> Value {
+    json!({
+        "checklist": TabTodoChecklist {
+            tab_id: "orchestrator".into(),
+            generation: 1,
+            started_at: 0,
+            revision: 2,
+            status: TabTodoChecklistStatus::Active,
+            items,
+        },
+        "omitted_locked_items": 1,
+    })
 }
 
 #[test]
-fn todo_write_accepts_blocked_and_skipped_only_with_a_reason() {
+fn todo_write_declares_the_whole_list_in_one_call_without_a_prior_checklist() {
+    let mut rpc = FakeRpc {
+        calls: Vec::new(),
+        reply: written(vec![
+            item("seeded", TabTodoState::Open),
+            item("mine", TabTodoState::InProgress),
+        ]),
+    };
+    let reply = write_declared_todos(
+        &mut rpc,
+        "orchestrator",
+        vec![
+            write_item(json!({ "content": "Survey", "status": "completed", "activeForm": "Surveying" })),
+            write_item(json!({ "content": "Merge", "status": "in_progress", "activeForm": "Merging", "link": "https://example.test/pr/1" })),
+        ],
+    )
+    .unwrap();
+
+    assert_eq!(rpc.calls.len(), 1, "no checklist read precedes the write");
+    let (method, params) = &rpc.calls[0];
+    assert_eq!(method, "tab.todo.write");
+    assert_eq!(
+        params.as_ref().unwrap(),
+        &json!({
+            "tab_id": "orchestrator",
+            "caller_tab_id": "orchestrator",
+            "items": [
+                { "content": "Survey", "state": "done" },
+                { "content": "Merge", "state": "in_progress", "link": "https://example.test/pr/1" },
+            ],
+        })
+    );
+    assert_eq!(reply["omitted_locked_items"], 1);
+    assert_eq!(reply["remaining"].as_array().unwrap().len(), 2);
+    assert!(reply["message"]
+        .as_str()
+        .unwrap()
+        .contains("1 omitted locked item"));
+}
+
+#[test]
+fn todo_write_refuses_bad_entries_before_calling_the_daemon() {
+    let mut rpc = FakeRpc {
+        calls: Vec::new(),
+        reply: Value::Null,
+    };
+    let skipped = write_item(
+        json!({ "content": "Docs", "status": "skipped", "activeForm": "Skipping docs" }),
+    );
+    let error = write_declared_todos(&mut rpc, "tab", vec![skipped]).unwrap_err();
+    assert!(error.contains("needs a reason"), "{error}");
+    let blank_form =
+        write_item(json!({ "content": "Build", "status": "pending", "activeForm": " " }));
+    assert!(write_declared_todos(&mut rpc, "tab", vec![blank_form]).is_err());
     let blocked = write_item(json!({
         "content": "Gate",
         "status": "blocked",
         "activeForm": "Waiting on the gate",
         "reason": "waiting on the canonical gate",
     }));
-    assert!(validate_write_item(&blocked).is_ok());
-    assert_eq!(blocked.status.state(), TabTodoState::Blocked);
-    let skipped = write_item(json!({
-        "content": "Docs",
-        "status": "skipped",
-        "activeForm": "Skipping docs",
-    }));
-    assert!(validate_write_item(&skipped)
-        .unwrap_err()
-        .contains("needs a reason"));
-    let restart = write_item(json!({
-        "content": "Build",
-        "status": "in_progress",
-        "activeForm": "Rebuilding",
-        "reason": "QA rejected the build",
-    }));
-    assert!(validate_write_item(&restart).is_ok());
+    assert_eq!(write_entry(blocked).unwrap().state, TabTodoState::Blocked);
+    assert!(rpc.calls.is_empty());
 }
 
 #[test]

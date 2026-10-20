@@ -749,6 +749,7 @@ fn install_leaf(
             show_in_tabbar: true,
             worker_id: None,
             frozen: false,
+            has_checklist: false,
             slept_at_ms: None,
             sleep_reason: None,
             last_active_at_ms: None,
