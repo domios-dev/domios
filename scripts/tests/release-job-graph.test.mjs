@@ -180,7 +180,7 @@ test('Mac jobs provision secret material before building and always clean up', (
       assert.equal(steps[setup].env[name], '${{ secrets.' + name + ' }}');
     }
     for (const [index, step] of steps.entries()) {
-      if (/mac-bundle|signer sign|check-release-credentials-mac/.test(step.run || '')) assert.ok(setup < index && index < cleanup);
+      if (/mac-bundle|signer sign|check-release-credentials-mac|release-notary-probe/.test(step.run || '')) assert.ok(setup < index && index < cleanup);
       assert.doesNotMatch(step.run || '', /\.tauri\/codeterm\.key|login\.keychain/);
     }
   }
@@ -191,7 +191,7 @@ test('Mac jobs provision secret material before building and always clean up', (
   for (const command of ['create-keychain', 'import', 'set-key-partition-list', 'list-keychains', 'delete-keychain']) assert.ok(provision.includes(`'${command}'`));
   assert.match(provision, /required\('RUNNER_TEMP'\)/);
   assert.match(provision, /chmod\(0o600\)/);
-  for (const path of ['scripts/check-release-credentials-mac.sh', 'scripts/release-macos-x86_64.sh', '.agents/skills/github-release/scripts/build-mac.sh', '.agents/skills/github-release/scripts/pack-mac-updater.sh', '.agents/skills/github-release/scripts/notarize-dmg.sh']) {
+  for (const path of ['scripts/check-release-credentials-mac.sh', 'scripts/release-notary-probe.sh', 'scripts/release-macos-x86_64.sh', '.agents/skills/github-release/scripts/build-mac.sh', '.agents/skills/github-release/scripts/pack-mac-updater.sh', '.agents/skills/github-release/scripts/notarize-dmg.sh']) {
     assert.doesNotMatch(read(path), /\.tauri\/codeterm\.key|login\.keychain|--password/);
   }
   assert.match(read('scripts/check-release-credentials-mac.sh'), /release-signing-material\.py check-identity/);
