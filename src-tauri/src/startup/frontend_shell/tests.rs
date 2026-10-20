@@ -181,9 +181,11 @@ fn start_failure_page_carries_its_reason_without_changing_the_permitted_document
         &unavailable,
         &fallback
     ));
+    let document = start_failure_url(None).unwrap();
+    assert!(same_navigation_document(&failed, &document));
     assert!(same_navigation_document(
-        &failed,
-        &start_failure_url(Some("another-cause")).unwrap()
+        &start_failure_url(Some("another-cause")).unwrap(),
+        &document
     ));
     let fragment = failed.fragment().unwrap();
     assert!(fragment
