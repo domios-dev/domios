@@ -1357,7 +1357,6 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "axum",
- "base64 0.22.1",
  "codeterm-analytics",
  "codeterm-build-info",
  "codeterm-events",
@@ -1370,12 +1369,9 @@ dependencies = [
  "codeterm-types",
  "codeterm-update",
  "codeterm-util",
- "dirs 6.0.0",
- "libc",
  "log",
  "parking_lot",
  "reqwest 0.12.28",
- "semver",
  "serde",
  "serde_json",
  "tempfile",
@@ -1383,7 +1379,6 @@ dependencies = [
  "url",
  "uuid",
  "which",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
