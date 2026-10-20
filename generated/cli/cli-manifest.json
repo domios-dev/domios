@@ -11163,6 +11163,16 @@
                   "default": null,
                   "help": null,
                   "aliases": []
+                },
+                {
+                  "name": "todo-item",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ITEM_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Reopen this Worker checklist item with the bounce note as its reason",
+                  "aliases": []
                 }
               ],
               "subcommands": []
@@ -17185,6 +17195,44 @@
               "subcommands": []
             },
             {
+              "name": "reopen",
+              "about": "Reopen one child checklist item with the review reason (Orchestrator or QA)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "item_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ITEM_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Stable checklist item id",
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "REASON",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Why the step failed review; the Worker sees it on the item",
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Child tab id",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "reset",
               "about": "Reset/rewrite a checklist as the user, starting a new generation",
               "aliases": [],
@@ -17748,7 +17796,7 @@
               "value_name": "PATH",
               "possible_values": [],
               "default": null,
-              "help": "JSON array of {content,status,activeForm,link?} from this tab's pad",
+              "help": "JSON array of {content,status,activeForm,link?,reason?} from this tab's pad",
               "aliases": []
             }
           ],
